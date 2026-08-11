@@ -3,15 +3,18 @@
 // POS:    Hub Desktop multi-engine library facade shared by Tauri IPC and product tests.
 
 mod alva;
+mod automation_store;
 mod claims;
 mod failure;
 mod models;
 mod permissions;
+mod plugin_store;
 mod provider_store;
 mod readiness;
 mod redact;
 mod repair;
 mod run;
+mod skill_store;
 mod store;
 mod ui_projection;
 mod worktree;
@@ -19,6 +22,10 @@ mod worktree;
 pub use alva::{
     build_engine, build_engine_bundle, build_engine_bundle_for_target,
     build_engine_bundle_for_target_with_provider, EngineBuild,
+};
+pub use alva_protocol_skill::types::Skill as InstalledSkill;
+pub use automation_store::{
+    AutomationDefinition, AutomationRunStatus, AutomationSchedule, AutomationStore,
 };
 pub use claims::{claims_conflict, conflicting_claims, parse_claims, ClaimMode, ResourceClaim};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
@@ -32,6 +39,7 @@ pub use permissions::{
     EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup, PermissionMember,
     PermissionProfile, PermissionRouter,
 };
+pub use plugin_store::{InstalledPlugin, PluginScope, PluginStore};
 pub use provider_store::ProviderStore;
 pub use readiness::{
     capability_labels, classify_engine, probe_readiness, stream_health_from_outcome, EngineProbe,
@@ -46,6 +54,7 @@ pub use run::{
     run_once, run_persisted, run_persisted_with_target, PermissionRequestInfo, RunOutcome,
     RunRequest, TimelineEvent, TimelineStatus,
 };
+pub use skill_store::SkillCatalog;
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, NativeCleanupTask, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch,

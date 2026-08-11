@@ -3,7 +3,8 @@
 // POS:    Mirrors the old React `ProjectedEvent` shape so the GPUI port can
 //         render the same cards 1:1. Pure value types, no gpui imports.
 
-use gpui_component::tag::TagVariant;
+use gpui::{div, App, FontWeight, IntoElement, ParentElement as _, Styled as _, Window};
+use gpui_component::{tag::TagVariant, v_flex, ActiveTheme as _};
 
 use alva_hub_gpui::{ReadinessStatus, ReasoningEffort, TimelineStatus};
 
@@ -30,6 +31,30 @@ pub fn format_relative_time(updated_at_ms: i64, now_ms: i64) -> String {
     let secs = updated_at_ms / 1000;
     match chrono::DateTime::from_timestamp(secs, 0) {
         Some(dt) => dt.format("%Y-%m-%d").to_string(),
+        None => String::new(),
+    }
+}
+
+pub fn format_future_time(timestamp_ms: i64, now_ms: i64) -> String {
+    let delta = timestamp_ms - now_ms;
+    if delta <= 0 {
+        return "due now".to_string();
+    }
+    let minutes = (delta + 59_999) / 60_000;
+    if minutes < 60 {
+        return format!("in {minutes}m");
+    }
+    let hours = (minutes + 59) / 60;
+    if hours < 24 {
+        return format!("in {hours}h");
+    }
+    let days = (hours + 23) / 24;
+    if days < 7 {
+        return format!("in {days}d");
+    }
+    let secs = timestamp_ms / 1000;
+    match chrono::DateTime::from_timestamp(secs, 0) {
+        Some(dt) => dt.format("%Y-%m-%d %H:%M UTC").to_string(),
         None => String::new(),
     }
 }
@@ -157,6 +182,7 @@ impl gpui_component::searchable_list::SearchableListItem for EngineOption {
 pub struct ModelOption {
     pub route_key: String,
     pub label: String,
+    pub metadata: String,
     pub enabled: bool,
 }
 
@@ -169,6 +195,22 @@ impl gpui_component::searchable_list::SearchableListItem for ModelOption {
 
     fn value(&self) -> &Self::Value {
         &self.route_key
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        v_flex()
+            .gap_1()
+            .child(
+                div()
+                    .font_weight(FontWeight(600.))
+                    .child(self.label.clone()),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(self.metadata.clone()),
+            )
     }
 
     fn disabled(&self) -> bool {
@@ -242,6 +284,15 @@ mod tests {
         assert_eq!(format_relative_time(now - 10_800_000, now), "3h ago");
         assert_eq!(format_relative_time(now - 172_800_000, now), "2d ago");
         assert_eq!(format_relative_time(now - 2_592_000_000, now), "2026-12-16");
+    }
+
+    #[test]
+    fn future_time_labels() {
+        let now = 1_800_000_000_000;
+        assert_eq!(format_future_time(now, now), "due now");
+        assert_eq!(format_future_time(now + 120_000, now), "in 2m");
+        assert_eq!(format_future_time(now + 7_200_000, now), "in 2h");
+        assert_eq!(format_future_time(now + 172_800_000, now), "in 2d");
     }
 
     #[test]

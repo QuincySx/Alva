@@ -9,19 +9,22 @@ use gpui_component::{
     alert::Alert,
     avatar::Avatar,
     button::{Button, ButtonVariants as _},
+    checkbox::Checkbox,
     dialog::DialogButtonProps,
     group_box::GroupBoxVariant,
     input::Input,
     menu::{DropdownMenu as _, PopupMenuItem},
     scroll::ScrollableElement,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
+    spinner::Spinner,
     tab::{Tab, TabBar},
     tag::{Tag, TagVariant},
     ActiveTheme, *,
 };
 
 use alva_hub_gpui::{
-    ChatItemKind, FallbackControls, HandoffKind, ProjectedChatItem, ProjectedEvent, TimelineStatus,
+    AutomationRunStatus, ChatItemKind, FallbackControls, HandoffKind, ProjectedChatItem,
+    ProjectedEvent, TimelineStatus,
 };
 
 use super::app::{status_color, with_window, HubApp};
@@ -65,7 +68,7 @@ impl HubApp {
                 v_flex()
                     .flex_1()
                     .w_full()
-                    .max_w(px(780.))
+                    .max_w(px(820.))
                     .mx_auto()
                     .justify_center()
                     .gap_4()
@@ -635,11 +638,16 @@ impl HubApp {
         let weak_pr = cx.entity().downgrade();
         let weak_research = cx.entity().downgrade();
         let weak_docs = cx.entity().downgrade();
+        let automation_count = self.automations.len();
         v_flex()
             .size_full()
-            .child(
-                HubSurfaceHeader::new("Automation", "0 automations"),
-            )
+            .child(HubSurfaceHeader::new(
+                "Automation",
+                format!(
+                    "{automation_count} automation{} · runs while Hub is open",
+                    if automation_count == 1 { "" } else { "s" }
+                ),
+            ))
             .child(
                 v_flex()
                     .flex_1()
@@ -647,7 +655,7 @@ impl HubApp {
                     .px_6()
                     .py_6()
                     .gap_5()
-                    .child(
+                    .when(self.automations.is_empty(), |this| this.child(
                         HubEmptyState::new(
                             IconName::Info,
                             "No automations yet",
@@ -666,7 +674,101 @@ impl HubApp {
                                     }
                                 }),
                         ),
-                    )
+                    ))
+                    .children(self.automations.iter().map(|automation| {
+                        let enabled_id = automation.id.clone();
+                        let run_id = automation.id.clone();
+                        let delete_id = automation.id.clone();
+                        let automation_name = automation.name.clone();
+                        let weak_enabled = cx.entity().downgrade();
+                        let weak_run = cx.entity().downgrade();
+                        let weak_delete = cx.entity().downgrade();
+                        let running = automation.last_status == AutomationRunStatus::Running;
+                        let status = match automation.last_status {
+                            AutomationRunStatus::Idle => "Scheduled",
+                            AutomationRunStatus::Running => "Running",
+                            AutomationRunStatus::Succeeded => "Succeeded",
+                            AutomationRunStatus::Failed => "Failed",
+                        };
+                        let description = format!(
+                            "{} · {} / {} · next {}",
+                            automation.schedule.label(),
+                            automation.target.engine_id,
+                            automation.target.model_id,
+                            super::format_future_time(automation.next_run_at_ms, chrono::Utc::now().timestamp_millis())
+                        );
+                        let action = h_flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                Checkbox::new(SharedString::from(format!("automation-enabled-{enabled_id}")))
+                                    .checked(automation.enabled)
+                                    .disabled(running)
+                                    .on_click(move |enabled, window, app| {
+                                        if let Some(hub) = weak_enabled.upgrade() {
+                                            let result = hub.update(app, |hub, cx| {
+                                                hub.set_automation_enabled(&enabled_id, *enabled, cx)
+                                            });
+                                            match result {
+                                                Ok(()) => window.push_notification(
+                                                    if *enabled {
+                                                        "Automation enabled"
+                                                    } else {
+                                                        "Automation paused"
+                                                    },
+                                                    app,
+                                                ),
+                                                Err(error) => window.push_notification(error, app),
+                                            }
+                                        }
+                                    }),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!("run-automation-{run_id}")))
+                                    .secondary()
+                                    .xsmall()
+                                    .label("Run now")
+                                    .loading(running)
+                                    .disabled(running)
+                                    .on_click(move |_, window, app| {
+                                        if let Some(hub) = weak_run.upgrade() {
+                                            let result = hub.update(app, |hub, cx| {
+                                                hub.run_automation_now(&run_id, cx)
+                                            });
+                                            match result {
+                                                Ok(()) => window.push_notification("Automation started", app),
+                                                Err(error) => window.push_notification(error, app),
+                                            }
+                                        }
+                                    }),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!("delete-automation-{delete_id}")))
+                                    .danger()
+                                    .xsmall()
+                                    .icon(IconName::Close)
+                                    .tooltip("Delete automation")
+                                    .disabled(running)
+                                    .on_click(move |_, window, app| {
+                                        if let Some(hub) = weak_delete.upgrade() {
+                                            let result = hub.update(app, |hub, cx| {
+                                                hub.delete_automation(&delete_id, cx)
+                                            });
+                                            match result {
+                                                Ok(()) => window.push_notification("Automation deleted", app),
+                                                Err(error) => window.push_notification(error, app),
+                                            }
+                                        }
+                                    }),
+                            );
+                        HubExtensionCard::new(
+                            IconName::Calendar,
+                            automation_name,
+                            description,
+                            status,
+                        )
+                        .action(action)
+                    }))
                     .child(
                         div()
                             .text_sm()
@@ -785,12 +887,12 @@ impl HubApp {
             .update(cx, |input, cx| input.set_value(name, window, cx));
         self.automation_prompt
             .update(cx, |input, cx| input.set_value(prompt, window, cx));
-        let name_input = self.automation_name.clone();
+        let weak = cx.entity().downgrade();
         let form_name = self.automation_name.clone();
         let form_prompt = self.automation_prompt.clone();
         let form_schedule = self.automation_schedule.clone();
         window.open_dialog(cx, move |dialog, _, _| {
-            let name_input = name_input.clone();
+            let weak = weak.clone();
             dialog
                 .width(px(560.))
                 .title("New automation")
@@ -804,16 +906,22 @@ impl HubApp {
                         .show_cancel(true)
                         .ok_text("Create automation")
                         .on_ok(move |_, window, app| {
-                            let name = name_input.read(app).value().to_string();
-                            if name.trim().is_empty() {
-                                window.push_notification("Automation name is required.", app);
+                            let Some(hub) = weak.upgrade() else {
                                 return false;
+                            };
+                            match hub.update(app, |hub, cx| hub.create_automation_from_form(cx)) {
+                                Ok(name) => {
+                                    window.push_notification(
+                                        format!("Automation scheduled: {name}"),
+                                        app,
+                                    );
+                                    true
+                                }
+                                Err(error) => {
+                                    window.push_notification(error, app);
+                                    false
+                                }
                             }
-                            window.push_notification(
-                                format!("Automation draft created: {name}"),
-                                app,
-                            );
-                            true
                         }),
                 )
         });
@@ -883,6 +991,7 @@ impl HubApp {
         let show_alva = self.extension_matches(cx, "alva engine native");
         let show_claude = self.extension_matches(cx, "claude code adapter");
         let show_codex = self.extension_matches(cx, "codex exec json adapter");
+        let query = self.extension_query.read(cx).value().trim().to_lowercase();
         v_flex()
             .size_full()
             .child(self.extension_catalog_toolbar(cx))
@@ -968,6 +1077,105 @@ impl HubApp {
                             )),
                     )
                     .child(
+                        h_flex().flex_wrap().gap_3().children(
+                            self.plugins
+                                .iter()
+                                .filter(move |plugin| {
+                                    query.is_empty()
+                                        || format!(
+                                            "{} {} {} {}",
+                                            plugin.manifest.name,
+                                            plugin
+                                                .manifest
+                                                .description
+                                                .as_deref()
+                                                .unwrap_or_default(),
+                                            plugin.scope.label(),
+                                            plugin.runtime_label(),
+                                        )
+                                        .to_lowercase()
+                                        .contains(&query)
+                                })
+                                .map(|plugin| {
+                                    let name = plugin.manifest.name.clone();
+                                    let toggle_name = name.clone();
+                                    let chat_name = name.clone();
+                                    let weak_toggle = cx.entity().downgrade();
+                                    let weak_chat = cx.entity().downgrade();
+                                    let enabled = plugin.enabled;
+                                    let description = plugin
+                                        .manifest
+                                        .description
+                                        .clone()
+                                        .unwrap_or_else(|| "ALVA subprocess plugin".into());
+                                    let status = format!(
+                                        "{} · {}{}",
+                                        plugin.scope.label(),
+                                        plugin.runtime_label(),
+                                        if enabled { "" } else { " · Disabled" }
+                                    );
+                                    HubExtensionCard::new(
+                                        IconName::Asterisk,
+                                        name,
+                                        description,
+                                        status,
+                                    )
+                                    .action(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_1()
+                                            .child(
+                                                Checkbox::new(SharedString::from(format!(
+                                                    "plugin-enabled-{toggle_name}"
+                                                )))
+                                                .checked(enabled)
+                                                .on_click(move |enabled, window, app| {
+                                                    if let Some(hub) = weak_toggle.upgrade() {
+                                                        let result =
+                                                            hub.update(app, |hub, cx| {
+                                                                hub.set_plugin_enabled(
+                                                                    &toggle_name,
+                                                                    *enabled,
+                                                                    cx,
+                                                                )
+                                                            });
+                                                        match result {
+                                                            Ok(()) => window.push_notification(
+                                                                "Plugin setting saved; it applies to the next ALVA turn.",
+                                                                app,
+                                                            ),
+                                                            Err(error) => {
+                                                                window.push_notification(error, app)
+                                                            }
+                                                        }
+                                                    }
+                                                }),
+                                            )
+                                            .child(
+                                                Button::new(SharedString::from(format!(
+                                                    "chat-with-plugin-{chat_name}"
+                                                )))
+                                                .ghost()
+                                                .xsmall()
+                                                .label("Chat")
+                                                .disabled(!enabled)
+                                                .on_click(move |_, window, app| {
+                                                    if let Some(hub) = weak_chat.upgrade() {
+                                                        hub.update(app, |hub, cx| {
+                                                            hub.chat_with_plugin(
+                                                                &chat_name,
+                                                                window,
+                                                                cx,
+                                                            )
+                                                        });
+                                                    }
+                                                }),
+                                            ),
+                                    )
+                                }),
+                        ),
+                    )
+                    .child(
                         div()
                             .text_sm()
                             .font_weight(FontWeight(650.))
@@ -1038,12 +1246,7 @@ impl HubApp {
     }
 
     fn skills_catalog_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let show_repository =
-            self.extension_matches(cx, "repository conventions architecture style validation");
-        let show_planning =
-            self.extension_matches(cx, "planning workflows tasks execution handoffs");
-        let show_release =
-            self.extension_matches(cx, "release checklist tests packaging visual qa");
+        let query = self.extension_query.read(cx).value().trim().to_lowercase();
         v_flex()
             .size_full()
             .child(self.extension_catalog_toolbar(cx))
@@ -1077,68 +1280,98 @@ impl HubApp {
                         div()
                             .text_sm()
                             .font_weight(FontWeight(650.))
-                            .child("Project skills"),
-                    )
-                    .child(
-                        h_flex()
-                            .flex_wrap()
-                            .gap_3()
-                            .when(show_repository, |row| row.child(
-                                HubExtensionCard::new(
-                                    IconName::File,
-                                    "Repository conventions",
-                                    "Project-specific architecture, style, and validation guidance.",
-                                    "Loaded",
-                                )
-                                .action(self.extension_detail_button(
-                                    "skill-repository",
-                                    "Details",
-                                    IconName::File,
-                                    "Repository conventions",
-                                    "Project-specific instructions loaded from the current workspace.",
-                                    "Loaded",
-                                    &["Architecture", "Code style", "Validation"],
-                                    cx,
-                                )),
-                            ))
-                            .when(show_planning, |row| row.child(
-                                HubExtensionCard::new(
-                                    IconName::Asterisk,
-                                    "Planning workflows",
-                                    "Reusable planning and execution guidance for complex work.",
-                                    "Available",
-                                )
-                                .action(self.extension_detail_button(
-                                    "skill-planning",
-                                    "Details",
-                                    IconName::Asterisk,
-                                    "Planning workflows",
-                                    "Reusable skill instructions for planning and multi-step execution.",
-                                    "Available",
-                                    &["Planning", "Task tracking", "Handoffs"],
-                                    cx,
-                                )),
+                            .child(format!(
+                                "Discovered · {} skill{}",
+                                self.skills.len(),
+                                if self.skills.len() == 1 { "" } else { "s" }
                             )),
                     )
+                    .when(self.skills_loading, |this| {
+                        this.child(
+                            h_flex()
+                                .items_center()
+                                .gap_2()
+                                .child(Spinner::new().small())
+                                .child("Loading skills…"),
+                        )
+                    })
+                    .when(!self.skills_loading && self.skills.is_empty(), |this| {
+                        this.child(HubEmptyState::new(
+                            IconName::File,
+                            "No skills discovered",
+                            "Add SKILL.md packages under this project or your ALVA skill directories.",
+                        ))
+                    })
                     .child(
-                        h_flex().flex_wrap().gap_3().when(show_release, |row| row.child(
-                            HubExtensionCard::new(
-                                IconName::CircleCheck,
-                                "Release checklist",
-                                "Focused checks for packaging, regression, and delivery readiness.",
-                                "Available",
-                            )
-                            .action(self.extension_detail_button(
-                                "skill-release",
-                                "Details",
-                                IconName::CircleCheck,
-                                "Release checklist",
-                                "A reusable release-readiness workflow for Hub sessions.",
-                                "Available",
-                                &["Tests", "Packaging", "Visual QA"],
-                                cx,
-                            )),
-                        )),
+                        h_flex().flex_wrap().gap_3().children(
+                            self.skills
+                                .iter()
+                                .filter(move |skill| {
+                                    query.is_empty()
+                                        || format!(
+                                            "{} {}",
+                                            skill.meta.name, skill.meta.description
+                                        )
+                                        .to_lowercase()
+                                        .contains(&query)
+                                })
+                                .map(|skill| {
+                                    let name = skill.meta.name.clone();
+                                    let toggle_name = name.clone();
+                                    let chat_name = name.clone();
+                                    let weak_toggle = cx.entity().downgrade();
+                                    let weak_chat = cx.entity().downgrade();
+                                    let enabled = skill.enabled;
+                                    HubExtensionCard::new(
+                                        IconName::File,
+                                        name,
+                                        skill.meta.description.clone(),
+                                        if enabled { "Enabled" } else { "Disabled" },
+                                    )
+                                    .action(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_1()
+                                            .child(
+                                                Checkbox::new(SharedString::from(format!(
+                                                    "skill-enabled-{toggle_name}"
+                                                )))
+                                                .checked(enabled)
+                                                .on_click(move |enabled, _, app| {
+                                                    if let Some(hub) = weak_toggle.upgrade() {
+                                                        hub.update(app, |hub, cx| {
+                                                            hub.set_skill_enabled(
+                                                                toggle_name.clone(),
+                                                                *enabled,
+                                                                cx,
+                                                            )
+                                                        });
+                                                    }
+                                                }),
+                                            )
+                                            .child(
+                                                Button::new(SharedString::from(format!(
+                                                    "chat-with-skill-{chat_name}"
+                                                )))
+                                                .ghost()
+                                                .xsmall()
+                                                .label("Chat")
+                                                .disabled(!enabled)
+                                                .on_click(move |_, window, app| {
+                                                    if let Some(hub) = weak_chat.upgrade() {
+                                                        hub.update(app, |hub, cx| {
+                                                            hub.chat_with_skill(
+                                                                &chat_name,
+                                                                window,
+                                                                cx,
+                                                            )
+                                                        });
+                                                    }
+                                                }),
+                                            ),
+                                    )
+                                }),
+                        ),
                     ),
             )
     }
@@ -1254,9 +1487,17 @@ impl HubApp {
             async move {
                 if let Ok(Ok(Some(paths))) = pick.await {
                     if let Some(path) = paths.first() {
-                        let path = path.display().to_string();
-                        with_window(&mut cx, handle, move |_, window, cx| {
-                            window.push_notification(format!("Plugin folder selected: {path}"), cx);
+                        let path = path.clone();
+                        with_window(&mut cx, handle, move |hub, window, cx| {
+                            match hub.install_plugin_folder(&path, cx) {
+                                Ok(name) => window.push_notification(
+                                    format!(
+                                        "Plugin installed: {name}. It will load on the next ALVA turn."
+                                    ),
+                                    cx,
+                                ),
+                                Err(error) => window.push_notification(error, cx),
+                            }
                         });
                     }
                 }
@@ -1536,7 +1777,7 @@ impl HubApp {
             }),
         )
         .description(
-            "Connect an API provider and declare exactly which agent runtimes can use it.",
+            "Connect an API provider and declare exactly which agent runtimes can use it. Reuse a Provider ID to add another model.",
         )];
         for provider in self.model_catalog.providers() {
             let provider_id = provider.provider_id.clone();
@@ -1632,6 +1873,64 @@ impl HubApp {
                                         }
                                     }
                                 })
+                        }),
+                    )
+                    .description(description),
+                );
+            }
+            for model in self
+                .model_catalog
+                .models()
+                .iter()
+                .filter(|model| model.provider_id == provider.provider_id)
+            {
+                let title = format!("↳ {}", model.display_name);
+                let reasoning = if model.capabilities.reasoning_efforts.is_empty() {
+                    "fixed reasoning".to_string()
+                } else {
+                    format!(
+                        "reasoning {}",
+                        model
+                            .capabilities
+                            .reasoning_efforts
+                            .iter()
+                            .map(|effort| effort.label())
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    )
+                };
+                let description = format!(
+                    "{} · {}k context · {}k output · {} · {} · {}",
+                    model.model_id,
+                    model.capabilities.context_window / 1_000,
+                    model.capabilities.max_output_tokens / 1_000,
+                    if model.capabilities.images {
+                        "image input"
+                    } else {
+                        "text only"
+                    },
+                    if model.capabilities.tools {
+                        "tools"
+                    } else {
+                        "no tools"
+                    },
+                    reasoning,
+                );
+                let enabled = model.enabled && provider.connected;
+                items.push(
+                    SettingItem::new(
+                        title,
+                        SettingField::render(move |options, _, _| {
+                            Tag::new()
+                                .with_variant(if enabled {
+                                    TagVariant::Success
+                                } else {
+                                    TagVariant::Warning
+                                })
+                                .small()
+                                .rounded_full()
+                                .with_size(options.size)
+                                .child(if enabled { "Available" } else { "Unavailable" })
                         }),
                     )
                     .description(description),

@@ -58,7 +58,7 @@ impl HubApp {
             .to_string();
 
         Sidebar::new("hub-sidebar")
-            .w(px(224.))
+            .w(px(248.))
             .collapsible(SidebarCollapsible::None)
             .header(
                 div().w_full().child(
@@ -310,7 +310,7 @@ impl HubApp {
                     if let Some(path) = paths.first() {
                         let path = path.display().to_string();
                         with_window(&mut cx, handle, move |hub, window, cx| {
-                            hub.workspace = Some(path.clone());
+                            hub.set_workspace_context(path.clone(), window, cx);
                             hub.reset_session_surface(window, cx);
                             if let Ok(policy) = hub.store.global_fallback_policy() {
                                 hub.fallback_policy = policy;

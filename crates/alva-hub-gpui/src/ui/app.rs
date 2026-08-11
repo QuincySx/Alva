@@ -9,8 +9,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use alva_engine_runtime::{EngineInspector, EngineRuntime, InspectionSnapshot};
+use chrono::{Local, Offset as _, Utc};
 use gpui::*;
 use gpui_component::{
     input::{InputEvent, InputState},
@@ -22,11 +24,13 @@ use gpui_component::{
 use alva_hub_gpui::{
     build_engine_bundle_for_target_with_provider, permission_eligibility, probe_readiness,
     protocol_supports_runtime, repair_argv, repair_plan, run_persisted_with_target,
-    run_repair_command, AgentRuntime, ApiProtocol, CustomModelProfile, CustomProviderProfile,
+    run_repair_command, AgentRuntime, ApiProtocol, AutomationDefinition, AutomationRunStatus,
+    AutomationSchedule, AutomationStore, CustomModelProfile, CustomProviderProfile,
     EngineEligibility, EngineReadiness, EngineTarget, FallbackPolicy, HubSessionDetail,
-    HubSessionSummary, HubStore, ModelCatalog, ModelRoute, PermissionProfile, PermissionRouter,
-    ProviderStore, ReasoningEffort, RepairAction, RepairKind, RunRequest, StoredCustomProvider,
-    SwitchOutcome, SystemProbe, TimelineEvent, TimelineStatus,
+    HubSessionSummary, HubStore, InstalledPlugin, InstalledSkill, ModelCatalog, ModelRoute,
+    PermissionProfile, PermissionRouter, PluginStore, ProviderStore, ReasoningEffort, RepairAction,
+    RepairKind, RunRequest, SkillCatalog, StoredCustomProvider, SwitchOutcome, SystemProbe,
+    TimelineEvent, TimelineStatus,
 };
 
 use super::workspace::{HubWorkspace, ToolPanel, WorkspaceTool};
@@ -38,6 +42,14 @@ const PROFILE_OPTIONS: [&str; 3] = ["interactive", "workspace_write", "unrestric
 
 fn route_key(route: &ModelRoute) -> String {
     format!("{}::{}", route.provider_id, route.model_id)
+}
+
+fn now_ms() -> i64 {
+    Utc::now().timestamp_millis()
+}
+
+fn local_offset_seconds() -> i32 {
+    Local::now().offset().fix().local_minus_utc()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -69,6 +81,13 @@ pub struct HubApp {
     pub provider_store: ProviderStore,
     pub custom_providers: Vec<StoredCustomProvider>,
     pub model_catalog: ModelCatalog,
+    pub automation_store: AutomationStore,
+    pub automations: Vec<AutomationDefinition>,
+    pub plugin_store: PluginStore,
+    pub plugins: Vec<InstalledPlugin>,
+    pub skill_catalog: SkillCatalog,
+    pub skills: Vec<InstalledSkill>,
+    pub skills_loading: bool,
     pub engine: Entity<SelectState<SearchableVec<EngineOption>>>,
     pub model: Entity<SelectState<SearchableVec<ModelOption>>>,
     pub effort: Entity<SelectState<SearchableVec<EffortOption>>>,
@@ -192,6 +211,19 @@ impl HubApp {
         let provider_store = ProviderStore::new(catalog_workspace);
         let custom_providers = provider_store.load().unwrap_or_default();
         let model_catalog = ModelCatalog::load(catalog_workspace, &custom_providers);
+        let automation_store = AutomationStore::new(catalog_workspace);
+        let mut automations = automation_store.load().unwrap_or_default();
+        for automation in &mut automations {
+            if automation.last_status == AutomationRunStatus::Running {
+                automation.last_status = AutomationRunStatus::Failed;
+                automation.last_error =
+                    Some("ALVA Hub closed before this automation reached a terminal state.".into());
+            }
+        }
+        let _ = automation_store.save(&automations);
+        let plugin_store = PluginStore::new(&catalog_workspace.join("conversations"));
+        let plugins = plugin_store.scan().unwrap_or_default();
+        let skill_catalog = SkillCatalog::new(&catalog_workspace.join("conversations"));
         let initial_route = model_catalog
             .default_route(AgentRuntime::Alva)
             .or_else(|| model_catalog.default_route(AgentRuntime::ClaudeCode))
@@ -228,6 +260,13 @@ impl HubApp {
             provider_store,
             custom_providers,
             model_catalog,
+            automation_store,
+            automations,
+            plugin_store,
+            plugins,
+            skill_catalog,
+            skills: Vec::new(),
+            skills_loading: false,
             timeline: Vec::new(),
             chat: Vec::new(),
             inspector_enabled,
@@ -342,12 +381,12 @@ impl HubApp {
             }),
             automation_schedule: cx.new(|cx| {
                 SelectState::new(
-                    SearchableVec::new(vec![
-                        "Every day at 09:00",
-                        "Weekdays at 09:00",
-                        "Every Monday at 09:00",
-                        "Custom schedule…",
-                    ]),
+                    SearchableVec::new(
+                        AutomationSchedule::ALL
+                            .into_iter()
+                            .map(AutomationSchedule::label)
+                            .collect::<Vec<_>>(),
+                    ),
                     Some(IndexPath::new(0)),
                     window,
                     cx,
@@ -396,6 +435,8 @@ impl HubApp {
         app.subscribe_prompt(window, cx);
         app.sync_policy_inputs(window, cx);
         app.refresh_readiness(cx);
+        app.refresh_skills(cx);
+        app.start_automation_scheduler(cx);
         app
     }
 
@@ -410,31 +451,25 @@ impl HubApp {
                     "pi" => "Pi",
                     _ => id,
                 };
-                let suffix = if *id == "pi" {
-                    " — Adapter planned".to_string()
-                } else {
-                    readiness
-                        .iter()
-                        .find(|report| report.engine_id == *id)
-                        .map(|report| match report.status {
-                            alva_hub_gpui::ReadinessStatus::Healthy => String::new(),
-                            alva_hub_gpui::ReadinessStatus::Missing => {
-                                " — Not installed".to_string()
-                            }
-                            alva_hub_gpui::ReadinessStatus::Incompatible => {
-                                " — Incompatible".to_string()
-                            }
-                            alva_hub_gpui::ReadinessStatus::Unauthenticated => {
-                                " — Sign-in needed".to_string()
-                            }
-                            alva_hub_gpui::ReadinessStatus::Unhealthy => " — Unhealthy".to_string(),
-                        })
-                        .unwrap_or_default()
-                };
+                let suffix = readiness
+                    .iter()
+                    .find(|report| report.engine_id == *id)
+                    .map(|report| match report.status {
+                        alva_hub_gpui::ReadinessStatus::Healthy => String::new(),
+                        alva_hub_gpui::ReadinessStatus::Missing => " — Not installed".to_string(),
+                        alva_hub_gpui::ReadinessStatus::Incompatible => {
+                            " — Incompatible".to_string()
+                        }
+                        alva_hub_gpui::ReadinessStatus::Unauthenticated => {
+                            " — Sign-in needed".to_string()
+                        }
+                        alva_hub_gpui::ReadinessStatus::Unhealthy => " — Unhealthy".to_string(),
+                    })
+                    .unwrap_or_default();
                 EngineOption {
                     engine_id: (*id).to_string(),
                     label: format!("{display}{suffix}"),
-                    enabled: *id != "pi",
+                    enabled: true,
                 }
             })
             .collect()
@@ -450,15 +485,21 @@ impl HubApp {
                     .expect("catalog model provider must exist");
                 ModelOption {
                     route_key: format!("{}::{}", model.provider_id, model.model_id),
-                    label: format!(
-                        "{} · {} · {}k{}",
-                        model.display_name,
+                    label: model.display_name.clone(),
+                    metadata: format!(
+                        "{} · {} · {}k context{}{}",
                         provider.display_name,
+                        provider.protocol.label(),
                         model.capabilities.context_window / 1_000,
                         if model.capabilities.images {
                             " · images"
                         } else {
                             ""
+                        },
+                        if model.capabilities.reasoning_efforts.is_empty() {
+                            ""
+                        } else {
+                            " · adjustable reasoning"
                         }
                     ),
                     enabled: provider.connected && model.enabled,
@@ -706,32 +747,53 @@ impl HubApp {
         } else {
             Vec::new()
         };
-        let stored = StoredCustomProvider {
-            profile: CustomProviderProfile {
-                provider_id: provider_id.clone(),
-                display_name: display_name.clone(),
-                protocol,
-                base_url,
-                runtimes,
-                models: vec![CustomModelProfile {
-                    model_id,
-                    display_name: if model_name.is_empty() {
-                        "Default model".into()
-                    } else {
-                        model_name
-                    },
-                    context_window,
-                    max_output_tokens,
-                    images: self.provider_images,
-                    tools: self.provider_tools,
-                    reasoning_efforts,
-                }],
+        let model = CustomModelProfile {
+            model_id: model_id.clone(),
+            display_name: if model_name.is_empty() {
+                model_id
+            } else {
+                model_name
             },
-            api_key,
+            context_window,
+            max_output_tokens,
+            images: self.provider_images,
+            tools: self.provider_tools,
+            reasoning_efforts,
         };
-        self.custom_providers
-            .retain(|provider| provider.profile.provider_id != provider_id);
-        self.custom_providers.push(stored);
+        if let Some(existing) = self
+            .custom_providers
+            .iter_mut()
+            .find(|provider| provider.profile.provider_id == provider_id)
+        {
+            if existing.profile.protocol != protocol
+                || existing.profile.base_url != base_url
+                || existing.profile.runtimes != runtimes
+            {
+                return Err(
+                    "An existing provider ID must keep the same protocol, URL, and compatible agents."
+                        .into(),
+                );
+            }
+            existing.profile.display_name = display_name.clone();
+            existing
+                .profile
+                .models
+                .retain(|existing| existing.model_id != model.model_id);
+            existing.profile.models.push(model);
+            existing.api_key = api_key;
+        } else {
+            self.custom_providers.push(StoredCustomProvider {
+                profile: CustomProviderProfile {
+                    provider_id: provider_id.clone(),
+                    display_name: display_name.clone(),
+                    protocol,
+                    base_url,
+                    runtimes,
+                    models: vec![model],
+                },
+                api_key,
+            });
+        }
         self.provider_store.save(&self.custom_providers)?;
         self.reload_model_catalog(window, cx);
         Ok(display_name)
@@ -756,10 +818,348 @@ impl HubApp {
             .path()
             .parent()
             .unwrap_or(std::path::Path::new("/tmp"));
-        self.model_catalog = ModelCatalog::load(support_dir, &self.custom_providers);
+        let workspace = self
+            .workspace
+            .as_deref()
+            .map(std::path::Path::new)
+            .unwrap_or(support_dir);
+        self.model_catalog = ModelCatalog::load(workspace, &self.custom_providers);
         let runtime = AgentRuntime::parse(&self.selected_engine(cx)).unwrap_or(AgentRuntime::Alva);
         self.sync_model_options(runtime, None, window, cx);
         cx.notify();
+    }
+
+    pub fn set_workspace_context(
+        &mut self,
+        workspace: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workspace = Some(workspace.clone());
+        self.plugin_store = PluginStore::new(std::path::Path::new(&workspace));
+        self.skill_catalog = SkillCatalog::new(std::path::Path::new(&workspace));
+        self.refresh_plugins();
+        self.skills_loading = false;
+        self.refresh_skills(cx);
+        self.reload_model_catalog(window, cx);
+    }
+
+    pub fn refresh_plugins(&mut self) {
+        if let Ok(plugins) = self.plugin_store.scan() {
+            self.plugins = plugins;
+        }
+    }
+
+    pub fn install_plugin_folder(
+        &mut self,
+        source: &std::path::Path,
+        cx: &mut Context<Self>,
+    ) -> Result<String, String> {
+        let installed = self.plugin_store.install(source)?;
+        let name = installed.manifest.name;
+        self.refresh_plugins();
+        cx.notify();
+        Ok(name)
+    }
+
+    pub fn set_plugin_enabled(
+        &mut self,
+        name: &str,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let plugin = self
+            .plugins
+            .iter()
+            .find(|plugin| plugin.manifest.name == name)
+            .cloned()
+            .ok_or_else(|| "Plugin no longer exists.".to_string())?;
+        self.plugin_store.set_enabled(&plugin, enabled)?;
+        self.refresh_plugins();
+        cx.notify();
+        Ok(())
+    }
+
+    pub fn chat_with_plugin(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.primary_surface = PrimarySurface::Chat;
+        self.prompt.update(cx, |input, cx| {
+            input.set_value(format!("@{name} "), window, cx)
+        });
+        cx.notify();
+    }
+
+    pub fn refresh_skills(&mut self, cx: &mut Context<Self>) {
+        if self.skills_loading {
+            return;
+        }
+        self.skills_loading = true;
+        let catalog = self.skill_catalog.clone();
+        let executor = cx.background_executor().clone();
+        let weak = cx.entity().downgrade();
+        cx.spawn(async move |_this, cx| {
+            let result = executor.spawn(async move { catalog.list_blocking() }).await;
+            if let Some(hub) = weak.upgrade() {
+                hub.update(cx, |hub, cx| {
+                    hub.skills_loading = false;
+                    match result {
+                        Ok(skills) => hub.skills = skills,
+                        Err(error) => hub.push_local_failure(&error, cx),
+                    }
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    pub fn set_skill_enabled(&mut self, name: String, enabled: bool, cx: &mut Context<Self>) {
+        let catalog = self.skill_catalog.clone();
+        let executor = cx.background_executor().clone();
+        let weak = cx.entity().downgrade();
+        let handle = self.window_handle;
+        cx.spawn(async move |_this, cx| {
+            let result = executor
+                .spawn(async move { catalog.set_enabled_blocking(&name, enabled) })
+                .await;
+            if let Some(hub) = weak.upgrade() {
+                hub.update(cx, |hub, cx| {
+                    let message = match result {
+                        Ok(()) => {
+                            hub.refresh_skills(cx);
+                            "Skill setting saved; it applies to the next ALVA turn.".to_string()
+                        }
+                        Err(error) => error,
+                    };
+                    with_window(cx, handle, move |_, window, cx| {
+                        window.push_notification(message, cx);
+                    });
+                });
+            }
+        })
+        .detach();
+    }
+
+    pub fn chat_with_skill(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.primary_surface = PrimarySurface::Chat;
+        self.prompt.update(cx, |input, cx| {
+            input.set_value(format!("Use the {name} skill to "), window, cx)
+        });
+        cx.notify();
+    }
+
+    pub fn create_automation_from_form(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Result<String, String> {
+        let name = self.automation_name.read(cx).value().trim().to_string();
+        let prompt = self.automation_prompt.read(cx).value().trim().to_string();
+        if name.is_empty() || prompt.is_empty() {
+            return Err("Automation name and prompt are required.".into());
+        }
+        let schedule = self
+            .automation_schedule
+            .read(cx)
+            .selected_value()
+            .and_then(|value| AutomationSchedule::parse(value))
+            .ok_or_else(|| "Select an automation schedule.".to_string())?;
+        let target = self
+            .model_catalog
+            .engine_target(self.selected_model_route(cx)?)?;
+        let workspace = self
+            .workspace
+            .clone()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                self.store
+                    .path()
+                    .parent()
+                    .unwrap_or(std::path::Path::new("/tmp"))
+                    .join("conversations")
+            });
+        let automation = AutomationDefinition::new(
+            uuid::Uuid::new_v4().to_string(),
+            name.clone(),
+            prompt,
+            schedule,
+            workspace,
+            target,
+            self.selected_profile(cx),
+            now_ms(),
+            local_offset_seconds(),
+        );
+        self.automation_store.insert(automation)?;
+        self.refresh_automations();
+        cx.notify();
+        Ok(name)
+    }
+
+    pub fn set_automation_enabled(
+        &mut self,
+        id: &str,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.automation_store
+            .set_enabled(id, enabled, now_ms(), local_offset_seconds())?;
+        self.refresh_automations();
+        cx.notify();
+        Ok(())
+    }
+
+    pub fn delete_automation(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        self.automation_store.delete(id)?;
+        self.refresh_automations();
+        cx.notify();
+        Ok(())
+    }
+
+    pub fn run_automation_now(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        self.start_automation_run(id, cx)
+    }
+
+    fn refresh_automations(&mut self) {
+        if let Ok(automations) = self.automation_store.load() {
+            self.automations = automations;
+        }
+    }
+
+    fn start_automation_scheduler(&mut self, cx: &mut Context<Self>) {
+        self.poll_due_automations(cx);
+        let weak = cx.entity().downgrade();
+        cx.spawn(async move |_this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_secs(30))
+                .await;
+            if weak
+                .update(cx, |hub, cx| hub.poll_due_automations(cx))
+                .is_err()
+            {
+                break;
+            }
+        })
+        .detach();
+    }
+
+    fn poll_due_automations(&mut self, cx: &mut Context<Self>) {
+        let due = match self.automation_store.due(now_ms()) {
+            Ok(due) => due,
+            Err(error) => {
+                self.push_local_failure(&error, cx);
+                return;
+            }
+        };
+        for automation in due {
+            if let Err(error) = self.start_automation_run(&automation.id, cx) {
+                self.push_local_failure(&error, cx);
+            }
+        }
+    }
+
+    fn start_automation_run(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        let current = self
+            .automations
+            .iter()
+            .find(|automation| automation.id == id)
+            .ok_or_else(|| "Automation no longer exists.".to_string())?;
+        if current.last_status == AutomationRunStatus::Running {
+            return Err("This automation is already running.".into());
+        }
+        let automation = self.automation_store.mark_started(id, now_ms())?;
+        self.refresh_automations();
+        cx.notify();
+
+        if let Err(error) = std::fs::create_dir_all(&automation.workspace) {
+            let error = format!("prepare automation workspace: {error}");
+            let _ = self.automation_store.mark_finished(
+                id,
+                now_ms(),
+                local_offset_seconds(),
+                None,
+                Some(error.clone()),
+            );
+            self.refresh_automations();
+            return Err(error);
+        }
+        let hub_store = Arc::clone(&self.store);
+        let automation_store = self.automation_store.clone();
+        let model_catalog = self.model_catalog.clone();
+        let target = automation.target.clone();
+        let automation_id = automation.id.clone();
+        let automation_name = automation.name.clone();
+        let workspace = automation.workspace.clone();
+        let permission_profile = automation.permission_profile;
+        let prompt = automation.prompt.clone();
+        let history_dir = hub_store
+            .path()
+            .parent()
+            .unwrap_or(automation.workspace.as_path())
+            .to_path_buf();
+        let weak = cx.entity().downgrade();
+        let handle = self.window_handle;
+        cx.spawn(async move |_this, cx| {
+            let outcome = run_persisted_with_target(
+                &hub_store,
+                {
+                    let workspace = workspace.clone();
+                    let history_dir = history_dir.clone();
+                    move |target, _, profile| {
+                        build_engine_bundle_for_target_with_provider(
+                            target,
+                            profile,
+                            &workspace,
+                            &history_dir,
+                            model_catalog.runtime_config(&target.provider_id),
+                        )
+                        .map(|built| built.runtime)
+                    }
+                },
+                |_| None,
+                RunRequest {
+                    prompt,
+                    workspace,
+                    engine_id: target.engine_id.clone(),
+                    product_session_id: None,
+                    permission_profile: Some(permission_profile),
+                },
+                Some(target),
+                |_| {},
+            )
+            .await;
+            let (session_id, error) = match outcome {
+                Ok(outcome) if !outcome.failed => (Some(outcome.product_session_id), None),
+                Ok(outcome) => (
+                    Some(outcome.product_session_id),
+                    Some("The automation attempt failed.".to_string()),
+                ),
+                Err(error) => (None, Some(error)),
+            };
+            let finished = automation_store.mark_finished(
+                &automation_id,
+                now_ms(),
+                local_offset_seconds(),
+                session_id,
+                error.clone(),
+            );
+            if let Some(hub) = weak.upgrade() {
+                hub.update(cx, |hub, cx| {
+                    hub.refresh_automations();
+                    hub.refresh_sessions();
+                    let message = match (&finished, error) {
+                        (Ok(_), None) => format!("Automation completed: {automation_name}"),
+                        (Ok(_), Some(error)) => {
+                            format!("Automation failed: {automation_name} — {error}")
+                        }
+                        (Err(error), _) => format!("Unable to save automation result: {error}"),
+                    };
+                    with_window(cx, handle, move |_, window, cx| {
+                        window.push_notification(message, cx);
+                    });
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+        Ok(())
     }
 
     /// Rebuild the engine selector options after readiness changes.
@@ -1114,7 +1514,7 @@ impl HubApp {
             .ok_or_else(|| "This Hub session no longer exists.".to_string())?;
         self.active_session_id = Some(product_session_id.to_string());
         self.primary_surface = PrimarySurface::Chat;
-        self.workspace = Some(detail.session.workspace.clone());
+        self.set_workspace_context(detail.session.workspace.clone(), window, cx);
         self.pending_engine = detail
             .pending_switch
             .as_ref()
@@ -1127,23 +1527,42 @@ impl HubApp {
         self.open_handoffs.clear();
         self.open_activities.clear();
         let session = self.session_detail.as_ref().unwrap().session.clone();
-        self.set_selected_engine(&session.engine_id, window, cx);
-        if let Some(runtime) = AgentRuntime::parse(&session.engine_id) {
+        let selected_target = self.session_detail.as_ref().and_then(|detail| {
+            detail
+                .pending_switch
+                .as_ref()
+                .map(|switch| switch.target.clone())
+        });
+        let selected_engine = selected_target
+            .as_ref()
+            .map(|target| target.engine_id.as_str())
+            .unwrap_or(session.engine_id.as_str());
+        let selected_provider = selected_target
+            .as_ref()
+            .map(|target| target.provider_id.as_str())
+            .unwrap_or(session.provider_id.as_str());
+        let selected_model = selected_target
+            .as_ref()
+            .map(|target| target.model_id.as_str())
+            .unwrap_or(session.model_id.as_str());
+        let selected_effort = selected_target
+            .as_ref()
+            .and_then(|target| target.reasoning_effort.as_deref())
+            .or(session.reasoning_effort.as_deref());
+        self.set_selected_engine(selected_engine, window, cx);
+        if let Some(runtime) = AgentRuntime::parse(selected_engine) {
             let preferred = self
                 .model_catalog
-                .model(&session.provider_id, &session.model_id)
-                .map(|_| (session.provider_id.as_str(), session.model_id.as_str()));
+                .model(selected_provider, selected_model)
+                .map(|_| (selected_provider, selected_model));
             self.sync_model_options(runtime, preferred, window, cx);
             if preferred.is_some() {
                 self.sync_effort_options(
                     &ModelRoute {
                         runtime,
-                        provider_id: session.provider_id.clone(),
-                        model_id: session.model_id.clone(),
-                        reasoning_effort: session
-                            .reasoning_effort
-                            .as_deref()
-                            .and_then(ReasoningEffort::parse),
+                        provider_id: selected_provider.to_string(),
+                        model_id: selected_model.to_string(),
+                        reasoning_effort: selected_effort.and_then(ReasoningEffort::parse),
                     },
                     window,
                     cx,

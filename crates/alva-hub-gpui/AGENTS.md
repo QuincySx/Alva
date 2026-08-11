@@ -287,4 +287,7 @@ cargo test           # gpui::test
 |---|---|---|
 | ModelCatalog | `src/models.rs` | Runtime / Provider / Model 能力目录与路由守卫 |
 | ProviderStore | `src/provider_store.rs` | owner-only 自定义 Provider 元数据与密钥持久化 |
+| AutomationStore | `src/automation_store.rs` | owner-only 自动化定义、到期选择与运行结果持久化 |
+| PluginStore | `src/plugin_store.rs` | project/global 插件目录扫描、安全安装与启停标记 |
+| SkillCatalog | `src/skill_store.rs` | 与运行时同源的 Skill 发现和启用状态管理 |
 | PiAdapter | `../alva-engine-adapter-pi` | Pi JSON print-mode、原生 session resume 与 custom Provider bridge |
