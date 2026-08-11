@@ -5,10 +5,11 @@
 
 use gpui::*;
 use gpui_component::{
+    accordion::Accordion,
     button::{Button, ButtonVariants as _},
     checkbox::Checkbox,
-    collapsible::Collapsible,
     input::{Input, InputState},
+    tag::Tag,
     ActiveTheme, *,
 };
 
@@ -93,57 +94,33 @@ impl HubApp {
                         }
                     }),
             );
-        Collapsible::new()
-            .open(!collapsed)
-            .gap_2()
-            .p_2()
-            .rounded_md()
-            .border_1()
-            .border_color(cx.theme().colors.border)
-            .child(
-                h_flex()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        Button::new("toggle-fallback")
-                            .ghost()
-                            .xsmall()
-                            .icon(if collapsed {
-                                IconName::ChevronRight
-                            } else {
-                                IconName::ChevronDown
-                            })
-                            .on_click(move |_, _, app| {
-                                if let Some(entity) = weak.upgrade() {
-                                    entity.update(app, |hub, cx| {
-                                        let open =
-                                            hub.collapsed.get("fallback").copied().unwrap_or(true);
-                                        hub.collapsed.insert("fallback".to_string(), !open);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_xs()
-                            .font_weight(FontWeight(650.))
-                            .text_color(cx.theme().colors.muted_foreground)
+        Accordion::new("fallback-chain")
+            .small()
+            .item(|item| {
+                item.open(!collapsed)
+                    .title(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
                             .child(if is_session {
                                 "Session fallback chain"
                             } else {
                                 "Default fallback chain"
-                            }),
+                            })
+                            .child(Tag::secondary().xsmall().child(count.to_string())),
                     )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child(count.to_string()),
-                    ),
-            )
-            .content(content)
+                    .child(content)
+            })
+            .on_toggle_click(move |open_items, _, app| {
+                if let Some(entity) = weak.upgrade() {
+                    entity.update(app, |hub, cx| {
+                        hub.collapsed
+                            .insert("fallback".to_string(), open_items.is_empty());
+                        cx.notify();
+                    });
+                }
+            })
     }
 
     /// Catalog checkboxes: toggle a target in/out of the chain.

@@ -5,6 +5,7 @@
 
 use gpui::*;
 use gpui_component::{
+    accordion::Accordion,
     button::{Button, ButtonVariants as _},
     input::Input,
     tag::Tag,
@@ -44,13 +45,56 @@ impl HubApp {
         let turns = detail.turns.clone();
         let handoffs = detail.handoffs.clone();
         let readiness = self.readiness.clone();
-        v_flex()
-            .gap_4()
-            .child(self.drawer_memory(&memory, window, cx))
-            .child(self.drawer_branches(&branches, cx))
-            .child(self.drawer_attempts(&turns, cx))
-            .child(self.drawer_handoffs(&handoffs, cx))
-            .child(self.drawer_diagnostics(&readiness, cx))
+        let attempts = turns.iter().map(|turn| turn.attempts.len()).sum::<usize>();
+        let section_keys = [
+            "details-memory",
+            "details-branches",
+            "details-attempts",
+            "details-handoffs",
+            "details-diagnostics",
+        ];
+        let section_open =
+            section_keys.map(|key| !self.collapsed.get(key).copied().unwrap_or(false));
+        let weak = cx.entity().downgrade();
+        Accordion::new("session-details-sections")
+            .multiple(true)
+            .small()
+            .item(|item| {
+                item.open(section_open[0])
+                    .title(details_section_title("Memory", memory.len()))
+                    .child(self.drawer_memory(&memory, window, cx))
+            })
+            .item(|item| {
+                item.open(section_open[1])
+                    .title(details_section_title("Branches", branches.len()))
+                    .child(self.drawer_branches(&branches, cx))
+            })
+            .item(|item| {
+                item.open(section_open[2])
+                    .title(details_section_title("Attempts", attempts))
+                    .child(self.drawer_attempts(&turns, cx))
+            })
+            .item(|item| {
+                item.open(section_open[3])
+                    .title(details_section_title("Handoffs", handoffs.len()))
+                    .child(self.drawer_handoffs(&handoffs, cx))
+            })
+            .item(|item| {
+                item.open(section_open[4])
+                    .title(details_section_title("Engine diagnostics", readiness.len()))
+                    .child(self.drawer_diagnostics(&readiness, cx))
+            })
+            .on_toggle_click(move |open_items, _, app| {
+                if let Some(entity) = weak.upgrade() {
+                    entity.update(app, |hub, cx| {
+                        for (index, key) in section_keys.iter().enumerate() {
+                            hub.collapsed
+                                .insert((*key).to_string(), !open_items.contains(&index));
+                        }
+                        cx.notify();
+                    });
+                }
+            })
             .into_any_element()
     }
 
@@ -65,13 +109,6 @@ impl HubApp {
         let can_save = !draft.trim().is_empty();
         v_flex()
             .gap_1_5()
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight(650.))
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child("Memory"),
-            )
             .child(
                 div()
                     .text_xs()
@@ -124,63 +161,54 @@ impl HubApp {
         branches: &[alva_hub_gpui::StoredBranch],
         cx: &Context<Self>,
     ) -> impl IntoElement {
-        v_flex()
-            .gap_1_5()
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight(650.))
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child("Branches"),
-            )
-            .children(if branches.is_empty() {
-                vec![div()
-                    .text_xs()
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child("No branches yet.")
-                    .into_any_element()]
-            } else {
-                branches
-                    .iter()
-                    .map(|branch| {
-                        let native = if branch.engine_session_id.is_some() {
-                            " · native session kept"
-                        } else {
-                            ""
-                        };
-                        v_flex()
-                            .gap_1()
-                            .child(
-                                h_flex()
-                                    .gap_1()
-                                    .items_center()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .font_weight(FontWeight(600.))
-                                            .child(branch.engine_id.clone()),
-                                    )
-                                    .child(
-                                        Tag::new()
-                                            .with_variant(super::status_tag_variant(&branch.status))
-                                            .small()
-                                            .rounded_full()
-                                            .child(branch.status.clone()),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().colors.muted_foreground)
-                                    .child(format!(
-                                        "{} · {}{native}",
-                                        branch.model_id, branch.provider_id
-                                    )),
-                            )
-                            .into_any_element()
-                    })
-                    .collect::<Vec<_>>()
-            })
+        v_flex().gap_1_5().children(if branches.is_empty() {
+            vec![div()
+                .text_xs()
+                .text_color(cx.theme().colors.muted_foreground)
+                .child("No branches yet.")
+                .into_any_element()]
+        } else {
+            branches
+                .iter()
+                .map(|branch| {
+                    let native = if branch.engine_session_id.is_some() {
+                        " · native session kept"
+                    } else {
+                        ""
+                    };
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .items_center()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_weight(FontWeight(600.))
+                                        .child(branch.engine_id.clone()),
+                                )
+                                .child(
+                                    Tag::new()
+                                        .with_variant(super::status_tag_variant(&branch.status))
+                                        .small()
+                                        .rounded_full()
+                                        .child(branch.status.clone()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().colors.muted_foreground)
+                                .child(format!(
+                                    "{} · {}{native}",
+                                    branch.model_id, branch.provider_id
+                                )),
+                        )
+                        .into_any_element()
+                })
+                .collect::<Vec<_>>()
+        })
     }
 
     fn drawer_attempts(
@@ -190,13 +218,6 @@ impl HubApp {
     ) -> impl IntoElement {
         v_flex()
             .gap_1_5()
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight(650.))
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child("Attempts"),
-            )
             .children(if turns.iter().all(|turn| turn.attempts.is_empty()) {
                 vec![div()
                     .text_xs()
@@ -279,187 +300,178 @@ impl HubApp {
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let weak = cx.entity().downgrade();
-        v_flex()
-            .gap_1_5()
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight(650.))
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child("Handoffs"),
-            )
-            .children(if handoffs.is_empty() {
-                vec![div()
-                    .text_xs()
-                    .text_color(cx.theme().colors.muted_foreground)
-                    .child("No handoffs yet.")
-                    .into_any_element()]
-            } else {
-                handoffs
-                    .iter()
-                    .map(|handoff| {
-                        let weak = weak.clone();
-                        let handoff_id = handoff.handoff_id.clone();
-                        let kind = match handoff.kind {
-                            HandoffKind::Full => "full",
-                            HandoffKind::Delta => "delta",
-                        };
-                        let delivered = if handoff.used_at.is_some() {
-                            "delivered"
-                        } else {
-                            "pending"
-                        };
-                        let envelope = if handoff.session_memory.is_empty()
-                            && handoff.available_skills.is_empty()
-                            && handoff.available_mcp.is_empty()
-                        {
-                            String::new()
-                        } else {
-                            format!(
-                                "envelope: {} memory · {} skills · {} MCP",
-                                handoff.session_memory.len(),
-                                handoff.available_skills.len(),
-                                handoff.available_mcp.len()
-                            )
-                        };
-                        let open = self
-                            .open_drawer_handoffs
-                            .get(&handoff_id)
-                            .copied()
-                            .unwrap_or(false);
-                        let mut row = v_flex()
-                            .gap_1()
-                            .child(div().text_xs().font_weight(FontWeight(600.)).child(format!(
-                                "{kind} · {} → {} · {delivered}",
-                                handoff.source.engine_id, handoff.target.engine_id
-                            )))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().colors.muted_foreground)
-                                    .child(handoff.reason.clone()),
-                            );
-                        if let Some(snapshot) = &handoff.team_snapshot {
-                            row = row.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().colors.muted_foreground)
-                                    .child(snapshot.clone()),
-                            );
-                        }
-                        if !envelope.is_empty() {
-                            row = row.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().colors.muted_foreground)
-                                    .child(envelope),
-                            );
-                        }
-                        let handoff_id_button = handoff_id.clone();
-                        row = row.child(
-                            Button::new(SharedString::from(format!("envelope-{handoff_id}")))
-                                .ghost()
-                                .xsmall()
-                                .label(if open {
-                                    "Hide envelope"
-                                } else {
-                                    "Show envelope"
-                                })
-                                .on_click(move |_, window, app| {
-                                    if weak.upgrade().is_some() {
-                                        let handle = window.window_handle();
-                                        let handoff_id_button = handoff_id_button.clone();
-                                        with_window(app, handle, move |hub, _, cx| {
-                                            let open = hub
-                                                .open_drawer_handoffs
-                                                .get(&handoff_id_button)
-                                                .copied()
-                                                .unwrap_or(false);
-                                            hub.open_drawer_handoffs
-                                                .insert(handoff_id_button.clone(), !open);
-                                            cx.notify();
-                                        });
-                                    }
-                                }),
+        v_flex().gap_1_5().children(if handoffs.is_empty() {
+            vec![div()
+                .text_xs()
+                .text_color(cx.theme().colors.muted_foreground)
+                .child("No handoffs yet.")
+                .into_any_element()]
+        } else {
+            handoffs
+                .iter()
+                .map(|handoff| {
+                    let weak = weak.clone();
+                    let handoff_id = handoff.handoff_id.clone();
+                    let kind = match handoff.kind {
+                        HandoffKind::Full => "full",
+                        HandoffKind::Delta => "delta",
+                    };
+                    let delivered = if handoff.used_at.is_some() {
+                        "delivered"
+                    } else {
+                        "pending"
+                    };
+                    let envelope = if handoff.session_memory.is_empty()
+                        && handoff.available_skills.is_empty()
+                        && handoff.available_mcp.is_empty()
+                    {
+                        String::new()
+                    } else {
+                        format!(
+                            "envelope: {} memory · {} skills · {} MCP",
+                            handoff.session_memory.len(),
+                            handoff.available_skills.len(),
+                            handoff.available_mcp.len()
+                        )
+                    };
+                    let open = self
+                        .open_drawer_handoffs
+                        .get(&handoff_id)
+                        .copied()
+                        .unwrap_or(false);
+                    let mut row = v_flex()
+                        .gap_1()
+                        .child(div().text_xs().font_weight(FontWeight(600.)).child(format!(
+                            "{kind} · {} → {} · {delivered}",
+                            handoff.source.engine_id, handoff.target.engine_id
+                        )))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().colors.muted_foreground)
+                                .child(handoff.reason.clone()),
                         );
-                        if open {
-                            let mut envelope = v_flex().gap_1();
-                            if !handoff.session_memory.is_empty() {
-                                envelope = envelope
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .font_weight(FontWeight(600.))
-                                            .child("Memory carried"),
-                                    )
-                                    .children(
-                                        handoff
-                                            .session_memory
-                                            .iter()
-                                            .map(|entry| div().text_xs().child(entry.clone())),
-                                    );
-                            }
-                            if !handoff.available_skills.is_empty() {
-                                envelope = envelope
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .font_weight(FontWeight(600.))
-                                            .child("Skills pointed"),
-                                    )
-                                    .children(handoff.available_skills.iter().map(|skill| {
-                                        div().text_xs().child(format!(
-                                            "{} — {} {}",
-                                            skill.name, skill.description, skill.path
-                                        ))
-                                    }));
-                            }
-                            if !handoff.available_mcp.is_empty() {
-                                envelope = envelope
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .font_weight(FontWeight(600.))
-                                            .child("MCP servers"),
-                                    )
-                                    .children(handoff.available_mcp.iter().map(|server| {
-                                        div().text_xs().child(format!(
-                                            "{} {}",
-                                            server.display_name, server.transport
-                                        ))
-                                    }));
-                            }
-                            if !handoff.transcript.is_empty() {
-                                envelope = envelope
-                                    .child(div().text_xs().font_weight(FontWeight(600.)).child(
-                                        format!(
-                                            "Filtered transcript ({} turns)",
-                                            handoff.transcript.len()
-                                        ),
-                                    ))
-                                    .children(handoff.transcript.iter().map(|turn| {
-                                        let line = match &turn.result {
-                                            Some(result) => {
-                                                format!("» {} — {result}", turn.prompt)
-                                            }
-                                            None => format!("» {}", turn.prompt),
-                                        };
-                                        div().text_xs().child(line)
-                                    }));
+                    if let Some(snapshot) = &handoff.team_snapshot {
+                        row = row.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().colors.muted_foreground)
+                                .child(snapshot.clone()),
+                        );
+                    }
+                    if !envelope.is_empty() {
+                        row = row.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().colors.muted_foreground)
+                                .child(envelope),
+                        );
+                    }
+                    let handoff_id_button = handoff_id.clone();
+                    row = row.child(
+                        Button::new(SharedString::from(format!("envelope-{handoff_id}")))
+                            .ghost()
+                            .xsmall()
+                            .label(if open {
+                                "Hide envelope"
                             } else {
-                                envelope = envelope.child(
+                                "Show envelope"
+                            })
+                            .on_click(move |_, window, app| {
+                                if weak.upgrade().is_some() {
+                                    let handle = window.window_handle();
+                                    let handoff_id_button = handoff_id_button.clone();
+                                    with_window(app, handle, move |hub, _, cx| {
+                                        let open = hub
+                                            .open_drawer_handoffs
+                                            .get(&handoff_id_button)
+                                            .copied()
+                                            .unwrap_or(false);
+                                        hub.open_drawer_handoffs
+                                            .insert(handoff_id_button.clone(), !open);
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    );
+                    if open {
+                        let mut envelope = v_flex().gap_1();
+                        if !handoff.session_memory.is_empty() {
+                            envelope = envelope
+                                .child(
                                     div()
                                         .text_xs()
-                                        .text_color(cx.theme().colors.muted_foreground)
-                                        .child("Transcript not shared (default)."),
+                                        .font_weight(FontWeight(600.))
+                                        .child("Memory carried"),
+                                )
+                                .children(
+                                    handoff
+                                        .session_memory
+                                        .iter()
+                                        .map(|entry| div().text_xs().child(entry.clone())),
                                 );
-                            }
-                            row = row.child(envelope);
                         }
-                        row.into_any_element()
-                    })
-                    .collect::<Vec<_>>()
-            })
+                        if !handoff.available_skills.is_empty() {
+                            envelope = envelope
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_weight(FontWeight(600.))
+                                        .child("Skills pointed"),
+                                )
+                                .children(handoff.available_skills.iter().map(|skill| {
+                                    div().text_xs().child(format!(
+                                        "{} — {} {}",
+                                        skill.name, skill.description, skill.path
+                                    ))
+                                }));
+                        }
+                        if !handoff.available_mcp.is_empty() {
+                            envelope = envelope
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_weight(FontWeight(600.))
+                                        .child("MCP servers"),
+                                )
+                                .children(handoff.available_mcp.iter().map(|server| {
+                                    div().text_xs().child(format!(
+                                        "{} {}",
+                                        server.display_name, server.transport
+                                    ))
+                                }));
+                        }
+                        if !handoff.transcript.is_empty() {
+                            envelope = envelope
+                                .child(div().text_xs().font_weight(FontWeight(600.)).child(
+                                    format!(
+                                        "Filtered transcript ({} turns)",
+                                        handoff.transcript.len()
+                                    ),
+                                ))
+                                .children(handoff.transcript.iter().map(|turn| {
+                                    let line = match &turn.result {
+                                        Some(result) => {
+                                            format!("» {} — {result}", turn.prompt)
+                                        }
+                                        None => format!("» {}", turn.prompt),
+                                    };
+                                    div().text_xs().child(line)
+                                }));
+                        } else {
+                            envelope = envelope.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().colors.muted_foreground)
+                                    .child("Transcript not shared (default)."),
+                            );
+                        }
+                        row = row.child(envelope);
+                    }
+                    row.into_any_element()
+                })
+                .collect::<Vec<_>>()
+        })
     }
 
     fn drawer_diagnostics(
@@ -468,89 +480,83 @@ impl HubApp {
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
-        v_flex()
-            .gap_1_5()
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight(650.))
-                    .text_color(theme.colors.muted_foreground)
-                    .child("Engine diagnostics"),
-            )
-            .children(if readiness.is_empty() {
-                vec![div().into_any_element()]
-            } else {
-                readiness
-                    .iter()
-                    .map(|engine| {
-                        let reasons = engine
-                            .reasons
-                            .iter()
-                            .map(super::describe_readiness_reason)
-                            .collect::<Vec<_>>();
-                        v_flex()
-                            .gap_1()
-                            .child(
-                                h_flex()
-                                    .gap_1()
-                                    .items_center()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .font_weight(FontWeight(600.))
-                                            .child(engine.display_name.clone()),
-                                    )
-                                    .child(
-                                        Tag::new()
-                                            .with_variant(super::readiness_tag_variant(
-                                                &engine.status,
-                                            ))
-                                            .small()
-                                            .rounded_full()
-                                            .child(readiness_badge(match engine.status {
-                                                alva_hub_gpui::ReadinessStatus::Healthy => {
-                                                    "healthy"
-                                                }
-                                                alva_hub_gpui::ReadinessStatus::Missing => {
-                                                    "missing"
-                                                }
-                                                alva_hub_gpui::ReadinessStatus::Incompatible => {
-                                                    "incompatible"
-                                                }
-                                                alva_hub_gpui::ReadinessStatus::Unauthenticated => {
-                                                    "unauthenticated"
-                                                }
-                                                alva_hub_gpui::ReadinessStatus::Unhealthy => {
-                                                    "unhealthy"
-                                                }
-                                            })),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.colors.muted_foreground)
-                                    .child(format!(
-                                        "{} · stream {}",
-                                        engine
-                                            .version
-                                            .clone()
-                                            .unwrap_or_else(|| "version unknown".to_string()),
-                                        match engine.stream_health {
-                                            alva_hub_gpui::StreamHealth::Ok => "ok",
-                                            alva_hub_gpui::StreamHealth::Untested => "untested",
-                                            alva_hub_gpui::StreamHealth::Failing => "failing",
-                                        }
-                                    )),
-                            )
-                            .children(
-                                reasons
-                                    .iter()
-                                    .map(|reason| div().text_xs().child(reason.clone())),
-                            )
-                            .into_any_element()
-                    })
-                    .collect::<Vec<_>>()
-            })
+        v_flex().gap_1_5().children(if readiness.is_empty() {
+            vec![div().into_any_element()]
+        } else {
+            readiness
+                .iter()
+                .map(|engine| {
+                    let reasons = engine
+                        .reasons
+                        .iter()
+                        .map(super::describe_readiness_reason)
+                        .collect::<Vec<_>>();
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .items_center()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_weight(FontWeight(600.))
+                                        .child(engine.display_name.clone()),
+                                )
+                                .child(
+                                    Tag::new()
+                                        .with_variant(super::readiness_tag_variant(&engine.status))
+                                        .small()
+                                        .rounded_full()
+                                        .child(readiness_badge(match engine.status {
+                                            alva_hub_gpui::ReadinessStatus::Healthy => "healthy",
+                                            alva_hub_gpui::ReadinessStatus::Missing => "missing",
+                                            alva_hub_gpui::ReadinessStatus::Incompatible => {
+                                                "incompatible"
+                                            }
+                                            alva_hub_gpui::ReadinessStatus::Unauthenticated => {
+                                                "unauthenticated"
+                                            }
+                                            alva_hub_gpui::ReadinessStatus::Unhealthy => {
+                                                "unhealthy"
+                                            }
+                                        })),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.colors.muted_foreground)
+                                .child(format!(
+                                    "{} · stream {}",
+                                    engine
+                                        .version
+                                        .clone()
+                                        .unwrap_or_else(|| "version unknown".to_string()),
+                                    match engine.stream_health {
+                                        alva_hub_gpui::StreamHealth::Ok => "ok",
+                                        alva_hub_gpui::StreamHealth::Untested => "untested",
+                                        alva_hub_gpui::StreamHealth::Failing => "failing",
+                                    }
+                                )),
+                        )
+                        .children(
+                            reasons
+                                .iter()
+                                .map(|reason| div().text_xs().child(reason.clone())),
+                        )
+                        .into_any_element()
+                })
+                .collect::<Vec<_>>()
+        })
     }
+}
+
+fn details_section_title(label: &'static str, count: usize) -> impl IntoElement {
+    h_flex()
+        .w_full()
+        .items_center()
+        .justify_between()
+        .child(label)
+        .child(Tag::secondary().xsmall().child(count.to_string()))
 }

@@ -5,6 +5,7 @@
 
 use gpui::*;
 use gpui_component::{
+    accordion::Accordion,
     button::{Button, ButtonVariants as _},
     group_box::{GroupBox, GroupBoxVariants as _},
     skeleton::Skeleton,
@@ -25,12 +26,75 @@ impl HubApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let busy = self.readiness_busy;
-        let weak = cx.entity().downgrade();
+        let weak_refresh = cx.entity().downgrade();
         let readiness = self.readiness.clone();
         let repair_plan = self.repair_plan.clone();
         let repair_logs = self.repair_logs.clone();
         let repairing = self.repairing_engine.clone();
         let theme = cx.theme().clone();
+        let content =
+            if readiness.is_empty() && busy {
+                v_flex()
+                    .gap_2()
+                    .child(Skeleton::new().h_3())
+                    .child(Skeleton::new().secondary().h_3())
+                    .child(Skeleton::new().secondary().h_3())
+                    .into_any_element()
+            } else if readiness.is_empty() {
+                div()
+                    .text_xs()
+                    .text_color(theme.colors.muted_foreground)
+                    .child("Engine health will appear here.")
+                    .into_any_element()
+            } else {
+                let engine_ids = readiness
+                    .iter()
+                    .map(|engine| engine.engine_id.clone())
+                    .collect::<Vec<_>>();
+                let accordion =
+                    readiness.iter().fold(
+                        Accordion::new("readiness-engine-list")
+                            .multiple(true)
+                            .small(),
+                        |accordion, engine| {
+                            let plan = repair_plan
+                                .iter()
+                                .filter(|action| action.engine_id == engine.engine_id)
+                                .cloned()
+                                .collect::<Vec<_>>();
+                            let log = repair_logs.get(&engine.engine_id).cloned();
+                            let key = format!("readiness-{}", engine.engine_id);
+                            let default_collapsed =
+                                matches!(engine.status, alva_hub_gpui::ReadinessStatus::Healthy);
+                            let open = !self
+                                .collapsed
+                                .get(&key)
+                                .copied()
+                                .unwrap_or(default_collapsed);
+                            accordion.item(|item| {
+                                item.open(open).title(readiness_title(engine)).child(
+                                    readiness_details(engine, &plan, log, repairing.as_deref(), cx),
+                                )
+                            })
+                        },
+                    );
+                let weak = cx.entity().downgrade();
+                accordion
+                    .on_toggle_click(move |open_items, _, app| {
+                        if let Some(entity) = weak.upgrade() {
+                            entity.update(app, |hub, cx| {
+                                for (index, engine_id) in engine_ids.iter().enumerate() {
+                                    hub.collapsed.insert(
+                                        format!("readiness-{engine_id}"),
+                                        !open_items.contains(&index),
+                                    );
+                                }
+                                cx.notify();
+                            });
+                        }
+                    })
+                    .into_any_element()
+            };
         GroupBox::new()
             .outline()
             .title(
@@ -53,7 +117,7 @@ impl HubApp {
                             .loading(busy)
                             .disabled(busy)
                             .on_click(move |_, _, app| {
-                                if let Some(entity) = weak.upgrade() {
+                                if let Some(entity) = weak_refresh.upgrade() {
                                     entity.update(app, |hub, cx| {
                                         hub.refresh_readiness(cx);
                                     });
@@ -61,39 +125,7 @@ impl HubApp {
                             }),
                     ),
             )
-            .child(
-                div()
-                    .flex_col()
-                    .gap_2()
-                    .children(if readiness.is_empty() && busy {
-                        vec![v_flex()
-                            .gap_2()
-                            .child(Skeleton::new().h_3())
-                            .child(Skeleton::new().secondary().h_3())
-                            .child(Skeleton::new().secondary().h_3())
-                            .into_any_element()]
-                    } else if readiness.is_empty() {
-                        vec![div()
-                            .text_xs()
-                            .text_color(theme.colors.muted_foreground)
-                            .child("Engine health will appear here.")
-                            .into_any_element()]
-                    } else {
-                        readiness
-                            .iter()
-                            .map(|engine| {
-                                let plan = repair_plan
-                                    .iter()
-                                    .filter(|action| action.engine_id == engine.engine_id)
-                                    .cloned()
-                                    .collect::<Vec<_>>();
-                                let log = repair_logs.get(&engine.engine_id).cloned();
-                                readiness_card(engine, &plan, log, repairing.as_deref(), cx)
-                                    .into_any_element()
-                            })
-                            .collect::<Vec<_>>()
-                    }),
-            )
+            .child(content)
     }
 }
 
@@ -117,8 +149,22 @@ fn stream_str(health: &alva_hub_gpui::StreamHealth) -> &'static str {
     }
 }
 
-/// One engine's readiness card.
-fn readiness_card(
+fn readiness_title(engine: &EngineReadiness) -> impl IntoElement {
+    h_flex()
+        .w_full()
+        .items_center()
+        .justify_between()
+        .child(engine.display_name.clone())
+        .child(
+            Tag::new()
+                .with_variant(super::readiness_tag_variant(&engine.status))
+                .small()
+                .rounded_full()
+                .child(readiness_badge(status_str(&engine.status))),
+        )
+}
+
+fn readiness_details(
     engine: &EngineReadiness,
     plan: &[alva_hub_gpui::RepairAction],
     log: Option<String>,
@@ -134,42 +180,17 @@ fn readiness_card(
         Some(false) => "not signed in",
         None => "sign-in unknown",
     };
-    let mut card = div()
-        .id(SharedString::from(format!(
-            "readiness-{}",
-            engine.engine_id
-        )))
-        .v_flex()
-        .gap_1()
-        .child(
-            h_flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight(600.))
-                        .child(engine.display_name.clone()),
-                )
-                .child(
-                    Tag::new()
-                        .with_variant(super::readiness_tag_variant(&engine.status))
-                        .small()
-                        .rounded_full()
-                        .child(readiness_badge(status_str(&engine.status))),
-                ),
-        )
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().colors.muted_foreground)
-                .child(format!(
-                    "{version_line} · {auth_line} · stream {}",
-                    stream_str(&engine.stream_health)
-                )),
-        );
+    let mut content = v_flex().gap_1().child(
+        div()
+            .text_xs()
+            .text_color(cx.theme().colors.muted_foreground)
+            .child(format!(
+                "{version_line} · {auth_line} · stream {}",
+                stream_str(&engine.stream_health)
+            )),
+    );
     if !engine.capabilities.is_empty() {
-        card = card.child(
+        content = content.child(
             div()
                 .text_xs()
                 .text_color(cx.theme().colors.muted_foreground)
@@ -177,7 +198,7 @@ fn readiness_card(
         );
     }
     for reason in &engine.reasons {
-        card = card.child(
+        content = content.child(
             div()
                 .text_xs()
                 .text_color(cx.theme().colors.muted_foreground)
@@ -233,15 +254,15 @@ fn readiness_card(
                     }),
             );
         }
-        card = card.child(row);
+        content = content.child(row);
     }
     if let Some(log) = log {
-        card = card.child(
+        content = content.child(
             div()
                 .text_xs()
                 .text_color(cx.theme().colors.muted_foreground)
                 .child(log),
         );
     }
-    card
+    content
 }
