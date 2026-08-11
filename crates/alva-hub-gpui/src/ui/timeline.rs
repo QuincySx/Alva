@@ -11,6 +11,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     dialog::DialogButtonProps,
     group_box::GroupBoxVariant,
+    input::Input,
     menu::{DropdownMenu as _, PopupMenuItem},
     scroll::ScrollableElement,
     setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings},
@@ -20,8 +21,7 @@ use gpui_component::{
 };
 
 use alva_hub_gpui::{
-    ChatItemKind, EngineTarget, FallbackControls, HandoffKind, ProjectedChatItem, ProjectedEvent,
-    TimelineStatus,
+    ChatItemKind, FallbackControls, HandoffKind, ProjectedChatItem, ProjectedEvent, TimelineStatus,
 };
 
 use super::app::{status_color, with_window, HubApp};
@@ -44,9 +44,9 @@ impl HubApp {
                     .flex_1()
                     .min_h_0()
                     .child(self.chat_area(cx))
-                    .child(self.composer_readiness_warning(cx))
                     .child(self.approval_area(cx))
                     .child(self.composer(window, cx))
+                    .child(self.composer_readiness_warning(cx))
                     .into_any_element()
             })
     }
@@ -96,9 +96,9 @@ impl HubApp {
                                     ),
                             ),
                     )
-                    .child(self.composer_readiness_warning(cx))
                     .child(self.approval_area(cx))
                     .child(self.composer(window, cx))
+                    .child(self.composer_readiness_warning(cx))
                     .child(
                         div()
                             .text_sm()
@@ -513,11 +513,12 @@ impl HubApp {
         if health.status == alva_hub_gpui::ReadinessStatus::Healthy {
             return div().into_any_element();
         }
-        let reasons = health
+        let reason = health
             .reasons
             .iter()
             .map(super::describe_readiness_reason)
-            .collect::<Vec<_>>();
+            .next()
+            .unwrap_or_else(|| "Open engine readiness for details.".to_string());
         let status = super::readiness_badge(match health.status {
             alva_hub_gpui::ReadinessStatus::Healthy => "healthy",
             alva_hub_gpui::ReadinessStatus::Missing => "missing",
@@ -525,43 +526,18 @@ impl HubApp {
             alva_hub_gpui::ReadinessStatus::Unauthenticated => "unauthenticated",
             alva_hub_gpui::ReadinessStatus::Unhealthy => "unhealthy",
         });
+        let message = format!("{} · {status} — {reason}", health.display_name);
         let alert = match health.status {
             alva_hub_gpui::ReadinessStatus::Unhealthy => {
-                Alert::error("composer-readiness", reasons.join(" "))
+                Alert::error("composer-readiness", message)
             }
-            _ => Alert::warning("composer-readiness", reasons.join(" ")),
+            _ => Alert::warning("composer-readiness", message),
         };
-        alert
-            .small()
-            .mx_4()
-            .title(format!("{} · {status}", health.display_name))
-            .into_any_element()
+        alert.small().mx_4().into_any_element()
     }
 
     fn composer(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected_id = self
-            .pending_engine
-            .clone()
-            .unwrap_or_else(|| self.selected_engine(cx));
-        let selected_id = selected_id.as_str();
-        let target = self
-            .fallback_policy
-            .targets
-            .iter()
-            .find(|target| target.engine_id == selected_id)
-            .cloned()
-            .or_else(|| EngineTarget::for_engine(selected_id).ok());
-        let summary_line = target
-            .as_ref()
-            .map(|target| {
-                format!(
-                    "Running {selected_id} on {} · {}",
-                    target.model_id, target.provider_id
-                )
-            })
-            .unwrap_or_default();
         let busy = self.busy;
-        let workspace_set = self.workspace.is_some();
         let engine_display = self.selected_engine(cx);
         let model_id = self
             .session_detail
@@ -616,7 +592,6 @@ impl HubApp {
                 .small()
                 .icon(IconName::ArrowRight)
                 .tooltip("Send message")
-                .disabled(!workspace_set)
                 .on_click(move |_, window, app| {
                     if weak.upgrade().is_some() {
                         let handle = window.window_handle();
@@ -629,10 +604,10 @@ impl HubApp {
         };
         let metadata = format!(
             "{}{}{} · {} · fallback: {}",
-            if workspace_set {
+            if self.workspace.is_some() {
                 ""
             } else {
-                "Select a project first · "
+                "Pure conversation · "
             },
             engine_display,
             if model_id.is_empty() {
@@ -643,7 +618,7 @@ impl HubApp {
             profile_label,
             fallback_summary
         );
-        let composer = HubComposer::new(
+        HubComposer::new(
             self.prompt.clone(),
             self.permission.clone(),
             self.engine.clone(),
@@ -651,16 +626,10 @@ impl HubApp {
         )
         .permission_disabled(self.active_session_id.is_some())
         .project_action(project_action)
-        .submit_action(submit_action);
-        if summary_line.is_empty() {
-            composer
-        } else {
-            composer.summary(summary_line)
-        }
+        .submit_action(submit_action)
     }
 
     pub fn automation_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let weak_header = cx.entity().downgrade();
         let weak_empty = cx.entity().downgrade();
         let weak_nightly = cx.entity().downgrade();
         let weak_pr = cx.entity().downgrade();
@@ -669,24 +638,7 @@ impl HubApp {
         v_flex()
             .size_full()
             .child(
-                HubSurfaceHeader::new(
-                    "Automation",
-                    "Schedule repeatable agent work without leaving Hub.",
-                )
-                .action(
-                    Button::new("new-automation-header")
-                        .primary()
-                        .small()
-                        .icon(IconName::Plus)
-                        .label("New automation")
-                        .on_click(move |_, window, app| {
-                            if let Some(entity) = weak_header.upgrade() {
-                                entity.update(app, |hub, cx| {
-                                    hub.open_automation_dialog(None, window, cx);
-                                });
-                            }
-                        }),
-                ),
+                HubSurfaceHeader::new("Automation", "0 automations"),
             )
             .child(
                 v_flex()
@@ -732,26 +684,20 @@ impl HubApp {
                                     "Run tests in an isolated worktree and repair failures.",
                                     "02:00 · isolated worktree",
                                 )
-                                .action(
-                                    Button::new("use-nightly-template")
-                                        .ghost()
-                                        .xsmall()
-                                        .label("Use template")
-                                        .on_click(move |_, window, app| {
-                                            if let Some(entity) = weak_nightly.upgrade() {
-                                                entity.update(app, |hub, cx| {
-                                                    hub.open_automation_dialog(
-                                                        Some((
-                                                            "Nightly self-healing tests",
-                                                            "Run the test suite in an isolated worktree and repair failures with the smallest safe change.",
-                                                        )),
-                                                        window,
-                                                        cx,
-                                                    );
-                                                });
-                                            }
-                                        }),
-                                ),
+                                .on_click(move |_, window, app| {
+                                    if let Some(entity) = weak_nightly.upgrade() {
+                                        entity.update(app, |hub, cx| {
+                                            hub.open_automation_dialog(
+                                                Some((
+                                                    "Nightly self-healing tests",
+                                                    "Run the test suite in an isolated worktree and repair failures with the smallest safe change.",
+                                                )),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
                             )
                             .child(
                                 HubTemplateCard::new(
@@ -760,26 +706,20 @@ impl HubApp {
                                     "Review new changes and report release risk.",
                                     "Weekdays · pull requests",
                                 )
-                                .action(
-                                    Button::new("use-pr-template")
-                                        .ghost()
-                                        .xsmall()
-                                        .label("Use template")
-                                        .on_click(move |_, window, app| {
-                                            if let Some(entity) = weak_pr.upgrade() {
-                                                entity.update(app, |hub, cx| {
-                                                    hub.open_automation_dialog(
-                                                        Some((
-                                                            "PR gatekeeper",
-                                                            "Review new pull request changes and report correctness, security, and release risks.",
-                                                        )),
-                                                        window,
-                                                        cx,
-                                                    );
-                                                });
-                                            }
-                                        }),
-                                ),
+                                .on_click(move |_, window, app| {
+                                    if let Some(entity) = weak_pr.upgrade() {
+                                        entity.update(app, |hub, cx| {
+                                            hub.open_automation_dialog(
+                                                Some((
+                                                    "PR gatekeeper",
+                                                    "Review new pull request changes and report correctness, security, and release risks.",
+                                                )),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
                             ),
                     )
                     .child(
@@ -793,26 +733,20 @@ impl HubApp {
                                     "Collect important updates and produce a concise digest.",
                                     "Daily · web research",
                                 )
-                                .action(
-                                    Button::new("use-research-template")
-                                        .ghost()
-                                        .xsmall()
-                                        .label("Use template")
-                                        .on_click(move |_, window, app| {
-                                            if let Some(entity) = weak_research.upgrade() {
-                                                entity.update(app, |hub, cx| {
-                                                    hub.open_automation_dialog(
-                                                        Some((
-                                                            "Research radar",
-                                                            "Collect important updates for this project and produce a concise daily digest.",
-                                                        )),
-                                                        window,
-                                                        cx,
-                                                    );
-                                                });
-                                            }
-                                        }),
-                                ),
+                                .on_click(move |_, window, app| {
+                                    if let Some(entity) = weak_research.upgrade() {
+                                        entity.update(app, |hub, cx| {
+                                            hub.open_automation_dialog(
+                                                Some((
+                                                    "Research radar",
+                                                    "Collect important updates for this project and produce a concise daily digest.",
+                                                )),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
                             )
                             .child(
                                 HubTemplateCard::new(
@@ -821,26 +755,20 @@ impl HubApp {
                                     "Find stale docs and propose focused improvements.",
                                     "Weekly · project context",
                                 )
-                                .action(
-                                    Button::new("use-docs-template")
-                                        .ghost()
-                                        .xsmall()
-                                        .label("Use template")
-                                        .on_click(move |_, window, app| {
-                                            if let Some(entity) = weak_docs.upgrade() {
-                                                entity.update(app, |hub, cx| {
-                                                    hub.open_automation_dialog(
-                                                        Some((
-                                                            "Documentation pulse",
-                                                            "Find stale project documentation and propose focused improvements.",
-                                                        )),
-                                                        window,
-                                                        cx,
-                                                    );
-                                                });
-                                            }
-                                        }),
-                                ),
+                                .on_click(move |_, window, app| {
+                                    if let Some(entity) = weak_docs.upgrade() {
+                                        entity.update(app, |hub, cx| {
+                                            hub.open_automation_dialog(
+                                                Some((
+                                                    "Documentation pulse",
+                                                    "Find stale project documentation and propose focused improvements.",
+                                                )),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }),
                             ),
                     ),
             )
@@ -900,26 +828,39 @@ impl HubApp {
     }
 
     fn plugins_catalog_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let show_inspector = self.extension_matches(cx, "alva inspector debug records recursive");
+        let show_mcp = self.extension_matches(cx, "mcp tools model context protocol");
+        let show_alva = self.extension_matches(cx, "alva engine native");
+        let show_claude = self.extension_matches(cx, "claude code adapter");
+        let show_codex = self.extension_matches(cx, "codex exec json adapter");
         v_flex()
             .size_full()
-            .child(
-                HubSurfaceHeader::new(
-                    "Plugins & skills",
-                    "Extend Hub with tools, integrations, and reusable instructions.",
-                )
-                .action(
-                    self.add_plugin_button(cx),
-                ),
-            )
+            .child(self.extension_catalog_toolbar(cx))
             .child(
                 v_flex()
                     .flex_1()
                     .overflow_y_scrollbar()
+                    .w_full()
+                    .max_w(px(980.))
+                    .mx_auto()
                     .px_6()
                     .py_5()
                     .gap_5()
                     .child(
-                        self.extension_tabs(cx),
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_weight(FontWeight(700.))
+                                    .child("Plugins"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Tools and integrations available to Hub sessions."),
+                            ),
                     )
                     .child(
                         div()
@@ -931,7 +872,7 @@ impl HubApp {
                         h_flex()
                             .flex_wrap()
                             .gap_3()
-                            .child(
+                            .when(show_inspector, |row| row.child(
                                 HubExtensionCard::new(
                                     IconName::Search,
                                     "ALVA Inspector",
@@ -956,8 +897,8 @@ impl HubApp {
                                             }
                                         })
                                 }),
-                            )
-                            .child(
+                            ))
+                            .when(show_mcp, |row| row.child(
                                 HubExtensionCard::new(
                                     IconName::Frame,
                                     "MCP tools",
@@ -974,7 +915,7 @@ impl HubApp {
                                     &["Tool discovery", "Server lifecycle", "Permission routing"],
                                     cx,
                                 )),
-                            ),
+                            )),
                     )
                     .child(
                         div()
@@ -986,7 +927,7 @@ impl HubApp {
                         h_flex()
                             .flex_wrap()
                             .gap_3()
-                            .child(
+                            .when(show_alva, |row| row.child(
                                 HubExtensionCard::new(
                                     IconName::Bot,
                                     "Alva",
@@ -1003,8 +944,8 @@ impl HubApp {
                                     &["Streaming", "Permissions", "Recursive Inspector"],
                                     cx,
                                 )),
-                            )
-                            .child(
+                            ))
+                            .when(show_claude, |row| row.child(
                                 HubExtensionCard::new(
                                     IconName::Bot,
                                     "Claude Code",
@@ -1021,10 +962,10 @@ impl HubApp {
                                     &["Streaming", "Resume", "Best-effort inspection"],
                                     cx,
                                 )),
-                            ),
+                            )),
                     )
                     .child(
-                        h_flex().flex_wrap().gap_3().child(
+                        h_flex().flex_wrap().gap_3().when(show_codex, |row| row.child(
                             HubExtensionCard::new(
                                 IconName::SquareTerminal,
                                 "Codex",
@@ -1041,29 +982,47 @@ impl HubApp {
                                 &["JSON events", "Resume", "Best-effort inspection"],
                                 cx,
                             )),
-                        ),
+                        )),
                     ),
             )
     }
 
     fn skills_catalog_surface(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let show_repository =
+            self.extension_matches(cx, "repository conventions architecture style validation");
+        let show_planning =
+            self.extension_matches(cx, "planning workflows tasks execution handoffs");
+        let show_release =
+            self.extension_matches(cx, "release checklist tests packaging visual qa");
         v_flex()
             .size_full()
-            .child(
-                HubSurfaceHeader::new(
-                    "Plugins & skills",
-                    "Extend Hub with tools, integrations, and reusable instructions.",
-                )
-                .action(self.add_plugin_button(cx)),
-            )
+            .child(self.extension_catalog_toolbar(cx))
             .child(
                 v_flex()
                     .flex_1()
                     .overflow_y_scrollbar()
+                    .w_full()
+                    .max_w(px(980.))
+                    .mx_auto()
                     .px_6()
                     .py_5()
                     .gap_5()
-                    .child(self.extension_tabs(cx))
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_2xl()
+                                    .font_weight(FontWeight(700.))
+                                    .child("Skills"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Reusable instructions loaded for this workspace."),
+                            ),
+                    )
                     .child(
                         div()
                             .text_sm()
@@ -1074,7 +1033,7 @@ impl HubApp {
                         h_flex()
                             .flex_wrap()
                             .gap_3()
-                            .child(
+                            .when(show_repository, |row| row.child(
                                 HubExtensionCard::new(
                                     IconName::File,
                                     "Repository conventions",
@@ -1091,8 +1050,8 @@ impl HubApp {
                                     &["Architecture", "Code style", "Validation"],
                                     cx,
                                 )),
-                            )
-                            .child(
+                            ))
+                            .when(show_planning, |row| row.child(
                                 HubExtensionCard::new(
                                     IconName::Asterisk,
                                     "Planning workflows",
@@ -1109,10 +1068,10 @@ impl HubApp {
                                     &["Planning", "Task tracking", "Handoffs"],
                                     cx,
                                 )),
-                            ),
+                            )),
                     )
                     .child(
-                        h_flex().flex_wrap().gap_3().child(
+                        h_flex().flex_wrap().gap_3().when(show_release, |row| row.child(
                             HubExtensionCard::new(
                                 IconName::CircleCheck,
                                 "Release checklist",
@@ -1129,7 +1088,7 @@ impl HubApp {
                                 &["Tests", "Packaging", "Visual QA"],
                                 cx,
                             )),
-                        ),
+                        )),
                     ),
             )
     }
@@ -1151,18 +1110,109 @@ impl HubApp {
             })
     }
 
-    fn add_plugin_button(&self, _: &Context<Self>) -> impl IntoElement {
+    fn extension_catalog_toolbar(&self, cx: &Context<Self>) -> impl IntoElement {
+        h_flex()
+            .items_center()
+            .gap_3()
+            .px_6()
+            .py_3()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(self.extension_tabs(cx))
+            .child(div().flex_1())
+            .child(Input::new(&self.extension_query).small().w(px(260.)))
+            .child(self.add_plugin_button(cx))
+    }
+
+    fn extension_matches(&self, cx: &Context<Self>, searchable: &str) -> bool {
+        let query = self.extension_query.read(cx).value().trim().to_lowercase();
+        query.is_empty() || searchable.contains(&query)
+    }
+
+    fn add_plugin_button(&self, cx: &Context<Self>) -> impl IntoElement {
+        let weak_local = cx.entity().downgrade();
+        let weak_mcp = cx.entity().downgrade();
+        let weak_browse = cx.entity().downgrade();
         Button::new("add-plugin-header")
             .secondary()
             .small()
             .icon(IconName::Plus)
             .label("Add plugin")
             .dropdown_menu(move |menu, _, _| {
+                let weak_local = weak_local.clone();
+                let weak_mcp = weak_mcp.clone();
+                let weak_browse = weak_browse.clone();
                 menu.item(PopupMenuItem::label("Add to Hub"))
-                    .item(PopupMenuItem::new("Install from local folder…").icon(IconName::Folder))
-                    .item(PopupMenuItem::new("Connect MCP server…").icon(IconName::Frame))
-                    .item(PopupMenuItem::new("Browse integrations").icon(IconName::Search))
+                    .item(
+                        PopupMenuItem::new("Install from local folder…")
+                            .icon(IconName::Folder)
+                            .on_click(move |_, window, app| {
+                                if let Some(entity) = weak_local.upgrade() {
+                                    entity.update(app, |hub, cx| {
+                                        hub.choose_plugin_folder(window, cx);
+                                    });
+                                }
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new("Connect MCP server…")
+                            .icon(IconName::Frame)
+                            .on_click(move |_, window, app| {
+                                if let Some(entity) = weak_mcp.upgrade() {
+                                    entity.update(app, |hub, cx| {
+                                        hub.open_extension_sheet(
+                                            IconName::Frame,
+                                            "MCP tools",
+                                            "Connect and configure external Model Context Protocol servers.",
+                                            "Built in",
+                                            &["Tool discovery", "Server lifecycle", "Permission routing"],
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }),
+                    )
+                    .item(
+                        PopupMenuItem::new("Browse integrations")
+                            .icon(IconName::Search)
+                            .on_click(move |_, window, app| {
+                                if let Some(entity) = weak_browse.upgrade() {
+                                    entity.update(app, |hub, cx| {
+                                        hub.extension_tab = 0;
+                                        hub.extension_query.update(cx, |state, cx| {
+                                            state.set_value("", window, cx)
+                                        });
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    )
             })
+    }
+
+    fn choose_plugin_folder(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let pick = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Choose a plugin folder".into()),
+        });
+        let handle = window.window_handle();
+        cx.spawn(move |_hub, cx: &mut AsyncApp| {
+            let mut cx = cx.clone();
+            async move {
+                if let Ok(Ok(Some(paths))) = pick.await {
+                    if let Some(path) = paths.first() {
+                        let path = path.display().to_string();
+                        with_window(&mut cx, handle, move |_, window, cx| {
+                            window.push_notification(format!("Plugin folder selected: {path}"), cx);
+                        });
+                    }
+                }
+            }
+        })
+        .detach();
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1224,6 +1274,7 @@ impl HubApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let weak_back = cx.entity().downgrade();
         let weak_inspector = cx.entity().downgrade();
         let weak_transcript = cx.entity().downgrade();
         let weak_readiness = cx.entity().downgrade();
@@ -1232,10 +1283,42 @@ impl HubApp {
         let transcript_sharing = self.transcript_sharing;
         let inspector_enabled = self.inspector_enabled;
         let has_session = self.active_session_id.is_some();
-        Settings::new("hub-settings")
-            .sidebar_width(px(220.))
-            .with_group_variant(GroupBoxVariant::Outline)
-            .pages(vec![
+        v_flex()
+            .size_full()
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .px_5()
+                    .py_3()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        Button::new("close-settings")
+                            .ghost()
+                            .small()
+                            .icon(IconName::ArrowLeft)
+                            .tooltip("Back to Hub")
+                            .on_click(move |_, window, app| {
+                                if let Some(entity) = weak_back.upgrade() {
+                                    entity.update(app, |hub, cx| {
+                                        hub.close_settings(window, cx);
+                                    });
+                                }
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_xl()
+                            .font_weight(FontWeight(700.))
+                            .child("Settings"),
+                    ),
+            )
+            .child(
+                Settings::new("hub-settings")
+                    .sidebar_width(px(240.))
+                    .with_group_variant(GroupBoxVariant::Outline)
+                    .pages(vec![
                 SettingPage::new("General")
                     .icon(IconName::Settings2)
                     .default_open(true)
@@ -1384,7 +1467,8 @@ impl HubApp {
                     IconName::Info,
                     "Version, update channel, logs, and local storage.",
                 ),
-            ])
+                    ]),
+            )
     }
 }
 

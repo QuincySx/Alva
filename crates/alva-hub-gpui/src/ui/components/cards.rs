@@ -81,7 +81,7 @@ pub struct HubTemplateCard {
     title: SharedString,
     description: SharedString,
     metadata: SharedString,
-    action: Option<AnyElement>,
+    on_click: Option<QuickStartHandler>,
 }
 
 impl HubTemplateCard {
@@ -96,52 +96,59 @@ impl HubTemplateCard {
             title: title.into(),
             description: description.into(),
             metadata: metadata.into(),
-            action: None,
+            on_click: None,
         }
     }
 
-    pub fn action(mut self, action: impl IntoElement) -> Self {
-        self.action = Some(action.into_any_element());
+    pub fn on_click(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_click = Some(Rc::new(handler));
         self
     }
 }
 
 impl RenderOnce for HubTemplateCard {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        GroupBox::new().outline().flex_1().min_w(px(240.)).child(
-            v_flex()
-                .gap_3()
-                .child(
-                    gpui_component::h_flex()
-                        .items_center()
-                        .gap_2()
-                        .child(Icon::new(self.icon).small())
-                        .child(
-                            div()
-                                .min_w_0()
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .whitespace_nowrap()
-                                .font_weight(FontWeight(650.))
-                                .child(self.title),
-                        ),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(self.description),
-                )
-                .child(
-                    gpui_component::h_flex()
-                        .items_center()
-                        .flex_wrap()
-                        .justify_between()
-                        .gap_2()
-                        .child(Tag::secondary().small().child(self.metadata))
-                        .children(self.action),
-                ),
-        )
+        let id = self.title.clone();
+        let content = v_flex()
+            .size_full()
+            .items_start()
+            .gap_3()
+            .child(
+                gpui_component::h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(Icon::new(self.icon).small())
+                    .child(
+                        div()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .font_weight(FontWeight(650.))
+                            .child(self.title),
+                    ),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(self.description),
+            )
+            .child(Tag::secondary().small().child(self.metadata));
+        Button::new(id)
+            .secondary()
+            .outline()
+            .flex_1()
+            .min_w(px(240.))
+            .h(px(120.))
+            .p_4()
+            .child(content)
+            .when_some(self.on_click, |button, handler| {
+                button.on_click(move |event, window, app| handler(event, window, app))
+            })
     }
 }
 
@@ -264,26 +271,28 @@ impl HubExtensionCard {
 impl RenderOnce for HubExtensionCard {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         GroupBox::new().outline().flex_1().min_w(px(240.)).child(
-            v_flex()
+            gpui_component::h_flex()
+                .items_center()
                 .gap_3()
                 .child(
-                    gpui_component::h_flex()
+                    div()
+                        .size_9()
+                        .rounded(cx.theme().radius)
+                        .bg(cx.theme().muted)
+                        .flex()
                         .items_center()
-                        .gap_3()
+                        .justify_center()
+                        .child(Icon::new(self.icon).small()),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1()
                         .child(
-                            div()
-                                .size_9()
-                                .rounded(cx.theme().radius)
-                                .bg(cx.theme().muted)
-                                .flex()
+                            gpui_component::h_flex()
                                 .items_center()
-                                .justify_center()
-                                .child(Icon::new(self.icon).small()),
-                        )
-                        .child(
-                            v_flex()
-                                .min_w_0()
-                                .gap_1()
+                                .gap_2()
                                 .child(
                                     div()
                                         .min_w_0()
@@ -294,13 +303,17 @@ impl RenderOnce for HubExtensionCard {
                                         .child(self.title),
                                 )
                                 .child(Tag::secondary().small().child(self.status)),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap()
+                                .child(self.description),
                         ),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(self.description),
                 )
                 .children(self.action),
         )
@@ -349,14 +362,14 @@ mod tests {
         )
         .on_click(|_, _, _| {});
         let template = HubTemplateCard::new(IconName::Info, "Nightly", "Run tests", "02:00")
-            .action(div().child("Use"));
+            .on_click(|_, _, _| {});
         let extension =
             HubExtensionCard::new(IconName::Bot, "Inspector", "Execution records", "Built in")
                 .action(div().child("Open"));
 
         assert!(quick.on_click.is_some());
         assert_eq!(template.title, "Nightly");
-        assert!(template.action.is_some());
+        assert!(template.on_click.is_some());
         assert_eq!(extension.status, "Built in");
         assert!(extension.action.is_some());
     }

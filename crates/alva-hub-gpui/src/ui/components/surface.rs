@@ -12,7 +12,6 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, IconName, Sizable a
 pub struct HubSurfaceHeader {
     title: SharedString,
     description: SharedString,
-    action: Option<AnyElement>,
 }
 
 impl HubSurfaceHeader {
@@ -20,13 +19,7 @@ impl HubSurfaceHeader {
         Self {
             title: title.into(),
             description: description.into(),
-            action: None,
         }
-    }
-
-    pub fn action(mut self, action: impl IntoElement) -> Self {
-        self.action = Some(action.into_any_element());
-        self
     }
 }
 
@@ -58,7 +51,6 @@ impl RenderOnce for HubSurfaceHeader {
                             .child(self.description),
                     ),
             )
-            .children(self.action)
     }
 }
 
@@ -132,14 +124,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn surface_builders_accept_optional_actions() {
-        let header =
-            HubSurfaceHeader::new("Automation", "Scheduled work").action(div().child("Action"));
+    fn surface_builders_keep_supplied_copy() {
+        let header = HubSurfaceHeader::new("Automation", "Scheduled work");
         let empty = HubEmptyState::new(IconName::Info, "Empty", "Nothing here")
             .action(div().child("Action"));
 
         assert_eq!(header.title, "Automation");
-        assert!(header.action.is_some());
+        assert_eq!(header.description, "Scheduled work");
         assert_eq!(empty.title, "Empty");
         assert!(empty.action.is_some());
     }

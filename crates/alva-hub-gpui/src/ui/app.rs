@@ -27,7 +27,7 @@ use alva_hub_gpui::{
     TimelineEvent, TimelineStatus,
 };
 
-use super::workspace::HubWorkspace;
+use super::workspace::{HubWorkspace, ToolPanel, WorkspaceTool};
 use super::{profile_label, EngineOption, WorkerOption};
 use alva_hub_gpui::{project_chat, project_timeline, ProjectedChatItem, ProjectedEvent};
 
@@ -55,7 +55,10 @@ pub struct HubApp {
     /// window for stateful-component updates.
     pub window_handle: AnyWindowHandle,
     pub workspace_dock: Option<WeakEntity<gpui_component::dock::DockArea>>,
+    pub workspace_tool_panels: HashMap<WorkspaceTool, WeakEntity<ToolPanel>>,
+    pub workspace_open_tools: Vec<WorkspaceTool>,
     pub primary_surface: PrimarySurface,
+    pub sidebar_search_open: bool,
     pub workspace: Option<String>,
     pub engine: Entity<SelectState<SearchableVec<EngineOption>>>,
     pub permission: Entity<SelectState<SearchableVec<&'static str>>>,
@@ -63,6 +66,7 @@ pub struct HubApp {
     pub automation_name: Entity<InputState>,
     pub automation_prompt: Entity<InputState>,
     pub automation_schedule: Entity<SelectState<SearchableVec<&'static str>>>,
+    pub extension_query: Entity<InputState>,
     pub extension_tab: usize,
     pub timeline: Vec<ProjectedEvent>,
     pub chat: Vec<ProjectedChatItem>,
@@ -174,7 +178,10 @@ impl HubApp {
             permission_router: Arc::new(PermissionRouter::new()),
             window_handle: window.window_handle(),
             workspace_dock: None,
+            workspace_tool_panels: HashMap::new(),
+            workspace_open_tools: Vec::new(),
             primary_surface: PrimarySurface::Chat,
+            sidebar_search_open: false,
             workspace: None,
             timeline: Vec::new(),
             chat: Vec::new(),
@@ -263,7 +270,7 @@ impl HubApp {
             prompt: cx.new(|cx| {
                 InputState::new(window, cx)
                     .auto_grow(3, 8)
-                    .placeholder("Ask alva to inspect, change, or explain this project…")
+                    .placeholder("Ask Alva anything…")
             }),
             automation_name: cx
                 .new(|cx| InputState::new(window, cx).placeholder("Nightly self-healing tests")),
@@ -285,9 +292,12 @@ impl HubApp {
                     cx,
                 )
             }),
+            extension_query: cx
+                .new(|cx| InputState::new(window, cx).placeholder("Search plugins or skills…")),
             extension_tab: 0,
         };
         app.subscribe_sessions(window, cx);
+        app.subscribe_extension_query(window, cx);
         app.subscribe_engine(window, cx);
         app.subscribe_prompt(window, cx);
         app.sync_policy_inputs(window, cx);
@@ -358,31 +368,6 @@ impl HubApp {
             .map(|s| s.to_string())
             .unwrap_or_else(|| "workspace_write".to_string());
         PermissionProfile::parse(&value).unwrap_or(PermissionProfile::WorkspaceWrite)
-    }
-
-    /// Status pill label, matching React `statusLabel`.
-    pub fn status_label(&self) -> String {
-        let last = self.timeline.last();
-        let engine_id = last.map(|e| e.engine_id.as_str()).unwrap_or("engine");
-        match last.map(|e| &e.status) {
-            Some(TimelineStatus::Running) => format!("{engine_id} is working"),
-            Some(TimelineStatus::Completed) => "Completed".to_string(),
-            Some(TimelineStatus::Failed) => "Failed".to_string(),
-            Some(TimelineStatus::Interrupted) => "Interrupted · ready to continue".to_string(),
-            Some(TimelineStatus::Fallback) => "Automatic fallback".to_string(),
-            Some(TimelineStatus::Exhausted) => "Fallback exhausted".to_string(),
-            Some(TimelineStatus::PermissionRequired) => {
-                format!("{engine_id} is waiting for your approval")
-            }
-            Some(TimelineStatus::Worker) => "Worker outcome".to_string(),
-            Some(TimelineStatus::Queued) => "Engine switch queued".to_string(),
-            Some(TimelineStatus::Cancelled) => "Engine switch cancelled".to_string(),
-            Some(TimelineStatus::Switched) => "Engine switched".to_string(),
-            Some(TimelineStatus::Streaming) => format!("{engine_id} is responding"),
-            Some(TimelineStatus::ToolRunning) => format!("{engine_id} is using a tool"),
-            Some(TimelineStatus::ToolCompleted) => "Tool finished".to_string(),
-            None => "Ready".to_string(),
-        }
     }
 
     /// Everything that describes "the session I am looking at" must reset
@@ -468,6 +453,18 @@ impl HubApp {
         );
     }
 
+    pub fn subscribe_extension_query(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let _subscription = cx.subscribe_in(
+            &self.extension_query,
+            window,
+            |_view, _state, event, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        );
+    }
+
     /// Search filter over sessions, matching React `filteredSessions`.
     pub fn filtered_sessions(&self, cx: &Context<Self>) -> Vec<HubSessionSummary> {
         let query = self.session_query.read(cx).value().trim().to_lowercase();
@@ -495,16 +492,74 @@ impl HubApp {
         cx.notify();
     }
 
+    pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.primary_surface = PrimarySurface::Settings;
+        let Some(dock_area) = self.workspace_dock.as_ref().and_then(WeakEntity::upgrade) else {
+            cx.notify();
+            return;
+        };
+        let (left_dock, right_dock) = {
+            let dock_area = dock_area.read(cx);
+            (
+                dock_area.left_dock().cloned(),
+                dock_area.right_dock().cloned(),
+            )
+        };
+        if let Some(left_dock) = left_dock {
+            left_dock.update(cx, |dock, cx| dock.set_open(false, window, cx));
+        }
+        if let Some(right_dock) = right_dock {
+            right_dock.update(cx, |dock, cx| dock.set_open(false, window, cx));
+        }
+        cx.notify();
+    }
+
+    pub fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.primary_surface = PrimarySurface::Chat;
+        let Some(dock_area) = self.workspace_dock.as_ref().and_then(WeakEntity::upgrade) else {
+            cx.notify();
+            return;
+        };
+        let left_dock = dock_area.read(cx).left_dock().cloned();
+        if let Some(left_dock) = left_dock {
+            left_dock.update(cx, |dock, cx| dock.set_open(true, window, cx));
+        }
+        cx.notify();
+    }
+
     pub fn open_workspace_tool(
-        &self,
-        tool: super::workspace::WorkspaceTool,
+        &mut self,
+        tool: WorkspaceTool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(dock_area) = self.workspace_dock.as_ref().and_then(WeakEntity::upgrade) else {
             return;
         };
-        let Some(index) = super::workspace::default_workspace_tools()
+        let already_open = self.workspace_open_tools.contains(&tool);
+        if !already_open {
+            self.workspace_open_tools.push(tool);
+            let Some(panel) = self
+                .workspace_tool_panels
+                .get(&tool)
+                .and_then(WeakEntity::upgrade)
+            else {
+                self.workspace_open_tools
+                    .retain(|candidate| *candidate != tool);
+                return;
+            };
+            dock_area.update(cx, |dock, cx| {
+                dock.add_panel(
+                    Arc::new(panel),
+                    gpui_component::dock::DockPlacement::Right,
+                    None,
+                    window,
+                    cx,
+                );
+            });
+        }
+        let Some(index) = self
+            .workspace_open_tools
             .iter()
             .position(|candidate| *candidate == tool)
         else {
@@ -515,8 +570,10 @@ impl HubApp {
             return;
         };
         right_dock.update(cx, |dock, cx| {
-            let panel = dock.panel().clone().active_index(index, cx);
-            dock.set_panel(panel, window, cx);
+            if already_open {
+                let panel = dock.panel().clone().active_index(index, cx);
+                dock.set_panel(panel, window, cx);
+            }
             dock.set_open(true, window, cx);
         });
     }
@@ -694,10 +751,25 @@ impl HubApp {
     /// Run through a channel so chat activity is applied as each engine event
     /// arrives instead of after the whole attempt completes.
     pub fn run(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(workspace) = self.workspace.clone() else {
-            window.push_notification("Choose a workspace before running an engine.", cx);
+        let workspace = self
+            .workspace
+            .clone()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                self.store
+                    .path()
+                    .parent()
+                    .unwrap_or(std::path::Path::new("/tmp"))
+                    .join("conversations")
+            });
+        if let Err(error) = std::fs::create_dir_all(&workspace) {
+            window.push_notification(
+                format!("Unable to prepare the conversation workspace: {error}"),
+                cx,
+            );
             return;
-        };
+        }
+        let workspace = workspace.display().to_string();
         let prompt = self.prompt.read(cx).value().to_string();
         if prompt.trim().is_empty() || self.busy {
             return;

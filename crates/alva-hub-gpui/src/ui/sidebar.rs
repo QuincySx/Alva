@@ -3,14 +3,14 @@
 //         Sheet entry points for readiness, fallback and team operations.
 // POS:    Hub navigation rail; operational forms stay available without a dashboard-style shell.
 
-use gpui::*;
+use gpui::{prelude::FluentBuilder as _, *};
 use gpui_component::{
     avatar::Avatar,
     button::{Button, ButtonVariants as _},
     input::{Input, InputEvent},
     sidebar::{
-        Sidebar, SidebarCollapsible, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu,
-        SidebarMenuItem,
+        Sidebar, SidebarCollapsible, SidebarFooter, SidebarGroup, SidebarHeader, SidebarItem as _,
+        SidebarMenu, SidebarMenuItem,
     },
     ActiveTheme, *,
 };
@@ -20,7 +20,7 @@ use super::app::{with_window, HubApp};
 use super::components::HubSessionItem;
 
 impl HubApp {
-    pub fn sidebar(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub fn sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let filtered = self.filtered_sessions(cx);
         let active_id = self.active_session_id.clone();
         let querying = !self.session_query.read(cx).value().trim().is_empty();
@@ -43,9 +43,9 @@ impl HubApp {
                 .collect::<Vec<_>>()
         };
         let weak_new = cx.entity().downgrade();
-        let weak_chat = cx.entity().downgrade();
         let weak_automation = cx.entity().downgrade();
         let weak_plugins = cx.entity().downgrade();
+        let weak_search = cx.entity().downgrade();
         let weak_workspace = cx.entity().downgrade();
         let weak_settings = cx.entity().downgrade();
         let weak_readiness = cx.entity().downgrade();
@@ -65,63 +65,83 @@ impl HubApp {
                 SidebarHeader::new().child(
                     v_flex()
                         .w_full()
-                        .gap_2()
-                        .child(self.brand_block(cx))
-                        .child(Input::new(&self.session_query).small()),
+                        .gap_1()
+                        .child(
+                            SidebarMenu::new()
+                                .child(
+                                    SidebarMenuItem::new("New conversation")
+                                        .icon(IconName::Plus)
+                                        .active(
+                                            self.primary_surface == PrimarySurface::Chat
+                                                && self.active_session_id.is_none(),
+                                        )
+                                        .on_click(move |_, window, app| {
+                                            if let Some(entity) = weak_new.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.reset_session_surface(window, cx);
+                                                    cx.notify();
+                                                });
+                                            }
+                                        }),
+                                )
+                                .child(
+                                    SidebarMenuItem::new("Automation")
+                                        .icon(IconName::Info)
+                                        .active(self.primary_surface == PrimarySurface::Automation)
+                                        .on_click(move |_, _, app| {
+                                            if let Some(entity) = weak_automation.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.set_primary_surface(
+                                                        PrimarySurface::Automation,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                )
+                                .child(
+                                    SidebarMenuItem::new("Plugins & skills")
+                                        .icon(IconName::Bot)
+                                        .active(self.primary_surface == PrimarySurface::Plugins)
+                                        .on_click(move |_, _, app| {
+                                            if let Some(entity) = weak_plugins.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.set_primary_surface(
+                                                        PrimarySurface::Plugins,
+                                                        cx,
+                                                    );
+                                                });
+                                            }
+                                        }),
+                                )
+                                .child(
+                                    SidebarMenuItem::new("Search")
+                                        .icon(IconName::Search)
+                                        .active(self.sidebar_search_open)
+                                        .on_click(move |_, window, app| {
+                                            if let Some(entity) = weak_search.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.sidebar_search_open =
+                                                        !hub.sidebar_search_open;
+                                                    if hub.sidebar_search_open {
+                                                        hub.session_query
+                                                            .update(cx, |state, cx| {
+                                                                state.focus(window, cx)
+                                                            });
+                                                    }
+                                                    cx.notify();
+                                                });
+                                            }
+                                        }),
+                                )
+                                .render("hub-primary-navigation", window, cx),
+                        )
+                        .when(self.sidebar_search_open, |sidebar| {
+                            sidebar.child(Input::new(&self.session_query).small())
+                        }),
                 ),
             )
             .children([
-                SidebarGroup::new("Navigate").child(
-                    SidebarMenu::new()
-                        .child(
-                            SidebarMenuItem::new("New conversation")
-                                .icon(IconName::Plus)
-                                .on_click(move |_, window, app| {
-                                    if let Some(entity) = weak_new.upgrade() {
-                                        entity.update(app, |hub, cx| {
-                                            hub.reset_session_surface(window, cx);
-                                            cx.notify();
-                                        });
-                                    }
-                                }),
-                        )
-                        .child(
-                            SidebarMenuItem::new("Chat")
-                                .icon(IconName::Inbox)
-                                .active(self.primary_surface == PrimarySurface::Chat)
-                                .on_click(move |_, _, app| {
-                                    if let Some(entity) = weak_chat.upgrade() {
-                                        entity.update(app, |hub, cx| {
-                                            hub.set_primary_surface(PrimarySurface::Chat, cx);
-                                        });
-                                    }
-                                }),
-                        )
-                        .child(
-                            SidebarMenuItem::new("Automation")
-                                .icon(IconName::Info)
-                                .active(self.primary_surface == PrimarySurface::Automation)
-                                .on_click(move |_, _, app| {
-                                    if let Some(entity) = weak_automation.upgrade() {
-                                        entity.update(app, |hub, cx| {
-                                            hub.set_primary_surface(PrimarySurface::Automation, cx);
-                                        });
-                                    }
-                                }),
-                        )
-                        .child(
-                            SidebarMenuItem::new("Plugins & skills")
-                                .icon(IconName::Bot)
-                                .active(self.primary_surface == PrimarySurface::Plugins)
-                                .on_click(move |_, _, app| {
-                                    if let Some(entity) = weak_plugins.upgrade() {
-                                        entity.update(app, |hub, cx| {
-                                            hub.set_primary_surface(PrimarySurface::Plugins, cx);
-                                        });
-                                    }
-                                }),
-                        ),
-                ),
                 SidebarGroup::new("Project").child(
                     SidebarMenu::new().child(
                         SidebarMenuItem::new(workspace_name)
@@ -143,20 +163,40 @@ impl HubApp {
                     v_flex()
                         .gap_2()
                         .child(
-                            Button::new("settings")
-                                .ghost()
-                                .small()
-                                .w_full()
-                                .icon(IconName::Info)
-                                .label("Settings")
-                                .selected(self.primary_surface == PrimarySurface::Settings)
-                                .on_click(move |_, _, app| {
-                                    if let Some(entity) = weak_settings.upgrade() {
-                                        entity.update(app, |hub, cx| {
-                                            hub.set_primary_surface(PrimarySurface::Settings, cx);
-                                        });
-                                    }
-                                }),
+                            h_flex()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(
+                                            Avatar::new()
+                                                .name("ALVA Hub")
+                                                .placeholder(IconName::Bot)
+                                                .small(),
+                                        )
+                                        .child(
+                                            v_flex()
+                                                .child(div().text_sm().child("ALVA Hub"))
+                                                .child(self.ticket_note(cx)),
+                                        ),
+                                )
+                                .child(
+                                    Button::new("settings")
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::Info)
+                                        .tooltip("Settings")
+                                        .selected(self.primary_surface == PrimarySurface::Settings)
+                                        .on_click(move |_, window, app| {
+                                            if let Some(entity) = weak_settings.upgrade() {
+                                                entity.update(app, |hub, cx| {
+                                                    hub.open_settings(window, cx);
+                                                });
+                                            }
+                                        }),
+                                ),
                         )
                         .child(
                             h_flex()
@@ -202,8 +242,7 @@ impl HubApp {
                                                 });
                                             }
                                         }),
-                                )
-                                .child(self.ticket_note(cx)),
+                                ),
                         ),
                 ),
             )
@@ -256,29 +295,6 @@ impl HubApp {
         });
     }
 
-    /// Brand mark + title + tagline.
-    fn brand_block(&self, cx: &Context<Self>) -> impl IntoElement {
-        h_flex()
-            .gap_2()
-            .items_center()
-            .child(Avatar::new().name("ALVA Hub").placeholder(IconName::Bot))
-            .child(
-                v_flex()
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight(700.))
-                            .child("ALVA Hub"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().colors.muted_foreground)
-                            .child("One project. Every engine."),
-                    ),
-            )
-    }
-
     pub fn choose_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pick = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: false,
@@ -326,10 +342,8 @@ impl HubApp {
 
     fn ticket_note(&self, cx: &Context<Self>) -> impl IntoElement {
         div()
-            .flex_1()
-            .text_right()
             .text_xs()
             .text_color(cx.theme().colors.muted_foreground)
-            .child("Alva · Claude · Codex")
+            .child(format!("v{}", env!("CARGO_PKG_VERSION")))
     }
 }

@@ -3,8 +3,8 @@
 // POS:    Chat-specific component layer composed entirely from gpui-component
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, FontWeight, IntoElement,
-    ParentElement as _, RenderOnce, SharedString, Styled, Window,
+    div, px, AnyElement, App, FontWeight, IntoElement, ParentElement as _, RenderOnce,
+    SharedString, Styled, Window,
 };
 use gpui_component::{
     collapsible::Collapsible,
@@ -117,7 +117,6 @@ pub struct HubComposer {
     permission_disabled: bool,
     project_action: Option<AnyElement>,
     submit_action: Option<AnyElement>,
-    summary: Option<SharedString>,
     metadata: SharedString,
 }
 
@@ -135,7 +134,6 @@ impl HubComposer {
             permission_disabled: false,
             project_action: None,
             submit_action: None,
-            summary: None,
             metadata: metadata.into(),
         }
     }
@@ -154,11 +152,6 @@ impl HubComposer {
         self.submit_action = Some(action.into_any_element());
         self
     }
-
-    pub fn summary(mut self, summary: impl Into<SharedString>) -> Self {
-        self.summary = Some(summary.into());
-        self
-    }
 }
 
 impl RenderOnce for HubComposer {
@@ -169,31 +162,32 @@ impl RenderOnce for HubComposer {
             .pb_3()
             .child(
                 GroupBox::new().outline().child(
-                    v_flex().gap_2().child(Input::new(&self.prompt)).child(
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .children(self.project_action)
-                            .child(
-                                Select::new(&self.permission)
-                                    .small()
-                                    .w(px(210.))
-                                    .disabled(self.permission_disabled),
-                            )
-                            .child(div().flex_1())
-                            .child(Select::new(&self.engine).small().w(px(170.)))
-                            .children(self.submit_action),
-                    ),
+                    v_flex()
+                        .gap_2()
+                        .child(Input::new(&self.prompt).appearance(false))
+                        .child(
+                            h_flex()
+                                .items_center()
+                                .gap_2()
+                                .children(self.project_action)
+                                .child(
+                                    Select::new(&self.permission)
+                                        .small()
+                                        .appearance(false)
+                                        .w(px(170.))
+                                        .disabled(self.permission_disabled),
+                                )
+                                .child(div().flex_1())
+                                .child(
+                                    Select::new(&self.engine)
+                                        .small()
+                                        .appearance(false)
+                                        .w(px(150.)),
+                                )
+                                .children(self.submit_action),
+                        ),
                 ),
             )
-            .when_some(self.summary, |this, summary| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(summary),
-                )
-            })
             .child(
                 div()
                     .px_1()

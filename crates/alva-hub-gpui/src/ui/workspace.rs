@@ -15,7 +15,7 @@ use super::components::HubToolPlaceholder;
 
 const DOCK_LAYOUT_VERSION: usize = 2;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum WorkspaceTool {
     Files,
     Review,
@@ -106,7 +106,7 @@ impl HubWorkspace {
         let chat = cx.new(|cx| ChatPanel::new(hub.clone(), cx));
         let tools = default_workspace_tools()
             .into_iter()
-            .map(|tool| cx.new(|cx| ToolPanel::new(tool, hub.clone(), cx)))
+            .map(|tool| (tool, cx.new(|cx| ToolPanel::new(tool, hub.clone(), cx))))
             .collect::<Vec<_>>();
         let dock_area =
             cx.new(|cx| DockArea::new("alva-hub-workspace", Some(DOCK_LAYOUT_VERSION), window, cx));
@@ -114,15 +114,7 @@ impl HubWorkspace {
 
         let center = DockItem::panel(Arc::new(chat));
         let left = DockItem::panel(Arc::new(navigation));
-        let right = DockItem::tabs(
-            tools
-                .into_iter()
-                .map(|panel| Arc::new(panel) as Arc<dyn gpui_component::dock::PanelView>)
-                .collect(),
-            &weak_dock,
-            window,
-            cx,
-        );
+        let right = DockItem::tabs(Vec::new(), &weak_dock, window, cx);
 
         dock_area.update(cx, |dock, cx| {
             dock.set_version(DOCK_LAYOUT_VERSION, window, cx);
@@ -140,6 +132,10 @@ impl HubWorkspace {
         });
         hub.update(cx, |hub, _| {
             hub.workspace_dock = Some(weak_dock);
+            hub.workspace_tool_panels = tools
+                .iter()
+                .map(|(tool, panel)| (*tool, panel.downgrade()))
+                .collect();
         });
 
         Self { hub, dock_area }
@@ -262,14 +258,14 @@ impl Render for ChatPanel {
     }
 }
 
-struct ToolPanel {
+pub(crate) struct ToolPanel {
     tool: WorkspaceTool,
     hub: Entity<HubApp>,
     focus_handle: FocusHandle,
 }
 
 impl ToolPanel {
-    fn new(tool: WorkspaceTool, hub: Entity<HubApp>, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(tool: WorkspaceTool, hub: Entity<HubApp>, cx: &mut Context<Self>) -> Self {
         Self {
             tool,
             hub,
@@ -300,11 +296,31 @@ impl Panel for ToolPanel {
     }
 
     fn closable(&self, _: &App) -> bool {
-        false
+        true
     }
 
     fn zoomable(&self, _: &App) -> Option<PanelControl> {
         None
+    }
+
+    fn on_removed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let dock_area = self.hub.update(cx, |hub, cx| {
+            hub.workspace_open_tools
+                .retain(|candidate| *candidate != self.tool);
+            cx.notify();
+            if hub.workspace_open_tools.is_empty() {
+                hub.workspace_dock.clone()
+            } else {
+                None
+            }
+        });
+        let Some(dock_area) = dock_area.and_then(|dock| dock.upgrade()) else {
+            return;
+        };
+        let right_dock = dock_area.read(cx).right_dock().cloned();
+        if let Some(right_dock) = right_dock {
+            right_dock.update(cx, |dock, cx| dock.set_open(false, window, cx));
+        }
     }
 }
 
