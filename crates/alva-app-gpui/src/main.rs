@@ -53,7 +53,21 @@ enum View {
     Inspector,
 }
 
-const PROVIDERS: [&str; 3] = ["anthropic", "openai-responses", "gemini"];
+/// Fallback provider list when ~/.alva/config.json has no providers.
+const FALLBACK_PROVIDERS: [&str; 3] = ["anthropic", "openai-responses", "gemini"];
+
+/// Provider choices: keys from ~/.alva/config.json (profiles + legacy
+/// kind-keyed entries), falling back to the static list when unconfigured.
+fn provider_options() -> Vec<String> {
+    let mut from_config: Vec<String> = alva_app_core::config::load()
+        .map(|cfg| cfg.providers.keys().cloned().collect())
+        .unwrap_or_default();
+    if from_config.is_empty() {
+        from_config = FALLBACK_PROVIDERS.iter().map(|s| s.to_string()).collect();
+    }
+    from_config.sort();
+    from_config
+}
 
 struct ChatApp {
     service: Arc<tokio::sync::Mutex<AgentService>>,
@@ -61,7 +75,7 @@ struct ChatApp {
     sessions: Vec<SessionSummary>,
     active_session_id: Option<String>,
     tokio: tokio::runtime::Handle,
-    provider: Entity<SelectState<SearchableVec<&'static str>>>,
+    provider: Entity<SelectState<SearchableVec<String>>>,
     model: Entity<InputState>,
     api_key: Entity<InputState>,
     prompt: Entity<InputState>,
@@ -113,9 +127,17 @@ impl ChatApp {
             active_session_id: None,
             tokio,
             provider: cx.new(|cx| {
+                let options = provider_options();
+                let active = alva_app_core::config::load()
+                    .and_then(|cfg| cfg.active)
+                    .unwrap_or_else(|| "anthropic".to_string());
+                let index = options
+                    .iter()
+                    .position(|option| option == &active)
+                    .unwrap_or(0);
                 SelectState::new(
-                    SearchableVec::new(PROVIDERS.to_vec()),
-                    Some(IndexPath::new(0)),
+                    SearchableVec::new(options),
+                    Some(IndexPath::new(index)),
                     window,
                     cx,
                 )
