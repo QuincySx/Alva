@@ -54,4 +54,4 @@
 - [x] Add seven aggregate, model-picker, and narrow-Workbench browser baselines
 - [x] Rebuild Chat, Composer, ModelPicker, Workbench, Automations, Extensions, Settings, Search, and ContextMenu paths
 - [x] Pass 44 Vitest tests and Playwright visual regression
-- [ ] Native Tauri smoke on the packaged WebView
+- [x] Native Tauri smoke on the packaged WebView
