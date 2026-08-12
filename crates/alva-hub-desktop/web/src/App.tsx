@@ -5,6 +5,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PanelRight } from "lucide-react";
 import { HubComposer } from "./components/hub-composer";
+import { EngineReadinessPanel } from "./components/engine-readiness-panel";
+import { FallbackPolicyPanel } from "./components/fallback-policy-panel";
 import { ModelPicker, type HubModelRoute } from "./components/model-picker";
 import { HubSidebar } from "./components/hub-sidebar";
 import {
@@ -1040,237 +1042,32 @@ export default function App() {
               <TabsTrigger value="team">Team</TabsTrigger>
             </TabsList>
             <TabsContent className="hub-workbench__scroll" value="engines">
-
-        <section className="readiness-panel" aria-labelledby="readiness-panel-title">
-          <div className="session-heading">
-            <span className="eyebrow" id="readiness-panel-title">Engines</span>
-            <Button
-              className="readiness-refresh"
-              loading={readinessBusy}
-              onClick={() => void refreshReadiness(workspace || null)}
-              size="small"
-              variant="ghost"
-            >
-              {readinessBusy ? "Checking…" : "Refresh"}
-            </Button>
-          </div>
-          <div className="readiness-list">
-            {readiness.length === 0 ? (
-              <small className="session-empty">
-                Engine health will appear here.
-              </small>
-            ) : (
-              readiness.map((engine) => (
-                <div className="readiness-card" key={engine.engine_id}>
-                  <div className="readiness-heading">
-                    <strong>{engine.display_name}</strong>
-                    <span className={`readiness-badge readiness-${engine.status}`}>
-                      {readinessBadge[engine.status]}
-                    </span>
-                  </div>
-                  <small>
-                    {engine.version
-                      ? `v${engine.version} · requires ≥ ${engine.minimum_version}`
-                      : `requires ≥ ${engine.minimum_version}`}
-                    {" · "}
-                    {engine.authenticated === true
-                      ? "signed in"
-                      : engine.authenticated === false
-                        ? "not signed in"
-                        : "sign-in unknown"}
-                    {" · stream "}
-                    {engine.stream_health}
-                  </small>
-                  {engine.capabilities.length > 0 ? (
-                    <small className="readiness-capabilities">
-                      {engine.capabilities.join(" · ")}
-                    </small>
-                  ) : null}
-                  {engine.reasons.map((reason, index) => (
-                    <small className="readiness-reason" key={`${reason.code}-${index}`}>
-                      {describeReadinessReason(reason)}
-                    </small>
-                  ))}
-                  {repairPlan
-                    .filter((action) => action.engine_id === engine.engine_id)
-                    .map((action) => (
-                      <div className="repair-action" key={`${action.engine_id}-${action.kind}`}>
-                        {action.one_click ? (
-                          <Button
-                            loading={repairingEngine === action.engine_id}
-                            disabled={repairingEngine !== null}
-                            onClick={() =>
-                              void repairEngine(action.engine_id, action.kind)
-                            }
-                            size="small"
-                          >
-                            {repairingEngine === action.engine_id
-                              ? "Working…"
-                              : action.title}
-                          </Button>
-                        ) : (
-                          <>
-                            <small>{action.title}</small>
-                            {action.command ? (
-                              <code>{action.command}</code>
-                            ) : null}
-                          </>
-                        )}
-                        {action.url ? (
-                          <Button
-                            className="repair-link"
-                            onClick={() =>
-                              void Promise.resolve(
-                                openExternal(action.url ?? ""),
-                              ).catch(appendLocalFailure)
-                            }
-                            size="small"
-                            variant="ghost"
-                          >
-                            Official guide
-                          </Button>
-                        ) : null}
-                      </div>
-                    ))}
-                  {repairLogs[engine.engine_id] ? (
-                    <small className="repair-log">
-                      {repairLogs[engine.engine_id]}
-                    </small>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        <div className="ticket-note">
-          <span>Durable engine branches</span>
-          <small>Alva · Claude · Codex · reversible handoff</small>
-        </div>
+              <EngineReadinessPanel
+                busy={readinessBusy}
+                describeReason={describeReadinessReason}
+                label={readinessBadge}
+                logs={repairLogs}
+                onOpenGuide={(url) =>
+                  void Promise.resolve(openExternal(url)).catch(appendLocalFailure)
+                }
+                onRefresh={() => void refreshReadiness(workspace || null)}
+                onRepair={(engineId, kind) => void repairEngine(engineId, kind)}
+                readiness={readiness}
+                repairingEngine={repairingEngine}
+                repairPlan={repairPlan}
+              />
             </TabsContent>
             <TabsContent className="hub-workbench__scroll" value="fallback">
-
-        <section className="fallback-panel" aria-labelledby="fallback-panel-title">
-          <div className="session-heading">
-            <Button
-              aria-expanded={!collapsedSections.fallback}
-              aria-label="Toggle fallback chain"
-              className="section-collapse"
-              onClick={() =>
-                setCollapsedSections((current) => ({
-                  ...current,
-                  fallback: !current.fallback,
-                }))
-              }
-              size="icon"
-              variant="ghost"
-            >
-              {collapsedSections.fallback ? "▸" : "▾"}
-            </Button>
-            <span className="eyebrow">
-              {activeSessionId ? "Session fallback chain" : "Default fallback chain"}
-            </span>
-            <small>{fallbackPolicy.targets.length}</small>
-          </div>
-          {collapsedSections.fallback ? null : (
-          <>
-          <p className="policy-note">
-            Only checked targets may run automatically. Manual engine switching is always explicit.
-          </p>
-          <div className="policy-catalog">
-            {engineCatalog.map((target) => {
-              const selected = fallbackPolicy.targets.some(
-                (candidate) => candidate.engine_id === target.engine_id,
-              );
-              return (
-                <Button
-                  className={`policy-engine ${selected ? "selected" : ""}`}
-                  key={target.engine_id}
-                  onClick={() => toggleFallbackTarget(target.engine_id)}
-                  size="small"
-                  variant="ghost"
-                >
-                  {selected ? "✓ " : "+ "}{target.engine_id}
-                </Button>
-              );
-            })}
-          </div>
-          {fallbackPolicy.targets.map((target, index) => (
-            // key must not include editable fields: changing model_id would
-            // remount the inputs mid-typing and drop keystrokes.
-            <div
-              className="policy-target"
-              key={`${target.engine_id}-${index}`}
-            >
-              <div>
-                <strong>{index + 1}. {target.engine_id}</strong>
-                <TextField
-                  aria-label={`Model for ${target.engine_id}`}
-                  className="policy-model-input"
-                  placeholder="engine-default"
-                  value={target.model_id}
-                  onChange={(event) =>
-                    updateFallbackTarget(index, {
-                      model_id: event.target.value,
-                    })
-                  }
-                />
-                <TextField
-                  aria-label={`Provider for ${target.engine_id}`}
-                  className="policy-model-input"
-                  placeholder="provider id"
-                  value={target.provider_id}
-                  onChange={(event) =>
-                    updateFallbackTarget(index, {
-                      provider_id: event.target.value,
-                    })
-                  }
-                />
-              </div>
-              <small>{target.account_source}</small>
-              <small>{target.billing_route}</small>
-              <Checkbox
-                  checked={target.automatic_use_authorized}
-                  label="Authorize automatic use"
-                  onCheckedChange={(checked) =>
-                    updateFallbackTarget(index, {
-                      automatic_use_authorized: checked === true,
-                    })
-                  }
+              <FallbackPolicyPanel
+                activeSession={activeSessionId !== null}
+                catalog={engineCatalog}
+                onMoveTarget={moveFallbackTarget}
+                onSave={() => void saveFallbackPolicy()}
+                onToggleTarget={toggleFallbackTarget}
+                onUpdateTarget={updateFallbackTarget}
+                policy={fallbackPolicy}
+                saving={policySaving}
               />
-              <div className="policy-order">
-                <Button
-                  aria-label={`Move ${target.engine_id} earlier`}
-                  disabled={index === 0}
-                  onClick={() => moveFallbackTarget(index, -1)}
-                  size="icon"
-                  variant="ghost"
-                >
-                  ↑
-                </Button>
-                <Button
-                  aria-label={`Move ${target.engine_id} later`}
-                  disabled={index === fallbackPolicy.targets.length - 1}
-                  onClick={() => moveFallbackTarget(index, 1)}
-                  size="icon"
-                  variant="ghost"
-                >
-                  ↓
-                </Button>
-              </div>
-            </div>
-          ))}
-          <Button
-            className="secondary-button policy-save"
-            loading={policySaving}
-            onClick={() => void saveFallbackPolicy()}
-          >
-            {policySaving ? "Saving…" : activeSessionId ? "Save session chain" : "Save default chain"}
-          </Button>
-          </>
-          )}
-        </section>
-
             </TabsContent>
             <TabsContent className="hub-workbench__scroll" value="team">
 
