@@ -1,0 +1,97 @@
+/* INPUT:  ALVA tokens and Hub domain component class names */
+/* OUTPUT: Chat composer and model picker visual composition */
+/* POS:    Domain styling above primitives and below page-specific layout */
+
+.hub-composer-wrap {
+  width: min(100%, 860px);
+  margin: 0 auto;
+  padding: 12px 24px 14px;
+}
+
+.hub-composer {
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-raised);
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+}
+
+.hub-composer:focus-within {
+  border-color: color-mix(in srgb, var(--color-focus) 60%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-focus) 14%, transparent), var(--shadow-raised);
+}
+
+.hub-composer__input.ui-textarea {
+  width: 100%;
+  min-height: 92px;
+  max-height: 280px;
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  padding: 16px 18px 8px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.hub-composer__input.ui-textarea:focus { box-shadow: none; }
+.hub-composer__footer { display: flex; min-height: 46px; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 8px; }
+.hub-composer__controls,
+.hub-composer__actions { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.hub-composer__actions { justify-content: flex-end; }
+.hub-composer__send { border-radius: 10px; }
+.hub-composer-status { overflow: hidden; padding: 7px 6px 0; color: var(--color-text-subtle); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+.hub-model-trigger { max-width: 330px; color: var(--color-text-muted); }
+.hub-model-trigger .ui-button__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ui-popover.hub-model-picker {
+  display: grid;
+  grid-template-columns: 280px minmax(380px, 440px);
+  width: min(740px, calc(100vw - 40px));
+  max-height: min(620px, calc(100vh - 80px));
+  overflow: hidden;
+  padding: 0;
+  border-radius: 16px;
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-dialog);
+}
+
+.hub-model-picker__detail { display: flex; min-width: 0; flex-direction: column; gap: 20px; padding: 24px; border-right: 1px solid var(--color-border); background: var(--color-surface); }
+.hub-model-picker__detail-heading { display: grid; gap: 5px; }
+.hub-model-picker__detail-heading > span { color: var(--color-text-subtle); font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+.hub-model-picker__detail-heading > strong { font-size: 20px; font-weight: 620; letter-spacing: -.02em; }
+.hub-model-picker__detail-heading > small { color: var(--color-text-muted); font-size: 12px; line-height: 1.45; }
+.hub-model-picker__facts { display: grid; gap: 10px; margin: 0; padding-top: 16px; border-top: 1px solid var(--color-border); }
+.hub-model-picker__facts > div { display: grid; gap: 3px; }
+.hub-model-picker__facts dt { color: var(--color-text-subtle); font-size: 10px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; }
+.hub-model-picker__facts dd { overflow-wrap: anywhere; margin: 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.4; }
+.hub-model-picker__capabilities { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+.hub-model-picker__capabilities > small { color: var(--color-text-subtle); line-height: 1.45; }
+.hub-model-picker__catalog { display: flex; min-width: 0; min-height: 0; flex-direction: column; padding: 14px; }
+.hub-model-picker__engines { display: flex; gap: 4px; padding: 0 2px 12px; border-bottom: 1px solid var(--color-border); }
+.hub-model-picker__engine { min-height: 34px; flex: 1; border: 0; border-radius: 18px; padding: 0 12px; background: transparent; color: var(--color-text-subtle); cursor: pointer; font: inherit; font-size: 12px; transition: background var(--motion-fast) ease, color var(--motion-fast) ease; }
+.hub-model-picker__engine:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.hub-model-picker__engine--active { background: var(--color-surface-active); color: var(--color-text); }
+.hub-model-picker__engine:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.hub-model-picker__search { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; border: 1px solid var(--color-border); border-radius: 18px; padding: 0 12px; background: var(--color-surface); color: var(--color-text-subtle); }
+.hub-model-picker__search .ui-input { min-height: 36px; border: 0; padding: 0; background: transparent; box-shadow: none; }
+.hub-model-picker__list { min-height: 120px; overflow: auto; padding: 2px 0; }
+.hub-model-picker__route { display: flex; width: 100%; min-height: 54px; align-items: center; gap: 10px; border: 0; border-radius: 10px; padding: 8px 10px; background: transparent; color: var(--color-text-muted); text-align: left; cursor: pointer; transition: background var(--motion-fast) ease, color var(--motion-fast) ease; }
+.hub-model-picker__route:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.hub-model-picker__route--active { background: var(--color-surface-active); color: var(--color-text); }
+.hub-model-picker__route:disabled { cursor: not-allowed; opacity: .45; }
+.hub-model-picker__route > span:not(.ui-badge) { display: grid; min-width: 0; flex: 1; gap: 2px; }
+.hub-model-picker__route strong,
+.hub-model-picker__route small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-model-picker__route strong { font-size: 14px; font-weight: 560; }
+.hub-model-picker__route small { color: var(--color-text-subtle); font-size: 11px; }
+.hub-model-picker__empty { display: block; padding: 30px 12px; color: var(--color-text-subtle); text-align: center; }
+
+@media (max-width: 760px) {
+  .ui-popover.hub-model-picker { grid-template-columns: 1fr; width: min(440px, calc(100vw - 24px)); }
+  .hub-model-picker__detail { display: none; }
+  .hub-model-trigger { max-width: 190px; }
+}

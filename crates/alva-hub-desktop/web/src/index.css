@@ -4,6 +4,7 @@
 
 @import "./styles/tokens.css";
 @import "./styles/primitives.css";
+@import "./styles/hub-components.css";
 
 :root {
   color-scheme: dark;
