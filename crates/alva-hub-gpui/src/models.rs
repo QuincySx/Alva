@@ -327,7 +327,10 @@ impl ModelCatalog {
     }
 
     pub fn default_route(&self, runtime: AgentRuntime) -> Option<ModelRoute> {
-        let model = self.models_for_runtime(runtime).into_iter().next()?;
+        let model = self.models_for_runtime(runtime).into_iter().find(|model| {
+            self.provider(&model.provider_id)
+                .is_some_and(|provider| provider.connected)
+        })?;
         Some(ModelRoute {
             runtime,
             provider_id: model.provider_id.clone(),
@@ -651,5 +654,32 @@ mod tests {
             ApiProtocol::OpenAiResponses,
             AgentRuntime::Codex
         ));
+    }
+
+    #[test]
+    fn default_route_skips_disconnected_providers() {
+        let mut catalog = ModelCatalog::built_in();
+        catalog.add_custom_provider(StoredCustomProvider {
+            profile: CustomProviderProfile {
+                provider_id: "offline".into(),
+                display_name: "Offline provider".into(),
+                protocol: ApiProtocol::OpenAiResponses,
+                base_url: "https://example.invalid".into(),
+                runtimes: vec![AgentRuntime::Alva],
+                models: vec![CustomModelProfile {
+                    model_id: "offline-model".into(),
+                    display_name: "Offline model".into(),
+                    context_window: 128_000,
+                    max_output_tokens: 32_000,
+                    images: true,
+                    tools: true,
+                    reasoning_efforts: vec![ReasoningEffort::High],
+                }],
+            },
+            api_key: String::new(),
+        });
+
+        assert!(catalog.default_route(AgentRuntime::Alva).is_none());
+        assert!(catalog.default_route(AgentRuntime::ClaudeCode).is_some());
     }
 }
