@@ -24,7 +24,9 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 14. Details 抽屉（顶栏 Details 开关）检视 EngineBranches、EngineAttempts（失败原因/用量/工具证据）、handoffs（含 team snapshot 与 delivered/pending）与 engine diagnostics；timeline 本身只渲染产品 TimelineEvent。
 15. 卡片控件按"本窗口正在跑 **或** store 说 session 在 running"启用（只看快照会在自己这轮运行期间把 Stop 关掉——sessionDetail 是运行后才刷新的）：终态时 Stop 禁用并显示"该 attempt 已结束"，Switch back / View handoff 仍可用；终态事件到达时回刷 sessionDetail，抽屉与闸门不会停留在旧状态。
 16. `resetSessionSurface` 是 New session 与切换 workspace 共用的清场：profile、engine、fallback 链、transcript 开关、已答审批、按索引存的 handoff 展开态一并复位——否则上一个 session 的 profile/链会被当成新 session 的默认值（甚至被存成全局默认）。
-17. `index.css` 提供两栏 Desktop walking-skeleton 布局。
+17. `ui/` 是唯一基础组件入口，封装 Radix 的焦点、键盘、碰撞和 Portal 行为；业务页面不得直接从 `radix-ui` 导入。
+18. `styles/tokens.css` 是颜色、间距、圆角、阴影和动效唯一来源；`styles/primitives.css` 只服务 `ui/`，页面不得复制基础组件规则。
+19. `index.css` 暂时保留旧业务 surface 的兼容样式，迁移完成后只负责导入 tokens、primitives 和页面布局。
 
 ## 约束
 
@@ -44,3 +46,11 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Product UI | `App.tsx` | workspace、engine selector、permission profile 与 eligibility、readiness dashboard、fallback authorization、switch queue、composer、timeline 与 permission card |
 | IPC bridge | `bridge.ts` | run/switch/policy/readiness/session/permission 的 Tauri invoke/listen/dialog 封装 |
 | Styles | `index.css` | Desktop 多引擎状态视觉与响应式布局 |
+| Design tokens | `styles/tokens.css` | ALVA 颜色、间距、圆角、阴影和动效唯一来源 |
+| Primitive styles | `styles/primitives.css` | 基础组件 hover/focus/open/disabled 状态 |
+| UI facade | `ui/index.ts` | 页面和领域组件唯一 UI import 入口 |
+| Actions | `ui/button.tsx` | Button、IconButton 与 Tooltip 约束 |
+| Fields | `ui/fields.tsx` | Input、Textarea、Select 与 FieldFrame |
+| Overlays | `ui/overlays.tsx` | Popover、Menu、Dialog 和 UIProvider |
+| Surfaces | `ui/surface.tsx` | Surface、Badge、Tabs、Switch、EmptyState |
+| UI tests | `ui/ui.test.tsx` | 不依赖 Hub 业务状态的组件行为回归 |

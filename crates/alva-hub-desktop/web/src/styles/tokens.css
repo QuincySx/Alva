@@ -1,0 +1,66 @@
+/* INPUT:  ALVA visual language and operating-system color preference */
+/* OUTPUT: Semantic color, type, spacing, radius, shadow, and motion tokens */
+/* POS:    Single source of truth for all Hub component styling */
+
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #f0f0f2;
+  background: #111214;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --color-canvas: #111214;
+  --color-sidebar: #17181b;
+  --color-surface: #1b1c20;
+  --color-surface-raised: #222328;
+  --color-surface-hover: #292a30;
+  --color-surface-active: #313239;
+  --color-overlay: rgba(4, 5, 6, 0.58);
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+  --color-text: #f0f0f2;
+  --color-text-muted: #a5a7ad;
+  --color-text-subtle: #777a82;
+  --color-accent: #e7e7ea;
+  --color-accent-foreground: #17181b;
+  --color-focus: #8f91ff;
+  --color-success: #5ec98b;
+  --color-warning: #e7b960;
+  --color-danger: #ef7777;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --shadow-popover: 0 14px 44px rgba(0, 0, 0, 0.34);
+  --shadow-dialog: 0 24px 80px rgba(0, 0, 0, 0.48);
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+
+  /* Legacy aliases stay tokenized while old business surfaces migrate. */
+  --bg: var(--color-canvas);
+  --surface-1: var(--color-sidebar);
+  --surface-2: var(--color-surface);
+  --surface-3: var(--color-surface-raised);
+  --border: var(--color-border);
+  --border-strong: var(--color-border-strong);
+  --text-1: var(--color-text);
+  --text-2: var(--color-text-muted);
+  --text-3: var(--color-text-subtle);
+  --accent: var(--color-accent);
+  --accent-soft: rgba(231, 231, 234, 0.1);
+  --green: var(--color-success);
+  --red: var(--color-danger);
+  --amber: var(--color-warning);
+  --radius: var(--radius-md);
+}

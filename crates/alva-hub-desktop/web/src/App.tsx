@@ -1105,9 +1105,9 @@ export default function App() {
                           <button
                             className="repair-link"
                             onClick={() =>
-                              void openExternal(action.url ?? "").catch(
-                                appendLocalFailure,
-                              )
+                              void Promise.resolve(
+                                openExternal(action.url ?? ""),
+                              ).catch(appendLocalFailure)
                             }
                             type="button"
                           >
