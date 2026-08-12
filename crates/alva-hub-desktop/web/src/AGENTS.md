@@ -53,4 +53,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Fields | `ui/fields.tsx` | Input、Textarea、Select 与 FieldFrame |
 | Overlays | `ui/overlays.tsx` | Popover、Menu、Dialog 和 UIProvider |
 | Surfaces | `ui/surface.tsx` | Surface、Badge、Tabs、Switch、EmptyState |
+| Layout | `ui/layout.tsx` | 三栏 AppFrame、Sidebar、Workbench、PaneHeader |
+| Navigation | `ui/navigation.tsx` | NavGroup、NavList、NavItem 与统一 hover/active 语义 |
+| Disclosure | `ui/disclosure.tsx` | Radix Collapsible 封装的展开区和活动行 |
 | UI tests | `ui/ui.test.tsx` | 不依赖 Hub 业务状态的组件行为回归 |
