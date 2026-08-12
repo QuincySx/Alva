@@ -45,7 +45,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | React entry | `main.tsx` | 挂载应用 |
 | Product UI | `App.tsx` | workspace、engine selector、permission profile 与 eligibility、readiness dashboard、fallback authorization、switch queue、composer、timeline 与 permission card |
 | IPC bridge | `bridge.ts` | run/switch/policy/readiness/session/permission 的 Tauri invoke/listen/dialog 封装 |
-| Styles | `index.css` | Desktop 多引擎状态视觉与响应式布局 |
+| Style entry | `index.css` | 按 tokens → primitives → domain → app 顺序装配全部样式 |
 | Design tokens | `styles/tokens.css` | ALVA 颜色、间距、圆角、阴影和动效唯一来源 |
 | Primitive styles | `styles/primitives.css` | 基础组件 hover/focus/open/disabled 状态 |
 | UI facade | `ui/index.ts` | 页面和领域组件唯一 UI import 入口 |
@@ -68,3 +68,4 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Team panel | `components/team-panel.tsx` | Worker 生命周期、任务队列、worktree adoption、资源声明与自治开关 |
 | Component tests | `components/components.test.tsx` | Composer 与模型选择器交互回归 |
 | Domain styles | `styles/hub-components.css` | Hub 领域组件组合样式，不重复基础控件行为 |
+| App styles | `styles/app.css` | 页面布局、业务状态与响应式胶水，不定义可复用基础控件 |
