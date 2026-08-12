@@ -91,6 +91,7 @@ pub struct HubApp {
     pub engine: Entity<SelectState<SearchableVec<EngineOption>>>,
     pub model: Entity<SelectState<SearchableVec<ModelOption>>>,
     pub effort: Entity<SelectState<SearchableVec<EffortOption>>>,
+    pub model_query: Entity<InputState>,
     pub permission: Entity<SelectState<SearchableVec<&'static str>>>,
     pub prompt: Entity<InputState>,
     pub automation_name: Entity<InputState>,
@@ -228,6 +229,9 @@ impl HubApp {
             .default_route(AgentRuntime::Alva)
             .or_else(|| model_catalog.default_route(AgentRuntime::ClaudeCode))
             .expect("built-in model catalog must expose at least one route");
+        let initial_engine_index = ENGINE_OPTIONS
+            .iter()
+            .position(|engine| *engine == initial_route.runtime.id());
         let initial_models = Self::model_options(&model_catalog, initial_route.runtime);
         let initial_model_index = initial_models
             .iter()
@@ -338,7 +342,7 @@ impl HubApp {
             engine: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(Self::engine_options(&[])),
-                    Some(IndexPath::new(0)),
+                    initial_engine_index.map(IndexPath::new),
                     window,
                     cx,
                 )
@@ -359,6 +363,7 @@ impl HubApp {
                     cx,
                 )
             }),
+            model_query: cx.new(|cx| InputState::new(window, cx).placeholder("Search models…")),
             permission: cx.new(|cx| {
                 SelectState::new(
                     SearchableVec::new(PROFILE_OPTIONS.to_vec()),
@@ -432,6 +437,7 @@ impl HubApp {
         app.subscribe_engine(window, cx);
         app.subscribe_model(window, cx);
         app.subscribe_effort(window, cx);
+        app.subscribe_model_query(window, cx);
         app.subscribe_prompt(window, cx);
         app.sync_policy_inputs(window, cx);
         app.refresh_readiness(cx);
@@ -1211,10 +1217,19 @@ impl HubApp {
         self.open_activities.clear();
         self.pending_engine = None;
         self.transcript_sharing = false;
-        self.set_selected_engine("alva", window, cx);
-        if let Some(route) = self.model_catalog.default_route(AgentRuntime::Alva) {
+        let runtime = if self
+            .model_catalog
+            .default_route(AgentRuntime::Alva)
+            .is_some()
+        {
+            AgentRuntime::Alva
+        } else {
+            AgentRuntime::ClaudeCode
+        };
+        self.set_selected_engine(runtime.id(), window, cx);
+        if let Some(route) = self.model_catalog.default_route(runtime) {
             self.sync_model_options(
-                AgentRuntime::Alva,
+                runtime,
                 Some((&route.provider_id, &route.model_id)),
                 window,
                 cx,
@@ -1290,11 +1305,23 @@ impl HubApp {
         let _subscription = cx.subscribe_in(
             &self.effort,
             window,
-            move |_view, _state, event, _window, cx| {
+            move |_view, _state, event, window, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event {
                     if let Some(entity) = weak.upgrade() {
-                        entity.update(cx, |hub, cx| hub.select_reasoning_effort(value, cx));
+                        entity.update(cx, |hub, cx| hub.select_reasoning_effort(value, window, cx));
                     }
+                }
+            },
+        );
+    }
+
+    pub fn subscribe_model_query(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let _subscription = cx.subscribe_in(
+            &self.model_query,
+            window,
+            |_view, _state, event, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
                 }
             },
         );
@@ -1846,7 +1873,12 @@ impl HubApp {
         self.request_target_switch(target, format!("User explicitly selected {engine_id}"), cx);
     }
 
-    fn select_model_route(&mut self, route_key: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn select_model_route(
+        &mut self,
+        route_key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some((provider_id, model_id)) = route_key.split_once("::") else {
             self.push_local_failure("The selected model route is malformed.", cx);
             return;
@@ -1860,6 +1892,13 @@ impl HubApp {
             model_id: model_id.to_string(),
             reasoning_effort: None,
         };
+        let options = Self::model_options(&self.model_catalog, runtime);
+        let selected_index = options
+            .iter()
+            .position(|option| option.route_key == route_key);
+        self.model.update(cx, |state, cx| {
+            state.set_selected_index(selected_index.map(IndexPath::new), window, cx);
+        });
         self.sync_effort_options(&route, window, cx);
         let target = match self.model_catalog.engine_target(route) {
             Ok(target) => target,
@@ -1875,7 +1914,12 @@ impl HubApp {
         );
     }
 
-    fn select_reasoning_effort(&mut self, value: &str, cx: &mut Context<Self>) {
+    pub(crate) fn select_reasoning_effort(
+        &mut self,
+        value: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(runtime) = AgentRuntime::parse(&self.selected_engine(cx)) else {
             return;
         };
@@ -1896,6 +1940,12 @@ impl HubApp {
             model_id: model_id.to_string(),
             reasoning_effort: ReasoningEffort::parse(value),
         };
+        let effort_index = Self::effort_options(&self.model_catalog, &route)
+            .iter()
+            .position(|option| option.value == value);
+        self.effort.update(cx, |state, cx| {
+            state.set_selected_index(effort_index.map(IndexPath::new), window, cx);
+        });
         let target = match self.model_catalog.engine_target(route) {
             Ok(target) => target,
             Err(error) => {

@@ -18,22 +18,20 @@ fn main() {
         .run(move |cx| {
             gpui_component::init(cx);
 
-            cx.spawn(async move |cx| {
-                let options = WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-                        point(px(80.), px(60.)),
-                        size(px(1440.), px(900.)),
-                    ))),
-                    window_min_size: Some(size(px(1024.), px(680.))),
-                    ..WindowOptions::default()
-                };
-                cx.open_window(options, |window, cx| {
-                    Theme::change(ThemeMode::Dark, Some(window), cx);
-                    let view = cx.new(|cx| HubWorkspace::new(window, cx));
-                    cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().colors.background))
-                })
-                .expect("Failed to open window");
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    point(px(80.), px(60.)),
+                    size(px(1440.), px(900.)),
+                ))),
+                window_min_size: Some(size(px(1024.), px(680.))),
+                ..WindowOptions::default()
+            };
+            cx.open_window(options, |window, cx| {
+                Theme::change(ThemeMode::Dark, Some(window), cx);
+                let view = cx.new(|cx| HubWorkspace::new(window, cx));
+                cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().colors.background))
             })
-            .detach();
+            .expect("Failed to open window");
+            cx.activate(true);
         });
 }

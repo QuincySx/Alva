@@ -23,15 +23,15 @@ use gpui_component::{
 };
 
 use alva_hub_gpui::{
-    AutomationRunStatus, ChatItemKind, FallbackControls, HandoffKind, ProjectedChatItem,
-    ProjectedEvent, TimelineStatus,
+    AgentRuntime, AutomationRunStatus, ChatItemKind, FallbackControls, HandoffKind,
+    ProjectedChatItem, ProjectedEvent, TimelineStatus,
 };
 
 use super::app::{status_color, with_window, HubApp};
 use super::components::{
     HubActivityRow, HubAutomationForm, HubComposer, HubEmptyState, HubExtensionCard,
-    HubExtensionDetail, HubProjectPicker, HubProviderForm, HubQuickStartCard, HubSurfaceHeader,
-    HubTemplateCard,
+    HubExtensionDetail, HubModelPicker, HubProjectPicker, HubProviderForm, HubQuickStartCard,
+    HubSurfaceHeader, HubTemplateCard,
 };
 
 impl HubApp {
@@ -617,12 +617,20 @@ impl HubApp {
             profile_label,
             fallback_summary
         );
+        let runtime = AgentRuntime::parse(&engine_display).unwrap_or(AgentRuntime::Alva);
+        let selected_route = self.selected_model_route(cx).ok();
+        let model_picker = HubModelPicker::new(
+            cx.entity().downgrade(),
+            self.model_query.clone(),
+            self.model_catalog.clone(),
+            runtime,
+            selected_route,
+            self.model_query.read(cx).value().to_string(),
+        );
         HubComposer::new(
             self.prompt.clone(),
             self.permission.clone(),
-            self.engine.clone(),
-            self.model.clone(),
-            self.effort.clone(),
+            model_picker,
             metadata,
         )
         .permission_disabled(self.active_session_id.is_some())
@@ -927,7 +935,7 @@ impl HubApp {
         });
     }
 
-    fn open_provider_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_provider_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.reset_provider_form(window, cx);
         let weak = cx.entity().downgrade();
         let form = HubProviderForm::new(
