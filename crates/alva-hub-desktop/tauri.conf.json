@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ALVA Hub",
+  "version": "0.1.0",
+  "identifier": "com.alva.hub",
+  "build": {
+    "frontendDist": "web/dist",
+    "devUrl": "http://127.0.0.1:1421",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "ALVA Hub",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 860,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "One project. Every engine.",
+    "longDescription": "ALVA Hub keeps one local project session across the Alva, Claude and Codex engines with reversible fallback and parallel collaboration workers."
+  }
+}
