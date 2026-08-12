@@ -12,6 +12,7 @@ import {
   type HubTimelineEvent,
 } from "./components/hub-timeline";
 import { HubTopbar } from "./components/hub-topbar";
+import { SessionDetails } from "./components/session-details";
 import {
   AppFrame,
   Button,
@@ -260,9 +261,6 @@ export default function App() {
   const [timeline, setTimeline] = useState<HubTimelineEvent[]>([]);
   // Drawer handoff expansion (by handoff_id) for the full cross-engine
   // envelope: memory, skills, MCP pointers and filtered transcript.
-  const [openDrawerHandoffs, setOpenDrawerHandoffs] = useState<
-    Record<string, boolean>
-  >({});
   // Sidebar sections the user can collapse to reclaim space for sessions.
   // Fallback chain and team start collapsed: session work is the primary
   // surface; advanced engine/team config is one chevron away.
@@ -310,7 +308,6 @@ export default function App() {
   >({});
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const [editingScope, setEditingScope] = useState("");
-  const [memoryDraft, setMemoryDraft] = useState("");
   const [memorySaving, setMemorySaving] = useState(false);
   const [repairingEngine, setRepairingEngine] = useState<string | null>(null);
   const [repairLogs, setRepairLogs] = useState<Record<string, string>>({});
@@ -609,7 +606,6 @@ export default function App() {
     // A worker id from the previous run must never survive into this one.
     setDispatchWorkerId(null);
     setEditingTask(null);
-    setMemoryDraft("");
     setTeamRun(await getTeamRunForLead(detail.session.product_session_id));
   }
 
@@ -623,7 +619,6 @@ export default function App() {
       setSessionDetail((detail) =>
         detail ? { ...detail, memory } : detail,
       );
-      setMemoryDraft("");
     } catch (error) {
       appendLocalFailure(error);
     } finally {
@@ -1724,218 +1719,14 @@ export default function App() {
         })()}
 
         {detailsOpen && sessionDetail ? (
-          <aside className="details-drawer" aria-label="Session details">
-            <section>
-              <span className="eyebrow">Memory</span>
-              <small className="timeline-hint">
-                Corrections every engine in this session carries across
-                fallbacks and handoffs.
-              </small>
-              {sessionDetail.memory.length === 0 ? (
-                <small className="session-empty">
-                  No memory yet. Teach the session once; every engine keeps it.
-                </small>
-              ) : (
-                sessionDetail.memory.map((entry, index) => (
-                  <div className="details-row" key={`memory-${index}`}>
-                    <small>{entry}</small>
-                  </div>
-                ))
-              )}
-              <div className="memory-add">
-                <TextField
-                  aria-label="Add session memory"
-                  placeholder="Always run cargo test before finishing…"
-                  value={memoryDraft}
-                  onChange={(event) => setMemoryDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      void addMemory(memoryDraft);
-                    }
-                  }}
-                />
-                <Button
-                  className="secondary-button"
-                  disabled={!memoryDraft.trim()}
-                  loading={memorySaving}
-                  onClick={() => void addMemory(memoryDraft)}
-                >
-                  {memorySaving ? "Saving…" : "Remember"}
-                </Button>
-              </div>
-            </section>
-            <section>
-              <span className="eyebrow">Branches</span>
-              {sessionDetail.branches.length === 0 ? (
-                <small className="session-empty">No branches yet.</small>
-              ) : null}
-              {sessionDetail.branches.map((branch) => (
-                <div className="details-row" key={branch.branch_id}>
-                  <strong>
-                    {branch.engine_id} · {branch.status}
-                  </strong>
-                  <small>
-                    {branch.model_id} · {branch.provider_id}
-                    {branch.engine_session_id ? " · native session kept" : ""}
-                  </small>
-                </div>
-              ))}
-            </section>
-            <section>
-              <span className="eyebrow">Attempts</span>
-              {sessionDetail.turns.every((turn) => turn.attempts.length === 0) ? (
-                <small className="session-empty">No attempts yet.</small>
-              ) : null}
-              {sessionDetail.turns.flatMap((turn) =>
-                turn.attempts.map((attempt) => (
-                  <div className="details-row" key={attempt.attempt_id}>
-                    <strong>
-                      {attempt.engine_id} · {attempt.status}
-                    </strong>
-                    {attempt.failure_reason ? (
-                      <small>{attempt.failure_reason}</small>
-                    ) : null}
-                    {attempt.usage ? (
-                      <small>
-                        {attempt.usage.input_tokens}in/
-                        {attempt.usage.output_tokens}out ·{" "}
-                        {attempt.usage.duration_ms}ms
-                      </small>
-                    ) : null}
-                    {attempt.side_effects.length > 0 ? (
-                      <small>
-                        {attempt.side_effects.length} tool call(s)
-                        {attempt.side_effects
-                          .map((evidence) => evidence.path)
-                          .filter(Boolean).length > 0
-                          ? ` · ${attempt.side_effects
-                              .map((evidence) => evidence.path)
-                              .filter(Boolean)
-                              .join(", ")}`
-                          : ""}
-                      </small>
-                    ) : null}
-                  </div>
-                )),
-              )}
-            </section>
-            <section>
-              <span className="eyebrow">Handoffs</span>
-              {sessionDetail.handoffs.length === 0 ? (
-                <small className="session-empty">No handoffs yet.</small>
-              ) : (
-                sessionDetail.handoffs.map((handoff) => (
-                  <div className="details-row" key={handoff.handoff_id}>
-                    <strong>
-                      {handoff.kind} · {handoff.source.engine_id} →{" "}
-                      {handoff.target.engine_id}
-                      {handoff.used_at ? " · delivered" : " · pending"}
-                    </strong>
-                    <small>{handoff.reason}</small>
-                    {handoff.team_snapshot ? (
-                      <small>{handoff.team_snapshot}</small>
-                    ) : null}
-                    {handoff.session_memory.length > 0 ||
-                    handoff.available_skills.length > 0 ||
-                    handoff.available_mcp.length > 0 ? (
-                      <small>
-                        envelope: {handoff.session_memory.length} memory ·{" "}
-                        {handoff.available_skills.length} skills ·{" "}
-                        {handoff.available_mcp.length} MCP
-                      </small>
-                    ) : null}
-                    <Button
-                      className="secondary-button"
-                      onClick={() =>
-                        setOpenDrawerHandoffs((current) => ({
-                          ...current,
-                          [handoff.handoff_id]: !current[handoff.handoff_id],
-                        }))
-                      }
-                      size="small"
-                      variant="ghost"
-                    >
-                      {openDrawerHandoffs[handoff.handoff_id]
-                        ? "Hide envelope"
-                        : "Show envelope"}
-                    </Button>
-                    {openDrawerHandoffs[handoff.handoff_id] ? (
-                      <div className="handoff-view">
-                        {handoff.session_memory.length > 0 ? (
-                          <>
-                            <strong>Memory carried</strong>
-                            {handoff.session_memory.map((entry, index) => (
-                              <small key={`dm-${index}`}>{entry}</small>
-                            ))}
-                          </>
-                        ) : null}
-                        {handoff.available_skills.length > 0 ? (
-                          <>
-                            <strong>Skills pointed</strong>
-                            {handoff.available_skills.map((skill) => (
-                              <small key={skill.path}>
-                                {skill.name} — {skill.description}{" "}
-                                <code>{skill.path}</code>
-                              </small>
-                            ))}
-                          </>
-                        ) : null}
-                        {handoff.available_mcp.length > 0 ? (
-                          <>
-                            <strong>MCP servers</strong>
-                            {handoff.available_mcp.map((server) => (
-                              <small key={server.id}>
-                                {server.display_name}{" "}
-                                <code>{server.transport}</code>
-                              </small>
-                            ))}
-                          </>
-                        ) : null}
-                        {handoff.transcript.length > 0 ? (
-                          <>
-                            <strong>
-                              Filtered transcript ({handoff.transcript.length}{" "}
-                              turns)
-                            </strong>
-                            {handoff.transcript.map((turn, index) => (
-                              <small key={`dt-${index}`}>
-                                » {turn.prompt}
-                                {turn.result ? ` — ${turn.result}` : ""}
-                              </small>
-                            ))}
-                          </>
-                        ) : (
-                          <small>
-                            Transcript not shared (default).
-                          </small>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                ))
-              )}
-            </section>
-            <section>
-              <span className="eyebrow">Engine diagnostics</span>
-              {readiness.map((engineReadiness) => (
-                <div className="details-row" key={engineReadiness.engine_id}>
-                  <strong>
-                    {engineReadiness.display_name} ·{" "}
-                    {readinessBadge[engineReadiness.status]}
-                  </strong>
-                  <small>
-                    {engineReadiness.version ?? "version unknown"} · stream{" "}
-                    {engineReadiness.stream_health}
-                  </small>
-                  {engineReadiness.reasons.map((reason, index) => (
-                    <small key={`${reason.code}-${index}`}>
-                      {describeReadinessReason(reason)}
-                    </small>
-                  ))}
-                </div>
-              ))}
-            </section>
-          </aside>
+          <SessionDetails
+            describeReason={describeReadinessReason}
+            detail={sessionDetail}
+            memorySaving={memorySaving}
+            onAddMemory={(entry) => void addMemory(entry)}
+            readiness={readiness}
+            readinessLabel={readinessBadge}
+          />
         ) : null}
 
         <HubComposer

@@ -62,5 +62,6 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Sidebar | `components/hub-sidebar.tsx` | 项目导航、会话搜索、持久会话列表与工作区入口 |
 | Topbar | `components/hub-topbar.tsx` | 对话标题、状态、详情与右侧工作台入口 |
 | Timeline | `components/hub-timeline.tsx` | 中央会话读取轴、权限回应、fallback 动作与 handoff 展开 |
+| Session details | `components/session-details.tsx` | 会话记忆、分支、尝试、handoff envelope 与引擎诊断 |
 | Component tests | `components/components.test.tsx` | Composer 与模型选择器交互回归 |
 | Domain styles | `styles/hub-components.css` | Hub 领域组件组合样式，不重复基础控件行为 |
