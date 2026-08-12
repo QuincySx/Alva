@@ -217,6 +217,9 @@ let agent = BaseAgent::builder()
 | `docs/ARCHITECTURE.md` | 三仓库架构设计：alva-sandbox + alva-agent + alva-app。 |
 | `docs/ALVA-HUB-V1.md` | 已接受、正在增量实现的 Hub Desktop V1 产品、fallback、Orca 协作与验收规范。 |
 | `docs/ALVA-HUB-GLOSSARY.md` | HubSession / EngineBranch / Turn / Attempt / TeamRun / Worker 等领域术语规范。 |
+| `docs/ALVA-HUB-UI-GLOSSARY.md` | Hub Tauri UI 的 Token / Control / Region / Surface / Domain / Page 与验收词汇。 |
+| `docs/ALVA-HUB-UI-WIREFRAMES.md` | Cindy 参考图转七张统一总层架的区域、滚动、停靠与 Overlay 规范。 |
+| `docs/ALVA-HUB-UI-MOTION.md` | Hub 组件动效频率、目的、时长、曲线、实现与减弱动效规范。 |
 | `docs/adr/` | Hub Desktop-first、可逆多引擎 fallback、Cindy Orca 风格协作的架构决策记录。 |
 | `Cargo.toml` | Rust workspace，管理 39 个 crate。 |
 | `alva-bus-lint` | CI lint binary：扫 `#[bus_cap]` trait 的跨 crate 类型表面，配合 `docs/BUS-RULES.md` 防止 bus 退化为 God Object。 |
@@ -262,9 +265,14 @@ session 里不会出现 Steering 变体，这个 match 分支永远不会命中�
 4. 未解决的 TODO 和回滚笔记
 5. 工具输出，可删，只保留 pass/fail 结论
 
-## GPUI 迁移（alva-hub-gpui）
+## Hub 产品 UI（alva-hub-desktop）
 
-Hub Desktop 正在迁移到 Rust 原生 GPUI（参考 longbridge/gpui-component）。
-**GPUI 开发规范（唯一权威）在 `crates/alva-hub-gpui/AGENTS.md`**——技术较新，
-写任何 GPUI 代码前先读它（初始化/组件写法/实体重入陷阱/测试/自查清单）。
-迁移评估：`docs/GPUI-MIGRATION.md`。
+Hub 产品 UI 以 `crates/alva-hub-desktop` 的 Tauri + React 实现为准，旧 GPUI 产品 UI
+迁移方向已退役。正式架构决策见 `docs/adr/0006-hub-tauri-ui-system.md`：Cindy 负责结构与
+交互参考，ALVA 负责视觉语言；组件严格按 Tokens → Controls → Regions/Surfaces → Domain
+Components → Pages 五层依赖。动任何 Hub UI 代码前先读
+`crates/alva-hub-desktop/web/src/AGENTS.md`、`docs/ALVA-HUB-UI-GLOSSARY.md`、
+`docs/ALVA-HUB-UI-WIREFRAMES.md` 与 `docs/ALVA-HUB-UI-MOTION.md`。
+
+`docs/GPUI-MIGRATION.md` 和 `crates/alva-hub-gpui/AGENTS.md` 只记录旧实验路线，不再是 Hub
+产品 UI 的实现权威。

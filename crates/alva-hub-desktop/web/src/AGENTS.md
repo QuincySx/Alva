@@ -27,6 +27,12 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 17. `ui/` 是唯一基础组件入口，封装 Radix 的焦点、键盘、碰撞和 Portal 行为；业务页面不得直接从 `radix-ui` 导入。
 18. `styles/tokens.css` 是颜色、间距、圆角、阴影和动效唯一来源；`styles/primitives.css` 只服务 `ui/`，页面不得复制基础组件规则。
 19. `index.css` 暂时保留旧业务 surface 的兼容样式，迁移完成后只负责导入 tokens、primitives 和页面布局。
+20. UI 严格按 Tokens → Controls → Regions/Surfaces → Domain Components → Pages 五层依赖；页面不得越级改 primitive 状态。
+21. Cindy 参考图约束结构、层级、密度、弹出位置和操作路径；颜色、字体语义、图标和品牌强调由 ALVA token 决定。
+22. Region 明确拥有 width、scroll、dock 和 responsive；一个区域只能有一个 scroll owner，断点只改变区域关系。
+23. 动效遵守 `docs/ALVA-HUB-UI-MOTION.md`：高频导航无位移，交互动画可中断、低于 300ms，并支持 reduced motion。
+24. 组件只提供 composition、slots 与有限 typed variants；仅支持 default/compact 两档密度，页面不得手写控件高度。
+25. 页面完成必须同时通过确定性 fixture 与真实 store/Tauri command；视觉 review 使用 reference/linework/current 三联图。
 
 ## 约束
 
@@ -37,12 +43,15 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 - 保存 fallback target 前必须展示 model/provider、账号来源、账单路径与自动使用授权；手动 switch 不改变授权。
 - interrupted 会话保持可选择、可继续，不能伪装成 running 或普通 completed。
 - readiness 原因渲染结构化 reason code，不透传 stderr 文本；Refresh 只读，不改任何配置。
+- 基础视觉与交互决策以 `docs/adr/0006-hub-tauri-ui-system.md` 为准；不得恢复旧 GPUI 产品 UI 路线。
+- 所有交互必须键盘可达、focus 可见并满足 WCAG AA；中英文 fixture 不得破版。
 
 ## 业务域清单
 
 | 名称 | 文件 | 职责 |
 |---|---|---|
 | React entry | `main.tsx` | 挂载应用 |
+| Vite types | `vite-env.d.ts` | `import.meta.env` 与开发 UI Lab 环境类型 |
 | Product UI | `App.tsx` | workspace、engine selector、permission profile 与 eligibility、readiness dashboard、fallback authorization、switch queue、composer、timeline 与 permission card |
 | IPC bridge | `bridge.ts` | run/switch/policy/readiness/session/permission 的 Tauri invoke/listen/dialog 封装 |
 | Style entry | `index.css` | 按 tokens → primitives → domain → app 顺序装配全部样式 |
@@ -52,8 +61,8 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Actions | `ui/button.tsx` | Button、IconButton 与 Tooltip 约束 |
 | Fields | `ui/fields.tsx` | Input、Textarea、Select、Checkbox 与 FieldFrame |
 | Overlays | `ui/overlays.tsx` | Popover、Menu、Dialog 和 UIProvider |
-| Surfaces | `ui/surface.tsx` | Surface、Badge、Tabs、Switch、EmptyState |
-| Layout | `ui/layout.tsx` | 三栏 AppFrame、Sidebar、Workbench、PaneHeader |
+| Surfaces | `ui/surface.tsx` | Surface、PanelSection、Badge、Notice、StatusListItem、Tabs、Switch、EmptyState |
+| Layout | `ui/layout.tsx` | 三栏 AppFrame、响应式 ContentFrame、ScrollRegion、DockRegion 与 WorkbenchPage |
 | Navigation | `ui/navigation.tsx` | NavGroup、NavList、NavItem 与统一 hover/active 语义 |
 | Disclosure | `ui/disclosure.tsx` | Radix Collapsible 封装的展开区和活动行 |
 | UI tests | `ui/ui.test.tsx` | 不依赖 Hub 业务状态的组件行为回归 |
@@ -67,5 +76,10 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Fallback policy | `components/fallback-policy-panel.tsx` | 有序 fallback 目标、模型/provider 设置与自动使用授权 |
 | Team panel | `components/team-panel.tsx` | Worker 生命周期、任务队列、worktree adoption、资源声明与自治开关 |
 | Component tests | `components/components.test.tsx` | Composer 与模型选择器交互回归 |
+| Product pages | `components/product-pages.tsx` | 自动化、插件/技能、设置与搜索共享页面体系 |
+| Workbench tools | `components/workbench-tools.tsx` | Files、Review、Agent、Inspector、Tasks、Usage、Browser、Terminal 标签内容 |
+| UI Lab | `ui-lab.tsx` | 开发/test-only 确定性组件与页面状态展台 |
+| Visual config | `../playwright.config.ts` | 1440×900 Chrome 截图环境与 Vite 生命周期 |
+| Visual tests | `../tests/visual.spec.ts` | 七张总层架和模型弹层的真实浏览器回归 |
 | Domain styles | `styles/hub-components.css` | Hub 领域组件组合样式，不重复基础控件行为 |
 | App styles | `styles/app.css` | 页面布局、业务状态与响应式胶水，不定义可复用基础控件 |
