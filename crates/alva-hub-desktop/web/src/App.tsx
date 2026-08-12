@@ -3,26 +3,17 @@
 // POS:    Primary Hub Desktop product surface for reversible, user-authorized engine sessions.
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Blocks,
-  FolderOpen,
-  MessageSquarePlus,
-  PanelRight,
-  Search,
-  Workflow,
-} from "lucide-react";
+import { PanelRight } from "lucide-react";
 import { HubComposer } from "./components/hub-composer";
 import { ModelPicker, type HubModelRoute } from "./components/model-picker";
+import { HubSidebar } from "./components/hub-sidebar";
+import { HubTopbar } from "./components/hub-topbar";
 import {
   AppFrame,
   Button,
   Checkbox,
   IconButton,
-  NavGroup,
-  NavItem,
-  NavList,
   SelectField,
-  Sidebar,
   TabsContent,
   TabsList,
   TabsRoot,
@@ -1023,68 +1014,23 @@ export default function App() {
     <UIProvider>
     <AppFrame
       sidebar={
-        <Sidebar className="hub-sidebar">
-          <header className="hub-sidebar__brand">
-            <div className="brand-mark">A</div>
-            <div><h1>ALVA Hub</h1><p>One project. Every engine.</p></div>
-          </header>
-          <nav className="hub-sidebar__primary" aria-label="Primary">
-            <NavItem
-              icon={<MessageSquarePlus aria-hidden="true" size={17} />}
-              label="New session"
-              disabled={busy}
-              onClick={() => {
-                resetSessionSurface();
-                void loadGlobalFallbackPolicy().catch(appendLocalFailure);
-              }}
-            />
-            <NavItem icon={<Workflow aria-hidden="true" size={17} />} label="Automations" />
-            <NavItem icon={<Blocks aria-hidden="true" size={17} />} label="Plugins" />
-          </nav>
-          <label className="hub-sidebar__search">
-            <Search aria-hidden="true" size={15} />
-            <TextField
-              aria-label="Search sessions"
-              placeholder="Search sessions…"
-              value={sessionQuery}
-              onChange={(event) => setSessionQuery(event.target.value)}
-            />
-          </label>
-          <NavGroup
-            className="hub-sidebar__sessions"
-            count={sessionQuery.trim() ? `${filteredSessions.length}/${sessions.length}` : sessions.length}
-            label="Sessions"
-          >
-            <NavList>
-              {sessionError ? (
-                <small className="session-error">{sessionError}</small>
-              ) : filteredSessions.length === 0 ? (
-                <small className="session-empty">
-                  {sessionQuery.trim() ? "No sessions match that search." : "Hub runs will appear here."}
-                </small>
-              ) : (
-                filteredSessions.map((session) => (
-                  <NavItem
-                    active={activeSessionId === session.product_session_id}
-                    description={session.workspace.split("/").at(-1)}
-                    key={session.product_session_id}
-                    label={session.last_prompt ?? "Untitled session"}
-                    meta={`${session.engine_id} · ${session.status} · ${formatRelativeTime(session.updated_at)}`}
-                    onClick={() => void openSession(session)}
-                    title={session.workspace}
-                  />
-                ))
-              )}
-            </NavList>
-          </NavGroup>
-          <footer className="hub-sidebar__workspace">
-            <div>
-              <FolderOpen aria-hidden="true" size={16} />
-              <span><strong>{workspace ? workspace.split("/").at(-1) : "No workspace"}</strong><small>{workspace || "Choose a local project"}</small></span>
-            </div>
-            <Button onClick={selectWorkspace} size="small" variant="ghost">Choose</Button>
-          </footer>
-        </Sidebar>
+        <HubSidebar
+          activeSessionId={activeSessionId}
+          busy={busy}
+          formatUpdatedAt={formatRelativeTime}
+          onChooseWorkspace={selectWorkspace}
+          onNewSession={() => {
+            resetSessionSurface();
+            void loadGlobalFallbackPolicy().catch(appendLocalFailure);
+          }}
+          onOpenSession={(session) => void openSession(session)}
+          onSessionQueryChange={setSessionQuery}
+          sessionError={sessionError}
+          sessionQuery={sessionQuery}
+          sessions={filteredSessions}
+          totalSessionCount={sessions.length}
+          workspace={workspace}
+        />
       }
       workbench={
         <Workbench
@@ -1703,35 +1649,17 @@ export default function App() {
     >
 
       <div className="main-column">
-        <header className="topbar">
-          <div className="topbar__title">
-            <strong>{sessionDetail?.turns.at(-1)?.prompt ?? "New conversation"}</strong>
-            <small>{workspace ? workspace.split("/").at(-1) : "Choose a project to begin"}</small>
-          </div>
-          <div className="topbar__actions">
-            <IconButton
-              icon={<PanelRight aria-hidden="true" size={16} />}
-              label={workbenchOpen ? "Close workbench" : "Open workbench"}
-              onClick={() => setWorkbenchOpen((open) => !open)}
-              variant="ghost"
-            />
-            <Button
-              disabled={!sessionDetail}
-              onClick={() => setDetailsOpen((open) => !open)}
-              size="small"
-              variant="ghost"
-            >
-              {detailsOpen ? "Hide details" : "Details"}
-            </Button>
-            <div
-              aria-live="polite"
-              className={`status-pill status-${latest?.status ?? "ready"}`}
-            >
-              <span />
-              {statusLabel}
-            </div>
-          </div>
-        </header>
+        <HubTopbar
+          detailsAvailable={sessionDetail !== null}
+          detailsOpen={detailsOpen}
+          onToggleDetails={() => setDetailsOpen((open) => !open)}
+          onToggleWorkbench={() => setWorkbenchOpen((open) => !open)}
+          status={latest?.status ?? "ready"}
+          statusLabel={statusLabel}
+          title={sessionDetail?.turns.at(-1)?.prompt ?? "New conversation"}
+          workbenchOpen={workbenchOpen}
+          workspace={workspace}
+        />
 
         <section className="timeline" aria-live="polite">
           {timeline.length === 0 ? (
@@ -1784,7 +1712,7 @@ export default function App() {
                       </small>
                     ) : (
                       <div className="timeline-controls">
-                        <button
+                        <Button
                           onClick={() =>
                             void answerPermission(
                               entry.product_session_id,
@@ -1792,11 +1720,11 @@ export default function App() {
                               true,
                             )
                           }
-                          type="button"
+                          size="small"
                         >
                           Allow
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           onClick={() =>
                             void answerPermission(
                               entry.product_session_id,
@@ -1804,17 +1732,18 @@ export default function App() {
                               false,
                             )
                           }
-                          type="button"
+                          size="small"
+                          variant="ghost"
                         >
                           Deny
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </div>
                 ) : null}
                 {entry.fallback ? (
                   <div className="timeline-controls">
-                    <button
+                    <Button
                       // Either signal counts: this window's own in-flight run,
                       // or the store saying the session is running (which is
                       // what survives a restart). Using only the snapshot
@@ -1822,25 +1751,27 @@ export default function App() {
                       // since it is refreshed after the run, not during.
                       disabled={!activeSessionId || !attemptIsLive}
                       onClick={() => void stopActiveAttempt()}
-                      type="button"
+                      size="small"
+                      variant="danger"
                     >
                       Stop
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       disabled={engine === entry.fallback.source_engine_id}
                       onClick={() =>
                         void switchBack(entry.fallback?.source_engine_id ?? "")
                       }
-                      type="button"
+                      size="small"
+                      variant="ghost"
                     >
                       Switch back to {entry.fallback.source_engine_id}
-                    </button>
+                    </Button>
                     {!attemptIsLive ? (
                       <small className="timeline-hint">
                         This attempt has finished — Stop no longer applies.
                       </small>
                     ) : null}
-                    <button
+                    <Button
                       disabled={!entry.fallback.handoff}
                       onClick={() =>
                         setOpenHandoffs((current) => ({
@@ -1848,10 +1779,11 @@ export default function App() {
                           [index]: !current[index],
                         }))
                       }
-                      type="button"
+                      size="small"
+                      variant="ghost"
                     >
                       {openHandoffs[index] ? "Hide handoff" : "View handoff"}
-                    </button>
+                    </Button>
                   </div>
                 ) : null}
                 {entry.fallback?.handoff && openHandoffs[index] ? (
@@ -1957,19 +1889,20 @@ export default function App() {
                 </small>
               ))}
               <div className="team-worker-controls">
-                <button
+                <Button
                   className="approval-allow"
                   onClick={() => void decideApprovalGroup(group, true)}
-                  type="button"
+                  size="small"
                 >
                   Allow all {group.members.length}
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={() => void decideApprovalGroup(group, false)}
-                  type="button"
+                  size="small"
+                  variant="ghost"
                 >
                   Deny all
-                </button>
+                </Button>
               </div>
             </div>
           ))}
@@ -2014,7 +1947,7 @@ export default function App() {
                 ))
               )}
               <div className="memory-add">
-                <input
+                <TextField
                   aria-label="Add session memory"
                   placeholder="Always run cargo test before finishing…"
                   value={memoryDraft}
@@ -2025,14 +1958,14 @@ export default function App() {
                     }
                   }}
                 />
-                <button
+                <Button
                   className="secondary-button"
-                  disabled={memorySaving || !memoryDraft.trim()}
+                  disabled={!memoryDraft.trim()}
+                  loading={memorySaving}
                   onClick={() => void addMemory(memoryDraft)}
-                  type="button"
                 >
                   {memorySaving ? "Saving…" : "Remember"}
-                </button>
+                </Button>
               </div>
             </section>
             <section>
@@ -2115,7 +2048,7 @@ export default function App() {
                         {handoff.available_mcp.length} MCP
                       </small>
                     ) : null}
-                    <button
+                    <Button
                       className="secondary-button"
                       onClick={() =>
                         setOpenDrawerHandoffs((current) => ({
@@ -2123,12 +2056,13 @@ export default function App() {
                           [handoff.handoff_id]: !current[handoff.handoff_id],
                         }))
                       }
-                      type="button"
+                      size="small"
+                      variant="ghost"
                     >
                       {openDrawerHandoffs[handoff.handoff_id]
                         ? "Hide envelope"
                         : "Show envelope"}
-                    </button>
+                    </Button>
                     {openDrawerHandoffs[handoff.handoff_id] ? (
                       <div className="handoff-view">
                         {handoff.session_memory.length > 0 ? (
@@ -2224,18 +2158,16 @@ export default function App() {
                 value={profile}
               />
               {activeSessionId ? (
-                <label className="transcript-toggle">
-                  <input
-                    checked={transcriptSharing}
-                    onChange={(event) => {
-                      const enabled = event.target.checked;
-                      setTranscriptSharingState(enabled);
-                      void setTranscriptSharing_backend(enabled);
-                    }}
-                    type="checkbox"
-                  />
-                  Share transcript
-                </label>
+                <Checkbox
+                  checked={transcriptSharing}
+                  className="transcript-toggle"
+                  label="Share transcript"
+                  onCheckedChange={(checked) => {
+                    const enabled = checked === true;
+                    setTranscriptSharingState(enabled);
+                    void setTranscriptSharing_backend(enabled);
+                  }}
+                />
               ) : null}
             </>
           }

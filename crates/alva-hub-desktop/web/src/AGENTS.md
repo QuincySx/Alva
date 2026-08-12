@@ -59,5 +59,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | UI tests | `ui/ui.test.tsx` | 不依赖 Hub 业务状态的组件行为回归 |
 | Model picker | `components/model-picker.tsx` | 锚定 Composer 的双栏引擎/模型目录 |
 | Composer | `components/hub-composer.tsx` | 聊天输入、上下文动作、模型与发送动作 |
+| Sidebar | `components/hub-sidebar.tsx` | 项目导航、会话搜索、持久会话列表与工作区入口 |
+| Topbar | `components/hub-topbar.tsx` | 对话标题、状态、详情与右侧工作台入口 |
 | Component tests | `components/components.test.tsx` | Composer 与模型选择器交互回归 |
 | Domain styles | `styles/hub-components.css` | Hub 领域组件组合样式，不重复基础控件行为 |
