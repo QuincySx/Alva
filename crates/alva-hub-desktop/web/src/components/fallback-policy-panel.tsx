@@ -2,9 +2,8 @@
 // OUTPUT: Explicit ordered fallback authorization editor
 // POS:    Fallback tab business block inside the Hub workbench
 
-import { useState } from "react";
 import type { EngineTarget, FallbackPolicy } from "../bridge";
-import { Button, Checkbox, TextField } from "../ui";
+import { Button, Checkbox, Disclosure, PanelSection, TextField } from "../ui";
 
 export interface FallbackPolicyPanelProps {
   activeSession: boolean;
@@ -27,31 +26,23 @@ export function FallbackPolicyPanel({
   policy,
   saving,
 }: FallbackPolicyPanelProps) {
-  const [collapsed, setCollapsed] = useState(true);
-
   return (
-    <section className="fallback-panel" aria-labelledby="fallback-panel-title">
-      <div className="session-heading">
+    <PanelSection
+      actions={
         <Button
-          aria-expanded={!collapsed}
-          aria-label="Toggle fallback chain"
-          className="section-collapse"
-          onClick={() => setCollapsed((value) => !value)}
-          size="icon"
-          variant="ghost"
+          aria-label={activeSession ? "Save session chain" : "Save default chain"}
+          loading={saving}
+          onClick={onSave}
+          size="small"
         >
-          {collapsed ? "▸" : "▾"}
+          {saving ? "Saving…" : activeSession ? "Save session" : "Save default"}
         </Button>
-        <span className="eyebrow" id="fallback-panel-title">
-          {activeSession ? "Session fallback chain" : "Default fallback chain"}
-        </span>
-        <small>{policy.targets.length}</small>
-      </div>
-      {collapsed ? null : (
-        <>
-          <p className="policy-note">
-            Only checked targets may run automatically. Manual engine switching is always explicit.
-          </p>
+      }
+      className="fallback-panel"
+      description="Hub tries these engines in order when the current one cannot continue."
+      heading={activeSession ? "Session fallback" : "Default fallback"}
+      meta={`${policy.targets.length} selected`}
+    >
           <div className="policy-catalog">
             {catalog.map((target) => {
               const selected = policy.targets.some(
@@ -72,32 +63,40 @@ export function FallbackPolicyPanel({
           </div>
           {policy.targets.map((target, index) => (
             <div className="policy-target" key={`${target.engine_id}-${index}`}>
-              <div>
+              <div className="policy-target__heading">
                 <strong>{index + 1}. {target.engine_id}</strong>
-                <TextField
-                  aria-label={`Model for ${target.engine_id}`}
-                  className="policy-model-input"
-                  placeholder="engine-default"
-                  value={target.model_id}
-                  onChange={(event) => onUpdateTarget(index, { model_id: event.target.value })}
-                />
-                <TextField
-                  aria-label={`Provider for ${target.engine_id}`}
-                  className="policy-model-input"
-                  placeholder="provider id"
-                  value={target.provider_id}
-                  onChange={(event) => onUpdateTarget(index, { provider_id: event.target.value })}
-                />
+                <small>{target.account_source}</small>
               </div>
-              <small>{target.account_source}</small>
-              <small>{target.billing_route}</small>
               <Checkbox
                 checked={target.automatic_use_authorized}
-                label="Authorize automatic use"
+                label="Allow automatic use"
                 onCheckedChange={(checked) =>
                   onUpdateTarget(index, { automatic_use_authorized: checked === true })
                 }
               />
+              <Disclosure
+                className="policy-target__details"
+                description="Model, provider, and billing route"
+                title="Advanced routing"
+              >
+                <div className="policy-target__fields">
+                  <TextField
+                    aria-label={`Model for ${target.engine_id}`}
+                    className="policy-model-input"
+                    placeholder="Default model"
+                    value={target.model_id}
+                    onChange={(event) => onUpdateTarget(index, { model_id: event.target.value })}
+                  />
+                  <TextField
+                    aria-label={`Provider for ${target.engine_id}`}
+                    className="policy-model-input"
+                    placeholder="Provider"
+                    value={target.provider_id}
+                    onChange={(event) => onUpdateTarget(index, { provider_id: event.target.value })}
+                  />
+                  <small>{target.billing_route}</small>
+                </div>
+              </Disclosure>
               <div className="policy-order">
                 <Button
                   aria-label={`Move ${target.engine_id} earlier`}
@@ -120,15 +119,6 @@ export function FallbackPolicyPanel({
               </div>
             </div>
           ))}
-          <Button
-            className="secondary-button policy-save"
-            loading={saving}
-            onClick={onSave}
-          >
-            {saving ? "Saving…" : activeSession ? "Save session chain" : "Save default chain"}
-          </Button>
-        </>
-      )}
-    </section>
+    </PanelSection>
   );
 }

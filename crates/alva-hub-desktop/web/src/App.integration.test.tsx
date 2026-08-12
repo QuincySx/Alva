@@ -385,10 +385,12 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(screen.getByRole("tab", { name: "Engines" }));
     expect(await screen.findByText("Healthy")).toBeInTheDocument();
     expect(screen.getByText("Sign-in needed")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: /Technical details/ })[1]);
     expect(screen.getByText("Run claude once to sign in.")).toBeInTheDocument();
-    expect(screen.getByText(/v2.1.226 · requires ≥ 1.0.0/)).toBeInTheDocument();
+    expect(screen.getByText(/Version 2.1.226 · requires 1.0.0 or newer/)).toBeInTheDocument();
 
     // One-click repair dispatches with the engine and kind.
     await user.click(
@@ -513,9 +515,6 @@ describe("App integration", () => {
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
     await user.click(screen.getByRole("tab", { name: "Team" }));
-    await user.click(
-      screen.getByRole("button", { name: "Toggle team panel" }),
-    );
 
     // Durable workers render with engine, lifecycle and isolation markers.
     expect(await screen.findByText("Worker · codex")).toBeInTheDocument();
@@ -690,9 +689,6 @@ describe("App integration", () => {
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
     await user.click(screen.getByRole("tab", { name: "Team" }));
-    await user.click(
-      screen.getByRole("button", { name: "Toggle team panel" }),
-    );
     // Default worker engine is codex; create dispatches lead + engine.
     await user.click(
       await screen.findByRole("button", { name: "Create team run" }),
@@ -761,7 +757,6 @@ describe("App integration", () => {
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
     await user.click(screen.getByRole("tab", { name: "Team" }));
-    await user.click(screen.getByRole("button", { name: "Toggle team panel" }));
 
     // Autonomy is an explicit opt-in, never implied by the run existing.
     const autonomy = screen.getByLabelText(
@@ -816,10 +811,7 @@ describe("App integration", () => {
     await user.click(screen.getByRole("button", { name: "Model and engine" }));
     await user.click(screen.getByRole("tab", { name: "Claude Code" }));
     expect(screen.getByRole("button", { name: /Default model/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Default model/ })).toHaveAttribute(
-      "title",
-      "Claude light cannot enforce workspace_write",
-    );
+    expect(screen.getByText("Claude light cannot enforce workspace_write")).toBeInTheDocument();
     // Restore the default so later tests don't inherit an ineligible claude.
     bridge.fns.getPermissionEligibility.mockImplementation(async () => []);
   });
@@ -854,17 +846,16 @@ describe("App integration", () => {
 
     render(<App />);
     // Aggregation must never hide who is asking for what.
-    expect(
-      await screen.findByText(/2 workers want to run 'bash'/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Allow bash?")).toBeInTheDocument();
+    expect(screen.getByText("2 agents need access to src/.")).toBeInTheDocument();
     expect(screen.getByText(/worker-a/)).toBeInTheDocument();
     expect(screen.getByText(/worker-b/)).toBeInTheDocument();
 
     // The allow action is primary-styled (consequential decision).
-    expect(screen.getByRole("button", { name: "Allow all 2" })).toHaveClass(
-      "approval-allow",
+    expect(screen.getByRole("button", { name: "Allow 2 bash requests" })).toHaveClass(
+      "ui-button--primary",
     );
-    await user.click(screen.getByRole("button", { name: "Allow all 2" }));
+    await user.click(screen.getByRole("button", { name: "Allow 2 bash requests" }));
     // Exactly the displayed request ids travel — never a re-fetch guess.
     expect(bridge.fns.respondPermissionGroup).toHaveBeenCalledWith(
       "g-bash",
@@ -872,7 +863,7 @@ describe("App integration", () => {
       ["r1", "r2"],
     );
     // Deny all carries the same exact scope, opposite decision.
-    await user.click(screen.getByRole("button", { name: "Deny all" }));
+    await user.click(screen.getByRole("button", { name: "Deny 2 bash requests" }));
     expect(bridge.fns.respondPermissionGroup).toHaveBeenLastCalledWith(
       "g-bash",
       false,
@@ -1131,6 +1122,7 @@ describe("App integration", () => {
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Details" }));
+    await user.click(await screen.findByRole("button", { name: /Engine handoffs/ }));
     await user.click(
       await screen.findByRole("button", { name: "Show envelope" }),
     );
@@ -1168,9 +1160,7 @@ describe("App integration", () => {
     render(<App />);
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
     await user.click(screen.getByRole("tab", { name: "Fallback" }));
-    await user.click(
-      screen.getByRole("button", { name: "Toggle fallback chain" }),
-    );
+    await user.click(await screen.findByRole("button", { name: /Advanced routing/ }));
     const modelInput = await screen.findByLabelText("Model for claude");
     expect(modelInput).toHaveValue("engine-default");
 
@@ -1183,9 +1173,7 @@ describe("App integration", () => {
     await user.clear(modelInput);
     await user.type(modelInput, "claude-sonnet-4-5");
     // The composer reflects the edited model immediately.
-    expect(
-      await screen.findByText("Running claude on claude-sonnet-4-5 · claude-cli"),
-    ).toBeInTheDocument();
+    expect((await screen.findAllByText("Claude Code · claude-sonnet-4-5")).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Save default chain" }));
 
     expect(bridge.fns.setGlobalFallbackPolicy).toHaveBeenCalledWith([
@@ -1218,9 +1206,6 @@ describe("App integration", () => {
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
     await user.click(screen.getByRole("tab", { name: "Fallback" }));
-    await user.click(
-      screen.getByRole("button", { name: "Toggle fallback chain" }),
-    );
 
     // Session open → Save writes to the session, never the global default.
     await user.click(
@@ -1233,25 +1218,16 @@ describe("App integration", () => {
     expect(bridge.fns.setGlobalFallbackPolicy).not.toHaveBeenCalled();
   });
 
-  it("collapses and expands the fallback chain panel", async () => {
+  it("shows the fallback chain only in its workbench tab", async () => {
     const user = userEvent.setup();
     render(<App />);
-    // The chain is collapsed by default so the session list owns the rail…
+    // The chain is absent until the Workbench and its dedicated tab open.
     expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
     await user.click(screen.getByRole("tab", { name: "Fallback" }));
-    // …expanding reveals the chain, collapsing hides it again.
-    const toggle = screen.getByRole("button", {
-      name: "Toggle fallback chain",
-    });
-    // The expand state is announced, not just shown as a chevron.
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await user.click(toggle);
     expect(await screen.findByText("+ alva")).toBeInTheDocument();
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await user.click(toggle);
+    await user.click(screen.getAllByRole("button", { name: "Close workbench" })[0]);
     expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
   it("teaches the session memory and refreshes the drawer list", async () => {

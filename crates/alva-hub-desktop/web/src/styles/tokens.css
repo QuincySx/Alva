@@ -37,6 +37,19 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  --control-sm: 30px;
+  --control-md: 36px;
+  --control-lg: 42px;
+  --row-compact: 40px;
+  --row-comfortable: 52px;
+  --sidebar-width: 256px;
+  --workbench-width: 440px;
+  --content-width: 840px;
+  --layer-workbench: 80;
+  --layer-popover: 100;
+  --layer-tooltip: 120;
+  --layer-dialog-overlay: 200;
+  --layer-dialog: 201;
   --radius-xs: 6px;
   --radius-sm: 8px;
   --radius-md: 11px;
@@ -45,8 +58,25 @@
   --shadow-popover: 0 14px 44px rgba(0, 0, 0, 0.34);
   --shadow-raised: 0 10px 28px rgba(0, 0, 0, 0.18);
   --shadow-dialog: 0 24px 80px rgba(0, 0, 0, 0.48);
-  --motion-fast: 120ms;
-  --motion-normal: 180ms;
+  --duration-color: 120ms;
+  --duration-press: 120ms;
+  --duration-tooltip: 140ms;
+  --duration-disclosure: 180ms;
+  --duration-popover: 180ms;
+  --duration-dialog: 220ms;
+  --duration-drawer: 240ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-fast: var(--duration-color);
+  --motion-normal: var(--duration-popover);
+
+  --control-height-default: 36px;
+  --control-height-compact: 30px;
+  --overlay-width-compact: 320px;
+  --overlay-width-default: 420px;
+  --overlay-width-wide: 720px;
+  --overlay-width: var(--overlay-width-default);
 
   /* Legacy aliases stay tokenized while old business surfaces migrate. */
   --bg: var(--color-canvas);

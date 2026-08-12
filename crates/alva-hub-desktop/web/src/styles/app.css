@@ -17,15 +17,18 @@ body {
   background: var(--bg);
 }
 
+.ui-lab { display: grid; min-height: 100vh; align-content: start; gap: 24px; padding: 32px; background: var(--color-canvas); }
+.ui-lab__tabs { display: grid; align-content: start; gap: 18px; }
+.ui-lab__section { display: grid; gap: 18px; padding-top: 20px; }
+.ui-lab__section > h2 { margin: 0; font-size: 16px; }
+.ui-lab__row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ui-lab__model { min-height: 460px; align-content: start; }
+
 button,
 textarea,
 select,
 input {
   font: inherit;
-}
-
-button {
-  cursor: pointer;
 }
 
 /* ── Layout ─────────────────────────────────────────────── */
@@ -109,7 +112,7 @@ button {
   padding: 0 12px;
   font-weight: 600;
   font-size: 13px;
-  transition: background var(--motion-fast) ease;
+  transition: background var(--motion-fast) var(--ease-out);
 }
 
 .secondary-button { color: var(--color-text); background: var(--color-surface-raised); }
@@ -121,10 +124,7 @@ button {
 
 /* ── Sidebar panels ─────────────────────────────────────── */
 
-.workspace-panel,
-.readiness-panel,
-.fallback-panel,
-.team-panel {
+.workspace-panel {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -211,7 +211,7 @@ button {
   border-radius: var(--radius-sm);
   text-align: left;
   background: transparent;
-  transition: background 0.12s ease;
+  transition: background var(--duration-color) var(--ease-out);
 }
 
 .session-item:hover {
@@ -255,20 +255,6 @@ button {
 }
 
 /* ── Readiness ──────────────────────────────────────────── */
-
-.readiness-refresh {
-  border: 0;
-  border-radius: var(--radius-sm);
-  padding: 4px 10px;
-  color: var(--text-2);
-  background: var(--surface-3);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.readiness-refresh:disabled {
-  opacity: 0.45;
-}
 
 .readiness-list {
   display: flex;
@@ -353,21 +339,6 @@ button {
   border-top: 1px solid var(--border);
 }
 
-.repair-action button,
-.repair-link {
-  border: 0;
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  color: var(--accent);
-  background: var(--accent-soft);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.repair-action button:disabled {
-  opacity: 0.5;
-}
-
 .repair-log {
   color: var(--text-2) !important;
 }
@@ -385,16 +356,6 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.policy-engine {
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-2);
-  background: transparent;
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .policy-engine.selected {
@@ -441,37 +402,8 @@ button {
   margin-top: 4px;
 }
 
-.policy-order button {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 3px 9px;
-  color: var(--text-2);
-  background: transparent;
-  font-size: 12px;
-}
-
-.policy-order button:disabled {
-  opacity: 0.35;
-}
-
 .policy-model-input {
   width: 100%;
-  margin-top: 3px;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  background: var(--surface-1);
-  color: var(--text-1);
-  font-size: 12px;
-}
-
-.policy-model-input:focus {
-  border-color: var(--accent);
-}
-
-.policy-model-input::placeholder {
-  color: var(--text-3);
 }
 
 .policy-save {
@@ -534,26 +466,6 @@ button {
   gap: 6px;
 }
 
-.team-worker-controls button,
-.team-worker-controls select {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 5px 10px;
-  color: var(--text-2);
-  background: var(--surface-1);
-  font-size: 12px;
-}
-
-.team-worker-controls button:hover {
-  border-color: var(--border-strong);
-  color: var(--text-1);
-}
-
-.team-worker-controls button:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
 .team-task {
   display: flex;
   flex-direction: column;
@@ -580,56 +492,10 @@ button {
 .team-scope {
   width: 100%;
   min-height: 52px;
-  resize: vertical;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  background: var(--surface-2);
-  color: var(--text-1);
-  font-size: 12px;
-  font-family: inherit;
-}
-
-.team-scope:focus {
-  border-color: var(--accent);
 }
 
 .team-claims {
   width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  background: var(--surface-2);
-  color: var(--text-1);
-  font-size: 12px;
-}
-
-.team-claims::placeholder,
-.team-scope::placeholder {
-  color: var(--text-3);
-}
-
-.approval-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 8px 24px;
-  padding: 12px 14px;
-  border: 1px solid rgba(95, 142, 245, 0.35);
-  border-radius: var(--radius);
-  background: var(--accent-soft);
-}
-
-.approval-group strong {
-  color: var(--text-1);
-  font-size: 13px;
-}
-
-.approval-group small {
-  color: var(--text-2);
-  font-size: 12px;
 }
 
 /* ── Timeline ───────────────────────────────────────────── */
@@ -799,25 +665,6 @@ button {
   margin-top: 2px;
 }
 
-.timeline-controls button {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 6px 11px;
-  color: var(--text-1);
-  background: var(--surface-1);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.timeline-controls button:hover {
-  border-color: var(--border-strong);
-}
-
-.timeline-controls button:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
 .permission-card {
   display: flex;
   flex-direction: column;
@@ -970,25 +817,6 @@ button {
   overflow-wrap: anywhere;
 }
 
-.composer-readiness {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-}
-
-.composer-readiness strong {
-  color: var(--text-1);
-  font-size: 12px;
-}
-
-.composer-readiness small {
-  color: var(--text-3);
-  font-size: 11px;
-}
-
 .composer select,
 .topbar select {
   border: 1px solid var(--border);
@@ -1036,9 +864,7 @@ button {
 .details-drawer {
   display: grid;
   gap: 12px;
-  overflow-y: auto;
-  max-height: 44vh;
-  margin: 0 24px 12px;
+  margin: 0 0 16px;
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1140,12 +966,4 @@ button {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Grouped approval is a consequential action: the allow path is primary. */
-.approval-group .approval-allow {
-  border-color: var(--accent);
-  color: #0d0f12;
-  background: var(--accent);
-  font-weight: 700;
 }

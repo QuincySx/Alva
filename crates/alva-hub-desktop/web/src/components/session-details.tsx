@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import type { EngineReadiness, HubSessionDetail } from "../bridge";
-import { Button, TextField } from "../ui";
+import { Button, Disclosure, TextField } from "../ui";
 
 export interface SessionDetailsProps {
   detail: HubSessionDetail;
@@ -62,7 +62,6 @@ export function SessionDetails({
             }}
           />
           <Button
-            className="secondary-button"
             disabled={!memoryDraft.trim()}
             loading={memorySaving}
             onClick={saveMemory}
@@ -71,8 +70,12 @@ export function SessionDetails({
           </Button>
         </div>
       </section>
-      <section>
-        <span className="eyebrow">Branches</span>
+      <Disclosure
+        className="details-section"
+        description="Engine conversations kept for this session"
+        meta={detail.branches.length}
+        title="Engine history"
+      >
         {detail.branches.length === 0 ? (
           <small className="session-empty">No branches yet.</small>
         ) : null}
@@ -85,9 +88,13 @@ export function SessionDetails({
             </small>
           </div>
         ))}
-      </section>
-      <section>
-        <span className="eyebrow">Attempts</span>
+      </Disclosure>
+      <Disclosure
+        className="details-section"
+        description="Runs, failures, and tool activity"
+        meta={detail.turns.reduce((count, turn) => count + turn.attempts.length, 0)}
+        title="Run details"
+      >
         {detail.turns.every((turn) => turn.attempts.length === 0) ? (
           <small className="session-empty">No attempts yet.</small>
         ) : null}
@@ -113,9 +120,13 @@ export function SessionDetails({
             </div>
           )),
         )}
-      </section>
-      <section>
-        <span className="eyebrow">Handoffs</span>
+      </Disclosure>
+      <Disclosure
+        className="details-section"
+        description="Context carried when changing engines"
+        meta={detail.handoffs.length}
+        title="Engine handoffs"
+      >
         {detail.handoffs.length === 0 ? (
           <small className="session-empty">No handoffs yet.</small>
         ) : (
@@ -137,7 +148,6 @@ export function SessionDetails({
                 </small>
               ) : null}
               <Button
-                className="secondary-button"
                 onClick={() =>
                   setOpenHandoffs((current) => ({
                     ...current,
@@ -196,9 +206,13 @@ export function SessionDetails({
             </div>
           ))
         )}
-      </section>
-      <section>
-        <span className="eyebrow">Engine diagnostics</span>
+      </Disclosure>
+      <Disclosure
+        className="details-section"
+        description="Versions, streaming health, and setup issues"
+        meta={readiness.length}
+        title="Diagnostics"
+      >
         {readiness.map((engineReadiness) => (
           <div className="details-row" key={engineReadiness.engine_id}>
             <strong>
@@ -213,7 +227,7 @@ export function SessionDetails({
             ))}
           </div>
         ))}
-      </section>
+      </Disclosure>
     </aside>
   );
 }

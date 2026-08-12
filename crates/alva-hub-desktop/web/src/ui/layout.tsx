@@ -9,12 +9,14 @@ export interface AppFrameProps extends React.HTMLAttributes<HTMLDivElement> {
   sidebar: React.ReactNode;
   workbench?: React.ReactNode;
   workbenchOpen?: boolean;
+  onWorkbenchDismiss?: () => void;
 }
 
 export function AppFrame({
   sidebar,
   workbench,
   workbenchOpen = false,
+  onWorkbenchDismiss,
   children,
   className,
   ...props
@@ -30,6 +32,14 @@ export function AppFrame({
     >
       {sidebar}
       <main className="ui-main-pane">{children}</main>
+      {workbenchOpen && workbench ? (
+        <button
+          aria-label="Dismiss workbench overlay"
+          className="ui-workbench-scrim"
+          onClick={onWorkbenchDismiss}
+          type="button"
+        />
+      ) : null}
       {workbenchOpen && workbench ? workbench : null}
     </div>
   );
@@ -48,14 +58,16 @@ export interface WorkbenchProps
   extends Omit<React.HTMLAttributes<HTMLElement>, "title"> {
   title?: React.ReactNode;
   actions?: React.ReactNode;
+  mode?: "docked" | "overlay";
 }
 
 export const Workbench = React.forwardRef<HTMLElement, WorkbenchProps>(
-  function Workbench({ title, actions, children, className, ...props }, ref) {
+  function Workbench({ title, actions, children, className, mode = "docked", ...props }, ref) {
     return (
       <aside
         ref={ref}
         className={cx("ui-workbench", className)}
+        data-mode={mode}
         {...props}
       >
         {title || actions ? (
@@ -91,3 +103,55 @@ export function PaneHeader({
     </header>
   );
 }
+
+export const ContentFrame = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(function ContentFrame({ className, ...props }, ref) {
+  return (
+    <div
+      ref={ref}
+      className={cx("ui-content-frame", className)}
+      {...props}
+    />
+  );
+});
+
+export const ScrollRegion = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(function ScrollRegion({ className, ...props }, ref) {
+  return (
+    <div
+      ref={ref}
+      className={cx("ui-scroll-region", className)}
+      {...props}
+    />
+  );
+});
+
+export const DockRegion = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(function DockRegion({ className, ...props }, ref) {
+  return (
+    <div
+      ref={ref}
+      className={cx("ui-dock-region", className)}
+      {...props}
+    />
+  );
+});
+
+export const WorkbenchPage = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(function WorkbenchPage({ className, ...props }, ref) {
+  return (
+    <div
+      ref={ref}
+      className={cx("ui-workbench-page", className)}
+      {...props}
+    />
+  );
+});

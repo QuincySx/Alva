@@ -9,7 +9,7 @@ import type {
   ResourceClaim,
   TeamRunDetail,
 } from "../bridge";
-import { Button, Checkbox, SelectField, TextArea, TextField } from "../ui";
+import { Button, Checkbox, PanelSection, SelectField, TextArea, TextField } from "../ui";
 
 export interface TeamPanelProps {
   activeSession: boolean;
@@ -76,28 +76,18 @@ export function TeamPanel({
   workerEngine,
   describeClaim,
 }: TeamPanelProps) {
-  const [collapsed, setCollapsed] = useState(true);
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const [editingScope, setEditingScope] = useState("");
   const [showArchived, setShowArchived] = useState(false);
 
   return (
-    <section className="team-panel" aria-labelledby="team-panel-title">
-      <div className="session-heading">
-        <Button
-          aria-expanded={!collapsed}
-          aria-label="Toggle team panel"
-          className="section-collapse"
-          onClick={() => setCollapsed((value) => !value)}
-          size="icon"
-          variant="ghost"
-        >
-          {collapsed ? "▸" : "▾"}
-        </Button>
-        <span className="eyebrow" id="team-panel-title">Team</span>
-        <small>{run ? `${run.tasks.length} tasks` : ""}</small>
-      </div>
-      {collapsed ? null : !activeSession ? (
+    <PanelSection
+      className="team-panel"
+      description="Delegate focused work without leaving this conversation."
+      heading="Team"
+      meta={run ? `${run.tasks.length} tasks` : undefined}
+    >
+      {!activeSession ? (
         <small className="session-empty">Open a session to lead a team run.</small>
       ) : !run ? (
         <>
@@ -235,6 +225,6 @@ export function TeamPanel({
           </div>
         </>
       )}
-    </section>
+    </PanelSection>
   );
 }

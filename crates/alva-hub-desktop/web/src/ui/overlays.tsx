@@ -4,7 +4,7 @@
 
 import React from "react";
 import { Check, ChevronRight, X } from "lucide-react";
-import { Dialog, DropdownMenu, Popover, Tooltip } from "radix-ui";
+import { ContextMenu, Dialog, DropdownMenu, Popover, Tooltip } from "radix-ui";
 import { IconButton } from "./button";
 import { cx } from "./utils";
 
@@ -14,9 +14,11 @@ export const PopoverClose = Popover.Close;
 
 export const PopoverContent = React.forwardRef<
   React.ElementRef<typeof Popover.Content>,
-  React.ComponentPropsWithoutRef<typeof Popover.Content>
+  React.ComponentPropsWithoutRef<typeof Popover.Content> & {
+    size?: "compact" | "default" | "wide" | "full-height";
+  }
 >(function PopoverContent(
-  { className, align = "end", sideOffset = 8, collisionPadding = 12, ...props },
+  { className, align = "end", sideOffset = 8, collisionPadding = 12, size = "default", ...props },
   ref,
 ) {
   return (
@@ -25,6 +27,7 @@ export const PopoverContent = React.forwardRef<
         ref={ref}
         align={align}
         className={cx("ui-popover", className)}
+        data-size={size}
         collisionPadding={collisionPadding}
         sideOffset={sideOffset}
         {...props}
@@ -38,6 +41,45 @@ export const MenuTrigger = DropdownMenu.Trigger;
 export const MenuGroup = DropdownMenu.Group;
 export const MenuRadioGroup = DropdownMenu.RadioGroup;
 export const MenuSub = DropdownMenu.Sub;
+
+export const ContextMenuRoot = ContextMenu.Root;
+export const ContextMenuTrigger = ContextMenu.Trigger;
+
+export const ContextMenuContent = React.forwardRef<
+  React.ElementRef<typeof ContextMenu.Content>,
+  React.ComponentPropsWithoutRef<typeof ContextMenu.Content>
+>(function ContextMenuContent({ className, collisionPadding = 10, ...props }, ref) {
+  return (
+    <ContextMenu.Portal>
+      <ContextMenu.Content
+        ref={ref}
+        className={cx("ui-menu", className)}
+        collisionPadding={collisionPadding}
+        {...props}
+      />
+    </ContextMenu.Portal>
+  );
+});
+
+export const ContextMenuItem = React.forwardRef<
+  React.ElementRef<typeof ContextMenu.Item>,
+  React.ComponentPropsWithoutRef<typeof ContextMenu.Item> & { destructive?: boolean }
+>(function ContextMenuItem({ className, destructive, ...props }, ref) {
+  return (
+    <ContextMenu.Item
+      ref={ref}
+      className={cx("ui-menu-item", destructive && "ui-menu-item--danger", className)}
+      {...props}
+    />
+  );
+});
+
+export const ContextMenuSeparator = React.forwardRef<
+  React.ElementRef<typeof ContextMenu.Separator>,
+  React.ComponentPropsWithoutRef<typeof ContextMenu.Separator>
+>(function ContextMenuSeparator({ className, ...props }, ref) {
+  return <ContextMenu.Separator ref={ref} className={cx("ui-menu-separator", className)} {...props} />;
+});
 
 export const MenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenu.Content>,
@@ -187,13 +229,14 @@ export interface DialogContentProps
   title: React.ReactNode;
   description?: React.ReactNode;
   hideClose?: boolean;
+  size?: "compact" | "default" | "wide" | "full-height";
 }
 
 export const DialogContent = React.forwardRef<
   React.ElementRef<typeof Dialog.Content>,
   DialogContentProps
 >(function DialogContent(
-  { title, description, children, className, hideClose, ...props },
+  { title, description, children, className, hideClose, size = "default", ...props },
   ref,
 ) {
   return (
@@ -202,6 +245,8 @@ export const DialogContent = React.forwardRef<
       <Dialog.Content
         ref={ref}
         className={cx("ui-dialog", className)}
+        data-size={size}
+        aria-describedby={undefined}
         {...props}
       >
         <header className="ui-dialog__header">

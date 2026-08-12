@@ -9,6 +9,7 @@ import { cx } from "./utils";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "small" | "medium" | "large" | "icon";
+export type ControlDensity = "default" | "compact";
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -17,6 +18,7 @@ export interface ButtonProps
   loading?: boolean;
   leadingIcon?: React.ReactNode;
   trailingIcon?: React.ReactNode;
+  density?: ControlDensity;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -28,6 +30,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       loading = false,
       leadingIcon,
       trailingIcon,
+      density = "default",
       disabled,
       children,
       type = "button",
@@ -44,6 +47,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           `ui-button--${size}`,
           className,
         )}
+        data-density={density}
         disabled={disabled || loading}
         type={type}
         {...props}

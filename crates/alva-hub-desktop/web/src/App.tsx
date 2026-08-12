@@ -17,10 +17,31 @@ import { HubTopbar } from "./components/hub-topbar";
 import { SessionDetails } from "./components/session-details";
 import { TeamPanel } from "./components/team-panel";
 import {
+  AutomationsPage,
+  ExtensionsPage,
+  SearchPage,
+  SettingsPage,
+  type HubPage,
+} from "./components/product-pages";
+import {
+  AgentTool,
+  BrowserTool,
+  FilesTool,
+  InspectorTool,
+  ReviewTool,
+  TasksTool,
+  TerminalTool,
+  UsageTool,
+} from "./components/workbench-tools";
+import {
   AppFrame,
   Button,
   Checkbox,
+  ContentFrame,
+  DockRegion,
   IconButton,
+  Notice,
+  ScrollRegion,
   SelectField,
   TabsContent,
   TabsList,
@@ -28,6 +49,7 @@ import {
   TabsTrigger,
   UIProvider,
   Workbench,
+  WorkbenchPage,
 } from "./ui";
 import {
   addSessionMemory,
@@ -142,6 +164,36 @@ const profileLabel: Record<PermissionProfile, string> = {
   unrestricted: "Everything allowed",
 };
 
+type WorkbenchTool =
+  | "files"
+  | "review"
+  | "agent"
+  | "inspector"
+  | "tasks"
+  | "usage"
+  | "browser"
+  | "terminal"
+  | "engines"
+  | "fallback"
+  | "team";
+
+const hubPages: HubPage[] = ["conversation", "automations", "extensions", "settings", "search"];
+const workbenchTools: WorkbenchTool[] = ["files", "review", "agent", "inspector", "tasks", "usage", "browser", "terminal", "engines", "fallback", "team"];
+
+function queryValue(name: string): string | null {
+  return typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get(name);
+}
+
+function initialPage(): HubPage {
+  const page = queryValue("page") as HubPage | null;
+  return page && hubPages.includes(page) ? page : "conversation";
+}
+
+function initialWorkbenchTool(): WorkbenchTool {
+  const tool = queryValue("tool") as WorkbenchTool | null;
+  return tool && workbenchTools.includes(tool) ? tool : "agent";
+}
+
 export function describeClaim(claim: ResourceClaim): string {
   switch (claim.kind) {
     case "path":
@@ -167,6 +219,11 @@ export function formatRelativeTime(updatedAt: number, now: number = Date.now()):
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(updatedAt).toISOString().slice(0, 10);
+}
+
+function displayWorkspace(workspace: string): string {
+  const segments = workspace.split(/[\\/]/).filter(Boolean);
+  return segments[segments.length - 1] ?? workspace;
 }
 
 export function parseClaims(input: string): ResourceClaim[] {
@@ -292,7 +349,9 @@ export default function App() {
   const [isolateWorker, setIsolateWorker] = useState(false);
   const [approvalGroups, setApprovalGroups] = useState<PermissionGroup[]>([]);
   const [sessionQuery, setSessionQuery] = useState("");
-  const [workbenchOpen, setWorkbenchOpen] = useState(false);
+  const [workbenchOpen, setWorkbenchOpen] = useState(() => queryValue("workbench") === "1");
+  const [activeWorkbenchTool, setActiveWorkbenchTool] = useState<WorkbenchTool>(initialWorkbenchTool);
+  const [activePage, setActivePage] = useState<HubPage>(initialPage);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [sessionDetail, setSessionDetail] = useState<HubSessionDetail | null>(
     null,
@@ -361,6 +420,8 @@ export default function App() {
     void getPermissionGroups().then(setApprovalGroups).catch(() => {});
     void refreshSessions();
     void loadGlobalFallbackPolicy().catch(appendLocalFailure);
+    const requestedSession = queryValue("session");
+    if (requestedSession) void loadSession(requestedSession).catch(appendLocalFailure);
   }, []);
 
   useEffect(() => {
@@ -530,6 +591,7 @@ export default function App() {
   /// session button and picking a workspace go through this, so neither can
   /// leak the previous session's profile, fallback chain or details.
   function resetSessionSurface() {
+    setActivePage("conversation");
     setActiveSessionId(null);
     activeSessionRef.current = null;
     setSessionDetail(null);
@@ -572,6 +634,7 @@ export default function App() {
   async function openSession(session: HubSessionSummary) {
     if (busy) return;
     try {
+      setActivePage("conversation");
       await loadSession(session.product_session_id);
     } catch (error) {
       appendLocalFailure(error);
@@ -903,6 +966,7 @@ export default function App() {
 
   async function openSessionById(productSessionId: string) {
     try {
+      setActivePage("conversation");
       await loadSession(productSessionId);
     } catch (error) {
       appendLocalFailure(error);
@@ -990,8 +1054,10 @@ export default function App() {
   return (
     <UIProvider>
     <AppFrame
+      onWorkbenchDismiss={() => setWorkbenchOpen(false)}
       sidebar={
         <HubSidebar
+          activePage={activePage}
           activeSessionId={activeSessionId}
           busy={busy}
           formatUpdatedAt={formatRelativeTime}
@@ -1000,6 +1066,7 @@ export default function App() {
             resetSessionSurface();
             void loadGlobalFallbackPolicy().catch(appendLocalFailure);
           }}
+          onNavigate={setActivePage}
           onOpenSession={(session) => void openSession(session)}
           onSessionQueryChange={setSessionQuery}
           sessionError={sessionError}
@@ -1022,14 +1089,31 @@ export default function App() {
           className="hub-workbench"
           title="Workspace"
         >
-          <TabsRoot className="hub-workbench__tabs" defaultValue="engines">
+          <TabsRoot className="hub-workbench__tabs" onValueChange={(value) => setActiveWorkbenchTool(value as WorkbenchTool)} value={activeWorkbenchTool}>
             <TabsList aria-label="Workbench panels" className="hub-workbench__tab-list">
+              <TabsTrigger value="files">Files</TabsTrigger>
+              <TabsTrigger value="review">Review</TabsTrigger>
+              <TabsTrigger value="agent">Agent</TabsTrigger>
+              <TabsTrigger value="inspector">Inspector</TabsTrigger>
+              <TabsTrigger value="tasks">Tasks</TabsTrigger>
+              <TabsTrigger value="usage">Usage</TabsTrigger>
+              <TabsTrigger value="browser">Browser</TabsTrigger>
+              <TabsTrigger value="terminal">Terminal</TabsTrigger>
               <TabsTrigger value="engines">Engines</TabsTrigger>
               <TabsTrigger value="fallback">Fallback</TabsTrigger>
               <TabsTrigger value="team">Team</TabsTrigger>
             </TabsList>
-            <TabsContent className="hub-workbench__scroll" value="engines">
-              <EngineReadinessPanel
+            <TabsContent className="hub-workbench__content" value="files"><WorkbenchPage><FilesTool detail={sessionDetail} /></WorkbenchPage></TabsContent>
+            <TabsContent className="hub-workbench__content" value="review"><WorkbenchPage><ReviewTool detail={sessionDetail} /></WorkbenchPage></TabsContent>
+            <TabsContent className="hub-workbench__content" value="agent"><WorkbenchPage><AgentTool onFocus={(sessionId) => void openSessionById(sessionId)} run={teamRun} /></WorkbenchPage></TabsContent>
+            <TabsContent className="hub-workbench__content" value="inspector"><WorkbenchPage><InspectorTool detail={sessionDetail} events={timeline} /></WorkbenchPage></TabsContent>
+            <TabsContent className="hub-workbench__content" value="tasks"><WorkbenchPage><TasksTool run={teamRun} /></WorkbenchPage></TabsContent>
+            <TabsContent className="hub-workbench__content" value="usage"><WorkbenchPage><UsageTool detail={sessionDetail} /></WorkbenchPage></TabsContent>
+            <TabsContent className="hub-workbench__content" value="browser"><WorkbenchPage><BrowserTool /></WorkbenchPage></TabsContent>
+            <TabsContent className="hub-workbench__content" value="terminal"><WorkbenchPage><TerminalTool /></WorkbenchPage></TabsContent>
+            <TabsContent className="hub-workbench__content" value="engines">
+              <WorkbenchPage>
+                <EngineReadinessPanel
                 busy={readinessBusy}
                 describeReason={describeReadinessReason}
                 label={readinessBadge}
@@ -1042,10 +1126,12 @@ export default function App() {
                 readiness={readiness}
                 repairingEngine={repairingEngine}
                 repairPlan={repairPlan}
-              />
+                />
+              </WorkbenchPage>
             </TabsContent>
-            <TabsContent className="hub-workbench__scroll" value="fallback">
-              <FallbackPolicyPanel
+            <TabsContent className="hub-workbench__content" value="fallback">
+              <WorkbenchPage>
+                <FallbackPolicyPanel
                 activeSession={activeSessionId !== null}
                 catalog={engineCatalog}
                 onMoveTarget={moveFallbackTarget}
@@ -1054,10 +1140,12 @@ export default function App() {
                 onUpdateTarget={updateFallbackTarget}
                 policy={fallbackPolicy}
                 saving={policySaving}
-              />
+                />
+              </WorkbenchPage>
             </TabsContent>
-            <TabsContent className="hub-workbench__scroll" value="team">
-              <TeamPanel
+            <TabsContent className="hub-workbench__content" value="team">
+              <WorkbenchPage>
+                <TeamPanel
                 activeSession={activeSessionId !== null}
                 adoption={adoption}
                 busy={teamBusy}
@@ -1090,7 +1178,8 @@ export default function App() {
                 run={teamRun}
                 scope={teamScope}
                 workerEngine={teamWorkerEngine}
-              />
+                />
+              </WorkbenchPage>
             </TabsContent>
           </TabsRoot>
         </Workbench>
@@ -1099,6 +1188,8 @@ export default function App() {
     >
 
       <div className="main-column">
+        {activePage === "conversation" ? (
+          <>
         <HubTopbar
           detailsAvailable={sessionDetail !== null}
           detailsOpen={detailsOpen}
@@ -1111,87 +1202,96 @@ export default function App() {
           workspace={workspace}
         />
 
-        <HubTimeline
-          activeSessionId={activeSessionId}
-          answeredPermissions={answeredPermissions}
-          attemptIsLive={attemptIsLive}
-          engineId={engine}
-          events={timeline}
-          onAnswerPermission={(productSessionId, requestId, allow) =>
-            void answerPermission(productSessionId, requestId, allow)
-          }
-          onStop={() => void stopActiveAttempt()}
-          onSwitchBack={(sourceEngineId) => void switchBack(sourceEngineId)}
-        />
+        <ContentFrame className="hub-session-frame">
+          <ScrollRegion className="hub-session-scroll">
+            <HubTimeline
+              activeSessionId={activeSessionId}
+              answeredPermissions={answeredPermissions}
+              attemptIsLive={attemptIsLive}
+              engineId={engine}
+              events={timeline}
+              onAnswerPermission={(productSessionId, requestId, allow) =>
+                void answerPermission(productSessionId, requestId, allow)
+              }
+              onStop={() => void stopActiveAttempt()}
+              onSwitchBack={(sourceEngineId) => void switchBack(sourceEngineId)}
+            />
 
-        {approvalGroups
-          .filter((group) => group.members.length > 1)
-          .map((group) => (
-            <div className="approval-group" key={group.group_key} role="status">
-              <strong>
-                {group.members.length} workers want to run &apos;{group.tool_name}&apos;
-                {group.members[0]?.resource
-                  ? ` on ${group.members[0].resource}`
-                  : ""}
-              </strong>
-              {/* Aggregation must never hide who is asking for what. */}
-              {group.members.map((member) => (
-                <small key={member.request_id}>
-                  {member.requester} · {member.tool_name}
-                  {member.resource ? ` · ${member.resource}` : ""}
-                </small>
-              ))}
-              <div className="team-worker-controls">
+            {detailsOpen && sessionDetail ? (
+              <SessionDetails
+                describeReason={describeReadinessReason}
+                detail={sessionDetail}
+                memorySaving={memorySaving}
+                onAddMemory={(entry) => void addMemory(entry)}
+                readiness={readiness}
+                readinessLabel={readinessBadge}
+              />
+            ) : null}
+          </ScrollRegion>
+
+          <DockRegion className="hub-session-dock">
+
+          {approvalGroups
+            .filter((group) => group.members.length > 1)
+            .map((group) => (
+            <Notice
+              actions={
+                <>
                 <Button
-                  className="approval-allow"
+                  aria-label={`Allow ${group.members.length} ${group.tool_name} requests`}
                   onClick={() => void decideApprovalGroup(group, true)}
-                  size="small"
+                  size="medium"
+                  variant="primary"
                 >
-                  Allow all {group.members.length}
+                  Allow
                 </Button>
                 <Button
+                  aria-label={`Deny ${group.members.length} ${group.tool_name} requests`}
                   onClick={() => void decideApprovalGroup(group, false)}
-                  size="small"
+                  size="medium"
                   variant="ghost"
                 >
-                  Deny all
+                  Deny
                 </Button>
-              </div>
-            </div>
-          ))}
+                </>
+              }
+              className="approval-group"
+              description={
+                group.members[0]?.resource
+                  ? `${group.members.length} agents need access to ${group.members[0].resource}.`
+                  : `${group.members.length} agents need permission to continue.`
+              }
+              heading={`Allow ${group.tool_name}?`}
+              key={group.group_key}
+              role="status"
+              tone="info"
+            >
+              <small>{group.members.map((member) => member.requester).join(" · ")}</small>
+            </Notice>
+            ))}
 
-        {(() => {
-          const selectedId = pendingEngine ?? engine;
-          const health = readiness.find(
-            (candidate) => candidate.engine_id === selectedId,
-          );
-          if (!health || health.status === "healthy") return null;
-          return (
-            <div className="composer-readiness" role="status">
-              <strong>
-                {health.display_name} · {readinessBadge[health.status]}
-              </strong>
-              {health.reasons.map((reason, index) => (
-                <small key={`${reason.code}-${index}`}>
-                  {describeReadinessReason(reason)}
-                </small>
-              ))}
-            </div>
-          );
-        })()}
+          {(() => {
+            const selectedId = pendingEngine ?? engine;
+            const health = readiness.find(
+              (candidate) => candidate.engine_id === selectedId,
+            );
+            if (!health || health.status === "healthy") return null;
+            return (
+              <Notice
+                className="composer-readiness"
+                description={
+                  health.reasons[0]
+                    ? describeReadinessReason(health.reasons[0])
+                    : "Choose another available engine to continue."
+                }
+                heading={`${health.display_name} is not ready`}
+                role="status"
+                tone="warning"
+              />
+            );
+          })()}
 
-        {detailsOpen && sessionDetail ? (
-          <SessionDetails
-            describeReason={describeReadinessReason}
-            detail={sessionDetail}
-            memorySaving={memorySaving}
-            onAddMemory={(entry) => void addMemory(entry)}
-            readiness={readiness}
-            readinessLabel={readinessBadge}
-          />
-        ) : null}
-
-        <HubComposer
+          <HubComposer
           busy={busy}
           controls={
             <>
@@ -1238,19 +1338,49 @@ export default function App() {
           placeholder={`Ask ${pendingEngine ?? engine} to inspect, change, or explain this project…`}
           status={
             <>
-              <span>{workspace ? workspace : "Select a workspace first"}</span>
+              <span>{workspace ? displayWorkspace(workspace) : "Select a workspace first"}</span>
               {selectedModelRoute ? (
                 <span>
-                  Running {selectedModelRoute.engineId} on {selectedModelRoute.modelId} · {selectedModelRoute.providerId}
+                  {selectedModelRoute.engineLabel} · {selectedModelRoute.modelLabel}
                 </span>
               ) : null}
               <span>
-                {profileLabel[profile]} · fallback: {fallbackPolicy.targets.map((target) => target.engine_id).join(" → ") || "none"}
+                {profileLabel[profile]}
+                {fallbackPolicy.targets.length > 0
+                  ? ` · ${fallbackPolicy.targets.length} fallback ${fallbackPolicy.targets.length === 1 ? "engine" : "engines"}`
+                  : ""}
               </span>
             </>
           }
-          value={prompt}
-        />
+            value={prompt}
+          />
+          </DockRegion>
+        </ContentFrame>
+          </>
+        ) : activePage === "automations" ? (
+          <AutomationsPage />
+        ) : activePage === "extensions" ? (
+          <ExtensionsPage onStartChat={() => setActivePage("conversation")} />
+        ) : activePage === "settings" ? (
+          <SettingsPage />
+        ) : (
+          <SearchPage
+            onNavigate={setActivePage}
+            onOpenSession={(productSessionId) => {
+              setActivePage("conversation");
+              void openSessionById(productSessionId);
+            }}
+            onOpenWorkbench={(tool) => {
+              setActiveWorkbenchTool(tool);
+              setWorkbenchOpen(true);
+            }}
+            sessions={sessions.map((session) => ({
+              description: `${displayWorkspace(session.workspace)} · ${session.engine_id} · ${session.status}`,
+              id: session.product_session_id,
+              title: session.last_prompt ?? "Untitled session",
+            }))}
+          />
+        )}
       </div>
     </AppFrame>
     </UIProvider>

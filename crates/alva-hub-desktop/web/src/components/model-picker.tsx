@@ -2,14 +2,19 @@
 // OUTPUT: Cindy-style anchored engine and model picker with searchable catalog
 // POS:    Domain selector shared by new-session and active-session composers
 
-import { useMemo, useState } from "react";
-import { Bot, Check, Search } from "lucide-react";
+import { useMemo, useState, type CSSProperties } from "react";
+import { Bot, Check, ChevronRight, Search } from "lucide-react";
 import {
   Badge,
   Button,
+  Disclosure,
   PopoverContent,
   PopoverRoot,
   PopoverTrigger,
+  StatusListItem,
+  TabsList,
+  TabsRoot,
+  TabsTrigger,
   TextField,
   cx,
 } from "../ui";
@@ -100,6 +105,9 @@ export function ModelPicker({
         collisionPadding={20}
         side="top"
         sideOffset={10}
+        style={{
+          "--hub-model-route-count": Math.min(Math.max(visibleRoutes.length, 1), 4),
+        } as CSSProperties}
       >
         <aside className="hub-model-picker__detail">
           {inspected ? (
@@ -109,11 +117,17 @@ export function ModelPicker({
                 <strong>{inspected.modelLabel}</strong>
                 <small>{inspected.description ?? inspected.modelId}</small>
               </div>
-              <dl className="hub-model-picker__facts">
-                <div><dt>Provider</dt><dd>{inspected.providerId}</dd></div>
-                <div><dt>Account</dt><dd>{inspected.accountSource}</dd></div>
-                <div><dt>Billing</dt><dd>{inspected.billingRoute}</dd></div>
-              </dl>
+              <Disclosure
+                className="hub-model-picker__details"
+                description="Account, provider, and billing route"
+                title="More information"
+              >
+                <dl className="hub-model-picker__facts">
+                  <div><dt>Provider</dt><dd>{inspected.providerId}</dd></div>
+                  <div><dt>Account</dt><dd>{inspected.accountSource}</dd></div>
+                  <div><dt>Billing</dt><dd>{inspected.billingRoute}</dd></div>
+                </dl>
+              </Disclosure>
               <div className="hub-model-picker__capabilities">
                 {(inspected.capabilities ?? []).length > 0 ? (
                   inspected.capabilities?.map((capability) => (
@@ -127,23 +141,19 @@ export function ModelPicker({
           ) : null}
         </aside>
         <section className="hub-model-picker__catalog">
-          <div className="hub-model-picker__engines" role="tablist" aria-label="Agent runtime">
-            {engines.map(([candidateId, label]) => (
-              <button
-                aria-selected={engineId === candidateId}
-                className={cx(
-                  "hub-model-picker__engine",
-                  engineId === candidateId && "hub-model-picker__engine--active",
-                )}
-                key={candidateId}
-                onClick={() => setEngineId(candidateId)}
-                role="tab"
-                type="button"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <TabsRoot onValueChange={setEngineId} value={engineId}>
+            <TabsList aria-label="Agent runtime" className="hub-model-picker__engines">
+              {engines.map(([candidateId, label]) => (
+                <TabsTrigger
+                  className="hub-model-picker__engine"
+                  key={candidateId}
+                  value={candidateId}
+                >
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </TabsRoot>
           <label className="hub-model-picker__search">
             <Search aria-hidden="true" size={17} />
             <TextField
@@ -160,28 +170,42 @@ export function ModelPicker({
               visibleRoutes.map((route) => {
                 const active = routeKey(route) === routeKey(selected);
                 return (
-                  <button
+                  <StatusListItem
                     className={cx(
                       "hub-model-picker__route",
                       active && "hub-model-picker__route--active",
                     )}
-                    disabled={route.disabled}
+                    description={
+                      route.disabled
+                        ? route.disabledReason ?? "Unavailable for this session"
+                        : route.providerId
+                    }
                     key={routeKey(route)}
+                    leading={<Bot aria-hidden="true" size={17} />}
                     onClick={() => {
+                      if (route.disabled) return;
                       onSelect(route);
                       setOpen(false);
                     }}
-                    title={route.disabledReason}
-                    type="button"
-                  >
-                    <Bot aria-hidden="true" size={17} />
-                    <span>
-                      <strong>{route.modelLabel}</strong>
-                      <small>{route.providerId}</small>
-                    </span>
-                    {route.status ? <Badge>{route.status}</Badge> : null}
-                    {active ? <Check aria-hidden="true" size={16} /> : null}
-                  </button>
+                    status={
+                      route.disabled ? (
+                        <Badge tone="warning">Unavailable</Badge>
+                      ) : route.status ? (
+                        <Badge>{route.status}</Badge>
+                      ) : (
+                        <Badge tone="success">Available</Badge>
+                      )
+                    }
+                    heading={route.modelLabel}
+                    trailing={
+                      active ? (
+                        <Check aria-hidden="true" size={16} />
+                      ) : (
+                        <ChevronRight aria-hidden="true" size={15} />
+                      )
+                    }
+                    unavailable={route.disabled}
+                  />
                 );
               })
             )}
