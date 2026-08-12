@@ -4,7 +4,7 @@
 
 import React from "react";
 import { Check, ChevronDown } from "lucide-react";
-import { Select } from "radix-ui";
+import { Checkbox as RadixCheckbox, Select } from "radix-ui";
 import { cx } from "./utils";
 
 export interface FieldFrameProps {
@@ -116,5 +116,35 @@ export function SelectField({
         </Select.Content>
       </Select.Portal>
     </Select.Root>
+  );
+}
+
+export interface CheckboxProps
+  extends Omit<
+    React.ComponentPropsWithoutRef<typeof RadixCheckbox.Root>,
+    "children"
+  > {
+  label: React.ReactNode;
+  description?: React.ReactNode;
+}
+
+export function Checkbox({
+  label,
+  description,
+  className,
+  ...props
+}: CheckboxProps) {
+  return (
+    <label className="ui-checkbox-field">
+      <RadixCheckbox.Root className={cx("ui-checkbox", className)} {...props}>
+        <RadixCheckbox.Indicator className="ui-checkbox__indicator">
+          <Check aria-hidden="true" size={13} />
+        </RadixCheckbox.Indicator>
+      </RadixCheckbox.Root>
+      <span className="ui-checkbox-copy">
+        <strong>{label}</strong>
+        {description ? <small>{description}</small> : null}
+      </span>
+    </label>
   );
 }

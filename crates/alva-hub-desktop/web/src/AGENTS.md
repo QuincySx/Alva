@@ -50,7 +50,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Primitive styles | `styles/primitives.css` | 基础组件 hover/focus/open/disabled 状态 |
 | UI facade | `ui/index.ts` | 页面和领域组件唯一 UI import 入口 |
 | Actions | `ui/button.tsx` | Button、IconButton 与 Tooltip 约束 |
-| Fields | `ui/fields.tsx` | Input、Textarea、Select 与 FieldFrame |
+| Fields | `ui/fields.tsx` | Input、Textarea、Select、Checkbox 与 FieldFrame |
 | Overlays | `ui/overlays.tsx` | Popover、Menu、Dialog 和 UIProvider |
 | Surfaces | `ui/surface.tsx` | Surface、Badge、Tabs、Switch、EmptyState |
 | Layout | `ui/layout.tsx` | 三栏 AppFrame、Sidebar、Workbench、PaneHeader |

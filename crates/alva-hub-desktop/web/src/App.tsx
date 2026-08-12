@@ -16,6 +16,7 @@ import { ModelPicker, type HubModelRoute } from "./components/model-picker";
 import {
   AppFrame,
   Button,
+  Checkbox,
   IconButton,
   NavGroup,
   NavItem,
@@ -26,6 +27,7 @@ import {
   TabsList,
   TabsRoot,
   TabsTrigger,
+  TextArea,
   TextField,
   UIProvider,
   Workbench,
@@ -1108,14 +1110,15 @@ export default function App() {
         <section className="readiness-panel" aria-labelledby="readiness-panel-title">
           <div className="session-heading">
             <span className="eyebrow" id="readiness-panel-title">Engines</span>
-            <button
+            <Button
               className="readiness-refresh"
-              disabled={readinessBusy}
+              loading={readinessBusy}
               onClick={() => void refreshReadiness(workspace || null)}
-              type="button"
+              size="small"
+              variant="ghost"
             >
               {readinessBusy ? "Checking…" : "Refresh"}
-            </button>
+            </Button>
           </div>
           <div className="readiness-list">
             {readiness.length === 0 ? (
@@ -1159,17 +1162,18 @@ export default function App() {
                     .map((action) => (
                       <div className="repair-action" key={`${action.engine_id}-${action.kind}`}>
                         {action.one_click ? (
-                          <button
+                          <Button
+                            loading={repairingEngine === action.engine_id}
                             disabled={repairingEngine !== null}
                             onClick={() =>
                               void repairEngine(action.engine_id, action.kind)
                             }
-                            type="button"
+                            size="small"
                           >
                             {repairingEngine === action.engine_id
                               ? "Working…"
                               : action.title}
-                          </button>
+                          </Button>
                         ) : (
                           <>
                             <small>{action.title}</small>
@@ -1179,17 +1183,18 @@ export default function App() {
                           </>
                         )}
                         {action.url ? (
-                          <button
+                          <Button
                             className="repair-link"
                             onClick={() =>
                               void Promise.resolve(
                                 openExternal(action.url ?? ""),
                               ).catch(appendLocalFailure)
                             }
-                            type="button"
+                            size="small"
+                            variant="ghost"
                           >
                             Official guide
-                          </button>
+                          </Button>
                         ) : null}
                       </div>
                     ))}
@@ -1213,7 +1218,7 @@ export default function App() {
 
         <section className="fallback-panel" aria-labelledby="fallback-panel-title">
           <div className="session-heading">
-            <button
+            <Button
               aria-expanded={!collapsedSections.fallback}
               aria-label="Toggle fallback chain"
               className="section-collapse"
@@ -1223,10 +1228,11 @@ export default function App() {
                   fallback: !current.fallback,
                 }))
               }
-              type="button"
+              size="icon"
+              variant="ghost"
             >
               {collapsedSections.fallback ? "▸" : "▾"}
-            </button>
+            </Button>
             <span className="eyebrow">
               {activeSessionId ? "Session fallback chain" : "Default fallback chain"}
             </span>
@@ -1243,14 +1249,15 @@ export default function App() {
                 (candidate) => candidate.engine_id === target.engine_id,
               );
               return (
-                <button
+                <Button
                   className={`policy-engine ${selected ? "selected" : ""}`}
                   key={target.engine_id}
                   onClick={() => toggleFallbackTarget(target.engine_id)}
-                  type="button"
+                  size="small"
+                  variant="ghost"
                 >
                   {selected ? "✓ " : "+ "}{target.engine_id}
-                </button>
+                </Button>
               );
             })}
           </div>
@@ -1263,7 +1270,7 @@ export default function App() {
             >
               <div>
                 <strong>{index + 1}. {target.engine_id}</strong>
-                <input
+                <TextField
                   aria-label={`Model for ${target.engine_id}`}
                   className="policy-model-input"
                   placeholder="engine-default"
@@ -1274,7 +1281,7 @@ export default function App() {
                     })
                   }
                 />
-                <input
+                <TextField
                   aria-label={`Provider for ${target.engine_id}`}
                   className="policy-model-input"
                   placeholder="provider id"
@@ -1288,46 +1295,44 @@ export default function App() {
               </div>
               <small>{target.account_source}</small>
               <small>{target.billing_route}</small>
-              <label className="policy-authorize">
-                <input
+              <Checkbox
                   checked={target.automatic_use_authorized}
-                  onChange={(event) =>
+                  label="Authorize automatic use"
+                  onCheckedChange={(checked) =>
                     updateFallbackTarget(index, {
-                      automatic_use_authorized: event.target.checked,
+                      automatic_use_authorized: checked === true,
                     })
                   }
-                  type="checkbox"
-                />
-                Authorize automatic use
-              </label>
+              />
               <div className="policy-order">
-                <button
+                <Button
                   aria-label={`Move ${target.engine_id} earlier`}
                   disabled={index === 0}
                   onClick={() => moveFallbackTarget(index, -1)}
-                  type="button"
+                  size="icon"
+                  variant="ghost"
                 >
                   ↑
-                </button>
-                <button
+                </Button>
+                <Button
                   aria-label={`Move ${target.engine_id} later`}
                   disabled={index === fallbackPolicy.targets.length - 1}
                   onClick={() => moveFallbackTarget(index, 1)}
-                  type="button"
+                  size="icon"
+                  variant="ghost"
                 >
                   ↓
-                </button>
+                </Button>
               </div>
             </div>
           ))}
-          <button
+          <Button
             className="secondary-button policy-save"
-            disabled={policySaving}
+            loading={policySaving}
             onClick={() => void saveFallbackPolicy()}
-            type="button"
           >
             {policySaving ? "Saving…" : activeSessionId ? "Save session chain" : "Save default chain"}
-          </button>
+          </Button>
           </>
           )}
         </section>
@@ -1337,7 +1342,7 @@ export default function App() {
 
         <section className="team-panel" aria-labelledby="team-panel-title">
           <div className="session-heading">
-            <button
+            <Button
               aria-expanded={!collapsedSections.team}
               aria-label="Toggle team panel"
               className="section-collapse"
@@ -1347,10 +1352,11 @@ export default function App() {
                   team: !current.team,
                 }))
               }
-              type="button"
+              size="icon"
+              variant="ghost"
             >
               {collapsedSections.team ? "▸" : "▾"}
-            </button>
+            </Button>
             <span className="eyebrow">Team</span>
             <small>{teamRun ? `${teamRun.tasks.length} tasks` : ""}</small>
           </div>
@@ -1362,25 +1368,22 @@ export default function App() {
             </small>
           ) : !teamRun ? (
             <>
-              <select
-                aria-label="Worker engine"
+              <SelectField
+                ariaLabel="Worker engine"
                 value={teamWorkerEngine}
-                onChange={(event) => setTeamWorkerEngine(event.target.value)}
-              >
-                {engineCatalog.map((target) => (
-                  <option key={target.engine_id} value={target.engine_id}>
-                    Worker on {target.engine_id}
-                  </option>
-                ))}
-              </select>
-              <button
+                onValueChange={setTeamWorkerEngine}
+                options={engineCatalog.map((target) => ({
+                  label: `Worker on ${target.engine_id}`,
+                  value: target.engine_id,
+                }))}
+              />
+              <Button
                 className="secondary-button"
-                disabled={teamBusy}
+                loading={teamBusy}
                 onClick={() => void createTeam()}
-                type="button"
               >
                 {teamBusy ? "Creating…" : "Create team run"}
-              </button>
+              </Button>
             </>
           ) : (
             <>
@@ -1415,62 +1418,67 @@ export default function App() {
                         ) : null}
                       </strong>
                       <div className="team-worker-controls">
-                        <button
+                        <Button
                           onClick={() =>
                             void openSessionById(worker.worker_session_id)
                           }
-                          type="button"
+                          size="small"
+                          variant="ghost"
                         >
                           Focus
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           disabled={
                             !workerRunning || worker.lifecycle !== "active"
                           }
                           onClick={() =>
                             void interruptWorkerNow(worker.worker_session_id)
                           }
-                          type="button"
+                          size="small"
+                          variant="ghost"
                         >
                           Interrupt
-                        </button>
+                        </Button>
                         {worker.lifecycle === "active" ? (
                           <>
-                            <button
+                            <Button
                               onClick={() =>
                                 void changeWorkerLifecycle(
                                   worker.worker_id,
                                   "hibernate",
                                 )
                               }
-                              type="button"
+                              size="small"
+                              variant="ghost"
                             >
                               Hibernate
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                               onClick={() =>
                                 void changeWorkerLifecycle(
                                   worker.worker_id,
                                   "archive",
                                 )
                               }
-                              type="button"
+                              size="small"
+                              variant="ghost"
                             >
                               Archive
-                            </button>
+                            </Button>
                           </>
                         ) : (
-                          <button
+                          <Button
                             onClick={() =>
                               void changeWorkerLifecycle(
                                 worker.worker_id,
                                 "restore",
                               )
                             }
-                            type="button"
+                            size="small"
+                            variant="ghost"
                           >
                             Restore
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </div>
@@ -1482,27 +1490,29 @@ export default function App() {
                     ) : null}
                     {worker.worktree_path ? (
                       <div className="team-worker-controls">
-                        <button
+                        <Button
                           onClick={() => void reviewAdoption(worker.worker_id)}
-                          type="button"
+                          size="small"
+                          variant="ghost"
                         >
                           Review changes
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           disabled={!adoption[worker.worker_id]}
                           onClick={() => void confirmAdoption(worker.worker_id)}
-                          type="button"
+                          size="small"
                         >
                           Adopt
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           onClick={() =>
                             void discardIsolatedWork(worker.worker_id)
                           }
-                          type="button"
+                          size="small"
+                          variant="danger"
                         >
                           Discard worktree
-                        </button>
+                        </Button>
                       </div>
                     ) : null}
                     {adoption[worker.worker_id] ? (
@@ -1534,7 +1544,7 @@ export default function App() {
                     {workerTasks.map((task) => (
                       <div className="team-task" key={task.task_id}>
                         {editingTask === task.task_id ? (
-                          <textarea
+                          <TextArea
                             className="team-scope"
                             value={editingScope}
                             onChange={(event) =>
@@ -1564,29 +1574,31 @@ export default function App() {
                         {task.status === "queued" ? (
                           <div className="team-worker-controls">
                             {editingTask === task.task_id ? (
-                              <button
+                              <Button
                                 onClick={() => void saveTaskEdit(task.task_id)}
-                                type="button"
+                                size="small"
                               >
                                 Save
-                              </button>
+                              </Button>
                             ) : (
-                              <button
+                              <Button
                                 onClick={() => {
                                   setEditingTask(task.task_id);
                                   setEditingScope(task.scope);
                                 }}
-                                type="button"
+                                size="small"
+                                variant="ghost"
                               >
                                 Edit
-                              </button>
+                              </Button>
                             )}
-                            <button
+                            <Button
                               onClick={() => void cancelTask(task.task_id)}
-                              type="button"
+                              size="small"
+                              variant="ghost"
                             >
                               Cancel
-                            </button>
+                            </Button>
                           </div>
                         ) : null}
                       </div>
@@ -1594,8 +1606,8 @@ export default function App() {
                   </div>
                 );
               })}
-              <select
-                aria-label="Dispatch target worker"
+              <SelectField
+                ariaLabel="Dispatch target worker"
                 value={
                   teamRun.workers.some(
                     (worker) =>
@@ -1607,91 +1619,76 @@ export default function App() {
                         (worker) => worker.lifecycle !== "archived",
                       )?.worker_id ?? "")
                 }
-                onChange={(event) => setDispatchWorkerId(event.target.value)}
-              >
-                {teamRun.workers
+                onValueChange={setDispatchWorkerId}
+                options={teamRun.workers
                   .filter((worker) => worker.lifecycle !== "archived")
-                  .map((worker) => (
-                    <option key={worker.worker_id} value={worker.worker_id}>
-                      To worker on {worker.engine_id}
-                      {worker.lifecycle === "hibernated" ? " (hibernated)" : ""}
-                    </option>
-                  ))}
-              </select>
-              <textarea
+                  .map((worker) => ({
+                    label: `To worker on ${worker.engine_id}${worker.lifecycle === "hibernated" ? " (hibernated)" : ""}`,
+                    value: worker.worker_id,
+                  }))}
+              />
+              <TextArea
                 aria-label="Worker task scope"
                 className="team-scope"
                 placeholder="Task to queue — or a message to the worker…"
                 value={teamScope}
                 onChange={(event) => setTeamScope(event.target.value)}
               />
-              <input
+              <TextField
                 aria-label="Resource claims"
                 className="team-claims"
                 placeholder="Claims: src/lib.rs, read:docs, facility:target-dir"
                 value={teamClaims}
                 onChange={(event) => setTeamClaims(event.target.value)}
               />
-              <button
+              <Button
                 className="secondary-button"
-                disabled={teamBusy || !teamScope.trim()}
+                disabled={!teamScope.trim()}
+                loading={teamBusy}
                 onClick={() => void dispatchTask()}
-                type="button"
               >
                 {teamBusy ? "Queueing…" : "Queue for worker"}
-              </button>
+              </Button>
               <div className="team-worker-controls">
-                <select
-                  aria-label="Additional worker engine"
+                <SelectField
+                  ariaLabel="Additional worker engine"
                   value={teamWorkerEngine}
-                  onChange={(event) => setTeamWorkerEngine(event.target.value)}
-                >
-                  {engineCatalog.map((target) => (
-                    <option key={target.engine_id} value={target.engine_id}>
-                      {target.engine_id}
-                    </option>
-                  ))}
-                </select>
-                <label className="transcript-toggle">
-                  <input
-                    checked={isolateWorker}
-                    onChange={(event) => setIsolateWorker(event.target.checked)}
-                    type="checkbox"
-                  />
-                  Isolated worktree
-                </label>
-                <button
+                  onValueChange={setTeamWorkerEngine}
+                  options={engineCatalog.map((target) => ({
+                    label: target.engine_id,
+                    value: target.engine_id,
+                  }))}
+                />
+                <Checkbox
+                  checked={isolateWorker}
+                  label="Isolated worktree"
+                  onCheckedChange={(checked) => setIsolateWorker(checked === true)}
+                />
+                <Button
                   disabled={teamBusy || teamRun.status !== "active"}
                   onClick={() => void addWorker()}
-                  type="button"
+                  size="small"
                 >
                   Add worker
-                </button>
-                <button
+                </Button>
+                <Button
                   disabled={teamBusy || teamRun.status !== "active"}
                   onClick={() => void endTeamRun()}
-                  type="button"
+                  size="small"
+                  variant="danger"
                 >
                   End run
-                </button>
-                <label className="transcript-toggle">
-                  <input
-                    checked={teamRun.autonomous}
-                    onChange={(event) =>
-                      void toggleAutonomy(event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  Autonomous run (no per-request approval)
-                </label>
-                <label className="transcript-toggle">
-                  <input
-                    checked={showArchived}
-                    onChange={(event) => setShowArchived(event.target.checked)}
-                    type="checkbox"
-                  />
-                  Show archived
-                </label>
+                </Button>
+                <Checkbox
+                  checked={teamRun.autonomous}
+                  label="Autonomous run (no per-request approval)"
+                  onCheckedChange={(checked) => void toggleAutonomy(checked === true)}
+                />
+                <Checkbox
+                  checked={showArchived}
+                  label="Show archived"
+                  onCheckedChange={(checked) => setShowArchived(checked === true)}
+                />
               </div>
             </>
           )}

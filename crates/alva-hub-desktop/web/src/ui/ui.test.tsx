@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AppFrame,
   Button,
+  Checkbox,
   Disclosure,
   NavItem,
   SelectField,
@@ -74,5 +75,18 @@ describe("ALVA UI primitives", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Tool activity" }));
     expect(screen.getByText("cargo test")).toBeVisible();
+  });
+
+  it("exposes checkbox state through the shared field", () => {
+    const onCheckedChange = vi.fn();
+    render(
+      <Checkbox
+        label="Authorize automatic use"
+        onCheckedChange={onCheckedChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Authorize automatic use" }));
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
   });
 });

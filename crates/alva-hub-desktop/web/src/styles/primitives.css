@@ -123,6 +123,15 @@
 .ui-menu-item--inset { padding-left: 30px; }
 .ui-menu-item--danger { color: var(--color-danger); }
 .ui-menu-indicator { position: absolute; left: 9px; }
+.ui-checkbox-field { display: inline-flex; align-items: center; gap: 8px; color: var(--color-text-muted); cursor: pointer; }
+.ui-checkbox { display: grid; width: 17px; height: 17px; flex: none; place-items: center; border: 1px solid var(--color-border-strong); border-radius: 5px; padding: 0; background: var(--color-surface); color: var(--color-accent-foreground); cursor: pointer; }
+.ui-checkbox:hover { background: var(--color-surface-hover); }
+.ui-checkbox[data-state="checked"] { border-color: var(--color-accent); background: var(--color-accent); }
+.ui-checkbox:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.ui-checkbox:disabled { cursor: not-allowed; opacity: .45; }
+.ui-checkbox-copy { display: grid; gap: 2px; }
+.ui-checkbox-copy strong { font-size: 12px; font-weight: 520; }
+.ui-checkbox-copy small { color: var(--color-text-subtle); font-size: 11px; }
 .ui-menu-trailing { margin-left: auto; color: var(--color-text-subtle); }
 .ui-menu-label { padding: 7px 9px 5px; color: var(--color-text-subtle); font-size: 11px; font-weight: 650; }
 .ui-menu-separator { height: 1px; margin: 5px; background: var(--color-border); }
