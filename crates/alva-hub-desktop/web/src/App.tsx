@@ -15,6 +15,7 @@ import {
 } from "./components/hub-timeline";
 import { HubTopbar } from "./components/hub-topbar";
 import { SessionDetails } from "./components/session-details";
+import { TeamPanel } from "./components/team-panel";
 import {
   AppFrame,
   Button,
@@ -25,8 +26,6 @@ import {
   TabsList,
   TabsRoot,
   TabsTrigger,
-  TextArea,
-  TextField,
   UIProvider,
   Workbench,
 } from "./ui";
@@ -263,12 +262,6 @@ export default function App() {
   const [timeline, setTimeline] = useState<HubTimelineEvent[]>([]);
   // Drawer handoff expansion (by handoff_id) for the full cross-engine
   // envelope: memory, skills, MCP pointers and filtered transcript.
-  // Sidebar sections the user can collapse to reclaim space for sessions.
-  // Fallback chain and team start collapsed: session work is the primary
-  // surface; advanced engine/team config is one chevron away.
-  const [collapsedSections, setCollapsedSections] = useState<
-    Record<string, boolean>
-  >({ fallback: true, team: true });
   const [sessions, setSessions] = useState<HubSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [engine, setEngine] = useState("alva");
@@ -297,7 +290,6 @@ export default function App() {
   const [dispatchWorkerId, setDispatchWorkerId] = useState<string | null>(null);
   const [teamClaims, setTeamClaims] = useState("");
   const [isolateWorker, setIsolateWorker] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
   const [approvalGroups, setApprovalGroups] = useState<PermissionGroup[]>([]);
   const [sessionQuery, setSessionQuery] = useState("");
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
@@ -308,8 +300,6 @@ export default function App() {
   const [adoption, setAdoption] = useState<
     Record<string, AdoptionPreview | undefined>
   >({});
-  const [editingTask, setEditingTask] = useState<string | null>(null);
-  const [editingScope, setEditingScope] = useState("");
   const [memorySaving, setMemorySaving] = useState(false);
   const [repairingEngine, setRepairingEngine] = useState<string | null>(null);
   const [repairLogs, setRepairLogs] = useState<Record<string, string>>({});
@@ -555,7 +545,6 @@ export default function App() {
     // unrelated card once the timeline refills.
     setDetailsOpen(false);
     setDispatchWorkerId(null);
-    setEditingTask(null);
   }
 
   async function selectWorkspace() {
@@ -607,7 +596,6 @@ export default function App() {
     teamLeadRef.current = detail.session.product_session_id;
     // A worker id from the previous run must never survive into this one.
     setDispatchWorkerId(null);
-    setEditingTask(null);
     setTeamRun(await getTeamRunForLead(detail.session.product_session_id));
   }
 
@@ -895,10 +883,9 @@ export default function App() {
     }
   }
 
-  async function saveTaskEdit(taskId: string) {
+  async function saveTaskEdit(taskId: string, scope: string) {
     try {
-      await updateWorkerTask(taskId, editingScope);
-      setEditingTask(null);
+      await updateWorkerTask(taskId, scope);
       await refreshTeam();
     } catch (error) {
       appendLocalFailure(error);
@@ -1070,362 +1057,40 @@ export default function App() {
               />
             </TabsContent>
             <TabsContent className="hub-workbench__scroll" value="team">
-
-        <section className="team-panel" aria-labelledby="team-panel-title">
-          <div className="session-heading">
-            <Button
-              aria-expanded={!collapsedSections.team}
-              aria-label="Toggle team panel"
-              className="section-collapse"
-              onClick={() =>
-                setCollapsedSections((current) => ({
-                  ...current,
-                  team: !current.team,
-                }))
-              }
-              size="icon"
-              variant="ghost"
-            >
-              {collapsedSections.team ? "▸" : "▾"}
-            </Button>
-            <span className="eyebrow">Team</span>
-            <small>{teamRun ? `${teamRun.tasks.length} tasks` : ""}</small>
-          </div>
-          {collapsedSections.team ? null : (
-          <>
-          {!activeSessionId ? (
-            <small className="session-empty">
-              Open a session to lead a team run.
-            </small>
-          ) : !teamRun ? (
-            <>
-              <SelectField
-                ariaLabel="Worker engine"
-                value={teamWorkerEngine}
-                onValueChange={setTeamWorkerEngine}
-                options={engineCatalog.map((target) => ({
-                  label: `Worker on ${target.engine_id}`,
-                  value: target.engine_id,
-                }))}
-              />
-              <Button
-                className="secondary-button"
-                loading={teamBusy}
-                onClick={() => void createTeam()}
-              >
-                {teamBusy ? "Creating…" : "Create team run"}
-              </Button>
-            </>
-          ) : (
-            <>
-              <small className="team-worker-line">
-                Lead: {engine}
-                {teamRun.status !== "active" ? ` · run ${teamRun.status}` : ""}
-              </small>
-              {teamRun.workers
-                .filter(
-                  (worker) =>
-                    showArchived || worker.lifecycle !== "archived",
-                )
-                .map((worker) => {
-                const workerTasks = teamRun.tasks.filter(
-                  (task) => task.worker_id === worker.worker_id,
-                );
-                const workerRunning = workerTasks.some(
-                  (task) => task.status === "running",
-                );
-                return (
-                  <div className="team-worker" key={worker.worker_id}>
-                    <div className="team-worker-heading">
-                      <strong>
-                        Worker · {worker.engine_id}
-                        {worker.worktree_path ? (
-                          <span className="worker-isolated">isolated</span>
-                        ) : null}
-                        {worker.lifecycle !== "active" ? (
-                          <span className="worker-lifecycle">
-                            {worker.lifecycle}
-                          </span>
-                        ) : null}
-                      </strong>
-                      <div className="team-worker-controls">
-                        <Button
-                          onClick={() =>
-                            void openSessionById(worker.worker_session_id)
-                          }
-                          size="small"
-                          variant="ghost"
-                        >
-                          Focus
-                        </Button>
-                        <Button
-                          disabled={
-                            !workerRunning || worker.lifecycle !== "active"
-                          }
-                          onClick={() =>
-                            void interruptWorkerNow(worker.worker_session_id)
-                          }
-                          size="small"
-                          variant="ghost"
-                        >
-                          Interrupt
-                        </Button>
-                        {worker.lifecycle === "active" ? (
-                          <>
-                            <Button
-                              onClick={() =>
-                                void changeWorkerLifecycle(
-                                  worker.worker_id,
-                                  "hibernate",
-                                )
-                              }
-                              size="small"
-                              variant="ghost"
-                            >
-                              Hibernate
-                            </Button>
-                            <Button
-                              onClick={() =>
-                                void changeWorkerLifecycle(
-                                  worker.worker_id,
-                                  "archive",
-                                )
-                              }
-                              size="small"
-                              variant="ghost"
-                            >
-                              Archive
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            onClick={() =>
-                              void changeWorkerLifecycle(
-                                worker.worker_id,
-                                "restore",
-                              )
-                            }
-                            size="small"
-                            variant="ghost"
-                          >
-                            Restore
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    {worker.worktree_branch ? (
-                      <small className="team-worker-line">
-                        Worktree {worker.worktree_branch} — changes stay here
-                        until you adopt them.
-                      </small>
-                    ) : null}
-                    {worker.worktree_path ? (
-                      <div className="team-worker-controls">
-                        <Button
-                          onClick={() => void reviewAdoption(worker.worker_id)}
-                          size="small"
-                          variant="ghost"
-                        >
-                          Review changes
-                        </Button>
-                        <Button
-                          disabled={!adoption[worker.worker_id]}
-                          onClick={() => void confirmAdoption(worker.worker_id)}
-                          size="small"
-                        >
-                          Adopt
-                        </Button>
-                        <Button
-                          onClick={() =>
-                            void discardIsolatedWork(worker.worker_id)
-                          }
-                          size="small"
-                          variant="danger"
-                        >
-                          Discard worktree
-                        </Button>
-                      </div>
-                    ) : null}
-                    {adoption[worker.worker_id] ? (
-                      <div className="adoption-preview">
-                        <strong>
-                          {adoption[worker.worker_id]!.changes.length} change(s)
-                          {adoption[worker.worker_id]!.applies_cleanly
-                            ? " · applies cleanly"
-                            : " · does NOT apply cleanly"}
-                        </strong>
-                        {adoption[worker.worker_id]!.changes.map((change) => (
-                          <small key={change.path}>
-                            {change.status} {change.path}
-                          </small>
-                        ))}
-                        {adoption[worker.worker_id]!.conflicts.length > 0 ? (
-                          <small className="adoption-conflict">
-                            Conflicts with your workspace edits:{" "}
-                            {adoption[worker.worker_id]!.conflicts.join(", ")}
-                          </small>
-                        ) : null}
-                        {adoption[worker.worker_id]!.verification.map(
-                          (entry, index) => (
-                            <small key={`verify-${index}`}>{entry}</small>
-                          ),
-                        )}
-                      </div>
-                    ) : null}
-                    {workerTasks.map((task) => (
-                      <div className="team-task" key={task.task_id}>
-                        {editingTask === task.task_id ? (
-                          <TextArea
-                            className="team-scope"
-                            value={editingScope}
-                            onChange={(event) =>
-                              setEditingScope(event.target.value)
-                            }
-                          />
-                        ) : (
-                          <strong>{task.scope}</strong>
-                        )}
-                        <small>
-                          {task.status}
-                          {task.result ? ` — ${task.result}` : ""}
-                        </small>
-                        {task.changed_files.length > 0 ? (
-                          <small>Files: {task.changed_files.join(", ")}</small>
-                        ) : null}
-                        {task.verification.length > 0 ? (
-                          <small>
-                            {task.verification.length} evidence entries
-                          </small>
-                        ) : null}
-                        {task.claims.length > 0 ? (
-                          <small className="team-claim-list">
-                            Claims: {task.claims.map(describeClaim).join(", ")}
-                          </small>
-                        ) : null}
-                        {task.status === "queued" ? (
-                          <div className="team-worker-controls">
-                            {editingTask === task.task_id ? (
-                              <Button
-                                onClick={() => void saveTaskEdit(task.task_id)}
-                                size="small"
-                              >
-                                Save
-                              </Button>
-                            ) : (
-                              <Button
-                                onClick={() => {
-                                  setEditingTask(task.task_id);
-                                  setEditingScope(task.scope);
-                                }}
-                                size="small"
-                                variant="ghost"
-                              >
-                                Edit
-                              </Button>
-                            )}
-                            <Button
-                              onClick={() => void cancelTask(task.task_id)}
-                              size="small"
-                              variant="ghost"
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-              <SelectField
-                ariaLabel="Dispatch target worker"
-                value={
-                  teamRun.workers.some(
-                    (worker) =>
-                      worker.worker_id === dispatchWorkerId &&
-                      worker.lifecycle !== "archived",
-                  )
-                    ? (dispatchWorkerId as string)
-                    : (teamRun.workers.find(
-                        (worker) => worker.lifecycle !== "archived",
-                      )?.worker_id ?? "")
+              <TeamPanel
+                activeSession={activeSessionId !== null}
+                adoption={adoption}
+                busy={teamBusy}
+                catalog={engineCatalog}
+                claims={teamClaims}
+                describeClaim={describeClaim}
+                dispatchWorkerId={dispatchWorkerId}
+                engineId={engine}
+                isolateWorker={isolateWorker}
+                onAddWorker={() => void addWorker()}
+                onAdopt={(workerId) => void confirmAdoption(workerId)}
+                onCancelTask={(taskId) => void cancelTask(taskId)}
+                onClaimsChange={setTeamClaims}
+                onCreate={() => void createTeam()}
+                onDiscard={(workerId) => void discardIsolatedWork(workerId)}
+                onDispatch={() => void dispatchTask()}
+                onDispatchWorkerChange={setDispatchWorkerId}
+                onEnd={() => void endTeamRun()}
+                onFocusWorker={(sessionId) => void openSessionById(sessionId)}
+                onInterruptWorker={(sessionId) => void interruptWorkerNow(sessionId)}
+                onIsolateWorkerChange={setIsolateWorker}
+                onLifecycleChange={(workerId, action) =>
+                  void changeWorkerLifecycle(workerId, action)
                 }
-                onValueChange={setDispatchWorkerId}
-                options={teamRun.workers
-                  .filter((worker) => worker.lifecycle !== "archived")
-                  .map((worker) => ({
-                    label: `To worker on ${worker.engine_id}${worker.lifecycle === "hibernated" ? " (hibernated)" : ""}`,
-                    value: worker.worker_id,
-                  }))}
+                onReviewAdoption={(workerId) => void reviewAdoption(workerId)}
+                onScopeChange={setTeamScope}
+                onToggleAutonomy={(enabled) => void toggleAutonomy(enabled)}
+                onUpdateTask={(taskId, scope) => void saveTaskEdit(taskId, scope)}
+                onWorkerEngineChange={setTeamWorkerEngine}
+                run={teamRun}
+                scope={teamScope}
+                workerEngine={teamWorkerEngine}
               />
-              <TextArea
-                aria-label="Worker task scope"
-                className="team-scope"
-                placeholder="Task to queue — or a message to the worker…"
-                value={teamScope}
-                onChange={(event) => setTeamScope(event.target.value)}
-              />
-              <TextField
-                aria-label="Resource claims"
-                className="team-claims"
-                placeholder="Claims: src/lib.rs, read:docs, facility:target-dir"
-                value={teamClaims}
-                onChange={(event) => setTeamClaims(event.target.value)}
-              />
-              <Button
-                className="secondary-button"
-                disabled={!teamScope.trim()}
-                loading={teamBusy}
-                onClick={() => void dispatchTask()}
-              >
-                {teamBusy ? "Queueing…" : "Queue for worker"}
-              </Button>
-              <div className="team-worker-controls">
-                <SelectField
-                  ariaLabel="Additional worker engine"
-                  value={teamWorkerEngine}
-                  onValueChange={setTeamWorkerEngine}
-                  options={engineCatalog.map((target) => ({
-                    label: target.engine_id,
-                    value: target.engine_id,
-                  }))}
-                />
-                <Checkbox
-                  checked={isolateWorker}
-                  label="Isolated worktree"
-                  onCheckedChange={(checked) => setIsolateWorker(checked === true)}
-                />
-                <Button
-                  disabled={teamBusy || teamRun.status !== "active"}
-                  onClick={() => void addWorker()}
-                  size="small"
-                >
-                  Add worker
-                </Button>
-                <Button
-                  disabled={teamBusy || teamRun.status !== "active"}
-                  onClick={() => void endTeamRun()}
-                  size="small"
-                  variant="danger"
-                >
-                  End run
-                </Button>
-                <Checkbox
-                  checked={teamRun.autonomous}
-                  label="Autonomous run (no per-request approval)"
-                  onCheckedChange={(checked) => void toggleAutonomy(checked === true)}
-                />
-                <Checkbox
-                  checked={showArchived}
-                  label="Show archived"
-                  onCheckedChange={(checked) => setShowArchived(checked === true)}
-                />
-              </div>
-            </>
-          )}
-          </>
-          )}
-        </section>
             </TabsContent>
           </TabsRoot>
         </Workbench>
