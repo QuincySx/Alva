@@ -48,8 +48,11 @@ AppFrame
 │        ├─ Notice[]
 │        └─ HubComposer
 └─ Workbench
-   ├─ WorkbenchTabs
-   └─ WorkbenchPage
+   ├─ WorkbenchTabBar
+   │  ├─ OpenToolTab[]
+   │  ├─ AddTabMenu
+   │  └─ CloseWorkbench
+   └─ WorkbenchPage [active tool only]
 ```
 
 ## 区域职责
@@ -60,7 +63,7 @@ AppFrame
 | `ContentFrame` | 主阅读宽度、水平 gutter | 子卡片宽度 |
 | `ScrollRegion` | 当前区域唯一滚动 | 底部停靠内容 |
 | `DockRegion` | Composer、审批和必须持续可见的状态 | 长内容滚动 |
-| `Workbench` | 右侧宽度、覆盖/停靠模式、tab 生命周期 | tab 内部卡片样式 |
+| `Workbench` | 右侧整体宽度、覆盖/停靠模式、动态 tab 生命周期 | tab 内部卡片样式 |
 | `WorkbenchPage` | tab 页唯一滚动和页面 padding | 第二层滚动容器 |
 | `PanelSection` | 标题、说明、meta、action、body spacing | 页面级宽度 |
 | `Popover/Dialog/Sheet` | portal、focus、碰撞、关闭、层级 | 业务数据 |

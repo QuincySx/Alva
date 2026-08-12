@@ -62,7 +62,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Fields | `ui/fields.tsx` | Input、Textarea、Select、Checkbox 与 FieldFrame |
 | Overlays | `ui/overlays.tsx` | Popover、Menu、Dialog 和 UIProvider |
 | Surfaces | `ui/surface.tsx` | Surface、PanelSection、Badge、Notice、StatusListItem、Tabs、Switch、EmptyState |
-| Layout | `ui/layout.tsx` | 三栏 AppFrame、响应式 ContentFrame、ScrollRegion、DockRegion 与 WorkbenchPage |
+| Layout | `ui/layout.tsx` | 可调宽分屏 AppFrame、响应式 ContentFrame、ScrollRegion、DockRegion 与 WorkbenchPage |
 | Navigation | `ui/navigation.tsx` | NavGroup、NavList、NavItem 与统一 hover/active 语义 |
 | Disclosure | `ui/disclosure.tsx` | Radix Collapsible 封装的展开区和活动行 |
 | UI tests | `ui/ui.test.tsx` | 不依赖 Hub 业务状态的组件行为回归 |
@@ -77,7 +77,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Team panel | `components/team-panel.tsx` | Worker 生命周期、任务队列、worktree adoption、资源声明与自治开关 |
 | Component tests | `components/components.test.tsx` | Composer 与模型选择器交互回归 |
 | Product pages | `components/product-pages.tsx` | 自动化、插件/技能、设置与搜索共享页面体系 |
-| Workbench tools | `components/workbench-tools.tsx` | Files、Review、Agent、Inspector、Tasks、Usage、Browser、Terminal 标签内容 |
+| Workbench tools | `components/workbench-tools.tsx` | Files、Text、Git、Review、Agent、Inspector、Tasks、Usage、Chrome、Terminal 标签内容 |
 | UI Lab | `ui-lab.tsx` | 开发/test-only 确定性组件与页面状态展台 |
 | Visual config | `../playwright.config.ts` | 1440×900 Chrome 截图环境与 Vite 生命周期 |
 | Visual tests | `../tests/visual.spec.ts` | 七张总层架和模型弹层的真实浏览器回归 |

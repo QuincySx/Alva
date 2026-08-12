@@ -92,24 +92,24 @@ groups, selected route, and progressive details.
 
 ```text
 Workbench
-├─ WorkbenchHeader
-│  ├─ WorkbenchTabs
-│  └─ WindowActions
+├─ WorkbenchTabBar
+│  ├─ OpenToolTab[]
+│  │  ├─ ToolIcon
+│  │  ├─ ToolLabel
+│  │  └─ CloseTab
+│  ├─ AddTab ──> ToolMenu
+│  └─ CloseWorkbench
 └─ WorkbenchPage [SCROLL]
-   ├─ Files
-   ├─ Review
-   ├─ Agent
-   ├─ Inspector
-   ├─ Tasks
-   ├─ Usage
-   ├─ Browser
-   └─ Terminal
+   └─ ActiveTool
 ```
 
-Tabs have independent state and retain their state when Workbench closes.
-Agent shows child-agent relationships. Inspector shows execution-debug detail.
-On narrow windows the whole Workbench becomes a Sheet; tab pages do not become
-multiple floating cards.
+The Workbench is a resizable split Region, not a permanently expanded list of
+tools. Only opened tools appear as tabs. `AddTab` opens a menu containing Files,
+Text, Git, Agent, Inspector, Tasks, Usage, Chrome, Terminal, Engines, Fallback,
+and Team. Selecting a menu item opens and activates that tab; tabs switch and
+close independently. Agent shows child-agent relationships. Inspector shows
+execution-debug detail. On narrow windows the whole Workbench becomes a Sheet;
+tab pages do not become multiple floating cards.
 
 ## 04 Automations
 

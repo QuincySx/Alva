@@ -27,6 +27,11 @@ import type {
   TeamRunDetail,
 } from "./bridge";
 
+async function addWorkbenchTab(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole("button", { name: "Add workbench tab" }));
+  await user.click(screen.getByRole("menuitem", { name }));
+}
+
 const bridge = vi.hoisted(() => {
   const listeners: Array<(event: unknown) => void> = [];
   const state = {
@@ -385,7 +390,7 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
-    await user.click(screen.getByRole("tab", { name: "Engines" }));
+    await addWorkbenchTab(user, "Engines");
     expect(await screen.findByText("Healthy")).toBeInTheDocument();
     expect(screen.getByText("Sign-in needed")).toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: /Technical details/ })[1]);
@@ -514,12 +519,12 @@ describe("App integration", () => {
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
-    await user.click(screen.getByRole("tab", { name: "Team" }));
+    await addWorkbenchTab(user, "Team");
 
     // Durable workers render with engine, lifecycle and isolation markers.
     expect(await screen.findByText("Worker · codex")).toBeInTheDocument();
     expect(screen.getByText("Worker · alva")).toBeInTheDocument();
-    expect(screen.getByText("hibernated")).toBeInTheDocument();
+    expect(screen.getAllByText("hibernated").some((entry) => entry.closest("[role=tabpanel]")?.getAttribute("data-state") === "active")).toBe(true);
     expect(screen.getByText("isolated")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -688,7 +693,7 @@ describe("App integration", () => {
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
-    await user.click(screen.getByRole("tab", { name: "Team" }));
+    await addWorkbenchTab(user, "Team");
     // Default worker engine is codex; create dispatches lead + engine.
     await user.click(
       await screen.findByRole("button", { name: "Create team run" }),
@@ -756,7 +761,7 @@ describe("App integration", () => {
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
-    await user.click(screen.getByRole("tab", { name: "Team" }));
+    await addWorkbenchTab(user, "Team");
 
     // Autonomy is an explicit opt-in, never implied by the run existing.
     const autonomy = screen.getByLabelText(
@@ -1159,7 +1164,7 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
-    await user.click(screen.getByRole("tab", { name: "Fallback" }));
+    await addWorkbenchTab(user, "Fallback");
     await user.click(await screen.findByRole("button", { name: /Advanced routing/ }));
     const modelInput = await screen.findByLabelText("Model for claude");
     expect(modelInput).toHaveValue("engine-default");
@@ -1205,7 +1210,7 @@ describe("App integration", () => {
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
-    await user.click(screen.getByRole("tab", { name: "Fallback" }));
+    await addWorkbenchTab(user, "Fallback");
 
     // Session open → Save writes to the session, never the global default.
     await user.click(
@@ -1224,10 +1229,12 @@ describe("App integration", () => {
     // The chain is absent until the Workbench and its dedicated tab open.
     expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
-    await user.click(screen.getByRole("tab", { name: "Fallback" }));
+    await addWorkbenchTab(user, "Fallback");
     expect(await screen.findByText("+ alva")).toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: "Close workbench" })[0]);
-    expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
+    expect(screen.getByText("+ alva").closest(".ui-workbench-region")).toHaveAttribute("aria-hidden", "true");
+    await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    expect(screen.getByText("+ alva").closest(".ui-workbench-region")).toHaveAttribute("aria-hidden", "false");
   });
 
   it("teaches the session memory and refreshes the drawer list", async () => {

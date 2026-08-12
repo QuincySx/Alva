@@ -1,5 +1,5 @@
-// INPUT:  Sidebar, primary content, and optional workbench panel content
-// OUTPUT: Responsive three-column desktop application frame
+// INPUT:  Sidebar, primary content, and optional tabbed workbench panel content
+// OUTPUT: Responsive split application frame with a resizable auxiliary workspace
 // POS:    Canonical Hub shell shared by chat, automation, plugins, and settings
 
 import React from "react";
@@ -19,28 +19,89 @@ export function AppFrame({
   onWorkbenchDismiss,
   children,
   className,
+  style,
   ...props
 }: AppFrameProps) {
+  const frameRef = React.useRef<HTMLDivElement>(null);
+  const resizingRef = React.useRef(false);
+  const [workbenchWidth, setWorkbenchWidth] = React.useState(440);
+
+  function clampWorkbenchWidth(width: number) {
+    const frameWidth = frameRef.current?.clientWidth ?? window.innerWidth;
+    return Math.max(340, Math.min(width, 760, Math.max(340, frameWidth - 640)));
+  }
+
+  function resizeWorkbench(clientX: number) {
+    const frame = frameRef.current;
+    if (!frame) return;
+    setWorkbenchWidth(clampWorkbenchWidth(frame.getBoundingClientRect().right - clientX));
+  }
+
   return (
     <div
+      ref={frameRef}
       className={cx(
         "ui-app-frame",
         workbenchOpen && "ui-app-frame--workbench",
         className,
       )}
+      style={{
+        ...style,
+        "--workbench-current-width": `${workbenchWidth}px`,
+      } as React.CSSProperties}
       {...props}
     >
       {sidebar}
       <main className="ui-main-pane">{children}</main>
-      {workbenchOpen && workbench ? (
+      {workbench ? (
         <button
           aria-label="Dismiss workbench overlay"
           className="ui-workbench-scrim"
+          data-state={workbenchOpen ? "open" : "closed"}
           onClick={onWorkbenchDismiss}
           type="button"
         />
       ) : null}
-      {workbenchOpen && workbench ? workbench : null}
+      {workbench ? (
+        <div
+          aria-hidden={!workbenchOpen}
+          className="ui-workbench-region"
+          data-state={workbenchOpen ? "open" : "closed"}
+          ref={(element) => {
+            if (element) (element as HTMLDivElement & { inert: boolean }).inert = !workbenchOpen;
+          }}
+        >
+          <button
+            aria-label="Resize workbench"
+            aria-orientation="vertical"
+            aria-valuemax={760}
+            aria-valuemin={340}
+            aria-valuenow={Math.round(workbenchWidth)}
+            className="ui-workbench-resize"
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft") setWorkbenchWidth((width) => clampWorkbenchWidth(width + 24));
+              if (event.key === "ArrowRight") setWorkbenchWidth((width) => clampWorkbenchWidth(width - 24));
+            }}
+            onPointerDown={(event) => {
+              resizingRef.current = true;
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              if (resizingRef.current) resizeWorkbench(event.clientX);
+            }}
+            onPointerUp={(event) => {
+              resizingRef.current = false;
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={() => {
+              resizingRef.current = false;
+            }}
+            role="separator"
+            type="button"
+          />
+          {workbench}
+        </div>
+      ) : null}
     </div>
   );
 }

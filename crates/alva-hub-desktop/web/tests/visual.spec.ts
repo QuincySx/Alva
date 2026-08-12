@@ -27,6 +27,28 @@ test("03 right workbench", async ({ page }) => {
   await expect(page).toHaveScreenshot("03-right-workbench.png", { fullPage: true });
 });
 
+test("03 right workbench add-tab menu", async ({ page }) => {
+  await page.goto("/?demo=1&session=ps-demo-1&workbench=1&tool=inspector");
+  await page.getByRole("button", { name: "Add workbench tab" }).click();
+  await settle(page);
+  await expect(page).toHaveScreenshot("03-right-workbench-add-tab.png", { fullPage: true });
+});
+
+test("03 right workbench manages dynamic tabs and width", async ({ page }) => {
+  await page.goto("/?demo=1&session=ps-demo-1&workbench=1&tool=inspector");
+  await page.getByRole("button", { name: "Add workbench tab" }).click();
+  await page.getByRole("menuitem", { name: "Terminal" }).click();
+  await expect(page.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
+
+  const resize = page.getByRole("separator", { name: "Resize workbench" });
+  await resize.press("ArrowLeft");
+  await expect(resize).toHaveAttribute("aria-valuenow", "464");
+
+  await page.getByRole("button", { name: "Close Terminal tab" }).click();
+  await expect(page.getByRole("tab", { name: "Inspector" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Terminal" })).toHaveCount(0);
+});
+
 test("03 right workbench becomes a narrow overlay", async ({ page }) => {
   await page.setViewportSize({ width: 860, height: 900 });
   await page.goto("/?demo=1&session=ps-demo-1&workbench=1&tool=inspector");

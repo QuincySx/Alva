@@ -1,5 +1,5 @@
 // INPUT:  Current Hub session detail, timeline, and team state
-// OUTPUT: Files, Review, Agent, Inspector, Tasks, Usage, Browser, and Terminal workbench views
+// OUTPUT: Files, text, Git, Review, Agent, Inspector, Tasks, Usage, Chrome, and Terminal views
 // POS:    Auxiliary HubSession tools kept separate from conversation and shared workbench chrome
 
 import { useMemo, useState } from "react";
@@ -9,6 +9,7 @@ import {
   CircleDot,
   FileCode2,
   FolderTree,
+  GitBranch,
   Globe2,
   Play,
   TerminalSquare,
@@ -35,6 +36,45 @@ export function FilesTool({ detail }: { detail: HubSessionDetail | null }) {
   ) : (
     <PanelSection heading="Changed files" meta={`${files.length}`}>
       {files.map((file) => <ListRow heading={file.split("/").at(-1) ?? file} description={file} key={file} leading={<FileCode2 size={16} />} />)}
+    </PanelSection>
+  );
+}
+
+function changedFiles(detail: HubSessionDetail | null) {
+  return Array.from(new Set(detail?.turns.flatMap((turn) => turn.attempts.flatMap((attempt) => attempt.side_effects.map((effect) => effect.path).filter((path): path is string => Boolean(path)))) ?? []));
+}
+
+export function TextBrowserTool({ detail }: { detail: HubSessionDetail | null }) {
+  const files = useMemo(() => changedFiles(detail), [detail]);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const activeFile = selectedFile && files.includes(selectedFile) ? selectedFile : files[0] ?? null;
+  return (
+    <div className="hub-text-browser">
+      <PanelSection heading="Project files" meta={`${files.length}`}>
+        {files.length === 0 ? <EmptyState icon={<FileCode2 size={18} />} title="No files to preview" description="Files reported by this session appear here." /> : files.map((file) => (
+          <ListRow heading={file.split("/").at(-1) ?? file} description={file} key={file} leading={<FileCode2 size={16} />} onClick={() => setSelectedFile(file)} />
+        ))}
+      </PanelSection>
+      <PanelSection heading={activeFile?.split("/").at(-1) ?? "Text preview"} description={activeFile ?? "Choose a file"}>
+        <pre className="hub-text-preview">{activeFile ? `File preview is connected to the native workspace adapter.\n\n${activeFile}` : "No file selected."}</pre>
+      </PanelSection>
+    </div>
+  );
+}
+
+export function GitTool({ detail }: { detail: HubSessionDetail | null }) {
+  const effects = detail?.turns.flatMap((turn) => turn.attempts.flatMap((attempt) => attempt.side_effects)) ?? [];
+  return (
+    <PanelSection description="Session-attributed working tree activity. Native history remains owned by the Git adapter." heading="Git" meta={`${effects.length} changes`}>
+      {effects.length === 0 ? <EmptyState icon={<GitBranch size={18} />} title="Working tree is clean" description="Changes made by this HubSession will appear here." /> : effects.map((effect) => (
+        <ListRow
+          description={effect.path ?? effect.tool_name}
+          heading={effect.succeeded === false ? "Failed change" : "Modified"}
+          key={effect.tool_call_id}
+          leading={<GitBranch size={16} />}
+          meta={effect.duration_ms ? `${effect.duration_ms} ms` : "Session change"}
+        />
+      ))}
     </PanelSection>
   );
 }
@@ -128,9 +168,9 @@ export function BrowserTool() {
   const [url, setUrl] = useState("http://127.0.0.1:1421");
   const [loadedUrl, setLoadedUrl] = useState(url);
   return (
-    <PanelSection description="WebView execution is provided by the native Browser tool; this tab keeps its session and target visible." heading="Browser">
+    <PanelSection description="Chrome-compatible WebView sessions open inside this tab." heading="Chrome">
       <div className="hub-browser-toolbar"><TextField aria-label="Browser address" value={url} onChange={(event) => setUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") setLoadedUrl(url); }} /><Button leadingIcon={<Globe2 size={14} />} onClick={() => setLoadedUrl(url)} size="small">Open</Button></div>
-      <EmptyState icon={<Globe2 size={18} />} title="Browser WebView ready" description={loadedUrl} />
+      <EmptyState icon={<Globe2 size={18} />} title="Chrome WebView ready" description={loadedUrl} />
     </PanelSection>
   );
 }

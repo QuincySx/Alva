@@ -127,7 +127,10 @@ status content that must stay available while conversation content scrolls.
 ### Workbench
 
 The resizable right-side Tool Workspace Region. It is docked on wide desktop
-windows and becomes an overlay Sheet on narrower windows.
+windows and becomes an overlay Sheet on narrower windows. Its top bar contains
+only currently opened tool tabs. A dedicated add-tab menu opens Files, Text,
+Git, Agent, Inspector, Tasks, Usage, Chrome, Terminal, Engines, Fallback, or
+Team; closing a tab removes that tool without closing the entire Workbench.
 
 ### Overlay
 

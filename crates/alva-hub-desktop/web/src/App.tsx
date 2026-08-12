@@ -3,7 +3,25 @@
 // POS:    Primary Hub Desktop product surface for reversible, user-authorized engine sessions.
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { PanelRight } from "lucide-react";
+import {
+  Bot,
+  FileCheck2,
+  FileCode2,
+  FolderTree,
+  Gauge,
+  GitBranch,
+  Globe2,
+  ListChecks,
+  PanelRight,
+  Plus,
+  SearchCode,
+  ServerCog,
+  TerminalSquare,
+  Users,
+  Wrench,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { HubComposer } from "./components/hub-composer";
 import { EngineReadinessPanel } from "./components/engine-readiness-panel";
 import { FallbackPolicyPanel } from "./components/fallback-policy-panel";
@@ -27,10 +45,12 @@ import {
   AgentTool,
   BrowserTool,
   FilesTool,
+  GitTool,
   InspectorTool,
   ReviewTool,
   TasksTool,
   TerminalTool,
+  TextBrowserTool,
   UsageTool,
 } from "./components/workbench-tools";
 import {
@@ -40,6 +60,11 @@ import {
   ContentFrame,
   DockRegion,
   IconButton,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuRoot,
+  MenuTrigger,
   Notice,
   ScrollRegion,
   SelectField,
@@ -172,13 +197,31 @@ type WorkbenchTool =
   | "tasks"
   | "usage"
   | "browser"
+  | "text"
+  | "git"
   | "terminal"
   | "engines"
   | "fallback"
   | "team";
 
 const hubPages: HubPage[] = ["conversation", "automations", "extensions", "settings", "search"];
-const workbenchTools: WorkbenchTool[] = ["files", "review", "agent", "inspector", "tasks", "usage", "browser", "terminal", "engines", "fallback", "team"];
+const workbenchTools: WorkbenchTool[] = ["files", "review", "agent", "inspector", "tasks", "usage", "browser", "text", "git", "terminal", "engines", "fallback", "team"];
+
+const workbenchToolMeta: Record<WorkbenchTool, { icon: LucideIcon; label: string }> = {
+  files: { icon: FolderTree, label: "Files" },
+  review: { icon: FileCheck2, label: "Review" },
+  agent: { icon: Bot, label: "Agent" },
+  inspector: { icon: SearchCode, label: "Inspector" },
+  tasks: { icon: ListChecks, label: "Tasks" },
+  usage: { icon: Gauge, label: "Usage" },
+  browser: { icon: Globe2, label: "Chrome" },
+  text: { icon: FileCode2, label: "Text" },
+  git: { icon: GitBranch, label: "Git" },
+  terminal: { icon: TerminalSquare, label: "Terminal" },
+  engines: { icon: ServerCog, label: "Engines" },
+  fallback: { icon: Wrench, label: "Fallback" },
+  team: { icon: Users, label: "Team" },
+};
 
 function queryValue(name: string): string | null {
   return typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get(name);
@@ -351,6 +394,7 @@ export default function App() {
   const [sessionQuery, setSessionQuery] = useState("");
   const [workbenchOpen, setWorkbenchOpen] = useState(() => queryValue("workbench") === "1");
   const [activeWorkbenchTool, setActiveWorkbenchTool] = useState<WorkbenchTool>(initialWorkbenchTool);
+  const [openWorkbenchTools, setOpenWorkbenchTools] = useState<WorkbenchTool[]>(() => [initialWorkbenchTool()]);
   const [activePage, setActivePage] = useState<HubPage>(initialPage);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [sessionDetail, setSessionDetail] = useState<HubSessionDetail | null>(
@@ -368,6 +412,25 @@ export default function App() {
   // Logic value: the current lead session for team refreshes triggered from
   // the long-lived timeline listener (state would be a stale closure there).
   const teamLeadRef = useRef<string | null>(null);
+
+  function openWorkbenchTool(tool: WorkbenchTool) {
+    setOpenWorkbenchTools((current) => current.includes(tool) ? current : [...current, tool]);
+    setActiveWorkbenchTool(tool);
+    setWorkbenchOpen(true);
+  }
+
+  function closeWorkbenchTool(tool: WorkbenchTool) {
+    setOpenWorkbenchTools((current) => {
+      const closingIndex = current.indexOf(tool);
+      const next = current.filter((entry) => entry !== tool);
+      if (activeWorkbenchTool === tool) {
+        const nextActive = next[Math.min(Math.max(closingIndex, 0), next.length - 1)];
+        if (nextActive) setActiveWorkbenchTool(nextActive);
+        else setWorkbenchOpen(false);
+      }
+      return next;
+    });
+  }
   // Logic value: the session the long-lived timeline listener should refresh
   // (reading state there would capture a stale closure).
   const activeSessionRef = useRef<string | null>(null);
@@ -1077,41 +1140,65 @@ export default function App() {
         />
       }
       workbench={
-        <Workbench
-          actions={
-            <IconButton
-              icon={<PanelRight aria-hidden="true" size={16} />}
-              label="Close workbench"
-              onClick={() => setWorkbenchOpen(false)}
-              variant="ghost"
-            />
-          }
-          className="hub-workbench"
-          title="Workspace"
-        >
+        <Workbench className="hub-workbench">
           <TabsRoot className="hub-workbench__tabs" onValueChange={(value) => setActiveWorkbenchTool(value as WorkbenchTool)} value={activeWorkbenchTool}>
             <TabsList aria-label="Workbench panels" className="hub-workbench__tab-list">
-              <TabsTrigger value="files">Files</TabsTrigger>
-              <TabsTrigger value="review">Review</TabsTrigger>
-              <TabsTrigger value="agent">Agent</TabsTrigger>
-              <TabsTrigger value="inspector">Inspector</TabsTrigger>
-              <TabsTrigger value="tasks">Tasks</TabsTrigger>
-              <TabsTrigger value="usage">Usage</TabsTrigger>
-              <TabsTrigger value="browser">Browser</TabsTrigger>
-              <TabsTrigger value="terminal">Terminal</TabsTrigger>
-              <TabsTrigger value="engines">Engines</TabsTrigger>
-              <TabsTrigger value="fallback">Fallback</TabsTrigger>
-              <TabsTrigger value="team">Team</TabsTrigger>
+              <div className="hub-workbench__open-tabs">
+                {openWorkbenchTools.map((tool) => {
+                  const meta = workbenchToolMeta[tool];
+                  const ToolIcon = meta.icon;
+                  return (
+                    <div className="hub-workbench__tab" key={tool}>
+                      <TabsTrigger value={tool}>
+                        <ToolIcon aria-hidden="true" size={13} />
+                        <span>{meta.label}</span>
+                      </TabsTrigger>
+                      <button
+                        aria-label={`Close ${meta.label} tab`}
+                        className="hub-workbench__tab-close"
+                        onClick={() => closeWorkbenchTool(tool)}
+                        type="button"
+                      >
+                        <X aria-hidden="true" size={12} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="hub-workbench__tab-actions">
+                <MenuRoot>
+                  <MenuTrigger asChild>
+                    <IconButton icon={<Plus aria-hidden="true" size={15} />} label="Add workbench tab" variant="ghost" />
+                  </MenuTrigger>
+                  <MenuContent align="end" aria-label="Add workbench tab" className="hub-workbench__add-menu">
+                    <MenuLabel>Add tab</MenuLabel>
+                    {workbenchTools.map((tool) => {
+                      const meta = workbenchToolMeta[tool];
+                      const ToolIcon = meta.icon;
+                      return (
+                        <MenuItem disabled={openWorkbenchTools.includes(tool)} key={tool} onSelect={() => openWorkbenchTool(tool)}>
+                          <ToolIcon aria-hidden="true" size={14} />
+                          {meta.label}
+                          {openWorkbenchTools.includes(tool) ? <span className="ui-menu-trailing">Open</span> : null}
+                        </MenuItem>
+                      );
+                    })}
+                  </MenuContent>
+                </MenuRoot>
+                <IconButton icon={<PanelRight aria-hidden="true" size={15} />} label="Close workbench" onClick={() => setWorkbenchOpen(false)} variant="ghost" />
+              </div>
             </TabsList>
-            <TabsContent className="hub-workbench__content" value="files"><WorkbenchPage><FilesTool detail={sessionDetail} /></WorkbenchPage></TabsContent>
-            <TabsContent className="hub-workbench__content" value="review"><WorkbenchPage><ReviewTool detail={sessionDetail} /></WorkbenchPage></TabsContent>
-            <TabsContent className="hub-workbench__content" value="agent"><WorkbenchPage><AgentTool onFocus={(sessionId) => void openSessionById(sessionId)} run={teamRun} /></WorkbenchPage></TabsContent>
-            <TabsContent className="hub-workbench__content" value="inspector"><WorkbenchPage><InspectorTool detail={sessionDetail} events={timeline} /></WorkbenchPage></TabsContent>
-            <TabsContent className="hub-workbench__content" value="tasks"><WorkbenchPage><TasksTool run={teamRun} /></WorkbenchPage></TabsContent>
-            <TabsContent className="hub-workbench__content" value="usage"><WorkbenchPage><UsageTool detail={sessionDetail} /></WorkbenchPage></TabsContent>
-            <TabsContent className="hub-workbench__content" value="browser"><WorkbenchPage><BrowserTool /></WorkbenchPage></TabsContent>
-            <TabsContent className="hub-workbench__content" value="terminal"><WorkbenchPage><TerminalTool /></WorkbenchPage></TabsContent>
-            <TabsContent className="hub-workbench__content" value="engines">
+            {openWorkbenchTools.includes("files") ? <TabsContent className="hub-workbench__content" forceMount value="files"><WorkbenchPage><FilesTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("review") ? <TabsContent className="hub-workbench__content" forceMount value="review"><WorkbenchPage><ReviewTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("agent") ? <TabsContent className="hub-workbench__content" forceMount value="agent"><WorkbenchPage><AgentTool onFocus={(sessionId) => void openSessionById(sessionId)} run={teamRun} /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("inspector") ? <TabsContent className="hub-workbench__content" forceMount value="inspector"><WorkbenchPage><InspectorTool detail={sessionDetail} events={timeline} /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("tasks") ? <TabsContent className="hub-workbench__content" forceMount value="tasks"><WorkbenchPage><TasksTool run={teamRun} /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("usage") ? <TabsContent className="hub-workbench__content" forceMount value="usage"><WorkbenchPage><UsageTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("browser") ? <TabsContent className="hub-workbench__content" forceMount value="browser"><WorkbenchPage><BrowserTool /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("text") ? <TabsContent className="hub-workbench__content" forceMount value="text"><WorkbenchPage><TextBrowserTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("git") ? <TabsContent className="hub-workbench__content" forceMount value="git"><WorkbenchPage><GitTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("terminal") ? <TabsContent className="hub-workbench__content" forceMount value="terminal"><WorkbenchPage><TerminalTool /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("engines") ? <TabsContent className="hub-workbench__content" forceMount value="engines">
               <WorkbenchPage>
                 <EngineReadinessPanel
                 busy={readinessBusy}
@@ -1128,8 +1215,8 @@ export default function App() {
                 repairPlan={repairPlan}
                 />
               </WorkbenchPage>
-            </TabsContent>
-            <TabsContent className="hub-workbench__content" value="fallback">
+            </TabsContent> : null}
+            {openWorkbenchTools.includes("fallback") ? <TabsContent className="hub-workbench__content" forceMount value="fallback">
               <WorkbenchPage>
                 <FallbackPolicyPanel
                 activeSession={activeSessionId !== null}
@@ -1142,8 +1229,8 @@ export default function App() {
                 saving={policySaving}
                 />
               </WorkbenchPage>
-            </TabsContent>
-            <TabsContent className="hub-workbench__content" value="team">
+            </TabsContent> : null}
+            {openWorkbenchTools.includes("team") ? <TabsContent className="hub-workbench__content" forceMount value="team">
               <WorkbenchPage>
                 <TeamPanel
                 activeSession={activeSessionId !== null}
@@ -1180,7 +1267,7 @@ export default function App() {
                 workerEngine={teamWorkerEngine}
                 />
               </WorkbenchPage>
-            </TabsContent>
+            </TabsContent> : null}
           </TabsRoot>
         </Workbench>
       }
@@ -1194,7 +1281,10 @@ export default function App() {
           detailsAvailable={sessionDetail !== null}
           detailsOpen={detailsOpen}
           onToggleDetails={() => setDetailsOpen((open) => !open)}
-          onToggleWorkbench={() => setWorkbenchOpen((open) => !open)}
+          onToggleWorkbench={() => {
+            if (workbenchOpen) setWorkbenchOpen(false);
+            else openWorkbenchTool(openWorkbenchTools.at(-1) ?? "agent");
+          }}
           status={latest?.status ?? "ready"}
           statusLabel={statusLabel}
           title={sessionDetail?.turns.at(-1)?.prompt ?? "New conversation"}
@@ -1371,8 +1461,7 @@ export default function App() {
               void openSessionById(productSessionId);
             }}
             onOpenWorkbench={(tool) => {
-              setActiveWorkbenchTool(tool);
-              setWorkbenchOpen(true);
+              openWorkbenchTool(tool);
             }}
             sessions={sessions.map((session) => ({
               description: `${displayWorkspace(session.workspace)} · ${session.engine_id} · ${session.status}`,
