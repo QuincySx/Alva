@@ -120,7 +120,9 @@
 .hub-sidebar__workspace strong { font-size: 12px; }
 .hub-sidebar__workspace small { max-width: 115px; color: var(--color-text-subtle); font-size: 10px; }
 
-.hub-workbench__scroll { display: flex; min-height: 0; flex-direction: column; gap: 10px; padding: 10px; }
+.hub-workbench__tabs { display: flex; min-height: 0; height: 100%; flex-direction: column; }
+.hub-workbench__tab-list { flex: none; margin: 8px 10px 0; }
+.hub-workbench__scroll { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 10px; overflow: auto; padding: 10px; }
 .hub-workbench .workspace-panel,
 .hub-workbench .session-panel { display: none; }
 

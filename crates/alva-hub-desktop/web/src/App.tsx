@@ -22,6 +22,10 @@ import {
   NavList,
   SelectField,
   Sidebar,
+  TabsContent,
+  TabsList,
+  TabsRoot,
+  TabsTrigger,
   TextField,
   UIProvider,
   Workbench,
@@ -1093,7 +1097,13 @@ export default function App() {
           className="hub-workbench"
           title="Workspace"
         >
-          <div className="hub-workbench__scroll">
+          <TabsRoot className="hub-workbench__tabs" defaultValue="engines">
+            <TabsList aria-label="Workbench panels" className="hub-workbench__tab-list">
+              <TabsTrigger value="engines">Engines</TabsTrigger>
+              <TabsTrigger value="fallback">Fallback</TabsTrigger>
+              <TabsTrigger value="team">Team</TabsTrigger>
+            </TabsList>
+            <TabsContent className="hub-workbench__scroll" value="engines">
 
         <section className="readiness-panel" aria-labelledby="readiness-panel-title">
           <div className="session-heading">
@@ -1193,6 +1203,13 @@ export default function App() {
             )}
           </div>
         </section>
+
+        <div className="ticket-note">
+          <span>Durable engine branches</span>
+          <small>Alva · Claude · Codex · reversible handoff</small>
+        </div>
+            </TabsContent>
+            <TabsContent className="hub-workbench__scroll" value="fallback">
 
         <section className="fallback-panel" aria-labelledby="fallback-panel-title">
           <div className="session-heading">
@@ -1314,6 +1331,9 @@ export default function App() {
           </>
           )}
         </section>
+
+            </TabsContent>
+            <TabsContent className="hub-workbench__scroll" value="team">
 
         <section className="team-panel" aria-labelledby="team-panel-title">
           <div className="session-heading">
@@ -1678,12 +1698,8 @@ export default function App() {
           </>
           )}
         </section>
-
-        <div className="ticket-note">
-          <span>Durable engine branches</span>
-          <small>Alva · Claude · Codex · reversible handoff</small>
-        </div>
-          </div>
+            </TabsContent>
+          </TabsRoot>
         </Workbench>
       }
       workbenchOpen={workbenchOpen}

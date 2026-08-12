@@ -512,6 +512,7 @@ describe("App integration", () => {
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(screen.getByRole("tab", { name: "Team" }));
     await user.click(
       screen.getByRole("button", { name: "Toggle team panel" }),
     );
@@ -688,6 +689,7 @@ describe("App integration", () => {
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(screen.getByRole("tab", { name: "Team" }));
     await user.click(
       screen.getByRole("button", { name: "Toggle team panel" }),
     );
@@ -758,6 +760,7 @@ describe("App integration", () => {
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(screen.getByRole("tab", { name: "Team" }));
     await user.click(screen.getByRole("button", { name: "Toggle team panel" }));
 
     // Autonomy is an explicit opt-in, never implied by the run existing.
@@ -1164,6 +1167,7 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(screen.getByRole("tab", { name: "Fallback" }));
     await user.click(
       screen.getByRole("button", { name: "Toggle fallback chain" }),
     );
@@ -1213,6 +1217,7 @@ describe("App integration", () => {
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(screen.getByRole("tab", { name: "Fallback" }));
     await user.click(
       screen.getByRole("button", { name: "Toggle fallback chain" }),
     );
@@ -1234,6 +1239,7 @@ describe("App integration", () => {
     // The chain is collapsed by default so the session list owns the rail…
     expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(screen.getByRole("tab", { name: "Fallback" }));
     // …expanding reveals the chain, collapsing hides it again.
     const toggle = screen.getByRole("button", {
       name: "Toggle fallback chain",
