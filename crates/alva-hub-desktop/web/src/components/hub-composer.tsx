@@ -10,6 +10,7 @@ export interface HubComposerProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onStop?: () => void;
   placeholder: string;
   engineId: string;
   busy?: boolean;
@@ -24,6 +25,7 @@ export function HubComposer({
   value,
   onChange,
   onSubmit,
+  onStop,
   placeholder,
   engineId,
   busy = false,
@@ -74,7 +76,8 @@ export function HubComposer({
                 )
               }
               label={busy ? "Stop current run" : `Run with ${engineId}`}
-              type="submit"
+              onClick={busy ? onStop : undefined}
+              type={busy ? "button" : "submit"}
               variant="primary"
             />
           </div>

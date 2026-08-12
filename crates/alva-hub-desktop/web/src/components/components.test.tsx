@@ -74,4 +74,26 @@ describe("Hub domain components", () => {
     fireEvent.keyDown(message, { key: "Enter" });
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
+
+  it("routes the running action to stop instead of submitting again", () => {
+    const onStop = vi.fn();
+    const onSubmit = vi.fn((event) => event.preventDefault());
+    render(
+      <UIProvider>
+        <HubComposer
+          busy
+          engineId="alva"
+          onChange={() => {}}
+          onStop={onStop}
+          onSubmit={onSubmit}
+          placeholder="Ask Alva"
+          value=""
+        />
+      </UIProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop current run" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
 });

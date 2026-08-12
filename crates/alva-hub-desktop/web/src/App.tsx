@@ -4,6 +4,29 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Blocks,
+  FolderOpen,
+  MessageSquarePlus,
+  PanelRight,
+  Search,
+  Workflow,
+} from "lucide-react";
+import { HubComposer } from "./components/hub-composer";
+import { ModelPicker, type HubModelRoute } from "./components/model-picker";
+import {
+  AppFrame,
+  Button,
+  IconButton,
+  NavGroup,
+  NavItem,
+  NavList,
+  SelectField,
+  Sidebar,
+  TextField,
+  UIProvider,
+  Workbench,
+} from "./ui";
+import {
   addSessionMemory,
   chooseWorkspace,
   getEngineReadiness,
@@ -286,6 +309,7 @@ export default function App() {
   const [showArchived, setShowArchived] = useState(false);
   const [approvalGroups, setApprovalGroups] = useState<PermissionGroup[]>([]);
   const [sessionQuery, setSessionQuery] = useState("");
+  const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [sessionDetail, setSessionDetail] = useState<HubSessionDetail | null>(
     null,
@@ -469,6 +493,58 @@ export default function App() {
         return "Ready";
     }
   }, [latest]);
+
+  const modelRoutes = useMemo<HubModelRoute[]>(
+    () =>
+      engineCatalog.map((catalogTarget) => {
+        const target =
+          fallbackPolicy.targets.find(
+            (candidate) => candidate.engine_id === catalogTarget.engine_id,
+          ) ?? catalogTarget;
+        const health = readiness.find(
+          (candidate) => candidate.engine_id === target.engine_id,
+        );
+        const engineEligibility = eligibility.find(
+          (candidate) => candidate.engine_id === target.engine_id,
+        );
+        return {
+          engineId: target.engine_id,
+          engineLabel:
+            health?.display_name ??
+            `${target.engine_id.charAt(0).toUpperCase()}${target.engine_id.slice(1)}`,
+          modelId: target.model_id,
+          modelLabel:
+            target.model_id === "engine-default"
+              ? "Default model"
+              : target.model_id === "workspace-config"
+                ? "Workspace model"
+                : target.model_id,
+          providerId: target.provider_id,
+          accountSource: target.account_source,
+          billingRoute: target.billing_route,
+          description:
+            target.model_id === "engine-default"
+              ? "Uses the model selected by this engine account."
+              : "Configured for this Hub route.",
+          capabilities: health?.capabilities ?? [],
+          status:
+            health && health.status !== "healthy"
+              ? readinessBadge[health.status]
+              : undefined,
+          disabled:
+            engineEligibility?.eligible === false && target.engine_id !== engine,
+          disabledReason:
+            engineEligibility?.eligible === false
+              ? engineEligibility.detail
+              : undefined,
+        };
+      }),
+    [eligibility, engine, fallbackPolicy.targets, readiness],
+  );
+
+  const selectedModelRoute =
+    modelRoutes.find((route) => route.engineId === (pendingEngine ?? engine)) ??
+    modelRoutes[0];
 
   /// Everything that describes "the session I am looking at". Both the New
   /// session button and picking a workspace go through this, so neither can
@@ -938,95 +1014,86 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div>
-          <div className="brand-mark">A</div>
-          <h1>ALVA Hub</h1>
-          <p>One project. Every engine.</p>
-        </div>
-
-        <section className="workspace-panel" aria-labelledby="workspace-panel-title">
-          <span className="eyebrow">Workspace</span>
-          <strong>{workspace ? workspace.split("/").at(-1) : "Not selected"}</strong>
-          <small>{workspace || "Choose a local project to begin."}</small>
-          <button className="secondary-button" type="button" onClick={selectWorkspace}>
-            Choose workspace
-          </button>
-        </section>
-
-        <section className="session-panel" aria-labelledby="session-panel-title">
-          <div className="session-heading">
-            <span className="eyebrow" id="session-panel-title">Sessions</span>
-            <small>
-              {sessionQuery.trim()
-                ? `${filteredSessions.length}/${sessions.length}`
-                : sessions.length}
-            </small>
-          </div>
-          <input
-            aria-label="Search sessions"
-            className="session-search"
-            placeholder="Search workspace or prompt…"
-            value={sessionQuery}
-            onChange={(event) => setSessionQuery(event.target.value)}
-          />
-          <button
-            className="secondary-button"
-            disabled={busy}
-            onClick={() => {
-              // A new session starts from a clean surface, not the last one —
-              // including the fallback chain, which would otherwise be shown
-              // as the default and could be saved as the global one.
-              resetSessionSurface();
-              void loadGlobalFallbackPolicy().catch(appendLocalFailure);
-            }}
-            type="button"
+    <UIProvider>
+    <AppFrame
+      sidebar={
+        <Sidebar className="hub-sidebar">
+          <header className="hub-sidebar__brand">
+            <div className="brand-mark">A</div>
+            <div><h1>ALVA Hub</h1><p>One project. Every engine.</p></div>
+          </header>
+          <nav className="hub-sidebar__primary" aria-label="Primary">
+            <NavItem
+              icon={<MessageSquarePlus aria-hidden="true" size={17} />}
+              label="New session"
+              disabled={busy}
+              onClick={() => {
+                resetSessionSurface();
+                void loadGlobalFallbackPolicy().catch(appendLocalFailure);
+              }}
+            />
+            <NavItem icon={<Workflow aria-hidden="true" size={17} />} label="Automations" />
+            <NavItem icon={<Blocks aria-hidden="true" size={17} />} label="Plugins" />
+          </nav>
+          <label className="hub-sidebar__search">
+            <Search aria-hidden="true" size={15} />
+            <TextField
+              aria-label="Search sessions"
+              placeholder="Search sessions…"
+              value={sessionQuery}
+              onChange={(event) => setSessionQuery(event.target.value)}
+            />
+          </label>
+          <NavGroup
+            className="hub-sidebar__sessions"
+            count={sessionQuery.trim() ? `${filteredSessions.length}/${sessions.length}` : sessions.length}
+            label="Sessions"
           >
-            New session
-          </button>
-          <div className="session-list">
-            {sessionError ? (
-              <small className="session-error">{sessionError}</small>
-            ) : filteredSessions.length === 0 ? (
-              <small className="session-empty">
-                {sessionQuery.trim()
-                  ? "No sessions match that search."
-                  : "Hub runs will appear here."}
-              </small>
-            ) : (
-              filteredSessions.map((session) => (
-                <button
-                  className={`session-item ${
-                    activeSessionId === session.product_session_id ? "active" : ""
-                  }`}
-                  aria-current={
-                    activeSessionId === session.product_session_id
-                      ? "true"
-                      : undefined
-                  }
-                  key={session.product_session_id}
-                  type="button"
-                  onClick={() => void openSession(session)}
-                >
-                  <strong title={session.workspace}>
-                    {session.workspace.split("/").at(-1)}
-                  </strong>
-                  <span>{session.last_prompt ?? "Untitled session"}</span>
-                  {session.last_result ? (
-                    <small className="session-result">
-                      {session.last_result}
-                    </small>
-                  ) : null}
-                  <small>
-                    {session.engine_id} · {session.status} ·{" "}
-                    {formatRelativeTime(session.updated_at)}
-                  </small>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
+            <NavList>
+              {sessionError ? (
+                <small className="session-error">{sessionError}</small>
+              ) : filteredSessions.length === 0 ? (
+                <small className="session-empty">
+                  {sessionQuery.trim() ? "No sessions match that search." : "Hub runs will appear here."}
+                </small>
+              ) : (
+                filteredSessions.map((session) => (
+                  <NavItem
+                    active={activeSessionId === session.product_session_id}
+                    description={session.workspace.split("/").at(-1)}
+                    key={session.product_session_id}
+                    label={session.last_prompt ?? "Untitled session"}
+                    meta={`${session.engine_id} · ${session.status} · ${formatRelativeTime(session.updated_at)}`}
+                    onClick={() => void openSession(session)}
+                    title={session.workspace}
+                  />
+                ))
+              )}
+            </NavList>
+          </NavGroup>
+          <footer className="hub-sidebar__workspace">
+            <div>
+              <FolderOpen aria-hidden="true" size={16} />
+              <span><strong>{workspace ? workspace.split("/").at(-1) : "No workspace"}</strong><small>{workspace || "Choose a local project"}</small></span>
+            </div>
+            <Button onClick={selectWorkspace} size="small" variant="ghost">Choose</Button>
+          </footer>
+        </Sidebar>
+      }
+      workbench={
+        <Workbench
+          actions={
+            <IconButton
+              icon={<PanelRight aria-hidden="true" size={16} />}
+              label="Close workbench"
+              onClick={() => setWorkbenchOpen(false)}
+              variant="ghost"
+            />
+          }
+          className="hub-workbench"
+          title="Workspace"
+        >
+          <div className="hub-workbench__scroll">
 
         <section className="readiness-panel" aria-labelledby="readiness-panel-title">
           <div className="session-heading">
@@ -1616,112 +1683,40 @@ export default function App() {
           <span>Durable engine branches</span>
           <small>Alva · Claude · Codex · reversible handoff</small>
         </div>
-      </aside>
+          </div>
+        </Workbench>
+      }
+      workbenchOpen={workbenchOpen}
+    >
 
-      <main className="main-column">
+      <div className="main-column">
         <header className="topbar">
-          <div>
-            <span className="eyebrow">Engine</span>
-            <select
-              aria-label="Engine"
-              value={pendingEngine ?? engine}
-              onChange={(event) => void selectEngine(event.target.value)}
-            >
-              {engineCatalog.map((target) => {
-                const health = readiness.find(
-                  (candidate) => candidate.engine_id === target.engine_id,
-                );
-                const engineEligibility = eligibility.find(
-                  (candidate) => candidate.engine_id === target.engine_id,
-                );
-                const ineligible = engineEligibility?.eligible === false;
-                const suffix = ineligible
-                  ? " — ineligible for this permission profile"
-                  : health && health.status !== "healthy"
-                    ? ` — ${readinessBadge[health.status]}`
-                    : "";
-                const label =
-                  health?.display_name ??
-                  `${target.engine_id.charAt(0).toUpperCase()}${target.engine_id.slice(1)}`;
-                return (
-                  <option
-                    disabled={ineligible && target.engine_id !== engine}
-                    key={target.engine_id}
-                    value={target.engine_id}
-                  >
-                    {`${label}${suffix}`}
-                  </option>
-                );
-              })}
-            </select>
-            {pendingEngine ? <small>Queued after the current run</small> : null}
+          <div className="topbar__title">
+            <strong>{sessionDetail?.turns.at(-1)?.prompt ?? "New conversation"}</strong>
+            <small>{workspace ? workspace.split("/").at(-1) : "Choose a project to begin"}</small>
           </div>
-          <div>
-            <span className="eyebrow">Permissions</span>
-            <select
-              aria-label="Permission profile"
-              disabled={activeSessionId !== null}
-              value={profile}
-              onChange={(event) =>
-                setProfile(event.target.value as PermissionProfile)
-              }
+          <div className="topbar__actions">
+            <IconButton
+              icon={<PanelRight aria-hidden="true" size={16} />}
+              label={workbenchOpen ? "Close workbench" : "Open workbench"}
+              onClick={() => setWorkbenchOpen((open) => !open)}
+              variant="ghost"
+            />
+            <Button
+              disabled={!sessionDetail}
+              onClick={() => setDetailsOpen((open) => !open)}
+              size="small"
+              variant="ghost"
             >
-              {(Object.keys(profileLabel) as PermissionProfile[]).map(
-                (candidate) => (
-                  <option key={candidate} value={candidate}>
-                    {profileLabel[candidate]}
-                  </option>
-                ),
-              )}
-            </select>
-            {activeSessionId ? (
-              <label className="transcript-toggle">
-                <input
-                  checked={transcriptSharing}
-                  onChange={(event) => {
-                    const enabled = event.target.checked;
-                    setTranscriptSharingState(enabled);
-                    void setTranscriptSharing_backend(enabled);
-                  }}
-                  type="checkbox"
-                />
-                Attach filtered full transcript to future handoffs
-              </label>
-            ) : null}
-            {activeSessionId ? (
-              <small>Fixed for this session</small>
-            ) : (
-              (() => {
-                const selected = eligibility.find(
-                  (candidate) => candidate.engine_id === engine,
-                );
-                if (!selected) return null;
-                return (
-                  <small
-                    className={
-                      selected.eligible ? undefined : "eligibility-warning"
-                    }
-                  >
-                    {selected.detail}
-                  </small>
-                );
-              })()
-            )}
-          </div>
-          <button
-            className="details-toggle"
-            disabled={!sessionDetail}
-            onClick={() => setDetailsOpen((open) => !open)}
-            type="button"
-          >
-            {detailsOpen ? "Hide details" : "Details"}
-          </button>
-          <div
-            aria-live="polite"
-            className={`status-pill status-${latest?.status ?? "ready"}`}
-          >
-            <span />
-            {statusLabel}
+              {detailsOpen ? "Hide details" : "Details"}
+            </Button>
+            <div
+              aria-live="polite"
+              className={`status-pill status-${latest?.status ?? "ready"}`}
+            >
+              <span />
+              {statusLabel}
+            </div>
           </div>
         </header>
 
@@ -2200,75 +2195,70 @@ export default function App() {
           </aside>
         ) : null}
 
-        <form className="composer" onSubmit={submit}>
-          <textarea
-            aria-label="Message"
-            placeholder={`Ask ${pendingEngine ?? engine} to inspect, change, or explain this project…`}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
-          {(() => {
-            const selectedId = pendingEngine ?? engine;
-            // Prefer the edited policy target (user-set model/provider),
-            // fall back to the catalog default for an unconfigured engine.
-            const target =
-              fallbackPolicy.targets.find(
-                (candidate) => candidate.engine_id === selectedId,
-              ) ??
-              engineCatalog.find(
-                (candidate) => candidate.engine_id === selectedId,
-              );
-            if (!target) return null;
-            return (
-              <small className="composer-model">
-                Running {selectedId} on {target.model_id} · {target.provider_id}
-              </small>
-            );
-          })()}
-          <div className="composer-footer">
-            <span
-              className="composer-summary"
-              title={`${engine}${
-                sessionDetail ? ` · ${sessionDetail.session.model_id}` : ""
-              } · ${profileLabel[profile]} · fallback: ${
-                fallbackPolicy.targets
-                  .map((target) => target.engine_id)
-                  .join(" → ") || "none"
-              }`}
-            >
-              {workspace ? "" : "Select a workspace first · "}
-              {engine}
-              {sessionDetail ? ` · ${sessionDetail.session.model_id}` : ""}
-              {` · ${profileLabel[profile]}`}
-              {` · fallback: ${
-                fallbackPolicy.targets.length === 0
-                  ? "none"
-                  : fallbackPolicy.targets
-                      .map(
-                        (target) =>
-                          `${target.engine_id}${
-                            target.automatic_use_authorized ? "" : " (unauthorized)"
-                          }`,
-                      )
-                      .join(" → ")
-              }`}
-            </span>
-            <button
-              className="primary-button"
-              type="submit"
-              disabled={busy || !prompt.trim() || !workspace}
-            >
-              {busy ? "Running…" : `Run with ${engine}`}
-            </button>
-          </div>
-        </form>
-      </main>
-    </div>
+        <HubComposer
+          busy={busy}
+          controls={
+            <>
+              <SelectField
+                ariaLabel="Permission profile"
+                className="hub-composer__permission"
+                disabled={activeSessionId !== null}
+                onValueChange={(value) => setProfile(value as PermissionProfile)}
+                options={(Object.keys(profileLabel) as PermissionProfile[]).map((candidate) => ({
+                  label: profileLabel[candidate],
+                  value: candidate,
+                }))}
+                value={profile}
+              />
+              {activeSessionId ? (
+                <label className="transcript-toggle">
+                  <input
+                    checked={transcriptSharing}
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setTranscriptSharingState(enabled);
+                      void setTranscriptSharing_backend(enabled);
+                    }}
+                    type="checkbox"
+                  />
+                  Share transcript
+                </label>
+              ) : null}
+            </>
+          }
+          disabled={!workspace}
+          engineId={engine}
+          modelPicker={
+            selectedModelRoute ? (
+              <ModelPicker
+                onSelect={(route) => void selectEngine(route.engineId)}
+                routes={modelRoutes}
+                selectedEngineId={pendingEngine ?? engine}
+                selectedModelId={selectedModelRoute.modelId}
+              />
+            ) : null
+          }
+          onChange={setPrompt}
+          onStop={() => void stopActiveAttempt()}
+          onSubmit={submit}
+          placeholder={`Ask ${pendingEngine ?? engine} to inspect, change, or explain this project…`}
+          status={
+            <>
+              <span>{workspace ? workspace : "Select a workspace first"}</span>
+              {selectedModelRoute ? (
+                <span>
+                  Running {selectedModelRoute.engineId} on {selectedModelRoute.modelId} · {selectedModelRoute.providerId}
+                </span>
+              ) : null}
+              <span>
+                {profileLabel[profile]} · fallback: {fallbackPolicy.targets.map((target) => target.engine_id).join(" → ") || "none"}
+              </span>
+            </>
+          }
+          value={prompt}
+        />
+      </div>
+    </AppFrame>
+    </UIProvider>
   );
 }

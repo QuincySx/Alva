@@ -252,7 +252,7 @@ describe("App integration", () => {
     expect(
       await screen.findByText("Start one continuous project session"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Not selected")).toBeInTheDocument();
+    expect(screen.getByText("No workspace")).toBeInTheDocument();
     expect(screen.getByText("Hub runs will appear here.")).toBeInTheDocument();
   });
 
@@ -384,6 +384,7 @@ describe("App integration", () => {
     });
 
     render(<App />);
+    await user.click(screen.getByRole("button", { name: "Open workbench" }));
     expect(await screen.findByText("Healthy")).toBeInTheDocument();
     expect(screen.getByText("Sign-in needed")).toBeInTheDocument();
     expect(screen.getByText("Run claude once to sign in.")).toBeInTheDocument();
@@ -510,7 +511,8 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
-        await user.click(
+    await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(
       screen.getByRole("button", { name: "Toggle team panel" }),
     );
 
@@ -623,10 +625,10 @@ describe("App integration", () => {
     };
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Choose workspace" }));
+    await user.click(await screen.findByRole("button", { name: "Choose" }));
     expect(
-      await screen.findByText((text) => text === "proj"),
-    ).toBeInTheDocument();
+      (await screen.findAllByText((text) => text === "proj")).length,
+    ).toBeGreaterThan(0);
 
     const composer = screen.getByLabelText("Message");
     await user.type(composer, "what is 2+2?");
@@ -685,7 +687,8 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
-        await user.click(
+    await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(
       screen.getByRole("button", { name: "Toggle team panel" }),
     );
     // Default worker engine is codex; create dispatches lead + engine.
@@ -754,6 +757,7 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
+    await user.click(screen.getByRole("button", { name: "Open workbench" }));
     await user.click(screen.getByRole("button", { name: "Toggle team panel" }));
 
     // Autonomy is an explicit opt-in, never implied by the run existing.
@@ -805,11 +809,14 @@ describe("App integration", () => {
     render(<App />);
     // alva is eligible → no warning; switch to claude → the warning shows.
     expect(screen.queryByText(/cannot enforce/)).not.toBeInTheDocument();
-    const engine = screen.getByLabelText("Engine");
-    await userEvent.setup().selectOptions(engine, "claude");
-    expect(
-      await screen.findByText("Claude light cannot enforce workspace_write"),
-    ).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Model and engine" }));
+    await user.click(screen.getByRole("tab", { name: "Claude Code" }));
+    expect(screen.getByRole("button", { name: /Default model/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Default model/ })).toHaveAttribute(
+      "title",
+      "Claude light cannot enforce workspace_write",
+    );
     // Restore the default so later tests don't inherit an ineligible claude.
     bridge.fns.getPermissionEligibility.mockImplementation(async () => []);
   });
@@ -1041,7 +1048,7 @@ describe("App integration", () => {
     await user.click(await screen.findByText("Fix the build"));
 
     const toggle = screen.getByLabelText(
-      "Attach filtered full transcript to future handoffs",
+      "Share transcript",
     );
     expect(toggle).not.toBeChecked();
     await user.click(toggle);
@@ -1070,7 +1077,7 @@ describe("App integration", () => {
     // The active session announces itself to screen readers.
     expect(
       screen.getByRole("button", { name: /Fix the build/ }),
-    ).toHaveAttribute("aria-current", "true");
+    ).toHaveAttribute("aria-current", "page");
     const toggle = screen.getByRole("button", { name: "Details" });
     await user.click(toggle);
     expect(
@@ -1156,7 +1163,8 @@ describe("App integration", () => {
     });
 
     render(<App />);
-        await user.click(
+    await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    await user.click(
       screen.getByRole("button", { name: "Toggle fallback chain" }),
     );
     const modelInput = await screen.findByLabelText("Model for claude");
@@ -1164,7 +1172,9 @@ describe("App integration", () => {
 
     // The composer must show the selected engine's effective config, so
     // pick claude (the engine whose model this test edits).
-    await user.selectOptions(screen.getByLabelText("Engine"), "claude");
+    await user.click(screen.getByRole("button", { name: "Model and engine" }));
+    await user.click(screen.getByRole("tab", { name: "Claude Code" }));
+    await user.click(screen.getByRole("button", { name: /Default model/ }));
 
     await user.clear(modelInput);
     await user.type(modelInput, "claude-sonnet-4-5");
@@ -1202,6 +1212,7 @@ describe("App integration", () => {
 
     render(<App />);
     await user.click(await screen.findByText("Fix the build"));
+    await user.click(screen.getByRole("button", { name: "Open workbench" }));
     await user.click(
       screen.getByRole("button", { name: "Toggle fallback chain" }),
     );
@@ -1222,6 +1233,7 @@ describe("App integration", () => {
     render(<App />);
     // The chain is collapsed by default so the session list owns the rail…
     expect(screen.queryByText("+ alva")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open workbench" }));
     // …expanding reveals the chain, collapsing hides it again.
     const toggle = screen.getByRole("button", {
       name: "Toggle fallback chain",
