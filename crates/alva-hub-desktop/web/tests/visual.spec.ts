@@ -29,24 +29,24 @@ test("03 right workbench", async ({ page }) => {
 
 test("03 right workbench add-tab menu", async ({ page }) => {
   await page.goto("/?demo=1&session=ps-demo-1&workbench=1&tool=inspector");
-  await page.getByRole("button", { name: "Add workbench tab" }).click();
+  await page.getByRole("button", { name: /Add workbench tab|添加工作台标签页/ }).click();
   await settle(page);
   await expect(page).toHaveScreenshot("03-right-workbench-add-tab.png", { fullPage: true });
 });
 
 test("03 right workbench manages dynamic tabs and width", async ({ page }) => {
   await page.goto("/?demo=1&session=ps-demo-1&workbench=1&tool=inspector");
-  await page.getByRole("button", { name: "Add workbench tab" }).click();
-  await page.getByRole("menuitem", { name: "Terminal" }).click();
-  await expect(page.getByRole("tab", { name: "Terminal" })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: /Add workbench tab|添加工作台标签页/ }).click();
+  await page.getByRole("menuitem", { name: /Terminal|终端/ }).click();
+  await expect(page.getByRole("tab", { name: /Terminal|终端/ })).toHaveAttribute("aria-selected", "true");
 
-  const resize = page.getByRole("separator", { name: "Resize workbench" });
+  const resize = page.getByRole("separator", { name: /Resize workbench|调整工作台宽度/ });
   await resize.press("ArrowLeft");
   await expect(resize).toHaveAttribute("aria-valuenow", "464");
 
-  await page.getByRole("button", { name: "Close Terminal tab" }).click();
-  await expect(page.getByRole("tab", { name: "Inspector" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("tab", { name: "Terminal" })).toHaveCount(0);
+  await page.getByRole("button", { name: /Close workbench · Terminal|关闭工作台 · 终端/ }).click();
+  await expect(page.getByRole("tab", { name: /Inspector|检查器/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: /Terminal|终端/ })).toHaveCount(0);
 });
 
 test("03 right workbench becomes a narrow overlay", async ({ page }) => {
@@ -58,7 +58,7 @@ test("03 right workbench becomes a narrow overlay", async ({ page }) => {
 
 test("04 automation", async ({ page }) => {
   await page.goto("/?demo=1&page=automations");
-  await page.getByRole("button", { name: "Nightly self-healing tests" }).click();
+  await page.getByRole("button", { name: /Nightly self-healing tests|夜间自修复测试/ }).click();
   await settle(page);
   await expect(page).toHaveScreenshot("04-automation.png", { fullPage: true });
 });
@@ -77,14 +77,14 @@ test("06 settings", async ({ page }) => {
 
 test("07 context menus", async ({ page }) => {
   await page.goto("/?demo=1");
-  await page.getByRole("button", { name: /Refactor the handoff/ }).click({ button: "right" });
+  await page.getByRole("button", { name: /Refactor the handoff|重构交接/ }).click({ button: "right" });
   await settle(page);
   await expect(page).toHaveScreenshot("07-context-menus.png", { fullPage: true });
 });
 
 test("model picker stays anchored to composer", async ({ page }) => {
   await page.goto("/?demo=1&session=ps-demo-1");
-  await page.getByRole("button", { name: "Model and engine" }).click();
+  await page.getByRole("button", { name: /Model and engine|模型与引擎/ }).click();
   await settle(page);
   await expect(page).toHaveScreenshot("08-model-picker.png", { fullPage: true });
 });
