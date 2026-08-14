@@ -1,5 +1,5 @@
 // INPUT:  React hooks, bridge workspace/run/timeline/session functions
-// OUTPUT: engine selection, fallback authorization, durable branches, composer, timeline UI
+// OUTPUT: session/project workspace onboarding, engine selection, durable branches, composer, timeline UI
 // POS:    Primary Hub Desktop product surface for reversible, user-authorized engine sessions.
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +34,7 @@ import {
 import { HubTopbar } from "./components/hub-topbar";
 import { SessionDetails } from "./components/session-details";
 import { TeamPanel } from "./components/team-panel";
+import { WorkspaceGate } from "./components/workspace-gate";
 import {
   AutomationsPage,
   ExtensionsPage,
@@ -79,7 +80,10 @@ import {
 import {
   addSessionMemory,
   chooseWorkspace,
+  createSessionWorkspace,
+  discoverModelsForProvider,
   getEngineReadiness,
+  getDefaultModelRoute,
   getGlobalFallbackPolicy,
   getHubSession,
   getPermissionEligibility,
@@ -103,15 +107,20 @@ import {
   openExternal,
   getTeamRunForLead,
   listHubSessions,
+  listModelProviders,
+  listModelRoutes,
   listenTimeline,
   respondHubPermission,
   runEngineRepair,
   runHubPrompt,
   setGlobalFallbackPolicy,
+  setDefaultModelRoute,
   setSessionFallbackPolicy,
   setTranscriptSharing,
+  saveModelProvider,
   stopHubAttempt,
   switchHubEngine,
+  testModelRoute,
   type EngineEligibility,
   type EngineReadiness,
   type EngineTarget,
@@ -126,52 +135,28 @@ import {
   type ResourceClaim,
   type TeamRunDetail,
   type RepairKind,
+  type ModelRoute,
+  type ProviderProfile,
+  type SaveProviderProfile,
+  type WorkspaceKind,
 } from "./bridge";
+import { localizeProductText, localizeSystemText, useI18n, type Locale } from "./i18n";
 
-const engineCatalog: EngineTarget[] = [
-  {
-    engine_id: "alva",
-    model_id: "workspace-config",
-    provider_id: "workspace-config",
-    account_source: "Workspace provider configuration",
-    billing_route: "Workspace provider account",
-    automatic_use_authorized: false,
-    required_capabilities: [],
-  },
-  {
-    engine_id: "claude",
-    model_id: "engine-default",
-    provider_id: "claude-cli",
-    account_source: "Claude Code CLI account",
-    billing_route: "Anthropic account via Claude CLI",
-    automatic_use_authorized: false,
-    required_capabilities: [],
-  },
-  {
-    engine_id: "codex",
-    model_id: "engine-default",
-    provider_id: "codex-cli",
-    account_source: "Codex CLI account",
-    billing_route: "OpenAI account via Codex CLI",
-    automatic_use_authorized: false,
-    required_capabilities: [],
-  },
-];
-
-export function describeReadinessReason(reason: ReadinessReason): string {
+export function describeReadinessReason(reason: ReadinessReason, locale: Locale = "en-US"): string {
+  const zh = locale === "zh-CN";
   switch (reason.code) {
     case "binary_not_found":
-      return `Not installed — searched ${reason.searched.join(", ") || "PATH"}.`;
+      return zh ? `未安装 — 已搜索 ${reason.searched.join(", ") || "PATH"}。` : `Not installed — searched ${reason.searched.join(", ") || "PATH"}.`;
     case "version_unreadable":
-      return `Version check failed: ${reason.detail}`;
+      return zh ? `版本检查失败：${reason.detail}` : `Version check failed: ${reason.detail}`;
     case "version_incompatible":
-      return `Version ${reason.found} is older than the required ${reason.minimum}.`;
+      return zh ? `当前版本 ${reason.found} 低于要求的 ${reason.minimum}。` : `Version ${reason.found} is older than the required ${reason.minimum}.`;
     case "unauthenticated":
-      return reason.remedy;
+      return localizeProductText(locale, reason.remedy);
     case "provider_key_missing":
-      return reason.remedy;
+      return localizeProductText(locale, reason.remedy);
     case "stream_failing":
-      return `Streaming is failing: ${reason.last_failure}`;
+      return zh ? `流式响应失败：${reason.last_failure}` : `Streaming is failing: ${reason.last_failure}`;
   }
 }
 
@@ -181,12 +166,6 @@ const readinessBadge: Record<EngineReadiness["status"], string> = {
   incompatible: "Incompatible",
   unauthenticated: "Sign-in needed",
   unhealthy: "Unhealthy",
-};
-
-const profileLabel: Record<PermissionProfile, string> = {
-  interactive: "Ask before risky actions",
-  workspace_write: "Workspace writes allowed",
-  unrestricted: "Everything allowed",
 };
 
 type WorkbenchTool =
@@ -207,24 +186,33 @@ type WorkbenchTool =
 const hubPages: HubPage[] = ["conversation", "automations", "extensions", "settings", "search"];
 const workbenchTools: WorkbenchTool[] = ["files", "review", "agent", "inspector", "tasks", "usage", "browser", "text", "git", "terminal", "engines", "fallback", "team"];
 
-const workbenchToolMeta: Record<WorkbenchTool, { icon: LucideIcon; label: string }> = {
-  files: { icon: FolderTree, label: "Files" },
-  review: { icon: FileCheck2, label: "Review" },
-  agent: { icon: Bot, label: "Agent" },
-  inspector: { icon: SearchCode, label: "Inspector" },
-  tasks: { icon: ListChecks, label: "Tasks" },
-  usage: { icon: Gauge, label: "Usage" },
-  browser: { icon: Globe2, label: "Chrome" },
-  text: { icon: FileCode2, label: "Text" },
-  git: { icon: GitBranch, label: "Git" },
-  terminal: { icon: TerminalSquare, label: "Terminal" },
-  engines: { icon: ServerCog, label: "Engines" },
-  fallback: { icon: Wrench, label: "Fallback" },
-  team: { icon: Users, label: "Team" },
+const workbenchToolMeta: Record<WorkbenchTool, { icon: LucideIcon }> = {
+  files: { icon: FolderTree },
+  review: { icon: FileCheck2 },
+  agent: { icon: Bot },
+  inspector: { icon: SearchCode },
+  tasks: { icon: ListChecks },
+  usage: { icon: Gauge },
+  browser: { icon: Globe2 },
+  text: { icon: FileCode2 },
+  git: { icon: GitBranch },
+  terminal: { icon: TerminalSquare },
+  engines: { icon: ServerCog },
+  fallback: { icon: Wrench },
+  team: { icon: Users },
 };
 
 function queryValue(name: string): string | null {
   return typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get(name);
+}
+
+function createRunToken(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  const entropy = new Uint32Array(4);
+  globalThis.crypto?.getRandomValues(entropy);
+  return `hub-run-${Date.now()}-${Array.from(entropy).join("-")}-${Math.random().toString(36).slice(2)}`;
 }
 
 function initialPage(): HubPage {
@@ -237,30 +225,30 @@ function initialWorkbenchTool(): WorkbenchTool {
   return tool && workbenchTools.includes(tool) ? tool : "agent";
 }
 
-export function describeClaim(claim: ResourceClaim): string {
+export function describeClaim(claim: ResourceClaim, locale: Locale = "en-US"): string {
   switch (claim.kind) {
     case "path":
-      return `${claim.mode} ${claim.path}`;
+      return locale === "zh-CN" ? `${claim.mode === "read" ? "读取" : "写入"} ${claim.path}` : `${claim.mode} ${claim.path}`;
     case "facility":
-      return `facility ${claim.name}`;
+      return locale === "zh-CN" ? `资源 ${claim.name}` : `facility ${claim.name}`;
     case "exclusive_tool":
-      return `tool ${claim.tool}`;
+      return locale === "zh-CN" ? `独占工具 ${claim.tool}` : `tool ${claim.tool}`;
   }
 }
 
 /// `src/lib.rs, read:docs, facility:target-dir, tool:git` → claims.
 /// "now-relative" label for a session's updated_at (e.g. "2m ago",
 /// "3h ago", "2024-08-01"). Pure and testable.
-export function formatRelativeTime(updatedAt: number, now: number = Date.now()): string {
+export function formatRelativeTime(updatedAt: number, now: number = Date.now(), locale: Locale = "en-US"): string {
   if (!Number.isFinite(updatedAt) || !Number.isFinite(now)) return "";
   const delta = Math.max(0, now - updatedAt);
   const min = Math.floor(delta / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
+  if (min < 1) return locale === "zh-CN" ? "刚刚" : "just now";
+  if (min < 60) return locale === "zh-CN" ? `${min} 分钟前` : `${min}m ago`;
   const hours = Math.floor(min / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return locale === "zh-CN" ? `${hours} 小时前` : `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return locale === "zh-CN" ? `${days} 天前` : `${days}d ago`;
   return new Date(updatedAt).toISOString().slice(0, 10);
 }
 
@@ -288,21 +276,60 @@ export function parseClaims(input: string): ResourceClaim[] {
     });
 }
 
-export function projectTimeline(detail: HubSessionDetail): HubTimelineEvent[] {
-  const turns = detail.turns.map((turn) => ({
-    status:
-      turn.status === "failed"
-        ? ("failed" as const)
-        : turn.status === "running"
-          ? ("running" as const)
-          : turn.status === "interrupted"
-            ? ("interrupted" as const)
-            : ("completed" as const),
-    engine_id: turn.attempts.at(-1)?.engine_id ?? detail.session.engine_id,
-    product_session_id: detail.session.product_session_id,
-    message: [turn.prompt, turn.result ?? turn.error].filter(Boolean).join("\n\n"),
-    created_at: turn.created_at,
-  }));
+export function projectTimeline(detail: HubSessionDetail, locale: Locale = "en-US"): HubTimelineEvent[] {
+  const turns = detail.turns.flatMap((turn): HubTimelineEvent[] => {
+    const engineId = turn.attempts.at(-1)?.engine_id ?? detail.session.engine_id;
+    const user: HubTimelineEvent = {
+      status: "user_message",
+      role: "user",
+      engine_id: engineId,
+      product_session_id: detail.session.product_session_id,
+      message: turn.prompt,
+      created_at: turn.created_at,
+      item_id: `${turn.turn_id}:user`,
+    };
+    const assistant: HubTimelineEvent = {
+      status:
+        turn.status === "failed"
+          ? "failed"
+          : turn.status === "running"
+            ? "running"
+            : turn.status === "interrupted"
+              ? "interrupted"
+              : "assistant_message",
+      role: "assistant",
+      engine_id: engineId,
+      product_session_id: detail.session.product_session_id,
+      message: turn.result ?? localizeSystemText(locale, turn.error, "操作失败。请在检查器中查看技术详情。"),
+      created_at: turn.completed_at ?? turn.created_at,
+      item_id: `${turn.turn_id}:assistant`,
+    };
+    const activities = turn.attempts.flatMap((attempt) =>
+      attempt.side_effects.map((effect): HubTimelineEvent => ({
+        status: effect.succeeded === null ? "activity_started" : "activity_completed",
+        engine_id: attempt.engine_id,
+        product_session_id: detail.session.product_session_id,
+        message: effect.succeeded === false
+          ? locale === "zh-CN" ? `${effect.tool_name} 失败` : `${effect.tool_name} failed`
+          : effect.succeeded === true
+            ? locale === "zh-CN" ? `${effect.tool_name} 已完成` : `${effect.tool_name} completed`
+            : locale === "zh-CN" ? `${effect.tool_name} 运行中` : `${effect.tool_name} running`,
+        created_at: effect.duration_ms === null
+          ? attempt.started_at
+          : (attempt.completed_at ?? attempt.started_at),
+        item_id: effect.tool_call_id,
+        activity: {
+          tool_name: effect.tool_name,
+          succeeded: effect.succeeded,
+          duration_ms: effect.duration_ms,
+          path: effect.path,
+        },
+      })),
+    );
+    return assistant.message || assistant.status !== "assistant_message"
+      ? [user, ...activities, assistant]
+      : [user, ...activities];
+  });
   const switches = detail.timeline_events.map((event): HubTimelineEvent => ({
     status:
       event.kind === "engine_switch_queued"
@@ -316,7 +343,7 @@ export function projectTimeline(detail: HubSessionDetail): HubTimelineEvent[] {
             : event.kind === "fallback_exhausted"
               ? ("exhausted" as const)
               : event.kind === "permission_decision"
-                ? ("permission_required" as const)
+                ? ("activity_completed" as const)
                 : event.kind === "worker_outcome" ||
                   event.kind === "resource_wait" ||
                   event.kind === "worktree_adopted" ||
@@ -327,7 +354,7 @@ export function projectTimeline(detail: HubSessionDetail): HubTimelineEvent[] {
     product_session_id: detail.session.product_session_id,
     message:
       event.kind === "engine_fallback_skipped"
-        ? `Skipped ${event.target_engine_id}\n\n${event.reason}`
+        ? `${locale === "zh-CN" ? "已跳过" : "Skipped"} ${event.target_engine_id}\n\n${localizeSystemText(locale, event.reason, "引擎不可用。")}`
         : event.kind === "fallback_exhausted" ||
             event.kind === "attempt_cancelled" ||
             event.kind === "worker_outcome" ||
@@ -335,8 +362,8 @@ export function projectTimeline(detail: HubSessionDetail): HubTimelineEvent[] {
             event.kind === "resource_wait" ||
             event.kind === "worktree_adopted" ||
             event.kind === "worktree_discarded"
-          ? event.reason
-          : `${event.source_engine_id} → ${event.target_engine_id}\n\n${event.reason}`,
+          ? localizeSystemText(locale, event.reason, "操作状态已更新。")
+          : `${event.source_engine_id} → ${event.target_engine_id}\n\n${localizeSystemText(locale, event.reason, "引擎已切换。")}`,
     created_at: event.created_at,
     fallback:
       event.kind === "engine_fallback"
@@ -356,8 +383,60 @@ export function projectTimeline(detail: HubSessionDetail): HubTimelineEvent[] {
   );
 }
 
+export function mergeLiveTimeline(
+  current: HubTimelineEvent[],
+  event: HubTimelineEvent,
+): HubTimelineEvent[] {
+  if (!event.item_id) return [...current, event];
+  const index = current.findIndex(
+    (candidate) =>
+      candidate.product_session_id === event.product_session_id &&
+      candidate.item_id === event.item_id,
+  );
+  if (index < 0) return [...current, event];
+  const next = [...current];
+  const previous = current[index];
+  next[index] = event.status === "assistant_message"
+    ? {
+        ...previous,
+        ...event,
+        message: `${previous.message ?? ""}${event.message ?? ""}`,
+      }
+    : {
+        ...previous,
+        ...event,
+        message: event.message ?? previous.message,
+      };
+  return next;
+}
+
 export default function App() {
+  const { locale, localize, t } = useI18n();
+  const localizedProfileLabel: Record<PermissionProfile, string> = {
+    interactive: t("permission.interactive"),
+    workspace_write: t("permission.workspaceWrite"),
+    unrestricted: t("permission.unrestricted"),
+  };
+  const workbenchLabels: Record<WorkbenchTool, string> = {
+    files: t("workbench.files"),
+    review: t("workbench.review"),
+    agent: t("workbench.agent"),
+    inspector: t("workbench.inspector"),
+    tasks: t("workbench.tasks"),
+    usage: t("workbench.usage"),
+    browser: t("workbench.browser"),
+    text: t("workbench.text"),
+    git: t("workbench.git"),
+    terminal: t("workbench.terminal"),
+    engines: t("workbench.engines"),
+    fallback: t("workbench.fallback"),
+    team: t("workbench.team"),
+  };
+  const localizeSystem = (value: string | null | undefined, fallback = t("system.operationFailed")) =>
+    localizeSystemText(locale, value, fallback);
   const [workspace, setWorkspace] = useState("");
+  const [workspaceKind, setWorkspaceKind] = useState<WorkspaceKind | null>(null);
+  const [workspaceCreating, setWorkspaceCreating] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [timeline, setTimeline] = useState<HubTimelineEvent[]>([]);
   // Drawer handoff expansion (by handoff_id) for the full cross-engine
@@ -365,6 +444,7 @@ export default function App() {
   const [sessions, setSessions] = useState<HubSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [engine, setEngine] = useState("alva");
+  const [selectedTarget, setSelectedTarget] = useState<EngineTarget | null>(null);
   const [pendingEngine, setPendingEngine] = useState<string | null>(null);
   const [profile, setProfile] = useState<PermissionProfile>("workspace_write");
   const [transcriptSharing, setTranscriptSharingState] = useState(false);
@@ -380,7 +460,12 @@ export default function App() {
   const [policySaving, setPolicySaving] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cancellableSessionId, setCancellableSessionId] = useState<string | null>(null);
   const [readiness, setReadiness] = useState<EngineReadiness[]>([]);
+  const [providerRoutes, setProviderRoutes] = useState<ModelRoute[]>([]);
+  const [defaultRoute, setDefaultRoute] = useState<ModelRoute | null>(null);
+  const [providers, setProviders] = useState<ProviderProfile[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(false);
   const [readinessBusy, setReadinessBusy] = useState(false);
   const [repairPlan, setRepairPlan] = useState<RepairAction[]>([]);
   const [teamRun, setTeamRun] = useState<TeamRunDetail | null>(null);
@@ -434,15 +519,34 @@ export default function App() {
   // Logic value: the session the long-lived timeline listener should refresh
   // (reading state there would capture a stale closure).
   const activeSessionRef = useRef<string | null>(null);
+  // Only events carrying the explicit new-run correlation token may claim
+  // the first live product id. Background workers never receive this token.
+  const pendingNewRunTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
     let unsubscribe: (() => void) | undefined;
     void listenTimeline((event) => {
       if (active) {
-        setTimeline((current) => [...current, event]);
+        if (
+          activeSessionRef.current === null &&
+          pendingNewRunTokenRef.current !== null &&
+          event.run_token === pendingNewRunTokenRef.current &&
+          (event.status === "user_message" || event.status === "running")
+        ) {
+          activeSessionRef.current = event.product_session_id;
+          setActiveSessionId(event.product_session_id);
+        }
+        const belongsToVisibleSession =
+          event.product_session_id === activeSessionRef.current;
+        if (belongsToVisibleSession) {
+          setTimeline((current) => mergeLiveTimeline(current, event));
+        }
+        if (belongsToVisibleSession && event.status === "running") {
+          setCancellableSessionId(event.product_session_id);
+        }
         // A new approval request may merge with others: refresh the cards.
-        if (event.status === "permission_required") {
+        if (belongsToVisibleSession && event.status === "permission_required") {
           void getPermissionGroups().then((groups) => {
             if (active) setApprovalGroups(groups);
           });
@@ -451,16 +555,17 @@ export default function App() {
         // both the details drawer and the Stop gate read that.
         if (
           event.product_session_id === activeSessionRef.current &&
-          ["completed", "failed", "interrupted", "exhausted"].includes(
+          ["completed", "failed", "interrupted", "fallback", "exhausted"].includes(
             event.status,
           )
         ) {
+          setCancellableSessionId(null);
           void getHubSession(event.product_session_id).then((detail) => {
             if (active && detail) setSessionDetail(detail);
           });
         }
         // Worker pumps finish in the background — pull the fresh queue state.
-        if (event.status === "worker" && teamLeadRef.current) {
+        if (belongsToVisibleSession && event.status === "worker" && teamLeadRef.current) {
           void getTeamRunForLead(teamLeadRef.current).then((run) => {
             if (active) setTeamRun(run);
           });
@@ -489,7 +594,37 @@ export default function App() {
 
   useEffect(() => {
     void refreshReadiness(workspace || null);
+    void refreshProviders(workspace || null);
   }, [workspace]);
+
+  async function refreshProviders(workspacePath: string | null) {
+    setProvidersLoading(true);
+    try {
+      const [nextProviders, nextRoutes, nextDefault] = await Promise.all([
+        listModelProviders(workspacePath),
+        listModelRoutes(workspacePath),
+        getDefaultModelRoute(workspacePath),
+      ]);
+      setProviders(nextProviders);
+      setProviderRoutes(nextRoutes);
+      setDefaultRoute(nextDefault);
+      if (activeSessionRef.current === null) {
+        const usableDefault = nextDefault?.available
+          ? nextRoutes.find((route) =>
+              route.target.engine_id === nextDefault.target.engine_id &&
+              route.target.provider_id === nextDefault.target.provider_id &&
+              route.target.model_id === nextDefault.target.model_id &&
+              route.available)
+          : undefined;
+        setSelectedTarget(usableDefault?.target ?? null);
+        if (usableDefault) setEngine(usableDefault.target.engine_id);
+      }
+    } catch (error) {
+      appendLocalFailure(error);
+    } finally {
+      setProvidersLoading(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -537,15 +672,15 @@ export default function App() {
       setRepairLogs((current) => ({
         ...current,
         [engineId]: result.outcome.success
-          ? `Repair finished. ${result.outcome.log.trim()}`.trim()
-          : `Repair failed. ${result.outcome.log.trim()}`.trim(),
+          ? locale === "zh-CN" ? "修复完成。" : `Repair finished. ${result.outcome.log.trim()}`.trim()
+          : locale === "zh-CN" ? "修复失败。" : `Repair failed. ${result.outcome.log.trim()}`.trim(),
       }));
     } catch (error) {
       // A refused repair (e.g. stale plan) lands on the same card as any
       // other outcome — never attributed to the selected engine.
       setRepairLogs((current) => ({
         ...current,
-        [engineId]: `Repair failed. ${error instanceof Error ? error.message : String(error)}`,
+        [engineId]: locale === "zh-CN" ? "修复失败。请在检查器中查看技术详情。" : `Repair failed. ${error instanceof Error ? error.message : String(error)}`,
       }));
     } finally {
       setRepairingEngine(null);
@@ -566,45 +701,75 @@ export default function App() {
   }, [sessions, sessionQuery]);
 
   // A Stop control must be offered exactly when something can be stopped.
-  const attemptIsLive = busy || sessionDetail?.session.status === "running";
+  const attemptIsLive =
+    activeSessionId !== null && cancellableSessionId === activeSessionId;
 
   const latest = timeline.at(-1);
   const statusLabel = useMemo(() => {
     switch (latest?.status) {
+      case "user_message":
+        return t("status.messageSent");
+      case "assistant_message":
+        return t("status.responding", { engine: latest.engine_id });
+      case "activity_started":
+        return t("status.usingTool", { engine: latest.engine_id, tool: latest.activity?.tool_name ?? t("settings.tools") });
+      case "activity_completed":
+        return t("status.activityCompleted");
       case "running":
-        return `${latest.engine_id} is working`;
+        return t("status.working", { engine: latest.engine_id });
       case "completed":
-        return "Completed";
+        return t("status.completed");
       case "failed":
-        return "Failed";
+        return t("status.failed");
       case "interrupted":
-        return "Interrupted · ready to continue";
+        return t("status.interrupted");
       case "queued":
-        return "Engine switch queued";
+        return t("status.switchQueued");
       case "switched":
-        return "Engine switched";
+        return t("status.switched");
       case "cancelled":
-        return "Engine switch cancelled";
+        return t("status.switchCancelled");
       case "fallback":
-        return "Automatic fallback";
+        return t("status.fallback");
       case "exhausted":
-        return "Fallback exhausted";
+        return t("status.fallbackExhausted");
       case "permission_required":
-        return `${latest.engine_id} is waiting for your approval`;
+        return t("status.awaitingApproval", { engine: latest.engine_id });
       case "worker":
-        return "Worker outcome";
+        return t("status.workerOutcome");
       default:
-        return "Ready";
+        return t("status.ready");
     }
-  }, [latest]);
+  }, [latest, t]);
+
+  const activeBranch = sessionDetail?.branches.find(
+    (branch) => branch.branch_id === sessionDetail.session.active_branch_id,
+  );
+  const activeBranchTarget: EngineTarget | null = activeBranch ? {
+    engine_id: activeBranch.engine_id,
+    model_id: activeBranch.model_id,
+    provider_id: activeBranch.provider_id,
+    account_source: activeBranch.account_source,
+    billing_route: activeBranch.billing_route,
+    automatic_use_authorized: activeBranch.automatic_use_authorized,
+    required_capabilities: activeBranch.required_capabilities,
+    reasoning_effort: activeBranch.reasoning_effort,
+    fast_mode: activeBranch.fast_mode,
+  } : null;
+  const configuredTarget = activeSessionId
+    ? sessionDetail?.pending_switch?.target ?? activeBranchTarget
+    : selectedTarget;
 
   const modelRoutes = useMemo<HubModelRoute[]>(
-    () =>
-      engineCatalog.map((catalogTarget) => {
-        const target =
-          fallbackPolicy.targets.find(
-            (candidate) => candidate.engine_id === catalogTarget.engine_id,
-          ) ?? catalogTarget;
+    () => {
+      return providerRoutes.map((route) => {
+        const target = route.target;
+        const configured = configuredTarget
+          && configuredTarget.engine_id === target.engine_id
+          && configuredTarget.provider_id === target.provider_id
+          && configuredTarget.model_id === target.model_id
+          ? configuredTarget
+          : target;
         const health = readiness.find(
           (candidate) => candidate.engine_id === target.engine_id,
         );
@@ -614,41 +779,64 @@ export default function App() {
         return {
           engineId: target.engine_id,
           engineLabel:
-            health?.display_name ??
-            `${target.engine_id.charAt(0).toUpperCase()}${target.engine_id.slice(1)}`,
+            health?.display_name ?? route.engine_label,
           modelId: target.model_id,
-          modelLabel:
-            target.model_id === "engine-default"
-              ? "Default model"
-              : target.model_id === "workspace-config"
-                ? "Workspace model"
-                : target.model_id,
+          modelLabel: route.model_label,
           providerId: target.provider_id,
-          accountSource: target.account_source,
-          billingRoute: target.billing_route,
-          description:
-            target.model_id === "engine-default"
-              ? "Uses the model selected by this engine account."
-              : "Configured for this Hub route.",
-          capabilities: health?.capabilities ?? [],
+          accountSource: localize(target.account_source),
+          billingRoute: localize(target.billing_route),
+          description: localizeSystem(route.description, t("modelPicker.routeDescription")),
+          capabilities: (route.capabilities.length > 0 ? route.capabilities : health?.capabilities ?? []).map(localize),
+          reasoningEfforts: route.reasoning_efforts,
+          reasoningEffort: configured.reasoning_effort ?? route.default_reasoning_effort,
+          supportsFastMode: route.supports_fast_mode,
+          fastMode: configured.fast_mode,
           status:
             health && health.status !== "healthy"
-              ? readinessBadge[health.status]
+              ? localize(readinessBadge[health.status])
               : undefined,
           disabled:
-            engineEligibility?.eligible === false && target.engine_id !== engine,
+            !route.available ||
+            health?.status !== "healthy" ||
+            engineEligibility?.eligible === false,
           disabledReason:
-            engineEligibility?.eligible === false
-              ? engineEligibility.detail
+            !route.available
+              ? localizeSystem(route.unavailable_reason, t("app.routeUnavailable")) || t("app.routeUnavailable")
+              : health?.status !== "healthy"
+              ? health?.reasons[0]
+                ? describeReadinessReason(health.reasons[0], locale)
+                : t("app.engineNotReady")
+              : engineEligibility?.eligible === false
+              ? localizeSystem(engineEligibility.detail, t("modelPicker.permissionIncompatible"))
               : undefined,
         };
-      }),
-    [eligibility, engine, fallbackPolicy.targets, readiness],
+      });
+    },
+    [configuredTarget, eligibility, locale, localize, providerRoutes, readiness, t],
   );
 
-  const selectedModelRoute =
-    modelRoutes.find((route) => route.engineId === (pendingEngine ?? engine)) ??
-    modelRoutes[0];
+  const desiredTarget: EngineTarget | null = activeSessionId
+    ? configuredTarget ?? selectedTarget
+    : selectedTarget;
+  const selectedModelRoute = desiredTarget
+    ? modelRoutes.find(
+        (route) =>
+          route.engineId === desiredTarget.engine_id &&
+          route.providerId === desiredTarget.provider_id &&
+          route.modelId === desiredTarget.model_id,
+      )
+    : undefined;
+
+  const availableEngineTargets = useMemo(
+    () => Array.from(
+      new Map(
+        providerRoutes
+          .filter((route) => route.available)
+          .map((route) => [route.target.engine_id, route.target]),
+      ).values(),
+    ),
+    [providerRoutes],
+  );
 
   /// Everything that describes "the session I am looking at". Both the New
   /// session button and picking a workspace go through this, so neither can
@@ -657,12 +845,15 @@ export default function App() {
     setActivePage("conversation");
     setActiveSessionId(null);
     activeSessionRef.current = null;
+    pendingNewRunTokenRef.current = null;
     setSessionDetail(null);
     setTeamRun(null);
     teamLeadRef.current = null;
     setTimeline([]);
+    setCancellableSessionId(null);
     setPendingEngine(null);
     setEngine("alva");
+    setSelectedTarget(defaultRoute?.available ? defaultRoute.target : null);
     setProfile("workspace_write");
     setTranscriptSharingState(false);
     setAnsweredPermissions({});
@@ -672,16 +863,40 @@ export default function App() {
     setDispatchWorkerId(null);
   }
 
+  function startNewSession() {
+    setWorkspace("");
+    setWorkspaceKind(null);
+    resetSessionSurface();
+    void loadGlobalFallbackPolicy().catch(appendLocalFailure);
+  }
+
   async function selectWorkspace() {
     try {
       const selected = await chooseWorkspace();
       if (selected) {
         setWorkspace(selected);
+        setWorkspaceKind("project");
         resetSessionSurface();
         await loadGlobalFallbackPolicy();
       }
     } catch (error) {
       appendLocalFailure(error);
+    }
+  }
+
+  async function createIndependentSession() {
+    if (workspaceCreating) return;
+    setWorkspaceCreating(true);
+    try {
+      const binding = await createSessionWorkspace();
+      setWorkspace(binding.path);
+      setWorkspaceKind(binding.kind);
+      resetSessionSurface();
+      await loadGlobalFallbackPolicy();
+    } catch (error) {
+      appendLocalFailure(error);
+    } finally {
+      setWorkspaceCreating(false);
     }
   }
 
@@ -710,13 +925,33 @@ export default function App() {
     setActiveSessionId(detail.session.product_session_id);
     activeSessionRef.current = detail.session.product_session_id;
     setWorkspace(detail.session.workspace);
+    setWorkspaceKind(detail.session.workspace_kind ?? "project");
     setEngine(detail.session.engine_id);
+    const activeBranch = detail.branches.find(
+      (branch) => branch.branch_id === detail.session.active_branch_id,
+    );
+    setSelectedTarget(detail.pending_switch?.target ?? (activeBranch ? {
+      engine_id: activeBranch.engine_id,
+      model_id: activeBranch.model_id,
+      provider_id: activeBranch.provider_id,
+      account_source: activeBranch.account_source,
+      billing_route: activeBranch.billing_route,
+      automatic_use_authorized: activeBranch.automatic_use_authorized,
+      required_capabilities: activeBranch.required_capabilities,
+      reasoning_effort: activeBranch.reasoning_effort,
+      fast_mode: activeBranch.fast_mode,
+    } : null));
     setProfile(detail.session.permission_profile);
     setTranscriptSharingState(detail.session.include_full_transcript);
     setAnsweredPermissions({});
     setPendingEngine(detail.pending_switch?.target.engine_id ?? null);
     setFallbackPolicy(detail.fallback_policy);
-    setTimeline(projectTimeline(detail));
+    setTimeline(projectTimeline(detail, locale));
+    setCancellableSessionId(
+      detail.session.status === "running" && detail.session.engine_session_id
+        ? detail.session.product_session_id
+        : null,
+    );
     setSessionDetail(detail);
     // Last: a failed team fetch must not leave the session view half-loaded.
     teamLeadRef.current = detail.session.product_session_id;
@@ -759,7 +994,7 @@ export default function App() {
     updateFallbackTargets((targets) => {
       const exists = targets.some((target) => target.engine_id === engineId);
       if (exists) return targets.filter((target) => target.engine_id !== engineId);
-      const catalogTarget = engineCatalog.find((target) => target.engine_id === engineId);
+      const catalogTarget = availableEngineTargets.find((target) => target.engine_id === engineId);
       return catalogTarget ? [...targets, { ...catalogTarget }] : targets;
     });
   }
@@ -796,25 +1031,66 @@ export default function App() {
     }
   }
 
-  async function selectEngine(engineId: string) {
+  async function selectModelRoute(route: HubModelRoute) {
+    const catalogTarget = providerRoutes.find(
+      (candidate) =>
+        candidate.target.engine_id === route.engineId &&
+        candidate.target.provider_id === route.providerId &&
+        candidate.target.model_id === route.modelId,
+    )?.target;
+    const target: EngineTarget = {
+      engine_id: route.engineId,
+      model_id: route.modelId,
+      provider_id: route.providerId,
+      account_source: catalogTarget?.account_source ?? route.accountSource,
+      billing_route: catalogTarget?.billing_route ?? route.billingRoute,
+      automatic_use_authorized: catalogTarget?.automatic_use_authorized ?? false,
+      required_capabilities: catalogTarget?.required_capabilities ?? route.capabilities ?? [],
+      reasoning_effort: route.reasoningEffort,
+      fast_mode: route.fastMode,
+    };
     if (!activeSessionId) {
-      setEngine(engineId);
+      setEngine(route.engineId);
+      setSelectedTarget(target);
       setPendingEngine(null);
       return;
     }
     try {
       const outcome = await switchHubEngine(
         activeSessionId,
-        engineId,
-        `User explicitly selected ${engineId}`,
+        target,
+        `User explicitly selected ${route.engineLabel} · ${route.modelLabel}`,
       );
       setEngine(outcome.active_engine_id);
-      setPendingEngine(outcome.disposition === "queued" ? engineId : null);
+      setSelectedTarget(target);
+      setPendingEngine(outcome.disposition === "queued" ? route.engineId : null);
       await loadSession(activeSessionId);
       await refreshSessions();
     } catch (error) {
       appendLocalFailure(error);
     }
+  }
+
+  async function saveProvider(provider: SaveProviderProfile) {
+    await saveModelProvider(provider, workspace || null);
+    await refreshProviders(workspace || null);
+  }
+
+  async function setDefaultProviderRoute(target: EngineTarget) {
+    const saved = await setDefaultModelRoute(target, workspace || null);
+    setDefaultRoute(saved);
+    if (!activeSessionId) {
+      setSelectedTarget(saved.target);
+      setEngine(saved.target.engine_id);
+    }
+  }
+
+  async function discoverProviderModels(providerId: string) {
+    return await discoverModelsForProvider(providerId, workspace || null);
+  }
+
+  async function testProviderRoute(target: EngineTarget) {
+    return await testModelRoute(target, workspace || null);
   }
 
   function appendLocalFailure(error: unknown) {
@@ -824,7 +1100,7 @@ export default function App() {
         status: "failed",
         engine_id: engine,
         product_session_id: "setup",
-        message: error instanceof Error ? error.message : String(error),
+        message: localizeSystem(error instanceof Error ? error.message : String(error)),
       },
     ]);
   }
@@ -1049,13 +1325,26 @@ export default function App() {
     if (!activeSessionId) return;
     try {
       await stopHubAttempt(activeSessionId);
+      setCancellableSessionId(null);
     } catch (error) {
       appendLocalFailure(error);
     }
   }
 
-  async function switchBack(sourceEngineId: string) {
-    await selectEngine(sourceEngineId);
+  async function switchBack(source: EngineTarget) {
+    const route = modelRoutes.find(
+      (candidate) =>
+        candidate.engineId === source.engine_id &&
+        candidate.providerId === source.provider_id &&
+        candidate.modelId === source.model_id &&
+        !candidate.disabled,
+    );
+    if (!route) {
+      throw new Error(
+        `The previous route ${source.engine_id}/${source.provider_id}/${source.model_id} is unavailable.`,
+      );
+    }
+    await selectModelRoute(route);
   }
 
   async function refreshApprovalGroups() {
@@ -1092,9 +1381,19 @@ export default function App() {
       return;
     }
     if (!text || busy) return;
+    if (!selectedModelRoute || selectedModelRoute.disabled) {
+      appendLocalFailure(new Error(
+        activeSessionId
+          ? "This session's pinned model route is unavailable. Restore it in Settings before continuing."
+          : "Choose an available default model in Settings before starting a session.",
+      ));
+      return;
+    }
 
     setBusy(true);
     setPrompt("");
+    const runToken = activeSessionId === null ? createRunToken() : null;
+    pendingNewRunTokenRef.current = runToken;
     try {
       const outcome = await runHubPrompt({
         prompt: text,
@@ -1103,13 +1402,15 @@ export default function App() {
         product_session_id: activeSessionId,
         // The profile is fixed at session creation; resumes never restate it.
         permission_profile: activeSessionId ? null : profile,
-      });
+      }, activeSessionId ? null : selectedTarget, runToken);
       setActiveSessionId(outcome.product_session_id);
+      activeSessionRef.current = outcome.product_session_id;
       await refreshSessions();
       await loadSession(outcome.product_session_id);
     } catch (error) {
       appendLocalFailure(error);
     } finally {
+      pendingNewRunTokenRef.current = null;
       setBusy(false);
     }
   }
@@ -1123,38 +1424,34 @@ export default function App() {
           activePage={activePage}
           activeSessionId={activeSessionId}
           busy={busy}
-          formatUpdatedAt={formatRelativeTime}
-          onChooseWorkspace={selectWorkspace}
-          onNewSession={() => {
-            resetSessionSurface();
-            void loadGlobalFallbackPolicy().catch(appendLocalFailure);
-          }}
+          formatUpdatedAt={(updatedAt) => formatRelativeTime(updatedAt, Date.now(), locale)}
+          onNewSession={startNewSession}
           onNavigate={setActivePage}
           onOpenSession={(session) => void openSession(session)}
           onSessionQueryChange={setSessionQuery}
-          sessionError={sessionError}
+          sessionError={sessionError ? localize(sessionError) : null}
           sessionQuery={sessionQuery}
           sessions={filteredSessions}
           totalSessionCount={sessions.length}
-          workspace={workspace}
         />
       }
       workbench={
         <Workbench className="hub-workbench">
           <TabsRoot className="hub-workbench__tabs" onValueChange={(value) => setActiveWorkbenchTool(value as WorkbenchTool)} value={activeWorkbenchTool}>
-            <TabsList aria-label="Workbench panels" className="hub-workbench__tab-list">
+            <TabsList aria-label={t("app.workbenchPanels")} className="hub-workbench__tab-list">
               <div className="hub-workbench__open-tabs">
                 {openWorkbenchTools.map((tool) => {
                   const meta = workbenchToolMeta[tool];
+                  const label = workbenchLabels[tool];
                   const ToolIcon = meta.icon;
                   return (
                     <div className="hub-workbench__tab" key={tool}>
                       <TabsTrigger value={tool}>
                         <ToolIcon aria-hidden="true" size={13} />
-                        <span>{meta.label}</span>
+                        <span>{label}</span>
                       </TabsTrigger>
                       <button
-                        aria-label={`Close ${meta.label} tab`}
+                        aria-label={`${t("workbench.close")} · ${label}`}
                         className="hub-workbench__tab-close"
                         onClick={() => closeWorkbenchTool(tool)}
                         type="button"
@@ -1168,24 +1465,25 @@ export default function App() {
               <div className="hub-workbench__tab-actions">
                 <MenuRoot>
                   <MenuTrigger asChild>
-                    <IconButton icon={<Plus aria-hidden="true" size={15} />} label="Add workbench tab" variant="ghost" />
+                    <IconButton icon={<Plus aria-hidden="true" size={15} />} label={t("workbench.addTabLabel")} variant="ghost" />
                   </MenuTrigger>
-                  <MenuContent align="end" aria-label="Add workbench tab" className="hub-workbench__add-menu">
-                    <MenuLabel>Add tab</MenuLabel>
+                  <MenuContent align="end" aria-label={t("workbench.addTabLabel")} className="hub-workbench__add-menu">
+                    <MenuLabel>{t("workbench.addTab")}</MenuLabel>
                     {workbenchTools.map((tool) => {
                       const meta = workbenchToolMeta[tool];
+                      const label = workbenchLabels[tool];
                       const ToolIcon = meta.icon;
                       return (
                         <MenuItem disabled={openWorkbenchTools.includes(tool)} key={tool} onSelect={() => openWorkbenchTool(tool)}>
                           <ToolIcon aria-hidden="true" size={14} />
-                          {meta.label}
-                          {openWorkbenchTools.includes(tool) ? <span className="ui-menu-trailing">Open</span> : null}
+                          {label}
+                          {openWorkbenchTools.includes(tool) ? <span className="ui-menu-trailing">{t("workbench.open")}</span> : null}
                         </MenuItem>
                       );
                     })}
                   </MenuContent>
                 </MenuRoot>
-                <IconButton icon={<PanelRight aria-hidden="true" size={15} />} label="Close workbench" onClick={() => setWorkbenchOpen(false)} variant="ghost" />
+                <IconButton icon={<PanelRight aria-hidden="true" size={15} />} label={t("workbench.close")} onClick={() => setWorkbenchOpen(false)} variant="ghost" />
               </div>
             </TabsList>
             {openWorkbenchTools.includes("files") ? <TabsContent className="hub-workbench__content" forceMount value="files"><WorkbenchPage><FilesTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
@@ -1202,7 +1500,7 @@ export default function App() {
               <WorkbenchPage>
                 <EngineReadinessPanel
                 busy={readinessBusy}
-                describeReason={describeReadinessReason}
+                describeReason={(reason) => describeReadinessReason(reason, locale)}
                 label={readinessBadge}
                 logs={repairLogs}
                 onOpenGuide={(url) =>
@@ -1220,7 +1518,7 @@ export default function App() {
               <WorkbenchPage>
                 <FallbackPolicyPanel
                 activeSession={activeSessionId !== null}
-                catalog={engineCatalog}
+                catalog={availableEngineTargets}
                 onMoveTarget={moveFallbackTarget}
                 onSave={() => void saveFallbackPolicy()}
                 onToggleTarget={toggleFallbackTarget}
@@ -1236,9 +1534,9 @@ export default function App() {
                 activeSession={activeSessionId !== null}
                 adoption={adoption}
                 busy={teamBusy}
-                catalog={engineCatalog}
+                catalog={availableEngineTargets}
                 claims={teamClaims}
-                describeClaim={describeClaim}
+                describeClaim={(claim) => describeClaim(claim, locale)}
                 dispatchWorkerId={dispatchWorkerId}
                 engineId={engine}
                 isolateWorker={isolateWorker}
@@ -1287,29 +1585,51 @@ export default function App() {
           }}
           status={latest?.status ?? "ready"}
           statusLabel={statusLabel}
-          title={sessionDetail?.turns.at(-1)?.prompt ?? "New conversation"}
+          title={sessionDetail?.turns.at(-1)?.prompt ?? t("conversation.new")}
           workbenchOpen={workbenchOpen}
           workspace={workspace}
         />
 
         <ContentFrame className="hub-session-frame">
           <ScrollRegion className="hub-session-scroll">
+            {!workspace && activeSessionId === null ? (
+              <>
+                <WorkspaceGate
+                  busy={busy || workspaceCreating}
+                  onChooseProject={() => void selectWorkspace()}
+                  onCreateSession={() => void createIndependentSession()}
+                />
+                {timeline.length > 0 ? (
+                  <HubTimeline
+                    activeSessionId={activeSessionId}
+                    answeredPermissions={answeredPermissions}
+                    attemptIsLive={attemptIsLive}
+                    events={timeline}
+                    onAnswerPermission={(productSessionId, requestId, allow) =>
+                      void answerPermission(productSessionId, requestId, allow)
+                    }
+                    onStop={() => void stopActiveAttempt()}
+                    onSwitchBack={(source) => void switchBack(source)}
+                  />
+                ) : null}
+              </>
+            ) : (
             <HubTimeline
               activeSessionId={activeSessionId}
               answeredPermissions={answeredPermissions}
               attemptIsLive={attemptIsLive}
-              engineId={engine}
               events={timeline}
               onAnswerPermission={(productSessionId, requestId, allow) =>
                 void answerPermission(productSessionId, requestId, allow)
               }
               onStop={() => void stopActiveAttempt()}
-              onSwitchBack={(sourceEngineId) => void switchBack(sourceEngineId)}
+              onSwitchBack={(source) => void switchBack(source)}
             />
+            )}
 
             {detailsOpen && sessionDetail ? (
               <SessionDetails
-                describeReason={describeReadinessReason}
+                describeReason={(reason) => describeReadinessReason(reason, locale)}
                 detail={sessionDetail}
                 memorySaving={memorySaving}
                 onAddMemory={(entry) => void addMemory(entry)}
@@ -1328,30 +1648,30 @@ export default function App() {
               actions={
                 <>
                 <Button
-                  aria-label={`Allow ${group.members.length} ${group.tool_name} requests`}
+                  aria-label={t("approval.allowMany", { count: group.members.length, tool: group.tool_name })}
                   onClick={() => void decideApprovalGroup(group, true)}
                   size="medium"
                   variant="primary"
                 >
-                  Allow
+                  {t("timeline.allow")}
                 </Button>
                 <Button
-                  aria-label={`Deny ${group.members.length} ${group.tool_name} requests`}
+                  aria-label={t("approval.denyMany", { count: group.members.length, tool: group.tool_name })}
                   onClick={() => void decideApprovalGroup(group, false)}
                   size="medium"
                   variant="ghost"
                 >
-                  Deny
+                  {t("timeline.deny")}
                 </Button>
                 </>
               }
               className="approval-group"
               description={
                 group.members[0]?.resource
-                  ? `${group.members.length} agents need access to ${group.members[0].resource}.`
-                  : `${group.members.length} agents need permission to continue.`
+                  ? t("approval.needResource", { count: group.members.length, resource: group.members[0].resource })
+                  : t("approval.needPermission", { count: group.members.length })
               }
-              heading={`Allow ${group.tool_name}?`}
+              heading={t("approval.allowTool", { tool: group.tool_name })}
               key={group.group_key}
               role="status"
               tone="info"
@@ -1371,10 +1691,10 @@ export default function App() {
                 className="composer-readiness"
                 description={
                   health.reasons[0]
-                    ? describeReadinessReason(health.reasons[0])
-                    : "Choose another available engine to continue."
+                    ? describeReadinessReason(health.reasons[0], locale)
+                    : t("readiness.chooseAnother")
                 }
-                heading={`${health.display_name} is not ready`}
+                heading={t("readiness.engineNotReady", { engine: health.display_name })}
                 role="status"
                 tone="warning"
               />
@@ -1383,15 +1703,16 @@ export default function App() {
 
           <HubComposer
           busy={busy}
+          canStop={attemptIsLive}
           controls={
             <>
               <SelectField
-                ariaLabel="Permission profile"
+                ariaLabel={t("composer.permission")}
                 className="hub-composer__permission"
                 disabled={activeSessionId !== null}
                 onValueChange={(value) => setProfile(value as PermissionProfile)}
-                options={(Object.keys(profileLabel) as PermissionProfile[]).map((candidate) => ({
-                  label: profileLabel[candidate],
+              options={(Object.keys(localizedProfileLabel) as PermissionProfile[]).map((candidate) => ({
+                  label: localizedProfileLabel[candidate],
                   value: candidate,
                 }))}
                 value={profile}
@@ -1400,7 +1721,7 @@ export default function App() {
                 <Checkbox
                   checked={transcriptSharing}
                   className="transcript-toggle"
-                  label="Share transcript"
+                  label={t("composer.shareTranscript")}
                   onCheckedChange={(checked) => {
                     const enabled = checked === true;
                     setTranscriptSharingState(enabled);
@@ -1410,34 +1731,44 @@ export default function App() {
               ) : null}
             </>
           }
-          disabled={!workspace}
+          disabled={!workspace || selectedModelRoute?.disabled !== false}
           engineId={engine}
           modelPicker={
-            selectedModelRoute ? (
+            modelRoutes.length > 0 ? (
               <ModelPicker
-                onSelect={(route) => void selectEngine(route.engineId)}
+                onOptionsChange={(route, update) => void selectModelRoute({
+                  ...route,
+                  reasoningEffort: update.reasoningEffort ?? route.reasoningEffort,
+                  fastMode: update.fastMode ?? route.fastMode,
+                })}
+                onSelect={(route) => void selectModelRoute(route)}
                 routes={modelRoutes}
-                selectedEngineId={pendingEngine ?? engine}
-                selectedModelId={selectedModelRoute.modelId}
+                selectedEngineId={pendingEngine ?? selectedModelRoute?.engineId ?? modelRoutes[0].engineId}
+                selectedModelId={selectedModelRoute?.modelId ?? ""}
+                selectedProviderId={selectedModelRoute?.providerId ?? ""}
               />
             ) : null
           }
           onChange={setPrompt}
           onStop={() => void stopActiveAttempt()}
           onSubmit={submit}
-          placeholder={`Ask ${pendingEngine ?? engine} to inspect, change, or explain this project…`}
+          placeholder={t("composer.placeholder", { engine: pendingEngine ?? engine })}
           status={
             <>
-              <span>{workspace ? displayWorkspace(workspace) : "Select a workspace first"}</span>
+              <span>
+                {workspace && workspaceKind
+                  ? `${t(workspaceKind === "session" ? "workspace.kindSession" : "workspace.kindProject")} · ${displayWorkspace(workspace)}`
+                  : t("workspace.selectFirst")}
+              </span>
               {selectedModelRoute ? (
                 <span>
                   {selectedModelRoute.engineLabel} · {selectedModelRoute.modelLabel}
                 </span>
-              ) : null}
+              ) : workspace ? <span>{t("composer.chooseModel")}</span> : null}
               <span>
-                {profileLabel[profile]}
+                {localizedProfileLabel[profile]}
                 {fallbackPolicy.targets.length > 0
-                  ? ` · ${fallbackPolicy.targets.length} fallback ${fallbackPolicy.targets.length === 1 ? "engine" : "engines"}`
+                  ? ` · ${t("fallback.count", { count: fallbackPolicy.targets.length })}`
                   : ""}
               </span>
             </>
@@ -1452,7 +1783,16 @@ export default function App() {
         ) : activePage === "extensions" ? (
           <ExtensionsPage onStartChat={() => setActivePage("conversation")} />
         ) : activePage === "settings" ? (
-          <SettingsPage />
+          <SettingsPage
+            defaultTarget={defaultRoute?.target ?? null}
+            onDiscoverProviderModels={discoverProviderModels}
+            onSaveProvider={saveProvider}
+            onSetDefaultProvider={setDefaultProviderRoute}
+            onTestProviderRoute={testProviderRoute}
+            providers={providers}
+            providersLoading={providersLoading}
+            routes={providerRoutes}
+          />
         ) : (
           <SearchPage
             onNavigate={setActivePage}
@@ -1464,9 +1804,9 @@ export default function App() {
               openWorkbenchTool(tool);
             }}
             sessions={sessions.map((session) => ({
-              description: `${displayWorkspace(session.workspace)} · ${session.engine_id} · ${session.status}`,
+              description: `${displayWorkspace(session.workspace)} · ${session.engine_id} · ${localize(session.status)}`,
               id: session.product_session_id,
-              title: session.last_prompt ?? "Untitled session",
+              title: session.last_prompt ?? t("nav.untitledSession"),
             }))}
           />
         )}

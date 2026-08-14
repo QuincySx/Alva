@@ -9,6 +9,8 @@ import type {
   FallbackPolicy,
   HubSessionDetail,
   HubSessionSummary,
+  ModelRoute,
+  ProviderProfile,
   TeamRunDetail,
 } from "./bridge";
 
@@ -18,38 +20,193 @@ const engine = (id: string): EngineTarget => {
       engine_id: "alva",
       model_id: "workspace-config",
       provider_id: "workspace-config",
-      account_source: "Workspace provider",
-      billing_route: "Workspace provider account",
+      account_source: "工作区供应商",
+      billing_route: "工作区供应商账号",
       automatic_use_authorized: true,
       required_capabilities: [],
+      reasoning_effort: null,
+      fast_mode: false,
     },
     claude: {
       engine_id: "claude",
-      model_id: "claude-sonnet-4-5",
+      model_id: "engine-default",
       provider_id: "claude-cli",
-      account_source: "Claude Code CLI account",
-      billing_route: "Anthropic account via Claude CLI",
+      account_source: "Claude Code CLI 账号",
+      billing_route: "通过 Claude CLI 使用 Anthropic 账号",
       automatic_use_authorized: true,
       required_capabilities: [],
+      reasoning_effort: null,
+      fast_mode: false,
     },
     codex: {
       engine_id: "codex",
-      model_id: "codex-mini",
+      model_id: "gpt-5.6-sol",
       provider_id: "codex-cli",
-      account_source: "Codex CLI account",
-      billing_route: "OpenAI account via Codex CLI",
+      account_source: "Codex CLI 账号",
+      billing_route: "通过 Codex CLI 使用 OpenAI 账号",
       automatic_use_authorized: true,
       required_capabilities: [],
+      reasoning_effort: "high",
+      fast_mode: false,
+    },
+    pi: {
+      engine_id: "pi",
+      model_id: "claude-opus-4-7",
+      provider_id: "anthropic",
+      account_source: "Anthropic API key",
+      billing_route: "Anthropic API usage",
+      automatic_use_authorized: true,
+      required_capabilities: [],
+      reasoning_effort: "high",
+      fast_mode: false,
     },
   } as Record<string, EngineTarget>)[id];
   if (!target) throw new Error("unknown demo engine: " + id);
   return target;
 };
 
+export function demoModelRoutes(): ModelRoute[] {
+  const anthropicTarget = (engineId: "alva" | "claude" | "pi"): EngineTarget => ({
+    ...engine(engineId === "pi" ? "pi" : engineId),
+    engine_id: engineId,
+    model_id: "claude-opus-4-7",
+    provider_id: "anthropic",
+    account_source: "Anthropic API key",
+    billing_route: "Anthropic API usage",
+    reasoning_effort: "high",
+  });
+  const responsesTarget = (engineId: "alva" | "codex" | "pi"): EngineTarget => ({
+    ...engine(engineId === "pi" ? "pi" : engineId),
+    engine_id: engineId,
+    model_id: "gpt-5.4",
+    provider_id: "openai-responses",
+    account_source: "OpenAI Responses API key",
+    billing_route: "OpenAI API usage",
+    reasoning_effort: "high",
+  });
+  const routes: Array<[EngineTarget, string, string, string, boolean, string | null]> = [
+    [engine("alva"), "Alva", "工作区模型", "工作区供应商", true, null],
+    [anthropicTarget("alva"), "Alva", "Claude Opus 4.7", "Anthropic", true, null],
+    [responsesTarget("alva"), "Alva", "GPT-5.4", "OpenAI Responses", false, "请先在设置中添加 API 密钥。"],
+    [engine("claude"), "Claude Code", "默认模型", "Claude Code 订阅", true, null],
+    [anthropicTarget("claude"), "Claude Code", "Claude Opus 4.7", "Anthropic", true, null],
+    [engine("codex"), "Codex", "GPT-5.6-Sol", "Codex 订阅", true, null],
+    [responsesTarget("codex"), "Codex", "GPT-5.4", "OpenAI Responses", false, "请先在设置中添加 API 密钥。"],
+    [anthropicTarget("pi"), "Pi", "Claude Opus 4.7", "Anthropic", true, null],
+    [responsesTarget("pi"), "Pi", "GPT-5.4", "OpenAI Responses", false, "请先在设置中添加 API 密钥。"],
+  ];
+  return routes.map(([target, engineLabel, modelLabel, providerLabel, available, unavailableReason]) => {
+    const isClaudeOpus = target.model_id === "claude-opus-4-7";
+    const isGpt54 = target.model_id === "gpt-5.4";
+    const isSol = target.model_id === "gpt-5.6-sol";
+    const reasoningEfforts = isClaudeOpus
+      ? ["low", "medium", "high", "xhigh", "max"]
+      : isSol
+        ? [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            ...(target.engine_id === "codex" ? ["ultra"] : []),
+          ]
+        : isGpt54
+          ? ["low", "medium", "high", "xhigh"]
+          : [];
+    return {
+      target: {
+        ...target,
+        reasoning_effort: reasoningEfforts.includes(target.reasoning_effort ?? "")
+          ? target.reasoning_effort
+          : null,
+      },
+      engine_label: engineLabel,
+      model_label: modelLabel,
+      provider_label: providerLabel,
+      description: "用于视觉验收的固定路由",
+      context_window: null,
+      capabilities: [],
+      reasoning_efforts: reasoningEfforts,
+      default_reasoning_effort: reasoningEfforts.includes("high") ? "high" : null,
+      supports_fast_mode: target.engine_id === "codex" && (isSol || isGpt54),
+      available,
+      unavailable_reason: unavailableReason,
+    };
+  });
+}
+
+export function demoProviderProfiles(): ProviderProfile[] {
+  return [
+    {
+      id: "claude-cli",
+      display_name: "Claude Code 订阅",
+      kind: "claude-subscription",
+      base_url: "",
+      enabled: true,
+      api_key_configured: false,
+      requires_api_key: false,
+      endpoint_editable: false,
+      managed: true,
+      max_output_tokens: 8192,
+      supported_engines: ["claude"],
+      models: [
+        { id: "engine-default", display_name: "默认模型", enabled: true, registry_id: null, context_window: null, capabilities: [], supported_engines: ["claude"] },
+        { id: "claude-opus-4-7", display_name: "Claude Opus 4.7", enabled: true, registry_id: "claude-opus-4-7", context_window: 1000000, capabilities: ["reasoning"], supported_engines: ["claude"] },
+      ],
+    },
+    {
+      id: "codex-cli",
+      display_name: "Codex 订阅",
+      kind: "codex-subscription",
+      base_url: "",
+      enabled: true,
+      api_key_configured: false,
+      requires_api_key: false,
+      endpoint_editable: false,
+      managed: true,
+      max_output_tokens: 8192,
+      supported_engines: ["codex"],
+      models: [
+        { id: "engine-default", display_name: "默认模型", enabled: true, registry_id: null, context_window: null, capabilities: [], supported_engines: ["codex"] },
+        { id: "gpt-5.6-sol", display_name: "GPT-5.6-Sol", enabled: true, registry_id: "gpt-5.6-sol", context_window: 372000, capabilities: ["reasoning"], supported_engines: ["codex"] },
+      ],
+    },
+    {
+      id: "anthropic",
+      display_name: "Anthropic",
+      kind: "anthropic",
+      base_url: "https://api.anthropic.com",
+      enabled: true,
+      api_key_configured: true,
+      requires_api_key: true,
+      endpoint_editable: false,
+      managed: false,
+      max_output_tokens: 8192,
+      supported_engines: ["alva", "claude", "pi"],
+      models: [{ id: "claude-opus-4-7", display_name: "Claude Opus 4.7", enabled: true, registry_id: "claude-opus-4-7", context_window: 200000, capabilities: ["reasoning"], supported_engines: ["alva", "claude", "pi"] }],
+    },
+    {
+      id: "openai-responses",
+      display_name: "OpenAI Responses",
+      kind: "openai-responses",
+      base_url: "https://api.openai.com/v1",
+      enabled: true,
+      api_key_configured: false,
+      requires_api_key: true,
+      endpoint_editable: false,
+      managed: false,
+      max_output_tokens: 8192,
+      supported_engines: ["alva", "codex", "pi"],
+      models: [{ id: "gpt-5.4", display_name: "GPT-5.4", enabled: true, registry_id: "gpt-5.4", context_window: 200000, capabilities: ["reasoning"], supported_engines: ["alva", "codex", "pi"] }],
+    },
+  ];
+}
+
 export const demoSessions: HubSessionSummary[] = [
   {
     product_session_id: "ps-demo-1",
     workspace: "/Users/dev/projects/alva-agent",
+    workspace_kind: "project",
     active_branch_id: "b-claude",
     engine_id: "claude",
     model_id: "claude-sonnet-4-5",
@@ -57,14 +214,15 @@ export const demoSessions: HubSessionSummary[] = [
     engine_session_id: "native-claude-1",
     status: "parked",
     updated_at: 1725000001000,
-    last_prompt: "Refactor the handoff redaction filter",
-    last_result: "Moved 40+ secret shapes into one table-driven pass.",
+    last_prompt: "重构交接数据的脱敏过滤器",
+    last_result: "已将 40 多种敏感信息形态合并为一次表驱动处理。",
     permission_profile: "workspace_write",
     include_full_transcript: false,
   },
   {
     product_session_id: "ps-demo-2",
     workspace: "/Users/dev/projects/other-repo",
+    workspace_kind: "project",
     active_branch_id: "b-codex",
     engine_id: "codex",
     model_id: "codex-mini",
@@ -72,7 +230,7 @@ export const demoSessions: HubSessionSummary[] = [
     engine_session_id: "native-codex-1",
     status: "active",
     updated_at: 1725000100000,
-    last_prompt: "Add a worker queue status endpoint",
+    last_prompt: "添加 Worker 队列状态接口",
     last_result: null,
     permission_profile: "workspace_write",
     include_full_transcript: true,
@@ -80,6 +238,7 @@ export const demoSessions: HubSessionSummary[] = [
   {
     product_session_id: "ps-demo-3",
     workspace: "/Users/dev/projects/scratch",
+    workspace_kind: "session",
     active_branch_id: "b-alva",
     engine_id: "alva",
     model_id: "workspace-config",
@@ -87,8 +246,8 @@ export const demoSessions: HubSessionSummary[] = [
     engine_session_id: null,
     status: "completed",
     updated_at: 1724999000000,
-    last_prompt: "Prototype the claims conflict algebra",
-    last_result: "Matrix of 12 conflict pairs verified.",
+    last_prompt: "验证资源声明冲突规则的原型",
+    last_result: "已验证包含 12 组冲突组合的矩阵。",
     permission_profile: "interactive",
     include_full_transcript: false,
   },
@@ -100,8 +259,8 @@ export function demoDetail(): HubSessionDetail {
     turns: [
       {
         turn_id: "turn-demo-1",
-        prompt: "Refactor the handoff redaction filter",
-        result: "Moved 40+ secret shapes into one table-driven pass.",
+        prompt: "重构交接数据的脱敏过滤器",
+        result: "已将 40 多种敏感信息形态合并为一次表驱动处理。",
         error: null,
         status: "completed",
         created_at: 1724999000000,
@@ -137,9 +296,9 @@ export function demoDetail(): HubSessionDetail {
       },
       {
         turn_id: "turn-demo-2",
-        prompt: "Port the redaction tests to the new table",
+        prompt: "将脱敏测试迁移到新表结构",
         result: null,
-        error: "rate limited: 429 from provider",
+        error: "供应商触发速率限制：HTTP 429",
         status: "failed",
         created_at: 1724999200000,
         completed_at: null,
@@ -150,7 +309,7 @@ export function demoDetail(): HubSessionDetail {
             branch_id: "b-alva",
             engine_id: "alva",
             status: "failed",
-            failure_reason: "rate limited",
+            failure_reason: "触发速率限制",
             usage: null,
             side_effects: [],
             started_at: 1724999200000,
@@ -191,6 +350,12 @@ export function demoDetail(): HubSessionDetail {
         engine_id: "alva",
         model_id: "workspace-config",
         provider_id: "workspace-config",
+        account_source: "工作区供应商",
+        billing_route: "工作区供应商账号",
+        automatic_use_authorized: true,
+        required_capabilities: [],
+        reasoning_effort: "high",
+        fast_mode: false,
         engine_session_id: "native-alva-1",
         status: "parked",
         created_at: 1724998000000,
@@ -201,6 +366,12 @@ export function demoDetail(): HubSessionDetail {
         engine_id: "claude",
         model_id: "claude-sonnet-4-5",
         provider_id: "claude-cli",
+        account_source: "Claude Code CLI 账号",
+        billing_route: "Anthropic 账号",
+        automatic_use_authorized: true,
+        required_capabilities: [],
+        reasoning_effort: "high",
+        fast_mode: false,
         engine_session_id: "native-claude-1",
         status: "active",
         created_at: 1724999220000,
@@ -216,37 +387,37 @@ export function demoDetail(): HubSessionDetail {
         source: engine("alva"),
         target: engine("claude"),
         kind: "full",
-        reason: "rate limited: 429 from provider",
-        user_goal: "Refactor the handoff redaction filter",
-        latest_instruction: "Port the redaction tests to the new table",
-        accepted_decisions: ["keep the secret shapes table-driven"],
+        reason: "供应商触发速率限制：HTTP 429",
+        user_goal: "重构交接数据的脱敏过滤器",
+        latest_instruction: "将脱敏测试迁移到新表结构",
+        accepted_decisions: ["保持敏感信息形态的表驱动实现"],
         completed_work: [
-          { prompt: "Refactor the redaction filter", result: "Done" },
+          { prompt: "重构脱敏过滤器", result: "已完成" },
         ],
         pending_work: [
-          { prompt: "Port the tests", reason: "rate limited" },
+          { prompt: "迁移测试", reason: "触发速率限制" },
         ],
         changed_files: ["src/redact.rs"],
         recent_commands: ["cargo test -p alva-hub-desktop"],
-        verification_results: ["cargo test passes"],
+        verification_results: ["cargo test 已通过"],
         workspace_summary:
-          "Workspace (authoritative; inspect it before trusting transcript evidence): /Users/dev/projects/alva-agent",
+          "工作区（以此处内容为准；采信对话记录前请先检查工作区）：/Users/dev/projects/alva-agent",
         team_snapshot: null,
         transcript: [
-          { prompt: "Refactor the redaction filter", result: "Done" },
+          { prompt: "重构脱敏过滤器", result: "已完成" },
         ],
-        session_memory: ["always run cargo test before finishing"],
+        session_memory: ["完成前始终运行 cargo test"],
         available_skills: [
           {
             name: "review",
-            description: "Review every change before landing",
+            description: "合入前审查每一项变更",
             path: ".alva/skills/review/SKILL.md",
           },
         ],
         available_mcp: [
           {
             id: "filesystem",
-            display_name: "Filesystem",
+            display_name: "文件系统",
             transport: "stdio: npx -y @modelcontextprotocol/server-filesystem",
           },
         ],
@@ -262,7 +433,7 @@ export function demoDetail(): HubSessionDetail {
         target_branch_id: "b-claude",
         source_engine_id: "alva",
         target_engine_id: "claude",
-        reason: "rate limited: 429 from provider",
+        reason: "供应商触发速率限制：HTTP 429",
         created_at: 1724999220000,
       },
     ],
@@ -271,7 +442,7 @@ export function demoDetail(): HubSessionDetail {
       targets: [engine("alva"), engine("claude"), engine("codex")],
       updated_at: 1724998000000,
     },
-    memory: ["always run cargo test before finishing"],
+    memory: ["完成前始终运行 cargo test"],
   };
 }
 
@@ -307,7 +478,7 @@ export function demoTeamRun(): TeamRunDetail {
         task_id: "t-demo-1",
         team_run_id: "tr-demo-1",
         worker_id: "w-demo-1",
-        scope: "implement the queue status endpoint",
+        scope: "实现队列状态接口",
         status: "running",
         result: null,
         changed_files: [],
@@ -320,7 +491,7 @@ export function demoTeamRun(): TeamRunDetail {
         task_id: "t-demo-2",
         team_run_id: "tr-demo-1",
         worker_id: "w-demo-2",
-        scope: "write API docs for the worker endpoints",
+        scope: "为 Worker 接口编写 API 文档",
         status: "queued",
         result: null,
         changed_files: [],
@@ -362,23 +533,33 @@ export function demoReadiness(): EngineReadiness[] {
     {
       engine_id: "codex",
       display_name: "Codex CLI",
-      status: "unauthenticated",
+      status: "healthy",
       binary_path: "/usr/local/bin/codex",
       version: "0.147.0",
       minimum_version: "0.20.0",
       capabilities: ["streaming"],
-      authenticated: false,
+      authenticated: true,
       stream_health: "untested",
-      reasons: [
-        { code: "unauthenticated", remedy: "Run codex login in a terminal." },
-      ],
+      reasons: [],
+    },
+    {
+      engine_id: "pi",
+      display_name: "Pi",
+      status: "healthy",
+      binary_path: "/usr/local/bin/pi",
+      version: "0.52.9",
+      minimum_version: "0.1.0",
+      capabilities: ["streaming", "resume"],
+      authenticated: true,
+      stream_health: "untested",
+      reasons: [],
     },
   ];
 }
 
 export function demoFallbackPolicy(): FallbackPolicy {
   return {
-    targets: [engine("alva"), engine("claude"), engine("codex")],
+    targets: [engine("alva"), engine("claude"), engine("codex"), engine("pi")],
     updated_at: 1724998000000,
   };
 }

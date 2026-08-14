@@ -5,6 +5,7 @@
 import { useState } from "react";
 import type { EngineReadiness, HubSessionDetail } from "../bridge";
 import { Button, Disclosure, TextField } from "../ui";
+import { localizeSystemText, useI18n } from "../i18n";
 
 export interface SessionDetailsProps {
   detail: HubSessionDetail;
@@ -23,6 +24,7 @@ export function SessionDetails({
   readinessLabel,
   describeReason,
 }: SessionDetailsProps) {
+  const { locale, localize, t } = useI18n();
   const [memoryDraft, setMemoryDraft] = useState("");
   const [openHandoffs, setOpenHandoffs] = useState<Record<string, boolean>>({});
 
@@ -34,15 +36,15 @@ export function SessionDetails({
   }
 
   return (
-    <aside className="details-drawer" aria-label="Session details">
+    <aside className="details-drawer" aria-label={t("details.title")}>
       <section>
-        <span className="eyebrow">Memory</span>
+        <span className="eyebrow">{t("details.memory")}</span>
         <small className="timeline-hint">
-          Corrections every engine in this session carries across fallbacks and handoffs.
+          {t("details.memoryDescription")}
         </small>
         {detail.memory.length === 0 ? (
           <small className="session-empty">
-            No memory yet. Teach the session once; every engine keeps it.
+            {t("details.noMemory")}
           </small>
         ) : (
           detail.memory.map((entry, index) => (
@@ -53,8 +55,8 @@ export function SessionDetails({
         )}
         <div className="memory-add">
           <TextField
-            aria-label="Add session memory"
-            placeholder="Always run cargo test before finishing…"
+            aria-label={t("details.addMemory")}
+            placeholder={t("details.memoryPlaceholder")}
             value={memoryDraft}
             onChange={(event) => setMemoryDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -66,52 +68,52 @@ export function SessionDetails({
             loading={memorySaving}
             onClick={saveMemory}
           >
-            {memorySaving ? "Saving…" : "Remember"}
+            {memorySaving ? t("common.saving") : t("details.remember")}
           </Button>
         </div>
       </section>
       <Disclosure
         className="details-section"
-        description="Engine conversations kept for this session"
+        description={t("details.engineHistoryDescription")}
         meta={detail.branches.length}
-        title="Engine history"
+        title={t("details.engineHistory")}
       >
         {detail.branches.length === 0 ? (
-          <small className="session-empty">No branches yet.</small>
+          <small className="session-empty">{t("details.noBranches")}</small>
         ) : null}
         {detail.branches.map((branch) => (
           <div className="details-row" key={branch.branch_id}>
-            <strong>{branch.engine_id} · {branch.status}</strong>
+            <strong>{branch.engine_id} · {localize(branch.status)}</strong>
             <small>
               {branch.model_id} · {branch.provider_id}
-              {branch.engine_session_id ? " · native session kept" : ""}
+              {branch.engine_session_id ? ` · ${t("details.nativeKept")}` : ""}
             </small>
           </div>
         ))}
       </Disclosure>
       <Disclosure
         className="details-section"
-        description="Runs, failures, and tool activity"
+        description={t("details.runDetailsDescription")}
         meta={detail.turns.reduce((count, turn) => count + turn.attempts.length, 0)}
-        title="Run details"
+        title={t("details.runDetails")}
       >
         {detail.turns.every((turn) => turn.attempts.length === 0) ? (
-          <small className="session-empty">No attempts yet.</small>
+          <small className="session-empty">{t("details.noAttempts")}</small>
         ) : null}
         {detail.turns.flatMap((turn) =>
           turn.attempts.map((attempt) => (
             <div className="details-row" key={attempt.attempt_id}>
-              <strong>{attempt.engine_id} · {attempt.status}</strong>
-              {attempt.failure_reason ? <small>{attempt.failure_reason}</small> : null}
+              <strong>{attempt.engine_id} · {localize(attempt.status)}</strong>
+              {attempt.failure_reason ? <small>{localizeSystemText(locale, attempt.failure_reason, t("system.operationFailed"))}</small> : null}
               {attempt.usage ? (
                 <small>
-                  {attempt.usage.input_tokens}in/{attempt.usage.output_tokens}out ·{" "}
+                  {t("details.usage", { input: attempt.usage.input_tokens, output: attempt.usage.output_tokens })} ·{" "}
                   {attempt.usage.duration_ms}ms
                 </small>
               ) : null}
               {attempt.side_effects.length > 0 ? (
                 <small>
-                  {attempt.side_effects.length} tool call(s)
+                  {t("details.toolCalls", { count: attempt.side_effects.length })}
                   {attempt.side_effects.map((evidence) => evidence.path).filter(Boolean).length > 0
                     ? ` · ${attempt.side_effects.map((evidence) => evidence.path).filter(Boolean).join(", ")}`
                     : ""}
@@ -123,28 +125,26 @@ export function SessionDetails({
       </Disclosure>
       <Disclosure
         className="details-section"
-        description="Context carried when changing engines"
+        description={t("details.handoffsDescription")}
         meta={detail.handoffs.length}
-        title="Engine handoffs"
+        title={t("details.handoffs")}
       >
         {detail.handoffs.length === 0 ? (
-          <small className="session-empty">No handoffs yet.</small>
+          <small className="session-empty">{t("details.noHandoffs")}</small>
         ) : (
           detail.handoffs.map((handoff) => (
             <div className="details-row" key={handoff.handoff_id}>
               <strong>
-                {handoff.kind} · {handoff.source.engine_id} → {handoff.target.engine_id}
-                {handoff.used_at ? " · delivered" : " · pending"}
+                {localize(handoff.kind)} · {handoff.source.engine_id} → {handoff.target.engine_id}
+                {handoff.used_at ? ` · ${t("timeline.delivered")}` : ` · ${t("timeline.pending")}`}
               </strong>
-              <small>{handoff.reason}</small>
+              <small>{localizeSystemText(locale, handoff.reason, t("system.diagnosticUnavailable"))}</small>
               {handoff.team_snapshot ? <small>{handoff.team_snapshot}</small> : null}
               {handoff.session_memory.length > 0 ||
               handoff.available_skills.length > 0 ||
               handoff.available_mcp.length > 0 ? (
                 <small>
-                  envelope: {handoff.session_memory.length} memory ·{" "}
-                  {handoff.available_skills.length} skills ·{" "}
-                  {handoff.available_mcp.length} MCP
+                  {t("details.envelope", { memory: handoff.session_memory.length, skills: handoff.available_skills.length, mcp: handoff.available_mcp.length })}
                 </small>
               ) : null}
               <Button
@@ -157,13 +157,13 @@ export function SessionDetails({
                 size="small"
                 variant="ghost"
               >
-                {openHandoffs[handoff.handoff_id] ? "Hide envelope" : "Show envelope"}
+                {openHandoffs[handoff.handoff_id] ? t("details.hideEnvelope") : t("details.showEnvelope")}
               </Button>
               {openHandoffs[handoff.handoff_id] ? (
                 <div className="handoff-view">
                   {handoff.session_memory.length > 0 ? (
                     <>
-                      <strong>Memory carried</strong>
+                      <strong>{t("details.memoryCarried")}</strong>
                       {handoff.session_memory.map((entry, index) => (
                         <small key={`dm-${index}`}>{entry}</small>
                       ))}
@@ -171,7 +171,7 @@ export function SessionDetails({
                   ) : null}
                   {handoff.available_skills.length > 0 ? (
                     <>
-                      <strong>Skills pointed</strong>
+                      <strong>{t("details.skills")}</strong>
                       {handoff.available_skills.map((skill) => (
                         <small key={skill.path}>
                           {skill.name} — {skill.description} <code>{skill.path}</code>
@@ -181,7 +181,7 @@ export function SessionDetails({
                   ) : null}
                   {handoff.available_mcp.length > 0 ? (
                     <>
-                      <strong>MCP servers</strong>
+                      <strong>{t("timeline.mcpServers")}</strong>
                       {handoff.available_mcp.map((server) => (
                         <small key={server.id}>
                           {server.display_name} <code>{server.transport}</code>
@@ -191,7 +191,7 @@ export function SessionDetails({
                   ) : null}
                   {handoff.transcript.length > 0 ? (
                     <>
-                      <strong>Filtered transcript ({handoff.transcript.length} turns)</strong>
+                      <strong>{t("timeline.filteredTranscript", { count: handoff.transcript.length })}</strong>
                       {handoff.transcript.map((turn, index) => (
                         <small key={`dt-${index}`}>
                           » {turn.prompt}{turn.result ? ` — ${turn.result}` : ""}
@@ -199,7 +199,7 @@ export function SessionDetails({
                       ))}
                     </>
                   ) : (
-                    <small>Transcript not shared (default).</small>
+                    <small>{t("timeline.transcriptPrivate")}</small>
                   )}
                 </div>
               ) : null}
@@ -209,18 +209,17 @@ export function SessionDetails({
       </Disclosure>
       <Disclosure
         className="details-section"
-        description="Versions, streaming health, and setup issues"
+        description={t("details.diagnosticsDescription")}
         meta={readiness.length}
-        title="Diagnostics"
+        title={t("details.diagnostics")}
       >
         {readiness.map((engineReadiness) => (
           <div className="details-row" key={engineReadiness.engine_id}>
             <strong>
-              {engineReadiness.display_name} · {readinessLabel[engineReadiness.status]}
+              {engineReadiness.display_name} · {localize(readinessLabel[engineReadiness.status])}
             </strong>
             <small>
-              {engineReadiness.version ?? "version unknown"} · stream{" "}
-              {engineReadiness.stream_health}
+              {engineReadiness.version ?? t("readiness.versionUnknown")} · {t("details.stream", { status: localize(engineReadiness.stream_health) })}
             </small>
             {engineReadiness.reasons.map((reason, index) => (
               <small key={`${reason.code}-${index}`}>{describeReason(reason)}</small>

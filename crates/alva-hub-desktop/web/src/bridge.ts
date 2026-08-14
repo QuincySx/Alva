@@ -1,5 +1,5 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: workspace/run/switch/policy/readiness/timeline plus persisted Hub IPC DTOs
+// OUTPUT: workspace-mode/run/switch/policy/readiness plus provider discovery and persisted Hub IPC DTOs
 // POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -8,6 +8,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 export type TimelineStatus =
+  | "user_message"
+  | "assistant_message"
+  | "activity_started"
+  | "activity_completed"
   | "running"
   | "completed"
   | "failed"
@@ -25,6 +29,13 @@ export type PermissionProfile =
   | "workspace_write"
   | "unrestricted";
 
+export type WorkspaceKind = "session" | "project";
+
+export interface WorkspaceBinding {
+  kind: WorkspaceKind;
+  path: string;
+}
+
 export interface PermissionRequestInfo {
   request_id: string;
   tool_name: string;
@@ -40,6 +51,16 @@ export interface TimelineEvent {
   message: string | null;
   created_at?: number;
   permission_request?: PermissionRequestInfo;
+  item_id?: string | null;
+  activity?: TimelineActivity | null;
+  run_token?: string | null;
+}
+
+export interface TimelineActivity {
+  tool_name: string;
+  succeeded: boolean | null;
+  duration_ms: number | null;
+  path: string | null;
 }
 
 export interface RunRequest {
@@ -48,6 +69,76 @@ export interface RunRequest {
   engine_id: string;
   product_session_id: string | null;
   permission_profile: PermissionProfile | null;
+}
+
+export interface ProviderModel {
+  id: string;
+  display_name: string;
+  enabled: boolean;
+  registry_id?: string | null;
+  context_window: number | null;
+  capabilities: string[];
+  supported_engines: string[];
+  runtime_options?: Record<string, {
+    reasoning_efforts: string[];
+    default_reasoning_effort: string | null;
+    supports_fast_mode: boolean;
+  }>;
+}
+
+export interface ProviderProfile {
+  id: string;
+  display_name: string;
+  kind: string;
+  base_url: string;
+  enabled: boolean;
+  api_key_configured: boolean;
+  requires_api_key: boolean;
+  endpoint_editable: boolean;
+  managed: boolean;
+  max_output_tokens: number;
+  supported_engines: string[];
+  models: ProviderModel[];
+}
+
+export interface SaveProviderProfile {
+  id: string;
+  display_name: string;
+  base_url: string;
+  enabled: boolean;
+  api_key: string | null;
+  clear_api_key: boolean;
+  max_output_tokens: number;
+  models: ProviderModel[];
+}
+
+export interface ModelRoute {
+  target: EngineTarget;
+  engine_label: string;
+  model_label: string;
+  provider_label: string;
+  description: string;
+  context_window: number | null;
+  capabilities: string[];
+  reasoning_efforts: string[];
+  default_reasoning_effort: string | null;
+  supports_fast_mode: boolean;
+  available: boolean;
+  unavailable_reason: string | null;
+}
+
+export interface DiscoveredProviderModel {
+  id: string;
+  display_name: string | null;
+  suggested_registry_id: string | null;
+  compatible_engines: string[];
+}
+
+export interface ProviderDiagnosticResult {
+  models: DiscoveredProviderModel[];
+  ok: boolean;
+  latency_ms: number;
+  message: string;
 }
 
 export interface RunOutcome {
@@ -59,6 +150,7 @@ export interface RunOutcome {
 export interface HubSessionSummary {
   product_session_id: string;
   workspace: string;
+  workspace_kind: WorkspaceKind;
   active_branch_id: string;
   engine_id: string;
   model_id: string;
@@ -183,6 +275,12 @@ export interface StoredBranch {
   engine_id: string;
   model_id: string;
   provider_id: string;
+  account_source: string;
+  billing_route: string;
+  automatic_use_authorized: boolean;
+  required_capabilities: string[];
+  reasoning_effort: string | null;
+  fast_mode: boolean;
   engine_session_id: string | null;
   status: string;
   created_at: number;
@@ -197,6 +295,8 @@ export interface EngineTarget {
   billing_route: string;
   automatic_use_authorized: boolean;
   required_capabilities: string[];
+  reasoning_effort: string | null;
+  fast_mode: boolean;
 }
 
 export interface FallbackPolicy {
@@ -263,6 +363,8 @@ export interface SwitchOutcome {
 import {
   demoDetail,
   demoFallbackPolicy,
+  demoModelRoutes,
+  demoProviderProfiles,
   demoReadiness,
   demoSessions,
   demoTeamRun,
@@ -279,6 +381,7 @@ const DEMO =
   new URLSearchParams(window.location.search).has("demo");
 
 export async function chooseWorkspace(): Promise<string | null> {
+  if (DEMO) return "/Users/dev/projects/alva-agent";
   if (!hasTauri) {
     throw new Error("Workspace selection requires the ALVA Hub desktop runtime.");
   }
@@ -286,26 +389,100 @@ export async function chooseWorkspace(): Promise<string | null> {
   return typeof selected === "string" ? selected : null;
 }
 
+export async function createSessionWorkspace(): Promise<WorkspaceBinding> {
+  if (DEMO) {
+    return {
+      kind: "session",
+      path: "/ALVA Hub/independent-sessions/demo-session",
+    };
+  }
+  if (!hasTauri) {
+    throw new Error("Creating an independent workspace requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<WorkspaceBinding>("create_session_workspace");
+}
+
 export async function runHubPrompt(
   request: RunRequest,
+  selectedTarget: EngineTarget | null,
+  runToken: string | null,
 ): Promise<RunOutcome> {
   if (!hasTauri) {
     throw new Error("Running an engine requires the ALVA Hub desktop runtime.");
   }
-  return await invoke<RunOutcome>("run_hub_prompt", { request });
+  return await invoke<RunOutcome>("run_hub_prompt", {
+    request,
+    selectedTarget,
+    runToken,
+  });
 }
 
 export async function switchHubEngine(
   productSessionId: string,
-  engineId: string,
+  target: EngineTarget,
   reason: string,
 ): Promise<SwitchOutcome> {
   if (!hasTauri) {
     throw new Error("Engine switching requires the ALVA Hub desktop runtime.");
   }
   return await invoke<SwitchOutcome>("switch_hub_engine", {
-    request: { productSessionId, engineId, reason },
+    request: { productSessionId, target, reason },
   });
+}
+
+export async function listModelProviders(workspace: string | null): Promise<ProviderProfile[]> {
+  if (DEMO) return demoProviderProfiles();
+  if (!hasTauri) return [];
+  return await invoke<ProviderProfile[]>("list_model_providers", { workspace });
+}
+
+export async function saveModelProvider(
+  provider: SaveProviderProfile,
+  workspace: string | null,
+): Promise<ProviderProfile> {
+  if (!hasTauri) throw new Error("Provider settings require the ALVA Hub desktop runtime.");
+  return await invoke<ProviderProfile>("save_model_provider", { provider, workspace });
+}
+
+export async function listModelRoutes(workspace: string | null): Promise<ModelRoute[]> {
+  if (DEMO) return demoModelRoutes();
+  if (!hasTauri) return [];
+  return await invoke<ModelRoute[]>("list_model_routes", { workspace });
+}
+
+export async function getDefaultModelRoute(
+  workspace: string | null,
+): Promise<ModelRoute | null> {
+  if (DEMO) return demoModelRoutes()[0];
+  if (!hasTauri) return null;
+  return await invoke<ModelRoute | null>("get_default_model_route", { workspace });
+}
+
+export async function setDefaultModelRoute(
+  target: EngineTarget,
+  workspace: string | null,
+): Promise<ModelRoute> {
+  if (!hasTauri) throw new Error("Default model settings require the ALVA Hub desktop runtime.");
+  return await invoke<ModelRoute>("set_default_model_route", { target, workspace });
+}
+
+export async function discoverModelsForProvider(
+  providerId: string,
+  workspace: string | null,
+): Promise<ProviderDiagnosticResult> {
+  if (!hasTauri) throw new Error("Model discovery requires the ALVA Hub desktop runtime.");
+  return await invoke<ProviderDiagnosticResult>("discover_models_for_provider", {
+    providerId,
+    workspace,
+  });
+}
+
+export async function testModelRoute(
+  target: EngineTarget,
+  workspace: string | null,
+): Promise<ProviderDiagnosticResult> {
+  if (!hasTauri) throw new Error("Provider diagnostics require the ALVA Hub desktop runtime.");
+  return await invoke<ProviderDiagnosticResult>("test_model_route", { target, workspace });
 }
 
 export async function listHubSessions(): Promise<HubSessionSummary[]> {

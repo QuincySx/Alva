@@ -8,6 +8,7 @@ import type {
   RepairKind,
 } from "../bridge";
 import { Badge, Button, Disclosure, Notice, PanelSection } from "../ui";
+import { useI18n, type Translate } from "../i18n";
 
 export interface EngineReadinessPanelProps {
   busy: boolean;
@@ -22,20 +23,20 @@ export interface EngineReadinessPanelProps {
   repairPlan: RepairAction[];
 }
 
-function summarizeReason(reason: EngineReadiness["reasons"][number]): string {
+function summarizeReason(reason: EngineReadiness["reasons"][number], t: Translate): string {
   switch (reason.code) {
     case "binary_not_found":
-      return "Install this engine to make it available.";
+      return t("readiness.install");
     case "version_unreadable":
-      return "Hub could not verify this engine.";
+      return t("readiness.verifyFailed");
     case "version_incompatible":
-      return "Update this engine before using it.";
+      return t("readiness.update");
     case "unauthenticated":
-      return "Sign in before starting a conversation with this engine.";
+      return t("readiness.signInFirst");
     case "provider_key_missing":
-      return "Add the required provider key before using this engine.";
+      return t("readiness.addKey");
     case "stream_failing":
-      return "This engine is not responding correctly.";
+      return t("readiness.notResponding");
   }
 }
 
@@ -51,6 +52,16 @@ export function EngineReadinessPanel({
   repairingEngine,
   repairPlan,
 }: EngineReadinessPanelProps) {
+  const { locale, localize, t } = useI18n();
+  const repairTitle = (action: RepairAction, engine: string) => {
+    if (locale === "en-US") return action.title;
+    switch (action.kind) {
+      case "install": return t("readiness.repairInstall", { engine });
+      case "upgrade": return t("readiness.repairUpgrade", { engine });
+      case "authenticate": return t("readiness.repairAuthenticate", { engine });
+      case "configure": return t("readiness.repairConfigure");
+    }
+  };
   return (
     <>
       <PanelSection
@@ -62,16 +73,16 @@ export function EngineReadinessPanel({
             size="small"
             variant="ghost"
           >
-            {busy ? "Checking…" : "Refresh"}
+            {busy ? t("common.checking") : t("common.refresh")}
           </Button>
         }
         className="readiness-panel"
-        description="Choose an available runtime for this conversation."
-        heading="Engines"
+        description={t("readiness.description")}
+        heading={t("workbench.engines")}
       >
         <div className="readiness-list">
           {readiness.length === 0 ? (
-            <small className="session-empty">Engine health will appear here.</small>
+            <small className="session-empty">{t("readiness.empty")}</small>
           ) : (
             readiness.map((engine) => (
               <div className="readiness-card" key={engine.engine_id}>
@@ -88,36 +99,36 @@ export function EngineReadinessPanel({
                           : "warning"
                     }
                   >
-                    {label[engine.status]}
+                    {localize(label[engine.status])}
                   </Badge>
                 </div>
                 <small>
                   {engine.authenticated === true
-                    ? "Ready to use"
+                    ? t("readiness.ready")
                     : engine.authenticated === false
-                      ? "Sign in to use this engine"
+                      ? t("readiness.signIn")
                       : engine.status === "healthy"
-                        ? "Ready to use"
-                        : "Needs attention"}
+                        ? t("readiness.ready")
+                        : t("readiness.attention")}
                 </small>
                 {engine.status !== "healthy" && engine.reasons[0] ? (
                   <small className="readiness-reason">
-                    {summarizeReason(engine.reasons[0])}
+                    {summarizeReason(engine.reasons[0], t)}
                   </small>
                 ) : null}
                 <Disclosure
                   className="readiness-details"
-                  description="Version, capabilities, and diagnostics"
-                  title="Technical details"
+                  description={t("readiness.technicalDescription")}
+                  title={t("readiness.technical")}
                 >
                   <div className="readiness-details__body">
                     <small>
-                      {engine.version ? `Version ${engine.version}` : "Version unknown"}
-                      {` · requires ${engine.minimum_version} or newer`}
-                      {` · streaming ${engine.stream_health}`}
+                      {engine.version ? t("readiness.version", { version: engine.version }) : t("readiness.versionUnknown")}
+                      {` · ${t("readiness.requires", { version: engine.minimum_version })}`}
+                      {` · ${t("readiness.streaming", { health: localize(engine.stream_health) })}`}
                     </small>
                     {engine.capabilities.length > 0 ? (
-                      <small>{engine.capabilities.join(" · ")}</small>
+                      <small>{engine.capabilities.map(localize).join(" · ")}</small>
                     ) : null}
                     {engine.reasons.map((reason, index) => (
                       <small key={`${reason.code}-${index}`}>{describeReason(reason)}</small>
@@ -135,11 +146,11 @@ export function EngineReadinessPanel({
                           onClick={() => onRepair(action.engine_id, action.kind)}
                           size="small"
                         >
-                          {repairingEngine === action.engine_id ? "Working…" : action.title}
+                          {repairingEngine === action.engine_id ? t("common.working") : repairTitle(action, engine.display_name)}
                         </Button>
                       ) : (
                         <>
-                          <small>{action.title}</small>
+                          <small>{repairTitle(action, engine.display_name)}</small>
                           {action.command ? <code>{action.command}</code> : null}
                         </>
                       )}
@@ -150,13 +161,13 @@ export function EngineReadinessPanel({
                           size="small"
                           variant="ghost"
                         >
-                          Official guide
+                          {t("readiness.officialGuide")}
                         </Button>
                       ) : null}
                     </div>
                   ))}
                 {logs[engine.engine_id] ? (
-                  <small className="repair-log">{logs[engine.engine_id]}</small>
+                  <small className="repair-log">{localize(logs[engine.engine_id])}</small>
                 ) : null}
               </div>
             ))
@@ -164,8 +175,8 @@ export function EngineReadinessPanel({
         </div>
       </PanelSection>
       <Notice
-        description="Each engine keeps its own conversation state."
-        heading="Switch engines without losing your place"
+        description={t("readiness.switchDescription")}
+        heading={t("readiness.switchHeading")}
       />
     </>
   );

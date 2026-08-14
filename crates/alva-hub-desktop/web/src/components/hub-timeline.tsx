@@ -3,12 +3,14 @@
 // POS:    Central business view between the topbar and composer
 
 import { useState } from "react";
-import type { HandoffPackage, TimelineEvent } from "../bridge";
+import type { EngineTarget, HandoffPackage, TimelineEvent } from "../bridge";
 import { Button } from "../ui";
+import { localizeSystemText, useI18n } from "../i18n";
 
 export type PermissionAnswer = "allowed" | "denied";
 
 export type HubTimelineEvent = TimelineEvent & {
+  role?: "user" | "assistant";
   fallback?: {
     source_engine_id: string;
     handoff: HandoffPackage | null;
@@ -19,7 +21,6 @@ export interface HubTimelineProps {
   activeSessionId: string | null;
   answeredPermissions: Record<string, PermissionAnswer>;
   attemptIsLive: boolean;
-  engineId: string;
   events: HubTimelineEvent[];
   onAnswerPermission: (
     productSessionId: string,
@@ -27,19 +28,19 @@ export interface HubTimelineProps {
     allow: boolean,
   ) => void;
   onStop: () => void;
-  onSwitchBack: (engineId: string) => void;
+  onSwitchBack: (target: EngineTarget) => void;
 }
 
 export function HubTimeline({
   activeSessionId,
   answeredPermissions,
   attemptIsLive,
-  engineId,
   events,
   onAnswerPermission,
   onStop,
   onSwitchBack,
 }: HubTimelineProps) {
+  const { locale, localize, t } = useI18n();
   const [openHandoffs, setOpenHandoffs] = useState<Record<number, boolean>>({});
 
   return (
@@ -47,49 +48,53 @@ export function HubTimeline({
       {events.length === 0 ? (
         <div className="empty-state">
           <span className="empty-icon">↗</span>
-          <h2>Start one continuous project session</h2>
-          <p>
-            Hub keeps each engine branch in private local storage, so you can
-            switch engines and return without losing its native session.
-          </p>
+          <h2>{t("timeline.empty")}</h2>
+          <p>{t("timeline.emptyDescription")}</p>
         </div>
       ) : (
         events.map((entry, index) => (
           <article
-            className={`timeline-card timeline-${entry.status}`}
+            className={`timeline-card timeline-${entry.status}${entry.role ? ` timeline-role-${entry.role}` : ""}`}
             key={`${entry.product_session_id}-${index}`}
           >
             <div className="timeline-meta">
-              <span>{entry.engine_id}</span>
-              <span>{entry.status}</span>
+              <span>{entry.role === "user" ? t("timeline.you") : entry.engine_id}</span>
+              <span>{localize(entry.status)}</span>
             </div>
             <p>
-              {entry.message ??
+              {entry.message ? (entry.role ? localize(entry.message) : localizeSystemText(locale, entry.message, t("system.diagnosticUnavailable"))) :
                 (entry.status === "running"
-                  ? "Executing in the selected workspace…"
-                  : "Run finished.")}
+                  ? t("timeline.executing")
+                  : t("timeline.finished"))}
             </p>
+            {entry.activity ? (
+              <small className="timeline-hint">
+                {entry.activity.tool_name}
+                {entry.activity.path ? ` · ${entry.activity.path}` : ""}
+                {entry.activity.duration_ms !== null ? ` · ${entry.activity.duration_ms}ms` : ""}
+              </small>
+            ) : null}
             {entry.status === "interrupted" ? (
               <small className="timeline-hint">
-                The previous runtime is gone. Continue safely from the composer below.
+                {t("timeline.interruptedHint")}
               </small>
             ) : null}
             {entry.permission_request?.resource ? (
               <small className="timeline-hint">
-                Resource: {entry.permission_request.resource}
+                {t("timeline.resource", { resource: entry.permission_request.resource })}
               </small>
             ) : null}
             {entry.permission_request ? (
               <div className="permission-card">
                 {entry.permission_request.description ? (
-                  <small>{entry.permission_request.description}</small>
+                  <small>{localizeSystemText(locale, entry.permission_request.description, t("system.diagnosticUnavailable"))}</small>
                 ) : null}
                 {answeredPermissions[entry.permission_request.request_id] ? (
                   <small className="permission-answered">
                     {answeredPermissions[entry.permission_request.request_id] ===
                     "allowed"
-                      ? "You allowed this request."
-                      : "You denied this request."}
+                      ? t("timeline.allowed")
+                      : t("timeline.denied")}
                   </small>
                 ) : (
                   <div className="timeline-controls">
@@ -103,7 +108,7 @@ export function HubTimeline({
                       }
                       size="small"
                     >
-                      Allow
+                      {t("timeline.allow")}
                     </Button>
                     <Button
                       onClick={() =>
@@ -116,7 +121,7 @@ export function HubTimeline({
                       size="small"
                       variant="ghost"
                     >
-                      Deny
+                      {t("timeline.deny")}
                     </Button>
                   </div>
                 )}
@@ -130,19 +135,22 @@ export function HubTimeline({
                   size="small"
                   variant="danger"
                 >
-                  Stop
+                  {t("timeline.stop")}
                 </Button>
                 <Button
-                  disabled={engineId === entry.fallback.source_engine_id}
-                  onClick={() => onSwitchBack(entry.fallback?.source_engine_id ?? "")}
+                  disabled={!entry.fallback.handoff}
+                  onClick={() => {
+                    const source = entry.fallback?.handoff?.source;
+                    if (source) onSwitchBack(source);
+                  }}
                   size="small"
                   variant="ghost"
                 >
-                  Switch back to {entry.fallback.source_engine_id}
+                  {t("timeline.switchBack", { engine: entry.fallback.source_engine_id })}
                 </Button>
                 {!attemptIsLive ? (
                   <small className="timeline-hint">
-                    This attempt has finished — Stop no longer applies.
+                    {t("timeline.attemptFinished")}
                   </small>
                 ) : null}
                 <Button
@@ -156,25 +164,25 @@ export function HubTimeline({
                   size="small"
                   variant="ghost"
                 >
-                  {openHandoffs[index] ? "Hide handoff" : "View handoff"}
+                  {openHandoffs[index] ? t("timeline.hideHandoff") : t("timeline.viewHandoff")}
                 </Button>
               </div>
             ) : null}
             {entry.fallback?.handoff && openHandoffs[index] ? (
               <div className="handoff-view">
                 <strong>
-                  {entry.fallback.handoff.kind} handoff ·{" "}
+                  {t("timeline.handoffKind", { kind: localize(entry.fallback.handoff.kind) })} ·{" "}
                   {entry.fallback.handoff.source.engine_id} →{" "}
                   {entry.fallback.handoff.target.engine_id}
-                  {entry.fallback.handoff.used_at ? " · delivered" : " · pending"}
+                  {entry.fallback.handoff.used_at ? ` · ${t("timeline.delivered")}` : ` · ${t("timeline.pending")}`}
                 </strong>
-                <small>Reason: {entry.fallback.handoff.reason}</small>
+                <small>{t("timeline.reason", { reason: localizeSystemText(locale, entry.fallback.handoff.reason, t("system.diagnosticUnavailable")) })}</small>
                 {entry.fallback.handoff.user_goal ? (
-                  <small>Goal: {entry.fallback.handoff.user_goal}</small>
+                  <small>{t("timeline.goal", { goal: entry.fallback.handoff.user_goal })}</small>
                 ) : null}
                 {entry.fallback.handoff.latest_instruction ? (
                   <small>
-                    Latest instruction: {entry.fallback.handoff.latest_instruction}
+                    {t("timeline.latestInstruction", { instruction: entry.fallback.handoff.latest_instruction })}
                   </small>
                 ) : null}
                 {entry.fallback.handoff.completed_work.map((work, workIndex) => (
@@ -189,7 +197,7 @@ export function HubTimeline({
                 ))}
                 {entry.fallback.handoff.changed_files.length > 0 ? (
                   <small>
-                    Files: {entry.fallback.handoff.changed_files.join(", ")}
+                    {t("timeline.files", { files: entry.fallback.handoff.changed_files.join(", ") })}
                   </small>
                 ) : null}
                 {entry.fallback.handoff.workspace_summary ? (
@@ -197,7 +205,7 @@ export function HubTimeline({
                 ) : null}
                 {entry.fallback.handoff.available_skills.length > 0 ? (
                   <div className="handoff-skills">
-                    <strong>Workspace skills</strong>
+                    <strong>{t("timeline.workspaceSkills")}</strong>
                     {entry.fallback.handoff.available_skills.map((skill) => (
                       <small key={skill.path}>
                         {skill.name} — {skill.description} <code>{skill.path}</code>
@@ -207,7 +215,7 @@ export function HubTimeline({
                 ) : null}
                 {entry.fallback.handoff.available_mcp.length > 0 ? (
                   <div className="handoff-skills">
-                    <strong>MCP servers</strong>
+                    <strong>{t("timeline.mcpServers")}</strong>
                     {entry.fallback.handoff.available_mcp.map((server) => (
                       <small key={server.id}>
                         {server.display_name} <code>{server.transport}</code>
@@ -218,7 +226,7 @@ export function HubTimeline({
                 {entry.fallback.handoff.transcript.length > 0 ? (
                   <>
                     <strong>
-                      Filtered transcript ({entry.fallback.handoff.transcript.length} turns)
+                      {t("timeline.filteredTranscript", { count: entry.fallback.handoff.transcript.length })}
                     </strong>
                     {entry.fallback.handoff.transcript.map((turn, turnIndex) => (
                       <small key={`transcript-${turnIndex}`}>
@@ -227,7 +235,7 @@ export function HubTimeline({
                     ))}
                   </>
                 ) : (
-                  <small>Transcript not shared (default).</small>
+                  <small>{t("timeline.transcriptPrivate")}</small>
                 )}
               </div>
             ) : null}

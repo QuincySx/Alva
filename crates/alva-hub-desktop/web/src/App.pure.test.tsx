@@ -10,10 +10,12 @@ import {
   describeClaim,
   describeReadinessReason,
   formatRelativeTime,
+  mergeLiveTimeline,
   parseClaims,
   projectTimeline,
 } from "./App";
 import type { HubSessionDetail } from "./bridge";
+import type { HubTimelineEvent } from "./components/hub-timeline";
 
 describe("parseClaims", () => {
   it("parses the documented shorthand forms", () => {
@@ -85,6 +87,7 @@ function sampleDetail(): HubSessionDetail {
     session: {
       product_session_id: "ps-1",
       workspace: "/tmp/proj",
+      workspace_kind: "project",
       active_branch_id: "b-claude",
       engine_id: "claude",
       model_id: "engine-default",
@@ -160,6 +163,8 @@ function sampleDetail(): HubSessionDetail {
           billing_route: "Workspace provider account",
           automatic_use_authorized: true,
           required_capabilities: [],
+          reasoning_effort: "high",
+          fast_mode: false,
         },
         target: {
           engine_id: "claude",
@@ -169,6 +174,8 @@ function sampleDetail(): HubSessionDetail {
           billing_route: "Anthropic account",
           automatic_use_authorized: true,
           required_capabilities: [],
+          reasoning_effort: "high",
+          fast_mode: false,
         },
         kind: "full",
         reason: "rate limited",
@@ -202,11 +209,12 @@ describe("projectTimeline", () => {
     const projected = projectTimeline(sampleDetail());
     expect(projected.map((event) => event.status)).toEqual([
       "fallback",
-      "completed",
+      "user_message",
+      "assistant_message",
       "queued",
     ]);
     // A turn without its own engine attribution reports the last attempt's.
-    expect(projected[1].engine_id).toBe("claude");
+    expect(projected[2].engine_id).toBe("claude");
   });
 
   it("attaches the matching handoff to a fallback event for the controls", () => {
@@ -230,10 +238,41 @@ describe("projectTimeline", () => {
     // first, then the full order.
     expect(projected.map((event) => event.status)).toEqual([
       "exhausted",
-      "permission_required",
+      "activity_completed",
       "worker",
       "cancelled",
-      "completed",
+      "user_message",
+      "assistant_message",
+    ]);
+  });
+});
+
+describe("mergeLiveTimeline", () => {
+  it("finishes a streamed assistant item without duplicating its answer", () => {
+    const streamed: HubTimelineEvent = {
+      status: "assistant_message",
+      role: "assistant",
+      engine_id: "alva",
+      product_session_id: "ps-1",
+      message: "Hello world",
+      created_at: 100,
+      item_id: "assistant-1",
+    };
+    const completed: HubTimelineEvent = {
+      status: "completed",
+      engine_id: "alva",
+      product_session_id: "ps-1",
+      message: null,
+      created_at: 101,
+      item_id: "assistant-1",
+    };
+
+    expect(mergeLiveTimeline([streamed], completed)).toEqual([
+      {
+        ...completed,
+        role: "assistant",
+        message: "Hello world",
+      },
     ]);
   });
 });

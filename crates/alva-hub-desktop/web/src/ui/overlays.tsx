@@ -7,6 +7,7 @@ import { Check, ChevronRight, X } from "lucide-react";
 import { ContextMenu, Dialog, DropdownMenu, Popover, Tooltip } from "radix-ui";
 import { IconButton } from "./button";
 import { cx } from "./utils";
+import { useI18n } from "../i18n";
 
 export const PopoverRoot = Popover.Root;
 export const PopoverTrigger = Popover.Trigger;
@@ -239,6 +240,7 @@ export const DialogContent = React.forwardRef<
   { title, description, children, className, hideClose, size = "default", ...props },
   ref,
 ) {
+  const { t } = useI18n();
   return (
     <Dialog.Portal>
       <Dialog.Overlay className="ui-dialog-overlay" />
@@ -260,7 +262,7 @@ export const DialogContent = React.forwardRef<
           </div>
           {!hideClose ? (
             <Dialog.Close asChild>
-              <IconButton label="Close" variant="ghost" icon={<X size={16} />} />
+              <IconButton label={t("common.close")} variant="ghost" icon={<X size={16} />} />
             </Dialog.Close>
           ) : null}
         </header>

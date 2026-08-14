@@ -4,6 +4,7 @@
 
 import type { FormEvent, KeyboardEvent, ReactNode } from "react";
 import { ArrowUp, Plus, Square } from "lucide-react";
+import { useI18n } from "../i18n";
 import { IconButton, TextArea } from "../ui";
 
 export interface HubComposerProps {
@@ -14,6 +15,7 @@ export interface HubComposerProps {
   placeholder: string;
   engineId: string;
   busy?: boolean;
+  canStop?: boolean;
   disabled?: boolean;
   controls?: ReactNode;
   modelPicker?: ReactNode;
@@ -29,12 +31,14 @@ export function HubComposer({
   placeholder,
   engineId,
   busy = false,
+  canStop = false,
   disabled = false,
   controls,
   modelPicker,
   status,
   onAttach,
 }: HubComposerProps) {
+  const { t } = useI18n();
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -46,7 +50,7 @@ export function HubComposer({
     <div className="hub-composer-wrap">
       <form className="hub-composer" onSubmit={onSubmit}>
         <TextArea
-          aria-label="Message"
+          aria-label={t("composer.message")}
           className="hub-composer__input"
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
@@ -57,7 +61,7 @@ export function HubComposer({
           <div className="hub-composer__controls">
             <IconButton
               icon={<Plus aria-hidden="true" size={18} />}
-              label="Attach context"
+              label={t("composer.attach")}
               onClick={onAttach}
               variant="ghost"
             />
@@ -67,7 +71,7 @@ export function HubComposer({
             {modelPicker}
             <IconButton
               className="hub-composer__send"
-              disabled={disabled || (!busy && !value.trim())}
+              disabled={disabled || (busy ? !canStop : !value.trim())}
               icon={
                 busy ? (
                   <Square aria-hidden="true" fill="currentColor" size={13} />
@@ -75,8 +79,8 @@ export function HubComposer({
                   <ArrowUp aria-hidden="true" size={18} />
                 )
               }
-              label={busy ? "Stop current run" : `Run with ${engineId}`}
-              onClick={busy ? onStop : undefined}
+              label={busy ? (canStop ? t("composer.stop") : t("composer.starting")) : t("composer.runWith", { engine: engineId })}
+              onClick={busy && canStop ? onStop : undefined}
               type={busy ? "button" : "submit"}
               variant="primary"
             />

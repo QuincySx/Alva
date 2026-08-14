@@ -4,6 +4,7 @@
 
 import React from "react";
 import { cx } from "./utils";
+import { useI18n } from "../i18n";
 
 export interface AppFrameProps extends React.HTMLAttributes<HTMLDivElement> {
   sidebar: React.ReactNode;
@@ -22,6 +23,7 @@ export function AppFrame({
   style,
   ...props
 }: AppFrameProps) {
+  const { t } = useI18n();
   const frameRef = React.useRef<HTMLDivElement>(null);
   const resizingRef = React.useRef(false);
   const [workbenchWidth, setWorkbenchWidth] = React.useState(440);
@@ -55,7 +57,7 @@ export function AppFrame({
       <main className="ui-main-pane">{children}</main>
       {workbench ? (
         <button
-          aria-label="Dismiss workbench overlay"
+          aria-label={t("workbench.dismissOverlay")}
           className="ui-workbench-scrim"
           data-state={workbenchOpen ? "open" : "closed"}
           onClick={onWorkbenchDismiss}
@@ -72,7 +74,7 @@ export function AppFrame({
           }}
         >
           <button
-            aria-label="Resize workbench"
+            aria-label={t("workbench.resize")}
             aria-orientation="vertical"
             aria-valuemax={760}
             aria-valuemin={340}

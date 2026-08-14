@@ -3,6 +3,7 @@
 // POS:    Central-column chrome between App state and the conversation timeline
 
 import { PanelRight } from "lucide-react";
+import { useI18n } from "../i18n";
 import { Button, IconButton } from "../ui";
 
 export interface HubTopbarProps {
@@ -28,18 +29,19 @@ export function HubTopbar({
   workbenchOpen,
   workspace,
 }: HubTopbarProps) {
+  const { t } = useI18n();
   return (
     <header className="topbar">
       <div className="topbar__title">
         <strong>{title}</strong>
         <small>
-          {workspace ? workspace.split("/").at(-1) : "Choose a project to begin"}
+          {workspace ? workspace.split("/").at(-1) : t("workspace.chooseToBegin")}
         </small>
       </div>
       <div className="topbar__actions">
         <IconButton
           icon={<PanelRight aria-hidden="true" size={16} />}
-          label={workbenchOpen ? "Close workbench" : "Open workbench"}
+          label={workbenchOpen ? t("topbar.closeWorkbench") : t("topbar.openWorkbench")}
           onClick={onToggleWorkbench}
           variant="ghost"
         />
@@ -49,7 +51,7 @@ export function HubTopbar({
           size="small"
           variant="ghost"
         >
-          {detailsOpen ? "Hide details" : "Details"}
+          {detailsOpen ? t("topbar.hideDetails") : t("topbar.details")}
         </Button>
         <div
           aria-live="polite"

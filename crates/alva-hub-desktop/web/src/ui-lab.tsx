@@ -38,9 +38,9 @@ import {
 import { ModelPicker, type HubModelRoute } from "./components/model-picker";
 
 const routes: HubModelRoute[] = [
-  { engineId: "alva", engineLabel: "ALVA", modelId: "workspace", modelLabel: "Workspace model", providerId: "workspace", accountSource: "Workspace configuration", billingRoute: "Workspace provider", description: "Uses the project model configuration.", capabilities: ["tools", "images"] },
-  { engineId: "claude", engineLabel: "Claude Code", modelId: "sonnet", modelLabel: "Sonnet", providerId: "subscription", accountSource: "Claude Code subscription", billingRoute: "Subscription", description: "Balanced coding model.", capabilities: ["tools", "images", "thinking"] },
-  { engineId: "codex", engineLabel: "Codex", modelId: "gpt", modelLabel: "GPT Codex", providerId: "subscription", accountSource: "Codex subscription", billingRoute: "Subscription", description: "OpenAI coding route.", disabled: true, disabledReason: "Sign in to Codex before selecting this model." },
+  { engineId: "alva", engineLabel: "ALVA", modelId: "workspace", modelLabel: "Workspace model", providerId: "workspace", accountSource: "Workspace configuration", billingRoute: "Workspace provider", description: "Uses the project model configuration.", capabilities: ["tools", "images"], reasoningEfforts: ["low", "medium", "high"], reasoningEffort: "high", supportsFastMode: false, fastMode: false },
+  { engineId: "claude", engineLabel: "Claude Code", modelId: "sonnet", modelLabel: "Sonnet", providerId: "subscription", accountSource: "Claude Code subscription", billingRoute: "Subscription", description: "Balanced coding model.", capabilities: ["tools", "images", "thinking"], reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], reasoningEffort: "high", supportsFastMode: false, fastMode: false },
+  { engineId: "codex", engineLabel: "Codex", modelId: "gpt", modelLabel: "GPT Codex", providerId: "subscription", accountSource: "Codex subscription", billingRoute: "Subscription", description: "OpenAI coding route.", reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], reasoningEffort: "high", supportsFastMode: true, fastMode: false, disabled: true, disabledReason: "Sign in to Codex before selecting this model." },
 ];
 
 export default function UiLab() {
@@ -89,7 +89,7 @@ export default function UiLab() {
             <section className="ui-lab__section ui-lab__model">
               <h2>Composer model route</h2>
               <label className="hub-search-field"><Search size={16} /><TextField aria-label="Lab search" placeholder="Search models…" /></label>
-              <ModelPicker onSelect={setSelected} routes={routes} selectedEngineId={selected.engineId} selectedModelId={selected.modelId} />
+              <ModelPicker onOptionsChange={(route, update) => setSelected({ ...route, reasoningEffort: update.reasoningEffort ?? route.reasoningEffort, fastMode: update.fastMode ?? route.fastMode })} onSelect={setSelected} routes={routes} selectedEngineId={selected.engineId} selectedModelId={selected.modelId} selectedProviderId={selected.providerId} />
             </section>
           </TabsContent>
         </TabsRoot>

@@ -1,9 +1,6 @@
-// INPUT:  App.tsx + a fully mocked ./bridge seam
-// OUTPUT: renders App without a webview and asserts the fallback-card
-//         controls (ACCEPTANCE.md scenario 8: Stop / Switch back / View
-//         handoff), session search, and the empty-state surface.
-// POS:    Closes "the three controls' wiring and their enabled/disabled logic
-//         are verified only by tsc and by reading" from ACCEPTANCE.md.
+// INPUT:  App.tsx + a fully mocked ./bridge seam with provider/default-route fixtures
+// OUTPUT: App integration coverage for new runs, routing, fallback controls, and Hub surfaces
+// POS:    Product acceptance tests across the React page and stable IPC seam
 //
 // The live hub_timeline channel emits raw events (no fallback controls); the
 // control-bearing card is projected by projectTimeline(detail) when a session
@@ -21,6 +18,7 @@ import type {
   FallbackPolicy,
   HandoffPackage,
   HubSessionDetail,
+  ModelRoute,
   PermissionGroup,
   RepairAction,
   RepairResult,
@@ -53,8 +51,18 @@ const bridge = vi.hoisted(() => {
       chooseWorkspace: vi.fn(
         async (): Promise<string | null> => null,
       ),
+      createSessionWorkspace: vi.fn(
+        async () => ({ kind: "session" as const, path: "/tmp/alva-session-1" }),
+      ),
+      discoverModelsForProvider: vi.fn(),
+      testModelRoute: vi.fn(),
       runHubPrompt: vi.fn(),
       switchHubEngine: vi.fn(),
+      listModelProviders: vi.fn(),
+      saveModelProvider: vi.fn(),
+      listModelRoutes: vi.fn(),
+      getDefaultModelRoute: vi.fn(),
+      setDefaultModelRoute: vi.fn(),
       listHubSessions: vi.fn(async () => state.sessions),
       getHubSession: vi.fn(async () => state.detail),
       addSessionMemory: vi.fn(
@@ -138,6 +146,98 @@ const bridge = vi.hoisted(() => {
 
 vi.mock("./bridge", () => bridge.fns);
 
+const WORKSPACE_DEFAULT_TARGET: EngineTarget = {
+  engine_id: "alva",
+  model_id: "workspace-config",
+  provider_id: "workspace-config",
+  account_source: "Workspace provider configuration",
+  billing_route: "Workspace provider account",
+  automatic_use_authorized: false,
+  required_capabilities: [],
+  reasoning_effort: "high",
+  fast_mode: false,
+};
+
+const MODEL_ROUTES: ModelRoute[] = [
+  {
+    target: WORKSPACE_DEFAULT_TARGET,
+    engine_label: "Alva",
+    model_label: "Workspace model",
+    provider_label: "Workspace provider",
+    description: "Uses the provider configuration resolved for this workspace.",
+    context_window: null,
+    capabilities: [],
+    reasoning_efforts: ["low", "medium", "high"],
+    default_reasoning_effort: "high",
+    supports_fast_mode: false,
+    available: true,
+    unavailable_reason: null,
+  },
+  {
+    target: {
+      engine_id: "claude",
+      model_id: "engine-default",
+      provider_id: "claude-cli",
+      account_source: "Claude Code subscription",
+      billing_route: "Anthropic account via Claude Code",
+      automatic_use_authorized: false,
+      required_capabilities: [],
+      reasoning_effort: "high",
+      fast_mode: false,
+    },
+    engine_label: "Claude Code",
+    model_label: "Default model",
+    provider_label: "Claude Code",
+    description: "Uses the selected model through your local CLI subscription.",
+    context_window: null,
+    capabilities: [],
+    reasoning_efforts: ["low", "medium", "high", "xhigh", "max"],
+    default_reasoning_effort: "high",
+    supports_fast_mode: false,
+    available: true,
+    unavailable_reason: null,
+  },
+  {
+    target: {
+      engine_id: "codex",
+      model_id: "engine-default",
+      provider_id: "codex-cli",
+      account_source: "Codex subscription",
+      billing_route: "OpenAI account via Codex",
+      automatic_use_authorized: false,
+      required_capabilities: [],
+      reasoning_effort: "high",
+      fast_mode: false,
+    },
+    engine_label: "Codex",
+    model_label: "Default model",
+    provider_label: "Codex",
+    description: "Uses the selected model through your local CLI subscription.",
+    context_window: null,
+    capabilities: [],
+    reasoning_efforts: ["minimal", "low", "medium", "high", "xhigh"],
+    default_reasoning_effort: "high",
+    supports_fast_mode: true,
+    available: true,
+    unavailable_reason: null,
+  },
+];
+
+const WORKSPACE_DEFAULT_ROUTE = MODEL_ROUTES[0];
+
+const HEALTHY_ENGINES: EngineReadiness[] = MODEL_ROUTES.map((route) => ({
+  engine_id: route.target.engine_id,
+  display_name: route.engine_label,
+  status: "healthy",
+  binary_path: null,
+  version: null,
+  minimum_version: "0.1.0",
+  capabilities: [],
+  authenticated: true,
+  stream_health: "ok",
+  reasons: [],
+}));
+
 function handoff(partial: Partial<HandoffPackage> = {}): HandoffPackage {
   return {
     handoff_id: "h-1",
@@ -152,6 +252,8 @@ function handoff(partial: Partial<HandoffPackage> = {}): HandoffPackage {
       billing_route: "Workspace provider account",
       automatic_use_authorized: true,
       required_capabilities: [],
+      reasoning_effort: "high",
+      fast_mode: false,
     },
     target: {
       engine_id: "claude",
@@ -161,6 +263,8 @@ function handoff(partial: Partial<HandoffPackage> = {}): HandoffPackage {
       billing_route: "Anthropic account",
       automatic_use_authorized: true,
       required_capabilities: [],
+      reasoning_effort: "high",
+      fast_mode: false,
     },
     kind: "full",
     reason: "rate limited",
@@ -189,6 +293,7 @@ function detailFixture(): HubSessionDetail {
     session: {
       product_session_id: "ps-1",
       workspace: "/tmp/proj",
+      workspace_kind: "project",
       active_branch_id: "b-claude",
       engine_id: "claude",
       model_id: "engine-default",
@@ -208,6 +313,12 @@ function detailFixture(): HubSessionDetail {
         engine_id: "alva",
         model_id: "workspace-config",
         provider_id: "workspace-config",
+        account_source: "Workspace provider",
+        billing_route: "Workspace provider account",
+        automatic_use_authorized: true,
+        required_capabilities: [],
+        reasoning_effort: "high",
+        fast_mode: false,
         engine_session_id: "ns-alva",
         status: "parked",
         created_at: 100,
@@ -218,6 +329,12 @@ function detailFixture(): HubSessionDetail {
         engine_id: "claude",
         model_id: "engine-default",
         provider_id: "claude-cli",
+        account_source: "Claude Code CLI account",
+        billing_route: "Anthropic account",
+        automatic_use_authorized: true,
+        required_capabilities: [],
+        reasoning_effort: "high",
+        fast_mode: false,
         engine_session_id: "ns-claude",
         status: "active",
         created_at: 108,
@@ -250,15 +367,42 @@ describe("App integration", () => {
     bridge.state.teamRun = null;
     bridge.listeners.length = 0;
     vi.clearAllMocks();
+    bridge.fns.listModelProviders.mockResolvedValue([]);
+    bridge.fns.listModelRoutes.mockResolvedValue(MODEL_ROUTES);
+    bridge.fns.getDefaultModelRoute.mockResolvedValue(WORKSPACE_DEFAULT_ROUTE);
+    bridge.fns.setDefaultModelRoute.mockResolvedValue(WORKSPACE_DEFAULT_ROUTE);
+    bridge.fns.discoverModelsForProvider.mockResolvedValue({ models: [], ok: true, latency_ms: 1, message: "Discovered 0 model(s)." });
+    bridge.fns.testModelRoute.mockResolvedValue({ models: [], ok: true, latency_ms: 1, message: "Inference succeeded for the selected model." });
+    bridge.fns.getEngineReadiness.mockResolvedValue(HEALTHY_ENGINES);
+    bridge.fns.getPermissionEligibility.mockResolvedValue([]);
   });
 
   it("renders the empty surface before any session or event", async () => {
     render(<App />);
     expect(
-      await screen.findByText("Start one continuous project session"),
+      await screen.findByText("How would you like to start?"),
     ).toBeInTheDocument();
-    expect(screen.getByText("No workspace")).toBeInTheDocument();
-    expect(screen.getByText("Hub runs will appear here.")).toBeInTheDocument();
+    expect(screen.queryByText("No workspace")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create independent session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select project" })).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
+    ).toEqual(["Project", "Independent session"]);
+    expect(screen.getByText("Recommended").parentElement).toHaveTextContent("Project");
+  });
+
+  it("creates an isolated workspace and returns to the mode gate for the next session", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Create independent session" }));
+    expect(bridge.fns.createSessionWorkspace).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Independent session · alva-session-1")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "New session" }));
+    expect(await screen.findByText("How would you like to start?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run with alva" })).toBeDisabled();
+    expect(bridge.fns.createSessionWorkspace).toHaveBeenCalledTimes(1);
   });
 
   it("opens a running session and renders the fallback card with live controls", async () => {
@@ -630,22 +774,26 @@ describe("App integration", () => {
     };
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Choose" }));
+    await user.click(await screen.findByRole("button", { name: "Select project" }));
     expect(
-      (await screen.findAllByText((text) => text === "proj")).length,
+      (await screen.findAllByText((text) => text.includes("proj"))).length,
     ).toBeGreaterThan(0);
 
     const composer = screen.getByLabelText("Message");
     await user.type(composer, "what is 2+2?");
     await user.click(screen.getByRole("button", { name: "Run with alva" }));
 
-    expect(bridge.fns.runHubPrompt).toHaveBeenCalledWith({
-      prompt: "what is 2+2?",
-      workspace: "/tmp/proj",
-      engine_id: "alva",
-      product_session_id: null,
-      permission_profile: "workspace_write",
-    });
+    expect(bridge.fns.runHubPrompt).toHaveBeenCalledWith(
+      {
+        prompt: "what is 2+2?",
+        workspace: "/tmp/proj",
+        engine_id: "alva",
+        product_session_id: null,
+        permission_profile: "workspace_write",
+      },
+      WORKSPACE_DEFAULT_TARGET,
+      expect.any(String),
+    );
     // The fresh session surface loads after the run.
     await waitFor(() =>
       expect(bridge.fns.getHubSession).toHaveBeenCalledWith("ps-new"),
@@ -655,7 +803,112 @@ describe("App integration", () => {
     await user.type(screen.getByLabelText("Message"), "second prompt{Enter}");
     expect(bridge.fns.runHubPrompt).toHaveBeenCalledWith(
       expect.objectContaining({ prompt: "second prompt" }),
+      null,
+      null,
     );
+  });
+
+  it("claims a new conversation only from its correlated lead events", async () => {
+    const user = userEvent.setup();
+    bridge.fns.chooseWorkspace.mockResolvedValue("/tmp/proj");
+    let finishRun: ((outcome: {
+      product_session_id: string;
+      result: string | null;
+      failed: boolean;
+    }) => void) | undefined;
+    bridge.fns.runHubPrompt.mockImplementation(
+      () => new Promise((resolve) => {
+        finishRun = resolve;
+      }),
+    );
+    bridge.state.detail = {
+      ...detailFixture(),
+      session: {
+        ...detailFixture().session,
+        product_session_id: "ps-lead",
+      },
+    };
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Select project" }));
+    await user.type(screen.getByLabelText("Message"), "lead prompt");
+    await user.click(screen.getByRole("button", { name: "Run with alva" }));
+    const runToken = bridge.fns.runHubPrompt.mock.calls[0][2] as string;
+
+    act(() => {
+      bridge.listeners.forEach((callback) => {
+        callback({
+          product_session_id: "ps-worker",
+          status: "user_message",
+          engine_id: "codex",
+          message: "worker prompt",
+          item_id: "worker:user",
+          run_token: "a-different-run",
+        });
+        callback({
+          product_session_id: "ps-lead",
+          status: "user_message",
+          engine_id: "alva",
+          message: "lead prompt",
+          item_id: "lead:user",
+          run_token: runToken,
+        });
+      });
+    });
+
+    expect(screen.queryByText("worker prompt")).not.toBeInTheDocument();
+    expect(await screen.findByText("lead prompt")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Starting engine" })).toBeDisabled();
+
+    act(() => {
+      bridge.listeners.forEach((callback) =>
+        callback({
+          product_session_id: "ps-lead",
+          status: "running",
+          engine_id: "alva",
+          message: null,
+          item_id: "lead-turn",
+          run_token: runToken,
+        }),
+      );
+    });
+    expect(await screen.findByRole("button", { name: "Stop current run" })).toBeEnabled();
+
+    act(() => {
+      bridge.listeners.forEach((callback) =>
+        callback({
+          product_session_id: "ps-lead",
+          status: "fallback",
+          engine_id: "claude",
+          message: "Switching engines",
+          run_token: runToken,
+        }),
+      );
+    });
+    expect(await screen.findByRole("button", { name: "Starting engine" })).toBeDisabled();
+
+    act(() => {
+      bridge.listeners.forEach((callback) =>
+        callback({
+          product_session_id: "ps-lead",
+          status: "running",
+          engine_id: "claude",
+          message: null,
+          item_id: "fallback-turn",
+          run_token: runToken,
+        }),
+      );
+    });
+    await user.click(await screen.findByRole("button", { name: "Stop current run" }));
+    expect(bridge.fns.stopHubAttempt).toHaveBeenCalledWith("ps-lead");
+
+    await act(async () => {
+      finishRun?.({
+        product_session_id: "ps-lead",
+        result: null,
+        failed: false,
+      });
+    });
   });
 
   it("creates a team run on the selected worker engine", async () => {
@@ -813,7 +1066,7 @@ describe("App integration", () => {
     // alva is eligible → no warning; switch to claude → the warning shows.
     expect(screen.queryByText(/cannot enforce/)).not.toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Model and engine" }));
+    await user.click(await screen.findByRole("button", { name: "Model and engine" }));
     await user.click(screen.getByRole("tab", { name: "Claude Code" }));
     expect(screen.getByRole("button", { name: /Default model/ })).toBeDisabled();
     expect(screen.getByText("Claude light cannot enforce workspace_write")).toBeInTheDocument();
@@ -905,8 +1158,8 @@ describe("App integration", () => {
     );
     expect(bridge.fns.switchHubEngine).toHaveBeenCalledWith(
       "ps-1",
-      "alva",
-      "User explicitly selected alva",
+      WORKSPACE_DEFAULT_TARGET,
+      "User explicitly selected Alva · Workspace model",
     );
 
     // Stop is offered while the attempt is live and dispatches the cancel.
@@ -958,8 +1211,18 @@ describe("App integration", () => {
 
   it("answers a permission request and locks the card", async () => {
     const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "running",
+      },
+    ];
+    bridge.state.detail = detailFixture();
     render(<App />);
-    await screen.findByText("Start one continuous project session");
+    await user.click(await screen.findByText("Fix the build"));
 
     act(() => {
       bridge.listeners.forEach((callback) =>
@@ -997,8 +1260,18 @@ describe("App integration", () => {
 
   it("denies a permission request and locks the card", async () => {
     const user = userEvent.setup();
+    bridge.state.sessions = [
+      {
+        product_session_id: "ps-1",
+        workspace: "/tmp/proj",
+        last_prompt: "Fix the build",
+        engine_id: "claude",
+        status: "running",
+      },
+    ];
+    bridge.state.detail = detailFixture();
     render(<App />);
-    await screen.findByText("Start one continuous project session");
+    await user.click(await screen.findByText("Fix the build"));
 
     act(() => {
       bridge.listeners.forEach((callback) =>
@@ -1153,6 +1426,8 @@ describe("App integration", () => {
           billing_route: "Anthropic account via Claude CLI",
           automatic_use_authorized: true,
           required_capabilities: [],
+          reasoning_effort: "high",
+          fast_mode: false,
         },
       ],
       updated_at: 0,
@@ -1177,8 +1452,9 @@ describe("App integration", () => {
 
     await user.clear(modelInput);
     await user.type(modelInput, "claude-sonnet-4-5");
-    // The composer reflects the edited model immediately.
-    expect((await screen.findAllByText("Claude Code · claude-sonnet-4-5")).length).toBeGreaterThan(0);
+    // Editing the fallback draft does not mutate the explicitly selected
+    // composer route; it is committed only to fallback policy.
+    expect(screen.getAllByText("Claude Code · Default model").length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Save default chain" }));
 
     expect(bridge.fns.setGlobalFallbackPolicy).toHaveBeenCalledWith([
