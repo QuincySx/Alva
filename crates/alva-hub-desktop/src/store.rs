@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::claims::ResourceClaim;
 use crate::permissions::PermissionProfile;
+use crate::session_workspace::WorkspaceKind;
 
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 17;
 const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 const STATUS_FAILED: &str = "failed";
@@ -34,6 +35,10 @@ pub struct EngineTarget {
     pub automatic_use_authorized: bool,
     #[serde(default)]
     pub required_capabilities: Vec<String>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub fast_mode: bool,
 }
 
 fn default_account_source() -> String {
@@ -65,9 +70,15 @@ impl EngineTarget {
                 "Codex CLI account",
                 "OpenAI account via Codex CLI",
             ),
+            "pi" => (
+                "engine-default",
+                "pi-unconfigured",
+                "Third-party provider required",
+                "Provider API usage",
+            ),
             other => {
                 return Err(format!(
-                    "unsupported Hub engine '{other}'; expected alva, claude, or codex"
+                    "unsupported Hub engine '{other}'; expected alva, claude, codex, or pi"
                 ));
             }
         };
@@ -79,6 +90,8 @@ impl EngineTarget {
             billing_route: billing_route.to_string(),
             automatic_use_authorized: false,
             required_capabilities: Vec::new(),
+            reasoning_effort: None,
+            fast_mode: false,
         })
     }
 }
@@ -93,6 +106,7 @@ pub struct FallbackPolicy {
 pub struct HubSessionSummary {
     pub product_session_id: String,
     pub workspace: String,
+    pub workspace_kind: WorkspaceKind,
     pub active_branch_id: String,
     pub engine_id: String,
     pub model_id: String,
@@ -114,6 +128,12 @@ pub struct StoredBranch {
     pub engine_id: String,
     pub model_id: String,
     pub provider_id: String,
+    pub account_source: String,
+    pub billing_route: String,
+    pub automatic_use_authorized: bool,
+    pub required_capabilities: Vec<String>,
+    pub reasoning_effort: Option<String>,
+    pub fast_mode: bool,
     pub engine_session_id: Option<String>,
     pub watermark_turn_rowid: Option<i64>,
     pub status: String,
@@ -648,7 +668,8 @@ impl HubStore {
                         (SELECT final_result FROM turns t
                            WHERE t.product_session_id = hs.product_session_id
                            ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
-                        hs.permission_profile, hs.include_full_transcript
+                        hs.permission_profile, hs.include_full_transcript,
+                        hs.workspace_kind
                    FROM hub_sessions hs
                    JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
                   ORDER BY hs.updated_at DESC, hs.product_session_id ASC",
@@ -867,6 +888,18 @@ impl HubStore {
             && session.model_id == target.model_id
             && session.provider_id == target.provider_id
         {
+            let active_target = query_branch_target(&transaction, &session.active_branch_id)?;
+            if active_target.reasoning_effort != target.reasoning_effort
+                || active_target.fast_mode != target.fast_mode
+            {
+                if session.status == STATUS_RUNNING {
+                    return Err(
+                        "wait for the current attempt to finish before changing model options"
+                            .into(),
+                    );
+                }
+                update_engine_branch_options(&transaction, &session.active_branch_id, target, now)?;
+            }
             if let Some(pending) = query_pending_switch(&transaction, product_session_id)? {
                 transaction
                     .execute(
@@ -887,10 +920,10 @@ impl HubStore {
                     reason,
                     now,
                 )?;
-                transaction
-                    .commit()
-                    .map_err(|error| format!("commit cancelled Hub engine switch: {error}"))?;
             }
+            transaction
+                .commit()
+                .map_err(|error| format!("commit Hub model option update: {error}"))?;
             return Ok(SwitchOutcome {
                 disposition: SwitchDisposition::Applied,
                 active_branch_id: session.active_branch_id,
@@ -1014,6 +1047,7 @@ impl HubStore {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn prepare_new_turn(
         &self,
         product_session_id: &str,
@@ -1021,6 +1055,25 @@ impl HubStore {
         prompt: &str,
         target: &EngineTarget,
         permission_profile: PermissionProfile,
+    ) -> Result<PreparedTurn, String> {
+        self.prepare_new_turn_with_workspace_kind(
+            product_session_id,
+            workspace,
+            prompt,
+            target,
+            permission_profile,
+            WorkspaceKind::Project,
+        )
+    }
+
+    pub(crate) fn prepare_new_turn_with_workspace_kind(
+        &self,
+        product_session_id: &str,
+        workspace: &Path,
+        prompt: &str,
+        target: &EngineTarget,
+        permission_profile: PermissionProfile,
+        workspace_kind: WorkspaceKind,
     ) -> Result<PreparedTurn, String> {
         let branch_id = uuid::Uuid::new_v4().to_string();
         let turn_id = uuid::Uuid::new_v4().to_string();
@@ -1035,34 +1088,27 @@ impl HubStore {
             .execute(
                 "INSERT INTO hub_sessions
                    (product_session_id, workspace, active_branch_id, status,
-                    permission_profile, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                    permission_profile, workspace_kind, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
                 params![
                     product_session_id,
                     workspace_text,
                     branch_id,
                     STATUS_RUNNING,
                     permission_profile.as_str(),
+                    workspace_kind.as_str(),
                     now
                 ],
             )
             .map_err(|error| format!("insert Hub session: {error}"))?;
-        transaction
-            .execute(
-                "INSERT INTO engine_branches
-                   (branch_id, product_session_id, engine_id, model_id, provider_id,
-                    engine_session_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'active', ?6, ?6)",
-                params![
-                    branch_id,
-                    product_session_id,
-                    target.engine_id,
-                    target.model_id,
-                    target.provider_id,
-                    now
-                ],
-            )
-            .map_err(|error| format!("insert Hub engine branch: {error}"))?;
+        insert_engine_branch(
+            &transaction,
+            &branch_id,
+            product_session_id,
+            target,
+            "active",
+            now,
+        )?;
         let global_policy = query_fallback_policy(&transaction, None)?;
         let session_policy = FallbackPolicy {
             targets: global_policy.targets,
@@ -1120,9 +1166,7 @@ impl HubStore {
             .engine_session_id
             .clone()
             .filter(|id| !id.is_empty());
-        let mut target = EngineTarget::for_engine(&session.engine_id)?;
-        target.model_id = session.model_id.clone();
-        target.provider_id = session.provider_id.clone();
+        let target = query_branch_target(&transaction, &session.active_branch_id)?;
         let watermark_turn_rowid = transaction
             .query_row(
                 "SELECT watermark_turn_rowid FROM engine_branches WHERE branch_id = ?1",
@@ -1480,27 +1524,23 @@ impl HubStore {
             )
             .optional()
             .map_err(|error| format!("find Hub fallback target branch: {error}"))?;
-        let target_branch_id = match existing_target {
-            Some(branch_id) => branch_id,
+        let (target_branch_id, branch_target) = match existing_target {
+            Some(branch_id) => {
+                update_engine_branch_options(&transaction, &branch_id, target, now)?;
+                let branch_target = query_branch_target(&transaction, &branch_id)?;
+                (branch_id, branch_target)
+            }
             None => {
                 let branch_id = uuid::Uuid::new_v4().to_string();
-                transaction
-                    .execute(
-                        "INSERT INTO engine_branches
-                           (branch_id, product_session_id, engine_id, model_id, provider_id,
-                            engine_session_id, status, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'parked', ?6, ?6)",
-                        params![
-                            branch_id,
-                            prepared.product_session_id,
-                            target.engine_id,
-                            target.model_id,
-                            target.provider_id,
-                            now
-                        ],
-                    )
-                    .map_err(|error| format!("create Hub fallback target branch: {error}"))?;
-                branch_id
+                insert_engine_branch(
+                    &transaction,
+                    &branch_id,
+                    &prepared.product_session_id,
+                    target,
+                    "parked",
+                    now,
+                )?;
+                (branch_id, target.clone())
             }
         };
 
@@ -1558,7 +1598,7 @@ impl HubStore {
             &prepared.branch_id,
             &target_branch_id,
             prepared.target.clone(),
-            target.clone(),
+            branch_target.clone(),
             failure_reason,
             now,
             HandoffKind::Full,
@@ -1572,7 +1612,7 @@ impl HubStore {
             &prepared.branch_id,
             Some(&target_branch_id),
             &prepared.target.engine_id,
-            &target.engine_id,
+            &branch_target.engine_id,
             &format!("{failure_reason} · handoff: {}", package.fallback_summary()),
             now,
         )?;
@@ -1588,7 +1628,7 @@ impl HubStore {
                     prepared.turn_id,
                     prepared.product_session_id,
                     target_branch_id,
-                    target.engine_id,
+                    branch_target.engine_id,
                     STATUS_RUNNING,
                     now
                 ],
@@ -1605,7 +1645,7 @@ impl HubStore {
             attempt_id: next_attempt_id,
             workspace: prepared.workspace.clone(),
             engine_session_id: None,
-            target: target.clone(),
+            target: branch_target,
             handoff: Some(package),
             native_resume: false,
             permission_profile: prepared.permission_profile,
@@ -1662,22 +1702,14 @@ impl HubStore {
                 ],
             )
             .map_err(|error| format!("insert Hub worker session: {error}"))?;
-        transaction
-            .execute(
-                "INSERT INTO engine_branches
-                   (branch_id, product_session_id, engine_id, model_id, provider_id,
-                    engine_session_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'active', ?6, ?6)",
-                params![
-                    worker_branch_id,
-                    worker_session_id,
-                    worker_target.engine_id,
-                    worker_target.model_id,
-                    worker_target.provider_id,
-                    now
-                ],
-            )
-            .map_err(|error| format!("insert Hub worker branch: {error}"))?;
+        insert_engine_branch(
+            &transaction,
+            &worker_branch_id,
+            &worker_session_id,
+            worker_target,
+            "active",
+            now,
+        )?;
         let global_policy = query_fallback_policy(&transaction, None)?;
         persist_fallback_policy(
             &transaction,
@@ -1810,22 +1842,14 @@ impl HubStore {
                 ],
             )
             .map_err(|error| format!("insert Hub worker session: {error}"))?;
-        transaction
-            .execute(
-                "INSERT INTO engine_branches
-                   (branch_id, product_session_id, engine_id, model_id, provider_id,
-                    engine_session_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'active', ?6, ?6)",
-                params![
-                    worker_branch_id,
-                    worker_session_id,
-                    worker_target.engine_id,
-                    worker_target.model_id,
-                    worker_target.provider_id,
-                    now
-                ],
-            )
-            .map_err(|error| format!("insert Hub worker branch: {error}"))?;
+        insert_engine_branch(
+            &transaction,
+            &worker_branch_id,
+            &worker_session_id,
+            worker_target,
+            "active",
+            now,
+        )?;
         let global_policy = query_fallback_policy(&transaction, None)?;
         persist_fallback_policy(
             &transaction,
@@ -3019,19 +3043,132 @@ fn validate_engine_target(target: &EngineTarget) -> Result<(), String> {
             target.engine_id
         ));
     }
+    if target.reasoning_effort.as_ref().is_some_and(|effort| {
+        !matches!(
+            effort.as_str(),
+            "off" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+        )
+    }) {
+        return Err(format!(
+            "engine target '{}' has an invalid reasoning effort",
+            target.engine_id
+        ));
+    }
     Ok(())
 }
 
-fn engine_target_from_branch(
-    engine_id: String,
-    model_id: String,
-    provider_id: String,
-) -> EngineTarget {
-    let mut target = EngineTarget::for_engine(&engine_id)
-        .expect("Hub engine branches are created only from supported engine targets");
-    target.model_id = model_id;
-    target.provider_id = provider_id;
-    target
+fn insert_engine_branch(
+    transaction: &Transaction<'_>,
+    branch_id: &str,
+    product_session_id: &str,
+    target: &EngineTarget,
+    status: &str,
+    now: i64,
+) -> Result<(), String> {
+    validate_engine_target(target)?;
+    let required_capabilities_json = serde_json::to_string(&target.required_capabilities)
+        .map_err(|error| format!("serialize Hub branch capabilities: {error}"))?;
+    transaction
+        .execute(
+            "INSERT INTO engine_branches
+               (branch_id, product_session_id, engine_id, model_id, provider_id,
+                account_source, billing_route, automatic_use_authorized,
+                required_capabilities_json, reasoning_effort, fast_mode,
+                engine_session_id, status, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?13, ?13)",
+            params![
+                branch_id,
+                product_session_id,
+                target.engine_id,
+                target.model_id,
+                target.provider_id,
+                target.account_source,
+                target.billing_route,
+                target.automatic_use_authorized,
+                required_capabilities_json,
+                target.reasoning_effort,
+                target.fast_mode,
+                status,
+                now
+            ],
+        )
+        .map_err(|error| format!("insert Hub engine branch: {error}"))?;
+    Ok(())
+}
+
+fn query_branch_target(connection: &Connection, branch_id: &str) -> Result<EngineTarget, String> {
+    let row = connection
+        .query_row(
+            "SELECT engine_id, model_id, provider_id, account_source, billing_route,
+                    automatic_use_authorized, required_capabilities_json,
+                    reasoning_effort, fast_mode
+               FROM engine_branches WHERE branch_id = ?1",
+            [branch_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, bool>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, bool>(8)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| format!("query Hub branch target: {error}"))?
+        .ok_or_else(|| format!("Hub engine branch '{branch_id}' was not found"))?;
+    let required_capabilities = serde_json::from_str(&row.6)
+        .map_err(|error| format!("decode Hub branch capabilities: {error}"))?;
+    Ok(EngineTarget {
+        engine_id: row.0,
+        model_id: row.1,
+        provider_id: row.2,
+        account_source: row.3,
+        billing_route: row.4,
+        automatic_use_authorized: row.5,
+        required_capabilities,
+        reasoning_effort: row.7,
+        fast_mode: row.8,
+    })
+}
+
+fn update_engine_branch_options(
+    transaction: &Transaction<'_>,
+    branch_id: &str,
+    target: &EngineTarget,
+    now: i64,
+) -> Result<(), String> {
+    let changed = transaction
+        .execute(
+            "UPDATE engine_branches
+                SET reasoning_effort = ?2, fast_mode = ?3, updated_at = ?4
+              WHERE branch_id = ?1",
+            params![branch_id, target.reasoning_effort, target.fast_mode, now],
+        )
+        .map_err(|error| format!("update Hub branch model options: {error}"))?;
+    if changed == 1 {
+        Ok(())
+    } else {
+        Err(format!("Hub engine branch '{branch_id}' was not found"))
+    }
+}
+
+fn legacy_engine_target(engine_id: String, model_id: String, provider_id: String) -> EngineTarget {
+    EngineTarget {
+        engine_id,
+        model_id,
+        provider_id,
+        account_source: default_account_source(),
+        billing_route: default_billing_route(),
+        automatic_use_authorized: false,
+        required_capabilities: Vec::new(),
+        reasoning_effort: None,
+        fast_mode: false,
+    }
 }
 
 fn validate_fallback_targets(targets: &[EngineTarget]) -> Result<(), String> {
@@ -3132,6 +3269,44 @@ fn upsert_queued_switch(
     reason: &str,
     now: i64,
 ) -> Result<String, String> {
+    let target_branch_id = transaction
+        .query_row(
+            "SELECT branch_id FROM engine_branches
+              WHERE product_session_id = ?1 AND engine_id = ?2
+                AND model_id = ?3 AND provider_id = ?4",
+            params![
+                product_session_id,
+                target.engine_id,
+                target.model_id,
+                target.provider_id
+            ],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("find queued-switch Hub engine branch: {error}"))?
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let branch_exists = transaction
+        .query_row(
+            "SELECT 1 FROM engine_branches WHERE branch_id = ?1",
+            [&target_branch_id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(|error| format!("check queued-switch Hub engine branch: {error}"))?
+        .is_some();
+    if !branch_exists {
+        insert_engine_branch(
+            transaction,
+            &target_branch_id,
+            product_session_id,
+            target,
+            "parked",
+            now,
+        )?;
+    } else {
+        update_engine_branch_options(transaction, &target_branch_id, target, now)?;
+    }
+
     let existing = transaction
         .query_row(
             "SELECT switch_id FROM engine_switches
@@ -3145,13 +3320,14 @@ fn upsert_queued_switch(
         transaction
             .execute(
                 "UPDATE engine_switches
-                    SET source_branch_id = ?2, target_engine_id = ?3,
-                        target_model_id = ?4, target_provider_id = ?5,
-                        reason = ?6, requested_at = ?7
+                    SET source_branch_id = ?2, target_branch_id = ?3,
+                        target_engine_id = ?4, target_model_id = ?5,
+                        target_provider_id = ?6, reason = ?7, requested_at = ?8
                   WHERE switch_id = ?1",
                 params![
                     switch_id,
                     source_branch_id,
+                    target_branch_id,
                     target.engine_id,
                     target.model_id,
                     target.provider_id,
@@ -3170,11 +3346,12 @@ fn upsert_queued_switch(
                (switch_id, product_session_id, source_branch_id, target_branch_id,
                 target_engine_id, target_model_id, target_provider_id, reason,
                 status, handoff_id, requested_at, applied_at)
-             VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, 'queued', NULL, ?8, NULL)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'queued', NULL, ?9, NULL)",
             params![
                 switch_id,
                 product_session_id,
                 source_branch_id,
+                target_branch_id,
                 target.engine_id,
                 target.model_id,
                 target.provider_id,
@@ -3221,23 +3398,18 @@ fn apply_switch_in_transaction(
         .map_err(|error| format!("check target Hub engine branch: {error}"))?
         .is_none()
     {
-        transaction
-            .execute(
-                "INSERT INTO engine_branches
-                   (branch_id, product_session_id, engine_id, model_id, provider_id,
-                    engine_session_id, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'parked', ?6, ?6)",
-                params![
-                    target_branch_id,
-                    product_session_id,
-                    target.engine_id,
-                    target.model_id,
-                    target.provider_id,
-                    now
-                ],
-            )
-            .map_err(|error| format!("create target Hub engine branch: {error}"))?;
+        insert_engine_branch(
+            transaction,
+            &target_branch_id,
+            product_session_id,
+            target,
+            "parked",
+            now,
+        )?;
+    } else {
+        update_engine_branch_options(transaction, &target_branch_id, target, now)?;
     }
+    let branch_target = query_branch_target(transaction, &target_branch_id)?;
 
     transaction
         .execute(
@@ -3273,16 +3445,14 @@ fn apply_switch_in_transaction(
         )
         .map_err(|error| format!("activate Hub session engine branch: {error}"))?;
 
-    let mut source = EngineTarget::for_engine(&source_session.engine_id)?;
-    source.model_id = source_session.model_id.clone();
-    source.provider_id = source_session.provider_id.clone();
+    let source = query_branch_target(transaction, &source_session.active_branch_id)?;
     let package = build_handoff_package(
         transaction,
         product_session_id,
         &source_session.active_branch_id,
         &target_branch_id,
         source,
-        target.clone(),
+        branch_target.clone(),
         reason,
         now,
         HandoffKind::Full,
@@ -3305,7 +3475,7 @@ fn apply_switch_in_transaction(
         &source_session.active_branch_id,
         Some(&target_branch_id),
         &source_session.engine_id,
-        &target.engine_id,
+        &branch_target.engine_id,
         reason,
         now,
     )?;
@@ -3313,8 +3483,8 @@ fn apply_switch_in_transaction(
     Ok(SwitchOutcome {
         disposition: SwitchDisposition::Applied,
         active_branch_id: target_branch_id,
-        active_engine_id: target.engine_id.clone(),
-        target_engine_id: target.engine_id.clone(),
+        active_engine_id: branch_target.engine_id.clone(),
+        target_engine_id: branch_target.engine_id,
     })
 }
 
@@ -3863,24 +4033,41 @@ fn query_branches(
 ) -> Result<Vec<StoredBranch>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT branch_id, engine_id, model_id, provider_id, engine_session_id,
-                    watermark_turn_rowid, status, created_at, updated_at
+            "SELECT branch_id, engine_id, model_id, provider_id, account_source,
+                    billing_route, automatic_use_authorized, required_capabilities_json,
+                    reasoning_effort, fast_mode, engine_session_id, watermark_turn_rowid,
+                    status, created_at, updated_at
                FROM engine_branches WHERE product_session_id = ?1
               ORDER BY created_at ASC, rowid ASC",
         )
         .map_err(|error| format!("prepare Hub engine branches: {error}"))?;
     let rows = statement
         .query_map([product_session_id], |row| {
+            let required_capabilities_json: String = row.get(7)?;
+            let required_capabilities =
+                serde_json::from_str(&required_capabilities_json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        7,
+                        rusqlite::types::Type::Text,
+                        error.into(),
+                    )
+                })?;
             Ok(StoredBranch {
                 branch_id: row.get(0)?,
                 engine_id: row.get(1)?,
                 model_id: row.get(2)?,
                 provider_id: row.get(3)?,
-                engine_session_id: row.get(4)?,
-                watermark_turn_rowid: row.get(5)?,
-                status: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
+                account_source: row.get(4)?,
+                billing_route: row.get(5)?,
+                automatic_use_authorized: row.get(6)?,
+                required_capabilities,
+                reasoning_effort: row.get(8)?,
+                fast_mode: row.get(9)?,
+                engine_session_id: row.get(10)?,
+                watermark_turn_rowid: row.get(11)?,
+                status: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
             })
         })
         .map_err(|error| format!("query Hub engine branches: {error}"))?;
@@ -3992,25 +4179,52 @@ fn query_pending_switch(
     connection: &Connection,
     product_session_id: &str,
 ) -> Result<Option<PendingSwitch>, String> {
-    connection
+    let pending = connection
         .query_row(
-            "SELECT switch_id, source_branch_id, target_engine_id,
+            "SELECT switch_id, source_branch_id, target_branch_id, target_engine_id,
                     target_model_id, target_provider_id, reason, requested_at
                FROM engine_switches
               WHERE product_session_id = ?1 AND status = 'queued'",
             [product_session_id],
             |row| {
-                Ok(PendingSwitch {
-                    switch_id: row.get(0)?,
-                    source_branch_id: row.get(1)?,
-                    target: engine_target_from_branch(row.get(2)?, row.get(3)?, row.get(4)?),
-                    reason: row.get(5)?,
-                    requested_at: row.get(6)?,
-                })
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
             },
         )
         .optional()
-        .map_err(|error| format!("query pending Hub engine switch: {error}"))
+        .map_err(|error| format!("query pending Hub engine switch: {error}"))?;
+    let Some((
+        switch_id,
+        source_branch_id,
+        target_branch_id,
+        engine_id,
+        model_id,
+        provider_id,
+        reason,
+        requested_at,
+    )) = pending
+    else {
+        return Ok(None);
+    };
+    let target = match target_branch_id {
+        Some(branch_id) => query_branch_target(connection, &branch_id)?,
+        None => legacy_engine_target(engine_id, model_id, provider_id),
+    };
+    Ok(Some(PendingSwitch {
+        switch_id,
+        source_branch_id,
+        target,
+        reason,
+        requested_at,
+    }))
 }
 
 fn query_session(
@@ -4028,7 +4242,8 @@ fn query_session(
                     (SELECT final_result FROM turns t
                        WHERE t.product_session_id = hs.product_session_id
                        ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
-                    hs.permission_profile, hs.include_full_transcript
+                    hs.permission_profile, hs.include_full_transcript,
+                    hs.workspace_kind
                FROM hub_sessions hs
                JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
               WHERE hs.product_session_id = ?1",
@@ -4186,9 +4401,13 @@ fn query_worker_task(connection: &Connection, task_id: &str) -> Result<Option<Wo
 
 fn decode_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<HubSessionSummary> {
     let profile_text: String = row.get(11)?;
+    let workspace_kind_text: String = row.get(13)?;
     Ok(HubSessionSummary {
         product_session_id: row.get(0)?,
         workspace: row.get(1)?,
+        workspace_kind: WorkspaceKind::parse(&workspace_kind_text).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(13, rusqlite::types::Type::Text, error.into())
+        })?,
         active_branch_id: row.get(2)?,
         engine_id: row.get(3)?,
         model_id: row.get(4)?,
@@ -4527,6 +4746,48 @@ fn initialize_schema_and_recover(
             .map_err(|error| format!("migrate Hub database to schema 14: {error}"))?;
     }
 
+    if schema_version < 15 {
+        // A branch is the durable binding to one exact EngineTarget. Legacy
+        // rows have only target identity, so their unavailable metadata is
+        // represented explicitly instead of being guessed from current
+        // provider configuration.
+        transaction
+            .execute_batch(
+                "ALTER TABLE engine_branches
+                   ADD COLUMN account_source TEXT NOT NULL DEFAULT 'Unconfigured account';
+                 ALTER TABLE engine_branches
+                   ADD COLUMN billing_route TEXT NOT NULL DEFAULT 'Unconfigured billing route';
+                 ALTER TABLE engine_branches
+                   ADD COLUMN automatic_use_authorized INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE engine_branches
+                   ADD COLUMN required_capabilities_json TEXT NOT NULL DEFAULT '[]';",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 15: {error}"))?;
+    }
+
+    if schema_version < 16 {
+        // Model execution options belong to the durable branch so resumed
+        // turns rebuild the engine with the same effort and service tier.
+        transaction
+            .execute_batch(
+                "ALTER TABLE engine_branches ADD COLUMN reasoning_effort TEXT;
+                 ALTER TABLE engine_branches
+                   ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0;",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 16: {error}"))?;
+    }
+
+    if schema_version < 17 {
+        // Legacy sessions always pointed at a user-selected project. Only
+        // the explicit managed-workspace command creates session-kind rows.
+        transaction
+            .execute_batch(
+                "ALTER TABLE hub_sessions
+                   ADD COLUMN workspace_kind TEXT NOT NULL DEFAULT 'project';",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 17: {error}"))?;
+    }
+
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)
@@ -4781,6 +5042,28 @@ mod tests {
         panic!("could not reopen {}: {last}", database.display());
     }
 
+    fn assert_branch_target(branch: &StoredBranch, target: &EngineTarget) {
+        assert_eq!(branch.engine_id, target.engine_id);
+        assert_eq!(branch.model_id, target.model_id);
+        assert_eq!(branch.provider_id, target.provider_id);
+        assert_eq!(branch.account_source, target.account_source);
+        assert_eq!(branch.billing_route, target.billing_route);
+        assert_eq!(
+            branch.automatic_use_authorized,
+            target.automatic_use_authorized
+        );
+        assert_eq!(branch.required_capabilities, target.required_capabilities);
+        assert_eq!(branch.reasoning_effort, target.reasoning_effort);
+        assert_eq!(branch.fast_mode, target.fast_mode);
+    }
+
+    fn assert_redacted_handoff_target(actual: &EngineTarget, pinned: &EngineTarget) {
+        let mut expected = pinned.clone();
+        expected.account_source.clear();
+        expected.billing_route.clear();
+        assert_eq!(actual, &expected);
+    }
+
     #[cfg(unix)]
     #[test]
     fn database_and_parent_are_private() {
@@ -4885,6 +5168,55 @@ mod tests {
         first
             .finish_turn(&running, Some("engine-1"), Some("next done"), None, None)
             .unwrap();
+    }
+
+    #[test]
+    fn new_session_branch_metadata_roundtrips_and_restores_after_reopen() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let target = EngineTarget {
+            engine_id: "alva".into(),
+            model_id: "synthetic-model".into(),
+            provider_id: "synthetic-provider".into(),
+            account_source: "Synthetic workspace account".into(),
+            billing_route: "Synthetic test billing".into(),
+            automatic_use_authorized: true,
+            required_capabilities: vec!["streaming".into(), "tool_calls".into()],
+            reasoning_effort: Some("xhigh".into()),
+            fast_mode: true,
+        };
+
+        let prepared = store
+            .prepare_new_turn(
+                "product-target-roundtrip",
+                workspace.path(),
+                "work",
+                &target,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        let live = store
+            .get_session("product-target-roundtrip")
+            .unwrap()
+            .unwrap();
+        assert_branch_target(&live.branches[0], &target);
+        store
+            .finish_turn(&prepared, None, Some("done"), None, None)
+            .unwrap();
+        drop(store);
+
+        let reopened = reopen(&database);
+        let recovered = reopened
+            .get_session("product-target-roundtrip")
+            .unwrap()
+            .unwrap();
+        assert_branch_target(&recovered.branches[0], &target);
+        let resumed = reopened
+            .prepare_resumed_turn("product-target-roundtrip", "continue")
+            .unwrap();
+        assert_eq!(resumed.target, target);
     }
 
     #[test]
@@ -5010,17 +5342,67 @@ mod tests {
         assert_eq!(detail.turns[0].result.as_deref(), Some("old result"));
         assert_eq!(detail.turns[0].attempts.len(), 1);
         assert_eq!(detail.turns[0].attempts[0].status, STATUS_COMPLETED);
+        assert_eq!(detail.branches.len(), 1);
+        assert_eq!(detail.branches[0].account_source, default_account_source());
+        assert_eq!(detail.branches[0].billing_route, default_billing_route());
+        assert!(!detail.branches[0].automatic_use_authorized);
+        assert!(detail.branches[0].required_capabilities.is_empty());
         // Pre-profile sessions keep their de-facto contract after migration.
         assert_eq!(
             detail.session.permission_profile,
             PermissionProfile::WorkspaceWrite
         );
+        assert_eq!(detail.session.workspace_kind, WorkspaceKind::Project);
         let version = store
             .lock()
             .unwrap()
             .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap();
         assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn session_workspace_kind_persists_across_reopen() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let target = EngineTarget::for_engine("alva").unwrap();
+
+        let prepared = store
+            .prepare_new_turn_with_workspace_kind(
+                "product-session-workspace",
+                workspace.path(),
+                "work in isolation",
+                &target,
+                PermissionProfile::WorkspaceWrite,
+                WorkspaceKind::Session,
+            )
+            .unwrap();
+        store
+            .finish_turn(&prepared, Some("native-session"), Some("done"), None, None)
+            .unwrap();
+        assert_eq!(
+            store
+                .get_session("product-session-workspace")
+                .unwrap()
+                .unwrap()
+                .session
+                .workspace_kind,
+            WorkspaceKind::Session
+        );
+        drop(store);
+
+        let reopened = HubStore::open(&database).unwrap();
+        assert_eq!(
+            reopened
+                .get_session("product-session-workspace")
+                .unwrap()
+                .unwrap()
+                .session
+                .workspace_kind,
+            WorkspaceKind::Session
+        );
     }
 
     #[test]
@@ -5077,6 +5459,49 @@ mod tests {
                 .permission_profile,
             PermissionProfile::Unrestricted
         );
+    }
+
+    #[test]
+    fn same_route_option_changes_persist_without_creating_a_branch() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("alva-hub.db");
+        let store = HubStore::open(&database).unwrap();
+        let initial = EngineTarget {
+            reasoning_effort: Some("high".into()),
+            ..EngineTarget::for_engine("codex").unwrap()
+        };
+        let prepared = store
+            .prepare_new_turn(
+                "product-options",
+                workspace.path(),
+                "work",
+                &initial,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .finish_turn(&prepared, None, Some("done"), None, None)
+            .unwrap();
+
+        let updated = EngineTarget {
+            reasoning_effort: Some("xhigh".into()),
+            fast_mode: true,
+            ..initial
+        };
+        store
+            .request_engine_switch("product-options", &updated, "change model options")
+            .unwrap();
+        let live = store.get_session("product-options").unwrap().unwrap();
+        assert_eq!(live.branches.len(), 1);
+        assert_branch_target(&live.branches[0], &updated);
+        drop(store);
+
+        let reopened = reopen(&database);
+        let resumed = reopened
+            .prepare_resumed_turn("product-options", "continue")
+            .unwrap();
+        assert_eq!(resumed.target, updated);
     }
 
     #[test]
@@ -5333,22 +5758,46 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let database = root.path().join("alva-hub.db");
         let store = HubStore::open(&database).unwrap();
+        let source = EngineTarget {
+            engine_id: "alva".into(),
+            model_id: "synthetic-alva-model".into(),
+            provider_id: "synthetic-alva-provider".into(),
+            account_source: "Synthetic Alva account".into(),
+            billing_route: "Synthetic workspace billing".into(),
+            automatic_use_authorized: false,
+            required_capabilities: vec!["tool_calls".into()],
+            reasoning_effort: Some("medium".into()),
+            fast_mode: false,
+        };
+        let target = EngineTarget {
+            engine_id: "claude".into(),
+            model_id: "synthetic-claude-model".into(),
+            provider_id: "synthetic-claude-provider".into(),
+            account_source: "Synthetic Claude account".into(),
+            billing_route: "Synthetic Anthropic billing".into(),
+            automatic_use_authorized: false,
+            required_capabilities: vec!["streaming".into(), "resume".into()],
+            reasoning_effort: Some("high".into()),
+            fast_mode: true,
+        };
         store
             .prepare_new_turn(
                 "product-crash-switch",
                 workspace.path(),
                 "work",
-                &EngineTarget::for_engine("alva").unwrap(),
+                &source,
                 PermissionProfile::WorkspaceWrite,
             )
             .unwrap();
         store
             .request_engine_switch(
                 "product-crash-switch",
-                &EngineTarget::for_engine("claude").unwrap(),
+                &target,
                 "User selected Claude before restart",
             )
             .unwrap();
+        let queued = store.get_session("product-crash-switch").unwrap().unwrap();
+        assert_eq!(queued.pending_switch.unwrap().target, target);
         drop(store);
 
         let reopened = reopen(&database);
@@ -5360,6 +5809,24 @@ mod tests {
         assert_eq!(detail.session.engine_id, "claude");
         assert!(detail.pending_switch.is_none());
         assert_eq!(detail.handoffs.len(), 1);
+        let target_branch = detail
+            .branches
+            .iter()
+            .find(|branch| branch.engine_id == "claude")
+            .unwrap();
+        assert_branch_target(target_branch, &target);
+        let source_branch = detail
+            .branches
+            .iter()
+            .find(|branch| branch.engine_id == "alva")
+            .unwrap();
+        assert_branch_target(source_branch, &source);
+        assert_redacted_handoff_target(&detail.handoffs[0].source, &source);
+        assert_redacted_handoff_target(&detail.handoffs[0].target, &target);
+        let resumed = reopened
+            .prepare_resumed_turn("product-crash-switch", "continue")
+            .unwrap();
+        assert_eq!(resumed.target, target);
     }
 
     #[test]
@@ -5650,7 +6117,12 @@ mod tests {
         let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
         let alva = EngineTarget::for_engine("alva").unwrap();
         let mut claude = EngineTarget::for_engine("claude").unwrap();
+        claude.model_id = "synthetic-fallback-model".into();
+        claude.provider_id = "synthetic-fallback-provider".into();
+        claude.account_source = "Synthetic fallback account".into();
+        claude.billing_route = "Synthetic fallback billing".into();
         claude.automatic_use_authorized = true;
+        claude.required_capabilities = vec!["streaming".into(), "tool_calls".into()];
         let prepared = store
             .prepare_new_turn(
                 "product-fallback",
@@ -5669,9 +6141,16 @@ mod tests {
             .unwrap();
         assert_eq!(next.turn_id, prepared.turn_id);
         assert_ne!(next.attempt_id, prepared.attempt_id);
-        assert_eq!(next.target.engine_id, "claude");
+        assert_eq!(next.target, claude);
         assert!(next.handoff.as_ref().is_some_and(|handoff| {
-            handoff.kind == HandoffKind::Full && handoff.reason == "engine process died"
+            handoff.kind == HandoffKind::Full
+                && handoff.reason == "engine process died"
+                && handoff.target.model_id == claude.model_id
+                && handoff.target.provider_id == claude.provider_id
+                && handoff.target.automatic_use_authorized == claude.automatic_use_authorized
+                && handoff.target.required_capabilities == claude.required_capabilities
+                && handoff.target.account_source.is_empty()
+                && handoff.target.billing_route.is_empty()
         }));
         assert!(!next.native_resume);
 
@@ -5690,6 +6169,7 @@ mod tests {
             .find(|branch| branch.engine_id == "claude")
             .unwrap();
         assert_eq!(target.status, "active");
+        assert_branch_target(target, &claude);
 
         assert_eq!(detail.turns.len(), 1);
         let attempts = &detail.turns[0].attempts;

@@ -12,11 +12,11 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 1. 产品控制器通过 `EngineRuntime` seam 驱动 `HubRuntime`。
 2. `HubStore` 以 Desktop 私有 SQLite 持久化 product session、session-scoped FallbackPolicy snapshot、多 EngineBranch、switch、handoff、timeline、Turn 和 EngineAttempt。
 3. Attempt 运行中增量记录 native session 与工具开始/完成证据，终态记录 usage/失败原因。
-4. 用户显式选择 Alva/Claude/Codex；源 branch parked 并保留 native session，目标 branch 创建或恢复。
+4. 用户显式选择 ALVA/Claude Code/Codex/Pi；源 branch parked 并保留 native session，目标 branch 创建或恢复。Claude/Codex 可用自己的订阅，也可消费协议兼容的第三方 API；ALVA/Pi 只消费第三方 API。模型 route 按 provider × model × engine 精确声明 reasoning 档位与 Fast 能力，未知模型不猜测；选择随 EngineBranch 持久化并投影到实际 adapter，Fast 仅进入声明支持它的 Codex route。
 5. 首次进入目标 branch 注入完整 HandoffPackage；返回 parked branch 以 watermark 生成 delta 并先 native resume，失效时原子升级 full handoff 后 fresh 执行。
 6. 运行中切换排队到安全终态；启动修复 running Attempt 后自动应用可执行的 pending switch。
 7. Tauri command 把用户运行/切换请求转换为 Hub 产品操作，并把 timeline event 发给 React。
-8. React/Vite/TypeScript 前端负责 session list、workspace、engine selector、composer 和 timeline。
+8. React/Vite/TypeScript 前端的新会话中央入口优先并推荐“项目”，显式选择现有 Workspace；“独立会话”作为第二选项在 app-data 获得 owner-only 专属目录。Sidebar 不重复放 Workspace 入口。两种模式的 HubSession 历史、分支和运行状态都独立，项目模式仅共享项目文件。
 9. 用户保存全局或 session fallback chain 前可看到 target 的 model/provider、账号、账单路径和自动使用授权；手动切换不授予自动 fallback 权限。
 10. Engines dashboard 自动发现三个 engine 并展示版本兼容性、capabilities、auth 与 stream health；不可用原因是结构化 reason，可从 composer 与详情到达；刷新只读。
 
@@ -62,11 +62,14 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | Product seam | `src/run.rs` | 动态 engine Hub 运行、完整 handoff 注入与 timeline 投影 |
-| Engine assembly | `src/alva.rs` | 为 workspace 构造 Alva、Claude light 或 Codex adapter |
+| Engine assembly | `src/alva.rs` | 为 workspace 构造 ALVA、Claude Code、Codex 或 Pi adapter，并投影统一第三方 ProviderConfig |
 | Engine readiness | `src/readiness.rs` | 只读 probe、结构化 readiness 分类与 dashboard DTO |
 | Permission contract | `src/permissions.rs` | session PermissionProfile、adapter 映射资格与 PermissionRouter |
-| Session store | `src/store.rs` | 私有 SQLite policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
-| Tauri entry | `src/main.rs` | 运行/切换 IPC、event emission 与 Desktop runtime |
+| Provider plane | `src/provider_plane/` | 版本化模型身份、显式 binding 校验、per-engine override 与无 I/O 路由规划 |
+| Provider catalog | `src/providers.rs` | Provider 连接配置、backend-validated model binding、私密凭证与 route DTO 投影 |
+| Session workspace | `src/session_workspace.rs` | owner-only 独立会话目录创建与 project/session workspace kind |
+| Session store | `src/store.rs` | 私有 SQLite workspace kind、policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
+| Tauri entry | `src/main.rs` | workspace 创建、运行/切换 IPC、event emission 与 Desktop runtime |
 | Crate facade | `src/lib.rs` | 对 Tauri 层和测试暴露产品类型 |
 | Web frontend | `web/` | React/Vite/TypeScript workspace、composer 与 timeline |
 | Desktop config | `tauri.conf.json` / `capabilities/` | window、build 与最小权限配置 |

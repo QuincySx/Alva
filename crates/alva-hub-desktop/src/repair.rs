@@ -35,13 +35,14 @@ pub struct RepairAction {
     pub one_click: bool,
 }
 
-/// Official distribution matrix. Claude Code and Codex CLI ship through npm
-/// under their vendors' scopes — safe to one-click. Auth flows are
+/// Official distribution matrix. Claude Code, Codex CLI, and Pi ship through
+/// npm under their vendors' scopes — safe to one-click. Auth flows are
 /// interactive terminal sessions, so they stay guided.
 fn npm_package(engine_id: &str) -> Option<&'static str> {
     match engine_id {
         "claude" => Some("@anthropic-ai/claude-code"),
         "codex" => Some("@openai/codex"),
+        "pi" => Some("@earendil-works/pi-coding-agent"),
         _ => None,
     }
 }
@@ -50,6 +51,7 @@ fn docs_url(engine_id: &str) -> Option<&'static str> {
     match engine_id {
         "claude" => Some("https://docs.anthropic.com/en/docs/claude-code/setup"),
         "codex" => Some("https://developers.openai.com/codex/cli"),
+        "pi" => Some("https://github.com/earendil-works/pi"),
         _ => None,
     }
 }
@@ -89,11 +91,11 @@ pub fn repair_plan(readiness: &EngineReadiness) -> Vec<RepairAction> {
             }
         }
         ReadinessStatus::Unauthenticated => match engine_id {
-            "alva" => actions.push(RepairAction {
+            "alva" | "pi" => actions.push(RepairAction {
                 engine_id: engine_id.to_string(),
                 kind: RepairKind::Configure,
-                title: "Configure a provider API key".to_string(),
-                command: Some("alva settings set <profile> --api-key <key>".to_string()),
+                title: "Open Models and engines in Settings".to_string(),
+                command: None,
                 url: None,
                 one_click: false,
             }),
@@ -291,6 +293,7 @@ mod tests {
         for (engine, package) in [
             ("claude", "@anthropic-ai/claude-code"),
             ("codex", "@openai/codex"),
+            ("pi", "@earendil-works/pi-coding-agent"),
         ] {
             let plan = repair_plan(&readiness_for(engine, missing()));
             assert_eq!(plan.len(), 1, "{engine}");
@@ -330,7 +333,12 @@ mod tests {
 
         let alva = repair_plan(&readiness_for("alva", installed("0.1.0", Some(false))));
         assert_eq!(alva[0].kind, RepairKind::Configure);
+        assert_eq!(alva[0].command, None);
         assert!(!alva[0].one_click);
+
+        let pi = repair_plan(&readiness_for("pi", installed("0.84.0", Some(false))));
+        assert_eq!(pi[0].kind, RepairKind::Configure);
+        assert_eq!(pi[0].command, None);
     }
 
     #[test]

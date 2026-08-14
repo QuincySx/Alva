@@ -1,4 +1,4 @@
-// INPUT:  alva_engine_runtime, claude/codex adapter permission knobs, serde
+// INPUT:  alva_engine_runtime, claude/codex/pi adapter permission knobs, serde
 // OUTPUT: PermissionProfile, adapter enforcement contract, eligibility DTOs, PermissionRouter
 // POS:    Session permission profile owner; decides which engines may keep or tighten it.
 
@@ -65,6 +65,8 @@ pub enum EngineEnforcement {
     InteractiveCallbacks,
     ClaudePrintMode(ClaudePrintPermissionMode),
     CodexSandbox(CodexSandboxMode),
+    PiReadOnly,
+    PiUnrestricted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,8 +140,23 @@ pub fn enforcement_for(
             enforcement: EngineEnforcement::CodexSandbox(CodexSandboxMode::DangerFullAccess),
             summary: "danger-full-access auto-allows everything".into(),
         }),
+        ("pi", PermissionProfile::Interactive) => Err(ineligible_reason(
+            "pi",
+            profile,
+            "Pi print mode does not expose interactive permission callbacks",
+        )),
+        ("pi", PermissionProfile::WorkspaceWrite) => Ok(EnforcementPlan {
+            relation: EnforcementRelation::Stricter,
+            enforcement: EngineEnforcement::PiReadOnly,
+            summary: "Pi is restricted to read, grep, find, and ls tools".into(),
+        }),
+        ("pi", PermissionProfile::Unrestricted) => Ok(EnforcementPlan {
+            relation: EnforcementRelation::Equivalent,
+            enforcement: EngineEnforcement::PiUnrestricted,
+            summary: "Pi runs its complete configured tool set".into(),
+        }),
         (other, _) => Err(format!(
-            "unsupported Hub engine '{other}'; expected alva, claude, or codex"
+            "unsupported Hub engine '{other}'; expected alva, claude, codex, or pi"
         )),
     }
 }
@@ -608,6 +625,17 @@ mod tests {
                     EngineEnforcement::CodexSandbox(CodexSandboxMode::DangerFullAccess),
                 )),
             ),
+            ("pi", PermissionProfile::Interactive, None),
+            (
+                "pi",
+                PermissionProfile::WorkspaceWrite,
+                Some((Stricter, EngineEnforcement::PiReadOnly)),
+            ),
+            (
+                "pi",
+                PermissionProfile::Unrestricted,
+                Some((Equivalent, EngineEnforcement::PiUnrestricted)),
+            ),
         ];
         for (engine_id, profile, expected) in table {
             let plan = enforcement_for(engine_id, profile);
@@ -664,7 +692,7 @@ mod tests {
                 .iter()
                 .map(|e| e.engine_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["alva", "claude", "codex"]
+            vec!["alva", "claude", "codex", "pi"]
         );
         assert!(report[0].eligible);
         assert_eq!(report[0].relation, Some(EnforcementRelation::Equivalent));

@@ -1,5 +1,5 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: binary with run/switch/session/policy IPC over the crash-repaired Hub store
+// OUTPUT: binary with workspace/run/switch/session/policy IPC over the crash-repaired Hub store
 // POS:    Tauri 2 entrypoint and user-authorized multi-engine Desktop state owner.
 
 #![cfg_attr(
@@ -13,16 +13,20 @@ use std::sync::{Arc, Mutex};
 
 use alva_engine_runtime::{EngineRuntime, PermissionDecision};
 use alva_hub_desktop::{
-    build_engine, permission_eligibility, probe_readiness, run_persisted, EngineEligibility,
-    EngineReadiness, EngineTarget, FallbackPolicy, HubSessionDetail, HubSessionSummary, HubStore,
-    PermissionProfile, PermissionRouter, RunOutcome, RunRequest, SwitchOutcome, SystemProbe,
-    TaskClaim, TimelineEvent, TimelineStatus,
+    build_engine_for_target, diagnose_provider_inference, discover_provider_models,
+    create_managed_session_workspace, permission_eligibility, probe_readiness,
+    run_persisted_with_target, EngineEligibility, EngineReadiness, EngineTarget, FallbackPolicy,
+    HubSessionDetail, HubSessionSummary, HubStore, ModelRoute, PermissionProfile,
+    PermissionRouter, ProviderCatalog, ProviderDiagnosticResult, ProviderProfile, RunOutcome,
+    RunRequest, SaveProviderProfile, SwitchOutcome, SystemProbe, TaskClaim, TimelineEvent,
+    TimelineStatus, WorkspaceBinding,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 struct DesktopState {
     store: HubStore,
+    providers: ProviderCatalog,
     history_dir: PathBuf,
     /// Engine currently executing each product session, so a user Stop can
     /// reach the live adapter. Entries live only for the duration of a run.
@@ -36,6 +40,9 @@ struct DesktopState {
     /// Root holding every Hub-managed worktree; the discard guard requires
     /// a path under it before running any destructive git command.
     worktree_root: PathBuf,
+    /// Root for one-directory-per-conversation workspaces explicitly chosen
+    /// from the new-session surface. These are not cleaned up implicitly.
+    session_workspace_root: PathBuf,
 }
 
 impl DesktopState {
@@ -56,14 +63,143 @@ impl DesktopState {
     }
 }
 
+/// Build the product readiness probe from the same normalized route snapshot
+/// used by Settings, Composer, fallback and runtime resolution.
+fn provider_backed_probe(
+    store: &HubStore,
+    providers: &ProviderCatalog,
+    workspace: Option<PathBuf>,
+) -> Result<SystemProbe, String> {
+    let mut provider_engines = std::collections::HashSet::new();
+    for route in providers.routes(workspace.as_deref())? {
+        if route.available && providers.target_uses_api(&route.target, workspace.as_deref())? {
+            provider_engines.insert(route.target.engine_id);
+        }
+    }
+    let mut probe = SystemProbe::new(Some(store), workspace);
+    for engine_id in provider_engines {
+        probe = probe.with_provider_authenticated(engine_id, true);
+    }
+    Ok(probe)
+}
+
+fn same_route_identity(left: &EngineTarget, right: &EngineTarget) -> bool {
+    left.engine_id == right.engine_id
+        && left.provider_id == right.provider_id
+        && left.model_id == right.model_id
+}
+
+/// Effective product routes: provider validity plus fast engine readiness.
+/// This is the snapshot consumed by both Settings and the Composer.
+fn effective_model_routes(
+    store: &HubStore,
+    providers: &ProviderCatalog,
+    workspace: Option<PathBuf>,
+) -> Result<Vec<ModelRoute>, String> {
+    let mut routes = providers.routes(workspace.as_deref())?;
+    let probe = provider_backed_probe(store, providers, workspace.clone())?;
+    for route in &mut routes {
+        if !route.available {
+            continue;
+        }
+        let uses_provider_api = providers.target_uses_api(&route.target, workspace.as_deref())?;
+        if let Some(reason) =
+            probe.quick_veto_for_target(&route.target.engine_id, uses_provider_api)
+        {
+            route.available = false;
+            route.unavailable_reason = Some(reason);
+        }
+    }
+    Ok(routes)
+}
+
+fn canonical_available_route(
+    store: &HubStore,
+    providers: &ProviderCatalog,
+    workspace: Option<&std::path::Path>,
+    requested: &EngineTarget,
+) -> Result<ModelRoute, String> {
+    let mut route = effective_model_routes(
+        store,
+        providers,
+        workspace.map(std::path::Path::to_path_buf),
+    )?
+    .into_iter()
+    .find(|route| same_route_identity(&route.target, requested))
+    .ok_or_else(|| {
+        format!(
+            "route '{}/{}/{}' is not configured",
+            requested.engine_id, requested.provider_id, requested.model_id
+        )
+    })?;
+    if !route.available {
+        return Err(route
+            .unavailable_reason
+            .clone()
+            .unwrap_or_else(|| "the selected model route is unavailable".into()));
+    }
+    let canonical = providers
+        .route_for_target(requested, workspace)?
+        .ok_or_else(|| {
+            format!(
+                "route '{}/{}/{}' is not configured",
+                requested.engine_id, requested.provider_id, requested.model_id
+            )
+        })?;
+    route.target = canonical.target;
+    Ok(route)
+}
+
 #[tauri::command]
 async fn run_hub_prompt(
     app: AppHandle,
     state: State<'_, DesktopState>,
     request: RunRequest,
+    selected_target: Option<EngineTarget>,
+    run_token: Option<String>,
 ) -> Result<RunOutcome, String> {
+    let selected_target = if request.product_session_id.is_none() {
+        if run_token
+            .as_deref()
+            .filter(|token| !token.trim().is_empty())
+            .is_none()
+        {
+            return Err("a new Hub run requires a correlation token".into());
+        }
+        let requested_target = match selected_target {
+            Some(target) => target,
+            None => state
+                .providers
+                .default_target(Some(&request.workspace))?
+                .map(|route| route.target)
+                .ok_or(
+                    "Choose an available default model in Settings before starting a session.",
+                )?,
+        };
+        Some(
+            canonical_available_route(
+                &state.store,
+                &state.providers,
+                Some(&request.workspace),
+                &requested_target,
+            )?
+            .target,
+        )
+    } else {
+        if selected_target.is_some() {
+            return Err("a resumed Hub session cannot override its pinned model route".into());
+        }
+        None
+    };
     let (workspace, _engine_id) = state.execution_target(&request)?;
-    execute_session_run(app, &state, workspace, request).await
+    execute_session_run(app, &state, workspace, request, selected_target, run_token).await
+}
+
+#[derive(Clone, Serialize)]
+struct DesktopTimelineEvent {
+    #[serde(flatten)]
+    event: TimelineEvent,
+    run_token: Option<String>,
 }
 
 /// The one execution wiring both user prompts and team worker dispatches go
@@ -73,10 +209,14 @@ async fn execute_session_run(
     state: &DesktopState,
     workspace: PathBuf,
     request: RunRequest,
+    selected_target: Option<EngineTarget>,
+    run_token: Option<String>,
 ) -> Result<RunOutcome, String> {
     let history_dir = state.history_dir.clone();
     let health_store = state.store.clone();
     let health_workspace = workspace.clone();
+    let build_providers = state.providers.clone();
+    let health_providers = state.providers.clone();
     let registry = Arc::new(Mutex::new(Vec::<String>::new()));
     let build_registry = Arc::clone(&registry);
     let engines = &state.active_engines;
@@ -104,11 +244,13 @@ async fn execute_session_run(
         .store
         .is_autonomous_scope(&session_key)
         .unwrap_or(false);
-    let outcome = run_persisted(
+    let outcome = run_persisted_with_target(
         &state.store,
         move |target, product_session_id, permission_profile| {
-            let engine = build_engine(
-                &target.engine_id,
+            let provider_config = build_providers.resolve_target(target, &workspace)?;
+            let engine = build_engine_for_target(
+                target,
+                provider_config,
                 permission_profile,
                 &workspace,
                 &history_dir,
@@ -130,10 +272,16 @@ async fn execute_session_run(
         // subprocess probes, so it never blocks the async runtime; version
         // incompatibility surfaces as a classified attempt failure instead.
         move |target| {
+            let uses_provider_api = match health_providers.resolve_target(target, &health_workspace)
+            {
+                Ok(provider) => provider.is_some(),
+                Err(reason) => return Some(reason),
+            };
             SystemProbe::new(Some(&health_store), Some(health_workspace.clone()))
-                .quick_veto(&target.engine_id)
+                .quick_veto_for_target(&target.engine_id, uses_provider_api)
         },
         request,
+        selected_target,
         move |event| {
             if let Some(info) = &event.permission_request {
                 // The active-engines entry is the adapter currently streaming
@@ -150,7 +298,11 @@ async fn execute_session_run(
                         engine,
                         &info.engine_session_id,
                         alva_hub_desktop::PermissionMember {
-                            scope: approval_scope.clone(),
+                            scope: if approval_scope.is_empty() {
+                                event.product_session_id.clone()
+                            } else {
+                                approval_scope.clone()
+                            },
                             product_session_id: event.product_session_id.clone(),
                             request_id: info.request_id.clone(),
                             requester: requester_label.clone(),
@@ -212,7 +364,13 @@ async fn execute_session_run(
                 // back); its approvals are dead and must not be answerable.
                 router.clear_session(&event.product_session_id);
             }
-            if let Err(error) = app.emit("hub_timeline", event) {
+            if let Err(error) = app.emit(
+                "hub_timeline",
+                DesktopTimelineEvent {
+                    event,
+                    run_token: run_token.clone(),
+                },
+            ) {
                 tracing::warn!(%error, "failed to emit Hub timeline event");
             }
         },
@@ -241,6 +399,15 @@ async fn respond_hub_permission(
     state: State<'_, DesktopState>,
     request: PermissionDecisionRequest,
 ) -> Result<(), String> {
+    let member = state
+        .permission_router
+        .groups()
+        .into_iter()
+        .flat_map(|group| group.members)
+        .find(|member| {
+            member.product_session_id == request.product_session_id
+                && member.request_id == request.request_id
+        });
     let decision = if request.allow {
         PermissionDecision::Allow {
             updated_input: None,
@@ -255,7 +422,27 @@ async fn respond_hub_permission(
     state
         .permission_router
         .respond(&request.product_session_id, &request.request_id, decision)
-        .await
+        .await?;
+    if let Some(member) = member {
+        let summary = format!(
+            "{} '{}'{} for {}",
+            if request.allow { "Allowed" } else { "Denied" },
+            member.tool_name,
+            member
+                .resource
+                .as_deref()
+                .map(|resource| format!(" on {resource}"))
+                .unwrap_or_default(),
+            member.requester,
+        );
+        if let Err(error) = state
+            .store
+            .record_permission_decision(&request.product_session_id, &summary)
+        {
+            tracing::warn!(%error, "failed to record Hub approval audit");
+        }
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -797,6 +984,8 @@ fn ensure_worker_pump(app: AppHandle, worker_id: String) {
                                         engine_id,
                                         product_session_id: run.lead_session_id.clone(),
                                         message: Some(format!("Waiting on {summary}")),
+                                        item_id: Some(task.task_id.clone()),
+                                        activity: None,
                                         permission_request: None,
                                     },
                                 );
@@ -854,6 +1043,8 @@ async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
                 engine_id,
                 product_session_id: run.lead_session_id.clone(),
                 message: None,
+                item_id: Some(task.task_id.clone()),
+                activity: None,
                 permission_request: None,
             },
         ) {
@@ -895,7 +1086,7 @@ async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
         product_session_id: Some(worker.worker_session_id.clone()),
         permission_profile: None,
     };
-    let outcome = execute_session_run(app.clone(), &state, workspace, request).await;
+    let outcome = execute_session_run(app.clone(), &state, workspace, request, None, None).await;
     let finished = match outcome {
         Ok(outcome) => state.store.finish_worker_task(
             &task.task_id,
@@ -927,6 +1118,8 @@ async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
                     engine_id: worker.engine_id.clone(),
                     product_session_id: run.lead_session_id.clone(),
                     message: Some(summary),
+                    item_id: Some(task.task_id.clone()),
+                    activity: None,
                     permission_request: None,
                 },
             ) {
@@ -950,7 +1143,8 @@ async fn get_repair_plan(
     state: State<'_, DesktopState>,
     workspace: Option<String>,
 ) -> Result<Vec<alva_hub_desktop::RepairAction>, String> {
-    let probe = SystemProbe::new(Some(&state.store), workspace.map(PathBuf::from));
+    let probe =
+        provider_backed_probe(&state.store, &state.providers, workspace.map(PathBuf::from))?;
     tauri::async_runtime::spawn_blocking(move || {
         probe_readiness(&probe)
             .iter()
@@ -969,8 +1163,9 @@ async fn run_engine_repair(
     workspace: Option<String>,
 ) -> Result<RepairResult, String> {
     let workspace = workspace.map(PathBuf::from);
-    let probe = SystemProbe::new(Some(&state.store), workspace.clone());
+    let probe = provider_backed_probe(&state.store, &state.providers, workspace.clone())?;
     let store = state.store.clone();
+    let providers = state.providers.clone();
     tauri::async_runtime::spawn_blocking(move || {
         use alva_hub_desktop::{classify_engine, EngineProbe};
         // The argv comes from the engine's CURRENT readiness, server-side.
@@ -978,7 +1173,7 @@ async fn run_engine_repair(
         let argv = alva_hub_desktop::repair_argv(&readiness, kind)?;
         let outcome = alva_hub_desktop::run_repair_command(&argv, None);
         // Re-probe so the caller sees the post-repair version/auth/health.
-        let refreshed_probe = SystemProbe::new(Some(&store), workspace);
+        let refreshed_probe = provider_backed_probe(&store, &providers, workspace)?;
         let readiness = classify_engine(&engine_id, refreshed_probe.facts(&engine_id));
         Ok(RepairResult { outcome, readiness })
     })
@@ -1046,6 +1241,8 @@ async fn stop_attempt_inner(
             engine_id: detail.session.engine_id,
             product_session_id,
             message: Some("User stopped the attempt".to_string()),
+            item_id: None,
+            activity: None,
             permission_request: None,
         },
     ) {
@@ -1058,7 +1255,7 @@ async fn stop_attempt_inner(
 #[serde(rename_all = "camelCase")]
 struct ManualSwitchRequest {
     product_session_id: String,
-    engine_id: String,
+    target: EngineTarget,
     reason: String,
 }
 
@@ -1067,10 +1264,138 @@ fn switch_hub_engine(
     state: State<'_, DesktopState>,
     request: ManualSwitchRequest,
 ) -> Result<SwitchOutcome, String> {
-    let target = EngineTarget::for_engine(&request.engine_id)?;
+    let session = state
+        .store
+        .get_session(&request.product_session_id)?
+        .ok_or_else(|| format!("Hub session '{}' was not found", request.product_session_id))?;
+    let workspace = PathBuf::from(session.session.workspace);
+    let target = canonical_available_route(
+        &state.store,
+        &state.providers,
+        Some(&workspace),
+        &request.target,
+    )?
+    .target;
     state
         .store
         .request_engine_switch(&request.product_session_id, &target, &request.reason)
+}
+
+#[tauri::command]
+fn list_model_providers(
+    state: State<'_, DesktopState>,
+    workspace: Option<String>,
+) -> Result<Vec<ProviderProfile>, String> {
+    state
+        .providers
+        .list(workspace.as_deref().map(std::path::Path::new))
+}
+
+#[tauri::command]
+fn save_model_provider(
+    state: State<'_, DesktopState>,
+    provider: SaveProviderProfile,
+    workspace: Option<String>,
+) -> Result<ProviderProfile, String> {
+    state
+        .providers
+        .save(provider, workspace.as_deref().map(std::path::Path::new))
+}
+
+#[tauri::command]
+fn list_model_routes(
+    state: State<'_, DesktopState>,
+    workspace: Option<String>,
+) -> Result<Vec<ModelRoute>, String> {
+    effective_model_routes(&state.store, &state.providers, workspace.map(PathBuf::from))
+}
+
+#[tauri::command]
+fn get_default_model_route(
+    state: State<'_, DesktopState>,
+    workspace: Option<String>,
+) -> Result<Option<ModelRoute>, String> {
+    let workspace = workspace.map(PathBuf::from);
+    let Some(default) = state.providers.default_target(workspace.as_deref())? else {
+        return Ok(None);
+    };
+    let effective = effective_model_routes(&state.store, &state.providers, workspace)?;
+    Ok(effective
+        .into_iter()
+        .find(|route| same_route_identity(&route.target, &default.target))
+        .or(Some(default)))
+}
+
+#[tauri::command]
+fn set_default_model_route(
+    state: State<'_, DesktopState>,
+    target: EngineTarget,
+    workspace: Option<String>,
+) -> Result<ModelRoute, String> {
+    let workspace = workspace.map(PathBuf::from);
+    let route = canonical_available_route(
+        &state.store,
+        &state.providers,
+        workspace.as_deref(),
+        &target,
+    )?;
+    state
+        .providers
+        .set_default_target(route.target, workspace.as_deref())
+}
+
+#[tauri::command]
+async fn discover_models_for_provider(
+    state: State<'_, DesktopState>,
+    provider_id: String,
+    workspace: Option<String>,
+) -> Result<ProviderDiagnosticResult, String> {
+    let workspace = workspace.map(PathBuf::from);
+    let config = state
+        .providers
+        .resolve_provider_for_diagnostics(&provider_id, workspace.as_deref())?;
+    let kind = config
+        .kind
+        .clone()
+        .ok_or_else(|| format!("provider '{provider_id}' has no protocol kind"))?;
+    Ok(discover_provider_models(&kind, &config).await)
+}
+
+#[tauri::command]
+async fn test_model_route(
+    state: State<'_, DesktopState>,
+    target: EngineTarget,
+    workspace: Option<String>,
+) -> Result<ProviderDiagnosticResult, String> {
+    let workspace = workspace.map(PathBuf::from);
+    let route = canonical_available_route(
+        &state.store,
+        &state.providers,
+        workspace.as_deref(),
+        &target,
+    )?;
+    if !state
+        .providers
+        .target_uses_api(&route.target, workspace.as_deref())?
+    {
+        return Err("Inference diagnostics require an API-backed provider route.".into());
+    }
+    let mut config = state
+        .providers
+        .resolve_provider_for_diagnostics(&route.target.provider_id, workspace.as_deref())?;
+    config.model = route.target.model_id;
+    let kind = config
+        .kind
+        .clone()
+        .ok_or_else(|| "the selected provider has no protocol kind".to_string())?;
+    Ok(diagnose_provider_inference(&kind, &config).await)
+}
+
+#[tauri::command]
+fn create_session_workspace(
+    state: State<'_, DesktopState>,
+) -> Result<WorkspaceBinding, String> {
+    create_managed_session_workspace(&state.session_workspace_root)
 }
 
 #[tauri::command]
@@ -1126,7 +1451,8 @@ async fn get_engine_readiness(
 ) -> Result<Vec<EngineReadiness>, String> {
     // The probe copies its store evidence up front, so the slow CLI probing
     // (`--version` child processes) runs off the IPC thread.
-    let probe = SystemProbe::new(Some(&state.store), workspace.map(PathBuf::from));
+    let probe =
+        provider_backed_probe(&state.store, &state.providers, workspace.map(PathBuf::from))?;
     tauri::async_runtime::spawn_blocking(move || probe_readiness(&probe))
         .await
         .map_err(|error| format!("engine readiness probe task failed: {error}"))
@@ -1149,13 +1475,21 @@ fn main() {
             let data_dir = app.path().app_data_dir()?;
             let store =
                 HubStore::open(data_dir.join("alva-hub.db")).map_err(std::io::Error::other)?;
+            let shared_provider_config = app.path().home_dir()?.join(".alva").join("config.json");
+            let providers = ProviderCatalog::open_with_shared_and_legacy_config(
+                data_dir.join("model-providers.json"),
+                shared_provider_config,
+            )
+            .map_err(std::io::Error::other)?;
             let queued_workers = store.active_workers_with_queued_tasks().unwrap_or_default();
             app.manage(DesktopState {
                 store,
+                providers,
                 history_dir: data_dir.join("alva-history"),
                 active_engines: Mutex::new(HashMap::new()),
                 worker_pumps: Mutex::new(std::collections::HashSet::new()),
                 worktree_root: alva_hub_desktop::worktree_root(&data_dir),
+                session_workspace_root: data_dir.join("session-workspaces"),
                 permission_router: Arc::new(PermissionRouter::new()),
             });
             // Durable queues survive restarts: resume a pump for every worker
@@ -1168,6 +1502,14 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             run_hub_prompt,
             switch_hub_engine,
+            list_model_providers,
+            save_model_provider,
+            list_model_routes,
+            get_default_model_route,
+            set_default_model_route,
+            discover_models_for_provider,
+            test_model_route,
+            create_session_workspace,
             list_hub_sessions,
             get_hub_session,
             add_session_memory,

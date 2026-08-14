@@ -1,17 +1,18 @@
 // INPUT:  EngineProbe facts (binary discovery, version, auth, stream evidence)
-// OUTPUT: structured EngineReadiness reports for the alva/claude/codex dashboard
+// OUTPUT: structured EngineReadiness reports for the ALVA/Claude Code/Codex/Pi dashboard
 // POS:    Read-only Hub engine health classification; probes never mutate engine config.
 
 use std::path::{Path, PathBuf};
 
 use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
 use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
+use alva_engine_adapter_pi::{PiAdapter, PiAdapterConfig};
 use alva_engine_runtime::{EngineRuntime, RuntimeCapabilities};
 use serde::Serialize;
 
 use crate::store::HubStore;
 
-pub const HUB_ENGINE_IDS: [&str; 3] = ["alva", "claude", "codex"];
+pub const HUB_ENGINE_IDS: [&str; 4] = ["alva", "claude", "codex", "pi"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -166,7 +167,7 @@ pub fn classify_engine(engine_id: &str, facts: EngineProbeFacts) -> EngineReadin
             .auth_remedy
             .clone()
             .unwrap_or_else(|| spec.default_auth_remedy.to_string());
-        reasons.push(if engine_id == "alva" {
+        reasons.push(if matches!(engine_id, "alva" | "pi") {
             ReadinessReason::ProviderKeyMissing { remedy }
         } else {
             ReadinessReason::Unauthenticated { remedy }
@@ -204,7 +205,7 @@ fn engine_spec(engine_id: &str) -> EngineSpec {
         "alva" => EngineSpec {
             display_name: "Alva",
             minimum_version: "0.1.0",
-            default_auth_remedy: "Configure a provider API key for this workspace.",
+            default_auth_remedy: "Configure a provider in Settings > Models and engines.",
         },
         "claude" => EngineSpec {
             display_name: "Claude Code",
@@ -215,6 +216,12 @@ fn engine_spec(engine_id: &str) -> EngineSpec {
             display_name: "Codex CLI",
             minimum_version: "0.20.0",
             default_auth_remedy: "Run `codex login` in a terminal to sign in.",
+        },
+        "pi" => EngineSpec {
+            display_name: "Pi",
+            minimum_version: "0.84.0",
+            default_auth_remedy:
+                "Configure a compatible provider in Settings > Models and engines.",
         },
         _ => EngineSpec {
             display_name: "Unknown engine",
@@ -310,6 +317,11 @@ pub struct SystemProbe {
     workspace: Option<PathBuf>,
     search_paths: Vec<PathBuf>,
     home_dir: Option<PathBuf>,
+    /// Product-owned provider availability per runtime. Hub supplies these
+    /// overrides so
+    /// readiness and fallback consume the same catalog as Settings and run
+    /// resolution instead of re-reading a parallel provider authority.
+    provider_authenticated: std::collections::HashMap<String, bool>,
 }
 
 impl SystemProbe {
@@ -331,7 +343,24 @@ impl SystemProbe {
             workspace,
             search_paths,
             home_dir: std::env::var_os("HOME").map(PathBuf::from),
+            provider_authenticated: std::collections::HashMap::new(),
         }
+    }
+
+    pub fn with_alva_authenticated(mut self, authenticated: bool) -> Self {
+        self.provider_authenticated
+            .insert("alva".into(), authenticated);
+        self
+    }
+
+    pub fn with_provider_authenticated(
+        mut self,
+        engine_id: impl Into<String>,
+        authenticated: bool,
+    ) -> Self {
+        self.provider_authenticated
+            .insert(engine_id.into(), authenticated);
+        self
     }
 
     pub fn with_search_paths(mut self, search_paths: Vec<PathBuf>) -> Self {
@@ -374,10 +403,19 @@ impl SystemProbe {
     fn alva_facts(&self) -> EngineProbeFacts {
         // The Alva engine runs in-process against the workspace provider
         // config, so "auth" means a usable API key or custom auth headers.
-        let workspace = self.workspace.clone().unwrap_or_else(std::env::temp_dir);
-        let authenticated = alva_llm_provider::ProviderConfig::load(&workspace)
-            .map(|config| !config.api_key.is_empty() || !config.custom_headers.is_empty())
-            .unwrap_or(false);
+        let authenticated = self
+            .provider_authenticated
+            .get("alva")
+            .copied()
+            .unwrap_or_else(|| {
+                // Compatibility path for non-Hub callers and isolated readiness
+                // tests. Product commands always provide the catalog-backed
+                // override above.
+                let workspace = self.workspace.clone().unwrap_or_else(std::env::temp_dir);
+                alva_llm_provider::ProviderConfig::load(&workspace)
+                    .map(|config| !config.api_key.is_empty() || !config.custom_headers.is_empty())
+                    .unwrap_or(false)
+            });
         let (stream_health, last_stream_failure) = self.stream_evidence("alva");
         EngineProbeFacts {
             binary_path: Some("built-in".to_string()),
@@ -401,10 +439,16 @@ impl SystemProbe {
     }
 
     fn cli_facts(&self, engine_id: &str) -> EngineProbeFacts {
-        let command = if engine_id == "claude" {
-            "claude"
-        } else {
-            "codex"
+        let command = match engine_id {
+            "claude" => "claude",
+            "codex" => "codex",
+            "pi" => "pi",
+            _ => {
+                return EngineProbeFacts {
+                    searched_locations: self.searched_locations(),
+                    ..EngineProbeFacts::default()
+                }
+            }
         };
         let Some(binary) = self.locate(command) else {
             return EngineProbeFacts {
@@ -412,19 +456,29 @@ impl SystemProbe {
                 ..EngineProbeFacts::default()
             };
         };
-        let (capabilities, authenticated) = if engine_id == "claude" {
-            (
+        let (capabilities, native_authenticated) = match engine_id {
+            "claude" => (
                 capability_labels(
                     &ClaudePrintAdapter::new(ClaudePrintConfig::default()).capabilities(),
                 ),
                 self.claude_authenticated(),
-            )
-        } else {
-            (
+            ),
+            "codex" => (
                 capability_labels(&CodexAdapter::new(CodexAdapterConfig::default()).capabilities()),
                 self.codex_authenticated(),
-            )
+            ),
+            "pi" => (
+                capability_labels(&PiAdapter::new(PiAdapterConfig::default()).capabilities()),
+                Some(false),
+            ),
+            _ => unreachable!(),
         };
+        let authenticated = self
+            .provider_authenticated
+            .get(engine_id)
+            .copied()
+            .map(Some)
+            .unwrap_or(native_authenticated);
         let (stream_health, last_stream_failure) = self.stream_evidence(engine_id);
         EngineProbeFacts {
             binary_path: Some(binary.display().to_string()),
@@ -446,25 +500,49 @@ impl SystemProbe {
     /// Stream-failing history does not veto either — the fallback attempt is
     /// itself the recovery path.
     pub fn quick_veto(&self, engine_id: &str) -> Option<String> {
+        self.quick_veto_for_target(engine_id, false)
+    }
+
+    /// Target-aware fast veto. API-backed CLI routes still require their
+    /// runtime binary, but they do not require that CLI's private subscription
+    /// login because the provider catalog supplies credentials for this run.
+    pub fn quick_veto_for_target(
+        &self,
+        engine_id: &str,
+        uses_provider_api: bool,
+    ) -> Option<String> {
         match engine_id {
             "alva" => {
+                if uses_provider_api {
+                    return None;
+                }
                 let facts = self.alva_facts();
                 (facts.authenticated == Some(false)).then(|| {
-                    "provider key missing — configure a provider API key for this workspace."
+                    "provider key missing — configure a provider in Settings > Models and engines."
                         .to_string()
                 })
             }
-            "claude" | "codex" => {
+            "claude" | "codex" | "pi" => {
                 if self.locate(engine_id).is_none() {
                     return Some("engine binary not found".to_string());
                 }
+                if uses_provider_api {
+                    return None;
+                }
                 let authenticated = if engine_id == "claude" {
                     self.claude_authenticated()
-                } else {
+                } else if engine_id == "codex" {
                     self.codex_authenticated()
+                } else {
+                    Some(false)
                 };
                 (authenticated == Some(false)).then(|| {
-                    format!("not signed in — run `{engine_id} login` in a terminal to sign in.")
+                    if engine_id == "pi" {
+                        "provider key missing — configure a compatible provider in Settings > Models and engines."
+                            .to_string()
+                    } else {
+                        format!("not signed in — run `{engine_id} login` in a terminal to sign in.")
+                    }
                 })
             }
             other => Some(format!("engine '{other}' is not supported by Hub")),
@@ -587,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_discovers_all_three_engines_without_manual_paths() {
+    fn dashboard_discovers_all_four_engines_without_manual_paths() {
         let probe = FakeProbe {
             facts: HashMap::new(),
         };
@@ -596,7 +674,22 @@ mod tests {
             .iter()
             .map(|engine| engine.engine_id.as_str())
             .collect();
-        assert_eq!(ids, vec!["alva", "claude", "codex"]);
+        assert_eq!(ids, vec!["alva", "claude", "codex", "pi"]);
+    }
+
+    #[test]
+    fn hub_catalog_override_is_the_alva_auth_authority() {
+        let available =
+            SystemProbe::new(None, Some(std::env::temp_dir())).with_alva_authenticated(true);
+        assert_eq!(available.facts("alva").authenticated, Some(true));
+        assert_eq!(available.quick_veto("alva"), None);
+
+        let unavailable =
+            SystemProbe::new(None, Some(std::env::temp_dir())).with_alva_authenticated(false);
+        assert_eq!(unavailable.facts("alva").authenticated, Some(false));
+        assert!(unavailable
+            .quick_veto("alva")
+            .is_some_and(|reason| reason.contains("Models and engines")));
     }
 
     /// Independent PATH lookup: the smoke test must not reuse SystemProbe's
@@ -619,7 +712,7 @@ mod tests {
     /// classifier is pinned, the live environment is not" for the probe.
     #[test]
     fn system_probe_matches_the_real_machine() {
-        let probe = SystemProbe::new(None, None);
+        let probe = SystemProbe::new(None, None).with_alva_authenticated(false);
         let report = probe_readiness(&probe);
         assert_eq!(report.len(), HUB_ENGINE_IDS.len());
 
@@ -761,7 +854,7 @@ mod tests {
         assert_eq!(
             readiness.reasons,
             vec![ReadinessReason::ProviderKeyMissing {
-                remedy: "Configure a provider API key for this workspace.".to_string(),
+                remedy: "Configure a provider in Settings > Models and engines.".to_string(),
             }]
         );
     }
@@ -978,6 +1071,23 @@ mod tests {
             // claude present with unknown auth (keychain) is not vetoed.
             install_fake_cli(bin.path(), "claude", "2.0.14 (Claude Code)");
             assert_eq!(probe(bin.path(), home.path()).quick_veto("claude"), None);
+
+            // A configured third-party provider replaces subscription auth,
+            // but never replaces the runtime binary itself.
+            assert_eq!(
+                probe(bin.path(), home.path())
+                    .quick_veto_for_target("pi", true)
+                    .as_deref(),
+                Some("engine binary not found")
+            );
+            install_fake_cli(bin.path(), "pi", "0.52.9");
+            assert_eq!(
+                probe(bin.path(), home.path()).quick_veto_for_target("pi", true),
+                None
+            );
+            assert!(probe(bin.path(), home.path())
+                .quick_veto("pi")
+                .is_some_and(|veto| veto.contains("provider key missing")));
         }
 
         #[test]
