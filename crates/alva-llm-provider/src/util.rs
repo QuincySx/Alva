@@ -97,8 +97,17 @@ fn client_with_timeouts(connect: Duration, read: Duration) -> reqwest::Client {
         .user_agent(llm_http_user_agent())
         .connect_timeout(connect)
         .read_timeout(read)
+        // Provider requests carry API keys or arbitrary custom auth headers.
+        // Never replay those credentials to a redirect target; callers must
+        // configure the final provider endpoint explicitly.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
+        .unwrap_or_else(|_| {
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("reqwest client without redirects must initialize")
+        })
 }
 
 /// Byte budget for the request/response `body_preview` fields in provider
