@@ -51,7 +51,7 @@ import type {
   ProviderProfile,
   SaveProviderProfile,
 } from "../bridge";
-import { useI18n, type LanguagePreference } from "../i18n";
+import { useI18n, type LanguagePreference, type Translate } from "../i18n";
 import { ProviderSettings } from "./provider-settings";
 
 export type HubPage = "conversation" | "automations" | "extensions" | "settings" | "search";
@@ -62,6 +62,19 @@ interface AutomationItem {
   schedule: string;
   prompt: string;
   enabled: boolean;
+}
+
+/// Best-effort human description of a standard 5-field cron expression
+/// (`min hour day-of-month month day-of-week`). Unknown shapes return the
+/// raw expression unchanged rather than guessing wrong.
+function describeCron(expr: string, t: Translate): string {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return t("automation.cronInvalid");
+  const [minute, hour] = parts;
+  if (minute === "*" && hour === "*") return t("automation.cronEveryMinute");
+  if (minute === "0" && hour === "*") return t("automation.cronEveryHour");
+  if (minute === "0" && /^\d+$/.test(hour)) return t("automation.cronDailyAt", { hour });
+  return t("automation.cronCustom");
 }
 
 export function AutomationsPage() {
@@ -75,24 +88,37 @@ export function AutomationsPage() {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [schedule, setSchedule] = useState("daily");
+  const [cron, setCron] = useState("0 9 * * *");
   const [prompt, setPrompt] = useState("");
 
   function useTemplate(template: (typeof automationTemplates)[number]) {
     setTitle(template[1]);
     setPrompt(template[3]);
     setOpen(true);
+    // A template's daily/weekdays/weekly schedule is a selectable preset, not
+    // a cron expression; the custom cron field stays independent.
+    if (template[0] === "review") setSchedule("weekdays");
+    else if (template[0] === "radar") setSchedule("weekly");
+    else setSchedule("daily");
+  }
+
+  function effectiveSchedule(): string {
+    // A custom cron overrides the passive preset; otherwise the preset label
+    // doubles as the stored schedule.
+    return schedule === "cron" ? `cron:${cron}` : schedule;
   }
 
   function createAutomation() {
     const normalizedTitle = title.trim();
     const normalizedPrompt = prompt.trim();
     if (!normalizedTitle || !normalizedPrompt) return;
+    if (schedule === "cron" && !cron.trim()) return;
     setAutomations((current) => [
       ...current,
       {
         id: `${Date.now()}-${normalizedTitle}`,
         title: normalizedTitle,
-        schedule,
+        schedule: effectiveSchedule(),
         prompt: normalizedPrompt,
         enabled: true,
       },
@@ -100,6 +126,8 @@ export function AutomationsPage() {
     setOpen(false);
     setTitle("");
     setPrompt("");
+    setSchedule("daily");
+    setCron("0 9 * * *");
   }
 
   return (
@@ -129,10 +157,16 @@ export function AutomationsPage() {
                       { value: "daily", label: t("automation.daily") },
                       { value: "weekdays", label: t("automation.weekdays") },
                       { value: "weekly", label: t("automation.weekly") },
+                      { value: "cron", label: t("automation.cron") },
                     ]}
                     value={schedule}
                   />
                 </FieldFrame>
+                {schedule === "cron" ? (
+                  <FieldFrame label={t("automation.cronExpression")} description={describeCron(cron, t)}>
+                    <TextField aria-label={t("automation.cronExpressionAria")} value={cron} onChange={(event) => setCron(event.target.value)} placeholder="0 9 * * *" />
+                  </FieldFrame>
+                ) : null}
                 <FieldFrame label={t("automation.prompt")}>
                   <TextArea aria-label={t("automation.promptAria")} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
                 </FieldFrame>
@@ -177,7 +211,7 @@ export function AutomationsPage() {
               heading={automation.title}
               key={automation.id}
               leading={<CalendarClock aria-hidden="true" size={17} />}
-              meta={automation.schedule === "daily" ? t("automation.daily") : automation.schedule === "weekdays" ? t("automation.weekdays") : t("automation.weekly")}
+              meta={automation.schedule.startsWith("cron:") ? t("automation.cronLabel", { expr: automation.schedule.slice(5) }) : automation.schedule === "daily" ? t("automation.daily") : automation.schedule === "weekdays" ? t("automation.weekdays") : t("automation.weekly")}
             />
           ))}
         </div>
