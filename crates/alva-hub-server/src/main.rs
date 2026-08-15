@@ -1,9 +1,11 @@
-// INPUT:  alva-hub-core::HubRuntime, alva-engine-adapter-alva::{AlvaAdapter, DefaultBaseAgentFactory},
-//         alva-kernel-abi::LanguageModel, alva-llm-provider, axum, tokio
-// OUTPUT: headless HTTP service that hosts a multi-engine HubRuntime and streams session events over SSE
-// POS:    Alva Hub as a local service — one backend, many frontends (web/TUI/desktop skins)
+// INPUT:  alva-hub-desktop (HubStore, ProviderCatalog, run_persisted_with_target,
+//         build_engine_for_target, SystemProbe, DTOs), axum, tokio
+// OUTPUT: headless HTTP service: reuses the Hub Desktop business library over
+//         HTTP (uplink) + SSE (downlink) so the shipped React UI can run in a browser.
+// POS:    Alva Hub as a local service — one backend, many frontends.
 
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use axum::{
     extract::State,
@@ -15,209 +17,223 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tokio::sync::broadcast;
-use tracing::info;
+use tracing::{info, warn};
 
-use alva_engine_adapter_alva::{AlvaAdapter, DefaultBaseAgentFactory, DefaultBaseAgentFactoryConfig};
-use alva_engine_runtime::RuntimeRequest;
-use alva_hub_core::{HubEvent, HubRequest, HubRuntime, ProductSessionId};
-use alva_kernel_abi::LanguageModel;
+use alva_hub_desktop::{
+    build_engine_for_target, run_persisted_with_target, EngineTarget, HubStore, ProviderCatalog,
+    RunRequest, SystemProbe, TimelineEvent,
+};
 use alva_llm_provider::ProviderConfig;
 
 // ---------------------------------------------------------------------------
-// App state
+// App state — mirrors the Tauri DesktopState but without the Tauri AppHandle.
 // ---------------------------------------------------------------------------
 
 struct AppState {
-    hub: HubRuntime,
-    /// Broadcast every HubEvent so SSE subscribers observe the same timeline.
-    events: broadcast::Sender<HubEvent>,
+    store: HubStore,
+    providers: ProviderCatalog,
+    history_dir: PathBuf,
+    /// Timeline broadcast → SSE subscribers.
+    events: broadcast::Sender<TimelineEvent>,
 }
 
 impl AppState {
-    fn new() -> Result<Self, String> {
-        let (model, kind) = build_model_from_env()?;
-        let workspace = std::env::current_dir().unwrap_or_default();
-        let factory = Arc::new(DefaultBaseAgentFactory::new(
-            DefaultBaseAgentFactoryConfig::new(model, workspace),
-        ));
-        let adapter = Arc::new(AlvaAdapter::new(factory));
+    fn new(data_dir: PathBuf) -> Result<Self, String> {
+        std::fs::create_dir_all(&data_dir)
+            .map_err(|e| format!("create data dir {}: {e}", data_dir.display()))?;
 
-        let hub = HubRuntime::new();
-        hub.register_engine("alva", adapter).map_err(|e| e.to_string())?;
-
-        // If the user pointed ALVA_MODEL_KIND at a non-openai provider, we can
-        // only serve the "alva" engine id anyway (single-engine first pass).
-        let _ = kind;
+        let store = HubStore::open(data_dir.join("alva-hub.db"))?;
+        let shared_config = dirs_home().join(".alva").join("config.json");
+        let providers = ProviderCatalog::open_with_shared_and_legacy_config(
+            data_dir.join("model-providers.json"),
+            shared_config,
+        )?;
 
         let (events, _) = broadcast::channel(1024);
 
-        Ok(Self { hub, events })
+        Ok(Self {
+            store,
+            providers,
+            history_dir: data_dir.join("alva-history"),
+            events,
+        })
     }
 }
 
-/// Resolve a `LanguageModel` from the standard env (ALVA_API_KEY/ALVA_MODEL/
-/// ALVA_BASE_URL/ALVA_PROVIDER_KIND via `ProviderConfig::from_env`).
-///
-/// `ProviderConfig::from_env` already resolves the provider kind from
-/// `ALVA_PROVIDER_KIND` into `config.kind`; we pass that straight through to
-/// `build_language_model` rather than reading a second, divergent variable.
-///
-/// Without an API key we return a reporting model so the server still boots
-/// and every request produces a clear error instead of a crash.
-fn build_model_from_env() -> Result<(Arc<dyn LanguageModel>, Option<String>), String> {
-    match ProviderConfig::from_env() {
-        Ok(config) => {
-            let kind = config.kind.clone();
-            let model = alva_llm_provider::build_language_model(kind.as_deref(), config);
-            Ok((model, kind))
-        }
-        Err(_) => {
-            // from_env errors when there is no api key (and no config files).
-            // Return a reporting model so the server can boot and tell the
-            // browser what to configure.
-            Ok((Arc::new(MissingKeyModel), None))
-        }
-    }
+fn dirs_home() -> PathBuf {
+    std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."))
 }
 
 // ---------------------------------------------------------------------------
-// DTOs — serde wire shapes only; no engine internals cross the boundary.
+// DTOs / wire shapes
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-struct RunRequestDto {
+#[derive(Debug, serde::Deserialize)]
+struct RunBody {
     prompt: String,
     #[serde(default)]
-    cwd: Option<String>,
+    workspace: Option<String>,
     #[serde(default)]
-    resume_session: Option<String>,
+    engine_id: Option<String>,
     #[serde(default)]
-    system_prompt: Option<String>,
+    product_session_id: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-struct RunAcceptedDto {
-    product_session_id: String,
-}
-
-#[derive(Debug, Serialize)]
-struct SessionDto {
-    product_session_id: String,
-    engine_id: String,
-    status: String,
-    engine_session_id: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct WireEvent<'a> {
-    product_session_id: &'a str,
-    engine_id: &'a str,
+/// Flattened timeline event for the browser, matching the Tauri
+/// `hub_timeline` payload so the shipped React UI consumes it unchanged.
+#[derive(Debug, serde::Serialize, Clone)]
+struct WireTimelineEvent {
     #[serde(flatten)]
-    event: &'a alva_engine_runtime::RuntimeEvent,
+    event: TimelineEvent,
+    run_token: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
 
-/// Serve the embedded single-page UI at `/`.
-async fn index() -> impl IntoResponse {
-    (
-        [("content-type", "text/html; charset=utf-8")],
-        include_str!("index.html"),
-    )
-}
-
 async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let engine_ids = state.hub.engine_ids();
-    let engines: Vec<&str> = engine_ids.iter().map(|e| e.as_str()).collect();
-    Json(serde_json::json!({
+    let sessions = state.store.list_sessions().map(|s| s.len()).unwrap_or(0);
+    Json(json!({
         "ok": true,
         "service": "alva-hub-server",
-        "engines": engines,
+        "sessions": sessions,
     }))
 }
 
+/// GET /api/sessions — durable Hub session list (same shape as the Tauri
+/// `list_hub_sessions` command).
 async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let sessions: Vec<SessionDto> = state
-        .hub
-        .sessions()
-        .into_iter()
-        .map(|s| SessionDto {
-            product_session_id: s.product_session_id.as_str().to_string(),
-            engine_id: s.engine_id.as_str().to_string(),
-            status: format!("{:?}", s.status),
-            engine_session_id: s.engine_session_id,
-        })
-        .collect();
-    Json(sessions)
+    match state.store.list_sessions() {
+        Ok(sessions) => Json(sessions).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
 }
 
+/// GET /api/providers — model providers for the composer.
+async fn list_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let workspace: Option<&std::path::Path> = None;
+    match state.providers.routes(workspace) {
+        Ok(routes) => Json(json!({ "routes": routes })).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// POST /api/run — execute one product turn, streaming timeline to SSE.
 async fn run(
     State(state): State<Arc<AppState>>,
-    Json(body): Json<RunRequestDto>,
+    Json(body): Json<RunBody>,
 ) -> impl IntoResponse {
-    // A new session mints its own id up front so the HTTP response can carry
-    // it; a resume reuses the client-supplied id. `HubRequest::resume` handles
-    // both: for an unknown id `HubRuntime::execute` creates the session.
-    let product_session_id = match body.resume_session.clone() {
-        Some(rs) => ProductSessionId::from_existing(rs),
-        None => ProductSessionId::new(),
+    let workspace = match body.workspace {
+        Some(w) => PathBuf::from(w),
+        None => std::env::current_dir().unwrap_or_default(),
     };
 
-    let mut req = RuntimeRequest::new(body.prompt);
-    if let Some(cwd) = body.cwd {
-        req = req.with_cwd(cwd);
-    }
-    if let Some(sp) = body.system_prompt {
-        req.system_prompt = Some(sp);
-    }
+    let request = RunRequest {
+        prompt: body.prompt,
+        workspace: workspace.clone(),
+        engine_id: body.engine_id.unwrap_or_else(|| "alva".to_string()),
+        product_session_id: body.product_session_id,
+        permission_profile: None,
+    };
 
-    let hub_req = HubRequest::new("alva", req).resume(product_session_id.clone());
+    let selected_target: Option<EngineTarget> = None;
+    let run_token: Option<String> = None;
 
-    match state.hub.execute(hub_req) {
-        Ok(stream) => {
-            let tx = state.events.clone();
-            tokio::spawn(async move {
-                let mut stream = stream;
-                while let Some(ev) = stream.next().await {
-                    if tx.send(ev).is_err() {
-                        break; // no subscribers left
-                    }
-                }
-            });
-            (
-                StatusCode::ACCEPTED,
-                Json(RunAcceptedDto {
-                    product_session_id: product_session_id.as_str().to_string(),
-                }),
-            )
-                .into_response()
+    // Clones captured into the async closures.
+    let providers = state.providers.clone();
+    let history_dir = state.history_dir.clone();
+    let active_engines = Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let health_store = state.store.clone();
+    let health_workspace = workspace.clone();
+
+    let tx = state.events.clone();
+
+    // Spawn the (potentially long) run on the runtime; emit each timeline
+    // event to the broadcast channel.
+    let outcome_fut = run_persisted_with_target(
+        &state.store,
+        {
+            let providers = providers.clone();
+            let workspace = workspace.clone();
+            move |target, product_session_id, profile| {
+                let provider_config = providers
+                    .resolve_target(target, &workspace)?
+                    .or_else(|| {
+                        // fall back to env-based config for the "alva" engine
+                        // when no provider catalog entry exists yet.
+                        if target.engine_id == "alva" {
+                            ProviderConfig::from_env().ok()
+                        } else {
+                            None
+                        }
+                    });
+                let engine = build_engine_for_target(
+                    target,
+                    provider_config,
+                    profile,
+                    &workspace,
+                    &history_dir,
+                )?;
+                active_engines
+                    .lock()
+                    .unwrap()
+                    .insert(product_session_id.to_string(), Arc::clone(&engine));
+                Ok(engine)
+            }
+        },
+        {
+            move |target| {
+                // Fast veto: skip targets with missing binaries / signed-out
+                // engines. Uses the same SystemProbe as the Tauri product.
+                SystemProbe::new(Some(&health_store), Some(health_workspace.clone()))
+                    .quick_veto_for_target(&target.engine_id, false)
+            }
+        },
+        request,
+        selected_target,
+        {
+            let tx = tx.clone();
+            move |event: TimelineEvent| {
+                let wire = WireTimelineEvent {
+                    event,
+                    run_token: run_token.clone(),
+                };
+                let _ = tx.send(wire.event.clone());
+                // keep wire in scope for potential future per-client fan-out
+                let _ = wire;
+            }
+        },
+    );
+
+    match outcome_fut.await {
+        Ok(_outcome) => {
+            // The client correlates by listening on /api/events; we acknowledge
+            // with the durable outcome once the run reaches a terminal state.
+            Json(json!({ "accepted": true })).into_response()
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => {
+            warn!(error = %e, "run failed");
+            (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response()
+        }
     }
 }
 
+/// GET /api/events — SSE stream of TimelineEvent, same payload shape as the
+/// Tauri `hub_timeline` event so the React UI's listener works unchanged.
 async fn events(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let mut rx = state.events.subscribe();
     let stream = async_stream::stream! {
         while let Ok(ev) = rx.recv().await {
-            let wire = WireEvent {
-                product_session_id: ev.product_session_id.as_str(),
-                engine_id: ev.engine_id.as_str(),
-                event: &ev.event,
-            };
+            let wire = WireTimelineEvent { event: ev, run_token: None };
             match serde_json::to_string(&wire) {
                 Ok(json) => {
                     yield Ok::<Event, std::convert::Infallible>(
-                        Event::default().event("hub_event").data(json)
+                        Event::default().event("hub_timeline").data(json)
                     );
                 }
                 Err(_) => {}
@@ -240,13 +256,16 @@ async fn main() -> Result<(), String> {
         )
         .init();
 
-    let state = Arc::new(AppState::new()?);
+    let data_dir = std::env::var("ALVA_HUB_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| dirs_home().join(".alva").join("hub-server"));
+    let state = Arc::new(AppState::new(data_dir)?);
 
     let addr = std::env::var("ALVA_HUB_ADDR").unwrap_or_else(|_| "127.0.0.1:8790".to_string());
     let app = Router::new()
-        .route("/", get(index))
         .route("/api/health", get(health))
         .route("/api/sessions", get(list_sessions))
+        .route("/api/providers", get(list_providers))
         .route("/api/run", post(run))
         .route("/api/events", get(events))
         .with_state(state);
@@ -258,47 +277,4 @@ async fn main() -> Result<(), String> {
     axum::serve(listener, app)
         .await
         .map_err(|e| format!("server error: {e}"))
-}
-
-// ---------------------------------------------------------------------------
-// Missing-key model — boots without credentials, reports a clear per-call error.
-// ---------------------------------------------------------------------------
-
-use alva_kernel_abi::{AgentError, CompletionResponse, Message, ModelConfig, StreamEvent};
-
-struct MissingKeyModel;
-
-#[async_trait::async_trait]
-impl LanguageModel for MissingKeyModel {
-    async fn complete(
-        &self,
-        _messages: &[Message],
-        _tools: &[&dyn alva_kernel_abi::Tool],
-        _config: &ModelConfig,
-    ) -> Result<CompletionResponse, AgentError> {
-        Err(AgentError::ConfigError(
-            "ALVA_API_KEY (and optionally ALVA_MODEL / ALVA_BASE_URL) is not set — nothing to run"
-                .to_string(),
-        ))
-    }
-
-    fn stream(
-        &self,
-        _messages: &[Message],
-        _tools: &[&dyn alva_kernel_abi::Tool],
-        _config: &ModelConfig,
-    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = StreamEvent> + Send>> {
-        Box::pin(futures_util::stream::iter([
-            StreamEvent::Error("ALVA_API_KEY is not set".to_string()),
-            StreamEvent::Done,
-        ]))
-    }
-
-    fn model_id(&self) -> &str {
-        "missing-key"
-    }
-
-    fn provider_id(&self) -> &str {
-        "env"
-    }
 }
