@@ -26,6 +26,7 @@ members = [
     "crates/alva-hub-core",
     "crates/alva-hub-cli",
     "crates/alva-hub-desktop",
+    "crates/alva-hub-server",
     "crates/alva-hub-gpui",
     "crates/alva-test",
     "crates/alva-app-devtools-mcp",
