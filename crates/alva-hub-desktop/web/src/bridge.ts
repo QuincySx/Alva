@@ -380,6 +380,41 @@ const DEMO =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).has("demo");
 
+// --- HTTP transport -------------------------------------------------------
+// When the app is served by alva-hub-server (no Tauri runtime), the same
+// product surface reaches the headless service over HTTP + SSE instead of
+// Tauri IPC. The URL defaults to same-origin, so a browser pointed at
+// http://127.0.0.1:8790 talks to the service with no further config.
+const HTTP = !hasTauri && !DEMO;
+
+const HTTP_BASE =
+  typeof window !== "undefined"
+    ? (import.meta.env?.VITE_HUB_HTTP_BASE as string | undefined) ?? ""
+    : "";
+
+async function httpJson<T>(
+  path: string,
+  body?: unknown,
+  method: "GET" | "POST" = "POST",
+): Promise<T> {
+  const res = await fetch(`${HTTP_BASE}${path}`, {
+    method,
+    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const j = (await res.json()) as { error?: string };
+      if (j.error) detail = j.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as T;
+}
+
 export async function chooseWorkspace(): Promise<string | null> {
   if (DEMO) return "/Users/dev/projects/alva-agent";
   if (!hasTauri) {
@@ -407,6 +442,14 @@ export async function runHubPrompt(
   selectedTarget: EngineTarget | null,
   runToken: string | null,
 ): Promise<RunOutcome> {
+  if (HTTP) {
+    return await httpJson<RunOutcome>("/api/run", {
+      prompt: request.prompt,
+      workspace: request.workspace,
+      engine_id: request.engine_id,
+      product_session_id: request.product_session_id,
+    });
+  }
   if (!hasTauri) {
     throw new Error("Running an engine requires the ALVA Hub desktop runtime.");
   }
@@ -487,6 +530,7 @@ export async function testModelRoute(
 
 export async function listHubSessions(): Promise<HubSessionSummary[]> {
   if (DEMO) return demoSessions;
+  if (HTTP) return await httpJson<HubSessionSummary[]>("/api/sessions", undefined, "GET");
   if (!hasTauri) return [];
   return await invoke<HubSessionSummary[]>("list_hub_sessions");
 }
@@ -927,6 +971,24 @@ export async function getEngineReadiness(
 export async function listenTimeline(
   onEvent: (event: TimelineEvent) => void,
 ): Promise<UnlistenFn> {
+  if (HTTP) {
+    const es = new EventSource(`${HTTP_BASE}/api/events`);
+    const handler = (msg: MessageEvent<string>) => {
+      try {
+        const wire = JSON.parse(msg.data) as { status: string };
+        // The server emits a flat TimelineEvent under the `hub_timeline`
+        // event name; parse it back to the product DTO shape.
+        onEvent(wire as unknown as TimelineEvent);
+      } catch {
+        /* ignore malformed frame */
+      }
+    };
+    es.addEventListener("hub_timeline", handler as EventListener);
+    return () => {
+      es.removeEventListener("hub_timeline", handler as EventListener);
+      es.close();
+    };
+  }
   if (!hasTauri) {
     return () => {};
   }

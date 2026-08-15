@@ -9,14 +9,15 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
-        IntoResponse,
+        IntoResponse, Response,
     },
     routing::{get, post},
     Json, Router,
 };
+use include_dir::{include_dir, Dir};
 use serde_json::json;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
@@ -26,6 +27,10 @@ use alva_hub_desktop::{
     RunRequest, SystemProbe, TimelineEvent,
 };
 use alva_llm_provider::ProviderConfig;
+
+/// The built React UI (`alva-hub-desktop/web/dist`), embedded at compile time
+/// so this one binary is a complete local service: API + static frontend.
+static DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../alva-hub-desktop/web/dist");
 
 // ---------------------------------------------------------------------------
 // App state — mirrors the Tauri DesktopState but without the Tauri AppHandle.
@@ -211,11 +216,7 @@ async fn run(
     );
 
     match outcome_fut.await {
-        Ok(_outcome) => {
-            // The client correlates by listening on /api/events; we acknowledge
-            // with the durable outcome once the run reaches a terminal state.
-            Json(json!({ "accepted": true })).into_response()
-        }
+        Ok(outcome) => Json(outcome).into_response(),
         Err(e) => {
             warn!(error = %e, "run failed");
             (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response()
@@ -244,6 +245,51 @@ async fn events(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Static frontend (embedded dist)
+// ---------------------------------------------------------------------------
+
+/// Serve the embedded React UI. `/` and any non-API path fall back to
+/// `index.html` (SPA routing); `/assets/*` serve the hashed bundle files.
+async fn static_handler(uri: axum::http::Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
+
+    if let Some(file) = DIST.get_file(path) {
+        let mime = mime_for(path);
+        return (
+            [(header::CONTENT_TYPE, mime)],
+            file.contents(),
+        )
+            .into_response();
+    }
+
+    // SPA fallback: any unknown non-asset path renders the shell.
+    if let Some(index) = DIST.get_file("index.html") {
+        return (
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            index.contents(),
+        )
+            .into_response();
+    }
+
+    (StatusCode::NOT_FOUND, "not found").into_response()
+}
+
+fn mime_for(path: &str) -> &'static str {
+    if path.ends_with(".js") {
+        "application/javascript"
+    } else if path.ends_with(".css") {
+        "text/css"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".html") {
+        "text/html; charset=utf-8"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -268,6 +314,7 @@ async fn main() -> Result<(), String> {
         .route("/api/providers", get(list_providers))
         .route("/api/run", post(run))
         .route("/api/events", get(events))
+        .fallback(static_handler)
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&addr)
