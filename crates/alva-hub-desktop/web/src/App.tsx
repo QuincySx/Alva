@@ -5,6 +5,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bot,
+  ExternalLink,
   FileCheck2,
   FileCode2,
   FolderTree,
@@ -204,6 +205,12 @@ const workbenchToolMeta: Record<WorkbenchTool, { icon: LucideIcon }> = {
 
 function queryValue(name: string): string | null {
   return typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get(name);
+}
+
+/// A standalone window opened at `#/sidebar-window` renders only the Workbench
+/// (no sidebar, no main column) so it can sit on a second display.
+function isSidebarWindow(): boolean {
+  return typeof window !== "undefined" && window.location.hash === "#/sidebar-window";
 }
 
 function createRunToken(): string {
@@ -477,7 +484,8 @@ export default function App() {
   const [isolateWorker, setIsolateWorker] = useState(false);
   const [approvalGroups, setApprovalGroups] = useState<PermissionGroup[]>([]);
   const [sessionQuery, setSessionQuery] = useState("");
-  const [workbenchOpen, setWorkbenchOpen] = useState(() => queryValue("workbench") === "1");
+  const [workbenchOpen, setWorkbenchOpen] = useState(() => isSidebarWindow() || queryValue("workbench") === "1");
+  const sidebarWindow = isSidebarWindow();
   const [activeWorkbenchTool, setActiveWorkbenchTool] = useState<WorkbenchTool>(initialWorkbenchTool);
   const [openWorkbenchTools, setOpenWorkbenchTools] = useState<WorkbenchTool[]>(() => [initialWorkbenchTool()]);
   const [activePage, setActivePage] = useState<HubPage>(initialPage);
@@ -1420,6 +1428,7 @@ export default function App() {
     <AppFrame
       onWorkbenchDismiss={() => setWorkbenchOpen(false)}
       sidebar={
+        sidebarWindow ? null : (
         <HubSidebar
           activePage={activePage}
           activeSessionId={activeSessionId}
@@ -1434,6 +1443,7 @@ export default function App() {
           sessions={filteredSessions}
           totalSessionCount={sessions.length}
         />
+        )
       }
       workbench={
         <Workbench className="hub-workbench">
@@ -1483,6 +1493,14 @@ export default function App() {
                     })}
                   </MenuContent>
                 </MenuRoot>
+                {!sidebarWindow ? (
+                  <IconButton
+                    icon={<ExternalLink aria-hidden="true" size={15} />}
+                    label={t("workbench.openSeparateWindow")}
+                    onClick={() => window.open(`${window.location.pathname}#/sidebar-window`, "_blank", "width=1200,height=900")}
+                    variant="ghost"
+                  />
+                ) : null}
                 <IconButton icon={<PanelRight aria-hidden="true" size={15} />} label={t("workbench.close")} onClick={() => setWorkbenchOpen(false)} variant="ghost" />
               </div>
             </TabsList>
@@ -1572,6 +1590,7 @@ export default function App() {
       workbenchOpen={workbenchOpen}
     >
 
+      {sidebarWindow ? null : (
       <div className="main-column">
         {activePage === "conversation" ? (
           <>
@@ -1811,6 +1830,7 @@ export default function App() {
           />
         )}
       </div>
+      )}
     </AppFrame>
     </UIProvider>
   );
