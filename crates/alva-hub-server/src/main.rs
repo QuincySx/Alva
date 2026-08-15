@@ -59,15 +59,18 @@ impl AppState {
 }
 
 /// Resolve a `LanguageModel` from the standard env (ALVA_API_KEY/ALVA_MODEL/
-/// ALVA_BASE_URL via `ProviderConfig::from_env`) plus `ALVA_MODEL_KIND`.
+/// ALVA_BASE_URL/ALVA_PROVIDER_KIND via `ProviderConfig::from_env`).
+///
+/// `ProviderConfig::from_env` already resolves the provider kind from
+/// `ALVA_PROVIDER_KIND` into `config.kind`; we pass that straight through to
+/// `build_language_model` rather than reading a second, divergent variable.
 ///
 /// Without an API key we return a reporting model so the server still boots
 /// and every request produces a clear error instead of a crash.
 fn build_model_from_env() -> Result<(Arc<dyn LanguageModel>, Option<String>), String> {
-    let kind = std::env::var("ALVA_MODEL_KIND").ok();
-
     match ProviderConfig::from_env() {
         Ok(config) => {
+            let kind = config.kind.clone();
             let model = alva_llm_provider::build_language_model(kind.as_deref(), config);
             Ok((model, kind))
         }
@@ -75,7 +78,7 @@ fn build_model_from_env() -> Result<(Arc<dyn LanguageModel>, Option<String>), St
             // from_env errors when there is no api key (and no config files).
             // Return a reporting model so the server can boot and tell the
             // browser what to configure.
-            Ok((Arc::new(MissingKeyModel), kind))
+            Ok((Arc::new(MissingKeyModel), None))
         }
     }
 }
