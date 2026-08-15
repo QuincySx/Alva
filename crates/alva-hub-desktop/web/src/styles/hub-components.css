@@ -203,7 +203,7 @@
 .policy-target__details { grid-column: 1 / -1; border-color: transparent; background: transparent; }
 .policy-target__fields { display: grid; gap: 8px; padding: 10px; }
 
-@media (max-width: 1180px) {
+@media (max-width: 1359px) {
   .hub-session-scroll > .timeline { padding-block: 16px; }
 }
 
@@ -254,6 +254,9 @@
 .hub-search-result .ui-status-item__copy small { color: var(--color-text-subtle); }
 .hub-inspector-tool { display: grid; gap: 12px; }
 .hub-inspector-records { display: grid; gap: 6px; padding: 8px; }
+.hub-agent-tree { display: grid; gap: 8px; }
+.hub-agent-tree__children { display: grid; gap: 4px; padding: 4px 0 4px 12px; border-left: 1px solid var(--color-border); margin-left: 6px; }
+.hub-agent-tree__tasks { display: grid; gap: 4px; padding: 4px 0 4px 12px; border-left: 1px solid var(--color-border); margin-left: 6px; }
 .hub-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .hub-metric-grid > div { display: grid; gap: 4px; border-radius: var(--radius-sm); padding: 12px; background: var(--color-surface-raised); }
 .hub-metric-grid strong { font-size: 20px; }
@@ -262,8 +265,8 @@
 .hub-terminal-input { display: flex; align-items: center; gap: 8px; }
 .hub-text-browser { display: grid; min-height: 0; flex: 1; grid-template-columns: minmax(180px, .7fr) minmax(260px, 1.3fr); gap: 12px; }
 .hub-text-browser > .ui-panel-section { min-height: 0; }
-.hub-text-preview { min-height: 260px; margin: 0; overflow: auto; border-radius: var(--radius-sm); padding: 12px; background: #0c0d0f; color: #c8cad0; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
-.hub-terminal-output { min-height: 280px; margin: 0; border-radius: var(--radius-sm); padding: 12px; background: #0c0d0f; color: #c8cad0; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.hub-text-preview { min-height: 260px; margin: 0; overflow: auto; border-radius: var(--radius-sm); padding: 12px; background: var(--color-code-bg); color: var(--color-code-text); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.hub-terminal-output { min-height: 280px; margin: 0; border-radius: var(--radius-sm); padding: 12px; background: var(--color-code-bg); color: var(--color-code-text); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
 .hub-terminal-input .ui-input { flex: 1; }
 @media (max-width: 760px) {
   .hub-text-browser { grid-template-columns: 1fr; }

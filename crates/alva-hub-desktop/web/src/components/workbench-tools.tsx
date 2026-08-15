@@ -14,7 +14,7 @@ import {
   Play,
   TerminalSquare,
 } from "lucide-react";
-import type { HubSessionDetail, TeamRunDetail } from "../bridge";
+import type { HubSessionDetail, TeamRunDetail, WorkerTask } from "../bridge";
 import type { HubTimelineEvent } from "./hub-timeline";
 import { localizeSystemText, useI18n } from "../i18n";
 import {
@@ -104,19 +104,73 @@ export function ReviewTool({ detail }: { detail: HubSessionDetail | null }) {
 export function AgentTool({ run, onFocus }: { run: TeamRunDetail | null; onFocus: (sessionId: string) => void }) {
   const { localize, t } = useI18n();
   if (!run || run.workers.length === 0) return <EmptyState icon={<Bot size={18} />} title={t("tool.noAgents")} description={t("tool.noAgentsDescription")} />;
+
+  // Child-agent tree: Lead (root) → Workers → per-Worker Tasks.
+  // `workers` carry solo identity; `tasks` attach to a worker by worker_id, so a
+  // worker without any task still renders as a leaf, and tasks without a live
+  // worker (should not happen post-restore) are surfaced under an orphan bucket.
+  const workersById = new Map(run.workers.map((w) => [w.worker_id, w]));
+  const tasksByWorker = new Map<string, WorkerTask[]>();
+  const orphanTasks: WorkerTask[] = [];
+  for (const task of run.tasks) {
+    if (workersById.has(task.worker_id)) {
+      const list = tasksByWorker.get(task.worker_id) ?? [];
+      list.push(task);
+      tasksByWorker.set(task.worker_id, list);
+    } else {
+      orphanTasks.push(task);
+    }
+  }
+
   return (
-    <PanelSection description={t("tool.agentsDescription")} heading={t("tool.agents")} meta={`${run.workers.length}`}>
-      {run.workers.map((worker) => (
-        <ListRow
-          actions={<Button onClick={() => onFocus(worker.worker_session_id)} size="small" variant="ghost">{t("common.open")}</Button>}
-          description={worker.worker_session_id}
-          heading={worker.worker_id}
-          key={worker.worker_id}
-          leading={<Bot size={16} />}
-          meta={<Badge tone={worker.lifecycle === "active" ? "success" : "neutral"}>{localize(worker.lifecycle)}</Badge>}
-        />
-      ))}
-    </PanelSection>
+    <div className="hub-agent-tree">
+      <PanelSection description={t("tool.agentsDescription")} heading={t("tool.agents")} meta={`${run.workers.length}`}>
+        <Disclosure title={t("tool.leadAgent")} description={run.lead_session_id} defaultOpen>
+          <div className="hub-agent-tree__children">
+            {run.workers.map((worker) => {
+              const tasks = tasksByWorker.get(worker.worker_id) ?? [];
+              return (
+                <Disclosure
+                  description={`${worker.engine_id} · ${localize(worker.lifecycle)}`}
+                  defaultOpen
+                  key={worker.worker_id}
+                  title={worker.worker_id}
+                  actions={
+                    <Button onClick={() => onFocus(worker.worker_session_id)} size="small" variant="ghost">
+                      {t("common.open")}
+                    </Button>
+                  }
+                >
+                  <div className="hub-agent-tree__tasks">
+                    {tasks.length === 0 ? (
+                      <ListRow description={t("tool.noTasks")} heading={t("tool.noTasksDescription")} />
+                    ) : (
+                      tasks.map((task) => (
+                        <ListRow
+                          description={task.worker_id}
+                          heading={task.scope}
+                          key={task.task_id}
+                          meta={<Badge>{localize(task.status)}</Badge>}
+                        />
+                      ))
+                    )}
+                  </div>
+                </Disclosure>
+              );
+            })}
+            {orphanTasks.length > 0 ? (
+              <Disclosure title={t("tool.orphanTasks")} description={`${orphanTasks.length}`}>
+                <div className="hub-agent-tree__tasks">
+                  {orphanTasks.map((task) => (
+                    <ListRow description={task.worker_id} heading={task.scope} key={task.task_id} meta={<Badge>{localize(task.status)}</Badge>} />
+                  ))}
+                </div>
+              </Disclosure>
+            ) : null}
+          </div>
+        </Disclosure>
+      </PanelSection>
+    </div>
   );
 }
 
