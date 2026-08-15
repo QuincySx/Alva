@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alva Hub — Web</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #171a21;
+    --border: #2a2f3a;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #5b7cfa;
+    --ok: #3fb96f;
+    --err: #e5534b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .status { font-size: 12px; color: var(--muted); }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .event {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--surface);
+    font-size: 13px;
+  }
+  .event .type {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--accent);
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  .event.session-started .type { color: var(--ok); }
+  .event.error .type { color: var(--err); }
+  .event.completed .type { color: var(--ok); }
+  .event pre {
+    margin: 4px 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .event .result {
+    margin: 4px 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text);
+  }
+  footer {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+  footer input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+  }
+  footer input:focus { border-color: var(--accent); }
+  footer button {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  footer button:disabled { opacity: 0.5; cursor: default; }
+  .empty { color: var(--muted); text-align: center; margin-top: 40px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Alva Hub</h1>
+  <span id="status" class="status">connecting…</span>
+</header>
+<main id="log">
+  <div class="empty">输入一条消息，观察引擎事件流实时推送。</div>
+</main>
+<footer>
+  <input id="prompt" placeholder="给 agent 的指令…" autocomplete="off" />
+  <button id="send">发送</button>
+</footer>
+
+<script>
+const statusEl = document.getElementById('status');
+const logEl = document.getElementById('log');
+const promptEl = document.getElementById('prompt');
+const sendBtn = document.getElementById('send');
+
+function setStatus(text, ok) {
+  statusEl.textContent = text;
+  statusEl.className = 'status ' + (ok === true ? 'ok' : ok === false ? 'err' : '');
+}
+
+function appendEvent(type, data) {
+  // remove empty placeholder
+  const empty = logEl.querySelector('.empty');
+  if (empty) empty.remove();
+
+  const el = document.createElement('div');
+  el.className = 'event ' + type.toLowerCase().replace(/[^a-z]/g, '-');
+  const typeEl = document.createElement('div');
+  typeEl.className = 'type';
+  typeEl.textContent = type;
+
+  el.appendChild(typeEl);
+
+  if (type === 'Completed' && data.event && data.event.result) {
+    const r = document.createElement('div');
+    r.className = 'result';
+    r.textContent = data.event.result;
+    el.appendChild(r);
+  } else if (type === 'Error') {
+    const pre = document.createElement('pre');
+    pre.textContent = (data.event && data.event.message) || JSON.stringify(data);
+    el.appendChild(pre);
+  } else if (type === 'ToolStart' || type === 'ToolEnd') {
+    const pre = document.createElement('pre');
+    pre.textContent = (data.event && data.event.name) || JSON.stringify(data);
+    el.appendChild(pre);
+  } else if (type === 'SessionStarted') {
+    const pre = document.createElement('pre');
+    pre.textContent = (data.event && data.event.model) ? 'model: ' + data.event.model : '';
+    el.appendChild(pre);
+  }
+
+  logEl.appendChild(el);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function connectEvents() {
+  const es = new EventSource('/api/events');
+  es.onopen = () => setStatus('已连接 /api/events', true);
+  es.onerror = () => setStatus('事件流断开', false);
+  es.addEventListener('hub_event', (msg) => {
+    try {
+      const data = JSON.parse(msg.data);
+      appendEvent(data.event_type, data);
+    } catch (e) {
+      console.error('bad event', e);
+    }
+  });
+}
+
+function checkHealth() {
+  fetch('/api/health')
+    .then(r => r.json())
+    .then(d => {
+      const eng = (d.engines || []).join(', ');
+      setStatus('ready · engines: ' + (eng || '(none)'), true);
+    })
+    .catch(() => setStatus('health check failed', false));
+}
+
+async function send() {
+  const prompt = promptEl.value.trim();
+  if (!prompt) return;
+  sendBtn.disabled = true;
+  try {
+    const resp = await fetch('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      appendEvent('Error', { event: { message: data.error || ('HTTP ' + resp.status) } });
+    } else {
+      console.log('accepted session', data.product_session_id);
+    }
+  } catch (e) {
+    appendEvent('Error', { event: { message: String(e) } });
+  } finally {
+    sendBtn.disabled = false;
+    promptEl.value = '';
+  }
+}
+
+sendBtn.addEventListener('click', send);
+promptEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+
+connectEvents();
+checkHealth();
+</script>
+</body>
+</html>

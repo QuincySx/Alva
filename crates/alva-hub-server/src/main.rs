@@ -120,6 +120,14 @@ struct WireEvent<'a> {
 // Handlers
 // ---------------------------------------------------------------------------
 
+/// Serve the embedded single-page UI at `/`.
+async fn index() -> impl IntoResponse {
+    (
+        [("content-type", "text/html; charset=utf-8")],
+        include_str!("index.html"),
+    )
+}
+
 async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let engine_ids = state.hub.engine_ids();
     let engines: Vec<&str> = engine_ids.iter().map(|e| e.as_str()).collect();
@@ -149,7 +157,13 @@ async fn run(
     State(state): State<Arc<AppState>>,
     Json(body): Json<RunRequestDto>,
 ) -> impl IntoResponse {
-    let resume_session = body.resume_session.clone();
+    // A new session mints its own id up front so the HTTP response can carry
+    // it; a resume reuses the client-supplied id. `HubRequest::resume` handles
+    // both: for an unknown id `HubRuntime::execute` creates the session.
+    let product_session_id = match body.resume_session.clone() {
+        Some(rs) => ProductSessionId::from_existing(rs),
+        None => ProductSessionId::new(),
+    };
 
     let mut req = RuntimeRequest::new(body.prompt);
     if let Some(cwd) = body.cwd {
@@ -158,14 +172,8 @@ async fn run(
     if let Some(sp) = body.system_prompt {
         req.system_prompt = Some(sp);
     }
-    if let Some(rs) = resume_session.clone() {
-        req.resume_session = Some(rs);
-    }
 
-    let mut hub_req = HubRequest::new("alva", req);
-    if let Some(rs) = resume_session {
-        hub_req = hub_req.resume(ProductSessionId::from_existing(rs));
-    }
+    let hub_req = HubRequest::new("alva", req).resume(product_session_id.clone());
 
     match state.hub.execute(hub_req) {
         Ok(stream) => {
@@ -181,9 +189,7 @@ async fn run(
             (
                 StatusCode::ACCEPTED,
                 Json(RunAcceptedDto {
-                    // The id is delivered per-event; `/api/run` acknowledges
-                    // acceptance at this first-pass milestone.
-                    product_session_id: "".to_string(),
+                    product_session_id: product_session_id.as_str().to_string(),
                 }),
             )
                 .into_response()
@@ -235,6 +241,7 @@ async fn main() -> Result<(), String> {
 
     let addr = std::env::var("ALVA_HUB_ADDR").unwrap_or_else(|_| "127.0.0.1:8790".to_string());
     let app = Router::new()
+        .route("/", get(index))
         .route("/api/health", get(health))
         .route("/api/sessions", get(list_sessions))
         .route("/api/run", post(run))
