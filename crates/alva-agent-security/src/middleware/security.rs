@@ -284,7 +284,12 @@ impl Middleware for SecurityMiddleware {
                             TimedOut,
                         }
 
-                        let cancel = state.extensions.get::<CancellationToken>().cloned();
+                        // Extensions now stores `Arc<T>`; clone out an owned
+                        // CancellationToken so `cancelled()` can take `&mut`.
+                        let cancel = state
+                            .extensions
+                            .get::<CancellationToken>()
+                            .map(|c| (*c).clone());
                         let timeout = tokio::time::sleep(self.approval_timeout);
                         tokio::pin!(timeout);
 

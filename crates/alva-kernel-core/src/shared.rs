@@ -4,6 +4,7 @@
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use alva_kernel_abi::AgentError;
 
@@ -38,40 +39,44 @@ impl MiddlewareError {
 // ---------------------------------------------------------------------------
 
 pub struct Extensions {
-    map: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
+    map: RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
 }
 
 impl Extensions {
     pub fn new() -> Self {
         Self {
-            map: HashMap::new(),
+            map: RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn insert<T: Send + Sync + 'static>(&mut self, val: T) {
-        self.map.insert(TypeId::of::<T>(), Box::new(val));
+    pub fn insert<T: Send + Sync + 'static>(&self, val: T) {
+        self.map
+            .write()
+            .expect("Extensions lock poisoned")
+            .insert(TypeId::of::<T>(), Arc::new(val));
     }
 
-    pub fn get<T: Send + Sync + 'static>(&self) -> Option<&T> {
+    pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.map
+            .read()
+            .expect("Extensions lock poisoned")
             .get(&TypeId::of::<T>())
-            .and_then(|b| b.downcast_ref())
+            .and_then(|b| b.clone().downcast::<T>().ok())
     }
 
-    pub fn get_mut<T: Send + Sync + 'static>(&mut self) -> Option<&mut T> {
+    pub fn remove<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.map
-            .get_mut(&TypeId::of::<T>())
-            .and_then(|b| b.downcast_mut())
-    }
-
-    pub fn remove<T: Send + Sync + 'static>(&mut self) -> Option<T> {
-        self.map
+            .write()
+            .expect("Extensions lock poisoned")
             .remove(&TypeId::of::<T>())
-            .and_then(|b| b.downcast().ok().map(|b| *b))
+            .and_then(|b| b.downcast::<T>().ok())
     }
 
     pub fn contains<T: Send + Sync + 'static>(&self) -> bool {
-        self.map.contains_key(&TypeId::of::<T>())
+        self.map
+            .read()
+            .expect("Extensions lock poisoned")
+            .contains_key(&TypeId::of::<T>())
     }
 }
 
@@ -122,7 +127,7 @@ mod tests {
 
     #[test]
     fn test_extensions_insert_get() {
-        let mut ext = Extensions::new();
+        let ext = Extensions::new();
 
         #[derive(Debug, PartialEq)]
         struct TokenCount(u32);
@@ -133,26 +138,32 @@ mod tests {
         ext.insert(TokenCount(42));
         ext.insert(RequestId("req-123".to_string()));
 
-        assert_eq!(ext.get::<TokenCount>(), Some(&TokenCount(42)));
         assert_eq!(
-            ext.get::<RequestId>(),
+            ext.get::<TokenCount>().as_deref(),
+            Some(&TokenCount(42))
+        );
+        assert_eq!(
+            ext.get::<RequestId>().as_deref(),
             Some(&RequestId("req-123".to_string()))
         );
-        assert_eq!(ext.get::<String>(), None);
+        assert!(ext.get::<String>().is_none());
     }
 
     #[test]
-    fn test_extensions_get_mut() {
-        let mut ext = Extensions::new();
+    fn test_extensions_get_is_shared_arc() {
+        let ext = Extensions::new();
 
         #[derive(Debug, PartialEq)]
         struct Counter(u32);
 
         ext.insert(Counter(0));
-        if let Some(c) = ext.get_mut::<Counter>() {
-            c.0 += 10;
-        }
-        assert_eq!(ext.get::<Counter>(), Some(&Counter(10)));
+        // `get` returns an owned `Arc<T>`; interior mutability means the same
+        // value is shared across clones and readable through `&self`.
+        let shared = ext.get::<Counter>().expect("inserted");
+        let clone = shared.clone();
+        assert_eq!(shared.0, 0);
+        assert_eq!(clone.0, 0);
+        assert_eq!(ext.get::<Counter>().as_deref(), Some(&Counter(0)));
     }
 
     // -- Extensions: remove / contains / Default -------------------------
@@ -165,7 +176,7 @@ mod tests {
         #[derive(Debug, PartialEq)]
         struct Flag(bool);
 
-        let mut ext = Extensions::new();
+        let ext = Extensions::new();
         assert!(!ext.contains::<Flag>());
         ext.insert(Flag(true));
         assert!(ext.contains::<Flag>());
@@ -181,10 +192,10 @@ mod tests {
         #[derive(Debug, PartialEq)]
         struct Payload(String);
 
-        let mut ext = Extensions::new();
+        let ext = Extensions::new();
         ext.insert(Payload("hi".into()));
         let removed = ext.remove::<Payload>();
-        assert_eq!(removed, Some(Payload("hi".into())));
+        assert_eq!(removed.as_deref(), Some(&Payload("hi".into())));
         // Subsequent remove must return None — entry is gone.
         assert!(ext.remove::<Payload>().is_none());
     }

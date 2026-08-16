@@ -130,7 +130,7 @@ mod tests {
 
         state.extensions.insert(TokenBudget(5000));
         assert_eq!(
-            state.extensions.get::<TokenBudget>(),
+            state.extensions.get::<TokenBudget>().as_deref(),
             Some(&TokenBudget(5000))
         );
     }

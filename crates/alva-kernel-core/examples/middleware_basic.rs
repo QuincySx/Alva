@@ -88,10 +88,11 @@ impl Middleware for SecurityMiddleware {
 // ---------------------------------------------------------------------------
 
 /// Shared state placed in Extensions so other middleware can read it.
+/// Interior atomics let the shared `Arc<T>` be updated in place through `&self`.
 #[derive(Debug, Default)]
 struct TokenStats {
-    llm_calls: u32,
-    tool_calls: u32,
+    llm_calls: std::sync::atomic::AtomicU32,
+    tool_calls: std::sync::atomic::AtomicU32,
 }
 
 struct TokenCountingMiddleware;
@@ -109,9 +110,9 @@ impl Middleware for TokenCountingMiddleware {
         state: &mut AgentState,
         _messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
-        if let Some(stats) = state.extensions.get_mut::<TokenStats>() {
-            stats.llm_calls += 1;
-            println!("[TokenCountingMiddleware] LLM call #{}", stats.llm_calls);
+        if let Some(stats) = state.extensions.get::<TokenStats>() {
+            let n = stats.llm_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            println!("[TokenCountingMiddleware] LLM call #{}", n);
         }
         Ok(())
     }
@@ -121,11 +122,11 @@ impl Middleware for TokenCountingMiddleware {
         state: &mut AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
-        if let Some(stats) = state.extensions.get_mut::<TokenStats>() {
-            stats.tool_calls += 1;
+        if let Some(stats) = state.extensions.get::<TokenStats>() {
+            let n = stats.tool_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
             println!(
                 "[TokenCountingMiddleware] tool call #{} ({})",
-                stats.tool_calls, tool_call.name
+                n, tool_call.name
             );
         }
         Ok(())
@@ -137,9 +138,11 @@ impl Middleware for TokenCountingMiddleware {
         error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         if let Some(stats) = state.extensions.get::<TokenStats>() {
+            let llm = stats.llm_calls.load(std::sync::atomic::Ordering::Relaxed);
+            let tools = stats.tool_calls.load(std::sync::atomic::Ordering::Relaxed);
             println!(
                 "[TokenCountingMiddleware] agent ended — LLM calls: {}, tool calls: {}, error: {:?}",
-                stats.llm_calls, stats.tool_calls, error
+                llm, tools, error
             );
         }
         Ok(())
