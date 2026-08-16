@@ -9,7 +9,8 @@ use alva_kernel_abi::{
     AgentMessage, BusHandle, BusWriter, CancellationToken, Message, ToolRegistry,
 };
 use alva_kernel_core::event::AgentEvent;
-use alva_kernel_core::run::run_agent;
+use alva_kernel_core::DefaultAgentLoop;
+use alva_kernel_core::AgentLoop;
 
 use tokio::sync::mpsc;
 
@@ -84,10 +85,13 @@ impl BaseAgent {
             // cannot interleave between spawn and run_agent. Hold config
             // read for the whole turn so per-turn knob writes serialize
             // behind this run (single shared agent = one active turn).
-            let mut st = inner.state().lock().await;
+            let st = inner.state().lock().await;
             let config = inner.config().await;
             let _ = started_tx.send(());
-            if let Err(e) = run_agent(&mut st, &config, cancel, messages, event_tx).await {
+            if let Err(e) = DefaultAgentLoop
+                .drive(&st, &config, cancel, messages, event_tx)
+                .await
+            {
                 tracing::error!(error = %e, "agent loop failed");
             }
         });

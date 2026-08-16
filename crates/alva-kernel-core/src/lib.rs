@@ -27,7 +27,7 @@ pub use state::{AgentConfig, AgentState};
 pub use middleware::{LlmCallFn, Middleware, MiddlewareStack, ToolCallFn};
 
 // Re-exports — run
-pub use run::run_agent;
+pub use run::{run_agent, AgentLoop, DefaultAgentLoop};
 pub use run_child::{run_child_agent, ChildAgentOutput, ChildAgentParams};
 pub use tool_batch::{CommittedToolCall, ToolBatchCoordinator};
 

@@ -33,8 +33,8 @@ use alva_kernel_abi::{AgentError, Sleeper};
 use alva_kernel_core::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_core::builtins::ToolTimeoutMiddleware;
 use alva_kernel_core::middleware::MiddlewareStack;
-use alva_kernel_core::run::run_agent;
 use alva_kernel_core::shared::Extensions;
+use alva_kernel_core::{AgentLoop, DefaultAgentLoop};
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_kernel_core::AgentEvent;
 
@@ -133,7 +133,9 @@ impl WasmAgent {
         let input = vec![AgentMessage::Standard(
             alva_kernel_abi::base::message::Message::user(prompt.into()),
         )];
-        run_agent(&mut self.state, &self.config, cancel, input, event_tx).await
+        DefaultAgentLoop
+            .drive(&self.state, &self.config, cancel, input, event_tx)
+            .await
     }
 
     /// One-shot convenience: run the agent against `prompt`, drain events

@@ -29,9 +29,9 @@ use alva_kernel_abi::model::ModelConfig;
 use alva_kernel_abi::AgentMessage;
 use alva_kernel_core::agent_session::InMemoryAgentSession;
 use alva_kernel_core::middleware::MiddlewareStack;
-use alva_kernel_core::run::run_agent;
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};
+use alva_kernel_core::{AgentLoop, DefaultAgentLoop};
 
 use crate::StubLanguageModel;
 
@@ -40,7 +40,7 @@ use crate::StubLanguageModel;
 /// public `StubLanguageModel` so the probe stays in sync with whatever
 /// consumers and tests actually rely on.
 async fn _wasm_smoke_probe() -> Result<(), AgentError> {
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(StubLanguageModel::default()),
         tools: Vec::new(),
         session: Arc::new(InMemoryAgentSession::new()),
@@ -59,12 +59,16 @@ async fn _wasm_smoke_probe() -> Result<(), AgentError> {
     };
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    run_agent(
-        &mut state,
-        &config,
-        cancel,
-        vec![AgentMessage::Standard(Message::user("probe"))],
-        tx,
-    )
-    .await
+    // Probe the swappable loop interface through its default implementation:
+    // this type-checks `AgentLoop::drive` plus `run_agent`'s full surface from
+    // a wasm host's perspective in one call.
+    DefaultAgentLoop
+        .drive(
+            &state,
+            &config,
+            cancel,
+            vec![AgentMessage::Standard(Message::user("probe"))],
+            tx,
+        )
+        .await
 }

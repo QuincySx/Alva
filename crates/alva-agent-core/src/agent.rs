@@ -16,8 +16,9 @@ use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ReasoningEffort, Tool,
 };
 use alva_kernel_core::event::AgentEvent;
-use alva_kernel_core::run_agent;
 use alva_kernel_core::state::{AgentConfig, AgentState};
+use alva_kernel_core::DefaultAgentLoop;
+use alva_kernel_core::AgentLoop;
 
 use crate::extension::PluginHost;
 
@@ -85,9 +86,11 @@ impl Agent {
         cancel: CancellationToken,
     ) -> Result<mpsc::UnboundedReceiver<AgentEvent>, AgentError> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let mut state = self.state.lock().await;
+        let state = self.state.lock().await;
         let config = self.config.read().await;
-        run_agent(&mut state, &config, cancel, input, tx).await?;
+        DefaultAgentLoop
+            .drive(&state, &config, cancel, input, tx)
+            .await?;
         Ok(rx)
     }
 
