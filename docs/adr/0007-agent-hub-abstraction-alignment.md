@@ -146,3 +146,58 @@ impact), not immediate implementation.
   any code lands.
 - When code lands: `cargo build` clean, `scripts/ci-check-deps.sh` green, and
   no existing `run_agent` consumer changes behavior.
+
+## Follow-up Research — Loop Interface Location and Surface
+
+This section records the targeted research that followed the acceptance above;
+it grounds the interface's home, surface, and migration impact before any code
+lands.
+
+### Home: `alva-kernel-core`
+
+The dependency direction fixes the home without a preference call:
+
+```text
+alva-kernel-core → alva-kernel-abi
+alva-agent-core  → alva-kernel-abi + alva-kernel-core
+```
+
+`run_agent`'s parameter types (`AgentState`, `AgentConfig`, `AgentEvent`) are
+owned by `alva-kernel-core`, and `alva-agent-core` already depends on it. A
+driver interface therefore belongs in `alva-kernel-core`, with `run_agent` kept
+as its default implementation. This honors the Rule 17 stable-SDK posture
+(no reverse dependency) without moving kernel types upward.
+
+### Migration impact: three real callers
+
+`run_agent` is called directly from exactly three non-test sites:
+
+| Caller | File |
+|---|---|
+| SDK `Agent::run` | `alva-agent-core/src/agent.rs:90` |
+| Harness `BaseAgent` | `alva-app-core/src/base_agent/agent.rs:90` |
+| WASM facade | `alva-host-wasm/src/agent.rs:136` |
+
+Introducing an interface whose default implementation is the current
+`run_agent` changes behavior at zero of these sites; the only edit is routing
+the call through the interface. The many `run_agent(` calls under
+`alva-kernel-core/tests/` continue to test the default implementation directly.
+
+### Surface: minimal, execution-only
+
+The first interface exposes only the one action `run_agent` already has, and
+deliberately does **not** import DSH's queue/stateness machinery now:
+
+| DSH `Agent` member | Verdict |
+|---|---|
+| execute / run | ✅ borrow — this is `run_agent` |
+| cancel + signal | ✅ already covered by `CancellationToken` |
+| status (idle⇄running) | ⚠️ later — `AgentEvent::AgentStart/AgentEnd` already expresses lifecycle |
+| send / followup / steer / inject (inbox queue) | ⚠️ later — `BaseAgent::pending_messages` simulates follow-up today; a queue is a separate, larger decision |
+| whenIdle / runMaintenance | ❌ do not import — Cordis fiber-lifecycle coupled |
+| inbox / dispatch event veto | ❌ do not import — `MiddlewareStack` provides the equivalent |
+
+The first step is therefore a thin `execute(state, config, cancel, input,
+event_tx)` seam, not a rewrite of the loop model. This keeps "interface" from
+inflating into "re-architecture", consistent with the selective-absorption
+decision above.
