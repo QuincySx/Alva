@@ -83,7 +83,7 @@ struct HooksRuntime {
 }
 
 impl HooksRuntime {
-    async fn session_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn session_start(&self, state: &AgentState) -> Result<(), MiddlewareError> {
         let session_id = state.session.session_id();
         let executor = HookExecutor::new(&self.workspace, session_id);
         let input = HookInput::lifecycle(HookEvent::SessionStart, session_id, &self.workspace);
@@ -98,7 +98,7 @@ impl HooksRuntime {
         Ok(())
     }
 
-    async fn session_end(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn session_end(&self, state: &AgentState) -> Result<(), MiddlewareError> {
         let session_id = state.session.session_id();
         let executor = HookExecutor::new(&self.workspace, session_id);
         let input = HookInput::lifecycle(HookEvent::SessionEnd, session_id, &self.workspace);
@@ -110,7 +110,7 @@ impl HooksRuntime {
 
     async fn pre_tool_use(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         let session_id = state.session.session_id();
@@ -139,7 +139,7 @@ impl HooksRuntime {
 
     async fn after_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         tool_output: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
@@ -176,13 +176,13 @@ impl PhaseHandler for HooksPhaseHandler {
         self.contribution.clone()
     }
 
-    async fn run_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn run_start(&self, state: &AgentState) -> Result<(), MiddlewareError> {
         self.runtime.session_start(state).await
     }
 
     async fn run_end(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         _error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         self.runtime.session_end(state).await
@@ -190,7 +190,7 @@ impl PhaseHandler for HooksPhaseHandler {
 
     async fn before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         self.runtime.pre_tool_use(state, tool_call).await
@@ -198,7 +198,7 @@ impl PhaseHandler for HooksPhaseHandler {
 
     async fn after_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {

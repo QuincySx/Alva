@@ -72,7 +72,7 @@ impl PhaseHandler for AepPhaseHandler {
         self.contribution.clone()
     }
 
-    async fn run_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn run_start(&self, state: &AgentState) -> Result<(), MiddlewareError> {
         if self.subscription == "on_agent_start" {
             self.refresh_state_snapshot(state).await;
             self.dispatch(&AepEvent::AgentStart)?;
@@ -82,7 +82,7 @@ impl PhaseHandler for AepPhaseHandler {
 
     async fn input_committed(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         message: &AgentMessage,
     ) -> Result<(), MiddlewareError> {
         if self.subscription == "on_user_message" {
@@ -96,7 +96,7 @@ impl PhaseHandler for AepPhaseHandler {
 
     async fn run_end(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         if self.subscription == "on_agent_end" {
@@ -108,7 +108,7 @@ impl PhaseHandler for AepPhaseHandler {
 
     async fn before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         if self.subscription == "before_tool_call" {
@@ -128,7 +128,7 @@ impl PhaseHandler for AepPhaseHandler {
 
     async fn wrap_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
@@ -171,7 +171,7 @@ impl PhaseHandler for AepPhaseHandler {
 
     async fn before_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         if self.subscription == "on_llm_call_start" {
@@ -187,7 +187,7 @@ impl PhaseHandler for AepPhaseHandler {
 
     async fn after_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         response: &mut Message,
     ) -> Result<(), MiddlewareError> {
         if self.subscription == "on_llm_call_end" {
@@ -203,7 +203,7 @@ impl PhaseHandler for AepPhaseHandler {
 
     async fn after_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {

@@ -90,7 +90,7 @@ impl Default for LoopDetectionMiddleware {
 impl Middleware for LoopDetectionMiddleware {
     async fn after_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         response: &mut Message,
     ) -> Result<(), MiddlewareError> {
         // Only process responses that contain tool_calls
@@ -142,7 +142,7 @@ impl Middleware for LoopDetectionMiddleware {
 
     async fn on_agent_end(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         _error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         let session_id = state.session.session_id().to_string();

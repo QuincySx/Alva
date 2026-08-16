@@ -16,7 +16,7 @@ struct AppendArgMiddleware {
 impl Middleware for AppendArgMiddleware {
     async fn wrap_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
@@ -43,7 +43,7 @@ struct AppendResultMiddleware {
 impl Middleware for AppendResultMiddleware {
     async fn after_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
@@ -58,7 +58,7 @@ struct EchoToolCall;
 impl ToolCallFn for EchoToolCall {
     async fn call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<ToolOutput, AgentError> {
         Ok(ToolOutput::text(

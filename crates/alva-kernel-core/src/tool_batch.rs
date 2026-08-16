@@ -32,7 +32,7 @@ impl ToolBatchCoordinator {
 
     pub async fn execute_batch(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         config: &AgentConfig,
         cancel: CancellationToken,
         tool_calls: &[ToolCall],
@@ -209,7 +209,7 @@ impl ToolBatchCoordinator {
 
     async fn commit_cancelled_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         llm_call_uuid: String,
         event_tx: &mpsc::UnboundedSender<AgentEvent>,
@@ -251,7 +251,7 @@ impl ToolBatchCoordinator {
 }
 
 async fn commit_tool_intent(
-    state: &mut AgentState,
+    state: &AgentState,
     tool_call: &ToolCall,
     llm_call_uuid: &str,
 ) -> Result<String, AgentError> {
@@ -277,7 +277,7 @@ async fn commit_tool_intent(
 }
 
 async fn commit_tool_outcome(
-    state: &mut AgentState,
+    state: &AgentState,
     tool_call: &ToolCall,
     result: &ToolOutput,
     message: AgentMessage,
@@ -310,7 +310,7 @@ async fn commit_tool_outcome(
 /// tool_result — a provider re-sent such a history rejects it for having
 /// unmatched tool_use ids.
 async fn append_error_tool_result(
-    state: &mut AgentState,
+    state: &AgentState,
     tool_call: &ToolCall,
     parent_uuid: Option<String>,
     error_text: &str,
@@ -347,7 +347,7 @@ async fn append_error_tool_result(
 /// the whole batch's tool_use blocks stay paired even though execution
 /// stopped early.
 async fn backfill_aborted_tool_results(
-    state: &mut AgentState,
+    state: &AgentState,
     remaining: &[ToolCall],
     llm_call_uuid: &str,
     error_text: &str,
@@ -374,7 +374,7 @@ struct ActualToolCall {
 impl ToolCallFn for ActualToolCall {
     async fn call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<ToolOutput, AgentError> {
         let scoped_session = ScopedSession::new(

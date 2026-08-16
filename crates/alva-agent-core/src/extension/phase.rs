@@ -78,13 +78,13 @@ impl PhaseContribution {
 pub trait PhaseHandler: Send + Sync {
     fn contribution(&self) -> PhaseContribution;
 
-    async fn run_start(&self, _state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn run_start(&self, _state: &AgentState) -> Result<(), MiddlewareError> {
         Ok(())
     }
 
     async fn input_committed(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _message: &AgentMessage,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -92,7 +92,7 @@ pub trait PhaseHandler: Send + Sync {
 
     async fn run_end(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -100,7 +100,7 @@ pub trait PhaseHandler: Send + Sync {
 
     async fn before_llm_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -108,7 +108,7 @@ pub trait PhaseHandler: Send + Sync {
 
     async fn after_llm_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _response: &mut Message,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -116,7 +116,7 @@ pub trait PhaseHandler: Send + Sync {
 
     async fn before_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -128,7 +128,7 @@ pub trait PhaseHandler: Send + Sync {
 
     async fn wrap_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
@@ -139,7 +139,7 @@ pub trait PhaseHandler: Send + Sync {
 
     async fn after_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _tool_call: &ToolCall,
         _result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
@@ -174,7 +174,7 @@ impl Middleware for PhaseHandlerMiddleware {
         self.contribution.order.priority()
     }
 
-    async fn on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn on_agent_start(&self, state: &AgentState) -> Result<(), MiddlewareError> {
         match self.contribution.phase {
             Phase::RunStart => self.handler.run_start(state).await,
             _ => Ok(()),
@@ -183,7 +183,7 @@ impl Middleware for PhaseHandlerMiddleware {
 
     async fn input_committed(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         message: &AgentMessage,
     ) -> Result<(), MiddlewareError> {
         if self.contribution.phase == Phase::InputCommitted {
@@ -194,7 +194,7 @@ impl Middleware for PhaseHandlerMiddleware {
 
     async fn on_agent_end(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         if self.contribution.phase == Phase::RunEnd {
@@ -205,7 +205,7 @@ impl Middleware for PhaseHandlerMiddleware {
 
     async fn before_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         if self.contribution.phase == Phase::BeforeLlmCall {
@@ -216,7 +216,7 @@ impl Middleware for PhaseHandlerMiddleware {
 
     async fn after_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         response: &mut Message,
     ) -> Result<(), MiddlewareError> {
         if self.contribution.phase == Phase::AfterLlmCall {
@@ -227,7 +227,7 @@ impl Middleware for PhaseHandlerMiddleware {
 
     async fn before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         if self.contribution.phase == Phase::BeforeToolCall
@@ -240,7 +240,7 @@ impl Middleware for PhaseHandlerMiddleware {
 
     async fn wrap_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
@@ -256,7 +256,7 @@ impl Middleware for PhaseHandlerMiddleware {
 
     async fn after_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {

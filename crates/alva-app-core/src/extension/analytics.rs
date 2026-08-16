@@ -151,7 +151,7 @@ impl AnalyticsMiddleware {
 
     async fn record_before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         let session_id = self.session_id(state);
@@ -179,7 +179,7 @@ impl AnalyticsMiddleware {
 
     async fn record_after_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
@@ -239,7 +239,7 @@ impl Middleware for AnalyticsMiddleware {
 
     async fn before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         self.record_before_tool_call(state, tool_call).await
@@ -247,7 +247,7 @@ impl Middleware for AnalyticsMiddleware {
 
     async fn after_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
@@ -277,7 +277,7 @@ impl PhaseHandler for AnalyticsPhaseHandler {
 
     async fn before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         self.recorder
@@ -287,7 +287,7 @@ impl PhaseHandler for AnalyticsPhaseHandler {
 
     async fn after_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {

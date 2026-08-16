@@ -355,7 +355,7 @@ struct FailAfterFirstMiddleware;
 impl Middleware for FailAfterFirstMiddleware {
     async fn after_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         tool_call: &ToolCall,
         _result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {

@@ -77,7 +77,7 @@ pub(crate) struct AuditLogMiddleware;
 impl Middleware for AuditLogMiddleware {
     async fn after_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {

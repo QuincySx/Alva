@@ -146,7 +146,7 @@ impl Middleware for CompactionMiddleware {
 
     async fn before_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         // Use bus TokenCounter for better estimation; fall back to local heuristic.

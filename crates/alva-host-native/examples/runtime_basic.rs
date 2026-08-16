@@ -97,7 +97,7 @@ struct PrintMiddleware;
 impl Middleware for PrintMiddleware {
     async fn before_llm_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         println!(
@@ -109,7 +109,7 @@ impl Middleware for PrintMiddleware {
 
     async fn after_llm_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         response: &mut Message,
     ) -> Result<(), MiddlewareError> {
         println!(

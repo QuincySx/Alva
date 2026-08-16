@@ -1,6 +1,6 @@
 // INPUT:  std::sync::Arc, async_trait, alva_kernel_abi::{AgentError, Message, ToolCall, ToolOutput}, crate::state::AgentState
 // OUTPUT: LlmCallFn, ToolCallFn, Middleware (trait), MiddlewareStack
-// POS:    Middleware trait and stack — receives &mut AgentState directly, with wrap hooks for interceptor pattern.
+// POS:    Middleware trait and stack — receives &AgentState directly, with wrap hooks for interceptor pattern.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -23,7 +23,7 @@ pub use crate::shared::{Extensions, MiddlewareError, MiddlewarePriority};
 pub trait LlmCallFn: Send + Sync {
     async fn call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         messages: Vec<Message>,
     ) -> Result<Message, AgentError>;
 }
@@ -33,7 +33,7 @@ pub trait LlmCallFn: Send + Sync {
 pub trait ToolCallFn: Send + Sync {
     async fn call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<ToolOutput, AgentError>;
 }
@@ -42,24 +42,24 @@ pub trait ToolCallFn: Send + Sync {
 // Middleware trait
 // ---------------------------------------------------------------------------
 
-/// Middleware trait — receives `&mut AgentState` directly.
+/// Middleware trait — receives `&AgentState` directly.
 ///
 /// Key differences from the old design:
 /// - `on_agent_start` / `on_agent_end` lifecycle hooks
-/// - `before_*` / `after_*` inspection hooks receive `&mut AgentState`
-/// - `wrap_*` interceptor hooks receive `&mut AgentState` (mutable, state is threaded through the chain)
+/// - `before_*` / `after_*` inspection hooks receive `&AgentState`
+/// - `wrap_*` interceptor hooks receive `&AgentState` (mutable, state is threaded through the chain)
 /// - All methods have default no-op implementations
 #[async_trait]
 pub trait Middleware: Send + Sync {
     /// Called when the agent run starts.
-    async fn on_agent_start(&self, _state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn on_agent_start(&self, _state: &AgentState) -> Result<(), MiddlewareError> {
         Ok(())
     }
 
     /// Called after an input message has been appended to the session.
     async fn input_committed(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _message: &AgentMessage,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -68,7 +68,7 @@ pub trait Middleware: Send + Sync {
     /// Called when the agent run ends (with optional error description).
     async fn on_agent_end(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -77,7 +77,7 @@ pub trait Middleware: Send + Sync {
     /// Called before messages are sent to the LLM.
     async fn before_llm_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -86,7 +86,7 @@ pub trait Middleware: Send + Sync {
     /// Called after the LLM returns a response.
     async fn after_llm_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _response: &mut Message,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -96,7 +96,7 @@ pub trait Middleware: Send + Sync {
     /// Default: just calls `next`.
     async fn wrap_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         messages: Vec<Message>,
         next: &dyn LlmCallFn,
     ) -> Result<Message, MiddlewareError> {
@@ -108,7 +108,7 @@ pub trait Middleware: Send + Sync {
     /// Called before a tool is executed.
     async fn before_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         Ok(())
@@ -117,7 +117,7 @@ pub trait Middleware: Send + Sync {
     /// Called after a tool has finished executing.
     async fn after_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _tool_call: &ToolCall,
         _result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
@@ -128,7 +128,7 @@ pub trait Middleware: Send + Sync {
     /// Default: just calls `next`.
     async fn wrap_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
@@ -226,7 +226,7 @@ impl MiddlewareStack {
     // -- lifecycle hooks ---------------------------------------------------
 
     /// Run `on_agent_start` top-to-bottom.
-    pub async fn run_on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
+    pub async fn run_on_agent_start(&self, state: &AgentState) -> Result<(), MiddlewareError> {
         for layer in &self.layers {
             let start = web_time::Instant::now();
             layer.on_agent_start(state).await?;
@@ -244,7 +244,7 @@ impl MiddlewareStack {
     /// Run `input_committed` top-to-bottom.
     pub async fn run_input_committed(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         message: &AgentMessage,
     ) -> Result<(), MiddlewareError> {
         for layer in &self.layers {
@@ -268,7 +268,7 @@ impl MiddlewareStack {
     /// encountered is returned after all layers have run.
     pub async fn run_on_agent_end(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         let mut first_error: Option<MiddlewareError> = None;
@@ -301,7 +301,7 @@ impl MiddlewareStack {
     /// Run `before_llm_call` top-to-bottom.
     pub async fn run_before_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         for layer in &self.layers {
@@ -321,7 +321,7 @@ impl MiddlewareStack {
     /// Run `before_tool_call` top-to-bottom.
     pub async fn run_before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         for layer in &self.layers {
@@ -343,7 +343,7 @@ impl MiddlewareStack {
     /// Run `after_llm_call` bottom-to-top.
     pub async fn run_after_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         response: &mut Message,
     ) -> Result<(), MiddlewareError> {
         for layer in self.layers.iter().rev() {
@@ -363,7 +363,7 @@ impl MiddlewareStack {
     /// Run `after_tool_call` bottom-to-top.
     pub async fn run_after_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
@@ -389,7 +389,7 @@ impl MiddlewareStack {
     /// Each middleware's `next` is a closure that calls the remaining chain.
     pub async fn run_wrap_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         messages: Vec<Message>,
         actual_call: &dyn LlmCallFn,
     ) -> Result<Message, MiddlewareError> {
@@ -400,7 +400,7 @@ impl MiddlewareStack {
     /// Recursive helper for LLM wrap chain (using `Box::pin` for async recursion).
     fn call_wrap_llm_chain<'a>(
         &'a self,
-        state: &'a mut AgentState,
+        state: &'a AgentState,
         messages: Vec<Message>,
         actual_call: &'a dyn LlmCallFn,
         index: usize,
@@ -431,7 +431,7 @@ impl MiddlewareStack {
     /// Builds a nested chain: `mw[0].wrap(mw[1].wrap(... mw[n].wrap(actual)))`.
     pub async fn run_wrap_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         actual_call: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
@@ -442,7 +442,7 @@ impl MiddlewareStack {
     /// Recursive helper for tool wrap chain (using `Box::pin` for async recursion).
     fn call_wrap_tool_chain<'a>(
         &'a self,
-        state: &'a mut AgentState,
+        state: &'a AgentState,
         tool_call: &'a ToolCall,
         actual_call: &'a dyn ToolCallFn,
         index: usize,
@@ -477,7 +477,7 @@ impl MiddlewareStack {
 /// middleware layer receives a proper `next` callback.
 ///
 /// State is NOT held here — it is passed through `call(state, messages)` at each level,
-/// allowing `&mut AgentState` to flow through the chain without borrow conflicts.
+/// allowing `&AgentState` to flow through the chain without borrow conflicts.
 struct ChainedLlmCall<'a> {
     stack: &'a MiddlewareStack,
     actual_call: &'a dyn LlmCallFn,
@@ -488,7 +488,7 @@ struct ChainedLlmCall<'a> {
 impl<'a> LlmCallFn for ChainedLlmCall<'a> {
     async fn call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         messages: Vec<Message>,
     ) -> Result<Message, AgentError> {
         self.stack
@@ -512,7 +512,7 @@ struct ChainedToolCall<'a> {
 impl<'a> ToolCallFn for ChainedToolCall<'a> {
     async fn call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<ToolOutput, AgentError> {
         self.stack

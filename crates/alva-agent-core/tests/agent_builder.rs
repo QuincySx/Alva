@@ -159,7 +159,7 @@ impl PhaseHandler for BlockingBeforeToolHandler {
 
     async fn before_tool_call(
         &self,
-        _state: &mut alva_kernel_core::state::AgentState,
+        _state: &alva_kernel_core::state::AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         Err(MiddlewareError::Blocked {
@@ -205,7 +205,7 @@ impl PhaseHandler for InputCommittedHandler {
 
     async fn run_start(
         &self,
-        _state: &mut alva_kernel_core::state::AgentState,
+        _state: &alva_kernel_core::state::AgentState,
     ) -> Result<(), MiddlewareError> {
         self.run_start_calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
@@ -213,7 +213,7 @@ impl PhaseHandler for InputCommittedHandler {
 
     async fn input_committed(
         &self,
-        _state: &mut alva_kernel_core::state::AgentState,
+        _state: &alva_kernel_core::state::AgentState,
         message: &AgentMessage,
     ) -> Result<(), MiddlewareError> {
         assert!(matches!(message, AgentMessage::Standard(_)));

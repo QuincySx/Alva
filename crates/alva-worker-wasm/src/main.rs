@@ -162,7 +162,7 @@ struct PermissionGateMiddleware {
 impl Middleware for PermissionGateMiddleware {
     async fn before_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         if self.mode.allows_tool(&tool_call.name) {

@@ -103,7 +103,7 @@ impl Middleware for CheckpointMiddleware {
 
     async fn before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         // Check read-only: settings patterns first, then Tool trait

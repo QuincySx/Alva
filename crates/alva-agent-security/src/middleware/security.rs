@@ -162,7 +162,7 @@ impl SecurityMiddleware {
 impl Middleware for SecurityMiddleware {
     async fn before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         let tool_context = MinimalExecutionContext::new();

@@ -773,7 +773,7 @@ struct FailingAfterLlmCallMiddleware;
 impl Middleware for FailingAfterLlmCallMiddleware {
     async fn after_llm_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         _response: &mut Message,
     ) -> Result<(), MiddlewareError> {
         Err(MiddlewareError::Other(
@@ -1641,7 +1641,7 @@ struct FailStartLifecycleProbe {
 
 #[async_trait]
 impl Middleware for FailStartLifecycleProbe {
-    async fn on_agent_start(&self, _state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn on_agent_start(&self, _state: &AgentState) -> Result<(), MiddlewareError> {
         Err(MiddlewareError::from(AgentError::ConfigError(
             "boom in on_agent_start".into(),
         )))
@@ -1649,7 +1649,7 @@ impl Middleware for FailStartLifecycleProbe {
 
     async fn on_agent_end(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         self.end_calls.fetch_add(1, Ordering::SeqCst);

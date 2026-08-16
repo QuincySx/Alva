@@ -38,7 +38,7 @@ impl Default for DanglingToolCallMiddleware {
 impl Middleware for DanglingToolCallMiddleware {
     async fn before_llm_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         // 1. Collect all tool_use IDs from Assistant messages

@@ -250,7 +250,7 @@ struct ActualLlmCall {
 impl LlmCallFn for ActualLlmCall {
     async fn call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         messages: Vec<Message>,
     ) -> Result<Message, AgentError> {
         let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
@@ -392,7 +392,7 @@ impl LlmCallFn for ActualLlmCall {
 /// Messages are never stored in local variables across iterations;
 /// instead, every iteration reads the full history from `state.session`.
 pub async fn run_agent(
-    state: &mut AgentState,
+    state: &AgentState,
     config: &AgentConfig,
     cancel: CancellationToken,
     input: Vec<AgentMessage>,
@@ -530,7 +530,7 @@ pub async fn run_agent(
 /// - **Outer loop**: processes follow-up messages after the inner loop finishes naturally.
 /// - **Inner loop**: LLM calls + tool execution + steering injection.
 async fn run_loop(
-    state: &mut AgentState,
+    state: &AgentState,
     config: &AgentConfig,
     cancel: &CancellationToken,
     event_tx: &mpsc::UnboundedSender<AgentEvent>,

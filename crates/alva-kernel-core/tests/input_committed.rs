@@ -72,7 +72,7 @@ impl Middleware for InputCommittedRecorder {
 
     async fn input_committed(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         message: &AgentMessage,
     ) -> Result<(), MiddlewareError> {
         assert_eq!(agent_message_text(message), "hello");

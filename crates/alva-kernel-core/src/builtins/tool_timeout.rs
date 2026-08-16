@@ -58,7 +58,7 @@ impl Default for ToolTimeoutMiddleware {
 impl Middleware for ToolTimeoutMiddleware {
     async fn wrap_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {

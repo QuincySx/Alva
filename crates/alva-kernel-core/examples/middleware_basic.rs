@@ -28,7 +28,7 @@ struct LoggingMiddleware;
 impl Middleware for LoggingMiddleware {
     async fn before_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         println!("[LoggingMiddleware] before_tool_call: {}", tool_call.name);
@@ -37,7 +37,7 @@ impl Middleware for LoggingMiddleware {
 
     async fn after_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
@@ -65,7 +65,7 @@ struct SecurityMiddleware {
 impl Middleware for SecurityMiddleware {
     async fn before_tool_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         if self.blocked_tools.contains(&tool_call.name) {
@@ -99,7 +99,7 @@ struct TokenCountingMiddleware;
 
 #[async_trait]
 impl Middleware for TokenCountingMiddleware {
-    async fn on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn on_agent_start(&self, state: &AgentState) -> Result<(), MiddlewareError> {
         state.extensions.insert(TokenStats::default());
         println!("[TokenCountingMiddleware] initialized stats in Extensions");
         Ok(())
@@ -107,7 +107,7 @@ impl Middleware for TokenCountingMiddleware {
 
     async fn before_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         _messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         if let Some(stats) = state.extensions.get::<TokenStats>() {
@@ -119,7 +119,7 @@ impl Middleware for TokenCountingMiddleware {
 
     async fn before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         if let Some(stats) = state.extensions.get::<TokenStats>() {
@@ -134,7 +134,7 @@ impl Middleware for TokenCountingMiddleware {
 
     async fn on_agent_end(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         if let Some(stats) = state.extensions.get::<TokenStats>() {

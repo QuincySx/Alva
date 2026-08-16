@@ -66,7 +66,7 @@ struct EchoToolCall;
 impl ToolCallFn for EchoToolCall {
     async fn call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<ToolOutput, AgentError> {
         Ok(ToolOutput::text(format!(

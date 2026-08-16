@@ -92,7 +92,7 @@ impl PlanModeMiddleware {
 impl Middleware for PlanModeMiddleware {
     async fn before_tool_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         if !self.enabled.load(Ordering::Relaxed) {

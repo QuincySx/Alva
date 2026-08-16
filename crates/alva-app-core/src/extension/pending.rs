@@ -171,7 +171,7 @@ impl Middleware for PendingMiddleware {
 
     async fn before_llm_call(
         &self,
-        state: &mut AgentState,
+        state: &AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         let unread = self.svc.drain_unread();

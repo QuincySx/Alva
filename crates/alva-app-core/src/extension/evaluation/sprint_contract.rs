@@ -137,7 +137,7 @@ impl SprintContractMiddleware {
 
 #[async_trait]
 impl Middleware for SprintContractMiddleware {
-    async fn on_agent_start(&self, state: &mut AgentState) -> Result<(), MiddlewareError> {
+    async fn on_agent_start(&self, state: &AgentState) -> Result<(), MiddlewareError> {
         // Store contract in extensions for evaluator / other middleware to read.
         state.extensions.insert(self.contract.clone());
         Ok(())
@@ -145,7 +145,7 @@ impl Middleware for SprintContractMiddleware {
 
     async fn before_llm_call(
         &self,
-        _state: &mut AgentState,
+        _state: &AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         // Inject contract as a system message so the LLM sees the completion criteria.
