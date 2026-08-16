@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{header, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -24,7 +24,7 @@ use tracing::{info, warn};
 
 use alva_hub_desktop::{
     build_engine_for_target, run_persisted_with_target, EngineTarget, HubStore, ProviderCatalog,
-    RunRequest, SystemProbe, TimelineEvent,
+    RunRequest, SaveProviderProfile, SystemProbe, TimelineEvent,
 };
 use alva_llm_provider::ProviderConfig;
 
@@ -119,12 +119,66 @@ async fn list_sessions(State(state): State<Arc<AppState>>) -> impl IntoResponse 
     }
 }
 
-/// GET /api/providers — model providers for the composer.
-async fn list_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let workspace: Option<&std::path::Path> = None;
-    match state.providers.routes(workspace) {
-        Ok(routes) => Json(json!({ "routes": routes })).into_response(),
+/// GET /api/sessions/:id — one durable session detail (same shape as the
+/// Tauri `get_hub_session` command).
+async fn get_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.store.get_session(&id) {
+        Ok(Some(session)) => Json(session).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "session not found" }))).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// GET /api/providers — provider profiles (same shape as Tauri
+/// `list_model_providers`).
+async fn list_providers(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.providers.list(None) {
+        Ok(providers) => Json(providers).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// POST /api/providers — save a provider profile (same shape as Tauri
+/// `save_model_provider`). Accepts an optional API key; `clear_api_key`
+/// empties the stored key.
+async fn save_provider(
+    State(state): State<Arc<AppState>>,
+    Json(provider): Json<SaveProviderProfile>,
+) -> impl IntoResponse {
+    match state.providers.save(provider, None) {
+        Ok(saved) => Json(saved).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// GET /api/routes — effective model routes (same shape as Tauri
+/// `list_model_routes`).
+async fn list_routes(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.providers.routes(None) {
+        Ok(routes) => Json(routes).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// GET /api/default-route — the persisted default model route, if set.
+async fn get_default_route(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match state.providers.default_target(None) {
+        Ok(route) => Json(route).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// POST /api/default-route — persist the global default model route.
+async fn set_default_route(
+    State(state): State<Arc<AppState>>,
+    Json(target): Json<EngineTarget>,
+) -> impl IntoResponse {
+    match state.providers.set_default_target(target, None) {
+        Ok(route) => Json(route).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }
 
@@ -142,11 +196,23 @@ async fn run(
         prompt: body.prompt,
         workspace: workspace.clone(),
         engine_id: body.engine_id.unwrap_or_else(|| "alva".to_string()),
-        product_session_id: body.product_session_id,
+        product_session_id: body.product_session_id.clone(),
         permission_profile: None,
     };
 
-    let selected_target: Option<EngineTarget> = None;
+    // A NEW session resolves its target from the persisted default route
+    // (mirroring `run_hub_prompt`, which asks Settings for a default when the
+    // caller sends none). A resumed session must use its pinned target, so the
+    // default is only consulted when there is no product_session_id.
+    let selected_target: Option<EngineTarget> = if request.product_session_id.is_none() {
+        match state.providers.default_target(None) {
+            Ok(Some(route)) => Some(route.target),
+            Ok(None) => None,
+            Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+        }
+    } else {
+        None
+    };
     let run_token: Option<String> = None;
 
     // Clones captured into the async closures.
@@ -311,7 +377,10 @@ async fn main() -> Result<(), String> {
     let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/sessions", get(list_sessions))
-        .route("/api/providers", get(list_providers))
+        .route("/api/sessions/:id", get(get_session))
+        .route("/api/providers", get(list_providers).post(save_provider))
+        .route("/api/routes", get(list_routes))
+        .route("/api/default-route", get(get_default_route).post(set_default_route))
         .route("/api/run", post(run))
         .route("/api/events", get(events))
         .fallback(static_handler)
