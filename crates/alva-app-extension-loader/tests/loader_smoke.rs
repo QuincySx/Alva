@@ -82,6 +82,7 @@ version = "0.0.1"
 description = "Test plugin that blocks rm -rf"
 runtime = "python"
 entry = "main.py"
+requested_capabilities = ["host:state.get_messages"]
 "#;
 
 const PLUGIN_PY: &str = r#"import json

@@ -36,11 +36,17 @@ use crate::protocol::{error_codes, HostLogParams, LogLevel, RpcError};
 /// The production host handler wired in by `SubprocessLoaderPlugin`.
 ///
 /// Holds a plugin name for tracing and the current event-scoped state
-/// snapshot for `host/state.*` calls.
+/// snapshot for `host/state.*` calls, plus the plugin's declared
+/// `requested_capabilities` so every reverse call is gated fail-closed.
 #[derive(Debug, Clone, Default)]
 pub struct AlvaHostHandler {
     plugin_name: String,
     state: Arc<Mutex<Option<StateSnapshot>>>,
+    /// Capabilities the plugin declared in its manifest (`host:log`,
+    /// `host:memory.write`, …). `None` means "no gate" (a handler built
+    /// before capabilities were wired in); `Some(empty)` means "deny all
+    /// reverse calls" — a plugin that declared nothing may call nothing.
+    requested_capabilities: Option<Arc<[String]>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,6 +61,22 @@ impl AlvaHostHandler {
         Self {
             plugin_name: plugin_name.into(),
             state: Arc::new(Mutex::new(None)),
+            requested_capabilities: None,
+        }
+    }
+
+    /// Build a handler whose reverse calls are gated against the plugin's
+    /// declared `requested_capabilities`. A `host/<name>` method requires the
+    /// matching `host:<name>` capability; any undeclared call is denied with
+    /// `CAPABILITY_DENIED` rather than silently observed.
+    pub fn with_capabilities(
+        plugin_name: impl Into<String>,
+        requested_capabilities: Vec<String>,
+    ) -> Self {
+        Self {
+            plugin_name: plugin_name.into(),
+            state: Arc::new(Mutex::new(None)),
+            requested_capabilities: Some(requested_capabilities.into()),
         }
     }
 
@@ -64,6 +86,34 @@ impl AlvaHostHandler {
 
     pub fn clear_state_snapshot(&self) {
         *self.state.lock().expect("state snapshot mutex poisoned") = None;
+    }
+
+    /// Return `Some(CAPABILITY_DENIED error)` when the plugin did not declare
+    /// the capability behind `method`. Methods without a `host/…` shape are
+    /// never gated here (they are not reverse host calls).
+    fn check_capability(&self, method: &str) -> Option<RpcError> {
+        let Some(caps) = self.requested_capabilities.as_ref() else {
+            // Pre-wiring handler: no gate (backward-compatible with the
+            // observation-mode draft and unit paths that never set caps).
+            return None;
+        };
+        // `host/log` → require `host:log`; `host/memory.write` → `host:memory.write`.
+        let required = method.replace("host/", "host:");
+        if required == method {
+            // Not a host/… reverse call; nothing to gate here.
+            return None;
+        }
+        if caps.iter().any(|c| c == &required) {
+            None
+        } else {
+            Some(RpcError::new(
+                error_codes::CAPABILITY_DENIED,
+                format!(
+                    "plugin '{}' did not declare capability '{}'",
+                    self.plugin_name, required
+                ),
+            ))
+        }
     }
 }
 
@@ -88,6 +138,16 @@ impl HostHandler for AlvaHostHandler {
         method: String,
         params: Option<Value>,
     ) -> Result<Value, RpcError> {
+        // Fail-closed capability gate: a plugin may only call host methods it
+        // declared in `requested_capabilities`.
+        if let Some(denied) = self.check_capability(&method) {
+            tracing::warn!(
+                plugin = %self.plugin_name,
+                method = %method,
+                "AEP reverse call denied: capability not declared"
+            );
+            return Err(denied);
+        }
         match method.as_str() {
             "host/log" => {
                 let params: HostLogParams = parse_params(params)?;
@@ -123,6 +183,17 @@ impl HostHandler for AlvaHostHandler {
     }
 
     async fn handle_notification(&self, method: String, _params: Option<Value>) {
+        // Undeclared notifications are refused before they can carry a side
+        // effect; declared ones are logged and dropped (no response channel).
+        if let Some(denied) = self.check_capability(&method) {
+            tracing::warn!(
+                plugin = %self.plugin_name,
+                method = %method,
+                code = denied.code,
+                "AEP plugin notification denied: capability not declared"
+            );
+            return;
+        }
         tracing::debug!(
             plugin = %self.plugin_name,
             method = %method,
@@ -549,5 +620,68 @@ mod tests {
 
         let d = AlvaHostHandler::default();
         assert_eq!(d.plugin_name, "", "Default must yield empty plugin_name");
+    }
+
+    // --- capability gate (fail-closed) -------------------------------
+
+    #[tokio::test]
+    async fn declared_capability_is_allowed() {
+        let h = AlvaHostHandler::with_capabilities(
+            "declared",
+            vec!["host:log".to_string(), "host:state.get_messages".to_string()],
+        );
+        let params = serde_json::json!({"level": "info", "message": "ok"});
+        let result = h.handle_request("host/log".to_string(), Some(params)).await;
+        assert!(result.is_ok(), "declared capability must pass, got {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn undeclared_capability_is_denied() {
+        let h = AlvaHostHandler::with_capabilities(
+            "declares-nothing",
+            vec![], // declares nothing → may call no host method
+        );
+        let result = h.handle_request("host/log".to_string(), None).await;
+        match result {
+            Err(e) if e.code == error_codes::CAPABILITY_DENIED => {}
+            other => panic!("expected CAPABILITY_DENIED, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn partially_declared_plugin_can_only_call_declared_methods() {
+        let h = AlvaHostHandler::with_capabilities(
+            "partial",
+            vec!["host:notify".to_string()],
+        );
+        // "host/notify" declared → allowed.
+        let ok = h
+            .handle_request(
+                "host/notify".to_string(),
+                Some(serde_json::json!({"level": "info", "message": "m"})),
+            )
+            .await;
+        assert!(ok.is_ok());
+        // "host/log" NOT declared → denied.
+        let denied = h.handle_request("host/log".to_string(), None).await;
+        match denied {
+            Err(e) if e.code == error_codes::CAPABILITY_DENIED => {}
+            other => panic!("expected CAPABILITY_DENIED for host/log, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn gate_ignores_non_host_methods() {
+        // A method without the `host/…` shape is not a reverse host call and
+        // must not be mistaken for an undeclared capability.
+        let h = AlvaHostHandler::with_capabilities("any", vec![]);
+        let result = h.handle_request("tools/list".to_string(), None).await;
+        match result {
+            Err(e) if e.code == error_codes::METHOD_NOT_FOUND => {}
+            other => panic!(
+                "non-host method should fall through to METHOD_NOT_FOUND, got {:?}",
+                other
+            ),
+        }
     }
 }

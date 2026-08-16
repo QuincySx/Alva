@@ -191,9 +191,8 @@ pub mod error_codes {
     /// to has already returned).
     pub const HANDLE_EXPIRED: i32 = -32000;
     /// The plugin called a host method it did not declare in its
-    /// `requestedCapabilities` list. In v0.1 this is only produced
-    /// in observation mode as a tag on the log line; v0.2 will
-    /// return it as a real error.
+    /// `requestedCapabilities` list. Returned fail-closed by the host
+    /// handler's capability gate.
     pub const CAPABILITY_DENIED: i32 = -32001;
     /// The plugin returned an `ExtensionAction` variant that is not
     /// valid for the event (e.g. `Block` on `on_agent_end`).

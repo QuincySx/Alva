@@ -27,10 +27,9 @@ pub struct PluginManifest {
     pub entry: String,
 
     /// Capabilities the plugin asks for (e.g. `"host:get_state"`,
-    /// `"host:memory.write"`). In v1 this is observation-only —
-    /// the host logs a warning when a plugin calls a method it did
-    /// not declare, but does not block. v0.2 will switch to strict
-    /// enforcement.
+    /// `"host:memory.write"`). Each `host/<name>` reverse call requires the
+    /// matching `host:<name>` entry: an undeclared call is denied with
+    /// `CAPABILITY_DENIED` (fail-closed), never silently observed.
     #[serde(default)]
     pub requested_capabilities: Vec<String>,
 }

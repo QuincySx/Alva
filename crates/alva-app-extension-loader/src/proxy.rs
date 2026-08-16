@@ -203,7 +203,10 @@ impl RemotePluginProxy {
         )
         .await?;
 
-        let host_handler = Arc::new(AlvaHostHandler::new(&manifest.name));
+        let host_handler = Arc::new(AlvaHostHandler::with_capabilities(
+            manifest.name.clone(),
+            manifest.requested_capabilities.clone(),
+        ));
         let dispatcher = RpcDispatcher::spawn(runtime, host_handler.clone());
 
         // --- initialize ---
