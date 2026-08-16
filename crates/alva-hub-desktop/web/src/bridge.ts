@@ -417,6 +417,12 @@ async function httpJson<T>(
 
 export async function chooseWorkspace(): Promise<string | null> {
   if (DEMO) return "/Users/dev/projects/alva-agent";
+  if (HTTP) {
+    // Browsers cannot open a native directory picker. Accept an absolute path
+    // from the operator instead; `run` forwards it verbatim to the engine.
+    const value = window.prompt("Workspace path", "");
+    return value && value.trim() ? value.trim() : null;
+  }
   if (!hasTauri) {
     throw new Error("Workspace selection requires the ALVA Hub desktop runtime.");
   }
@@ -430,6 +436,13 @@ export async function createSessionWorkspace(): Promise<WorkspaceBinding> {
       kind: "session",
       path: "/ALVA Hub/independent-sessions/demo-session",
     };
+  }
+  if (HTTP) {
+    const value = window.prompt("Session workspace directory", "");
+    if (value && value.trim()) {
+      return { kind: "session", path: value.trim() };
+    }
+    throw new Error("A session workspace directory is required.");
   }
   if (!hasTauri) {
     throw new Error("Creating an independent workspace requires the ALVA Hub desktop runtime.");
