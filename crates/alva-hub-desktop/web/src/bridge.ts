@@ -475,6 +475,7 @@ export async function switchHubEngine(
 
 export async function listModelProviders(workspace: string | null): Promise<ProviderProfile[]> {
   if (DEMO) return demoProviderProfiles();
+  if (HTTP) return await httpJson<ProviderProfile[]>("/api/providers", undefined, "GET");
   if (!hasTauri) return [];
   return await invoke<ProviderProfile[]>("list_model_providers", { workspace });
 }
@@ -483,12 +484,14 @@ export async function saveModelProvider(
   provider: SaveProviderProfile,
   workspace: string | null,
 ): Promise<ProviderProfile> {
+  if (HTTP) return await httpJson<ProviderProfile>("/api/providers", provider);
   if (!hasTauri) throw new Error("Provider settings require the ALVA Hub desktop runtime.");
   return await invoke<ProviderProfile>("save_model_provider", { provider, workspace });
 }
 
 export async function listModelRoutes(workspace: string | null): Promise<ModelRoute[]> {
   if (DEMO) return demoModelRoutes();
+  if (HTTP) return await httpJson<ModelRoute[]>("/api/routes", undefined, "GET");
   if (!hasTauri) return [];
   return await invoke<ModelRoute[]>("list_model_routes", { workspace });
 }
@@ -497,6 +500,7 @@ export async function getDefaultModelRoute(
   workspace: string | null,
 ): Promise<ModelRoute | null> {
   if (DEMO) return demoModelRoutes()[0];
+  if (HTTP) return await httpJson<ModelRoute | null>("/api/default-route", undefined, "GET");
   if (!hasTauri) return null;
   return await invoke<ModelRoute | null>("get_default_model_route", { workspace });
 }
@@ -505,6 +509,7 @@ export async function setDefaultModelRoute(
   target: EngineTarget,
   workspace: string | null,
 ): Promise<ModelRoute> {
+  if (HTTP) return await httpJson<ModelRoute>("/api/default-route", target);
   if (!hasTauri) throw new Error("Default model settings require the ALVA Hub desktop runtime.");
   return await invoke<ModelRoute>("set_default_model_route", { target, workspace });
 }
@@ -539,6 +544,12 @@ export async function getHubSession(
   productSessionId: string,
 ): Promise<HubSessionDetail | null> {
   if (DEMO) return demoDetail();
+  if (HTTP) {
+    const res = await fetch(`${HTTP_BASE}/api/sessions/${encodeURIComponent(productSessionId)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as HubSessionDetail;
+  }
   if (!hasTauri) return null;
   return await invoke<HubSessionDetail | null>("get_hub_session", {
     productSessionId,
