@@ -201,3 +201,33 @@ The first step is therefore a thin `execute(state, config, cancel, input,
 event_tx)` seam, not a rewrite of the loop model. This keeps "interface" from
 inflating into "re-architecture", consistent with the selective-absorption
 decision above.
+
+## Implementation Note
+
+The interface landed (`7fd8ae0`) with two preparatory commits and one follow-up
+proof, all wider than ticket 01 had scoped:
+
+- `bebc7d6` made `Extensions` interior-mutable (`Arc<RwLock>`, `get` returns
+  `Arc<T>`).
+- `0f44bb8` changed `&mut AgentState → &AgentState` across the **entire**
+  `Middleware`/`PhaseHandler` trait and every cross-crate implementation — 27
+  files — not just the one `state.extensions.insert(cancel)` site ticket 01 had
+  assumed. This is the fallback ticket 01's contingency clause called for, and
+  it had not been written back until now.
+- `9003f7f` proved swappability with a second `AgentLoop` implementation.
+
+Why the broad `&mut → &` is still safe: it is a pure signature change. The only
+real mutation `run_agent` performed on `state` was `extensions.insert(cancel)`;
+`state.tools`/`state.model`/`state.session` are all read through `Arc`, and no
+code wrote those fields. Rust's borrow checker guarantees no path mutates them
+through the old `&mut` (it would not compile otherwise), and non-trivial files
+were spot-checked for logic drift. `cargo build --workspace`, `scripts/ci-check-deps.sh`
+(including the wasm32 link build), and `cargo test -p alva-kernel-core` all pass.
+
+One wording correction carried forward from the implementation: the reason for
+`&mut → &` was the onion composition of `wrap_llm_call`/`wrap_tool_call`
+(an exclusive borrow cannot thread cleanly through the nested `&dyn LlmCallFn`/
+`ToolCallFn` continuations) — **not** an object-safety requirement. `#[async_trait]
+fn drive(&self, state: &mut AgentState, …)` is itself object-safe; Rust's
+object-safety rules do not constrain the mutability of non-`self` parameters.
+The corrected rationale lives in the `Middleware` trait doc comment.
