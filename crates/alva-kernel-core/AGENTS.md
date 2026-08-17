@@ -5,7 +5,7 @@
 `alva-kernel-core` 是 agent 体系的内核执行层。它不关心具体 provider、tool 实现或 UI，只负责驱动单 agent 的运行循环，并通过 middleware、bus hook 与上层运行时协作。
 
 ## 逻辑
-- `run.rs` 提供 `run_agent()` 与可替换的 `AgentLoop` trait（+ `DefaultAgentLoop` 默认实现），以 session 为单一消息真相源执行双层循环：inner loop 负责 LLM 调用与 tool batch execution，outer loop 负责 run continuation。
+- `run/` 模块提供 `run_agent()`（`mod.rs`）与可替换的 `AgentLoop` trait（`loop_impl.rs`，+ `DefaultAgentLoop` 默认实现），以 session 为单一消息真相源执行双层循环：inner loop 负责 LLM 调用与 tool batch execution，outer loop 负责 run continuation；`llm_call.rs` 收拢 schema 预烘焙与真实 LLM 调用的 `LlmCallFn` 适配器。
 - `state.rs` 将可变运行态 `AgentState` 与不可变配置 `AgentConfig` 分离，降低借用冲突并把消息历史外置到 `session`。
 - `middleware.rs` 和 `shared.rs` 提供 async middleware stack、priority、error 和 type-safe `Extensions`；`input_committed` 在输入消息写入 session 后触发，是 `Phase::InputCommitted` 的真实执行点。
 - `context_runtime.rs` 提供 `ContextRuntime`，集中处理 ContextHooks 的 pending injection、assemble、budget compression、after_turn 与 dispose。
