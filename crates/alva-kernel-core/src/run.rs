@@ -1,10 +1,11 @@
 // INPUT:  crate::state::{AgentState, AgentConfig}, crate::event::AgentEvent, alva_kernel_abi::*
-// OUTPUT: pub async fn run_agent()
-// POS:    session-centric agent loop. Mid-run steering is NOT a kernel concern —
-//         external callers inject messages by appending them to the session directly
-//         (typically via an opt-in `PendingPlugin` middleware). Before each LLM
-//         call, tool schemas are pre-baked against a `ToolSchemaContext` carrying the
-//         bus handle so `Tool::parameters_schema_with` sees live runtime state.
+// OUTPUT: pub async fn run_agent(), pub trait AgentLoop, pub struct DefaultAgentLoop
+// POS:    session-centric agent loop. run_agent is the default implementation behind the
+//         swappable AgentLoop driver interface (ADR-0007). Mid-run steering is NOT a kernel
+//         concern — external callers inject messages by appending them to the session directly
+//         (typically via an opt-in `PendingPlugin` middleware). Before each LLM call, tool
+//         schemas are pre-baked against a `ToolSchemaContext` carrying the bus handle so
+//         `Tool::parameters_schema_with` sees live runtime state.
 use std::sync::Arc;
 
 use alva_kernel_abi::agent_session::{ComponentDescriptor, EmitterKind};

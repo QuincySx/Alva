@@ -47,8 +47,17 @@ pub trait ToolCallFn: Send + Sync {
 /// Key differences from the old design:
 /// - `on_agent_start` / `on_agent_end` lifecycle hooks
 /// - `before_*` / `after_*` inspection hooks receive `&AgentState`
-/// - `wrap_*` interceptor hooks receive `&AgentState` (mutable, state is threaded through the chain)
+/// - `wrap_*` interceptor hooks receive `&AgentState` (shared, threaded through the chain via reborrow)
 /// - All methods have default no-op implementations
+///
+/// Why `&AgentState` rather than `&mut AgentState`: the onion composition of
+/// `wrap_llm_call` / `wrap_tool_call` re-enters the chain through a `&dyn
+/// LlmCallFn` / `ToolCallFn` continuation. An exclusive borrow cannot thread
+/// cleanly across those nested async continuations. This is a *borrow* matter,
+/// not an object-safety one — `#[async_trait] fn drive(&self, state: &mut
+/// AgentState, …)` would itself be object-safe. Shared `&AgentState` plus
+/// interior-mutable `Extensions` is how mutability is now expressed when a
+/// middleware genuinely needs to store state mid-run.
 #[async_trait]
 pub trait Middleware: Send + Sync {
     /// Called when the agent run starts.

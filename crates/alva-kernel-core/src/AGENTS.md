@@ -2,10 +2,10 @@
 > Agent 内核源码：session-centric run loop、middleware orchestration、runtime context 与 pending message injection。
 
 ## 地位
-此目录是 `alva-kernel-core` 的全部核心实现。它直接消费 `alva-kernel-abi` 提供的 model/tool/session 抽象，向上提供 `run_agent()`、`AgentState`、`AgentConfig`、`AgentEvent`、`MiddlewareStack` 等核心 API。
+此目录是 `alva-kernel-core` 的全部核心实现。它直接消费 `alva-kernel-abi` 提供的 model/tool/session 抽象，向上提供 `run_agent()`（及可替换的 `AgentLoop`/`DefaultAgentLoop` driver 接口）、`AgentState`、`AgentConfig`、`AgentEvent`、`MiddlewareStack` 等核心 API。
 
 ## 逻辑
-1. `run.rs` 实现主循环。每轮从 `session` 读取上下文，经过 middleware，调用 model，解析 `ToolUse`，执行 tool，再把结果写回 `session`。
+1. `run.rs` 实现主循环。每轮从 `session` 读取上下文，经过 middleware，调用 model，解析 `ToolUse`，执行 tool，再把结果写回 `session`。同时提供可替换的 `AgentLoop` trait 与 `DefaultAgentLoop` 默认实现（`run_agent` 是其背后驱动）。
 2. `run_child.rs` 提供 child-agent 执行辅助逻辑，用于在受限上下文中运行子 agent 并回收结构化输出。
 3. `state.rs` 定义 `AgentState` 与 `AgentConfig`：state 放运行态能力，config 放 middleware、system prompt、workspace、bus 等稳定配置。
 4. `middleware.rs` 和 `shared.rs` 组成 onion-style middleware 子系统，负责 hook 分发、优先级、错误传播与扩展存储。
@@ -23,7 +23,7 @@
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
 | Crate 入口 | `lib.rs` | 声明子模块并 re-export public API |
-| 主运行循环 | `run.rs` | `run_agent()`，session-centric 双层循环与 tool execution 主链路 |
+| 主运行循环 | `run.rs` | `run_agent()`、`AgentLoop`、`DefaultAgentLoop` — session-centric 双层循环与 tool execution 主链路，以及可替换 driver 接口 |
 | Child Agent | `run_child.rs` | 子 agent 执行辅助与输出收敛 |
 | 状态与配置 | `state.rs` | `AgentState`、`AgentConfig` |
 | 事件定义 | `event.rs` | `AgentEvent` 可观测事件流 |
