@@ -38,6 +38,34 @@ impl MiddlewareError {
 // Extensions — type-safe key-value store for inter-middleware communication
 // ---------------------------------------------------------------------------
 
+/// Type-erased store for cross-middleware state. Interior-mutable so the
+/// middleware onion can share it behind `&AgentState` (see the `Middleware`
+/// trait doc for why the borrow is shared, not exclusive).
+///
+/// # Mutation hazard
+///
+/// [`Extensions::get`] returns an owned `Arc<T>`. This store itself keeps an
+/// `Arc` inside the map, so after a `get()` the reference count is always ≥2.
+/// Consequently `Arc::make_mut` on a returned value will **clone-on-write**:
+/// the mutation lands on the caller's private copy, and neither the map nor
+/// other already-cloned callers observe it. There is no compiler error for
+/// this — the update is silently lost.
+///
+/// To "mutate" a stored value, use one of:
+///
+/// - **replace**: `extensions.insert(new_value)` writes a fresh entry.
+/// - **interior mutability**: store a type that mutates through `&self`
+///   (`Atomic*`, `Mutex<T>`, etc.), then `get()` and mutate through the shared
+///   `Arc` in place. See `examples/middleware_basic.rs`, which stores
+///   `AtomicU32` counters.
+///
+/// # Lock poisoning
+///
+/// Lock acquisition uses `.expect("Extensions lock poisoned")` — fail-loud is
+/// deliberate. The critical sections are `HashMap` ops only (no fallible code
+/// runs under the lock), and recovering via `into_inner()` would mask the real
+/// signal that a thread panicked mid-mutation. This mirrors the kernel's
+/// fail-loud posture elsewhere.
 pub struct Extensions {
     map: RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
 }
@@ -56,6 +84,12 @@ impl Extensions {
             .insert(TypeId::of::<T>(), Arc::new(val));
     }
 
+    /// Read a value back as a shared `Arc<T>`.
+    ///
+    /// Do **not** `Arc::make_mut` this and expect the store to observe it — the
+    /// store keeps its own `Arc`, so `make_mut` clone-on-writes onto a private
+    /// copy (see the [`Extensions`] type doc). Mutate via `insert` replacement
+    /// or an interior-mutable value type instead.
     pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.map
             .read()
