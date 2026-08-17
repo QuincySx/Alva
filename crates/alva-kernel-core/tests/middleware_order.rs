@@ -98,7 +98,7 @@ async fn wrap_tool_call_runs_top_to_bottom_for_argument_mutation() {
     let mut state = state();
 
     let result = stack
-        .run_wrap_tool_call(&mut state, &tool_call(""), &EchoToolCall)
+        .run_wrap_tool_call(&mut state, &tool_call(""), Arc::new(EchoToolCall))
         .await
         .expect("wrap chain should succeed");
 

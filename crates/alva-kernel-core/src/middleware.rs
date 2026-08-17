@@ -2,8 +2,6 @@
 // OUTPUT: LlmCallFn, ToolCallFn, Middleware (trait), MiddlewareStack
 // POS:    Middleware trait and stack — receives &AgentState directly, with wrap hooks for interceptor pattern.
 
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use alva_kernel_abi::{AgentError, AgentMessage, Message, ToolCall, ToolOutput};
@@ -181,6 +179,7 @@ pub struct MiddlewareContext {
 ///
 /// **Before** hooks run top-to-bottom (in insertion order).
 /// **After** hooks run bottom-to-top (reverse order) — the onion model.
+#[derive(Clone)]
 pub struct MiddlewareStack {
     layers: Vec<Arc<dyn Middleware>>,
 }
@@ -395,86 +394,53 @@ impl MiddlewareStack {
     /// Run `wrap_llm_call` through the full middleware chain.
     ///
     /// Builds a nested chain: `mw[0].wrap(mw[1].wrap(... mw[n].wrap(actual)))`.
-    /// Each middleware's `next` is a closure that calls the remaining chain.
+    /// The chain is constructed as an owned `Arc<dyn LlmCallFn>` fold from the
+    /// innermost layer outward; each `next` holds its inner layer, so no
+    /// function-level async recursion (and no per-layer `Box::pin`) is needed.
     pub async fn run_wrap_llm_call(
         &self,
         state: &AgentState,
         messages: Vec<Message>,
-        actual_call: &dyn LlmCallFn,
+        actual_call: Arc<dyn LlmCallFn>,
     ) -> Result<Message, MiddlewareError> {
-        self.call_wrap_llm_chain(state, messages, actual_call, 0)
+        // Fold from innermost (index = len) outward to index 0.
+        let mut next: Arc<dyn LlmCallFn> = actual_call;
+        for index in (0..self.layers.len()).rev() {
+            let inner = next;
+            next = Arc::new(ChainedLlmCall {
+                stack: Arc::new(self.clone()),
+                inner,
+                index,
+            });
+        }
+        // `next` is now the outermost wrapper; call it with the innermost being
+        // `actual_call` that every layer reverts to once its own wrap runs.
+        next.call(state, messages)
             .await
-    }
-
-    /// Recursive helper for LLM wrap chain (using `Box::pin` for async recursion).
-    fn call_wrap_llm_chain<'a>(
-        &'a self,
-        state: &'a AgentState,
-        messages: Vec<Message>,
-        actual_call: &'a dyn LlmCallFn,
-        index: usize,
-    ) -> Pin<Box<dyn Future<Output = Result<Message, MiddlewareError>> + Send + 'a>> {
-        Box::pin(async move {
-            if index >= self.layers.len() {
-                // No more middleware -- call actual LLM
-                actual_call
-                    .call(state, messages)
-                    .await
-                    .map_err(MiddlewareError::from)
-            } else {
-                // Create a "next" that calls the rest of the chain
-                let next = ChainedLlmCall {
-                    stack: self,
-                    actual_call,
-                    next_index: index + 1,
-                };
-                self.layers[index]
-                    .wrap_llm_call(state, messages, &next)
-                    .await
-            }
-        })
+            .map_err(MiddlewareError::from)
     }
 
     /// Run `wrap_tool_call` through the full middleware chain.
     ///
-    /// Builds a nested chain: `mw[0].wrap(mw[1].wrap(... mw[n].wrap(actual)))`.
+    /// Same owned-fold construction as [`run_wrap_llm_call`].
     pub async fn run_wrap_tool_call(
         &self,
         state: &AgentState,
         tool_call: &ToolCall,
-        actual_call: &dyn ToolCallFn,
+        actual_call: Arc<dyn ToolCallFn>,
     ) -> Result<ToolOutput, MiddlewareError> {
-        self.call_wrap_tool_chain(state, tool_call, actual_call, 0)
+        let mut next: Arc<dyn ToolCallFn> = actual_call;
+        for index in (0..self.layers.len()).rev() {
+            let inner = next;
+            next = Arc::new(ChainedToolCall {
+                stack: Arc::new(self.clone()),
+                inner,
+                index,
+            });
+        }
+        next.call(state, tool_call)
             .await
-    }
-
-    /// Recursive helper for tool wrap chain (using `Box::pin` for async recursion).
-    fn call_wrap_tool_chain<'a>(
-        &'a self,
-        state: &'a AgentState,
-        tool_call: &'a ToolCall,
-        actual_call: &'a dyn ToolCallFn,
-        index: usize,
-    ) -> Pin<Box<dyn Future<Output = Result<ToolOutput, MiddlewareError>> + Send + 'a>> {
-        Box::pin(async move {
-            if index >= self.layers.len() {
-                // No more middleware -- call actual tool
-                actual_call
-                    .call(state, tool_call)
-                    .await
-                    .map_err(MiddlewareError::from)
-            } else {
-                // Create a "next" that calls the rest of the chain
-                let next = ChainedToolCall {
-                    stack: self,
-                    actual_call,
-                    next_index: index + 1,
-                };
-                self.layers[index]
-                    .wrap_tool_call(state, tool_call, &next)
-                    .await
-            }
-        })
+            .map_err(MiddlewareError::from)
     }
 }
 
@@ -482,50 +448,48 @@ impl MiddlewareStack {
 // Helper structs for chained wrap calls
 // ---------------------------------------------------------------------------
 
-/// Wraps the remaining LLM middleware chain as a `LlmCallFn` so each
-/// middleware layer receives a proper `next` callback.
+/// Wraps the next middleware layer as an owned `LlmCallFn`. Holds an owned
+/// `Arc` to the stack and to its inner layer, so the onion can be folded
+/// without borrowing and without function recursion.
 ///
-/// State is NOT held here — it is passed through `call(state, messages)` at each level,
-/// allowing `&AgentState` to flow through the chain without borrow conflicts.
-struct ChainedLlmCall<'a> {
-    stack: &'a MiddlewareStack,
-    actual_call: &'a dyn LlmCallFn,
-    next_index: usize,
+/// State is NOT held here — it is passed through `call(state, messages)`.
+struct ChainedLlmCall {
+    stack: Arc<MiddlewareStack>,
+    inner: Arc<dyn LlmCallFn>,
+    index: usize,
 }
 
 #[async_trait]
-impl<'a> LlmCallFn for ChainedLlmCall<'a> {
+impl LlmCallFn for ChainedLlmCall {
     async fn call(
         &self,
         state: &AgentState,
         messages: Vec<Message>,
     ) -> Result<Message, AgentError> {
-        self.stack
-            .call_wrap_llm_chain(state, messages, self.actual_call, self.next_index)
+        self.stack.layers[self.index]
+            .wrap_llm_call(state, messages, self.inner.as_ref())
             .await
             .map_err(MiddlewareError::into_agent_error)
     }
 }
 
-/// Wraps the remaining tool middleware chain as a `ToolCallFn` so each
-/// middleware layer receives a proper `next` callback.
-///
-/// State is NOT held here — it is passed through `call(state, tool_call)` at each level.
-struct ChainedToolCall<'a> {
-    stack: &'a MiddlewareStack,
-    actual_call: &'a dyn ToolCallFn,
-    next_index: usize,
+/// Owned `ToolCallFn` wrapper for the next tool middleware layer, mirroring
+/// [`ChainedLlmCall`].
+struct ChainedToolCall {
+    stack: Arc<MiddlewareStack>,
+    inner: Arc<dyn ToolCallFn>,
+    index: usize,
 }
 
 #[async_trait]
-impl<'a> ToolCallFn for ChainedToolCall<'a> {
+impl ToolCallFn for ChainedToolCall {
     async fn call(
         &self,
         state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<ToolOutput, AgentError> {
-        self.stack
-            .call_wrap_tool_chain(state, tool_call, self.actual_call, self.next_index)
+        self.stack.layers[self.index]
+            .wrap_tool_call(state, tool_call, self.inner.as_ref())
             .await
             .map_err(MiddlewareError::into_agent_error)
     }

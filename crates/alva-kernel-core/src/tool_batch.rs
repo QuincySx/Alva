@@ -119,7 +119,7 @@ impl ToolBatchCoordinator {
                             };
                             config
                                 .middleware
-                                .run_wrap_tool_call(state, tool_call, &actual_tool_call)
+                                .run_wrap_tool_call(state, tool_call, Arc::new(actual_tool_call))
                                 .await
                                 .map_err(MiddlewareError::into_agent_error)?
                         }

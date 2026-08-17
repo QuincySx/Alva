@@ -455,7 +455,7 @@ async fn run_loop(
         };
         let mut response = match config
             .middleware
-            .run_wrap_llm_call(state, llm_messages, &actual_call)
+            .run_wrap_llm_call(state, llm_messages, Arc::new(actual_call))
             .await
         {
             Ok(response) => response,
