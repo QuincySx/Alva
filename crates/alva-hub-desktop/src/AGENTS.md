@@ -71,5 +71,5 @@
 | Resource claims | `claims.rs` | 共享工作区 ResourceClaim 冲突代数 |
 | Worktree isolation | `worktree.rs` | 受管 git worktree、adoption 预览与丢弃 |
 | Engine repair | `repair.rs` | readiness→RepairAction 映射、一键安装 allowlist 执行器 |
-| SQLite store | `store.rs` | workspace kind、identity、模型选项、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
+| SQLite store | `store/` | `db.rs` storage kernel；`mod.rs` 共享数据访问层与 `pub(crate)` 常量/helper；`branch.rs`/`handoff.rs`/`team.rs`/`turn.rs` 各持久化簇；`tests.rs` 全量测试。covering workspace kind、identity、模型选项、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
 | Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness command 和 event bridge |
