@@ -39,12 +39,14 @@ export function HubTopbar({
         </small>
       </div>
       <div className="topbar__actions">
-        <IconButton
-          icon={<PanelRight aria-hidden="true" size={16} />}
-          label={workbenchOpen ? t("topbar.closeWorkbench") : t("topbar.openWorkbench")}
-          onClick={onToggleWorkbench}
-          variant="ghost"
-        />
+        {!workbenchOpen ? (
+          <IconButton
+            icon={<PanelRight aria-hidden="true" size={16} />}
+            label={t("topbar.openWorkbench")}
+            onClick={onToggleWorkbench}
+            variant="ghost"
+          />
+        ) : null}
         <Button
           disabled={!detailsAvailable}
           onClick={onToggleDetails}
