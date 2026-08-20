@@ -15,7 +15,8 @@ use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
-    AgentMessage, CancellationToken, ModelConfig, ToolExecutionContext, ToolOutput,
+    AgentMessage, AppendReceipt, CancellationToken, ModelConfig, SessionRecord, ToolExecutionContext,
+    ToolOutput,
 };
 use alva_kernel_core::agent_session::InMemoryAgentSession;
 use alva_kernel_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
@@ -1752,6 +1753,12 @@ impl AgentSession for FlushCountingSession {
     }
     async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
         self.inner.append_message(msg, parent_uuid).await
+    }
+    async fn append_records(
+        &self,
+        records: Vec<SessionRecord>,
+    ) -> Result<AppendReceipt, SessionError> {
+        self.inner.append_records(records).await
     }
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
         self.inner.query(filter).await
