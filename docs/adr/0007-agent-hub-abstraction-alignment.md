@@ -231,3 +231,15 @@ One wording correction carried forward from the implementation: the reason for
 fn drive(&self, state: &mut AgentState, …)` is itself object-safe; Rust's
 object-safety rules do not constrain the mutability of non-`self` parameters.
 The corrected rationale lives in the `Middleware` trait doc comment.
+The `&mut → &` fold rewrite in `MiddlewareStack` has one follow-up caveat worth
+recording for future reviewers. The wrap chain is built by `Arc::new(self.clone())`
+so the `ChainedLlmCall`/`ChainedToolCall` wrappers can outlive the `MiddlewareStack`
+view that made them — and hold a `Clone` of the whole stack. Today that is harmless
+(`MiddlewareStack` holds only the `Vec<Arc<Middleware>>` layers and their configs),
+and no production or test middleware caches an `Arc<dyn LlmCallFn>` it could then
+call after the original stack is dropped. If a middleware ever does cache a wrap
+call, that copy keeps a full `Clone` of the stack alive, which becomes heavy if
+`MiddlewareStack` later grows fields. This is a latent future risk, **not** a
+current bug; if middleware caching of wrap calls becomes real, switch the chain to
+hold only the pieces it needs (e.g. an `Arc<MiddlewareStack>` plus the single
+pending layer) instead of a whole `Clone`.
