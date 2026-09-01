@@ -317,15 +317,30 @@ where
             );
             if let Ok(engine) = &built {
                 let available = capability_labels(&engine.capabilities());
+                // Only engine-vocabulary words can veto a candidate. The same
+                // field also carries model-capability words (images/vision/tools)
+                // that the provider assembly reads back; an engine can never
+                // provide those, so counting them as missing vetoed the target on
+                // every single attempt — a permanent, silent skip.
                 let missing: Vec<String> = candidate
                     .required_capabilities
                     .iter()
+                    .filter(|capability| {
+                        crate::readiness::ENGINE_CAPABILITIES.contains(&capability.as_str())
+                    })
                     .filter(|capability| !available.contains(capability))
                     .cloned()
                     .collect();
                 if !missing.is_empty() {
-                    let veto =
-                        format!("target lacks required capabilities: {}", missing.join(", "));
+                    let veto = format!(
+                        "target lacks required capabilities: {} (engine provides: {})",
+                        missing.join(", "),
+                        if available.is_empty() {
+                            "none".to_string()
+                        } else {
+                            available.join(", ")
+                        }
+                    );
                     store.record_fallback_skip(
                         &prepared.product_session_id,
                         &prepared.branch_id,

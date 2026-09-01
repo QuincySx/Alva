@@ -2,7 +2,7 @@
 
 - 级别：P0
 - 影响：一旦有任何模型能力词（`images` / `tools` / `vision` …）进入引擎目标的 `required_capabilities`，该目标就会在降级链里被永久静默否决——用户看到的是一句「target lacks required capabilities: images」，而 `images` 本来就不属于引擎能力词表，永远不可能被满足。
-- 状态：TODO
+- 状态：DONE（2026-09-02，分支 `fix/engine-seam-tickets`，采用路线 B）
 
 **这是埋着的雷，不是正在爆的雷。** 出厂 UI 路径今天一律写 `capabilities: []`（证据见下），所以现在触发不了。修在数据被填充之前是几行改动；等这批数据被填满之后再修，就是一次线上事故加一次数据迁移。
 
@@ -144,3 +144,62 @@
 - [ ] 新增测试：断言 `capability_labels` 产出的集合与新词表定义**恰好相等**（防止两边再次漂移）。
 - [ ] `rg -n 'required_capabilities' crates/ --glob '*.rs'` 的每一处写入点，其词汇来源在 PR 描述中逐条标注属于哪套词表。
 - [ ] `cargo test -p alva-hub-desktop -p alva-hub-gpui` 全绿。
+
+## 完成记录（用户拍板：路线 B —— 白名单 + veto 只看引擎词）
+
+没有选工单推荐的路线 A（新开 `model_capabilities` 字段 + enum 收口），因为那要动 SQLite schema、两份 store 结构、`bridge.ts` 与 `App.tsx`、`providers.rs` 的双向读写——改动面明显大于前五张任何一张，而路线 B 能在零迁移、零前端改动的前提下同时**拆雷**和**拦住拼写错**。代价是字段仍然承载两套词表，根因保留（已写进 AGENTS.md 与常量 doc）。
+
+**1. 两套词表落成常量，与 `capability_labels` 同文件**
+
+`readiness.rs` 新增 `ENGINE_CAPABILITIES`（5 词，`capability_labels` 的穷尽产出）与 `MODEL_CAPABILITIES`（`images`/`vision`/`tools`，provider 组装读回用）。desktop / gpui 两份同步。
+
+**2. veto 只比对引擎词**
+
+`run.rs` 的 `missing` 计算先过一层 `ENGINE_CAPABILITIES.contains(..)`。模型词不再进入 missing，降级候选不再被永久静默否决。veto 文案按工单要求补上了引擎实际提供的能力清单（`engine provides: ...`），用户看到的不再是一个孤零零的词。
+
+**3. `validate_engine_target` 白名单**
+
+拒绝两表之外的词，错误信息列出**两套**合法词表。原来的空串检查合并进同一条。
+
+**4. provider 边界过滤（工单没写、但白名单逼出来的必要改动）**
+
+`providers.rs` 原本 `target.required_capabilities = model.capabilities.clone()`，而 `model.capabilities` 是磁盘 catalog 与 webview 来的自由字符串。加白名单后，任何一个不认识的词都会让**整个 target 保存失败**——比原来的雷更早爆。改成 `partition` 出已知词、丢弃未知词并 `tracing::warn!` 记录被丢的内容。catalog 里的一个拼写错不该阻止用户保存 provider 配置。
+
+## 验收逐条
+
+| # | 验收项 | 状态 |
+|---|---|---|
+| 1 | 穿透 `run.rs` veto 的测试；且让三处夹具在改词表后立刻变红 | ✅ **两半都有证据**（见下） |
+| 2 | 模型词不再被否决 + images 仍传到 provider config | 🔶 前半 ✅ 有测试；后半**静态可证、未加端到端测试** |
+| 3 | `validate` 拒绝词表外的词并列出合法词表；`tool_calls` 全仓为空 | ✅ |
+| 4 | `capability_labels` 产出与词表定义恰好相等 | ✅ |
+| 5 | 每处写入点标注词汇来源 | ✅（见下表） |
+| 6 | `cargo test` 全绿 | ✅ desktop 188 / gpui 166 |
+
+**第 1 条的两半证据**：
+- "夹具立刻变红"——加完白名单后 `cargo test -p alva-hub-desktop` 立刻 **3 failed**，正是工单点名的 `store/tests.rs` 三处 `tool_calls`（`new_session_branch_metadata_roundtrips_and_restores_after_reopen` / `automatic_fallback_continues_the_turn_with_serial_attempt_and_persisted_handoff` / `reopening_applies_a_switch_queued_before_a_crash`）。修正为 `tool_control` 后全绿。
+- "穿透 veto 的测试"——新增 `run.rs::a_model_vocabulary_word_does_not_veto_a_fallback_target`，是既有 `capability_incompatible_target_is_skipped_with_reason` 的孪生。
+
+**变异验证（含对照组，教训 5/9）**：去掉 veto 里的 `ENGINE_CAPABILITIES` 过滤后——
+- 新测试 **RED**（有效）
+- 既有的 `capability_incompatible_target_is_skipped_with_reason` **仍 GREEN**
+
+也就是说新测试有独立增量，不是对既有覆盖的重复。
+
+**第 2 条后半的静态推导**（未加端到端测试的理由）：本次**没有触碰** `alva.rs:235` 的逻辑；`images` 在 `MODEL_CAPABILITIES` 白名单内，所以 provider 边界的过滤会保留它，`required_capabilities` 里仍有 `images`，`alva.rs` 仍读得到。要端到端钉死需要给私有的 `pi_config` 建测试基建。
+
+**第 5 条：写入点词汇来源**
+
+| 写入点 | 词 | 属于 |
+|---|---|---|
+| `gpui/models.rs:395` | `streaming` | 引擎词 ✓ |
+| `gpui/models.rs:397` | `images` | 模型词 ✓ |
+| `gpui/models.rs:400` | `tools` | 模型词 ✓ |
+| `desktop/providers.rs:684` | 过滤后的 `known` | 两表之一，非法词已丢弃 ✓ |
+| `desktop/store/mod.rs:235` | — | 反序列化读取，非写入 |
+
+**AGENTS.md**：desktop 的「约束」段已记下这个字段承载哪两套词表、新增词汇改哪里。gpui 的 AGENTS.md 是 GPUI 框架用法规范（组件写法 / 状态管理 / 陷阱），不是业务约束文档，规则未重复写入——它的 `readiness.rs` 常量有 doc 注释且有测试钉死。
+
+## 保留的根因（路线 B 的已知代价）
+
+`required_capabilities` 仍然是一个承载两套词表的 `Vec<String>`。真正的分离（模型能力独立字段）留给工单 15 的 EngineDescriptor——那里本来就要重做能力协商面。

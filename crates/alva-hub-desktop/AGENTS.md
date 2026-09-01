@@ -51,6 +51,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 26. V1 验收矩阵在 `ACCEPTANCE.md`：18 条 scenario 逐条映射到可执行断言或明确标注为待打包运行时验证；外部链接经 `tauri-plugin-opener`（wry webview 里裸 `<a target="_blank">` 不生效）；worktree 隔离测试在缺 git 时**响亮失败**而非静默跳过（它们是"未 adopt 的工作不进共享 workspace"的唯一证据）。
 
 ## 约束
+- **`EngineTarget.required_capabilities` 承载两套词表**，定义在 `readiness.rs`：`ENGINE_CAPABILITIES`（5 词，`capability_labels` 的穷尽产出，降级 veto 只比对这些）与 `MODEL_CAPABILITIES`（`images`/`vision`/`tools`，provider 组装读回用）。新增词汇改那两个常量，并保持 `capability_labels` 与 `ENGINE_CAPABILITIES` 同步（有测试钉死）。两表之外的词由 `validate_engine_target` 拒绝——引擎永远无法"提供"模型词，把它算进 missing 会让降级目标被永久静默否决。
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。
 - canary 测试钉死敏感字段不达另一 EngineRuntime。

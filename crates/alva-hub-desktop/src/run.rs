@@ -326,15 +326,30 @@ where
             );
             if let Ok(engine) = &built {
                 let available = capability_labels(&engine.capabilities());
+                // Only engine-vocabulary words can veto a candidate. The same
+                // field also carries model-capability words (images/vision/tools)
+                // that the provider assembly reads back; an engine can never
+                // provide those, so counting them as missing vetoed the target on
+                // every single attempt — a permanent, silent skip.
                 let missing: Vec<String> = candidate
                     .required_capabilities
                     .iter()
+                    .filter(|capability| {
+                        crate::readiness::ENGINE_CAPABILITIES.contains(&capability.as_str())
+                    })
                     .filter(|capability| !available.contains(capability))
                     .cloned()
                     .collect();
                 if !missing.is_empty() {
-                    let veto =
-                        format!("target lacks required capabilities: {}", missing.join(", "));
+                    let veto = format!(
+                        "target lacks required capabilities: {} (engine provides: {})",
+                        missing.join(", "),
+                        if available.is_empty() {
+                            "none".to_string()
+                        } else {
+                            available.join(", ")
+                        }
+                    );
                     store.record_fallback_skip(
                         &prepared.product_session_id,
                         &prepared.branch_id,
@@ -2471,6 +2486,82 @@ mod tests {
             .expect("skip fact recorded");
         assert_eq!(skip.target_engine_id, "claude");
         assert!(skip.reason.contains("engine binary not found"));
+    }
+
+    /// Twin of the test below, for the *other* vocabulary. `required_capabilities`
+    /// also carries model words (images/vision/tools) that the Alva/Pi provider
+    /// assembly reads back — an engine can never "provide" those, so counting
+    /// them as missing vetoed the candidate on every attempt. The symptom was a
+    /// fallback chain that silently skipped every target while the main engine
+    /// ran fine (the main target is never capability-checked).
+    #[tokio::test]
+    async fn a_model_vocabulary_word_does_not_veto_a_fallback_target() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let mut claude = authorized_claude();
+        claude.required_capabilities = vec!["images".to_string()];
+        store.set_global_fallback_policy(vec![claude]).unwrap();
+
+        let alva = Arc::new(FakeEngine::new(vec![RuntimeEvent::Error {
+            message: "engine stream died mid-run".into(),
+            recoverable: false,
+        }]));
+        let claude_engine = Arc::new(FakeEngine::new(vec![RuntimeEvent::Completed {
+            session_id: "claude-native".into(),
+            result: Some("claude finished it".into()),
+            usage: None,
+        }]));
+
+        let outcome = run_persisted(
+            &store,
+            {
+                let alva = Arc::clone(&alva);
+                let claude_engine = Arc::clone(&claude_engine);
+                move |target: &crate::store::EngineTarget, _: &str, _| match target
+                    .engine_id
+                    .as_str()
+                {
+                    "alva" => Ok(Arc::clone(&alva) as Arc<dyn EngineRuntime>),
+                    "claude" => Ok(Arc::clone(&claude_engine) as Arc<dyn EngineRuntime>),
+                    other => Err(format!("unexpected engine '{other}'")),
+                }
+            },
+            healthy,
+            RunRequest {
+                prompt: "do the work".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        assert!(!outcome.failed);
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        let engines: Vec<_> = detail.turns[0]
+            .attempts
+            .iter()
+            .map(|attempt| attempt.engine_id.as_str())
+            .collect();
+        assert_eq!(
+            engines,
+            vec!["alva", "claude"],
+            "a model-vocabulary word must not veto the fallback target"
+        );
+        assert!(
+            !detail
+                .timeline_events
+                .iter()
+                .any(|event| event.kind == "engine_fallback_skipped"),
+            "no skip may be recorded for a model-vocabulary word"
+        );
     }
 
     #[tokio::test]

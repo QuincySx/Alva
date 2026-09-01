@@ -663,7 +663,25 @@ fn route_target(
         }
         _ => format!("{} API usage", provider.display_name),
     };
-    target.required_capabilities = model.capabilities.clone();
+    // `model.capabilities` is free-form text from the on-disk catalog and the
+    // webview. This field is whitelisted (engine words that gate fallback, model
+    // words the provider assembly reads back), so an unrecognised word would
+    // make the whole target fail validation on save. Drop it loudly instead —
+    // a catalog typo must not block saving a provider profile.
+    let (known, unknown): (Vec<String>, Vec<String>) =
+        model.capabilities.iter().cloned().partition(|capability| {
+            let capability = capability.trim();
+            crate::readiness::ENGINE_CAPABILITIES.contains(&capability)
+                || crate::readiness::MODEL_CAPABILITIES.contains(&capability)
+        });
+    if !unknown.is_empty() {
+        tracing::warn!(
+            model_id = %model.id,
+            dropped = %unknown.join(", "),
+            "dropping capability words that belong to neither vocabulary"
+        );
+    }
+    target.required_capabilities = known;
     target.reasoning_effort = options.default_reasoning_effort.clone();
     Ok(target)
 }

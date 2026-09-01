@@ -248,6 +248,26 @@ fn engine_spec(engine_id: &str) -> EngineSpec {
     }
 }
 
+/// The engine-capability vocabulary — exactly the set `capability_labels` can
+/// produce.
+///
+/// `EngineTarget::required_capabilities` historically carries words from **two**
+/// vocabularies (see [`MODEL_CAPABILITIES`]), so the fallback veto must consider
+/// only these. Anything else in that field describes something an engine cannot
+/// "provide", and treating it as missing vetoes the candidate on every attempt.
+pub const ENGINE_CAPABILITIES: [&str; 5] = [
+    "streaming",
+    "tool_control",
+    "permission_callback",
+    "resume",
+    "cancel",
+];
+
+/// Model-capability words that legitimately share the same field: the Alva/Pi
+/// provider assembly reads them back (`alva.rs`) to decide whether the model
+/// accepts images. They describe the **model**, not the engine.
+pub const MODEL_CAPABILITIES: [&str; 3] = ["images", "vision", "tools"];
+
 pub fn capability_labels(capabilities: &RuntimeCapabilities) -> Vec<String> {
     let mut labels = Vec::new();
     if capabilities.streaming {
@@ -654,6 +674,27 @@ fn read_cli_version(binary: &Path) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    /// The veto in run.rs filters `required_capabilities` through
+    /// ENGINE_CAPABILITIES before comparing against what an engine reports. If
+    /// the two ever drift, a real engine capability would stop being checkable
+    /// (dropped from the filter) or a word an engine can never provide would be
+    /// treated as vetoable again — the bug this vocabulary split fixed.
+    #[test]
+    fn engine_vocabulary_matches_exactly_what_capability_labels_reports() {
+        let everything = RuntimeCapabilities {
+            streaming: true,
+            tool_control: true,
+            permission_callback: true,
+            resume: true,
+            cancel: true,
+        };
+        assert_eq!(
+            capability_labels(&everything),
+            ENGINE_CAPABILITIES.to_vec(),
+            "capability_labels and ENGINE_CAPABILITIES must stay in lockstep"
+        );
+    }
+
     use std::collections::HashMap;
 
     use super::*;

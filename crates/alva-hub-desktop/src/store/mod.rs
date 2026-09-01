@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use crate::permissions::PermissionProfile;
+use crate::readiness::{ENGINE_CAPABILITIES, MODEL_CAPABILITIES};
 use crate::session_workspace::WorkspaceKind;
 
 pub(crate) use branch::{default_account_source, default_billing_route};
@@ -133,14 +134,21 @@ pub(crate) fn validate_engine_target(target: &EngineTarget) -> Result<(), String
             target.engine_id
         ));
     }
-    if target
-        .required_capabilities
-        .iter()
-        .any(|capability| capability.trim().is_empty())
-    {
+    // Whitelist both vocabularies this field legitimately carries. Without this
+    // a typo like "tool_calls" (the engine word is "tool_control", the model
+    // word is "tools") is stored happily and then silently never satisfied.
+    if let Some(unknown) = target.required_capabilities.iter().find(|capability| {
+        let capability = capability.trim();
+        capability.is_empty()
+            || !(ENGINE_CAPABILITIES.contains(&capability)
+                || MODEL_CAPABILITIES.contains(&capability))
+    }) {
         return Err(format!(
-            "engine target '{}' has an empty required capability",
-            target.engine_id
+            "engine target '{}' has an unknown required capability '{}'; engine capabilities are [{}], model capabilities are [{}]",
+            target.engine_id,
+            unknown,
+            ENGINE_CAPABILITIES.join(", "),
+            MODEL_CAPABILITIES.join(", ")
         ));
     }
     if target.reasoning_effort.as_ref().is_some_and(|effort| {

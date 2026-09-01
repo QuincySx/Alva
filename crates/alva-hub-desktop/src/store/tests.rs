@@ -160,6 +160,36 @@ mod tests {
             .unwrap();
     }
 
+    /// `required_capabilities` carries two vocabularies (engine words that the
+    /// fallback veto checks, model words that the provider assembly reads). A
+    /// word in neither is a typo that would be stored happily and then never
+    /// satisfied — `tool_calls` is the real one this ticket found in three
+    /// fixtures (the engine word is `tool_control`, the model word is `tools`).
+    #[test]
+    fn an_unknown_required_capability_is_rejected_with_the_legal_vocabularies() {
+        let mut target = EngineTarget::for_engine("alva").unwrap();
+        target.required_capabilities = vec!["tool_calls".into()];
+        let error = crate::store::validate_engine_target(&target)
+            .expect_err("a word in neither vocabulary must be rejected");
+        assert!(
+            error.contains("tool_calls"),
+            "names the offending word: {error}"
+        );
+        assert!(
+            error.contains("tool_control"),
+            "lists the engine vocabulary so the fix is obvious: {error}"
+        );
+        assert!(
+            error.contains("images"),
+            "lists the model vocabulary too: {error}"
+        );
+
+        // Both vocabularies are accepted.
+        target.required_capabilities = vec!["tool_control".into(), "images".into()];
+        crate::store::validate_engine_target(&target)
+            .expect("engine and model words are both legal in this field");
+    }
+
     #[test]
     fn new_session_branch_metadata_roundtrips_and_restores_after_reopen() {
         let root = tempfile::tempdir().unwrap();
@@ -173,7 +203,7 @@ mod tests {
             account_source: "Synthetic workspace account".into(),
             billing_route: "Synthetic test billing".into(),
             automatic_use_authorized: true,
-            required_capabilities: vec!["streaming".into(), "tool_calls".into()],
+            required_capabilities: vec!["streaming".into(), "tool_control".into()],
             reasoning_effort: Some("xhigh".into()),
             fast_mode: true,
         };
@@ -757,7 +787,7 @@ mod tests {
             account_source: "Synthetic Alva account".into(),
             billing_route: "Synthetic workspace billing".into(),
             automatic_use_authorized: false,
-            required_capabilities: vec!["tool_calls".into()],
+            required_capabilities: vec!["tool_control".into()],
             reasoning_effort: Some("medium".into()),
             fast_mode: false,
         };
@@ -1114,7 +1144,7 @@ mod tests {
         claude.account_source = "Synthetic fallback account".into();
         claude.billing_route = "Synthetic fallback billing".into();
         claude.automatic_use_authorized = true;
-        claude.required_capabilities = vec!["streaming".into(), "tool_calls".into()];
+        claude.required_capabilities = vec!["streaming".into(), "tool_control".into()];
         let prepared = store
             .prepare_new_turn(
                 "product-fallback",
