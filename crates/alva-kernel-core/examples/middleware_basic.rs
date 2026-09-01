@@ -111,7 +111,10 @@ impl Middleware for TokenCountingMiddleware {
         _messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         if let Some(stats) = state.extensions.get::<TokenStats>() {
-            let n = stats.llm_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let n = stats
+                .llm_calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                + 1;
             println!("[TokenCountingMiddleware] LLM call #{}", n);
         }
         Ok(())
@@ -123,7 +126,10 @@ impl Middleware for TokenCountingMiddleware {
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
         if let Some(stats) = state.extensions.get::<TokenStats>() {
-            let n = stats.tool_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let n = stats
+                .tool_calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                + 1;
             println!(
                 "[TokenCountingMiddleware] tool call #{} ({})",
                 n, tool_call.name
@@ -221,7 +227,7 @@ fn main() {
     // 2. Create AgentState + AgentConfig
     let session: Arc<dyn alva_kernel_core::agent_session::AgentSession> =
         Arc::new(InMemoryAgentSession::new());
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(StubModel),
         tools: vec![],
         session,
@@ -257,13 +263,13 @@ fn main() {
 
     rt.block_on(async {
         println!("\n--- Running on_agent_start ---");
-        let _ = config.middleware.run_on_agent_start(&mut state).await;
+        let _ = config.middleware.run_on_agent_start(&state).await;
 
         println!("\n--- Running before_llm_call ---");
         let mut msgs = vec![Message::user("Hello!")];
         let _ = config
             .middleware
-            .run_before_llm_call(&mut state, &mut msgs)
+            .run_before_llm_call(&state, &mut msgs)
             .await;
 
         println!("\n--- Running after_llm_call ---");
@@ -279,7 +285,7 @@ fn main() {
         };
         let _ = config
             .middleware
-            .run_after_llm_call(&mut state, &mut response)
+            .run_after_llm_call(&state, &mut response)
             .await;
 
         println!("\n--- Running before_tool_call (allowed tool) ---");
@@ -290,7 +296,7 @@ fn main() {
         };
         let result: Result<(), MiddlewareError> = config
             .middleware
-            .run_before_tool_call(&mut state, &allowed_call)
+            .run_before_tool_call(&state, &allowed_call)
             .await;
         println!("  result: {:?}", result.map(|_| "ok"));
 
@@ -302,12 +308,12 @@ fn main() {
         };
         let result: Result<(), MiddlewareError> = config
             .middleware
-            .run_before_tool_call(&mut state, &blocked_call)
+            .run_before_tool_call(&state, &blocked_call)
             .await;
         println!("  result: {:?}", result.map(|_| "ok"));
 
         println!("\n--- Running on_agent_end ---");
-        let _ = config.middleware.run_on_agent_end(&mut state, None).await;
+        let _ = config.middleware.run_on_agent_end(&state, None).await;
     });
 
     println!("\n=== Done ===");

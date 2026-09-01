@@ -628,11 +628,18 @@ mod tests {
     async fn declared_capability_is_allowed() {
         let h = AlvaHostHandler::with_capabilities(
             "declared",
-            vec!["host:log".to_string(), "host:state.get_messages".to_string()],
+            vec![
+                "host:log".to_string(),
+                "host:state.get_messages".to_string(),
+            ],
         );
         let params = serde_json::json!({"level": "info", "message": "ok"});
         let result = h.handle_request("host/log".to_string(), Some(params)).await;
-        assert!(result.is_ok(), "declared capability must pass, got {:?}", result);
+        assert!(
+            result.is_ok(),
+            "declared capability must pass, got {:?}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -650,10 +657,7 @@ mod tests {
 
     #[tokio::test]
     async fn partially_declared_plugin_can_only_call_declared_methods() {
-        let h = AlvaHostHandler::with_capabilities(
-            "partial",
-            vec!["host:notify".to_string()],
-        );
+        let h = AlvaHostHandler::with_capabilities("partial", vec!["host:notify".to_string()]);
         // "host/notify" declared → allowed.
         let ok = h
             .handle_request(

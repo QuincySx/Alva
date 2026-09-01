@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use super::handoff::{build_handoff_package, persist_handoff_package, HandoffKind};
 use super::turn::HubSessionSummary;
 use super::{
-    insert_engine_branch, insert_switch_timeline, now_unix_ms, query_branch_target,
-    query_pending_switch, query_session, update_engine_branch_options,
-    validate_engine_target, validate_fallback_targets, query_fallback_policy, persist_fallback_policy,
+    insert_engine_branch, insert_switch_timeline, now_unix_ms, persist_fallback_policy,
+    query_branch_target, query_fallback_policy, query_pending_switch, query_session,
+    update_engine_branch_options, validate_engine_target, validate_fallback_targets,
     STATUS_RUNNING,
 };
 
@@ -139,329 +139,328 @@ pub struct SwitchOutcome {
 }
 
 impl super::HubStore {
-        pub fn global_fallback_policy(&self) -> Result<FallbackPolicy, String> {
-            let connection = self.lock()?;
-            query_fallback_policy(&connection, None)
-        }
+    pub fn global_fallback_policy(&self) -> Result<FallbackPolicy, String> {
+        let connection = self.lock()?;
+        query_fallback_policy(&connection, None)
+    }
 
-        pub fn set_global_fallback_policy(
-            &self,
-            targets: Vec<EngineTarget>,
-        ) -> Result<FallbackPolicy, String> {
-            validate_fallback_targets(&targets)?;
-            let policy = FallbackPolicy {
-                targets,
-                updated_at: now_unix_ms(),
-            };
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin global fallback policy transaction: {error}"))?;
-            persist_fallback_policy(&transaction, None, &policy)?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit global fallback policy: {error}"))?;
-            Ok(policy)
-        }
+    pub fn set_global_fallback_policy(
+        &self,
+        targets: Vec<EngineTarget>,
+    ) -> Result<FallbackPolicy, String> {
+        validate_fallback_targets(&targets)?;
+        let policy = FallbackPolicy {
+            targets,
+            updated_at: now_unix_ms(),
+        };
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin global fallback policy transaction: {error}"))?;
+        persist_fallback_policy(&transaction, None, &policy)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit global fallback policy: {error}"))?;
+        Ok(policy)
+    }
 
-        pub fn set_session_fallback_policy(
-            &self,
-            product_session_id: &str,
-            targets: Vec<EngineTarget>,
-        ) -> Result<FallbackPolicy, String> {
-            validate_fallback_targets(&targets)?;
-            let policy = FallbackPolicy {
-                targets,
-                updated_at: now_unix_ms(),
-            };
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin session fallback policy transaction: {error}"))?;
-            if query_session(&transaction, product_session_id)?.is_none() {
-                return Err(format!("Hub session '{product_session_id}' was not found"));
-            }
-            persist_fallback_policy(&transaction, Some(product_session_id), &policy)?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit session fallback policy: {error}"))?;
-            Ok(policy)
+    pub fn set_session_fallback_policy(
+        &self,
+        product_session_id: &str,
+        targets: Vec<EngineTarget>,
+    ) -> Result<FallbackPolicy, String> {
+        validate_fallback_targets(&targets)?;
+        let policy = FallbackPolicy {
+            targets,
+            updated_at: now_unix_ms(),
+        };
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin session fallback policy transaction: {error}"))?;
+        if query_session(&transaction, product_session_id)?.is_none() {
+            return Err(format!("Hub session '{product_session_id}' was not found"));
         }
+        persist_fallback_policy(&transaction, Some(product_session_id), &policy)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit session fallback policy: {error}"))?;
+        Ok(policy)
+    }
 
-        pub fn is_authorized_for_automatic_fallback(
-            &self,
-            product_session_id: &str,
-            target: &EngineTarget,
-        ) -> Result<bool, String> {
-            validate_engine_target(target)?;
-            let connection = self.lock()?;
-            if query_session(&connection, product_session_id)?.is_none() {
-                return Err(format!("Hub session '{product_session_id}' was not found"));
-            }
-            let policy = query_fallback_policy(&connection, Some(product_session_id))?;
-            Ok(policy
-                .targets
-                .iter()
-                .any(|candidate| candidate == target && candidate.automatic_use_authorized))
+    pub fn is_authorized_for_automatic_fallback(
+        &self,
+        product_session_id: &str,
+        target: &EngineTarget,
+    ) -> Result<bool, String> {
+        validate_engine_target(target)?;
+        let connection = self.lock()?;
+        if query_session(&connection, product_session_id)?.is_none() {
+            return Err(format!("Hub session '{product_session_id}' was not found"));
         }
+        let policy = query_fallback_policy(&connection, Some(product_session_id))?;
+        Ok(policy
+            .targets
+            .iter()
+            .any(|candidate| candidate == target && candidate.automatic_use_authorized))
+    }
 
-        pub fn request_engine_switch(
-            &self,
-            product_session_id: &str,
-            target: &EngineTarget,
-            reason: &str,
-        ) -> Result<SwitchOutcome, String> {
-            validate_engine_target(target)?;
-            let reason = reason.trim();
-            if reason.is_empty() {
-                return Err("manual engine switch requires a reason".to_string());
-            }
-            let now = now_unix_ms();
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin Hub engine switch transaction: {error}"))?;
-            let session = query_session(&transaction, product_session_id)?
-                .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
-            if session.engine_id == target.engine_id
-                && session.model_id == target.model_id
-                && session.provider_id == target.provider_id
+    pub fn request_engine_switch(
+        &self,
+        product_session_id: &str,
+        target: &EngineTarget,
+        reason: &str,
+    ) -> Result<SwitchOutcome, String> {
+        validate_engine_target(target)?;
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err("manual engine switch requires a reason".to_string());
+        }
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub engine switch transaction: {error}"))?;
+        let session = query_session(&transaction, product_session_id)?
+            .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
+        if session.engine_id == target.engine_id
+            && session.model_id == target.model_id
+            && session.provider_id == target.provider_id
+        {
+            let active_target = query_branch_target(&transaction, &session.active_branch_id)?;
+            if active_target.reasoning_effort != target.reasoning_effort
+                || active_target.fast_mode != target.fast_mode
             {
-                let active_target = query_branch_target(&transaction, &session.active_branch_id)?;
-                if active_target.reasoning_effort != target.reasoning_effort
-                    || active_target.fast_mode != target.fast_mode
-                {
-                    if session.status == STATUS_RUNNING {
-                        return Err(
-                            "wait for the current attempt to finish before changing model options"
-                                .into(),
-                        );
-                    }
-                    update_engine_branch_options(&transaction, &session.active_branch_id, target, now)?;
+                if session.status == STATUS_RUNNING {
+                    return Err(
+                        "wait for the current attempt to finish before changing model options"
+                            .into(),
+                    );
                 }
-                if let Some(pending) = query_pending_switch(&transaction, product_session_id)? {
-                    transaction
-                        .execute(
-                            "UPDATE engine_switches
+                update_engine_branch_options(&transaction, &session.active_branch_id, target, now)?;
+            }
+            if let Some(pending) = query_pending_switch(&transaction, product_session_id)? {
+                transaction
+                    .execute(
+                        "UPDATE engine_switches
                                 SET status = 'cancelled', applied_at = ?2
                               WHERE switch_id = ?1 AND status = 'queued'",
-                            params![pending.switch_id, now],
-                        )
-                        .map_err(|error| format!("cancel queued Hub engine switch: {error}"))?;
-                    insert_switch_timeline(
-                        &transaction,
-                        product_session_id,
-                        "engine_switch_cancelled",
-                        &session.active_branch_id,
-                        None,
-                        &session.engine_id,
-                        &pending.target.engine_id,
-                        reason,
-                        now,
-                    )?;
-                }
-                transaction
-                    .commit()
-                    .map_err(|error| format!("commit Hub model option update: {error}"))?;
-                return Ok(SwitchOutcome {
-                    disposition: SwitchDisposition::Applied,
-                    active_branch_id: session.active_branch_id,
-                    active_engine_id: session.engine_id,
-                    target_engine_id: target.engine_id.clone(),
-                });
-            }
-    
-            // Manual switches obey the same permission contract as automatic
-            // fallback: a target that can only weaken the session profile would
-            // brick the session (every later run fails engine assembly), so it
-            // is rejected here with the mapping's reason.
-            crate::permissions::enforcement_for(&target.engine_id, session.permission_profile)
-                .map_err(|reason| {
-                    format!(
-                        "cannot switch Hub session '{product_session_id}' to '{}': {reason}",
-                        target.engine_id
+                        params![pending.switch_id, now],
                     )
-                })?;
-    
-            let switch_id = upsert_queued_switch(
-                &transaction,
-                product_session_id,
-                &session.active_branch_id,
-                target,
-                reason,
-                now,
-            )?;
-            if session.status == STATUS_RUNNING {
+                    .map_err(|error| format!("cancel queued Hub engine switch: {error}"))?;
                 insert_switch_timeline(
                     &transaction,
                     product_session_id,
-                    "engine_switch_queued",
+                    "engine_switch_cancelled",
                     &session.active_branch_id,
                     None,
                     &session.engine_id,
-                    &target.engine_id,
+                    &pending.target.engine_id,
                     reason,
                     now,
                 )?;
-                transaction
-                    .commit()
-                    .map_err(|error| format!("commit queued Hub engine switch: {error}"))?;
-                return Ok(SwitchOutcome {
-                    disposition: SwitchDisposition::Queued,
-                    active_branch_id: session.active_branch_id,
-                    active_engine_id: session.engine_id,
-                    target_engine_id: target.engine_id.clone(),
-                });
             }
-    
-            let outcome = apply_switch_in_transaction(
-                &transaction,
-                product_session_id,
-                &switch_id,
-                &session,
-                target,
-                reason,
-                now,
-            )?;
             transaction
                 .commit()
-                .map_err(|error| format!("commit Hub engine switch: {error}"))?;
-            Ok(outcome)
+                .map_err(|error| format!("commit Hub model option update: {error}"))?;
+            return Ok(SwitchOutcome {
+                disposition: SwitchDisposition::Applied,
+                active_branch_id: session.active_branch_id,
+                active_engine_id: session.engine_id,
+                target_engine_id: target.engine_id.clone(),
+            });
         }
 
-        pub(crate) fn apply_pending_switch(
-            &self,
-            product_session_id: &str,
-        ) -> Result<Option<SwitchOutcome>, String> {
-            let now = now_unix_ms();
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin pending Hub engine switch transaction: {error}"))?;
-            let session = query_session(&transaction, product_session_id)?
-                .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
-            if session.status == STATUS_RUNNING {
-                return Ok(None);
-            }
-            let Some(pending) = query_pending_switch(&transaction, product_session_id)? else {
-                return Ok(None);
-            };
-            let outcome = apply_switch_in_transaction(
-                &transaction,
-                product_session_id,
-                &pending.switch_id,
-                &session,
-                &pending.target,
-                &pending.reason,
-                now,
-            )?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit pending Hub engine switch: {error}"))?;
-            Ok(Some(outcome))
-        }
+        // Manual switches obey the same permission contract as automatic
+        // fallback: a target that can only weaken the session profile would
+        // brick the session (every later run fails engine assembly), so it
+        // is rejected here with the mapping's reason.
+        crate::permissions::enforcement_for(&target.engine_id, session.permission_profile)
+            .map_err(|reason| {
+                format!(
+                    "cannot switch Hub session '{product_session_id}' to '{}': {reason}",
+                    target.engine_id
+                )
+            })?;
 
-        pub(crate) fn apply_ready_pending_switches(&self) -> Result<(), String> {
-            let product_session_ids = {
-                let connection = self.lock()?;
-                let mut statement = connection
-                    .prepare(
-                        "SELECT es.product_session_id
-                           FROM engine_switches es
-                           JOIN hub_sessions hs
-                             ON hs.product_session_id = es.product_session_id
-                          WHERE es.status = 'queued' AND hs.status <> ?1
-                          ORDER BY es.requested_at ASC, es.rowid ASC",
-                    )
-                    .map_err(|error| format!("prepare recoverable Hub engine switches: {error}"))?;
-                let rows = statement
-                    .query_map([STATUS_RUNNING], |row| row.get::<_, String>(0))
-                    .map_err(|error| format!("query recoverable Hub engine switches: {error}"))?;
-                rows.collect::<rusqlite::Result<Vec<_>>>()
-                    .map_err(|error| format!("decode recoverable Hub engine switches: {error}"))?
-            };
-            for product_session_id in product_session_ids {
-                self.apply_pending_switch(&product_session_id)?;
-            }
-            Ok(())
-        }
-
-        pub(crate) fn next_authorized_fallback_target(
-            &self,
-            product_session_id: &str,
-            considered: &[EngineTarget],
-        ) -> Result<Option<EngineTarget>, String> {
-            let connection = self.lock()?;
-            let policy = query_fallback_policy(&connection, Some(product_session_id))?;
-            Ok(policy.targets.into_iter().find(|target| {
-                target.automatic_use_authorized
-                    && !considered.iter().any(|tried| {
-                        tried.engine_id == target.engine_id
-                            && tried.model_id == target.model_id
-                            && tried.provider_id == target.provider_id
-                    })
-            }))
-        }
-
-        pub(crate) fn record_fallback_skip(
-            &self,
-            product_session_id: &str,
-            source_branch_id: &str,
-            source_engine_id: &str,
-            target: &EngineTarget,
-            reason: &str,
-        ) -> Result<(), String> {
-            let now = now_unix_ms();
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin Hub fallback skip transaction: {error}"))?;
+        let switch_id = upsert_queued_switch(
+            &transaction,
+            product_session_id,
+            &session.active_branch_id,
+            target,
+            reason,
+            now,
+        )?;
+        if session.status == STATUS_RUNNING {
             insert_switch_timeline(
                 &transaction,
                 product_session_id,
-                "engine_fallback_skipped",
-                source_branch_id,
+                "engine_switch_queued",
+                &session.active_branch_id,
                 None,
-                source_engine_id,
+                &session.engine_id,
                 &target.engine_id,
                 reason,
                 now,
             )?;
             transaction
                 .commit()
-                .map_err(|error| format!("commit Hub fallback skip: {error}"))?;
-            Ok(())
+                .map_err(|error| format!("commit queued Hub engine switch: {error}"))?;
+            return Ok(SwitchOutcome {
+                disposition: SwitchDisposition::Queued,
+                active_branch_id: session.active_branch_id,
+                active_engine_id: session.engine_id,
+                target_engine_id: target.engine_id.clone(),
+            });
         }
 
-        pub(crate) fn record_fallback_exhaustion(
-            &self,
-            product_session_id: &str,
-            branch_id: &str,
-            engine_id: &str,
-            summary: &str,
-        ) -> Result<(), String> {
-            let now = now_unix_ms();
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin Hub fallback exhaustion transaction: {error}"))?;
-            insert_switch_timeline(
-                &transaction,
-                product_session_id,
-                "fallback_exhausted",
-                branch_id,
-                None,
-                engine_id,
-                engine_id,
-                summary,
-                now,
-            )?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit Hub fallback exhaustion: {error}"))?;
-            Ok(())
-        }
+        let outcome = apply_switch_in_transaction(
+            &transaction,
+            product_session_id,
+            &switch_id,
+            &session,
+            target,
+            reason,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub engine switch: {error}"))?;
+        Ok(outcome)
+    }
 
+    pub(crate) fn apply_pending_switch(
+        &self,
+        product_session_id: &str,
+    ) -> Result<Option<SwitchOutcome>, String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin pending Hub engine switch transaction: {error}"))?;
+        let session = query_session(&transaction, product_session_id)?
+            .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
+        if session.status == STATUS_RUNNING {
+            return Ok(None);
+        }
+        let Some(pending) = query_pending_switch(&transaction, product_session_id)? else {
+            return Ok(None);
+        };
+        let outcome = apply_switch_in_transaction(
+            &transaction,
+            product_session_id,
+            &pending.switch_id,
+            &session,
+            &pending.target,
+            &pending.reason,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit pending Hub engine switch: {error}"))?;
+        Ok(Some(outcome))
+    }
+
+    pub(crate) fn apply_ready_pending_switches(&self) -> Result<(), String> {
+        let product_session_ids = {
+            let connection = self.lock()?;
+            let mut statement = connection
+                .prepare(
+                    "SELECT es.product_session_id
+                           FROM engine_switches es
+                           JOIN hub_sessions hs
+                             ON hs.product_session_id = es.product_session_id
+                          WHERE es.status = 'queued' AND hs.status <> ?1
+                          ORDER BY es.requested_at ASC, es.rowid ASC",
+                )
+                .map_err(|error| format!("prepare recoverable Hub engine switches: {error}"))?;
+            let rows = statement
+                .query_map([STATUS_RUNNING], |row| row.get::<_, String>(0))
+                .map_err(|error| format!("query recoverable Hub engine switches: {error}"))?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|error| format!("decode recoverable Hub engine switches: {error}"))?
+        };
+        for product_session_id in product_session_ids {
+            self.apply_pending_switch(&product_session_id)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn next_authorized_fallback_target(
+        &self,
+        product_session_id: &str,
+        considered: &[EngineTarget],
+    ) -> Result<Option<EngineTarget>, String> {
+        let connection = self.lock()?;
+        let policy = query_fallback_policy(&connection, Some(product_session_id))?;
+        Ok(policy.targets.into_iter().find(|target| {
+            target.automatic_use_authorized
+                && !considered.iter().any(|tried| {
+                    tried.engine_id == target.engine_id
+                        && tried.model_id == target.model_id
+                        && tried.provider_id == target.provider_id
+                })
+        }))
+    }
+
+    pub(crate) fn record_fallback_skip(
+        &self,
+        product_session_id: &str,
+        source_branch_id: &str,
+        source_engine_id: &str,
+        target: &EngineTarget,
+        reason: &str,
+    ) -> Result<(), String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub fallback skip transaction: {error}"))?;
+        insert_switch_timeline(
+            &transaction,
+            product_session_id,
+            "engine_fallback_skipped",
+            source_branch_id,
+            None,
+            source_engine_id,
+            &target.engine_id,
+            reason,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub fallback skip: {error}"))?;
+        Ok(())
+    }
+
+    pub(crate) fn record_fallback_exhaustion(
+        &self,
+        product_session_id: &str,
+        branch_id: &str,
+        engine_id: &str,
+        summary: &str,
+    ) -> Result<(), String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub fallback exhaustion transaction: {error}"))?;
+        insert_switch_timeline(
+            &transaction,
+            product_session_id,
+            "fallback_exhausted",
+            branch_id,
+            None,
+            engine_id,
+            engine_id,
+            summary,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub fallback exhaustion: {error}"))?;
+        Ok(())
+    }
 }
 
 fn upsert_queued_switch(
@@ -690,4 +689,3 @@ fn apply_switch_in_transaction(
         target_engine_id: branch_target.engine_id,
     })
 }
-

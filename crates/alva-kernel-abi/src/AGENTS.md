@@ -13,7 +13,7 @@ Message ←── ContentBlock (text / tool_use / tool_result / image)
    └─→ Tool::execute(ToolCall) → ToolResult
 ```
 - `LanguageModel` trait 定义统一的 LLM 调用接口，返回 `StreamEvent` 异步流
-- `Tool` trait 定义工具执行接口（签名含 `&dyn ToolContext`），`ToolRegistry` 管理工具集合
+- `Tool` trait 定义工具执行接口（签名含 `&dyn ToolContext`），`ToolRegistry` 以首次注册顺序管理工具并显式报告同名替换
 - `ToolContext` trait 提供运行时上下文（workspace、session_id、allow_dangerous），应用层实现具体类型
 - `Provider` trait 定义 LLM 提供商接口，提供 language_model 及 7 种模型能力方法
 - `CancellationToken` 提供协作式取消机制
@@ -37,3 +37,4 @@ Message ←── ContentBlock (text / tool_use / tool_result / image)
 | 错误 | `error.rs` | AgentError 统一错误枚举 |
 | Spawn Comm | `scope/spawn/communication.rs` | SpawnCommunication trait + SpawnCommContext + SpawnCommHandle + OnChildComplete + SpawnResult + SpawnCommunicationRegistry —— sub-agent 通信能力的插件契约 |
 | Durable records | `session_record.rs` | 版本化 SessionRecord、typed built-in/extension payload、blob 引用与 append receipt |
+| 会话契约 | `agent_session.rs` | AgentSession、ScopedSession、事件查询/订阅与 atomic typed-record capability 声明 |

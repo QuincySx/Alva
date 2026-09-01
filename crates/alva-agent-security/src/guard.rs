@@ -260,26 +260,27 @@ impl SecurityGuard {
     /// - `Some(Allow)` — URL inspected and below threshold, explicit OK.
     /// - `None` — tool is not URL-aware (no mapping exists) or its args
     ///   don't carry the expected key, so the middleware should proceed.
-    pub async fn check_url_in_tool_call(
+    pub(crate) fn url_policy_for_tool_call(
+        &self,
+        tool_name: &str,
+        args: &Value,
+    ) -> Option<(String, UrlRules)> {
+        let arg_name = self.url_aware_tools.get(tool_name)?;
+        let url = args.get(arg_name).and_then(|v| v.as_str())?.to_string();
+        Some((url, self.url_rules.clone()))
+    }
+
+    pub(crate) fn request_url_approval(
         &mut self,
         tool_name: &str,
         args: &Value,
-    ) -> Option<SecurityDecision> {
-        let arg_name = self.url_aware_tools.get(tool_name)?;
-        let url = args.get(arg_name).and_then(|v| v.as_str())?;
-        let info = inspect_url(url).await;
-        if !self.url_rules.should_ask(info.risk) {
-            return Some(SecurityDecision::Allow);
-        }
-        // Risk above threshold — register pending approval. The
-        // middleware will see `NeedHumanApproval` and reuse its existing
-        // notifier-and-receiver dance.
+    ) -> SecurityDecision {
         let request_id = format!("url-{}", uuid::Uuid::new_v4());
         let rx = self
             .permission_manager
             .request_approval(request_id.clone(), tool_name, args);
         self.pending_receivers.insert(request_id.clone(), rx);
-        Some(SecurityDecision::NeedHumanApproval { request_id })
+        SecurityDecision::NeedHumanApproval { request_id }
     }
 
     /// Set the permission mode.
@@ -449,7 +450,9 @@ impl SecurityGuard {
                         };
                     }
                     CommandClassification::Unknown => {
-                        // Auto mode auto-approves unknown commands too (trusts sandbox)
+                        // Auto mode is the explicit "accept shell" policy;
+                        // outer products must only expose it when their
+                        // invocation sandbox is enforced.
                         tracing::debug!(
                             tool = tool_name,
                             "auto-approved: unknown command in auto mode"

@@ -12,7 +12,7 @@
 3. dispatch、resume、cancel、permission 均先按 product session 路由到对应 engine。
 4. `restore_session`：产品从 journal 再水合 product→engine session 映射（幂等；engine/session 冲突 fail-closed）。
 5. `switch_engine`：同一 `ProductSessionId` 切到另一已注册 engine；保留 previous_*；设 `pending_handoff`；清空 native session。
-6. 同 product session execute：有 native id 则 resume；无则 handoff 首轮。`pending_handoff` 时注入 `HubRequest.handoff_context`（或默认 banner）一次；若 engine 同步启动失败，完整恢复 session 状态并缓存同一 context 供重试。
+6. 同 product session execute：有 native id 则 resume；无则 handoff 首轮。`pending_handoff` 时注入 `HubRequest.handoff_context`（或默认 banner）一次；若 engine 同步启动失败、stream 产生 fatal error 或缺失 `Completed`，完整恢复待切换状态并缓存同一 context 供重试。
 7. execute 转发循环用 `StreamContract` 观测；缺 `Completed` 仍合成 Error+Completed。
 8. `HubSessionSnapshot` 含 stream 诊断 + previous engine + `pending_handoff`。
 

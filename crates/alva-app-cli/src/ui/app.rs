@@ -1,3 +1,6 @@
+// INPUT:  ratatui/crossterm, alva_app_core::BaseAgent bounded event stream, CLI session/command services
+// OUTPUT: run_tui(), UiViewport, TuiApp
+// POS:    Native terminal UI loop that drains bounded agent events alongside keyboard/mouse input.
 //! Full-screen TUI application built on ratatui.
 //!
 //! [`TuiApp`] manages terminal lifecycle, UI state, rendering, and keyboard
@@ -1164,7 +1167,7 @@ pub async fn run_tui(
     // -- Main event loop --
     // We use a channel-based approach: agent events and terminal events are
     // processed in a select loop.
-    let mut agent_event_rx: Option<mpsc::UnboundedReceiver<AgentEvent>> = None;
+    let mut agent_event_rx: Option<mpsc::Receiver<AgentEvent>> = None;
 
     loop {
         // Poll terminal events (non-blocking with tick rate).
@@ -1221,7 +1224,7 @@ pub async fn run_tui(
                                 // Regular prompt
                                 app.push_user_message(&text);
                                 app.spinner_active = true;
-                                agent_event_rx = Some(agent.prompt_text(&text).await);
+                                agent_event_rx = Some(agent.prompt_text_bounded(&text).await);
                             }
                         }
                         KeyAction::Interrupt => {

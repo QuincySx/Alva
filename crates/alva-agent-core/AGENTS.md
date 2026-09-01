@@ -11,14 +11,15 @@ plugin lifecycle and produces an `Agent` backed by
 
 ## Public Surface
 Re-exported from `src/lib.rs`:
-- `Agent` — SDK-level runnable agent facade.
+- `Agent` — SDK-level runnable facade；`run()` 保持 executor-neutral unbounded 兼容，native `run_bounded()` 提供生产背压。
 - `AgentAssemblySnapshot` / `PluginAssemblySnapshot` — build-time plugin,
   phase, middleware, tool, command, and prompt contribution snapshots used by
   harnesses and CLIs for observability.
 - `AgentBuilder` — SDK-level builder that assembles model, session, plugins,
   tools, middleware, bus, and context config.
-- `extension::Plugin` — self-contained capability bundle with
-  `register()` and optional late `finalize()`.
+- `extension::Plugin` — self-contained capability bundle with compatible
+  `register()` / `finalize()` hooks and fallible `try_register()` /
+  `try_finalize()` production seams.
 - `extension::Registrar` — setup handle passed to plugins for registering
   tools, phase contributions, middleware, bus capabilities, system-prompt
   fragments, and commands.
@@ -55,10 +56,10 @@ Re-exported from `src/lib.rs`:
 ## Module Map
 | Name | Path | Role |
 |------|------|------|
-| `agent.rs` | `src/agent.rs` | Runnable `Agent` facade over kernel state/config plus assembly snapshot |
+| `agent.rs` | `src/agent.rs` | Runnable `Agent` facade、兼容 unbounded 与 native bounded 事件入口、assembly snapshot |
 | `agent_builder.rs` | `src/agent_builder.rs` | Plugin lifecycle, SDK-level assembly, and build metadata capture |
 | `extension/mod.rs` | `src/extension/mod.rs` | Plugin system public re-exports |
-| `extension/plugin.rs` | `src/extension/plugin.rs` | `Plugin` trait (`register` + `finalize`) |
+| `extension/plugin.rs` | `src/extension/plugin.rs` | `Plugin` trait (`register`/`finalize` compatibility hooks + fallible `try_register`/`try_finalize`) |
 | `extension/phase.rs` | `src/extension/phase.rs` | Stable phase contribution descriptors |
 | `extension/registrar.rs` | `src/extension/registrar.rs` | `Registrar` and `LateContext` |
 | `extension/host.rs` | `src/extension/host.rs` | `PluginHost`: runtime container for middleware, commands, prompt fragments, cancellation |

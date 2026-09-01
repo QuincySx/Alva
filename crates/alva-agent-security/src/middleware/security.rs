@@ -5,6 +5,8 @@
 //         session event log (requires_action / requires_action_resolved) so subscribers see
 //         pending HITL state through the same stream that carries everything else.
 
+use std::any::Any;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -13,7 +15,8 @@ use crate::pending_actions::{
 };
 use crate::{SandboxMode, SecurityDecision, SecurityGuard};
 use alva_kernel_abi::{
-    bus_cap, BusHandle, CancellationToken, MinimalExecutionContext, ToolCall, ToolPermissionResult,
+    bus_cap, BusHandle, CancellationToken, ToolCall, ToolExecutionContext, ToolFs,
+    ToolPermissionResult,
 };
 use alva_kernel_core::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
 use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
@@ -103,6 +106,7 @@ pub struct ApprovalNotifier {
 pub struct SecurityMiddleware {
     guard: Arc<Mutex<SecurityGuard>>,
     bus: OnceLock<BusHandle>,
+    workspace: OnceLock<PathBuf>,
     approval_timeout: Duration,
     /// One-shot latch so the "no approval handler wired" warning is logged at
     /// most once per middleware, instead of on every approval-needing tool.
@@ -114,6 +118,7 @@ impl SecurityMiddleware {
         Self {
             guard: Arc::new(Mutex::new(guard)),
             bus: OnceLock::new(),
+            workspace: OnceLock::new(),
             approval_timeout: Duration::from_secs(300),
             no_handler_warned: std::sync::atomic::AtomicBool::new(false),
         }
@@ -132,6 +137,7 @@ impl SecurityMiddleware {
         Self {
             guard,
             bus: OnceLock::new(),
+            workspace: OnceLock::new(),
             approval_timeout: Duration::from_secs(300),
             no_handler_warned: std::sync::atomic::AtomicBool::new(false),
         }
@@ -158,6 +164,39 @@ impl SecurityMiddleware {
     }
 }
 
+struct PermissionExecutionContext {
+    cancel: CancellationToken,
+    session_id: String,
+    workspace: Option<PathBuf>,
+    bus: Option<BusHandle>,
+}
+
+impl ToolExecutionContext for PermissionExecutionContext {
+    fn cancel_token(&self) -> &CancellationToken {
+        &self.cancel
+    }
+
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn workspace(&self) -> Option<&Path> {
+        self.workspace.as_deref()
+    }
+
+    fn tool_fs(&self) -> Option<&dyn ToolFs> {
+        None
+    }
+
+    fn bus(&self) -> Option<&BusHandle> {
+        self.bus.as_ref()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 #[async_trait]
 impl Middleware for SecurityMiddleware {
     async fn before_tool_call(
@@ -165,7 +204,16 @@ impl Middleware for SecurityMiddleware {
         state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
-        let tool_context = MinimalExecutionContext::new();
+        let tool_context = PermissionExecutionContext {
+            cancel: state
+                .extensions
+                .get::<CancellationToken>()
+                .map(|cancel| (*cancel).clone())
+                .unwrap_or_default(),
+            session_id: state.session.session_id().to_string(),
+            workspace: self.workspace.get().cloned(),
+            bus: self.bus.get().cloned(),
+        };
         let tool_permission = state
             .tools
             .iter()
@@ -200,24 +248,40 @@ impl Middleware for SecurityMiddleware {
         // guard lock to avoid holding it across DNS.
         let (decision, pending_rx) = match decision {
             SecurityDecision::Allow => {
-                let url_decision = {
-                    let mut guard = self.guard.lock().await;
-                    guard
-                        .check_url_in_tool_call(&tool_call.name, &tool_call.arguments)
-                        .await
+                let url_policy = {
+                    let guard = self.guard.lock().await;
+                    guard.url_policy_for_tool_call(&tool_call.name, &tool_call.arguments)
                 };
-                match url_decision {
-                    Some(SecurityDecision::NeedHumanApproval { request_id }) => {
-                        let rx = {
-                            let mut guard = self.guard.lock().await;
-                            guard.take_pending_receiver(&request_id)
+                match url_policy {
+                    Some((url, rules)) => {
+                        let should_ask = match tokio::time::timeout(
+                            Duration::from_secs(5),
+                            crate::url_info::inspect_url(&url),
+                        )
+                        .await
+                        {
+                            Ok(info) => rules.should_ask(info.risk),
+                            Err(_) => true,
                         };
-                        (SecurityDecision::NeedHumanApproval { request_id }, rx)
+                        if !should_ask {
+                            (SecurityDecision::Allow, None)
+                        } else {
+                            let decision = {
+                                let mut guard = self.guard.lock().await;
+                                guard.request_url_approval(&tool_call.name, &tool_call.arguments)
+                            };
+                            let SecurityDecision::NeedHumanApproval { request_id } = decision
+                            else {
+                                unreachable!("URL approval registration always requests approval")
+                            };
+                            let rx = {
+                                let mut guard = self.guard.lock().await;
+                                guard.take_pending_receiver(&request_id)
+                            };
+                            (SecurityDecision::NeedHumanApproval { request_id }, rx)
+                        }
                     }
-                    Some(SecurityDecision::Deny { reason }) => {
-                        (SecurityDecision::Deny { reason }, None)
-                    }
-                    Some(SecurityDecision::Allow) | None => (SecurityDecision::Allow, None),
+                    None => (SecurityDecision::Allow, None),
                 }
             }
             other => (other, pending_rx),
@@ -439,6 +503,9 @@ impl Middleware for SecurityMiddleware {
     fn configure(&self, ctx: &MiddlewareContext) {
         if let Some(bus) = &ctx.bus {
             let _ = self.bus.set(bus.clone());
+        }
+        if let Some(workspace) = &ctx.workspace {
+            let _ = self.workspace.set(workspace.clone());
         }
     }
 }

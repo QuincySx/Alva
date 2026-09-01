@@ -1,3 +1,6 @@
+// INPUT:  std sync/path, alva_kernel_abi::{BusHandle, BusWriter, LanguageModel, Tool}, alva_kernel_core::Middleware
+// OUTPUT: Registrar, LateContext, RegisteredCommand, PluginContribution
+// POS:    Single cross-layer plugin assembly handle and late read-only wiring context.
 //! Registrar — single cross-layer plugin setup handle.
 //! Plugin::register() uses it to register tools / middleware / bus services /
 //! system-prompt fragments / commands.
@@ -135,6 +138,13 @@ impl Registrar {
     /// (如多种通信渠道),让那个 `T` 自身是个注册表(如 `SpawnCommunicationRegistry`),
     /// 贡献者在 `finalize()` 里往注册表登记,而不是各自 `provide` 同一 `T`。
     pub fn provide<T: Send + Sync + ?Sized + 'static>(&self, value: Arc<T>) {
+        if self.bus.get::<T>().is_some() {
+            tracing::warn!(
+                plugin = %self.plugin_name,
+                capability = std::any::type_name::<T>(),
+                "plugin replaced an existing bus capability"
+            );
+        }
         self.bus_writer.provide(value);
     }
 

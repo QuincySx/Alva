@@ -132,13 +132,19 @@ mod tests {
         assert_eq!(first.kind, WorkspaceKind::Session);
         assert_ne!(first.path, second.path);
         assert_eq!(workspace_kind_for_path(&first.path), WorkspaceKind::Session);
-        assert_eq!(workspace_kind_for_path(parent.path()), WorkspaceKind::Project);
+        assert_eq!(
+            workspace_kind_for_path(parent.path()),
+            WorkspaceKind::Project
+        );
         assert!(first.path.join(SESSION_WORKSPACE_MARKER).is_file());
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(&root).unwrap().permissions().mode() & 0o777, 0o700);
+            assert_eq!(
+                fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
             assert_eq!(
                 fs::metadata(&first.path).unwrap().permissions().mode() & 0o777,
                 0o700

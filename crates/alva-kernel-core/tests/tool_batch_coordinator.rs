@@ -1,4 +1,9 @@
+// INPUT:  alva-kernel-core ToolBatchCoordinator, alva-test MockTool, Tokio test runtime
+// OUTPUT: Regression coverage for ordered commits, cancellation, failure backfill, lock timeout, and parallel waves
+// POS:    Integration contract tests for tool batch scheduling and durable result pairing.
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
@@ -85,12 +90,201 @@ fn test_config() -> AgentConfig {
     }
 }
 
+struct ConcurrencyProbeTool {
+    name: &'static str,
+    resource: alva_kernel_abi::ResourceKey,
+    rendezvous: Option<Arc<tokio::sync::Barrier>>,
+    active: Arc<AtomicUsize>,
+    max_active: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl Tool for ConcurrencyProbeTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn description(&self) -> &str {
+        "Records whether tool calls overlap"
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({ "type": "object" })
+    }
+
+    fn is_concurrency_safe(&self, _input: &serde_json::Value) -> bool {
+        true
+    }
+
+    fn resource_keys(&self, _input: &serde_json::Value) -> Vec<alva_kernel_abi::ResourceKey> {
+        vec![self.resource.clone()]
+    }
+
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &dyn alva_kernel_abi::tool::execution::ToolExecutionContext,
+    ) -> Result<ToolOutput, AgentError> {
+        let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+        self.max_active.fetch_max(active, Ordering::SeqCst);
+        if let Some(rendezvous) = self.rendezvous.as_ref() {
+            rendezvous.wait().await;
+        } else {
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+        self.active.fetch_sub(1, Ordering::SeqCst);
+        Ok(ToolOutput::text(self.name))
+    }
+}
+
+#[tokio::test]
+async fn conflict_free_safe_calls_overlap_but_commit_in_model_order() {
+    let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
+    let active = Arc::new(AtomicUsize::new(0));
+    let max_active = Arc::new(AtomicUsize::new(0));
+    let rendezvous = Arc::new(tokio::sync::Barrier::new(2));
+    let state = AgentState {
+        model: Arc::new(UnusedModel),
+        tools: vec![
+            Arc::new(ConcurrencyProbeTool {
+                name: "first",
+                resource: alva_kernel_abi::ResourceKey::write("src/first.rs"),
+                rendezvous: Some(rendezvous.clone()),
+                active: active.clone(),
+                max_active: max_active.clone(),
+            }),
+            Arc::new(ConcurrencyProbeTool {
+                name: "second",
+                resource: alva_kernel_abi::ResourceKey::write("src/second.rs"),
+                rendezvous: Some(rendezvous),
+                active,
+                max_active: max_active.clone(),
+            }),
+        ],
+        session: session.clone(),
+        extensions: Extensions::new(),
+    };
+    let tool_calls = vec![
+        ToolCall {
+            id: "call-first".into(),
+            name: "first".into(),
+            arguments: serde_json::json!({}),
+        },
+        ToolCall {
+            id: "call-second".into(),
+            name: "second".into(),
+            arguments: serde_json::json!({}),
+        },
+    ];
+    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let committed = tokio::time::timeout(
+        Duration::from_secs(1),
+        ToolBatchCoordinator::new().execute_batch(
+            &state,
+            &test_config(),
+            CancellationToken::new(),
+            &tool_calls,
+            "llm-parent".into(),
+            event_tx,
+        ),
+    )
+    .await
+    .expect("conflict-free calls should reach the rendezvous concurrently")
+    .unwrap();
+
+    assert_eq!(max_active.load(Ordering::SeqCst), 2);
+    assert_eq!(committed[0].tool_call.id, "call-first");
+    assert_eq!(committed[1].tool_call.id, "call-second");
+
+    let execution_order: Vec<_> = session
+        .records(0)
+        .await
+        .into_iter()
+        .filter_map(|record| match record.payload {
+            SessionRecordPayload::Execution(ExecutionRecord::Intent { operation, .. }) => {
+                Some(("intent", operation))
+            }
+            SessionRecordPayload::Execution(ExecutionRecord::Outcome { operation_id, .. }) => {
+                Some(("outcome", operation_id))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        execution_order,
+        vec![
+            ("intent", "first".to_string()),
+            ("intent", "second".to_string()),
+            ("outcome", "call-first".to_string()),
+            ("outcome", "call-second".to_string()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn conflicting_safe_calls_remain_serial() {
+    let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
+    let active = Arc::new(AtomicUsize::new(0));
+    let max_active = Arc::new(AtomicUsize::new(0));
+    let state = AgentState {
+        model: Arc::new(UnusedModel),
+        tools: vec![
+            Arc::new(ConcurrencyProbeTool {
+                name: "first",
+                resource: alva_kernel_abi::ResourceKey::write("src/shared.rs"),
+                rendezvous: None,
+                active: active.clone(),
+                max_active: max_active.clone(),
+            }),
+            Arc::new(ConcurrencyProbeTool {
+                name: "second",
+                resource: alva_kernel_abi::ResourceKey::write("/workspace/src/shared.rs"),
+                rendezvous: None,
+                active,
+                max_active: max_active.clone(),
+            }),
+        ],
+        session,
+        extensions: Extensions::new(),
+    };
+    let tool_calls = vec![
+        ToolCall {
+            id: "call-first".into(),
+            name: "first".into(),
+            arguments: serde_json::json!({}),
+        },
+        ToolCall {
+            id: "call-second".into(),
+            name: "second".into(),
+            arguments: serde_json::json!({}),
+        },
+    ];
+    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut config = test_config();
+    config.workspace = Some(std::path::PathBuf::from("/workspace"));
+
+    ToolBatchCoordinator::new()
+        .execute_batch(
+            &state,
+            &config,
+            CancellationToken::new(),
+            &tool_calls,
+            "llm-parent".into(),
+            event_tx,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(max_active.load(Ordering::SeqCst), 1);
+}
+
 #[tokio::test]
 async fn coordinator_commits_tool_results_in_model_order() {
     let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
     let first_tool = MockTool::new("first").with_result(ToolOutput::text("one"));
     let second_tool = MockTool::new("second").with_result(ToolOutput::text("two"));
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(UnusedModel),
         tools: vec![Arc::new(first_tool), Arc::new(second_tool)],
         session: session.clone(),
@@ -114,7 +308,7 @@ async fn coordinator_commits_tool_results_in_model_order() {
 
     let committed = ToolBatchCoordinator::new()
         .execute_batch(
-            &mut state,
+            &state,
             &config,
             cancel,
             &tool_calls,
@@ -207,7 +401,7 @@ async fn coordinator_commits_tool_results_in_model_order() {
 async fn coordinator_commits_cancelled_results_for_remaining_declared_calls() {
     let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
     let cancel = CancellationToken::new();
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(UnusedModel),
         tools: vec![
             Arc::new(CancellingTool {
@@ -235,7 +429,7 @@ async fn coordinator_commits_cancelled_results_for_remaining_declared_calls() {
 
     let committed = ToolBatchCoordinator::new()
         .execute_batch(
-            &mut state,
+            &state,
             &config,
             cancel,
             &tool_calls,
@@ -291,7 +485,7 @@ async fn lock_contention_times_out_as_tool_error_instead_of_hanging() {
 
     let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
     let tool = MockTool::new("blocked_tool").with_result(ToolOutput::text("never runs"));
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(UnusedModel),
         tools: vec![Arc::new(tool)],
         session,
@@ -323,7 +517,7 @@ async fn lock_contention_times_out_as_tool_error_instead_of_hanging() {
     let committed = tokio::time::timeout(
         std::time::Duration::from_secs(5),
         ToolBatchCoordinator::new().execute_batch(
-            &mut state,
+            &state,
             &config,
             cancel,
             &tool_calls,
@@ -372,7 +566,7 @@ impl Middleware for FailAfterFirstMiddleware {
 #[tokio::test]
 async fn middleware_abort_still_pairs_every_tool_call_with_a_result() {
     let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(UnusedModel),
         tools: vec![
             Arc::new(MockTool::new("first").with_result(ToolOutput::text("one"))),
@@ -403,7 +597,7 @@ async fn middleware_abort_still_pairs_every_tool_call_with_a_result() {
 
     let result = ToolBatchCoordinator::new()
         .execute_batch(
-            &mut state,
+            &state,
             &config,
             cancel,
             &tool_calls,

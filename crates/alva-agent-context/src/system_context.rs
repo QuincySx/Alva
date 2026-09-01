@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use tokio::io::AsyncReadExt;
 
 use crate::util::truncate_for_display;
 
@@ -131,27 +132,64 @@ async fn detect_main_branch(workspace: &Path) -> String {
 /// Searches for files in priority order:
 /// 1. `CLAUDE.md`
 /// 2. `AGENTS.md`
-/// 3. `.claude/settings.json`
-/// 4. `.alva/context.md`
+/// 3. `.alva/context.md`
 ///
 /// Returns `None` if no context files are found.
 async fn load_context_files(workspace: &Path) -> Option<String> {
-    let mut contents = Vec::new();
+    const MAX_FILE_BYTES: u64 = 64 * 1024;
+    const MAX_TOTAL_BYTES: usize = 128 * 1024;
 
-    let context_files = [
-        "CLAUDE.md",
-        "AGENTS.md",
-        ".claude/settings.json",
-        ".alva/context.md",
-    ];
+    let mut contents = Vec::new();
+    let mut total_bytes = 0usize;
+    let workspace = tokio::fs::canonicalize(workspace).await.ok()?;
+
+    let context_files = ["CLAUDE.md", "AGENTS.md", ".alva/context.md"];
 
     for file in &context_files {
         let path = workspace.join(file);
-        if path.exists() {
-            if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                contents.push(format!("Contents of {}:\n\n{}", file, content));
-            }
+        let Ok(metadata) = tokio::fs::symlink_metadata(&path).await else {
+            continue;
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            tracing::warn!(path = %path.display(), "skipping non-regular context file");
+            continue;
         }
+        let Ok(canonical) = tokio::fs::canonicalize(&path).await else {
+            continue;
+        };
+        if !canonical.starts_with(&workspace) {
+            tracing::warn!(path = %path.display(), "skipping context file outside workspace");
+            continue;
+        }
+
+        let Ok(file_handle) = tokio::fs::File::open(&canonical).await else {
+            continue;
+        };
+        let mut content = String::new();
+        if file_handle
+            .take(MAX_FILE_BYTES + 1)
+            .read_to_string(&mut content)
+            .await
+            .is_err()
+        {
+            continue;
+        }
+        if content.len() > MAX_FILE_BYTES as usize {
+            content = truncate_for_display(
+                &content,
+                MAX_FILE_BYTES as usize,
+                "\n...(context file truncated)",
+            );
+        }
+
+        let prefix = format!("Contents of {}:\n\n", file);
+        let remaining = MAX_TOTAL_BYTES.saturating_sub(total_bytes + prefix.len());
+        if remaining == 0 {
+            break;
+        }
+        let content = truncate_for_display(&content, remaining, "\n...(context truncated)");
+        total_bytes += prefix.len() + content.len();
+        contents.push(format!("{prefix}{content}"));
     }
 
     if contents.is_empty() {
@@ -210,6 +248,22 @@ mod tests {
         // Should have currentDate but no claudeMd
         assert!(ctx.contains_key("currentDate"));
         assert!(!ctx.contains_key("claudeMd"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn get_user_context_skips_symlinked_instruction_files() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempfile::TempDir::new().unwrap();
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(outside.path(), "must-not-be-uploaded").unwrap();
+        symlink(outside.path(), workspace.path().join("AGENTS.md")).unwrap();
+
+        let ctx = get_user_context(workspace.path()).await;
+        assert!(!ctx
+            .get("claudeMd")
+            .is_some_and(|value| value.contains("must-not-be-uploaded")));
     }
 
     #[tokio::test]

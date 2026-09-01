@@ -1,7 +1,8 @@
 // INPUT:  alva_kernel_abi::{LanguageModel, Tool, ToolSchemaContext, ...}, crate::{event, middleware, state}
-// OUTPUT: pub(crate) bake_tool_schemas, pub(crate) ActualLlmCall
+// OUTPUT: pub(crate) bake_tool_schemas, pub(crate) ActualLlmCall, compact durable stream timing events
 // POS:    LLM-call preparation and execution: prebake dynamic tool schemas, then wrap the real
-//         model.stream/complete as an LlmCallFn so middleware can interpose through wrap_llm_call.
+//         model.stream/complete as an LlmCallFn so middleware can interpose through wrap_llm_call;
+//         records first-output and stream-summary metadata without persisting every token delta.
 
 use std::sync::Arc;
 
@@ -16,11 +17,11 @@ use alva_kernel_abi::{
     ModelConfig, StreamEvent, StreamMessageAccumulator,
 };
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentEventSender};
 use crate::middleware::LlmCallFn;
+use crate::session_events::emit_runtime_event;
 use crate::state::AgentState;
 
 // ---------------------------------------------------------------------------
@@ -47,7 +48,6 @@ use crate::state::AgentState;
 /// Tools that don't override `parameters_schema_with` fall through to
 /// their static `parameters_schema()`, so this wrapper is inert for
 /// the common case and cheap for everyone else.
-
 struct PrebakedSchemaTool {
     inner: Arc<dyn Tool>,
     schema: serde_json::Value,
@@ -150,7 +150,10 @@ impl Tool for PrebakedSchemaTool {
 /// `ctx.bus`. The wrapping is a no-op for tools that don't override
 /// `parameters_schema_with` — their static schema is recomputed once and
 /// baked in place.
-pub(crate) fn bake_tool_schemas(tools: &[Arc<dyn Tool>], bus: Option<&BusHandle>) -> Vec<Arc<dyn Tool>> {
+pub(crate) fn bake_tool_schemas(
+    tools: &[Arc<dyn Tool>],
+    bus: Option<&BusHandle>,
+) -> Vec<Arc<dyn Tool>> {
     let ctx = match bus {
         Some(b) => ToolSchemaContext::with_bus(b),
         None => ToolSchemaContext::empty(),
@@ -183,14 +186,157 @@ pub(crate) struct ActualLlmCall {
     pub(crate) model: Arc<dyn LanguageModel>,
     pub(crate) tools: Vec<Arc<dyn Tool>>,
     pub(crate) model_config: ModelConfig,
-    pub(crate) event_tx: mpsc::UnboundedSender<AgentEvent>,
+    pub(crate) event_tx: AgentEventSender,
     pub(crate) message_id: String,
+    pub(crate) session: Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
+    /// Causal parent for compact durable stream-observation events.
+    pub(crate) llm_call_id: String,
     /// Peer handle on the run's cancellation token. Consumed inside the
     /// streaming loop so a cancel that arrives while we're blocked on the
     /// next chunk tears the connection down mid-flight, instead of the
     /// caller having to wait for the whole LLM response to finish before
     /// the between-iterations check in `run_loop` can react.
     pub(crate) cancel: CancellationToken,
+}
+
+struct StreamObservation {
+    started_at: web_time::Instant,
+    event_count: u32,
+    visible_event_count: u32,
+    text_delta_count: u32,
+    reasoning_delta_count: u32,
+    tool_delta_count: u32,
+    first_event_ms: Option<u64>,
+    first_output_ms: Option<u64>,
+    first_token_ms: Option<u64>,
+}
+
+impl StreamObservation {
+    fn new() -> Self {
+        Self {
+            started_at: web_time::Instant::now(),
+            event_count: 0,
+            visible_event_count: 0,
+            text_delta_count: 0,
+            reasoning_delta_count: 0,
+            tool_delta_count: 0,
+            first_event_ms: None,
+            first_output_ms: None,
+            first_token_ms: None,
+        }
+    }
+
+    /// Observe metadata only. Token/reasoning/tool contents are intentionally
+    /// excluded from the durable stream envelope.
+    fn observe(&mut self, event: &StreamEvent) -> Option<(&'static str, u64)> {
+        let elapsed = self.started_at.elapsed().as_millis() as u64;
+        self.event_count = self.event_count.saturating_add(1);
+        self.first_event_ms.get_or_insert(elapsed);
+
+        let (kind, visible, token) = match event {
+            StreamEvent::TextDelta { text } if !text.is_empty() => {
+                self.text_delta_count = self.text_delta_count.saturating_add(1);
+                ("text", true, true)
+            }
+            StreamEvent::ReasoningDelta { text } if !text.is_empty() => {
+                self.reasoning_delta_count = self.reasoning_delta_count.saturating_add(1);
+                ("reasoning", true, true)
+            }
+            StreamEvent::ToolCallStart { .. } => {
+                self.tool_delta_count = self.tool_delta_count.saturating_add(1);
+                ("tool_call", true, false)
+            }
+            StreamEvent::ToolCallDelta {
+                arguments_delta, ..
+            } if !arguments_delta.is_empty() => {
+                self.tool_delta_count = self.tool_delta_count.saturating_add(1);
+                ("tool_call", true, false)
+            }
+            _ => (stream_event_kind(event), false, false),
+        };
+
+        if token {
+            self.first_token_ms.get_or_insert(elapsed);
+        }
+        if visible {
+            self.visible_event_count = self.visible_event_count.saturating_add(1);
+            if self.first_output_ms.is_none() {
+                self.first_output_ms = Some(elapsed);
+                return Some((kind, elapsed));
+            }
+        }
+        None
+    }
+
+    fn duration_ms(&self) -> u64 {
+        self.started_at.elapsed().as_millis() as u64
+    }
+}
+
+fn stream_event_kind(event: &StreamEvent) -> &'static str {
+    match event {
+        StreamEvent::Start => "start",
+        StreamEvent::TextDelta { .. } => "text",
+        StreamEvent::ReasoningDelta { .. } => "reasoning",
+        StreamEvent::ReasoningBlock { .. } => "reasoning_block",
+        StreamEvent::ProviderState { .. } => "provider_state",
+        StreamEvent::ToolCallStart { .. }
+        | StreamEvent::ToolCallDelta { .. }
+        | StreamEvent::ToolCallEnd { .. } => "tool_call",
+        StreamEvent::Usage(_) => "usage",
+        StreamEvent::Stop { .. } => "stop",
+        StreamEvent::Done => "done",
+        StreamEvent::Error(_) => "error",
+    }
+}
+
+impl ActualLlmCall {
+    async fn emit_first_output(&self, kind: &str, elapsed_ms: u64, transport: &str) {
+        emit_runtime_event(
+            &self.session,
+            "llm_first_output",
+            Some(self.llm_call_id.clone()),
+            Some(serde_json::json!({
+                "schema_version": 1,
+                "message_id": &self.message_id,
+                "output_kind": kind,
+                "time_to_first_output_ms": elapsed_ms,
+                "transport": transport,
+            })),
+        )
+        .await;
+    }
+
+    async fn emit_stream_summary(
+        &self,
+        observation: &StreamObservation,
+        transport: &str,
+        outcome: &str,
+        error: Option<&str>,
+    ) {
+        emit_runtime_event(
+            &self.session,
+            "llm_stream_summary",
+            Some(self.llm_call_id.clone()),
+            Some(serde_json::json!({
+                "schema_version": 1,
+                "message_id": &self.message_id,
+                "transport": transport,
+                "outcome": outcome,
+                "error": error,
+                "event_count": observation.event_count,
+                "visible_event_count": observation.visible_event_count,
+                "text_delta_count": observation.text_delta_count,
+                "reasoning_delta_count": observation.reasoning_delta_count,
+                "tool_delta_count": observation.tool_delta_count,
+                "first_event_ms": observation.first_event_ms,
+                "time_to_first_output_ms": observation.first_output_ms,
+                "time_to_first_token_ms": observation.first_token_ms,
+                "stream_duration_ms": observation.duration_ms(),
+            })),
+        )
+        .await;
+    }
 }
 
 #[async_trait]
@@ -205,6 +351,7 @@ impl LlmCallFn for ActualLlmCall {
 
         let mut accumulator = StreamMessageAccumulator::new();
         let mut event_count: u32 = 0;
+        let mut observation = StreamObservation::new();
 
         // Peer handle for cancellation; `cancelled()` needs `&mut`.
         let mut cancel = self.cancel.clone();
@@ -230,10 +377,20 @@ impl LlmCallFn for ActualLlmCall {
                             stream_events = event_count,
                             "LLM stream cancelled mid-flight; abandoning the connection"
                         );
+                        self.emit_stream_summary(
+                            &observation,
+                            "stream",
+                            "cancelled",
+                            Some("cancelled"),
+                        )
+                        .await;
                         return Err(AgentError::Cancelled);
                     }
                 };
             event_count += 1;
+            if let Some((kind, elapsed_ms)) = observation.observe(&event) {
+                self.emit_first_output(kind, elapsed_ms, "stream").await;
+            }
             // Build a placeholder message for the MessageUpdate envelope.
             let agent_msg = AgentMessage::Standard(Message {
                 id: self.message_id.clone(),
@@ -243,14 +400,20 @@ impl LlmCallFn for ActualLlmCall {
                 usage: None,
                 timestamp: chrono::Utc::now().timestamp_millis(),
             });
-            let _ = self.event_tx.send(AgentEvent::MessageUpdate {
-                message: agent_msg,
-                delta: event.clone(),
-            });
+            let _ = self
+                .event_tx
+                .send(AgentEvent::MessageUpdate {
+                    message: agent_msg,
+                    delta: event.clone(),
+                })
+                .await;
 
-            accumulator
-                .push(event)
-                .map_err(|error| AgentError::LlmError(error.to_string()))?;
+            if let Err(error) = accumulator.push(event) {
+                let error = error.to_string();
+                self.emit_stream_summary(&observation, "stream", "error", Some(&error))
+                    .await;
+                return Err(AgentError::LlmError(error));
+            }
         }
 
         // Check if streaming produced anything useful
@@ -265,11 +428,32 @@ impl LlmCallFn for ActualLlmCall {
             );
 
             let tool_refs: Vec<&dyn Tool> = self.tools.iter().map(|t| t.as_ref()).collect();
-            match self
+            let complete = self
                 .model
-                .complete(&messages, &tool_refs, &self.model_config)
-                .await
+                .complete(&messages, &tool_refs, &self.model_config);
+            let fallback = match futures_util::future::select(
+                Box::pin(complete),
+                Box::pin(cancel.cancelled()),
+            )
+            .await
             {
+                futures_util::future::Either::Left((result, _)) => result,
+                futures_util::future::Either::Right(((), _)) => {
+                    tracing::info!(
+                        model = %self.model.model_id(),
+                        "non-streaming LLM fallback cancelled"
+                    );
+                    self.emit_stream_summary(
+                        &observation,
+                        "stream_then_complete_fallback",
+                        "cancelled",
+                        Some("cancelled"),
+                    )
+                    .await;
+                    return Err(AgentError::Cancelled);
+                }
+            };
+            match fallback {
                 Ok(resp) => {
                     let msg = resp.message;
                     // Emit the fallback result as synthetic events so the UI still sees them
@@ -287,6 +471,14 @@ impl LlmCallFn for ActualLlmCall {
                             }
                             _ => continue,
                         };
+                        if let Some((kind, elapsed_ms)) = observation.observe(&delta) {
+                            self.emit_first_output(
+                                kind,
+                                elapsed_ms,
+                                "stream_then_complete_fallback",
+                            )
+                            .await;
+                        }
                         let agent_msg = AgentMessage::Standard(Message {
                             id: self.message_id.clone(),
                             role: MessageRole::Assistant,
@@ -295,10 +487,13 @@ impl LlmCallFn for ActualLlmCall {
                             usage: None,
                             timestamp: chrono::Utc::now().timestamp_millis(),
                         });
-                        let _ = self.event_tx.send(AgentEvent::MessageUpdate {
-                            message: agent_msg,
-                            delta,
-                        });
+                        let _ = self
+                            .event_tx
+                            .send(AgentEvent::MessageUpdate {
+                                message: agent_msg,
+                                delta,
+                            })
+                            .await;
                     }
 
                     tracing::info!(
@@ -307,10 +502,25 @@ impl LlmCallFn for ActualLlmCall {
                         has_usage = msg.usage.is_some(),
                         "non-streaming fallback succeeded"
                     );
+                    self.emit_stream_summary(
+                        &observation,
+                        "stream_then_complete_fallback",
+                        "ok",
+                        None,
+                    )
+                    .await;
                     return Ok(msg);
                 }
                 Err(e) => {
                     tracing::error!(error = %e, "non-streaming fallback also failed");
+                    let error = e.to_string();
+                    self.emit_stream_summary(
+                        &observation,
+                        "stream_then_complete_fallback",
+                        "error",
+                        Some(&error),
+                    )
+                    .await;
                     return Err(e);
                 }
             }
@@ -325,11 +535,20 @@ impl LlmCallFn for ActualLlmCall {
             );
         }
 
-        accumulator
+        let result = accumulator
             .finish(
                 self.message_id.clone(),
                 chrono::Utc::now().timestamp_millis(),
             )
-            .map_err(|error| AgentError::LlmError(error.to_string()))
+            .map_err(|error| AgentError::LlmError(error.to_string()));
+        let error = result.as_ref().err().map(ToString::to_string);
+        self.emit_stream_summary(
+            &observation,
+            "stream",
+            if result.is_ok() { "ok" } else { "error" },
+            error.as_deref(),
+        )
+        .await;
+        result
     }
 }

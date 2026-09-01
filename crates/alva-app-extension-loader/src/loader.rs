@@ -1,6 +1,6 @@
-// INPUT:  proxy::RemotePluginProxy, manifest::PluginManifest, tokio::fs, alva_agent_core::extension::*
+// INPUT:  proxy::RemotePluginProxy, plugin_bundle::read_manifest, alva_agent_core::extension::*
 // OUTPUT: SubprocessLoaderPlugin, LoaderError
-// POS:    Phase 3 — the one Plugin the host registers; internally manages N subprocess plugins.
+// POS:    Host Plugin that discovers validated bundles and manages their staged subprocess proxies.
 
 //! The first-party `Plugin` that scans a directory for plugin
 //! packages, starts each one as a subprocess, and forwards host
@@ -66,6 +66,7 @@ use async_trait::async_trait;
 
 use crate::aep_bridge::AepPhaseHandler;
 use crate::manifest::PluginManifest;
+use crate::plugin_bundle::read_manifest;
 use crate::proxy::{ProxyError, RemotePluginProxy};
 use crate::remote_tool::RemoteToolAdapter;
 
@@ -337,25 +338,13 @@ async fn scan_one_dir(
             continue;
         }
 
-        let manifest_str = match tokio::fs::read_to_string(&manifest_path).await {
-            Ok(s) => s,
-            Err(e) => {
+        let manifest = match read_manifest(&plugin_dir).await {
+            Ok(manifest) => manifest,
+            Err(error) => {
                 tracing::warn!(
                     path = %manifest_path.display(),
-                    error = %e,
-                    "failed to read manifest"
-                );
-                continue;
-            }
-        };
-
-        let manifest: PluginManifest = match toml::from_str(&manifest_str) {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!(
-                    path = %manifest_path.display(),
-                    error = %e,
-                    "failed to parse manifest"
+                    error = %error,
+                    "failed to validate manifest"
                 );
                 continue;
             }
@@ -468,13 +457,10 @@ pub async fn discover_plugins(dirs: &[PathBuf]) -> Vec<DiscoveredPlugin> {
             if !manifest_path.exists() {
                 continue;
             }
-            let Ok(s) = tokio::fs::read_to_string(&manifest_path).await else {
-                continue;
-            };
-            let Ok(manifest) = toml::from_str::<PluginManifest>(&s) else {
+            let Ok(manifest) = read_manifest(&plugin_dir).await else {
                 tracing::warn!(
                     path = %manifest_path.display(),
-                    "failed to parse manifest"
+                    "failed to validate manifest"
                 );
                 continue;
             };
@@ -501,11 +487,9 @@ pub async fn start_plugin(plugin_dir: PathBuf) -> Result<Arc<RemotePluginProxy>,
             plugin_dir.display()
         )));
     }
-    let manifest_str = tokio::fs::read_to_string(&manifest_path)
+    let manifest = read_manifest(&plugin_dir)
         .await
-        .map_err(LoaderError::Io)?;
-    let manifest: PluginManifest = toml::from_str(&manifest_str)
-        .map_err(|e| LoaderError::Manifest(format!("parse {}: {e}", manifest_path.display())))?;
+        .map_err(|error| LoaderError::Manifest(error.to_string()))?;
     let proxy = RemotePluginProxy::start(plugin_dir, manifest).await?;
     Ok(Arc::new(proxy))
 }

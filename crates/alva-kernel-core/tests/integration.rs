@@ -15,8 +15,8 @@ use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
-    AgentMessage, AppendReceipt, CancellationToken, ModelConfig, SessionRecord, ToolExecutionContext,
-    ToolOutput,
+    AgentMessage, AppendReceipt, CancellationToken, ModelConfig, SessionRecord,
+    ToolExecutionContext, ToolOutput,
 };
 use alva_kernel_core::agent_session::InMemoryAgentSession;
 use alva_kernel_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
@@ -102,7 +102,7 @@ fn make_state_with_model(model: Arc<dyn LanguageModel>) -> AgentState {
 
 #[tokio::test]
 async fn simple_echo_run() {
-    let mut state = make_state();
+    let state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec!["Echo bot.".to_string()],
@@ -118,7 +118,7 @@ async fn simple_echo_run() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("hello"))],
@@ -156,6 +156,30 @@ async fn simple_echo_run() {
     assert!(events
         .iter()
         .any(|e| matches!(e, AgentEvent::AgentEnd { error: None })));
+
+    // The live deltas above are also represented durably as one first-output
+    // milestone plus one compact summary (never one SQLite row per token).
+    let first_output = state
+        .session
+        .query(&EventQuery {
+            event_type: Some("llm_first_output".to_string()),
+            ..EventQuery::default()
+        })
+        .await;
+    let summaries = state
+        .session
+        .query(&EventQuery {
+            event_type: Some("llm_stream_summary".to_string()),
+            ..EventQuery::default()
+        })
+        .await;
+    assert_eq!(first_output.len(), 1);
+    assert_eq!(summaries.len(), 1);
+    let summary = summaries[0].event.data.as_ref().unwrap();
+    assert_eq!(summary["outcome"], "ok");
+    assert_eq!(summary["event_count"], 3);
+    assert_eq!(summary["visible_event_count"], 1);
+    assert!(summary["time_to_first_output_ms"].is_u64());
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +188,7 @@ async fn simple_echo_run() {
 
 #[tokio::test]
 async fn run_with_middleware() {
-    let mut state = make_state();
+    let state = make_state();
 
     let mut mw_stack = MiddlewareStack::new();
     mw_stack.push_sorted(Arc::new(LoopDetectionMiddleware::new()));
@@ -186,7 +210,7 @@ async fn run_with_middleware() {
 
     // Should complete without errors — middleware is present but no loops / dangling
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("test input"))],
@@ -197,6 +221,32 @@ async fn run_with_middleware() {
 
     let messages = state.session.messages().await;
     assert_eq!(messages.len(), 2);
+
+    let hooks = state
+        .session
+        .query(&EventQuery {
+            event_type: Some("middleware_hook_batch".to_string()),
+            ..EventQuery::default()
+        })
+        .await;
+    assert!(!hooks.is_empty());
+    assert!(hooks.len() <= 6, "one durable write per stack phase");
+    assert!(hooks.iter().all(|matched| matched
+        .event
+        .data
+        .as_ref()
+        .and_then(|data| data.get("calls"))
+        .and_then(|value| value.as_array())
+        .is_some_and(|calls| calls.len() == 2)));
+    assert!(hooks.iter().any(|matched| {
+        matched
+            .event
+            .data
+            .as_ref()
+            .and_then(|data| data.get("hook"))
+            .and_then(|value| value.as_str())
+            == Some("wrap_llm_call")
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -205,7 +255,7 @@ async fn run_with_middleware() {
 
 #[tokio::test]
 async fn cancellation_mid_run() {
-    let mut state = make_state();
+    let state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec!["Test.".to_string()],
@@ -223,7 +273,7 @@ async fn cancellation_mid_run() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("hi"))],
@@ -249,7 +299,7 @@ async fn cancellation_mid_run() {
 
 #[tokio::test]
 async fn session_persists_across_check() {
-    let mut state = make_state();
+    let state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec!["Persist test.".to_string()],
@@ -266,7 +316,7 @@ async fn session_persists_across_check() {
     let cancel1 = CancellationToken::new();
     let (tx1, _) = tokio::sync::mpsc::unbounded_channel();
     run_agent(
-        &mut state,
+        &state,
         &config,
         cancel1,
         vec![AgentMessage::Standard(Message::user("first"))],
@@ -282,7 +332,7 @@ async fn session_persists_across_check() {
     let cancel2 = CancellationToken::new();
     let (tx2, _) = tokio::sync::mpsc::unbounded_channel();
     run_agent(
-        &mut state,
+        &state,
         &config,
         cancel2,
         vec![AgentMessage::Standard(Message::user("second"))],
@@ -334,7 +384,7 @@ async fn session_persists_across_check() {
 async fn no_follow_up_means_single_pass() {
     // Without any injected messages, the double loop behaves identically
     // to the old single loop.
-    let mut state = make_state();
+    let state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec!["Echo bot.".to_string()],
@@ -351,7 +401,7 @@ async fn no_follow_up_means_single_pass() {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
     run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("just one"))],
@@ -370,7 +420,7 @@ async fn no_follow_up_means_single_pass() {
 
 #[tokio::test]
 async fn message_events_share_the_same_message_id() {
-    let mut state = make_state();
+    let state = make_state();
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec!["Echo bot.".to_string()],
@@ -386,7 +436,7 @@ async fn message_events_share_the_same_message_id() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("hello"))],
@@ -495,7 +545,7 @@ impl LanguageModel for ClaudeStyleToolDeltaModel {
 
 #[tokio::test]
 async fn claude_style_tool_call_deltas_merge_into_one_tool_use() {
-    let mut state = make_state_with_model(Arc::new(ClaudeStyleToolDeltaModel));
+    let state = make_state_with_model(Arc::new(ClaudeStyleToolDeltaModel));
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec!["Tool caller.".to_string()],
@@ -511,7 +561,7 @@ async fn claude_style_tool_call_deltas_merge_into_one_tool_use() {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
     run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("read the file"))],
@@ -593,7 +643,7 @@ impl LanguageModel for MalformedToolDeltaModel {
 
 #[tokio::test]
 async fn malformed_tool_arguments_fail_fast() {
-    let mut state = make_state_with_model(Arc::new(MalformedToolDeltaModel));
+    let state = make_state_with_model(Arc::new(MalformedToolDeltaModel));
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec!["Tool caller.".to_string()],
@@ -609,7 +659,7 @@ async fn malformed_tool_arguments_fail_fast() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("read the file"))],
@@ -688,7 +738,7 @@ impl LanguageModel for StreamErrorModel {
 
 #[tokio::test]
 async fn stream_error_emits_message_error_event() {
-    let mut state = make_state_with_model(Arc::new(StreamErrorModel));
+    let state = make_state_with_model(Arc::new(StreamErrorModel));
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec!["Failing bot.".to_string()],
@@ -704,7 +754,7 @@ async fn stream_error_emits_message_error_event() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("hello"))],
@@ -785,7 +835,7 @@ impl Middleware for FailingAfterLlmCallMiddleware {
 
 #[tokio::test]
 async fn after_llm_call_failure_emits_message_error_event() {
-    let mut state = make_state();
+    let state = make_state();
     let mut middleware = MiddlewareStack::new();
     middleware.push(Arc::new(FailingAfterLlmCallMiddleware));
 
@@ -804,7 +854,7 @@ async fn after_llm_call_failure_emits_message_error_event() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("hello"))],
@@ -989,7 +1039,7 @@ async fn cancellation_between_tool_calls_stops_remaining_tools() {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("run tools"))],
@@ -1082,7 +1132,7 @@ async fn context_hooks_fire_at_lifecycle_points() {
     let handle: Arc<dyn ContextHandle> = Arc::new(NoopContextHandle);
     let cs = Arc::new(ContextSystem::new(hooks, handle));
 
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(EchoModel),
         tools: vec![],
         session: Arc::new(InMemoryAgentSession::new()),
@@ -1104,7 +1154,7 @@ async fn context_hooks_fire_at_lifecycle_points() {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("hi"))],
@@ -1215,7 +1265,7 @@ async fn assemble_can_inject_extra_message() {
     let handle: Arc<dyn ContextHandle> = Arc::new(NoopContextHandle);
     let cs = Arc::new(ContextSystem::new(hooks, handle));
 
-    let mut state = AgentState {
+    let state = AgentState {
         model,
         tools: vec![],
         session: Arc::new(InMemoryAgentSession::new()),
@@ -1236,7 +1286,7 @@ async fn assemble_can_inject_extra_message() {
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("user-input"))],
@@ -1367,7 +1417,7 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
     let model = Arc::new(CapturingModel::default());
     let captured_handle = model.clone();
 
-    let mut state = AgentState {
+    let state = AgentState {
         model,
         tools: vec![],
         session,
@@ -1387,7 +1437,7 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
 
     let cancel = CancellationToken::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let result = run_agent(&mut state, &config, cancel, vec![], tx).await;
+    let result = run_agent(&state, &config, cancel, vec![], tx).await;
     assert!(result.is_ok(), "run_agent should succeed: {:?}", result);
 
     assert_eq!(
@@ -1421,7 +1471,7 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
 #[tokio::test]
 async fn context_hooks_disabled_by_default() {
     // Sanity: when context_system is None, run_agent still works as before.
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(EchoModel),
         tools: vec![],
         session: Arc::new(InMemoryAgentSession::new()),
@@ -1443,7 +1493,7 @@ async fn context_hooks_disabled_by_default() {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("hi"))],
@@ -1515,7 +1565,7 @@ async fn allowed_tools_hides_unselected_tools_from_the_model() {
     };
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     run_agent(
-        &mut state,
+        &state,
         &config,
         CancellationToken::new(),
         vec![AgentMessage::Standard(Message::user("hi"))],
@@ -1580,7 +1630,7 @@ impl LanguageModel for BlockingStreamModel {
 
 #[tokio::test]
 async fn cancel_during_blocked_stream_aborts_mid_flight() {
-    let mut state = make_state_with_model(Arc::new(BlockingStreamModel));
+    let state = make_state_with_model(Arc::new(BlockingStreamModel));
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec![],
@@ -1598,7 +1648,7 @@ async fn cancel_during_blocked_stream_aborts_mid_flight() {
 
     let run = tokio::spawn(async move {
         run_agent(
-            &mut state,
+            &state,
             &config,
             cancel,
             vec![AgentMessage::Standard(Message::user("hi"))],
@@ -1672,7 +1722,7 @@ async fn startup_failure_still_emits_agent_end_and_runs_cleanup() {
         end_with_error: end_with_error.clone(),
     }));
 
-    let mut state = make_state();
+    let state = make_state();
     let config = AgentConfig {
         middleware: stack,
         system_prompt: vec![],
@@ -1688,7 +1738,7 @@ async fn startup_failure_still_emits_agent_end_and_runs_cleanup() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     let result = run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("hi"))],
@@ -1738,6 +1788,7 @@ async fn startup_failure_still_emits_agent_end_and_runs_cleanup() {
 struct FlushCountingSession {
     inner: InMemoryAgentSession,
     flushes: Arc<AtomicUsize>,
+    fail_with: Option<&'static str>,
 }
 
 #[async_trait]
@@ -1759,6 +1810,9 @@ impl AgentSession for FlushCountingSession {
         records: Vec<SessionRecord>,
     ) -> Result<AppendReceipt, SessionError> {
         self.inner.append_records(records).await
+    }
+    fn supports_atomic_records(&self) -> bool {
+        true
     }
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
         self.inner.query(filter).await
@@ -1786,6 +1840,9 @@ impl AgentSession for FlushCountingSession {
     }
     async fn flush(&self) -> Result<(), SessionError> {
         self.flushes.fetch_add(1, Ordering::SeqCst);
+        if let Some(message) = self.fail_with {
+            return Err(SessionError::Other(message.to_string()));
+        }
         self.inner.flush().await
     }
     async fn close(&self) -> Result<(), SessionError> {
@@ -1829,15 +1886,16 @@ async fn session_is_flushed_at_agent_end() {
     let session = Arc::new(FlushCountingSession {
         inner: InMemoryAgentSession::new(),
         flushes: flushes.clone(),
+        fail_with: None,
     });
     // EchoModel returns text with no tool calls → exactly one iteration, so no
     // periodic flush fires; any flush observed is the agent-end flush.
-    let mut state = state_with_session(Arc::new(EchoModel), session, vec![]);
+    let state = state_with_session(Arc::new(EchoModel), session, vec![]);
     let config = config_with_max_iterations(100);
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
     run_agent(
-        &mut state,
+        &state,
         &config,
         CancellationToken::new(),
         vec![AgentMessage::Standard(Message::user("hi"))],
@@ -1849,6 +1907,44 @@ async fn session_is_flushed_at_agent_end() {
     assert!(
         flushes.load(Ordering::SeqCst) >= 1,
         "run_agent must flush the session at agent end (lifecycle contract point a)"
+    );
+}
+
+#[tokio::test]
+async fn successful_run_surfaces_agent_end_flush_failure() {
+    let session = Arc::new(FlushCountingSession {
+        inner: InMemoryAgentSession::new(),
+        flushes: Arc::new(AtomicUsize::new(0)),
+        fail_with: Some("disk full"),
+    });
+    let state = state_with_session(Arc::new(EchoModel), session, vec![]);
+    let config = config_with_max_iterations(100);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let result = run_agent(
+        &state,
+        &config,
+        CancellationToken::new(),
+        vec![AgentMessage::Standard(Message::user("hi"))],
+        tx,
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(AgentError::Other(ref message)) if message.contains("durability flush failed")),
+        "flush failure must fail an otherwise-successful run: {result:?}"
+    );
+    let mut terminal_error = None;
+    while let Ok(event) = rx.try_recv() {
+        if let AgentEvent::AgentEnd { error } = event {
+            terminal_error = error;
+        }
+    }
+    assert!(
+        terminal_error
+            .as_deref()
+            .is_some_and(|message| message.contains("durability flush failed")),
+        "AgentEnd must expose the durability failure"
     );
 }
 
@@ -1900,8 +1996,9 @@ async fn session_is_flushed_periodically_during_a_long_run() {
     let session = Arc::new(FlushCountingSession {
         inner: InMemoryAgentSession::new(),
         flushes: flushes.clone(),
+        fail_with: None,
     });
-    let mut state = state_with_session(
+    let state = state_with_session(
         Arc::new(AlwaysToolModel),
         session,
         vec![Arc::new(NamedNoopTool("noop"))],
@@ -1913,7 +2010,7 @@ async fn session_is_flushed_periodically_during_a_long_run() {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
 
     let _ = run_agent(
-        &mut state,
+        &state,
         &config,
         CancellationToken::new(),
         vec![AgentMessage::Standard(Message::user("go"))],

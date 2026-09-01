@@ -371,7 +371,7 @@ impl ToolLockRegistry {
     }
 }
 
-fn resolve_against_workspace(key: &str, workspace: &std::path::Path) -> String {
+pub(crate) fn resolve_against_workspace(key: &str, workspace: &std::path::Path) -> String {
     if key.starts_with('/') {
         // Already absolute — string-normalize was done at construction.
         key.to_string()

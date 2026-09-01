@@ -1,5 +1,5 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: workspace-mode/run/switch/policy/readiness plus provider discovery and persisted Hub IPC DTOs
+// OUTPUT: workspace/run/switch/policy/readiness/Inspector plus provider discovery and persisted Hub IPC DTOs
 // POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -189,6 +189,8 @@ export interface SideEffectEvidence {
   succeeded: boolean | null;
   duration_ms: number | null;
   path: string | null;
+  tool_input?: string | null;
+  tool_output?: string | null;
 }
 
 export interface StoredAttempt {
@@ -268,6 +270,105 @@ export interface HubSessionDetail {
   pending_switch: PendingSwitch | null;
   fallback_policy: FallbackPolicy;
   memory: string[];
+}
+
+export interface InspectorHookRecord {
+  middleware_name: string;
+  hook: string;
+  duration_ms: number;
+  outcome: string;
+  error: string | null;
+  tool_call_id: string | null;
+}
+
+export interface InspectorLlmCallRecord {
+  messages_sent: unknown[];
+  messages_sent_count: number;
+  response: unknown | null;
+  input_tokens: number;
+  output_tokens: number;
+  duration_ms: number;
+  stop_reason: string;
+  error_message: string | null;
+  middleware_hooks: InspectorHookRecord[];
+  first_event_ms: number | null;
+  time_to_first_output_ms: number | null;
+  time_to_first_token_ms: number | null;
+  stream_duration_ms: number | null;
+  stream_event_count: number;
+  visible_stream_event_count: number;
+  stream_transport: string | null;
+  stream_outcome: string | null;
+}
+
+export interface InspectorToolCallRecord {
+  tool_call: {
+    id: string;
+    name: string;
+    arguments: unknown;
+  };
+  result: unknown | null;
+  is_error: boolean;
+  duration_ms: number;
+  middleware_hooks: InspectorHookRecord[];
+}
+
+export interface InspectorTurnRecord {
+  turn_number: number;
+  llm_call: InspectorLlmCallRecord;
+  tool_calls: InspectorToolCallRecord[];
+  duration_ms: number;
+}
+
+export interface InspectorRunRecord {
+  turns: InspectorTurnRecord[];
+  total_duration_ms: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  middleware_hooks: InspectorHookRecord[];
+  user_messages: Array<{
+    before_turn_number: number;
+    text: string;
+    timestamp_ms: number;
+  }>;
+}
+
+export interface HubInspectionRecord {
+  seq: number;
+  record_id: string;
+  parent_record_id: string | null;
+  timestamp: number;
+  category: "conversation" | "execution" | "extension";
+  type_name: string;
+  emitter: unknown;
+  payload: unknown;
+}
+
+export interface HubInspectionSnapshot {
+  product_session_id: string;
+  branch_id: string;
+  root_native_session_id: string;
+  engine_id: string;
+  native_session_id: string;
+  parent_session_id: string | null;
+  high_water_seq: number;
+  live: boolean;
+  capabilities: {
+    level: "full" | "summary" | "unsupported";
+    historical: boolean;
+    live: boolean;
+    raw_records: boolean;
+    recursive_children: boolean;
+    export_jsonl_bundle: boolean;
+  };
+  run: InspectorRunRecord;
+  records: HubInspectionRecord[];
+  children: Array<{
+    child_session_id: string;
+    parent_session_id: string;
+    parent_run_id: string;
+    spawn_tool_call_id: string;
+  }>;
 }
 
 export interface StoredBranch {
@@ -363,6 +464,7 @@ export interface SwitchOutcome {
 import {
   demoDetail,
   demoFallbackPolicy,
+  demoInspection,
   demoModelRoutes,
   demoProviderProfiles,
   demoReadiness,
@@ -461,6 +563,9 @@ export async function runHubPrompt(
       workspace: request.workspace,
       engine_id: request.engine_id,
       product_session_id: request.product_session_id,
+      selected_target: selectedTarget,
+      permission_profile: request.permission_profile,
+      run_token: runToken,
     });
   }
   if (!hasTauri) {
@@ -478,6 +583,9 @@ export async function switchHubEngine(
   target: EngineTarget,
   reason: string,
 ): Promise<SwitchOutcome> {
+  if (HTTP) {
+    return await httpJson<SwitchOutcome>(`/api/sessions/${encodeURIComponent(productSessionId)}/switch`, { target, reason });
+  }
   if (!hasTauri) {
     throw new Error("Engine switching requires the ALVA Hub desktop runtime.");
   }
@@ -569,10 +677,37 @@ export async function getHubSession(
   });
 }
 
+export async function getHubInspection(
+  productSessionId: string,
+  nativeSessionId?: string | null,
+): Promise<HubInspectionSnapshot> {
+  if (DEMO) return demoInspection(nativeSessionId ?? undefined);
+  if (HTTP) {
+    const query = nativeSessionId
+      ? `?native_session_id=${encodeURIComponent(nativeSessionId)}`
+      : "";
+    return await httpJson<HubInspectionSnapshot>(
+      `/api/sessions/${encodeURIComponent(productSessionId)}/inspection${query}`,
+      undefined,
+      "GET",
+    );
+  }
+  if (!hasTauri) {
+    throw new Error("Agent Inspector requires the ALVA Hub desktop runtime.");
+  }
+  return await invoke<HubInspectionSnapshot>("get_hub_inspection", {
+    productSessionId,
+    nativeSessionId: nativeSessionId ?? null,
+  });
+}
+
 export async function addSessionMemory(
   productSessionId: string,
   entry: string,
 ): Promise<string[]> {
+  if (HTTP) {
+    return await httpJson<string[]>(`/api/sessions/${encodeURIComponent(productSessionId)}/memory`, { entry });
+  }
   if (!hasTauri) return [];
   return await invoke<string[]>("add_session_memory", {
     productSessionId,
@@ -582,6 +717,7 @@ export async function addSessionMemory(
 
 export async function getGlobalFallbackPolicy(): Promise<FallbackPolicy> {
   if (DEMO) return demoFallbackPolicy();
+  if (HTTP) return await httpJson<FallbackPolicy>("/api/fallback-policy", undefined, "GET");
   if (!hasTauri) {
     return { targets: [], updated_at: 0 };
   }
@@ -591,6 +727,7 @@ export async function getGlobalFallbackPolicy(): Promise<FallbackPolicy> {
 export async function setGlobalFallbackPolicy(
   targets: EngineTarget[],
 ): Promise<FallbackPolicy> {
+  if (HTTP) return await httpJson<FallbackPolicy>("/api/fallback-policy", { targets });
   if (!hasTauri) {
     throw new Error("Fallback settings require the ALVA Hub desktop runtime.");
   }
@@ -601,6 +738,7 @@ export async function setSessionFallbackPolicy(
   productSessionId: string,
   targets: EngineTarget[],
 ): Promise<FallbackPolicy> {
+  if (HTTP) return await httpJson<FallbackPolicy>(`/api/sessions/${encodeURIComponent(productSessionId)}/fallback-policy`, { targets });
   if (!hasTauri) {
     throw new Error("Fallback settings require the ALVA Hub desktop runtime.");
   }
@@ -620,6 +758,7 @@ export interface EngineEligibility {
 export async function getPermissionEligibility(
   profile: PermissionProfile,
 ): Promise<EngineEligibility[]> {
+  if (HTTP) return await httpJson<EngineEligibility[]>(`/api/permission-eligibility?profile=${encodeURIComponent(profile)}`, undefined, "GET");
   if (!hasTauri) return [];
   return await invoke<EngineEligibility[]>("get_permission_eligibility", {
     profile,
@@ -632,6 +771,10 @@ export async function respondHubPermission(
   allow: boolean,
   message?: string,
 ): Promise<void> {
+  if (HTTP) {
+    await httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/permission`, { request_id: requestId, allow, message: message ?? null });
+    return;
+  }
   if (!hasTauri) {
     throw new Error(
       "Answering a permission request requires the ALVA Hub desktop runtime.",
@@ -646,6 +789,10 @@ export async function setTranscriptSharing(
   productSessionId: string,
   enabled: boolean,
 ): Promise<void> {
+  if (HTTP) {
+    await httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/transcript`, { enabled });
+    return;
+  }
   if (!hasTauri) {
     throw new Error("Transcript settings require the ALVA Hub desktop runtime.");
   }
@@ -653,6 +800,10 @@ export async function setTranscriptSharing(
 }
 
 export async function stopHubAttempt(productSessionId: string): Promise<void> {
+  if (HTTP) {
+    await httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/stop`, {});
+    return;
+  }
   if (!hasTauri) {
     throw new Error("Stopping an attempt requires the ALVA Hub desktop runtime.");
   }
@@ -810,6 +961,7 @@ export async function getPermissionGroups(): Promise<PermissionGroup[]> {
         ],
       },
     ];
+  if (HTTP) return await httpJson<PermissionGroup[]>("/api/permission-groups", undefined, "GET");
   if (!hasTauri) return [];
   return await invoke<PermissionGroup[]>("get_permission_groups");
 }
@@ -819,6 +971,10 @@ export async function respondPermissionGroup(
   allow: boolean,
   requestIds?: string[],
 ): Promise<number> {
+  if (HTTP) {
+    const res = await httpJson<{ answered: number }>("/api/permission/respond", { group_key: groupKey, allow, request_ids: requestIds });
+    return res.answered;
+  }
   if (!hasTauri) {
     throw new Error("Approvals require the ALVA Hub desktop runtime.");
   }
@@ -988,6 +1144,10 @@ export async function getEngineReadiness(
   workspace: string | null,
 ): Promise<EngineReadiness[]> {
   if (DEMO) return demoReadiness();
+  if (HTTP) {
+    const q = workspace ? `?workspace=${encodeURIComponent(workspace)}` : "";
+    return await httpJson<EngineReadiness[]>(`/api/readiness${q}`, undefined, "GET");
+  }
   if (!hasTauri) return [];
   return await invoke<EngineReadiness[]>("get_engine_readiness", { workspace });
 }

@@ -1,6 +1,6 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: binary with workspace/run/switch/session/policy IPC over the crash-repaired Hub store
-// POS:    Tauri 2 entrypoint and user-authorized multi-engine Desktop state owner.
+// OUTPUT: binary with workspace/run/switch/session/policy/Inspector IPC and timestamped timeline events over the crash-repaired Hub store
+// POS:    Tauri 2 entrypoint, user-authorized multi-engine Desktop state owner, and product event bridge.
 
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
@@ -13,21 +13,31 @@ use std::sync::{Arc, Mutex};
 
 use alva_engine_runtime::{EngineRuntime, PermissionDecision};
 use alva_hub_desktop::{
-    build_engine_for_target, diagnose_provider_inference, discover_provider_models,
-    create_managed_session_workspace, permission_eligibility, probe_readiness,
+    build_engine_for_target_with_inspector, create_managed_session_workspace,
+    diagnose_provider_inference, discover_provider_models, permission_eligibility, probe_readiness,
     run_persisted_with_target, EngineEligibility, EngineReadiness, EngineTarget, FallbackPolicy,
-    HubSessionDetail, HubSessionSummary, HubStore, ModelRoute, PermissionProfile,
-    PermissionRouter, ProviderCatalog, ProviderDiagnosticResult, ProviderProfile, RunOutcome,
-    RunRequest, SaveProviderProfile, SwitchOutcome, SystemProbe, TaskClaim, TimelineEvent,
-    TimelineStatus, WorkspaceBinding,
+    HubInspectionSnapshot, HubInspectorService, HubSessionDetail, HubSessionSummary, HubStore,
+    ModelRoute, PermissionProfile, PermissionRouter, ProviderCatalog, ProviderDiagnosticResult,
+    ProviderProfile, RunOutcome, RunRequest, SaveProviderProfile, SwitchOutcome, SystemProbe,
+    TaskClaim, TimelineEvent, TimelineStatus, WorkspaceBinding,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+
+fn timeline_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
 
 struct DesktopState {
     store: HubStore,
     providers: ProviderCatalog,
     history_dir: PathBuf,
+    /// Shared with every Alva adapter so Inspector snapshots remain live and
+    /// historical reads use the same authoritative native record store.
+    inspector: HubInspectorService,
     /// Engine currently executing each product session, so a user Stop can
     /// reach the live adapter. Entries live only for the duration of a run.
     active_engines: Mutex<HashMap<String, Arc<dyn EngineRuntime>>>,
@@ -213,6 +223,7 @@ async fn execute_session_run(
     run_token: Option<String>,
 ) -> Result<RunOutcome, String> {
     let history_dir = state.history_dir.clone();
+    let inspector = state.inspector.clone();
     let health_store = state.store.clone();
     let health_workspace = workspace.clone();
     let build_providers = state.providers.clone();
@@ -248,12 +259,13 @@ async fn execute_session_run(
         &state.store,
         move |target, product_session_id, permission_profile| {
             let provider_config = build_providers.resolve_target(target, &workspace)?;
-            let engine = build_engine_for_target(
+            let engine = build_engine_for_target_with_inspector(
                 target,
                 provider_config,
                 permission_profile,
                 &workspace,
                 &history_dir,
+                &inspector,
             )?;
             // Register the live engine so `stop_hub_attempt` can cancel it;
             // fallback replaces the entry with the newly active engine.
@@ -983,6 +995,7 @@ fn ensure_worker_pump(app: AppHandle, worker_id: String) {
                                         status: TimelineStatus::Worker,
                                         engine_id,
                                         product_session_id: run.lead_session_id.clone(),
+                                        created_at: timeline_now_ms(),
                                         message: Some(format!("Waiting on {summary}")),
                                         item_id: Some(task.task_id.clone()),
                                         activity: None,
@@ -1042,6 +1055,7 @@ async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
                 status: TimelineStatus::Worker,
                 engine_id,
                 product_session_id: run.lead_session_id.clone(),
+                created_at: timeline_now_ms(),
                 message: None,
                 item_id: Some(task.task_id.clone()),
                 activity: None,
@@ -1117,6 +1131,7 @@ async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
                     status: TimelineStatus::Worker,
                     engine_id: worker.engine_id.clone(),
                     product_session_id: run.lead_session_id.clone(),
+                    created_at: timeline_now_ms(),
                     message: Some(summary),
                     item_id: Some(task.task_id.clone()),
                     activity: None,
@@ -1240,6 +1255,7 @@ async fn stop_attempt_inner(
             status: TimelineStatus::Interrupted,
             engine_id: detail.session.engine_id,
             product_session_id,
+            created_at: timeline_now_ms(),
             message: Some("User stopped the attempt".to_string()),
             item_id: None,
             activity: None,
@@ -1392,9 +1408,7 @@ async fn test_model_route(
 }
 
 #[tauri::command]
-fn create_session_workspace(
-    state: State<'_, DesktopState>,
-) -> Result<WorkspaceBinding, String> {
+fn create_session_workspace(state: State<'_, DesktopState>) -> Result<WorkspaceBinding, String> {
     create_managed_session_workspace(&state.session_workspace_root)
 }
 
@@ -1409,6 +1423,22 @@ fn get_hub_session(
     product_session_id: String,
 ) -> Result<Option<HubSessionDetail>, String> {
     state.store.get_session(&product_session_id)
+}
+
+#[tauri::command]
+async fn get_hub_inspection(
+    state: State<'_, DesktopState>,
+    product_session_id: String,
+    native_session_id: Option<String>,
+) -> Result<HubInspectionSnapshot, String> {
+    state
+        .inspector
+        .inspect(
+            &state.store,
+            &product_session_id,
+            native_session_id.as_deref(),
+        )
+        .await
 }
 
 #[tauri::command]
@@ -1482,10 +1512,14 @@ fn main() {
             )
             .map_err(std::io::Error::other)?;
             let queued_workers = store.active_workers_with_queued_tasks().unwrap_or_default();
+            let history_dir = data_dir.join("alva-history");
+            let inspector =
+                HubInspectorService::open(&history_dir).map_err(std::io::Error::other)?;
             app.manage(DesktopState {
                 store,
                 providers,
-                history_dir: data_dir.join("alva-history"),
+                history_dir,
+                inspector,
                 active_engines: Mutex::new(HashMap::new()),
                 worker_pumps: Mutex::new(std::collections::HashSet::new()),
                 worktree_root: alva_hub_desktop::worktree_root(&data_dir),
@@ -1512,6 +1546,7 @@ fn main() {
             create_session_workspace,
             list_hub_sessions,
             get_hub_session,
+            get_hub_inspection,
             add_session_memory,
             get_global_fallback_policy,
             set_global_fallback_policy,

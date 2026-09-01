@@ -1,6 +1,6 @@
 // INPUT:  filesystem under ~/.config/alva/hub (or ALVA_HUB_HOME), serde_json
-// OUTPUT: SessionStore, StoredSession — durable product-session journal for resume
-// POS:    Process-restart rehydration for Hub product sessions (engine must still honor engine_session_id).
+// OUTPUT: SessionStore, StoredSession — versioned private route journal and handoff intent
+// POS:    Crash-safe process-restart rehydration for Hub product sessions.
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
@@ -13,6 +13,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const STORE_VERSION: u32 = 1;
+const MAX_STORE_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_SESSION_COUNT: usize = 10_000;
+const MAX_SESSION_ID_BYTES: usize = 128;
+const MAX_ENGINE_SESSION_ID_BYTES: usize = 4 * 1024;
+const MAX_WORKSPACE_BYTES: usize = 32 * 1024;
 
 /// One durable Hub product session record.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -29,21 +35,32 @@ pub struct StoredSession {
     pub previous_engine_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_engine_session_id: Option<String>,
+    /// Write-ahead intent for a cross-engine handoff. The source route above
+    /// remains authoritative until the target completes successfully.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_handoff_target: Option<String>,
     /// Unix seconds when last updated.
     pub updated_at: u64,
-    /// Last user prompt snippet (diagnostics only; not secret-safe for all content).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_prompt_preview: Option<String>,
-    /// Last assistant final-message preview (for handoff preambles).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_result_preview: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoreFile {
+    /// Version 0 is the legacy, unversioned JSON shape. It is accepted once
+    /// and rewritten without the old prompt/result preview fields.
+    #[serde(default)]
+    version: u32,
     /// product_session_id → record
     #[serde(default)]
     sessions: BTreeMap<String, StoredSession>,
+}
+
+impl Default for StoreFile {
+    fn default() -> Self {
+        Self {
+            version: STORE_VERSION,
+            sessions: BTreeMap::new(),
+        }
+    }
 }
 
 /// JSON journal of Hub product sessions.
@@ -56,8 +73,16 @@ impl SessionStore {
     /// Default location: `$ALVA_HUB_HOME/sessions.json` or
     /// `~/.config/alva/hub/sessions.json`.
     pub fn default_path() -> Option<PathBuf> {
-        if let Ok(home) = std::env::var("ALVA_HUB_HOME") {
-            return Some(PathBuf::from(home).join("sessions.json"));
+        if let Some(home) = std::env::var_os("ALVA_HUB_HOME") {
+            let home = PathBuf::from(home);
+            if !home.as_os_str().is_empty() {
+                let home = if home.is_absolute() {
+                    home
+                } else {
+                    std::env::current_dir().ok()?.join(home)
+                };
+                return Some(home.join("sessions.json"));
+            }
         }
         dirs::config_dir().map(|d| d.join("alva").join("hub").join("sessions.json"))
     }
@@ -77,7 +102,33 @@ impl SessionStore {
         &self.path
     }
 
+    /// Validate writability and migrate a legacy journal before any engine is
+    /// started. This makes resume durability a startup invariant instead of a
+    /// best-effort action after a successful turn.
+    pub fn prepare(&self) -> Result<(), String> {
+        let _guard = self
+            .write_lock
+            .lock()
+            .map_err(|_| "session store write lock poisoned".to_string())?;
+        ensure_parent(&self.path)?;
+        let lock_file = open_lock_file(&self.path)?;
+        lock_file
+            .lock()
+            .map_err(|e| format!("lock {}: {e}", lock_path(&self.path).display()))?;
+
+        let existed = self.path.exists();
+        let file = self.load_file()?;
+        if !existed || file.version != STORE_VERSION {
+            self.save_all(&file.sessions)?;
+        }
+        Ok(())
+    }
+
     pub fn load_all(&self) -> Result<BTreeMap<String, StoredSession>, String> {
+        Ok(self.load_file()?.sessions)
+    }
+
+    fn load_file(&self) -> Result<StoreFile, String> {
         validate_parent(&self.path)?;
         match fs::symlink_metadata(&self.path) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -94,20 +145,43 @@ impl SessionStore {
             }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(BTreeMap::new());
+                return Ok(StoreFile::default());
             }
             Err(error) => {
                 return Err(format!("inspect {}: {error}", self.path.display()));
             }
         }
-        if !self.path.exists() {
-            return Ok(BTreeMap::new());
+        let size = fs::metadata(&self.path)
+            .map_err(|e| format!("inspect {}: {e}", self.path.display()))?
+            .len();
+        if size > MAX_STORE_BYTES {
+            return Err(format!(
+                "session store {} is too large ({size} bytes; max {MAX_STORE_BYTES})",
+                self.path.display()
+            ));
         }
         let bytes =
             fs::read(&self.path).map_err(|e| format!("read {}: {e}", self.path.display()))?;
         let file: StoreFile = serde_json::from_slice(&bytes)
             .map_err(|e| format!("parse {}: {e}", self.path.display()))?;
-        Ok(file.sessions)
+        if file.version > STORE_VERSION {
+            return Err(format!(
+                "session store {} uses unsupported version {} (max {})",
+                self.path.display(),
+                file.version,
+                STORE_VERSION
+            ));
+        }
+        if file.sessions.len() > MAX_SESSION_COUNT {
+            return Err(format!(
+                "session store {} has too many records ({}; max {})",
+                self.path.display(),
+                file.sessions.len(),
+                MAX_SESSION_COUNT
+            ));
+        }
+        validate_records(&self.path, &file.sessions)?;
+        Ok(file)
     }
 
     pub fn get(&self, product_session_id: &str) -> Result<Option<StoredSession>, String> {
@@ -126,6 +200,11 @@ impl SessionStore {
             .map_err(|e| format!("lock {}: {e}", lock_path(&self.path).display()))?;
 
         let mut all = self.load_all()?;
+        if !all.contains_key(&session.product_session_id) && all.len() >= MAX_SESSION_COUNT {
+            return Err(format!(
+                "session store record limit reached ({MAX_SESSION_COUNT})"
+            ));
+        }
         all.insert(session.product_session_id.clone(), session);
         self.save_all(&all)
     }
@@ -139,13 +218,62 @@ impl SessionStore {
 
     fn save_all(&self, sessions: &BTreeMap<String, StoredSession>) -> Result<(), String> {
         ensure_parent(&self.path)?;
+        validate_records(&self.path, sessions)?;
         let file = StoreFile {
+            version: STORE_VERSION,
             sessions: sessions.clone(),
         };
         let json =
             serde_json::to_string_pretty(&file).map_err(|e| format!("serialize sessions: {e}"))?;
+        if json.len() as u64 > MAX_STORE_BYTES {
+            return Err(format!(
+                "serialized session store is too large ({} bytes; max {MAX_STORE_BYTES})",
+                json.len()
+            ));
+        }
         atomic_write_private(&self.path, json.as_bytes())
     }
+}
+
+fn validate_records(path: &Path, sessions: &BTreeMap<String, StoredSession>) -> Result<(), String> {
+    for (key, session) in sessions {
+        if key != &session.product_session_id {
+            return Err(format!(
+                "session store {} has a record whose key does not match product_session_id",
+                path.display()
+            ));
+        }
+        if !valid_product_session_id(key) {
+            return Err(format!(
+                "session store {} has an invalid product session id",
+                path.display()
+            ));
+        }
+        if session.engine_session_id.is_empty()
+            || session.engine_session_id.len() > MAX_ENGINE_SESSION_ID_BYTES
+            || session.engine_session_id.chars().any(char::is_control)
+        {
+            return Err(format!(
+                "session store {} has an invalid native engine session id",
+                path.display()
+            ));
+        }
+        if session.workspace.len() > MAX_WORKSPACE_BYTES || session.workspace.contains('\0') {
+            return Err(format!(
+                "session store {} has an invalid workspace path",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn valid_product_session_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_SESSION_ID_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 fn explicit_parent(path: &Path) -> Option<&Path> {
@@ -269,18 +397,73 @@ fn atomic_write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
             .map_err(|e| format!("sync {}: {e}", tmp.display()))?;
         drop(file);
 
-        #[cfg(windows)]
-        if path.exists() {
-            fs::remove_file(path).map_err(|e| format!("remove {}: {e}", path.display()))?;
-        }
-        fs::rename(&tmp, path)
-            .map_err(|e| format!("rename {} → {}: {e}", tmp.display(), path.display()))
+        replace_file(&tmp, path)?;
+        sync_parent_directory(path)
     })();
 
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::rename(source, destination).map_err(|error| {
+        format!(
+            "rename {} → {}: {error}",
+            source.display(),
+            destination.display()
+        )
+    })
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, destination: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let source_wide: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination_wide: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // MoveFileExW with REPLACE_EXISTING avoids the delete-then-rename gap that
+    // would otherwise leave a missing journal after a crash on Windows.
+    let result = unsafe {
+        MoveFileExW(
+            source_wide.as_ptr(),
+            destination_wide.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        return Err(format!(
+            "replace {} → {}: {}",
+            source.display(),
+            destination.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(path: &Path) -> Result<(), String> {
+    let Some(parent) = explicit_parent(path) else {
+        return Ok(());
+    };
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|e| format!("sync directory {}: {e}", parent.display()))
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_path: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -312,19 +495,6 @@ pub fn now_unix() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
-}
-
-pub fn prompt_preview(prompt: &str, max: usize) -> Option<String> {
-    let t = prompt.trim();
-    if t.is_empty() {
-        return None;
-    }
-    if t.chars().count() <= max {
-        Some(t.to_string())
-    } else {
-        let s: String = t.chars().take(max.saturating_sub(1)).collect();
-        Some(format!("{s}…"))
-    }
 }
 
 #[cfg(test)]
@@ -359,9 +529,8 @@ mod tests {
             claude_mode: None,
             previous_engine_id: None,
             previous_engine_session_id: None,
+            pending_handoff_target: None,
             updated_at,
-            last_prompt_preview: None,
-            last_result_preview: None,
         }
     }
 
@@ -376,13 +545,66 @@ mod tests {
             claude_mode: Some("light".into()),
             previous_engine_id: None,
             previous_engine_session_id: None,
+            pending_handoff_target: None,
             updated_at: 42,
-            last_prompt_preview: Some("hi".into()),
-            last_result_preview: Some("ok".into()),
         };
         store.upsert(s.clone()).unwrap();
         let loaded = store.get("p1").unwrap().unwrap();
         assert_eq!(loaded, s);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prepare_migrates_legacy_previews_out_of_the_journal() {
+        let (dir, store) = temp_store();
+        fs::write(
+            store.path(),
+            r#"{
+              "sessions": {
+                "p1": {
+                  "product_session_id": "p1",
+                  "engine_id": "alva",
+                  "engine_session_id": "e1",
+                  "workspace": "/w",
+                  "updated_at": 1,
+                  "last_prompt_preview": "sk-secret-must-disappear",
+                  "last_result_preview": "private result"
+                }
+              }
+            }"#,
+        )
+        .unwrap();
+
+        store.prepare().unwrap();
+        let migrated = fs::read_to_string(store.path()).unwrap();
+        assert!(migrated.contains("\"version\": 1"));
+        assert!(!migrated.contains("last_prompt_preview"));
+        assert!(!migrated.contains("sk-secret-must-disappear"));
+        assert!(store.get("p1").unwrap().is_some());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rejects_oversized_journal_before_reading_json() {
+        let (dir, store) = temp_store();
+        fs::write(store.path(), vec![b' '; MAX_STORE_BYTES as usize + 1]).unwrap();
+        let error = store.load_all().expect_err("oversized journal must fail");
+        assert!(error.contains("too large"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rejects_mismatched_or_control_character_session_ids() {
+        let (dir, store) = temp_store();
+        let mut sessions = BTreeMap::new();
+        sessions.insert("product-1".into(), stored_session("different", 1));
+        assert!(store.save_all(&sessions).is_err());
+
+        sessions.clear();
+        let mut invalid = stored_session("product-1", 1);
+        invalid.engine_session_id = "native\nsession".into();
+        sessions.insert("product-1".into(), invalid);
+        assert!(store.save_all(&sessions).is_err());
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -465,5 +687,26 @@ mod tests {
 
         let _ = fs::remove_dir_all(dir);
         let _ = fs::remove_file(outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_symlinked_session_directory_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "alva-hub-symlink-parent-{}-{}",
+            std::process::id(),
+            TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let real = root.join("real");
+        let linked = root.join("linked");
+        fs::create_dir_all(&real).unwrap();
+        symlink(&real, &linked).unwrap();
+        let store = SessionStore::open(linked.join("sessions.json"));
+
+        let error = store.prepare().expect_err("symlinked ancestor must fail");
+        assert!(error.contains("symlinked session directory"));
+        let _ = fs::remove_dir_all(root);
     }
 }

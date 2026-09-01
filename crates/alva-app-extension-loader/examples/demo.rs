@@ -269,7 +269,7 @@ async fn main() {
     let session = Arc::new(InMemoryAgentSession::new());
     let user_message = AgentMessage::Standard(Message::user("list my files please"));
     session.append_message(user_message.clone(), None).await;
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(MockLanguageModel::new()),
         tools: vec![],
         session,
@@ -280,7 +280,7 @@ async fn main() {
     banner("hook: on_agent_start");
     let mut start_result = Ok(());
     for adapter in &adapters {
-        start_result = adapter.on_agent_start(&mut state).await;
+        start_result = adapter.on_agent_start(&state).await;
         if start_result.is_err() {
             break;
         }
@@ -291,7 +291,7 @@ async fn main() {
     banner("hook: input_committed (on_user_message)");
     let mut input_result = Ok(());
     for adapter in &adapters {
-        input_result = adapter.input_committed(&mut state, &user_message).await;
+        input_result = adapter.input_committed(&state, &user_message).await;
         if input_result.is_err() {
             break;
         }
@@ -317,7 +317,7 @@ async fn main() {
         banner(&format!("hook: {label}"));
         let mut result = Ok(());
         for adapter in &adapters {
-            result = adapter.before_tool_call(&mut state, &tc).await;
+            result = adapter.before_tool_call(&state, &tc).await;
             if result.is_err() {
                 break;
             }
@@ -329,7 +329,7 @@ async fn main() {
     banner("hook: on_agent_end");
     let mut end_result = Ok(());
     for adapter in &adapters {
-        end_result = adapter.on_agent_end(&mut state, None).await;
+        end_result = adapter.on_agent_end(&state, None).await;
         if end_result.is_err() {
             break;
         }

@@ -1,20 +1,18 @@
 // INPUT:  std::any::Any, std::path::{Path, PathBuf}, std::sync::Arc,
 //         alva_kernel_abi::{BusHandle, CancellationToken, ProgressEvent, ToolExecutionContext, ToolFs},
-//         tokio::sync::mpsc, crate::event::AgentEvent
+//         crate::event::{AgentEvent, AgentEventSender}
 // OUTPUT: RuntimeExecutionContext
-// POS:    Concrete ToolExecutionContext used by the agent run loop — bridges tool progress to agent events and exposes bus to tools.
+// POS:    Tool context bridge; progress uses non-blocking best-effort event delivery while terminal events stay lossless.
 use std::any::Any;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::event::{AgentEvent, AgentEventSender};
 use alva_kernel_abi::agent_session::ScopedSession;
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::tool::execution::{ProgressEvent, ToolExecutionContext};
 use alva_kernel_abi::BusHandle;
 use alva_kernel_abi::ToolFs;
-use tokio::sync::mpsc;
-
-use crate::event::AgentEvent;
 
 /// Concrete `ToolExecutionContext` used by the agent run loop.
 ///
@@ -24,7 +22,7 @@ use crate::event::AgentEvent;
 pub struct RuntimeExecutionContext {
     cancel: CancellationToken,
     tool_call_id: String,
-    event_tx: mpsc::UnboundedSender<AgentEvent>,
+    event_tx: AgentEventSender,
     session_id: String,
     workspace: Option<PathBuf>,
     allow_dangerous: bool,
@@ -34,16 +32,19 @@ pub struct RuntimeExecutionContext {
 }
 
 impl RuntimeExecutionContext {
-    pub fn new(
+    pub fn new<E>(
         cancel: CancellationToken,
         tool_call_id: String,
-        event_tx: mpsc::UnboundedSender<AgentEvent>,
+        event_tx: E,
         session_id: String,
-    ) -> Self {
+    ) -> Self
+    where
+        E: Into<AgentEventSender>,
+    {
         Self {
             cancel,
             tool_call_id,
-            event_tx,
+            event_tx: event_tx.into(),
             session_id,
             workspace: None,
             allow_dangerous: false,
@@ -85,10 +86,19 @@ impl ToolExecutionContext for RuntimeExecutionContext {
     }
 
     fn report_progress(&self, event: ProgressEvent) {
-        let _ = self.event_tx.send(AgentEvent::ToolExecutionUpdate {
-            tool_call_id: self.tool_call_id.clone(),
-            event,
-        });
+        if self
+            .event_tx
+            .try_send(AgentEvent::ToolExecutionUpdate {
+                tool_call_id: self.tool_call_id.clone(),
+                event,
+            })
+            .is_err()
+        {
+            tracing::trace!(
+                tool_call_id = %self.tool_call_id,
+                "tool progress event dropped because the bounded event stream is full or closed"
+            );
+        }
     }
 
     fn session_id(&self) -> &str {
@@ -132,6 +142,7 @@ impl ToolExecutionContext for RuntimeExecutionContext {
 mod tests {
     use super::*;
     use alva_kernel_abi::tool::execution::ToolExecutionContext;
+    use tokio::sync::mpsc;
 
     /// Helper: create channel and return (sender, receiver).
     fn channel() -> (

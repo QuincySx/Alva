@@ -97,7 +97,7 @@ async fn input_committed_hook_runs_after_input_is_persisted() {
         calls: calls.clone(),
     }));
 
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(EchoModel),
         tools: Vec::new(),
         session,
@@ -117,7 +117,7 @@ async fn input_committed_hook_runs_after_input_is_persisted() {
     let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
 
     run_agent(
-        &mut state,
+        &state,
         &config,
         CancellationToken::new(),
         vec![AgentMessage::Standard(Message::user("hello"))],

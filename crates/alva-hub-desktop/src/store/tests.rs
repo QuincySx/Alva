@@ -9,8 +9,8 @@ mod tests {
     use crate::store::handoff::build_handoff_package;
     use crate::store::{
         default_account_source, default_billing_route, now_unix_ms, EngineTarget, HandoffKind,
-        HubStore, SCHEMA_VERSION, SideEffectEvidence, StoredBranch, STATUS_COMPLETED,
-        STATUS_INTERRUPTED, STATUS_RUNNING, SwitchDisposition, TaskClaim, WorkerLifecycle,
+        HubStore, SideEffectEvidence, StoredBranch, SwitchDisposition, TaskClaim, WorkerLifecycle,
+        SCHEMA_VERSION, STATUS_COMPLETED, STATUS_INTERRUPTED, STATUS_RUNNING,
     };
     use crate::{PermissionProfile, ResourceClaim, WorkspaceKind};
 
@@ -236,6 +236,8 @@ mod tests {
                     succeeded: None,
                     duration_ms: Some(12),
                     path: Some("changed.txt".into()),
+                    tool_input: None,
+                    tool_output: None,
                 },
             )
             .unwrap();
@@ -1516,6 +1518,8 @@ mod tests {
                     succeeded: Some(true),
                     duration_ms: Some(10),
                     path: Some("src/parser.rs".into()),
+                    tool_input: None,
+                    tool_output: None,
                 },
             )
             .unwrap();
@@ -1694,6 +1698,8 @@ mod tests {
                     succeeded: Some(true),
                     duration_ms: Some(5),
                     path: Some("first.rs".into()),
+                    tool_input: None,
+                    tool_output: None,
                 },
             )
             .unwrap();
@@ -1718,6 +1724,8 @@ mod tests {
                     succeeded: Some(true),
                     duration_ms: Some(5),
                     path: Some("second.rs".into()),
+                    tool_input: None,
+                    tool_output: None,
                 },
             )
             .unwrap();
@@ -2273,6 +2281,8 @@ mod tests {
                     succeeded: Some(true),
                     duration_ms: Some(3),
                     path: Some("src/parser.rs".into()),
+                    tool_input: None,
+                    tool_output: None,
                 },
             )
             .unwrap();

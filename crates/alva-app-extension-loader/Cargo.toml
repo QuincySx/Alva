@@ -15,6 +15,9 @@ tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt
 tracing = "0.1"
 async-trait = "0.1"
 toml = "0.8"
+sha2 = "0.10"
+tempfile = "3"
+cap-std = "3.4"
 alva-agent-core = { path = "../alva-agent-core" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }

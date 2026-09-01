@@ -90,7 +90,7 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
         }
     };
 
-    let mut state = AgentState {
+    let state = AgentState {
         model: params.model,
         tools: params.tools,
         session,
@@ -121,7 +121,7 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
         .unwrap_or_else(|| Arc::new(NoopSleeper));
     let result = alva_kernel_abi::timeout(sleeper.as_ref(), params.timeout, async {
         run_agent(
-            &mut state,
+            &state,
             &config,
             params.cancel.clone(),
             vec![user_msg],

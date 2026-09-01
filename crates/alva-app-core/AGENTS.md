@@ -22,6 +22,9 @@ should use `BaseAgentBuilder`, while SDK callers should use
   - `gateway/`, `base/`, `system/` — infrastructure placeholders.
   - `domain/`, `ports/`, `adapters/` — DDD layers.
   - `error.rs` — `EngineError`, `SkillError` (with `From<MemoryError>`).
+  - `session_projection.rs` — derives Inspector `RunRecord` on demand from the
+    canonical session log, including compact stream timing and middleware hook
+    timing/outcomes; it is not a second persistence format.
   - `ports/tool.rs` — `SrowToolContext` implementing both `ToolContext` and
     `LocalToolContext`.
 
@@ -40,6 +43,7 @@ should use `BaseAgentBuilder`, while SDK callers should use
 | ports/tool.rs | `src/ports/tool.rs` | SrowToolContext (ToolContext + LocalToolContext) |
 | skills/ | `src/skills/` | Skill system (loader, store, injector, templates) |
 | mcp/ | `src/mcp/` | MCP protocol, tool adapter |
+| session projection | `src/session_projection.rs` | Run/turn/LLM/tool Inspector projection with TTFT and middleware hooks |
 | environment/ | `src/environment/` | Embedded runtime management |
 | domain/ | `src/domain/` | Domain models (DDD) |
 | ports/ | `src/ports/` | Port interfaces (DDD) |

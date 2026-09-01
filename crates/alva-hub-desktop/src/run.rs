@@ -1,6 +1,6 @@
 // INPUT:  alva_engine_runtime, alva_hub_core, HubStore, serde, tokio_stream
-// OUTPUT: multi-engine run seams, delta/full handoff injection, Attempt capture, timeline DTOs
-// POS:    Highest product seam for durable Hub Desktop branch execution and native-resume recovery.
+// OUTPUT: multi-engine run seams, delta/full handoff injection, Attempt capture, shared-clock timeline DTOs
+// POS:    Highest product seam for durable Hub Desktop branch execution, native-resume recovery, and product timeline projection.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -16,7 +16,9 @@ use crate::failure::{classify_failure, triggers_fallback, FailureClass};
 use crate::permissions::{enforcement_for, PermissionProfile};
 use crate::readiness::capability_labels;
 use crate::session_workspace::workspace_kind_for_path;
-use crate::store::{EngineTarget, HubStore, PreparedTurn, SideEffectEvidence, StoredUsage};
+use crate::store::{
+    now_unix_ms, EngineTarget, HubStore, PreparedTurn, SideEffectEvidence, StoredUsage,
+};
 
 /// No-activity window after which an armed watchdog declares a stall. The
 /// timer never runs while a tool is open or a user approval is pending.
@@ -77,6 +79,9 @@ pub struct TimelineEvent {
     pub status: TimelineStatus,
     pub engine_id: String,
     pub product_session_id: String,
+    /// Product-layer observation time. This is assigned once at event
+    /// creation and survives IPC so every engine shares one timeline clock.
+    pub created_at: i64,
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item_id: Option<String>,
@@ -362,6 +367,7 @@ where
             status: TimelineStatus::Fallback,
             engine_id: target.engine_id.clone(),
             product_session_id: prepared.product_session_id.clone(),
+            created_at: now_unix_ms(),
             message: Some(format!(
                 "{source_engine_id} → {}\n\n{failure_reason}\n\nHandoff: {handoff_summary}",
                 target.engine_id
@@ -419,6 +425,7 @@ where
             status: TimelineStatus::Exhausted,
             engine_id: prepared.target.engine_id.clone(),
             product_session_id: prepared.product_session_id.clone(),
+            created_at: now_unix_ms(),
             message: Some(summary),
             item_id: Some(prepared.attempt_id.clone()),
             activity: None,
@@ -449,6 +456,7 @@ where
         status: TimelineStatus::Failed,
         engine_id: prepared.target.engine_id.clone(),
         product_session_id: prepared.product_session_id.clone(),
+        created_at: now_unix_ms(),
         message: Some(message.clone()),
         item_id: Some(prepared.attempt_id.clone()),
         activity: None,
@@ -576,6 +584,7 @@ where
         status: TimelineStatus::UserMessage,
         engine_id: engine_id.to_string(),
         product_session_id: product_id.clone(),
+        created_at: now_unix_ms(),
         message: Some(prompt.clone()),
         item_id: persistence.map(|(_, prepared)| format!("{}:user", prepared.turn_id)),
         activity: None,
@@ -593,6 +602,7 @@ where
                 status: TimelineStatus::Failed,
                 engine_id: engine_id.to_string(),
                 product_session_id: product_id.clone(),
+                created_at: now_unix_ms(),
                 message: Some(message.clone()),
                 item_id: None,
                 activity: None,
@@ -642,6 +652,7 @@ where
                             status: TimelineStatus::Failed,
                             engine_id: engine_id.to_string(),
                             product_session_id: product_id.clone(),
+                            created_at: now_unix_ms(),
                             message: Some(message.clone()),
                             item_id: persistence.map(|(_, prepared)| prepared.attempt_id.clone()),
                             activity: None,
@@ -704,6 +715,7 @@ where
                             status: TimelineStatus::PermissionRequired,
                             engine_id: hub_event.engine_id.to_string(),
                             product_session_id: product_id.clone(),
+                            created_at: now_unix_ms(),
                             message: Some(format!("'{tool_name}' is waiting for your approval")),
                             item_id: Some(request_id.clone()),
                             activity: None,
@@ -721,6 +733,7 @@ where
                             status: TimelineStatus::PermissionRequired,
                             engine_id: hub_event.engine_id.to_string(),
                             product_session_id: product_id.clone(),
+                            created_at: now_unix_ms(),
                             message: Some(format!(
                                 "'{tool_name}' requested permission before its engine session \
                                  started; the request cannot be answered"
@@ -740,6 +753,7 @@ where
                             status: TimelineStatus::Failed,
                             engine_id: hub_event.engine_id.to_string(),
                             product_session_id: product_id.clone(),
+                            created_at: now_unix_ms(),
                             message: Some(message.clone()),
                             item_id: persistence.map(|(_, prepared)| prepared.attempt_id.clone()),
                             activity: None,
@@ -763,6 +777,7 @@ where
                             status: TimelineStatus::Running,
                             engine_id: hub_event.engine_id.to_string(),
                             product_session_id: product_id.clone(),
+                            created_at: now_unix_ms(),
                             message: None,
                             item_id: persistence.map(|(_, prepared)| prepared.turn_id.clone()),
                             activity: None,
@@ -785,6 +800,7 @@ where
                             status: TimelineStatus::AssistantMessage,
                             engine_id: hub_event.engine_id.to_string(),
                             product_session_id: product_id.clone(),
+                            created_at: now_unix_ms(),
                             message: Some(text),
                             item_id: Some(id),
                             activity: None,
@@ -803,6 +819,7 @@ where
                     status: TimelineStatus::AssistantMessage,
                     engine_id: hub_event.engine_id.to_string(),
                     product_session_id: product_id.clone(),
+                    created_at: now_unix_ms(),
                     message: Some(text),
                     item_id: Some(id),
                     activity: None,
@@ -812,10 +829,14 @@ where
             RuntimeEvent::ToolStart { id, name, input } => {
                 open_tools.insert(id.clone());
                 let path = tool_input_path(&input);
+                let tool_input = Some(crate::store::bounded_text(
+                    &serde_json::to_string(&input).unwrap_or_default(),
+                ));
                 emit(TimelineEvent {
                     status: TimelineStatus::ActivityStarted,
                     engine_id: hub_event.engine_id.to_string(),
                     product_session_id: product_id.clone(),
+                    created_at: now_unix_ms(),
                     message: Some(format!("{name} running")),
                     item_id: Some(id.clone()),
                     activity: Some(TimelineActivity {
@@ -836,6 +857,8 @@ where
                                 succeeded: None,
                                 duration_ms: None,
                                 path,
+                                tool_input,
+                                tool_output: None,
                             },
                         ),
                         &mut terminal_error,
@@ -857,6 +880,7 @@ where
                     status: TimelineStatus::ActivityCompleted,
                     engine_id: hub_event.engine_id.to_string(),
                     product_session_id: product_id.clone(),
+                    created_at: now_unix_ms(),
                     message: Some(if succeeded {
                         format!("{name} completed")
                     } else {
@@ -872,6 +896,9 @@ where
                     permission_request: None,
                 });
                 if let Some((store, prepared)) = persistence {
+                    let tool_output = Some(crate::store::bounded_text(
+                        &serde_json::to_string(&tool_result).unwrap_or_default(),
+                    ));
                     capture_persistence_error(
                         store.record_side_effect(
                             prepared,
@@ -881,6 +908,8 @@ where
                                 succeeded: Some(succeeded),
                                 duration_ms,
                                 path: None,
+                                tool_input: None,
+                                tool_output,
                             },
                         ),
                         &mut terminal_error,
@@ -899,6 +928,7 @@ where
                         status: TimelineStatus::Failed,
                         engine_id: hub_event.engine_id.to_string(),
                         product_session_id: product_id.clone(),
+                        created_at: now_unix_ms(),
                         message: Some(message.clone()),
                         item_id: persistence.map(|(_, prepared)| prepared.attempt_id.clone()),
                         activity: None,
@@ -922,6 +952,7 @@ where
                     status: TimelineStatus::Completed,
                     engine_id: hub_event.engine_id.to_string(),
                     product_session_id: product_id.clone(),
+                    created_at: now_unix_ms(),
                     message: result.clone(),
                     item_id: last_assistant_message_id.clone().or_else(|| {
                         persistence.map(|(_, prepared)| format!("{}:assistant", prepared.turn_id))
@@ -975,6 +1006,7 @@ fn capture_persistence_error<F>(
                 status: TimelineStatus::Failed,
                 engine_id: engine_id.to_string(),
                 product_session_id: product_session_id.to_string(),
+                created_at: now_unix_ms(),
                 message: Some(message.clone()),
                 item_id: None,
                 activity: None,

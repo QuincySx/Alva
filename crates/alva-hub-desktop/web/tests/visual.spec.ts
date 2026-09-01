@@ -1,5 +1,5 @@
 // INPUT:  Running Vite Hub, deterministic demo bridge, and Playwright
-// OUTPUT: Seven aggregate hierarchy screenshots plus model-picker overlay coverage
+// OUTPUT: Aggregate hierarchy screenshots plus Inspector drill/back and model-picker coverage
 // POS:    Visual contract connecting Cindy lineworks to the ALVA component system
 
 import { expect, test, type Page } from "@playwright/test";
@@ -25,6 +25,25 @@ test("03 right workbench", async ({ page }) => {
   await page.goto("/?demo=1&session=ps-demo-1&workbench=1&tool=inspector");
   await settle(page);
   await expect(page).toHaveScreenshot("03-right-workbench.png", { fullPage: true });
+});
+
+test("03 Inspector drills into Agent and LLM pages then backs out", async ({ page }) => {
+  await page.goto("/?demo=1&session=ps-demo-1&workbench=1&tool=inspector");
+  await settle(page);
+  const inspector = page.getByRole("region", { name: /Native Agent Inspector|原生 Agent 检查器/ });
+  const child = inspector.locator(".ui-list-row").filter({ hasText: /Child Agent demo-nat|子 Agent demo-nat/ });
+  await child.getByRole("button", { name: /Open|打开/ }).click();
+  await expect(inspector).toContainText("native-a / demo-nat");
+
+  const llm = inspector.locator(".ui-list-row").filter({ hasText: /LLM call|LLM 调用/ });
+  await llm.getByRole("button", { name: /Open|打开/ }).click();
+  await expect(inspector).toContainText(/Messages sent|发送给模型的消息/);
+  await expect(page).toHaveScreenshot("03-inspector-llm-detail.png", { fullPage: true });
+
+  await inspector.getByRole("button", { name: /Back|返回/ }).click();
+  await expect(inspector).toContainText(/LLM call|LLM 调用/);
+  await inspector.getByRole("button", { name: /Back|返回/ }).click();
+  await expect(inspector).toContainText(/Child Agent demo-nat|子 Agent demo-nat/);
 });
 
 test("03 right workbench add-tab menu", async ({ page }) => {

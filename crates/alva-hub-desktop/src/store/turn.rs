@@ -73,6 +73,12 @@ pub struct SideEffectEvidence {
     /// File the tool touched, when the adapter surfaced one in its input.
     #[serde(default)]
     pub path: Option<String>,
+    /// Bounded JSON excerpt of the tool input (truncated, 2k chars).
+    #[serde(default)]
+    pub tool_input: Option<String>,
+    /// Bounded excerpt of the tool result (truncated, 2k chars).
+    #[serde(default)]
+    pub tool_output: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -130,11 +136,11 @@ pub(crate) struct PreparedTurn {
 }
 
 impl super::HubStore {
-        pub fn list_sessions(&self) -> Result<Vec<HubSessionSummary>, String> {
-            let connection = self.lock()?;
-            let mut statement = connection
-                .prepare(
-                    "SELECT hs.product_session_id, hs.workspace, hs.active_branch_id,
+    pub fn list_sessions(&self) -> Result<Vec<HubSessionSummary>, String> {
+        let connection = self.lock()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT hs.product_session_id, hs.workspace, hs.active_branch_id,
                             eb.engine_id, eb.model_id, eb.provider_id, eb.engine_session_id,
                             hs.status, hs.updated_at,
                             (SELECT prompt FROM turns t
@@ -148,861 +154,870 @@ impl super::HubStore {
                        FROM hub_sessions hs
                        JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
                       ORDER BY hs.updated_at DESC, hs.product_session_id ASC",
-                )
-                .map_err(|error| format!("prepare Hub session list: {error}"))?;
-            let rows = statement
-                .query_map([], decode_session)
-                .map_err(|error| format!("query Hub sessions: {error}"))?;
-            rows.collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(|error| format!("decode Hub sessions: {error}"))
-        }
+            )
+            .map_err(|error| format!("prepare Hub session list: {error}"))?;
+        let rows = statement
+            .query_map([], decode_session)
+            .map_err(|error| format!("query Hub sessions: {error}"))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| format!("decode Hub sessions: {error}"))
+    }
 
-        pub fn get_session(
-            &self,
-            product_session_id: &str,
-        ) -> Result<Option<HubSessionDetail>, String> {
-            let connection = self.lock()?;
-            let session = query_session(&connection, product_session_id)?;
-            let Some(session) = session else {
-                return Ok(None);
-            };
-            let mut statement = connection
-                .prepare(
-                    "SELECT turn_id, prompt, final_result, error_message, status,
+    pub fn get_session(
+        &self,
+        product_session_id: &str,
+    ) -> Result<Option<HubSessionDetail>, String> {
+        let connection = self.lock()?;
+        let session = query_session(&connection, product_session_id)?;
+        let Some(session) = session else {
+            return Ok(None);
+        };
+        let mut statement = connection
+            .prepare(
+                "SELECT turn_id, prompt, final_result, error_message, status,
                             created_at, completed_at
                        FROM turns
                       WHERE product_session_id = ?1
                       ORDER BY created_at ASC, rowid ASC",
-                )
-                .map_err(|error| format!("prepare Hub turn history: {error}"))?;
-            let rows = statement
-                .query_map([product_session_id], |row| {
-                    Ok(StoredTurn {
-                        turn_id: row.get(0)?,
-                        prompt: row.get(1)?,
-                        result: row.get(2)?,
-                        error: row.get(3)?,
-                        status: row.get(4)?,
-                        created_at: row.get(5)?,
-                        completed_at: row.get(6)?,
-                        attempts: Vec::new(),
-                    })
+            )
+            .map_err(|error| format!("prepare Hub turn history: {error}"))?;
+        let rows = statement
+            .query_map([product_session_id], |row| {
+                Ok(StoredTurn {
+                    turn_id: row.get(0)?,
+                    prompt: row.get(1)?,
+                    result: row.get(2)?,
+                    error: row.get(3)?,
+                    status: row.get(4)?,
+                    created_at: row.get(5)?,
+                    completed_at: row.get(6)?,
+                    attempts: Vec::new(),
                 })
-                .map_err(|error| format!("query Hub turn history: {error}"))?;
-            let mut turns = rows
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(|error| format!("decode Hub turn history: {error}"))?;
-            drop(statement);
-            for turn in &mut turns {
-                turn.attempts = query_attempts(&connection, &turn.turn_id)?;
-            }
-            let branches = query_branches(&connection, product_session_id)?;
-            let handoffs = query_handoffs(&connection, product_session_id)?;
-            let timeline_events = query_timeline_events(&connection, product_session_id)?;
-            let pending_switch = query_pending_switch(&connection, product_session_id)?;
-            let fallback_policy = query_fallback_policy(&connection, Some(product_session_id))?;
-            let memory = query_session_memory(&connection, product_session_id)?;
-            Ok(Some(HubSessionDetail {
-                session,
-                turns,
-                branches,
-                handoffs,
-                timeline_events,
-                pending_switch,
-                fallback_policy,
-                memory,
-            }))
+            })
+            .map_err(|error| format!("query Hub turn history: {error}"))?;
+        let mut turns = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| format!("decode Hub turn history: {error}"))?;
+        drop(statement);
+        for turn in &mut turns {
+            turn.attempts = query_attempts(&connection, &turn.turn_id)?;
         }
+        let branches = query_branches(&connection, product_session_id)?;
+        let handoffs = query_handoffs(&connection, product_session_id)?;
+        let timeline_events = query_timeline_events(&connection, product_session_id)?;
+        let pending_switch = query_pending_switch(&connection, product_session_id)?;
+        let fallback_policy = query_fallback_policy(&connection, Some(product_session_id))?;
+        let memory = query_session_memory(&connection, product_session_id)?;
+        Ok(Some(HubSessionDetail {
+            session,
+            turns,
+            branches,
+            handoffs,
+            timeline_events,
+            pending_switch,
+            fallback_policy,
+            memory,
+        }))
+    }
 
-        pub fn add_session_memory(
-            &self,
-            product_session_id: &str,
-            entry: &str,
-        ) -> Result<Vec<String>, String> {
-            let entry = entry.trim();
-            if entry.is_empty() {
-                return Err("session memory entry must not be empty".to_string());
-            }
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin session memory transaction: {error}"))?;
-            let session_exists: bool = transaction
-                .query_row(
-                    "SELECT 1 FROM hub_sessions WHERE product_session_id = ?1",
-                    [product_session_id],
-                    |_| Ok(true),
-                )
-                .optional()
-                .map_err(|error| format!("check session before adding memory: {error}"))?
-                .unwrap_or(false);
-            if !session_exists {
-                return Err(format!("Hub session '{product_session_id}' does not exist"));
-            }
-            transaction
-                .execute(
-                    "INSERT INTO hub_memory (product_session_id, entry, created_at)
+    pub fn add_session_memory(
+        &self,
+        product_session_id: &str,
+        entry: &str,
+    ) -> Result<Vec<String>, String> {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            return Err("session memory entry must not be empty".to_string());
+        }
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin session memory transaction: {error}"))?;
+        let session_exists: bool = transaction
+            .query_row(
+                "SELECT 1 FROM hub_sessions WHERE product_session_id = ?1",
+                [product_session_id],
+                |_| Ok(true),
+            )
+            .optional()
+            .map_err(|error| format!("check session before adding memory: {error}"))?
+            .unwrap_or(false);
+        if !session_exists {
+            return Err(format!("Hub session '{product_session_id}' does not exist"));
+        }
+        transaction
+            .execute(
+                "INSERT INTO hub_memory (product_session_id, entry, created_at)
                      VALUES (?1, ?2, ?3)",
-                    params![product_session_id, entry, now_unix_ms()],
-                )
-                .map_err(|error| format!("insert session memory: {error}"))?;
-            let memory = query_session_memory(&transaction, product_session_id)?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit session memory: {error}"))?;
-            Ok(memory)
-        }
+                params![product_session_id, entry, now_unix_ms()],
+            )
+            .map_err(|error| format!("insert session memory: {error}"))?;
+        let memory = query_session_memory(&transaction, product_session_id)?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit session memory: {error}"))?;
+        Ok(memory)
+    }
 
-        pub fn latest_attempt_outcome(
-            &self,
-            engine_id: &str,
-        ) -> Result<Option<(String, Option<String>)>, String> {
-            let connection = self.lock()?;
-            connection
-                .query_row(
-                    "SELECT status, failure_reason FROM engine_attempts
+    pub fn latest_attempt_outcome(
+        &self,
+        engine_id: &str,
+    ) -> Result<Option<(String, Option<String>)>, String> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT status, failure_reason FROM engine_attempts
                       WHERE engine_id = ?1 AND status != ?2
                       ORDER BY started_at DESC, completed_at DESC LIMIT 1",
-                    params![engine_id, STATUS_RUNNING],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()
-                .map_err(|error| format!("query latest Hub attempt outcome: {error}"))
-        }
-
-        #[cfg(test)]
-        pub(crate) fn prepare_new_turn(
-            &self,
-            product_session_id: &str,
-            workspace: &Path,
-            prompt: &str,
-            target: &EngineTarget,
-            permission_profile: PermissionProfile,
-        ) -> Result<PreparedTurn, String> {
-            self.prepare_new_turn_with_workspace_kind(
-                product_session_id,
-                workspace,
-                prompt,
-                target,
-                permission_profile,
-                WorkspaceKind::Project,
+                params![engine_id, STATUS_RUNNING],
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
-        }
+            .optional()
+            .map_err(|error| format!("query latest Hub attempt outcome: {error}"))
+    }
 
-        pub(crate) fn prepare_new_turn_with_workspace_kind(
-            &self,
-            product_session_id: &str,
-            workspace: &Path,
-            prompt: &str,
-            target: &EngineTarget,
-            permission_profile: PermissionProfile,
-            workspace_kind: WorkspaceKind,
-        ) -> Result<PreparedTurn, String> {
-            let branch_id = uuid::Uuid::new_v4().to_string();
-            let turn_id = uuid::Uuid::new_v4().to_string();
-            let attempt_id = uuid::Uuid::new_v4().to_string();
-            let now = now_unix_ms();
-            let workspace_text = workspace.to_string_lossy().into_owned();
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin Hub session transaction: {error}"))?;
-            transaction
-                .execute(
-                    "INSERT INTO hub_sessions
+    #[cfg(test)]
+    pub(crate) fn prepare_new_turn(
+        &self,
+        product_session_id: &str,
+        workspace: &Path,
+        prompt: &str,
+        target: &EngineTarget,
+        permission_profile: PermissionProfile,
+    ) -> Result<PreparedTurn, String> {
+        self.prepare_new_turn_with_workspace_kind(
+            product_session_id,
+            workspace,
+            prompt,
+            target,
+            permission_profile,
+            WorkspaceKind::Project,
+        )
+    }
+
+    pub(crate) fn prepare_new_turn_with_workspace_kind(
+        &self,
+        product_session_id: &str,
+        workspace: &Path,
+        prompt: &str,
+        target: &EngineTarget,
+        permission_profile: PermissionProfile,
+        workspace_kind: WorkspaceKind,
+    ) -> Result<PreparedTurn, String> {
+        let branch_id = uuid::Uuid::new_v4().to_string();
+        let turn_id = uuid::Uuid::new_v4().to_string();
+        let attempt_id = uuid::Uuid::new_v4().to_string();
+        let now = now_unix_ms();
+        let workspace_text = workspace.to_string_lossy().into_owned();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub session transaction: {error}"))?;
+        transaction
+            .execute(
+                "INSERT INTO hub_sessions
                        (product_session_id, workspace, active_branch_id, status,
                         permission_profile, workspace_kind, created_at, updated_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-                    params![
-                        product_session_id,
-                        workspace_text,
-                        branch_id,
-                        STATUS_RUNNING,
-                        permission_profile.as_str(),
-                        workspace_kind.as_str(),
-                        now
-                    ],
-                )
-                .map_err(|error| format!("insert Hub session: {error}"))?;
-            insert_engine_branch(
-                &transaction,
-                &branch_id,
-                product_session_id,
-                target,
-                "active",
-                now,
-            )?;
-            let global_policy = query_fallback_policy(&transaction, None)?;
-            let session_policy = FallbackPolicy {
-                targets: global_policy.targets,
-                updated_at: now,
-            };
-            persist_fallback_policy(&transaction, Some(product_session_id), &session_policy)?;
-            insert_turn_and_attempt(
-                &transaction,
-                &turn_id,
-                &attempt_id,
-                product_session_id,
-                &branch_id,
-                &target.engine_id,
-                prompt,
-                now,
-            )?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit Hub session transaction: {error}"))?;
-    
-            Ok(PreparedTurn {
-                product_session_id: product_session_id.to_string(),
-                branch_id,
-                turn_id,
-                attempt_id,
-                workspace: workspace.to_path_buf(),
-                engine_session_id: None,
-                target: target.clone(),
-                handoff: None,
-                native_resume: false,
-                permission_profile,
-            })
-        }
-
-        pub(crate) fn prepare_resumed_turn(
-            &self,
-            product_session_id: &str,
-            prompt: &str,
-        ) -> Result<PreparedTurn, String> {
-            let turn_id = uuid::Uuid::new_v4().to_string();
-            let attempt_id = uuid::Uuid::new_v4().to_string();
-            let now = now_unix_ms();
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin Hub resume transaction: {error}"))?;
-            let session = query_session(&transaction, product_session_id)?
-                .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
-            if session.status == STATUS_RUNNING {
-                return Err(format!(
-                    "Hub session '{product_session_id}' is already running"
-                ));
-            }
-            let engine_session_id = session
-                .engine_session_id
-                .clone()
-                .filter(|id| !id.is_empty());
-            let target = query_branch_target(&transaction, &session.active_branch_id)?;
-            let watermark_turn_rowid = transaction
-                .query_row(
-                    "SELECT watermark_turn_rowid FROM engine_branches WHERE branch_id = ?1",
-                    [&session.active_branch_id],
-                    |row| row.get::<_, Option<i64>>(0),
-                )
-                .map_err(|error| format!("read Hub branch watermark: {error}"))?;
-            let handoff = if engine_session_id.is_some() {
-                let prior = query_latest_handoff(&transaction, &session.active_branch_id, None)?;
-                let source = prior
-                    .as_ref()
-                    .map(|package| package.source.clone())
-                    .unwrap_or_else(|| target.clone());
-                let reason = prior
-                    .as_ref()
-                    .map(|package| package.reason.as_str())
-                    .unwrap_or("resume parked native engine branch");
-                let package = build_handoff_package(
-                    &transaction,
+                params![
                     product_session_id,
-                    &source_branch_for_handoff(&prior, &session.active_branch_id),
-                    &session.active_branch_id,
-                    source,
-                    target.clone(),
-                    reason,
-                    now,
-                    HandoffKind::Delta,
-                    watermark_turn_rowid,
-                )?;
-                persist_handoff_package(&transaction, &package)?;
-                Some(package)
-            } else {
-                query_latest_handoff(
-                    &transaction,
-                    &session.active_branch_id,
-                    Some(HandoffKind::Full),
-                )?
-            };
-            transaction
-                .execute(
-                    "UPDATE hub_sessions SET status = ?2, updated_at = ?3
-                      WHERE product_session_id = ?1",
-                    params![product_session_id, STATUS_RUNNING, now],
-                )
-                .map_err(|error| format!("mark Hub session running: {error}"))?;
-            insert_turn_and_attempt(
+                    workspace_text,
+                    branch_id,
+                    STATUS_RUNNING,
+                    permission_profile.as_str(),
+                    workspace_kind.as_str(),
+                    now
+                ],
+            )
+            .map_err(|error| format!("insert Hub session: {error}"))?;
+        insert_engine_branch(
+            &transaction,
+            &branch_id,
+            product_session_id,
+            target,
+            "active",
+            now,
+        )?;
+        let global_policy = query_fallback_policy(&transaction, None)?;
+        let session_policy = FallbackPolicy {
+            targets: global_policy.targets,
+            updated_at: now,
+        };
+        persist_fallback_policy(&transaction, Some(product_session_id), &session_policy)?;
+        insert_turn_and_attempt(
+            &transaction,
+            &turn_id,
+            &attempt_id,
+            product_session_id,
+            &branch_id,
+            &target.engine_id,
+            prompt,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub session transaction: {error}"))?;
+
+        Ok(PreparedTurn {
+            product_session_id: product_session_id.to_string(),
+            branch_id,
+            turn_id,
+            attempt_id,
+            workspace: workspace.to_path_buf(),
+            engine_session_id: None,
+            target: target.clone(),
+            handoff: None,
+            native_resume: false,
+            permission_profile,
+        })
+    }
+
+    pub(crate) fn prepare_resumed_turn(
+        &self,
+        product_session_id: &str,
+        prompt: &str,
+    ) -> Result<PreparedTurn, String> {
+        let turn_id = uuid::Uuid::new_v4().to_string();
+        let attempt_id = uuid::Uuid::new_v4().to_string();
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub resume transaction: {error}"))?;
+        let session = query_session(&transaction, product_session_id)?
+            .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
+        if session.status == STATUS_RUNNING {
+            return Err(format!(
+                "Hub session '{product_session_id}' is already running"
+            ));
+        }
+        let engine_session_id = session
+            .engine_session_id
+            .clone()
+            .filter(|id| !id.is_empty());
+        let target = query_branch_target(&transaction, &session.active_branch_id)?;
+        let watermark_turn_rowid = transaction
+            .query_row(
+                "SELECT watermark_turn_rowid FROM engine_branches WHERE branch_id = ?1",
+                [&session.active_branch_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .map_err(|error| format!("read Hub branch watermark: {error}"))?;
+        let handoff = if engine_session_id.is_some() {
+            let prior = query_latest_handoff(&transaction, &session.active_branch_id, None)?;
+            let source = prior
+                .as_ref()
+                .map(|package| package.source.clone())
+                .unwrap_or_else(|| target.clone());
+            let reason = prior
+                .as_ref()
+                .map(|package| package.reason.as_str())
+                .unwrap_or("resume parked native engine branch");
+            let package = build_handoff_package(
                 &transaction,
-                &turn_id,
-                &attempt_id,
                 product_session_id,
+                &source_branch_for_handoff(&prior, &session.active_branch_id),
                 &session.active_branch_id,
-                &session.engine_id,
-                prompt,
+                source,
+                target.clone(),
+                reason,
                 now,
+                HandoffKind::Delta,
+                watermark_turn_rowid,
             )?;
-            if let Some(package) = &handoff {
-                transaction
-                    .execute(
-                        "UPDATE handoff_packages SET used_at = COALESCE(used_at, ?2)
-                          WHERE handoff_id = ?1",
-                        params![package.handoff_id, now],
-                    )
-                    .map_err(|error| format!("mark Hub handoff consumed: {error}"))?;
-            }
-            transaction
-                .commit()
-                .map_err(|error| format!("commit Hub resume transaction: {error}"))?;
-    
-            let native_resume = engine_session_id.is_some();
-            Ok(PreparedTurn {
-                product_session_id: product_session_id.to_string(),
-                permission_profile: session.permission_profile,
-                branch_id: session.active_branch_id,
-                turn_id,
-                attempt_id,
-                workspace: PathBuf::from(session.workspace),
-                engine_session_id,
-                target,
-                handoff,
-                native_resume,
-            })
-        }
-
-        pub(crate) fn finish_turn(
-            &self,
-            prepared: &PreparedTurn,
-            engine_session_id: Option<&str>,
-            result: Option<&str>,
-            error: Option<&str>,
-            usage: Option<&StoredUsage>,
-        ) -> Result<(), String> {
-            let now = now_unix_ms();
-            let status = if error.is_some() {
-                STATUS_FAILED
-            } else {
-                STATUS_COMPLETED
-            };
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin Hub completion transaction: {error}"))?;
-            if let Some(engine_session_id) = engine_session_id.filter(|id| !id.is_empty()) {
-                transaction
-                    .execute(
-                        "UPDATE engine_branches
-                            SET engine_session_id = ?2, updated_at = ?3
-                          WHERE branch_id = ?1",
-                        params![prepared.branch_id, engine_session_id, now],
-                    )
-                    .map_err(|error| format!("persist engine session id: {error}"))?;
-            }
-            let usage_json = usage
-                .map(serde_json::to_string)
-                .transpose()
-                .map_err(|error| format!("serialize engine attempt usage: {error}"))?;
-            let attempt_changed = transaction
-                .execute(
-                    "UPDATE engine_attempts
-                        SET status = ?2, failure_reason = ?3, usage_json = ?4, completed_at = ?5
-                      WHERE attempt_id = ?1 AND status = ?6",
-                    params![
-                        prepared.attempt_id,
-                        status,
-                        error,
-                        usage_json,
-                        now,
-                        STATUS_RUNNING
-                    ],
-                )
-                .map_err(|error| format!("complete Hub engine attempt: {error}"))?;
-            if attempt_changed != 1 {
-                return Err(format!(
-                    "Hub engine attempt '{}' was not in running state",
-                    prepared.attempt_id
-                ));
-            }
-            let changed = transaction
-                .execute(
-                    "UPDATE turns
-                        SET final_result = ?2, error_message = ?3, status = ?4, completed_at = ?5
-                      WHERE turn_id = ?1 AND status = ?6",
-                    params![prepared.turn_id, result, error, status, now, STATUS_RUNNING],
-                )
-                .map_err(|error| format!("complete Hub turn: {error}"))?;
-            if changed != 1 {
-                return Err(format!(
-                    "Hub turn '{}' was not in running state",
-                    prepared.turn_id
-                ));
-            }
-            transaction
-                .execute(
-                    "UPDATE hub_sessions SET status = ?2, updated_at = ?3
+            persist_handoff_package(&transaction, &package)?;
+            Some(package)
+        } else {
+            query_latest_handoff(
+                &transaction,
+                &session.active_branch_id,
+                Some(HandoffKind::Full),
+            )?
+        };
+        transaction
+            .execute(
+                "UPDATE hub_sessions SET status = ?2, updated_at = ?3
                       WHERE product_session_id = ?1",
-                    params![prepared.product_session_id, status, now],
-                )
-                .map_err(|error| format!("complete Hub session: {error}"))?;
+                params![product_session_id, STATUS_RUNNING, now],
+            )
+            .map_err(|error| format!("mark Hub session running: {error}"))?;
+        insert_turn_and_attempt(
+            &transaction,
+            &turn_id,
+            &attempt_id,
+            product_session_id,
+            &session.active_branch_id,
+            &session.engine_id,
+            prompt,
+            now,
+        )?;
+        if let Some(package) = &handoff {
             transaction
-                .commit()
-                .map_err(|error| format!("commit Hub completion transaction: {error}"))
-        }
-
-        pub(crate) fn upgrade_failed_native_resume(
-            &self,
-            prepared: &PreparedTurn,
-            failure_reason: &str,
-        ) -> Result<PreparedTurn, String> {
-            if !prepared.native_resume {
-                return Err("cannot upgrade a fresh engine attempt to a full handoff".to_string());
-            }
-            let now = now_unix_ms();
-            let fresh_attempt_id = uuid::Uuid::new_v4().to_string();
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin native resume upgrade transaction: {error}"))?;
-            let session =
-                query_session(&transaction, &prepared.product_session_id)?.ok_or_else(|| {
-                    format!(
-                        "Hub session '{}' was not found",
-                        prepared.product_session_id
-                    )
-                })?;
-            if session.active_branch_id != prepared.branch_id {
-                return Err("cannot upgrade a non-active Hub engine branch".to_string());
-            }
-            let changed = transaction
                 .execute(
-                    "UPDATE engine_attempts
-                        SET status = ?2, failure_reason = ?3, completed_at = ?4
-                      WHERE attempt_id = ?1 AND status = ?5",
-                    params![
-                        prepared.attempt_id,
-                        STATUS_FAILED,
-                        failure_reason,
-                        now,
-                        STATUS_RUNNING
-                    ],
+                    "UPDATE handoff_packages SET used_at = COALESCE(used_at, ?2)
+                          WHERE handoff_id = ?1",
+                    params![package.handoff_id, now],
                 )
-                .map_err(|error| format!("record failed native resume attempt: {error}"))?;
-            if changed != 1 {
-                return Err(format!(
-                    "Hub engine attempt '{}' was not in running state",
-                    prepared.attempt_id
-                ));
-            }
+                .map_err(|error| format!("mark Hub handoff consumed: {error}"))?;
+        }
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub resume transaction: {error}"))?;
+
+        let native_resume = engine_session_id.is_some();
+        Ok(PreparedTurn {
+            product_session_id: product_session_id.to_string(),
+            permission_profile: session.permission_profile,
+            branch_id: session.active_branch_id,
+            turn_id,
+            attempt_id,
+            workspace: PathBuf::from(session.workspace),
+            engine_session_id,
+            target,
+            handoff,
+            native_resume,
+        })
+    }
+
+    pub(crate) fn finish_turn(
+        &self,
+        prepared: &PreparedTurn,
+        engine_session_id: Option<&str>,
+        result: Option<&str>,
+        error: Option<&str>,
+        usage: Option<&StoredUsage>,
+    ) -> Result<(), String> {
+        let now = now_unix_ms();
+        let status = if error.is_some() {
+            STATUS_FAILED
+        } else {
+            STATUS_COMPLETED
+        };
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub completion transaction: {error}"))?;
+        if let Some(engine_session_id) = engine_session_id.filter(|id| !id.is_empty()) {
             transaction
                 .execute(
                     "UPDATE engine_branches
+                            SET engine_session_id = ?2, updated_at = ?3
+                          WHERE branch_id = ?1",
+                    params![prepared.branch_id, engine_session_id, now],
+                )
+                .map_err(|error| format!("persist engine session id: {error}"))?;
+        }
+        let usage_json = usage
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| format!("serialize engine attempt usage: {error}"))?;
+        let attempt_changed = transaction
+            .execute(
+                "UPDATE engine_attempts
+                        SET status = ?2, failure_reason = ?3, usage_json = ?4, completed_at = ?5
+                      WHERE attempt_id = ?1 AND status = ?6",
+                params![
+                    prepared.attempt_id,
+                    status,
+                    error,
+                    usage_json,
+                    now,
+                    STATUS_RUNNING
+                ],
+            )
+            .map_err(|error| format!("complete Hub engine attempt: {error}"))?;
+        if attempt_changed != 1 {
+            return Err(format!(
+                "Hub engine attempt '{}' was not in running state",
+                prepared.attempt_id
+            ));
+        }
+        let changed = transaction
+            .execute(
+                "UPDATE turns
+                        SET final_result = ?2, error_message = ?3, status = ?4, completed_at = ?5
+                      WHERE turn_id = ?1 AND status = ?6",
+                params![prepared.turn_id, result, error, status, now, STATUS_RUNNING],
+            )
+            .map_err(|error| format!("complete Hub turn: {error}"))?;
+        if changed != 1 {
+            return Err(format!(
+                "Hub turn '{}' was not in running state",
+                prepared.turn_id
+            ));
+        }
+        transaction
+            .execute(
+                "UPDATE hub_sessions SET status = ?2, updated_at = ?3
+                      WHERE product_session_id = ?1",
+                params![prepared.product_session_id, status, now],
+            )
+            .map_err(|error| format!("complete Hub session: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub completion transaction: {error}"))
+    }
+
+    pub(crate) fn upgrade_failed_native_resume(
+        &self,
+        prepared: &PreparedTurn,
+        failure_reason: &str,
+    ) -> Result<PreparedTurn, String> {
+        if !prepared.native_resume {
+            return Err("cannot upgrade a fresh engine attempt to a full handoff".to_string());
+        }
+        let now = now_unix_ms();
+        let fresh_attempt_id = uuid::Uuid::new_v4().to_string();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin native resume upgrade transaction: {error}"))?;
+        let session =
+            query_session(&transaction, &prepared.product_session_id)?.ok_or_else(|| {
+                format!(
+                    "Hub session '{}' was not found",
+                    prepared.product_session_id
+                )
+            })?;
+        if session.active_branch_id != prepared.branch_id {
+            return Err("cannot upgrade a non-active Hub engine branch".to_string());
+        }
+        let changed = transaction
+            .execute(
+                "UPDATE engine_attempts
+                        SET status = ?2, failure_reason = ?3, completed_at = ?4
+                      WHERE attempt_id = ?1 AND status = ?5",
+                params![
+                    prepared.attempt_id,
+                    STATUS_FAILED,
+                    failure_reason,
+                    now,
+                    STATUS_RUNNING
+                ],
+            )
+            .map_err(|error| format!("record failed native resume attempt: {error}"))?;
+        if changed != 1 {
+            return Err(format!(
+                "Hub engine attempt '{}' was not in running state",
+                prepared.attempt_id
+            ));
+        }
+        transaction
+            .execute(
+                "UPDATE engine_branches
                         SET engine_session_id = NULL, updated_at = ?2
                       WHERE branch_id = ?1",
-                    params![prepared.branch_id, now],
-                )
-                .map_err(|error| format!("clear invalid native session id: {error}"))?;
-            let package = build_handoff_package(
-                &transaction,
-                &prepared.product_session_id,
-                &prepared.branch_id,
-                &prepared.branch_id,
-                prepared.target.clone(),
-                prepared.target.clone(),
-                &format!("Native session resume failed: {failure_reason}"),
-                now,
-                HandoffKind::Full,
-                None,
-            )?;
-            persist_handoff_package(&transaction, &package)?;
-            transaction
-                .execute(
-                    "INSERT INTO engine_attempts
+                params![prepared.branch_id, now],
+            )
+            .map_err(|error| format!("clear invalid native session id: {error}"))?;
+        let package = build_handoff_package(
+            &transaction,
+            &prepared.product_session_id,
+            &prepared.branch_id,
+            &prepared.branch_id,
+            prepared.target.clone(),
+            prepared.target.clone(),
+            &format!("Native session resume failed: {failure_reason}"),
+            now,
+            HandoffKind::Full,
+            None,
+        )?;
+        persist_handoff_package(&transaction, &package)?;
+        transaction
+            .execute(
+                "INSERT INTO engine_attempts
                        (attempt_id, turn_id, product_session_id, branch_id, engine_id,
                         status, failure_reason, usage_json, side_effects_json,
                         started_at, completed_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, '[]', ?7, NULL)",
-                    params![
-                        fresh_attempt_id,
-                        prepared.turn_id,
-                        prepared.product_session_id,
-                        prepared.branch_id,
-                        prepared.target.engine_id,
-                        STATUS_RUNNING,
-                        now
-                    ],
-                )
-                .map_err(|error| format!("create fresh Hub engine attempt: {error}"))?;
-            transaction
-                .execute(
-                    "UPDATE hub_sessions SET status = ?2, updated_at = ?3
+                params![
+                    fresh_attempt_id,
+                    prepared.turn_id,
+                    prepared.product_session_id,
+                    prepared.branch_id,
+                    prepared.target.engine_id,
+                    STATUS_RUNNING,
+                    now
+                ],
+            )
+            .map_err(|error| format!("create fresh Hub engine attempt: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE hub_sessions SET status = ?2, updated_at = ?3
                       WHERE product_session_id = ?1",
-                    params![prepared.product_session_id, STATUS_RUNNING, now],
-                )
-                .map_err(|error| format!("keep Hub session running after resume upgrade: {error}"))?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit native resume upgrade transaction: {error}"))?;
-    
-            Ok(PreparedTurn {
-                product_session_id: prepared.product_session_id.clone(),
-                branch_id: prepared.branch_id.clone(),
-                turn_id: prepared.turn_id.clone(),
-                attempt_id: fresh_attempt_id,
-                workspace: prepared.workspace.clone(),
-                engine_session_id: None,
-                target: prepared.target.clone(),
-                handoff: Some(package),
-                native_resume: false,
-                permission_profile: prepared.permission_profile,
-            })
-        }
+                params![prepared.product_session_id, STATUS_RUNNING, now],
+            )
+            .map_err(|error| format!("keep Hub session running after resume upgrade: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit native resume upgrade transaction: {error}"))?;
 
-        /// Atomically continue the same Turn on an authorized fallback target:
-        /// the running source attempt is marked failed, the source branch parks
-        /// with a watermark, the target branch is created or re-activated, a Full
-        /// handoff is persisted BEFORE any execution, a serial attempt starts on
-        /// the target, and an `engine_fallback` timeline fact records
-        /// source/target/reason/handoff summary. If the target later fails to
-        /// start, all of this state survives for manual recovery.
-        pub(crate) fn fallback_failed_attempt(
-            &self,
-            prepared: &PreparedTurn,
-            failure_reason: &str,
-            target: &EngineTarget,
-        ) -> Result<PreparedTurn, String> {
-            validate_engine_target(target)?;
-            if target.engine_id == prepared.target.engine_id
-                && target.model_id == prepared.target.model_id
-                && target.provider_id == prepared.target.provider_id
-            {
-                return Err("automatic fallback requires a different engine target".to_string());
-            }
-            let now = now_unix_ms();
-            let next_attempt_id = uuid::Uuid::new_v4().to_string();
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin Hub fallback transaction: {error}"))?;
-            let session =
-                query_session(&transaction, &prepared.product_session_id)?.ok_or_else(|| {
-                    format!(
-                        "Hub session '{}' was not found",
-                        prepared.product_session_id
-                    )
-                })?;
-            if session.active_branch_id != prepared.branch_id {
-                return Err("cannot fall back from a non-active Hub engine branch".to_string());
-            }
-            if !query_fallback_policy(&transaction, Some(&prepared.product_session_id))?
-                .targets
-                .iter()
-                .any(|candidate| {
-                    candidate.engine_id == target.engine_id
-                        && candidate.model_id == target.model_id
-                        && candidate.provider_id == target.provider_id
-                        && candidate.automatic_use_authorized
-                })
-            {
-                return Err(format!(
-                    "engine '{}' is not authorized for automatic fallback in this session",
-                    target.engine_id
-                ));
-            }
-            let changed = transaction
-                .execute(
-                    "UPDATE engine_attempts
+        Ok(PreparedTurn {
+            product_session_id: prepared.product_session_id.clone(),
+            branch_id: prepared.branch_id.clone(),
+            turn_id: prepared.turn_id.clone(),
+            attempt_id: fresh_attempt_id,
+            workspace: prepared.workspace.clone(),
+            engine_session_id: None,
+            target: prepared.target.clone(),
+            handoff: Some(package),
+            native_resume: false,
+            permission_profile: prepared.permission_profile,
+        })
+    }
+
+    /// Atomically continue the same Turn on an authorized fallback target:
+    /// the running source attempt is marked failed, the source branch parks
+    /// with a watermark, the target branch is created or re-activated, a Full
+    /// handoff is persisted BEFORE any execution, a serial attempt starts on
+    /// the target, and an `engine_fallback` timeline fact records
+    /// source/target/reason/handoff summary. If the target later fails to
+    /// start, all of this state survives for manual recovery.
+    pub(crate) fn fallback_failed_attempt(
+        &self,
+        prepared: &PreparedTurn,
+        failure_reason: &str,
+        target: &EngineTarget,
+    ) -> Result<PreparedTurn, String> {
+        validate_engine_target(target)?;
+        if target.engine_id == prepared.target.engine_id
+            && target.model_id == prepared.target.model_id
+            && target.provider_id == prepared.target.provider_id
+        {
+            return Err("automatic fallback requires a different engine target".to_string());
+        }
+        let now = now_unix_ms();
+        let next_attempt_id = uuid::Uuid::new_v4().to_string();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub fallback transaction: {error}"))?;
+        let session =
+            query_session(&transaction, &prepared.product_session_id)?.ok_or_else(|| {
+                format!(
+                    "Hub session '{}' was not found",
+                    prepared.product_session_id
+                )
+            })?;
+        if session.active_branch_id != prepared.branch_id {
+            return Err("cannot fall back from a non-active Hub engine branch".to_string());
+        }
+        if !query_fallback_policy(&transaction, Some(&prepared.product_session_id))?
+            .targets
+            .iter()
+            .any(|candidate| {
+                candidate.engine_id == target.engine_id
+                    && candidate.model_id == target.model_id
+                    && candidate.provider_id == target.provider_id
+                    && candidate.automatic_use_authorized
+            })
+        {
+            return Err(format!(
+                "engine '{}' is not authorized for automatic fallback in this session",
+                target.engine_id
+            ));
+        }
+        let changed = transaction
+            .execute(
+                "UPDATE engine_attempts
                         SET status = ?2, failure_reason = ?3, completed_at = ?4
                       WHERE attempt_id = ?1 AND status = ?5",
-                    params![
-                        prepared.attempt_id,
-                        STATUS_FAILED,
-                        failure_reason,
-                        now,
-                        STATUS_RUNNING
-                    ],
-                )
-                .map_err(|error| format!("record failed Hub fallback source attempt: {error}"))?;
-            if changed != 1 {
-                return Err(format!(
-                    "Hub engine attempt '{}' was not in running state",
-                    prepared.attempt_id
-                ));
-            }
-    
-            let existing_target = transaction
-                .query_row(
-                    "SELECT branch_id FROM engine_branches
+                params![
+                    prepared.attempt_id,
+                    STATUS_FAILED,
+                    failure_reason,
+                    now,
+                    STATUS_RUNNING
+                ],
+            )
+            .map_err(|error| format!("record failed Hub fallback source attempt: {error}"))?;
+        if changed != 1 {
+            return Err(format!(
+                "Hub engine attempt '{}' was not in running state",
+                prepared.attempt_id
+            ));
+        }
+
+        let existing_target = transaction
+            .query_row(
+                "SELECT branch_id FROM engine_branches
                       WHERE product_session_id = ?1 AND engine_id = ?2
                         AND model_id = ?3 AND provider_id = ?4",
-                    params![
-                        prepared.product_session_id,
-                        target.engine_id,
-                        target.model_id,
-                        target.provider_id
-                    ],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-                .map_err(|error| format!("find Hub fallback target branch: {error}"))?;
-            let (target_branch_id, branch_target) = match existing_target {
-                Some(branch_id) => {
-                    update_engine_branch_options(&transaction, &branch_id, target, now)?;
-                    let branch_target = query_branch_target(&transaction, &branch_id)?;
-                    (branch_id, branch_target)
-                }
-                None => {
-                    let branch_id = uuid::Uuid::new_v4().to_string();
-                    insert_engine_branch(
-                        &transaction,
-                        &branch_id,
-                        &prepared.product_session_id,
-                        target,
-                        "parked",
-                        now,
-                    )?;
-                    (branch_id, target.clone())
-                }
-            };
-    
-            // The watermark must exclude the in-flight turn: the source engine
-            // never saw its result — the fallback target completes it — so a later
-            // delta on returning to the source branch has to include this turn.
-            transaction
-                .execute(
-                    "UPDATE engine_branches
+                params![
+                    prepared.product_session_id,
+                    target.engine_id,
+                    target.model_id,
+                    target.provider_id
+                ],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("find Hub fallback target branch: {error}"))?;
+        let (target_branch_id, branch_target) = match existing_target {
+            Some(branch_id) => {
+                update_engine_branch_options(&transaction, &branch_id, target, now)?;
+                let branch_target = query_branch_target(&transaction, &branch_id)?;
+                (branch_id, branch_target)
+            }
+            None => {
+                let branch_id = uuid::Uuid::new_v4().to_string();
+                insert_engine_branch(
+                    &transaction,
+                    &branch_id,
+                    &prepared.product_session_id,
+                    target,
+                    "parked",
+                    now,
+                )?;
+                (branch_id, target.clone())
+            }
+        };
+
+        // The watermark must exclude the in-flight turn: the source engine
+        // never saw its result — the fallback target completes it — so a later
+        // delta on returning to the source branch has to include this turn.
+        transaction
+            .execute(
+                "UPDATE engine_branches
                         SET status = 'parked', updated_at = ?2,
                             watermark_turn_rowid = (
                               SELECT MAX(t.rowid) FROM turns t
                                WHERE t.product_session_id = ?1 AND t.turn_id <> ?4
                             )
                       WHERE branch_id = ?3",
-                    params![
-                        prepared.product_session_id,
-                        now,
-                        prepared.branch_id,
-                        prepared.turn_id
-                    ],
-                )
-                .map_err(|error| format!("park Hub fallback source branch: {error}"))?;
-            transaction
-                .execute(
-                    "UPDATE engine_branches SET status = 'parked', updated_at = ?2
+                params![
+                    prepared.product_session_id,
+                    now,
+                    prepared.branch_id,
+                    prepared.turn_id
+                ],
+            )
+            .map_err(|error| format!("park Hub fallback source branch: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE engine_branches SET status = 'parked', updated_at = ?2
                       WHERE product_session_id = ?1 AND branch_id <> ?3",
-                    params![prepared.product_session_id, now, prepared.branch_id],
-                )
-                .map_err(|error| format!("park inactive Hub engine branches: {error}"))?;
-            transaction
-                .execute(
-                    "UPDATE engine_branches SET status = 'active', updated_at = ?2
+                params![prepared.product_session_id, now, prepared.branch_id],
+            )
+            .map_err(|error| format!("park inactive Hub engine branches: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE engine_branches SET status = 'active', updated_at = ?2
                       WHERE branch_id = ?1",
-                    params![target_branch_id, now],
-                )
-                .map_err(|error| format!("activate Hub fallback target branch: {error}"))?;
-            transaction
-                .execute(
-                    "UPDATE hub_sessions
+                params![target_branch_id, now],
+            )
+            .map_err(|error| format!("activate Hub fallback target branch: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE hub_sessions
                         SET active_branch_id = ?2, status = ?3, updated_at = ?4
                       WHERE product_session_id = ?1",
-                    params![
-                        prepared.product_session_id,
-                        target_branch_id,
-                        STATUS_RUNNING,
-                        now
-                    ],
-                )
-                .map_err(|error| format!("activate Hub fallback session branch: {error}"))?;
-    
-            let package = build_handoff_package(
-                &transaction,
-                &prepared.product_session_id,
-                &prepared.branch_id,
-                &target_branch_id,
-                prepared.target.clone(),
-                branch_target.clone(),
-                failure_reason,
-                now,
-                HandoffKind::Full,
-                None,
-            )?;
-            persist_handoff_package(&transaction, &package)?;
-            insert_switch_timeline(
-                &transaction,
-                &prepared.product_session_id,
-                "engine_fallback",
-                &prepared.branch_id,
-                Some(&target_branch_id),
-                &prepared.target.engine_id,
-                &branch_target.engine_id,
-                &format!("{failure_reason} · handoff: {}", package.fallback_summary()),
-                now,
-            )?;
-            transaction
-                .execute(
-                    "INSERT INTO engine_attempts
+                params![
+                    prepared.product_session_id,
+                    target_branch_id,
+                    STATUS_RUNNING,
+                    now
+                ],
+            )
+            .map_err(|error| format!("activate Hub fallback session branch: {error}"))?;
+
+        let package = build_handoff_package(
+            &transaction,
+            &prepared.product_session_id,
+            &prepared.branch_id,
+            &target_branch_id,
+            prepared.target.clone(),
+            branch_target.clone(),
+            failure_reason,
+            now,
+            HandoffKind::Full,
+            None,
+        )?;
+        persist_handoff_package(&transaction, &package)?;
+        insert_switch_timeline(
+            &transaction,
+            &prepared.product_session_id,
+            "engine_fallback",
+            &prepared.branch_id,
+            Some(&target_branch_id),
+            &prepared.target.engine_id,
+            &branch_target.engine_id,
+            &format!("{failure_reason} · handoff: {}", package.fallback_summary()),
+            now,
+        )?;
+        transaction
+            .execute(
+                "INSERT INTO engine_attempts
                        (attempt_id, turn_id, product_session_id, branch_id, engine_id,
                         status, failure_reason, usage_json, side_effects_json,
                         started_at, completed_at)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, '[]', ?7, NULL)",
-                    params![
-                        next_attempt_id,
-                        prepared.turn_id,
-                        prepared.product_session_id,
-                        target_branch_id,
-                        branch_target.engine_id,
-                        STATUS_RUNNING,
-                        now
-                    ],
-                )
-                .map_err(|error| format!("create Hub fallback engine attempt: {error}"))?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit Hub fallback transaction: {error}"))?;
-    
-            Ok(PreparedTurn {
-                product_session_id: prepared.product_session_id.clone(),
-                branch_id: target_branch_id,
-                turn_id: prepared.turn_id.clone(),
-                attempt_id: next_attempt_id,
-                workspace: prepared.workspace.clone(),
-                engine_session_id: None,
-                target: branch_target,
-                handoff: Some(package),
-                native_resume: false,
-                permission_profile: prepared.permission_profile,
-            })
-        }
+                params![
+                    next_attempt_id,
+                    prepared.turn_id,
+                    prepared.product_session_id,
+                    target_branch_id,
+                    branch_target.engine_id,
+                    STATUS_RUNNING,
+                    now
+                ],
+            )
+            .map_err(|error| format!("create Hub fallback engine attempt: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub fallback transaction: {error}"))?;
 
-        pub fn set_transcript_sharing(
-            &self,
-            product_session_id: &str,
-            enabled: bool,
-        ) -> Result<(), String> {
-            let connection = self.lock()?;
-            let changed = connection
-                .execute(
-                    "UPDATE hub_sessions SET include_full_transcript = ?2, updated_at = ?3
+        Ok(PreparedTurn {
+            product_session_id: prepared.product_session_id.clone(),
+            branch_id: target_branch_id,
+            turn_id: prepared.turn_id.clone(),
+            attempt_id: next_attempt_id,
+            workspace: prepared.workspace.clone(),
+            engine_session_id: None,
+            target: branch_target,
+            handoff: Some(package),
+            native_resume: false,
+            permission_profile: prepared.permission_profile,
+        })
+    }
+
+    pub fn set_transcript_sharing(
+        &self,
+        product_session_id: &str,
+        enabled: bool,
+    ) -> Result<(), String> {
+        let connection = self.lock()?;
+        let changed = connection
+            .execute(
+                "UPDATE hub_sessions SET include_full_transcript = ?2, updated_at = ?3
                       WHERE product_session_id = ?1",
-                    params![product_session_id, enabled, now_unix_ms()],
-                )
-                .map_err(|error| format!("persist Hub transcript sharing: {error}"))?;
-            if changed != 1 {
-                return Err(format!("Hub session '{product_session_id}' was not found"));
-            }
-            Ok(())
+                params![product_session_id, enabled, now_unix_ms()],
+            )
+            .map_err(|error| format!("persist Hub transcript sharing: {error}"))?;
+        if changed != 1 {
+            return Err(format!("Hub session '{product_session_id}' was not found"));
         }
+        Ok(())
+    }
 
-        pub fn record_attempt_cancelled(
-            &self,
-            product_session_id: &str,
-            reason: &str,
-        ) -> Result<(), String> {
-            let now = now_unix_ms();
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin Hub attempt cancel transaction: {error}"))?;
-            let session = query_session(&transaction, product_session_id)?
-                .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
-            if session.status != STATUS_RUNNING {
-                return Err("This Hub session has no running attempt to stop.".to_string());
-            }
-            insert_switch_timeline(
-                &transaction,
-                product_session_id,
-                "attempt_cancelled",
-                &session.active_branch_id,
-                None,
-                &session.engine_id,
-                &session.engine_id,
-                reason,
-                now,
-            )?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit Hub attempt cancel: {error}"))?;
-            Ok(())
+    pub fn record_attempt_cancelled(
+        &self,
+        product_session_id: &str,
+        reason: &str,
+    ) -> Result<(), String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub attempt cancel transaction: {error}"))?;
+        let session = query_session(&transaction, product_session_id)?
+            .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
+        if session.status != STATUS_RUNNING {
+            return Err("This Hub session has no running attempt to stop.".to_string());
         }
+        insert_switch_timeline(
+            &transaction,
+            product_session_id,
+            "attempt_cancelled",
+            &session.active_branch_id,
+            None,
+            &session.engine_id,
+            &session.engine_id,
+            reason,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub attempt cancel: {error}"))?;
+        Ok(())
+    }
 
-        pub(crate) fn record_engine_session(
-            &self,
-            prepared: &PreparedTurn,
-            engine_session_id: &str,
-        ) -> Result<(), String> {
-            if engine_session_id.trim().is_empty() {
-                return Ok(());
-            }
-            let connection = self.lock()?;
-            let changed = connection
-                .execute(
-                    "UPDATE engine_branches
+    pub(crate) fn record_engine_session(
+        &self,
+        prepared: &PreparedTurn,
+        engine_session_id: &str,
+    ) -> Result<(), String> {
+        if engine_session_id.trim().is_empty() {
+            return Ok(());
+        }
+        let connection = self.lock()?;
+        let changed = connection
+            .execute(
+                "UPDATE engine_branches
                         SET engine_session_id = ?2, updated_at = ?3
                       WHERE branch_id = ?1",
-                    params![prepared.branch_id, engine_session_id, now_unix_ms()],
-                )
-                .map_err(|error| format!("persist running engine session id: {error}"))?;
-            if changed != 1 {
-                return Err(format!(
-                    "Hub engine branch '{}' was not found",
-                    prepared.branch_id
-                ));
-            }
-            Ok(())
+                params![prepared.branch_id, engine_session_id, now_unix_ms()],
+            )
+            .map_err(|error| format!("persist running engine session id: {error}"))?;
+        if changed != 1 {
+            return Err(format!(
+                "Hub engine branch '{}' was not found",
+                prepared.branch_id
+            ));
         }
+        Ok(())
+    }
 
-        pub(crate) fn record_side_effect(
-            &self,
-            prepared: &PreparedTurn,
-            evidence: SideEffectEvidence,
-        ) -> Result<(), String> {
-            let mut connection = self.lock()?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|error| format!("begin side-effect evidence transaction: {error}"))?;
-            let encoded = transaction
-                .query_row(
-                    "SELECT side_effects_json FROM engine_attempts
+    pub(crate) fn record_side_effect(
+        &self,
+        prepared: &PreparedTurn,
+        evidence: SideEffectEvidence,
+    ) -> Result<(), String> {
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin side-effect evidence transaction: {error}"))?;
+        let encoded = transaction
+            .query_row(
+                "SELECT side_effects_json FROM engine_attempts
                       WHERE attempt_id = ?1 AND status = ?2",
-                    params![prepared.attempt_id, STATUS_RUNNING],
-                    |row| row.get::<_, String>(0),
+                params![prepared.attempt_id, STATUS_RUNNING],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("read side-effect evidence: {error}"))?
+            .ok_or_else(|| {
+                format!(
+                    "Hub engine attempt '{}' was not in running state",
+                    prepared.attempt_id
                 )
-                .optional()
-                .map_err(|error| format!("read side-effect evidence: {error}"))?
-                .ok_or_else(|| {
-                    format!(
-                        "Hub engine attempt '{}' was not in running state",
-                        prepared.attempt_id
-                    )
-                })?;
-            let mut evidence_list: Vec<SideEffectEvidence> = serde_json::from_str(&encoded)
-                .map_err(|error| format!("decode side-effect evidence: {error}"))?;
-            if let Some(existing) = evidence_list
-                .iter_mut()
-                .find(|item| item.tool_call_id == evidence.tool_call_id)
-            {
-                // ToolEnd updates carry no input; keep the path ToolStart saw.
-                let path = evidence.path.clone().or_else(|| existing.path.take());
-                *existing = evidence;
-                existing.path = path;
-            } else {
-                evidence_list.push(evidence);
-            }
-            let encoded = serde_json::to_string(&evidence_list)
-                .map_err(|error| format!("serialize side-effect evidence: {error}"))?;
-            transaction
-                .execute(
-                    "UPDATE engine_attempts SET side_effects_json = ?2
-                      WHERE attempt_id = ?1 AND status = ?3",
-                    params![prepared.attempt_id, encoded, STATUS_RUNNING],
-                )
-                .map_err(|error| format!("persist side-effect evidence: {error}"))?;
-            transaction
-                .commit()
-                .map_err(|error| format!("commit side-effect evidence: {error}"))
+            })?;
+        let mut evidence_list: Vec<SideEffectEvidence> = serde_json::from_str(&encoded)
+            .map_err(|error| format!("decode side-effect evidence: {error}"))?;
+        if let Some(existing) = evidence_list
+            .iter_mut()
+            .find(|item| item.tool_call_id == evidence.tool_call_id)
+        {
+            // ToolEnd updates carry no path/input; keep what ToolStart saw. Merge input/output.
+            let path = evidence.path.clone().or_else(|| existing.path.clone());
+            let tool_input = evidence
+                .tool_input
+                .clone()
+                .or_else(|| existing.tool_input.clone());
+            let tool_output = evidence
+                .tool_output
+                .clone()
+                .or_else(|| existing.tool_output.clone());
+            *existing = evidence;
+            existing.path = path;
+            existing.tool_input = tool_input;
+            existing.tool_output = tool_output;
+        } else {
+            evidence_list.push(evidence);
         }
-
+        let encoded = serde_json::to_string(&evidence_list)
+            .map_err(|error| format!("serialize side-effect evidence: {error}"))?;
+        transaction
+            .execute(
+                "UPDATE engine_attempts SET side_effects_json = ?2
+                      WHERE attempt_id = ?1 AND status = ?3",
+                params![prepared.attempt_id, encoded, STATUS_RUNNING],
+            )
+            .map_err(|error| format!("persist side-effect evidence: {error}"))?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit side-effect evidence: {error}"))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1192,4 +1207,3 @@ fn query_timeline_events(
     rows.collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|error| format!("decode Hub timeline events: {error}"))
 }
-

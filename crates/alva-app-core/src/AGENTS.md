@@ -56,7 +56,8 @@
 | 路径策略 | `paths.rs` | XDG / workspace 路径发现、MCP/Skill 共载路径、workspace-bounded AGENTS.md 链 |
 | 网关 | `gateway/` | API 网关（placeholder） |
 | 系统能力 | `system/` | 系统能力抽象（placeholder） |
-| BaseAgent | `base_agent/` | 开箱即用 Agent：自动组装默认插件/中间件，透传工具、session、权限控制，并暴露实际 plugin/middleware 装配快照供 CLI/session 观测 |
+| BaseAgent | `base_agent/` | 开箱即用 Agent：自动组装默认插件/中间件，兼容 unbounded 与生产 bounded prompt、active-turn 取消、可检查成功与否的 clear/restore/swap/permission 控制，并暴露实际 plugin/middleware 装配快照供 CLI/session 观测 |
+| Inspector projection | `session_projection.rs` | 从 canonical SessionEvent 即时投影 Run/Turn/LLM/Tool；保留 TTFT、流摘要以及 run/LLM/tool 各层 middleware hook 耗时与失败，不另存第二份 Inspector 日志 |
 | Permission Plugin | `extension/permission.rs` | PermissionPlugin — 必选（外层显式注册）：拥有 PermissionModeService（fan-out 调度器）+ PlanModeMiddleware（Plan 子开关）。其他权限子系统（如 SecurityPlugin）通过 bus 各自注册 control trait 接入，零编译期耦合 |
 | Analytics Plugin | `extension/analytics.rs`, `analytics.rs` | AnalyticsPlugin — 写 `<workspace>/.alva/analytics.jsonl`，通过 `Registrar::phase_handler` 注册 `analytics-tool-start` / `analytics-tool-end` 两个观察型 phase；事件类型在 `kernel-abi::AnalyticsEvent`（SessionStart/End / ToolCallStart/End / LlmCall）；JsonlSink 含 100MB 滚动 + 7 文件保留。CLI 默认装；Tauri 通过 plugin flag `analytics` 默认 on。`alva context analytics` 子命令读 jsonl 出聚合 |
 | Hooks Plugin | `extension/hooks/` | HooksPlugin — 把 settings 中的 SessionStart/SessionEnd/PreToolUse/PostToolUse shell hooks 映射为 `hooks-session-start` / `hooks-session-end` / `hooks-pre-tool-use` / `hooks-post-tool-use` phase handler；PreToolUse/SessionStart 可阻断，PostToolUse/SessionEnd 观察型 |

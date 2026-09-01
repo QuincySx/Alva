@@ -131,7 +131,7 @@ def main():
                         },
                         "tools": [],
                         "eventSubscriptions": ["before_tool_call"],
-                        "requestedCapabilities": [],
+                        "requestedCapabilities": ["host:state.get_messages"],
                     },
                 }
             )
@@ -463,11 +463,11 @@ async fn plugin_blocks_dangerous_shell_command() {
     session
         .append_message(AgentMessage::Standard(Message::user("session hello")), None)
         .await;
-    let mut state = make_state(session);
+    let state = make_state(session);
 
     // --- on_agent_start: unsubscribed plugin → no error ---
     bridge
-        .on_agent_start(&mut state)
+        .on_agent_start(&state)
         .await
         .expect("on_agent_start must not fail for unsubscribed plugin");
 
@@ -478,7 +478,7 @@ async fn plugin_blocks_dangerous_shell_command() {
         arguments: serde_json::json!({"command": "rm -rf /"}),
     };
     let result = bridge
-        .wrap_tool_call(&mut state, &blocked, &EchoToolCall)
+        .wrap_tool_call(&state, &blocked, &EchoToolCall)
         .await
         .expect("blocked tool call should return an error result");
     assert!(result.is_error);
@@ -491,7 +491,7 @@ async fn plugin_blocks_dangerous_shell_command() {
         arguments: serde_json::json!({"command": "ls -la"}),
     };
     let result = bridge
-        .wrap_tool_call(&mut state, &safe, &EchoToolCall)
+        .wrap_tool_call(&state, &safe, &EchoToolCall)
         .await
         .expect("expected Ok (continue) for ls");
     assert_eq!(result.model_text(), "executed:ls -la");
@@ -503,7 +503,7 @@ async fn plugin_blocks_dangerous_shell_command() {
         arguments: serde_json::json!({"command": "rewrite"}),
     };
     let result = bridge
-        .wrap_tool_call(&mut state, &modified, &EchoToolCall)
+        .wrap_tool_call(&state, &modified, &EchoToolCall)
         .await
         .expect("expected modified args to execute");
     assert_eq!(result.model_text(), "executed:rewritten");
@@ -515,7 +515,7 @@ async fn plugin_blocks_dangerous_shell_command() {
         arguments: serde_json::json!({"command": "state-rewrite"}),
     };
     let result = bridge
-        .wrap_tool_call(&mut state, &state_rewrite, &EchoToolCall)
+        .wrap_tool_call(&state, &state_rewrite, &EchoToolCall)
         .await
         .expect("expected state-backed args to execute");
     assert_eq!(result.model_text(), "executed:state:session hello");
@@ -527,7 +527,7 @@ async fn plugin_blocks_dangerous_shell_command() {
         arguments: serde_json::json!({"command": "replace"}),
     };
     let result = bridge
-        .wrap_tool_call(&mut state, &replaced, &EchoToolCall)
+        .wrap_tool_call(&state, &replaced, &EchoToolCall)
         .await
         .expect("expected replace_result to skip execution");
     assert_eq!(result.model_text(), "replaced before execution");
@@ -610,11 +610,11 @@ async fn plugin_mutates_llm_messages_and_response() {
         .clone();
 
     let session = Arc::new(InMemoryAgentSession::new());
-    let mut state = make_state(session);
+    let state = make_state(session);
 
     let mut messages = vec![Message::user("original")];
     start
-        .before_llm_call(&mut state, &mut messages)
+        .before_llm_call(&state, &mut messages)
         .await
         .expect("llm start mutation should succeed");
     assert_eq!(messages.len(), 1);
@@ -622,7 +622,7 @@ async fn plugin_mutates_llm_messages_and_response() {
     assert_eq!(messages[0].text_content(), "mutated system");
 
     let mut response = Message::system("original response");
-    end.after_llm_call(&mut state, &mut response)
+    end.after_llm_call(&state, &mut response)
         .await
         .expect("llm end mutation should succeed");
     assert_eq!(response.role, MessageRole::Assistant);
@@ -635,7 +635,7 @@ async fn plugin_mutates_llm_messages_and_response() {
     };
     let mut result = alva_kernel_abi::ToolOutput::text("original tool result");
     after_tool
-        .after_tool_call(&mut state, &tool_call, &mut result)
+        .after_tool_call(&state, &tool_call, &mut result)
         .await
         .expect("after tool mutation should succeed");
     assert!(!result.is_error);

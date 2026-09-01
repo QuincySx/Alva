@@ -99,7 +99,7 @@ pub trait TokenCounter: Send + Sync {
     fn context_window(&self) -> usize;
 }
 
-/// Fallback token counter using chars/4 heuristic.
+/// Fallback token counter using a Unicode-scalar-count / 4 heuristic.
 /// Used when no model-specific tokenizer is available.
 pub struct HeuristicTokenCounter {
     pub context_window_size: usize,
@@ -115,7 +115,7 @@ impl HeuristicTokenCounter {
 
 impl TokenCounter for HeuristicTokenCounter {
     fn count_tokens(&self, text: &str) -> usize {
-        text.len() / 4
+        text.chars().count().div_ceil(4)
     }
 
     fn context_window(&self) -> usize {
@@ -157,12 +157,13 @@ mod tests {
     fn heuristic_counter_counts_text_len_over_four() {
         let c = HeuristicTokenCounter::new(8192);
         assert_eq!(c.count_tokens(""), 0);
-        // "abc" len=3, 3/4 = 0 (integer division — pinned current behavior)
-        assert_eq!(c.count_tokens("abc"), 0);
+        // Non-empty fragments must never disappear from budget accounting.
+        assert_eq!(c.count_tokens("abc"), 1);
         // 4 chars → 1 token
         assert_eq!(c.count_tokens("abcd"), 1);
         // 12 chars → 3 tokens
         assert_eq!(c.count_tokens("abcdefghijkl"), 3);
+        assert_eq!(c.count_tokens("中文测试"), 1);
     }
 
     #[test]

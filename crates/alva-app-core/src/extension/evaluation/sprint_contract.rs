@@ -256,14 +256,14 @@ mod tests {
 
         let mw = SprintContractMiddleware::new(contract);
 
-        let mut state = make_state();
+        let state = make_state();
         let mut messages = vec![
             Message::system("You are a helpful assistant."),
             Message::user("Do something"),
         ];
 
-        mw.on_agent_start(&mut state).await.unwrap();
-        mw.before_llm_call(&mut state, &mut messages).await.unwrap();
+        mw.on_agent_start(&state).await.unwrap();
+        mw.before_llm_call(&state, &mut messages).await.unwrap();
 
         // Contract should be inserted as a system message after the first system message
         assert_eq!(messages.len(), 3);
@@ -280,9 +280,9 @@ mod tests {
 
         let mw = SprintContractMiddleware::new(contract);
 
-        let mut state = make_state();
+        let state = make_state();
 
-        mw.on_agent_start(&mut state).await.unwrap();
+        mw.on_agent_start(&state).await.unwrap();
 
         let stored = state.extensions.get::<SprintContract>();
         assert!(stored.is_some());

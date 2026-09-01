@@ -189,7 +189,7 @@ mod tests {
     #[tokio::test]
     async fn test_no_dangling_no_change() {
         let mw = DanglingToolCallMiddleware::new();
-        let mut state = make_state();
+        let state = make_state();
 
         let mut messages = vec![
             Message::system("system"),
@@ -199,14 +199,14 @@ mod tests {
         ];
         let original_len = messages.len();
 
-        mw.before_llm_call(&mut state, &mut messages).await.unwrap();
+        mw.before_llm_call(&state, &mut messages).await.unwrap();
         assert_eq!(messages.len(), original_len);
     }
 
     #[tokio::test]
     async fn test_dangling_tool_call_gets_synthetic_result() {
         let mw = DanglingToolCallMiddleware::new();
-        let mut state = make_state();
+        let state = make_state();
 
         let mut messages = vec![
             Message::system("system"),
@@ -215,7 +215,7 @@ mod tests {
             // No tool result for tc_1 — this is dangling
         ];
 
-        mw.before_llm_call(&mut state, &mut messages).await.unwrap();
+        mw.before_llm_call(&state, &mut messages).await.unwrap();
 
         // Should have inserted a synthetic Tool message
         assert_eq!(messages.len(), 4);
@@ -233,7 +233,7 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_dangling_tool_calls() {
         let mw = DanglingToolCallMiddleware::new();
-        let mut state = make_state();
+        let state = make_state();
 
         let mut messages = vec![
             Message::system("system"),
@@ -262,7 +262,7 @@ mod tests {
             tool_result_msg("tc_1", "result for tc_1"),
         ];
 
-        mw.before_llm_call(&mut state, &mut messages).await.unwrap();
+        mw.before_llm_call(&state, &mut messages).await.unwrap();
 
         // Should have 5 messages (original 4 + 1 synthetic for tc_2)
         assert_eq!(messages.len(), 5);
@@ -279,19 +279,19 @@ mod tests {
     #[tokio::test]
     async fn test_no_tool_calls_no_change() {
         let mw = DanglingToolCallMiddleware::new();
-        let mut state = make_state();
+        let state = make_state();
 
         let mut messages = vec![Message::system("system"), Message::user("hello")];
         let original_len = messages.len();
 
-        mw.before_llm_call(&mut state, &mut messages).await.unwrap();
+        mw.before_llm_call(&state, &mut messages).await.unwrap();
         assert_eq!(messages.len(), original_len);
     }
 
     #[tokio::test]
     async fn test_multi_assistant_sequences() {
         let mw = DanglingToolCallMiddleware::new();
-        let mut state = make_state();
+        let state = make_state();
 
         let mut messages = vec![
             Message::system("system"),
@@ -304,7 +304,7 @@ mod tests {
             assistant_msg_with_tool_use("tc_3", "write"),
         ];
 
-        mw.before_llm_call(&mut state, &mut messages).await.unwrap();
+        mw.before_llm_call(&state, &mut messages).await.unwrap();
 
         // Original 5 + 2 synthetic = 7
         assert_eq!(messages.len(), 7);

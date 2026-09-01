@@ -2,23 +2,23 @@
 
 ## 当前状态
 
-规划、领域访谈和架构决策已完成，实施任务尚未启动。旧的未提交 UI 代码保留原状，进入任务 00 后先建立当前截图基线，再逐项决定迁入、重写或删除。
+规划、领域访谈、架构决策与任务 00–12 均已完成。最终验收覆盖确定性截图、真实 Tauri 打包、Rust/React 测试与生产构建；详细证据见任务 12 和 `crates/alva-hub-desktop/ACCEPTANCE.md`。
 
 | ID | 任务 | 依赖 | 状态 | 可见交付 |
 |---|---|---|---|---|
-| 00 | 冻结参考图与当前界面 | 无 | 待开始 | 67 个状态的 reference/linework/current 三联索引 |
-| 01 | 重画七张总层架 | 00 | 待开始 | 统一比例并标注组件、宽度、Dock、Scroll 与 Overlay 锚点 |
-| 02 | 固化整体区域与缩放关系 | 01 | 待开始 | Sidebar/Main/Workbench、滚动和 Dock 在各窗口尺寸统一 |
-| 03 | 建立 Token、密度与动效规则 | 00 | 待开始 | 深色语义 token、default/compact、统一时长曲线和静态检查 |
-| 04 | 打磨基础控件与弹层 | 02、03 | 待开始 | 全部 L1 状态、弹层尺寸、键盘和可中断动画可独立验收 |
-| 05 | 建立区域与 Surface 目录 | 02、04 | 待开始 | L2 积木覆盖七个页面族的重复结构 |
-| 06 | 建立 UI Lab 与 Playwright | 03–05 | 待开始 | 确定性 fixture、组件状态矩阵、固定视口截图与差异图 |
-| 07 | 重建 Chat Shell 与时间线 | 05、06 | 待开始 | 聊天、事件、审批、fallback 共用单一阅读轴 |
-| 08 | 对齐 Composer 与模型菜单 | 04、06、07 | 待开始 | 新对话中实时选择 Agent、模型、权限和上下文 |
-| 09 | 完成右侧 Workbench | 05–07 | 待开始 | Files/Review/Agent/Inspector/Tasks/Usage/Browser/Terminal 统一标签体系 |
-| 10 | 完成自动化与插件/技能页 | 05、06 | 待开始 | 卡片、列表、详情和创建流程复用同一积木并接通真实业务 |
-| 11 | 完成设置、搜索与上下文菜单 | 04–06 | 待开始 | 设置体系、全局搜索和项目/会话操作完整统一 |
-| 12 | 完成视觉、动效与真实业务验收 | 07–11 | 待开始 | 67/67 状态、真实 store/Tauri、多窗口、键鼠触屏与 reduced-motion 全部通过 |
+| 00 | 冻结参考图与当前界面 | 无 | 已完成 | 67 个状态的 reference/linework/current 三联索引 |
+| 01 | 重画七张总层架 | 00 | 已完成 | 统一比例并标注组件、宽度、Dock、Scroll 与 Overlay 锚点 |
+| 02 | 固化整体区域与缩放关系 | 01 | 已完成 | Sidebar/Main/Workbench、滚动和 Dock 在各窗口尺寸统一 |
+| 03 | 建立 Token、密度与动效规则 | 00 | 已完成 | 深色语义 token、default/compact、统一时长曲线和静态检查 |
+| 04 | 打磨基础控件与弹层 | 02、03 | 已完成 | 全部 L1 状态、弹层尺寸、键盘和可中断动画可独立验收 |
+| 05 | 建立区域与 Surface 目录 | 02、04 | 已完成 | L2 积木覆盖七个页面族的重复结构 |
+| 06 | 建立 UI Lab 与 Playwright | 03–05 | 已完成 | 确定性 fixture、组件状态矩阵、固定视口截图与差异图 |
+| 07 | 重建 Chat Shell 与时间线 | 05、06 | 已完成 | 聊天、事件、审批、fallback 共用单一阅读轴 |
+| 08 | 对齐 Composer 与模型菜单 | 04、06、07 | 已完成 | 新对话中实时选择 Agent、模型、权限和上下文 |
+| 09 | 完成右侧 Workbench | 05–07 | 已完成 | Files/Review/Agent/Inspector/Tasks/Usage/Browser/Terminal 统一标签体系 |
+| 10 | 完成自动化与插件/技能页 | 05、06 | 已完成 | 卡片、列表、详情和创建流程复用同一积木并接通真实业务 |
+| 11 | 完成设置、搜索与上下文菜单 | 04–06 | 已完成 | 设置体系、全局搜索和项目/会话操作完整统一 |
+| 12 | 完成视觉、动效与真实业务验收 | 07–11 | 已完成 | 67/67 状态、真实 store/Tauri、多窗口、键鼠触屏与 reduced-motion 全部通过 |
 
 ## 并行关系
 
@@ -53,5 +53,5 @@
 - [x] Add deterministic UI Lab
 - [x] Add seven aggregate, model-picker, and narrow-Workbench browser baselines
 - [x] Rebuild Chat, Composer, ModelPicker, Workbench, Automations, Extensions, Settings, Search, and ContextMenu paths
-- [x] Pass 44 Vitest tests and Playwright visual regression
-- [x] Native Tauri smoke on the packaged WebView
+- [x] Pass 63 Vitest tests and 11 Playwright visual-regression scenarios
+- [x] Native Tauri smoke and verified macOS `.app` packaging

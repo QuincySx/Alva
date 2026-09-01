@@ -35,6 +35,6 @@
 | WASIp1 host | `wasm_sandbox.rs` | wasm-env context 下发、sidecar 发现、spawn_blocking runner、job 域名授权、真 provider proxy 与 host escalation policy/execution。 |
 | OS sandbox | `os_sandbox.rs` | canonical grant/TMPDIR/support file、macOS Seatbelt worker re-exec/写拒绝探针，以及 Linux pre-runtime Landlock 读写圈禁。 |
 | Job 工具日志 | `job_log.rs` | 宿主追加 `tools.jsonl`；native/wasm tool call 与成对 escalation request/result 共用格式并按 kind+call id 去重。 |
-| Session 持久化 | `session/` | workspace 内 UUID session、私有权限、原子 JSON/index/RunRecord 与并发写串行化。 |
-| 终端交互 | `ui/`, `repl.rs` | TUI 与 legacy REPL；TUI 恢复历史并支持 `/resume ID`，REPL 含未知斜杠命令的 skill 精确点名 fallback。 |
+| Session 持久化 | `session/` | workspace 内 UUID session、私有权限、向后兼容的 canonical typed-record 原子 JSON/index/RunRecord、批失败内存回滚与并发写串行化。 |
+| 终端交互 | `ui/`, `repl.rs`, `event_handler.rs` | TUI、legacy REPL 与 print mode；统一消费 bounded AgentEvent 流，TUI 恢复历史并支持 `/resume ID`，REPL 含 skill 精确点名 fallback。 |
 | 子命令/服务 | `commands/`, `*_cmd.rs`, `services/` | 命令解析及后台能力。 |

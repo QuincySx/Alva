@@ -2,7 +2,8 @@
 //         crate::AgentMessage
 // OUTPUT: AgentSession trait, SessionEvent, SessionMessage, EventEmitter,
 //         EmitterKind, ComponentDescriptor, ScopedSession, SessionError,
-//         EventQuery, EventMatch, SessionEventListener, SessionEventStream
+//         EventQuery, EventMatch, SessionEventListener, SessionEventStream,
+//         atomic typed-record capability via AppendReceipt/SessionRecord
 // POS:    Unified session CONTRACT -- traits + value types only. The concrete
 //         in-memory backends (InMemoryAgentSession / ListenableInMemorySession)
 //         moved to alva-kernel-core (L2); this crate keeps the pure contract.
@@ -286,8 +287,12 @@ pub struct EventMatch {
 ///   persisted.
 ///
 /// - **`close()`** — called when the session is no longer going to be used.
-///   Implies `flush()` followed by resource release. After `close()`, calls
-///   to other methods MUST return an error.
+///   Implies `flush()` followed by resource release. Callers MUST stop writing
+///   after it returns. Read methods may continue serving an already-cached
+///   projection; because hot-path reads and `append` deliberately have no
+///   error return, backends surface any accidental post-close write at the
+///   next fallible lifecycle operation rather than pretending every method can
+///   return an error.
 ///
 /// - **`clear()`** — called only on explicit user-initiated reset or in tests.
 ///   Never called by the runtime during normal operation. Drops all events and
@@ -342,6 +347,14 @@ pub trait AgentSession: Send + Sync {
         Err(SessionError::Other(
             "atomic typed record append is not implemented by this backend".to_string(),
         ))
+    }
+
+    /// Whether [`append_records`](Self::append_records) provides one atomic
+    /// visible commit. The kernel tool coordinator requires this guarantee;
+    /// builders use the flag to reject an incompatible session before the
+    /// first external tool side effect occurs.
+    fn supports_atomic_records(&self) -> bool {
+        false
     }
 
     /// Read the canonical typed projection in total durable sequence order.

@@ -268,17 +268,17 @@ impl HandoffPackage {
 }
 
 impl super::HubStore {
-        pub(crate) fn mark_handoff_used(&self, handoff_id: &str) -> Result<(), String> {
-            let connection = self.lock()?;
-            connection
-                .execute(
-                    "UPDATE handoff_packages SET used_at = COALESCE(used_at, ?2)
+    pub(crate) fn mark_handoff_used(&self, handoff_id: &str) -> Result<(), String> {
+        let connection = self.lock()?;
+        connection
+            .execute(
+                "UPDATE handoff_packages SET used_at = COALESCE(used_at, ?2)
                       WHERE handoff_id = ?1",
-                    params![handoff_id, now_unix_ms()],
-                )
-                .map_err(|error| format!("mark Hub handoff used: {error}"))?;
-            Ok(())
-        }
+                params![handoff_id, now_unix_ms()],
+            )
+            .map_err(|error| format!("mark Hub handoff used: {error}"))?;
+        Ok(())
+    }
 }
 
 pub(crate) fn build_handoff_package(
@@ -706,10 +706,12 @@ pub(crate) fn handoff_kind_name(kind: HandoffKind) -> &'static str {
     }
 }
 
-pub(crate) fn source_branch_for_handoff(prior: &Option<HandoffPackage>, fallback_branch_id: &str) -> String {
+pub(crate) fn source_branch_for_handoff(
+    prior: &Option<HandoffPackage>,
+    fallback_branch_id: &str,
+) -> String {
     prior
         .as_ref()
         .map(|package| package.source_branch_id.clone())
         .unwrap_or_else(|| fallback_branch_id.to_string())
 }
-

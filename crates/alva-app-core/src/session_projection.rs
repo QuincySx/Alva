@@ -1,10 +1,10 @@
 // INPUT:  alva_kernel_abi (ToolDefinition, ToolCall, ToolOutput, Message),
 //         alva_kernel_abi::agent_session::SessionEvent
 // OUTPUT: RunRecord, ConfigSnapshot, TurnRecord, LlmCallRecord, ToolCallRecord,
-//         HookRecord, build_run_record
+//         HookRecord, stream timing fields, build_run_record
 // POS:    Pure-function projection layer.  Takes a slice of SessionEvents
 //         (the eval session's complete event log) and produces a RunRecord
-//         suitable for JSON serialisation and the eval frontend.
+//         suitable for Inspector JSON serialisation, including middleware and compact stream timing.
 //
 //         Type definitions define the current Inspector JSON schema.
 
@@ -25,6 +25,10 @@ pub struct RunRecord {
     pub total_duration_ms: u64,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
+    /// Lifecycle/input middleware invocations that are not owned by one LLM
+    /// or tool call. Per-call hooks live on their corresponding records.
+    #[serde(default)]
+    pub middleware_hooks: Vec<HookRecord>,
     /// User-submitted messages, in event order. Each entry's
     /// `before_turn_number` is the turn_number of the first turn it kicked
     /// off (1-indexed); the inspector inserts the message block before
@@ -91,6 +95,28 @@ pub struct LlmCallRecord {
     pub error_message: Option<String>,
     pub middleware_hooks: Vec<HookRecord>,
 
+    // ───────── Streaming observability ─────────
+    /// Delay from entering the provider stream to the first transport frame.
+    #[serde(default)]
+    pub first_event_ms: Option<u64>,
+    /// Delay to the first visible text/reasoning/tool output.
+    #[serde(default)]
+    pub time_to_first_output_ms: Option<u64>,
+    /// Delay to the first non-empty text or reasoning delta.
+    #[serde(default)]
+    pub time_to_first_token_ms: Option<u64>,
+    /// Time spent consuming the provider stream (or fallback completion).
+    #[serde(default)]
+    pub stream_duration_ms: Option<u64>,
+    #[serde(default)]
+    pub stream_event_count: u32,
+    #[serde(default)]
+    pub visible_stream_event_count: u32,
+    #[serde(default)]
+    pub stream_transport: Option<String>,
+    #[serde(default)]
+    pub stream_outcome: Option<String>,
+
     // ───────── Prompt-cache observability ─────────
     /// Anthropic `cache_creation_input_tokens` — fresh tokens written
     /// to the cache on this call (you pay for these). Surfaced from
@@ -145,6 +171,62 @@ pub struct HookRecord {
     pub hook: String,
     pub duration_ms: u64,
     pub outcome: String,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
+}
+
+fn hook_record_from_data(
+    data: &serde_json::Value,
+    fallback_middleware_name: &str,
+) -> Option<HookRecord> {
+    Some(HookRecord {
+        middleware_name: data
+            .get("middleware_name")
+            .and_then(|value| value.as_str())
+            .unwrap_or(fallback_middleware_name)
+            .to_string(),
+        hook: data.get("hook")?.as_str()?.to_string(),
+        duration_ms: data
+            .get("duration_ms")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0),
+        outcome: data
+            .get("outcome")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        error: data
+            .get("error")
+            .and_then(|value| value.as_str())
+            .map(str::to_string),
+        tool_call_id: data
+            .get("tool_call_id")
+            .and_then(|value| value.as_str())
+            .map(str::to_string),
+    })
+}
+
+fn hook_records_from_event(event: &SessionEvent) -> Vec<HookRecord> {
+    let Some(data) = event.data.as_ref() else {
+        return Vec::new();
+    };
+    match event.event_type.as_str() {
+        // Backward-compatible reader for sessions written before packed phase
+        // envelopes were introduced.
+        "middleware_hook" => hook_record_from_data(data, event.emitter.id.as_str())
+            .into_iter()
+            .collect(),
+        "middleware_hook_batch" => data
+            .get("calls")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|call| hook_record_from_data(call, ""))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 // ===========================================================================
@@ -169,6 +251,7 @@ fn empty_record() -> RunRecord {
         total_duration_ms: 0,
         total_input_tokens: 0,
         total_output_tokens: 0,
+        middleware_hooks: Vec::new(),
         user_messages: Vec::new(),
     }
 }
@@ -373,6 +456,16 @@ pub fn build_run_record(events: &[SessionEvent]) -> RunRecord {
     }
 
     let user_messages = build_user_messages(events);
+    let middleware_hooks = top_level
+        .iter()
+        .flat_map(|event| hook_records_from_event(event))
+        .filter(|hook| {
+            matches!(
+                hook.hook.as_str(),
+                "on_agent_start" | "input_committed" | "on_agent_end"
+            )
+        })
+        .collect();
 
     RunRecord {
         config_snapshot,
@@ -380,6 +473,7 @@ pub fn build_run_record(events: &[SessionEvent]) -> RunRecord {
         total_duration_ms,
         total_input_tokens,
         total_output_tokens,
+        middleware_hooks,
         user_messages,
     }
 }
@@ -688,6 +782,69 @@ fn build_llm_call_record(iter_events: &[SessionEvent], _turn_number: u32) -> Llm
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
+    let stream_summary = iter_events
+        .iter()
+        .find(|event| {
+            event.event_type == "llm_stream_summary"
+                && event.parent_uuid.as_deref() == Some(llm_start_uuid)
+        })
+        .or_else(|| {
+            iter_events
+                .iter()
+                .find(|event| event.event_type == "llm_stream_summary")
+        })
+        .and_then(|event| event.data.as_ref());
+    let first_output = iter_events
+        .iter()
+        .find(|event| {
+            event.event_type == "llm_first_output"
+                && event.parent_uuid.as_deref() == Some(llm_start_uuid)
+        })
+        .or_else(|| {
+            iter_events
+                .iter()
+                .find(|event| event.event_type == "llm_first_output")
+        })
+        .and_then(|event| event.data.as_ref());
+    let first_event_ms = stream_summary
+        .and_then(|data| data.get("first_event_ms"))
+        .and_then(|value| value.as_u64());
+    let time_to_first_output_ms = stream_summary
+        .and_then(|data| data.get("time_to_first_output_ms"))
+        .and_then(|value| value.as_u64())
+        .or_else(|| {
+            first_output
+                .and_then(|data| data.get("time_to_first_output_ms"))
+                .and_then(|value| value.as_u64())
+        });
+    let time_to_first_token_ms = stream_summary
+        .and_then(|data| data.get("time_to_first_token_ms"))
+        .and_then(|value| value.as_u64());
+    let stream_duration_ms = stream_summary
+        .and_then(|data| data.get("stream_duration_ms"))
+        .and_then(|value| value.as_u64());
+    let stream_event_count = stream_summary
+        .and_then(|data| data.get("event_count"))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as u32;
+    let visible_stream_event_count = stream_summary
+        .and_then(|data| data.get("visible_event_count"))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as u32;
+    let stream_transport = stream_summary
+        .and_then(|data| data.get("transport"))
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let stream_outcome = stream_summary
+        .and_then(|data| data.get("outcome"))
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let middleware_hooks = iter_events
+        .iter()
+        .flat_map(|event| hook_records_from_event(event))
+        .filter(|hook| hook.hook.ends_with("_llm_call"))
+        .collect();
+
     // Find the assistant message event (emitted by append_message with event_type "assistant")
     // The data field holds the serialized AgentMessage; the message field has SessionMessage.
     let assistant_event = iter_events
@@ -743,7 +900,15 @@ fn build_llm_call_record(iter_events: &[SessionEvent], _turn_number: u32) -> Llm
         duration_ms: llm_duration_ms,
         stop_reason,
         error_message: None, // filled later from run_end
-        middleware_hooks: Vec::new(),
+        middleware_hooks,
+        first_event_ms,
+        time_to_first_output_ms,
+        time_to_first_token_ms,
+        stream_duration_ms,
+        stream_event_count,
+        visible_stream_event_count,
+        stream_transport,
+        stream_outcome,
         cache_creation_input_tokens: cache_creation,
         cache_read_input_tokens: cache_read,
         disable_tools,
@@ -814,13 +979,21 @@ fn build_tool_call_records(iter_events: &[SessionEvent]) -> Vec<ToolCallRecord> 
             name: tool_name,
             arguments: extract_tool_arguments(iter_events, &tool_call_id),
         };
+        let middleware_hooks = iter_events
+            .iter()
+            .flat_map(|candidate| hook_records_from_event(candidate))
+            .filter(|hook| {
+                hook.hook.ends_with("_tool_call")
+                    && hook.tool_call_id.as_deref() == Some(tool_call_id.as_str())
+            })
+            .collect();
 
         tool_calls.push(ToolCallRecord {
             tool_call,
             result: tool_output,
             is_error,
             duration_ms,
-            middleware_hooks: Vec::new(),
+            middleware_hooks,
             // sub_run is populated by build_run_record after build_turns returns,
             // using find_subagent_range over the full parent event stream.
             sub_run: None,
@@ -1734,6 +1907,7 @@ mod tests {
     fn build_tool_call_records_single_tool_use_with_matching_result() {
         let events = vec![
             tool_use_event("uu-1", "read_file", "call-1", 100),
+            middleware_hook("security", "before_tool_call", Some("call-1")),
             tool_result_event_linked("uu-1", "call-1", "file contents", false, 350),
         ];
         let records = build_tool_call_records(&events);
@@ -1745,7 +1919,8 @@ mod tests {
         assert!(!r.is_error);
         let out = r.result.as_ref().expect("result should be Some");
         assert_eq!(out.content[0].as_text(), Some("file contents"));
-        assert!(r.middleware_hooks.is_empty());
+        assert_eq!(r.middleware_hooks.len(), 1);
+        assert_eq!(r.middleware_hooks[0].middleware_name, "security");
         assert!(r.sub_run.is_none());
     }
 
@@ -1898,6 +2073,46 @@ mod tests {
         }
     }
 
+    fn observation_event(
+        event_type: &str,
+        parent_uuid: Option<&str>,
+        data: serde_json::Value,
+    ) -> SessionEvent {
+        SessionEvent {
+            seq: 0,
+            uuid: format!("{event_type}-uuid"),
+            parent_uuid: parent_uuid.map(str::to_string),
+            timestamp: 0,
+            event_type: event_type.to_string(),
+            emitter: EventEmitter::runtime(),
+            message: None,
+            data: Some(data),
+        }
+    }
+
+    fn middleware_hook(
+        middleware_name: &str,
+        hook: &str,
+        tool_call_id: Option<&str>,
+    ) -> SessionEvent {
+        observation_event(
+            "middleware_hook_batch",
+            None,
+            json!({
+                "hook": hook,
+                "calls": [{
+                    "middleware_name": middleware_name,
+                    "hook": hook,
+                    "layer_index": 0,
+                    "duration_ms": 12,
+                    "outcome": "ok",
+                    "error": null,
+                    "tool_call_id": tool_call_id,
+                }],
+            }),
+        )
+    }
+
     #[test]
     fn build_llm_call_record_empty_events_returns_all_defaults() {
         let r = build_llm_call_record(&[], 1);
@@ -1964,6 +2179,46 @@ mod tests {
         assert_eq!(r.tools_count_sent, 12);
         assert!(r.provider_options_applied);
         assert!(r.response.is_some());
+    }
+
+    #[test]
+    fn build_llm_call_record_projects_stream_timing_and_middleware() {
+        let events = vec![
+            llm_call_start("S", 100, json!({})),
+            observation_event(
+                "llm_first_output",
+                Some("S"),
+                json!({"time_to_first_output_ms": 35}),
+            ),
+            observation_event(
+                "llm_stream_summary",
+                Some("S"),
+                json!({
+                    "first_event_ms": 8,
+                    "time_to_first_output_ms": 35,
+                    "time_to_first_token_ms": 35,
+                    "stream_duration_ms": 140,
+                    "event_count": 9,
+                    "visible_event_count": 4,
+                    "transport": "stream",
+                    "outcome": "ok",
+                }),
+            ),
+            middleware_hook("guard", "wrap_llm_call", None),
+            llm_call_end(250, json!({"input_tokens": 2, "output_tokens": 3})),
+        ];
+
+        let record = build_llm_call_record(&events, 1);
+        assert_eq!(record.first_event_ms, Some(8));
+        assert_eq!(record.time_to_first_output_ms, Some(35));
+        assert_eq!(record.time_to_first_token_ms, Some(35));
+        assert_eq!(record.stream_duration_ms, Some(140));
+        assert_eq!(record.stream_event_count, 9);
+        assert_eq!(record.visible_stream_event_count, 4);
+        assert_eq!(record.stream_transport.as_deref(), Some("stream"));
+        assert_eq!(record.stream_outcome.as_deref(), Some("ok"));
+        assert_eq!(record.middleware_hooks.len(), 1);
+        assert_eq!(record.middleware_hooks[0].middleware_name, "guard");
     }
 
     #[test]
@@ -2164,6 +2419,7 @@ mod tests {
         // llm_call_start → llm_call_end → assistant → iter_end → run_end.
         let events = vec![
             run_start_event(100, 25),
+            middleware_hook("security", "on_agent_start", None),
             eval_config_event("claude-test"),
             user_event("hi", 105),
             iter_start("ITER-1", 110),
@@ -2193,6 +2449,8 @@ mod tests {
         assert_eq!(r.user_messages[0].before_turn_number, 1);
         // no error → no error_message on last turn
         assert!(r.turns[0].llm_call.error_message.is_none());
+        assert_eq!(r.middleware_hooks.len(), 1);
+        assert_eq!(r.middleware_hooks[0].hook, "on_agent_start");
     }
 
     #[test]

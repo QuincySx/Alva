@@ -1,7 +1,9 @@
 // INPUT:  std::{ffi, fs, io, path}, macOS Seatbelt, Linux Landlock
 // OUTPUT: SandboxMode, SandboxEnforcement, SandboxConfig
 // POS:    Models per-invocation enforcement for macOS Seatbelt and Linux Landlock OS workers.
+#[cfg(target_os = "macos")]
 use std::ffi::{OsStr, OsString};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -43,7 +45,9 @@ pub enum SandboxEnforcement {
 pub struct SandboxConfig {
     mode: SandboxMode,
     enforcement: SandboxEnforcement,
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
     writable_dirs: Vec<PathBuf>,
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
     writable_files: Vec<PathBuf>,
     #[cfg_attr(target_family = "wasm", allow(dead_code))]
     allow_network: bool,

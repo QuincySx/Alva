@@ -23,7 +23,8 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 11. worker 卡片按 lifecycle 提供 Hibernate/Archive（active 时）或 Restore（否则），非 active 带状态徽标；archived worker 默认不出现在活跃面，"Show archived" 可显示；"End run" 归档全部 worker。
 12. 等价并发审批合并为一张 approval-group 卡（逐条列出 requester/工具/资源），一次 Allow all / Deny all；Team panel 有独立的 Autonomous run 开关。
 13. 左栏支持 New session、按 workspace/prompt/engine 搜索过滤；composer footer 一处集中 engine、model、PermissionProfile 与 fallback 链（含未授权标注）。
-14. Details 抽屉（顶栏 Details 开关）检视 EngineBranches、EngineAttempts（失败原因/用量/工具证据）、handoffs（含 team snapshot 与 delivered/pending）与 engine diagnostics；timeline 本身只渲染产品 TimelineEvent。
+14. Details 抽屉（顶栏 Details 开关）检视 EngineBranches、EngineAttempts（失败原因/用量/工具证据）、handoffs（含 team snapshot 与 delivered/pending）与 engine diagnostics；timeline 本身只渲染产品 TimelineEvent，并从 `created_at`/合并时保留的 `started_at` 投影 Input/Agent/Tools 三泳道概览，绝不读取 raw adapter stream。
+14.1. Workbench Inspector 与 Details/timeline 分离：`bridge.getHubInspection` 从 Tauri command 或同构 HTTP endpoint 读取稳定 `HubInspectionSnapshot`，运行中每秒刷新当前 native session；`EngineInspectorPanel` 展示 Run/LLM/Tool/Middleware/raw durable records，点击 child session 压入 Agent 页栈，Back/Esc 依次退出详情页、当前 Agent、返回父 Agent。非 Alva session 只展示 truthful unsupported 与产品级 Attempt。
 15. 卡片控件按"本窗口正在跑 **或** store 说 session 在 running"启用（只看快照会在自己这轮运行期间把 Stop 关掉——sessionDetail 是运行后才刷新的）：终态时 Stop 禁用并显示"该 attempt 已结束"，Switch back / View handoff 仍可用；终态事件到达时回刷 sessionDetail，抽屉与闸门不会停留在旧状态。
 16. `resetSessionSurface` 是 New session 与切换 workspace 共用的清场：profile、engine、fallback 链、transcript 开关、已答审批、按索引存的 handoff 展开态一并复位——否则上一个 session 的 profile/链会被当成新 session 的默认值（甚至被存成全局默认）。
 17. `ui/` 是唯一基础组件入口，封装 Radix 的焦点、键盘、碰撞和 Portal 行为；业务页面不得直接从 `radix-ui` 导入。
@@ -56,7 +57,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Vite types | `vite-env.d.ts` | `import.meta.env` 与开发 UI Lab 环境类型 |
 | I18N | `i18n.tsx` | 简体中文主语言、英文回退、系统语言解析、持久化偏好与 typed 翻译函数 |
 | Product UI | `App.tsx` | 新会话 workspace mode、engine selector、permission profile、fallback、composer、timeline 与 permission card |
-| IPC bridge | `bridge.ts` | workspace 创建/选择与 run/switch/policy/readiness/session/permission 的 Tauri invoke/listen/dialog 封装 |
+| IPC bridge | `bridge.ts` | workspace 创建/选择与 run/switch/policy/readiness/session/permission/Inspector 的 Tauri/HTTP 封装及稳定 DTO |
 | Style entry | `index.css` | 按 tokens → primitives → domain → app 顺序装配全部样式 |
 | Design tokens | `styles/tokens.css` | ALVA 颜色、间距、圆角、阴影和动效唯一来源 |
 | Primitive styles | `styles/primitives.css` | 基础组件 hover/focus/open/disabled 状态 |
@@ -75,14 +76,15 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Workspace gate | `components/workspace-gate.tsx` | 新会话中央“独立会话 / 项目”双入口，不在确认前创建目录 |
 | Sidebar | `components/hub-sidebar.tsx` | 产品导航、会话搜索与持久会话列表，不承载 Workspace 创建/切换 |
 | Topbar | `components/hub-topbar.tsx` | 对话标题、状态、详情与右侧工作台入口 |
-| Timeline | `components/hub-timeline.tsx` | 中央会话读取轴、权限回应、fallback 动作与 handoff 展开 |
+| Timeline | `components/hub-timeline.tsx` | Chrome 风格 Input/Agent/Tools 时间概览、中央会话读取轴、工具 duration、权限回应、fallback 动作与 handoff 展开 |
+| Engine Inspector | `components/engine-inspector.tsx` | 稳定 durable snapshot 的运行/轮次/LLM/Tool/Middleware/raw record 视图、实时刷新和递归 Agent 页栈 |
 | Session details | `components/session-details.tsx` | 会话记忆、分支、尝试、handoff envelope 与引擎诊断 |
 | Engine readiness | `components/engine-readiness-panel.tsx` | 引擎健康、能力、修复计划与官方指引入口 |
 | Fallback policy | `components/fallback-policy-panel.tsx` | 有序 fallback 目标、模型/provider 设置与自动使用授权 |
 | Team panel | `components/team-panel.tsx` | Worker 生命周期、任务队列、worktree adoption、资源声明与自治开关 |
-| Component tests | `components/components.test.tsx` | Composer 与模型选择器交互回归 |
+| Component tests | `components/components.test.tsx` | Composer、模型选择器、shared-clock timeline 与 Inspector 子 Agent 回退回归 |
 | Product pages | `components/product-pages.tsx` | 自动化、插件/技能、设置与搜索共享页面体系 |
-| Workbench tools | `components/workbench-tools.tsx` | Files、Text、Git、Review、Agent、Inspector、Tasks、Usage、Chrome、Terminal 标签内容 |
+| Workbench tools | `components/workbench-tools.tsx` | Files、Text、Git、Review、Agent、产品 Attempt + native Inspector、Tasks、Usage、Chrome、Terminal 标签内容 |
 | UI Lab | `ui-lab.tsx` | 开发/test-only 确定性组件与页面状态展台 |
 | Visual config | `../playwright.config.ts` | 1440×900 Chrome 截图环境与 Vite 生命周期 |
 | Visual tests | `../tests/visual.spec.ts` | 七张总层架和模型弹层的真实浏览器回归 |

@@ -14,6 +14,23 @@ use crate::store::HubStore;
 
 pub const HUB_ENGINE_IDS: [&str; 4] = ["alva", "claude", "codex", "pi"];
 
+fn is_executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReadinessStatus {
@@ -386,7 +403,7 @@ impl SystemProbe {
         self.search_paths
             .iter()
             .flat_map(|directory| candidates.iter().map(move |name| directory.join(name)))
-            .find(|candidate| candidate.is_file())
+            .find(|candidate| is_executable_file(candidate))
     }
 
     fn searched_locations(&self) -> Vec<String> {
@@ -698,7 +715,7 @@ mod tests {
         std::env::var_os("PATH").and_then(|paths| {
             std::env::split_paths(&paths)
                 .map(|directory| directory.join(command))
-                .find(|candidate| candidate.is_file())
+                .find(|candidate| is_executable_file(candidate))
         })
     }
 
@@ -742,7 +759,10 @@ mod tests {
                             // CLI output: the probe must have run the same
                             // binary it claims to have found.
                             let raw = read_cli_version(&path).unwrap_or_else(|error| {
-                                panic!("real `{id} --version` failed: {error}")
+                                panic!(
+                                    "real `{id} --version` failed for {}: {error}",
+                                    path.display()
+                                )
                             });
                             let Some(version) = &entry.version else {
                                 panic!("probe found {id} but reported no version");
@@ -1012,6 +1032,34 @@ mod tests {
                     searched: vec![bin.path().display().to_string()],
                 }]
             );
+        }
+
+        #[test]
+        fn skips_a_non_executable_path_candidate_for_a_later_working_cli() {
+            let blocked_bin = tempfile::tempdir().unwrap();
+            let working_bin = tempfile::tempdir().unwrap();
+            let home = tempfile::tempdir().unwrap();
+            install_fake_cli(blocked_bin.path(), "claude", "blocked");
+            fs::set_permissions(
+                blocked_bin.path().join("claude"),
+                fs::Permissions::from_mode(0o644),
+            )
+            .unwrap();
+            install_fake_cli(working_bin.path(), "claude", "2.0.14 (Claude Code)");
+
+            let facts = SystemProbe::new(None, None)
+                .with_search_paths(vec![
+                    blocked_bin.path().to_path_buf(),
+                    working_bin.path().to_path_buf(),
+                ])
+                .with_home_dir(home.path().to_path_buf())
+                .facts("claude");
+
+            assert_eq!(
+                facts.binary_path.as_deref(),
+                Some(working_bin.path().join("claude").to_str().unwrap())
+            );
+            assert_eq!(facts.version, Some(Ok("2.0.14 (Claude Code)".into())));
         }
 
         #[test]

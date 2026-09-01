@@ -34,9 +34,9 @@ use alva_kernel_core::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_core::builtins::ToolTimeoutMiddleware;
 use alva_kernel_core::middleware::MiddlewareStack;
 use alva_kernel_core::shared::Extensions;
-use alva_kernel_core::{AgentLoop, DefaultAgentLoop};
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_kernel_core::AgentEvent;
+use alva_kernel_core::{AgentLoop, DefaultAgentLoop};
 
 /// Minimal wasm-side runtime facade.
 pub struct WasmAgent {

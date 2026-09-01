@@ -70,9 +70,11 @@ alva-kernel-core::run_agent
   ContextRuntime prepares request context
   before hooks
   LLM wrap chain
+  compact first-output / stream-summary events
   ToolBatchCoordinator executes declared tool calls
   tool execution wrap chain
   after hooks
+  packed middleware_hook_batch envelopes
         |
         v
 SessionEvent + AgentEvent
@@ -143,7 +145,8 @@ alva-engine-runtime (neutral contract)
 | L7 | `alva-hub-core` | product-level engine registry and product/native session supervision |
 | L7 | `alva-engine-adapter-alva` | canonical app-layer Alva adapter; builds one complete BaseAgent per engine session |
 | L7 | `alva-hub-cli` | auxiliary Hub CLI with one-shot/REPL flows, private session journal, resume, manual switching, handoff, and diagnostics |
-| L7 | `alva-hub-desktop` | Desktop-first Hub product; tickets 01–03 provide the Alva workspace/composer/timeline seam plus private SQLite HubSession/EngineBranch/Turn/EngineAttempt persistence, cross-process resume, and interrupted-state repair |
+| L7 | `alva-hub-desktop` | Desktop-first Hub product; private SQLite HubSession/EngineBranch/Turn/EngineAttempt persistence, cross-process resume, shared-clock product timeline, and stable-IPC recursive Alva Inspector over durable typed records |
+| L7 | `alva-hub-server` | Headless HTTP/SSE transport over the same Hub product store, engine assembly, timeline, and Inspector projection used by Desktop |
 
 ## Accepted Hub Target (Implementation Started)
 

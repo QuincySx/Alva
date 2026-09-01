@@ -7,9 +7,7 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, Transaction, TransactionBehavior};
 
-use super::{
-    now_unix_ms, RESTART_REASON, SCHEMA_VERSION, STATUS_INTERRUPTED, STATUS_RUNNING,
-};
+use super::{now_unix_ms, RESTART_REASON, SCHEMA_VERSION, STATUS_INTERRUPTED, STATUS_RUNNING};
 
 pub(super) fn initialize_schema_and_recover(
     connection: &mut Connection,
@@ -384,7 +382,10 @@ pub(super) fn initialize_schema_and_recover(
         .map_err(|error| format!("commit Hub database migration: {error}"))
 }
 
-pub(super) fn repair_interrupted_attempts(transaction: &Transaction<'_>, now: i64) -> Result<(), String> {
+pub(super) fn repair_interrupted_attempts(
+    transaction: &Transaction<'_>,
+    now: i64,
+) -> Result<(), String> {
     transaction
         .execute(
             "UPDATE engine_attempts
@@ -598,4 +599,3 @@ pub(super) fn set_private_file_permissions(path: &Path) -> Result<(), String> {
 pub(super) fn set_private_file_permissions(_path: &Path) -> Result<(), String> {
     Ok(())
 }
-

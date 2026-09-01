@@ -1,8 +1,9 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use alva_kernel_abi::scope::context::{
-    ContextHandle, ContextHooks, ContextSystem, Injection, NoopContextHandle, Priority,
-    PromptSection,
+    ContextEntry, ContextHandle, ContextHooks, ContextSystem, IngestAction, Injection,
+    NoopContextHandle, Priority, PromptSection,
 };
 use alva_kernel_abi::{AgentMessage, Message, ModelConfig};
 use alva_kernel_core::context_runtime::ContextRuntime;
@@ -29,6 +30,35 @@ impl ContextHooks for PromptInjectingHooks {
             content: "context-injected".to_string(),
             priority: Priority::Normal,
         })]
+    }
+}
+
+struct LifecycleHooks {
+    assembled_budget: Arc<AtomicUsize>,
+    ingested: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl ContextHooks for LifecycleHooks {
+    async fn ingest(
+        &self,
+        _sdk: &dyn ContextHandle,
+        _agent_id: &str,
+        _entry: &ContextEntry,
+    ) -> IngestAction {
+        self.ingested.fetch_add(1, Ordering::SeqCst);
+        IngestAction::Keep
+    }
+
+    async fn assemble(
+        &self,
+        _sdk: &dyn ContextHandle,
+        _agent_id: &str,
+        entries: Vec<ContextEntry>,
+        token_budget: usize,
+    ) -> Vec<ContextEntry> {
+        self.assembled_budget.store(token_budget, Ordering::SeqCst);
+        entries
     }
 }
 
@@ -69,4 +99,31 @@ async fn context_runtime_applies_pending_injections_before_llm_request() {
         AgentMessage::Standard(message) => assert_eq!(message.text_content(), "hello"),
         other => panic!("expected standard message, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn context_runtime_drives_ingest_and_passes_the_configured_budget() {
+    let assembled_budget = Arc::new(AtomicUsize::new(0));
+    let ingested = Arc::new(AtomicUsize::new(0));
+    let hooks: Arc<dyn ContextHooks> = Arc::new(LifecycleHooks {
+        assembled_budget: assembled_budget.clone(),
+        ingested: ingested.clone(),
+    });
+    let mut config = config_with_context();
+    config.context_system = Some(Arc::new(ContextSystem::new(
+        hooks,
+        Arc::new(NoopContextHandle),
+    )));
+    config.context_token_budget = Some(321);
+
+    let mut runtime = ContextRuntime::new("agent-1");
+    let message = AgentMessage::Standard(Message::user("hello"));
+    runtime.on_message(&config, &message).await;
+    let mut prompt = vec![];
+    let _ = runtime
+        .prepare_llm_context(&config, &mut prompt, vec![message])
+        .await;
+
+    assert_eq!(ingested.load(Ordering::SeqCst), 1);
+    assert_eq!(assembled_budget.load(Ordering::SeqCst), 321);
 }

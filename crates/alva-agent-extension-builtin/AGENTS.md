@@ -23,7 +23,7 @@ core file tools through a synchronous filesystem adapter.
 - `tool_presets::*` — curated tool bundles used by host-native assembly; the shell preset includes local shell and permission-gated host escalation.
 - `register_builtin_tools` — registers all enabled tools with a `ToolRegistry`.
 - `wrappers::{Core, Shell, Interaction, Task, Team, Planning, Utility, Web, Browser}Plugin` — nine Plugin wrappers.
-- `LocalToolFs` — native `ToolFs` adapter (cfg-gated off for wasm)；shell 以私有进程组运行，stdout/stderr 有界捕获，同组后代会被清理且 capture 也受整次调用 deadline 约束。
+- `LocalToolFs` — native `ToolFs` adapter (cfg-gated off for wasm)；前台 shell 以私有进程组运行，stdout/stderr 有界捕获，取消/超时/正常退出均清理同组后代；显式 background shell 断开 stdio、独立进程组存活并由 runtime 异步回收。
 - `WasiFs` / `WasiFsMetadata` — WASI `ToolFs` adapter plus synchronous facade
   for capability-confined guest embeddings; subprocess execution is unsupported.
 

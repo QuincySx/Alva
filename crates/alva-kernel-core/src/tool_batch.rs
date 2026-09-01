@@ -1,15 +1,18 @@
+// INPUT:  AgentState/AgentConfig, Tool/ToolCall scheduling metadata, MiddlewareStack, AgentSession
+// OUTPUT: ToolBatchCoordinator, CommittedToolCall
+// POS:    Executes conflict-free tool waves concurrently while committing intents and outcomes in model order.
 use std::sync::Arc;
 
 use alva_kernel_abi::agent_session::{EmitterKind, EventEmitter, ScopedSession};
 use alva_kernel_abi::{
-    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, ExecutionRecord,
-    RecordValue, SessionRecord,
+    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, ExecutionMode,
+    ExecutionRecord, LockMode, RecordValue, ResourceKey, SessionRecord,
 };
 use alva_kernel_abi::{Message, MessageRole, Tool, ToolCall, ToolOutput};
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use futures_util::future::join_all;
 
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentEventSender};
 use crate::middleware::{MiddlewareError, ToolCallFn};
 use crate::runtime_context::RuntimeExecutionContext;
 use crate::state::{AgentConfig, AgentState};
@@ -22,6 +25,18 @@ pub struct CommittedToolCall {
     pub tool_use_uuid: String,
 }
 
+struct PreparedToolCall {
+    tool_call: ToolCall,
+    tool: Option<Arc<dyn Tool>>,
+    tool_use_uuid: String,
+}
+
+struct ExecutedToolCall {
+    prepared: PreparedToolCall,
+    outcome: Result<ToolOutput, AgentError>,
+    duration_ms: u64,
+}
+
 #[derive(Default)]
 pub struct ToolBatchCoordinator;
 
@@ -30,178 +45,151 @@ impl ToolBatchCoordinator {
         Self
     }
 
-    pub async fn execute_batch(
+    pub async fn execute_batch<E>(
         &self,
         state: &AgentState,
         config: &AgentConfig,
         cancel: CancellationToken,
         tool_calls: &[ToolCall],
         llm_call_uuid: String,
-        event_tx: mpsc::UnboundedSender<AgentEvent>,
-    ) -> Result<Vec<CommittedToolCall>, AgentError> {
+        event_tx: E,
+    ) -> Result<Vec<CommittedToolCall>, AgentError>
+    where
+        E: Into<AgentEventSender>,
+    {
+        let event_tx = event_tx.into();
         let mut committed = Vec::with_capacity(tool_calls.len());
+        let mut cursor = 0;
 
-        for (idx, tool_call) in tool_calls.iter().enumerate() {
+        while cursor < tool_calls.len() {
             if cancel.is_cancelled() {
-                let committed_cancelled = self
-                    .commit_cancelled_tool_call(state, tool_call, llm_call_uuid.clone(), &event_tx)
-                    .await?;
-                committed.push(committed_cancelled);
+                for tool_call in &tool_calls[cursor..] {
+                    let committed_cancelled = self
+                        .commit_cancelled_tool_call(
+                            state,
+                            tool_call,
+                            llm_call_uuid.clone(),
+                            &event_tx,
+                        )
+                        .await?;
+                    committed.push(committed_cancelled);
+                }
+                break;
+            }
+
+            let wave_len =
+                parallel_wave_len(state, config.workspace.as_deref(), &tool_calls[cursor..]);
+            if wave_len < 2 {
+                let tool_call = &tool_calls[cursor];
+                let tool_use_uuid = commit_tool_intent(state, tool_call, &llm_call_uuid).await?;
+                let executed = execute_tool_call(
+                    state,
+                    config,
+                    cancel.clone(),
+                    PreparedToolCall {
+                        tool_call: tool_call.clone(),
+                        tool: find_tool(state, tool_call),
+                        tool_use_uuid,
+                    },
+                    event_tx.clone(),
+                )
+                .await;
+
+                match executed.outcome {
+                    Ok(result) => {
+                        committed.push(
+                            commit_executed_tool_call(
+                                state,
+                                executed.prepared,
+                                result,
+                                executed.duration_ms,
+                                &event_tx,
+                            )
+                            .await?,
+                        );
+                    }
+                    Err(agent_err) => {
+                        let error_text =
+                            format!("Tool call aborted before completion: {agent_err}");
+                        commit_failed_tool_call(state, executed.prepared, &error_text, &event_tx)
+                            .await?;
+                        backfill_aborted_tool_results(
+                            state,
+                            &tool_calls[cursor + 1..],
+                            &llm_call_uuid,
+                            &error_text,
+                            &event_tx,
+                        )
+                        .await?;
+                        return Err(agent_err);
+                    }
+                }
+                cursor += 1;
                 continue;
             }
 
-            let tool_use_uuid = commit_tool_intent(state, tool_call, &llm_call_uuid).await?;
+            let wave_calls = &tool_calls[cursor..cursor + wave_len];
+            let tool_use_uuids = commit_tool_intents(state, wave_calls, &llm_call_uuid).await?;
+            let executions =
+                wave_calls
+                    .iter()
+                    .zip(tool_use_uuids)
+                    .map(|(tool_call, tool_use_uuid)| {
+                        execute_tool_call(
+                            state,
+                            config,
+                            cancel.clone(),
+                            PreparedToolCall {
+                                tool_call: tool_call.clone(),
+                                tool: find_tool(state, tool_call),
+                                tool_use_uuid,
+                            },
+                            event_tx.clone(),
+                        )
+                    });
+            let executed = join_all(executions).await;
+            let mut first_error = None;
 
-            let _ = event_tx.send(AgentEvent::ToolExecutionStart {
-                tool_call: tool_call.clone(),
-            });
-            let tool_start = web_time::Instant::now();
-
-            let tool = state
-                .tools
-                .iter()
-                .find(|t| t.name() == tool_call.name)
-                .cloned();
-
-            // Run before/wrap/after inside one fallible scope. A non-Blocked
-            // middleware error is fatal to the batch, but we must not let it
-            // escape before backfilling tool_results — see the Err arm below.
-            let outcome: Result<ToolOutput, AgentError> = async {
-                let before_result = config
-                    .middleware
-                    .run_before_tool_call(state, tool_call)
-                    .await;
-
-                let mut result = match before_result {
-                    Err(MiddlewareError::Blocked { reason }) => {
-                        ToolOutput::error(format!("Tool call blocked: {}", reason))
+            for execution in executed {
+                match execution.outcome {
+                    Ok(result) => {
+                        committed.push(
+                            commit_executed_tool_call(
+                                state,
+                                execution.prepared,
+                                result,
+                                execution.duration_ms,
+                                &event_tx,
+                            )
+                            .await?,
+                        );
                     }
-                    Err(e) => {
-                        return Err(e.into_agent_error());
-                    }
-                    Ok(()) => match tool {
-                        Some(ref t) => 'locked: {
-                            let _lock_guards = if let Some(bus) = config.bus.as_ref() {
-                                if let Some(registry) = bus.get::<crate::ToolLockRegistry>() {
-                                    let keys = t.resource_keys(&tool_call.arguments);
-                                    let mode = t.execution_mode();
-                                    // Bounded acquire: deadlock-shaped contention
-                                    // becomes a visible, retryable tool error
-                                    // instead of parking the agent loop forever
-                                    // (the timeout variant sat unused while the
-                                    // hot path hung — gap scan 2026-07-05).
-                                    match registry
-                                        .acquire_bounded(&keys, mode, config.workspace.as_deref())
-                                        .await
-                                    {
-                                        Ok(guards) => Some(guards),
-                                        Err(e) => {
-                                            break 'locked ToolOutput::error(format!(
-                                            "Tool lock acquisition failed: {e}. Another tool may \
-                                             be holding the lock unusually long; try again."
-                                        ));
-                                        }
-                                    }
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            };
-
-                            let actual_tool_call = ActualToolCall {
-                                tool: t.clone(),
-                                cancel: cancel.clone(),
-                                event_tx: event_tx.clone(),
-                                session_id: state.session.session_id().to_string(),
-                                workspace: config.workspace.clone(),
-                                bus: config.bus.clone(),
-                            };
-                            config
-                                .middleware
-                                .run_wrap_tool_call(state, tool_call, Arc::new(actual_tool_call))
-                                .await
-                                .map_err(MiddlewareError::into_agent_error)?
+                    Err(agent_err) => {
+                        let error_text =
+                            format!("Tool call aborted before completion: {agent_err}");
+                        commit_failed_tool_call(state, execution.prepared, &error_text, &event_tx)
+                            .await?;
+                        if first_error.is_none() {
+                            first_error = Some((agent_err, error_text));
                         }
-                        None => ToolOutput::error(format!("Tool not found: {}", tool_call.name)),
-                    },
-                };
-
-                config
-                    .middleware
-                    .run_after_tool_call(state, tool_call, &mut result)
-                    .await
-                    .map_err(MiddlewareError::into_agent_error)?;
-
-                Ok(result)
+                    }
+                }
             }
-            .await;
 
-            let result = match outcome {
-                Ok(result) => result,
-                Err(agent_err) => {
-                    // A non-Blocked middleware error aborts the batch. Before
-                    // propagating it, close out THIS tool call and every one
-                    // that has not started yet with an error ToolResult, so the
-                    // assistant's committed tool_use blocks are never left
-                    // dangling for the next provider request.
-                    let error_text = format!("Tool call aborted before completion: {agent_err}");
-                    append_error_tool_result(
-                        state,
-                        tool_call,
-                        Some(tool_use_uuid.clone()),
-                        &error_text,
-                        &event_tx,
-                    )
-                    .await?;
+            cursor += wave_len;
+            if let Some((agent_err, error_text)) = first_error {
+                if cursor < tool_calls.len() {
                     backfill_aborted_tool_results(
                         state,
-                        &tool_calls[idx + 1..],
+                        &tool_calls[cursor..],
                         &llm_call_uuid,
                         &error_text,
                         &event_tx,
                     )
                     .await?;
-                    return Err(agent_err);
                 }
-            };
-
-            let tool_message = Message {
-                id: uuid::Uuid::new_v4().to_string(),
-                role: MessageRole::Tool,
-                content: vec![ContentBlock::ToolResult {
-                    id: tool_call.id.clone(),
-                    content: result.content.clone(),
-                    is_error: result.is_error,
-                }],
-                tool_call_id: Some(tool_call.id.clone()),
-                usage: None,
-                timestamp: chrono::Utc::now().timestamp_millis(),
-            };
-            let tool_msg = AgentMessage::Standard(tool_message);
-            commit_tool_outcome(state, tool_call, &result, tool_msg.clone(), &tool_use_uuid)
-                .await?;
-
-            let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
-            tracing::info!(
-                tool = %tool_call.name,
-                duration_ms = tool_duration_ms,
-                is_error = result.is_error,
-                result_len = result.model_text().len(),
-                "tool execution completed"
-            );
-
-            let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
-                tool_call: tool_call.clone(),
-                result: result.clone(),
-            });
-
-            committed.push(CommittedToolCall {
-                tool_call: tool_call.clone(),
-                result,
-                message: tool_msg,
-                tool_use_uuid,
-            });
+                return Err(agent_err);
+            }
         }
 
         Ok(committed)
@@ -212,13 +200,15 @@ impl ToolBatchCoordinator {
         state: &AgentState,
         tool_call: &ToolCall,
         llm_call_uuid: String,
-        event_tx: &mpsc::UnboundedSender<AgentEvent>,
+        event_tx: &AgentEventSender,
     ) -> Result<CommittedToolCall, AgentError> {
         let tool_use_uuid = commit_tool_intent(state, tool_call, &llm_call_uuid).await?;
 
-        let _ = event_tx.send(AgentEvent::ToolExecutionStart {
-            tool_call: tool_call.clone(),
-        });
+        let _ = event_tx
+            .send(AgentEvent::ToolExecutionStart {
+                tool_call: tool_call.clone(),
+            })
+            .await;
 
         let result = ToolOutput::error("Tool call cancelled before execution");
         let tool_message = Message {
@@ -236,10 +226,12 @@ impl ToolBatchCoordinator {
         let tool_msg = AgentMessage::Standard(tool_message);
         commit_tool_outcome(state, tool_call, &result, tool_msg.clone(), &tool_use_uuid).await?;
 
-        let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
-            tool_call: tool_call.clone(),
-            result: result.clone(),
-        });
+        let _ = event_tx
+            .send(AgentEvent::ToolExecutionEnd {
+                tool_call: tool_call.clone(),
+                result: result.clone(),
+            })
+            .await;
 
         Ok(CommittedToolCall {
             tool_call: tool_call.clone(),
@@ -250,11 +242,280 @@ impl ToolBatchCoordinator {
     }
 }
 
+fn find_tool(state: &AgentState, tool_call: &ToolCall) -> Option<Arc<dyn Tool>> {
+    state
+        .tools
+        .iter()
+        .find(|tool| tool.name() == tool_call.name)
+        .cloned()
+}
+
+/// Return the size of the next conflict-free parallel wave.
+///
+/// A tool must opt in through `is_concurrency_safe`, use fine-grained
+/// `ExecutionMode::Parallel`, and have no read/write conflict with an earlier
+/// call in the same wave. Unknown, global, coordinator, and concurrency-unsafe
+/// calls are hard ordering barriers.
+fn parallel_wave_len(
+    state: &AgentState,
+    workspace: Option<&std::path::Path>,
+    tool_calls: &[ToolCall],
+) -> usize {
+    let Some(first_call) = tool_calls.first() else {
+        return 0;
+    };
+    let Some(first_tool) = find_tool(state, first_call) else {
+        return 1;
+    };
+    if !is_parallel_candidate(first_tool.as_ref(), first_call) {
+        return 1;
+    }
+
+    let mut claimed = resolved_resource_keys(first_tool.as_ref(), first_call, workspace);
+    let mut wave_len = 1;
+    for tool_call in &tool_calls[1..] {
+        let Some(tool) = find_tool(state, tool_call) else {
+            break;
+        };
+        if !is_parallel_candidate(tool.as_ref(), tool_call) {
+            break;
+        }
+        let keys = resolved_resource_keys(tool.as_ref(), tool_call, workspace);
+        if resource_sets_conflict(&claimed, &keys) {
+            break;
+        }
+        claimed.extend(keys);
+        wave_len += 1;
+    }
+    wave_len
+}
+
+fn resolved_resource_keys(
+    tool: &dyn Tool,
+    tool_call: &ToolCall,
+    workspace: Option<&std::path::Path>,
+) -> Vec<ResourceKey> {
+    tool.resource_keys(&tool_call.arguments)
+        .into_iter()
+        .map(|resource| ResourceKey {
+            key: workspace.map_or(resource.key.clone(), |workspace| {
+                crate::tool_lock::resolve_against_workspace(&resource.key, workspace)
+            }),
+            mode: resource.mode,
+        })
+        .collect()
+}
+
+fn is_parallel_candidate(tool: &dyn Tool, tool_call: &ToolCall) -> bool {
+    tool.execution_mode() == ExecutionMode::Parallel
+        && tool.is_concurrency_safe(&tool_call.arguments)
+}
+
+fn resource_sets_conflict(left: &[ResourceKey], right: &[ResourceKey]) -> bool {
+    left.iter().any(|left_key| {
+        right.iter().any(|right_key| {
+            left_key.key == right_key.key
+                && (left_key.mode == LockMode::Write || right_key.mode == LockMode::Write)
+        })
+    })
+}
+
+async fn commit_tool_intents(
+    state: &AgentState,
+    tool_calls: &[ToolCall],
+    llm_call_uuid: &str,
+) -> Result<Vec<String>, AgentError> {
+    let mut records = Vec::with_capacity(tool_calls.len());
+    let mut record_ids = Vec::with_capacity(tool_calls.len());
+    for tool_call in tool_calls {
+        let (record, record_id) = tool_intent_record(tool_call, llm_call_uuid);
+        records.push(record);
+        record_ids.push(record_id);
+    }
+    state
+        .session
+        .append_records(records)
+        .await
+        .map_err(|error| AgentError::Other(format!("commit tool intents: {error}")))?;
+    Ok(record_ids)
+}
+
+async fn execute_tool_call(
+    state: &AgentState,
+    config: &AgentConfig,
+    cancel: CancellationToken,
+    prepared: PreparedToolCall,
+    event_tx: AgentEventSender,
+) -> ExecutedToolCall {
+    let tool_call = &prepared.tool_call;
+    let _ = event_tx
+        .send(AgentEvent::ToolExecutionStart {
+            tool_call: tool_call.clone(),
+        })
+        .await;
+    let tool_start = web_time::Instant::now();
+
+    // Run before/wrap/after inside one fallible scope. Parallel waves are
+    // restricted to tools that explicitly opt in to concurrent execution;
+    // Middleware is Send + Sync and therefore shares the same concurrency
+    // boundary as the tool invocation it wraps.
+    let outcome: Result<ToolOutput, AgentError> = async {
+        let before_result = config
+            .middleware
+            .run_before_tool_call(state, tool_call)
+            .await;
+
+        let mut result = match before_result {
+            Err(MiddlewareError::Blocked { reason }) => {
+                ToolOutput::error(format!("Tool call blocked: {reason}"))
+            }
+            Err(error) => return Err(error.into_agent_error()),
+            Ok(()) => match prepared.tool.as_ref() {
+                Some(tool) => 'locked: {
+                    let _lock_guards = if let Some(bus) = config.bus.as_ref() {
+                        if let Some(registry) = bus.get::<crate::ToolLockRegistry>() {
+                            let keys = tool.resource_keys(&tool_call.arguments);
+                            let mode = tool.execution_mode();
+                            match registry
+                                .acquire_bounded(&keys, mode, config.workspace.as_deref())
+                                .await
+                            {
+                                Ok(guards) => Some(guards),
+                                Err(error) => {
+                                    break 'locked ToolOutput::error(format!(
+                                        "Tool lock acquisition failed: {error}. Another tool may \
+                                         be holding the lock unusually long; try again."
+                                    ));
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    let actual_tool_call = ActualToolCall {
+                        tool: tool.clone(),
+                        cancel,
+                        event_tx: event_tx.clone(),
+                        session_id: state.session.session_id().to_string(),
+                        workspace: config.workspace.clone(),
+                        bus: config.bus.clone(),
+                    };
+                    config
+                        .middleware
+                        .run_wrap_tool_call(state, tool_call, Arc::new(actual_tool_call))
+                        .await
+                        .map_err(MiddlewareError::into_agent_error)?
+                }
+                None => ToolOutput::error(format!("Tool not found: {}", tool_call.name)),
+            },
+        };
+
+        config
+            .middleware
+            .run_after_tool_call(state, tool_call, &mut result)
+            .await
+            .map_err(MiddlewareError::into_agent_error)?;
+
+        Ok(result)
+    }
+    .await;
+
+    ExecutedToolCall {
+        prepared,
+        outcome,
+        duration_ms: tool_start.elapsed().as_millis() as u64,
+    }
+}
+
+async fn commit_executed_tool_call(
+    state: &AgentState,
+    prepared: PreparedToolCall,
+    result: ToolOutput,
+    duration_ms: u64,
+    event_tx: &AgentEventSender,
+) -> Result<CommittedToolCall, AgentError> {
+    let tool_message = tool_result_message(&prepared.tool_call, &result);
+    let tool_msg = AgentMessage::Standard(tool_message);
+    commit_tool_outcome(
+        state,
+        &prepared.tool_call,
+        &result,
+        tool_msg.clone(),
+        &prepared.tool_use_uuid,
+    )
+    .await?;
+
+    tracing::info!(
+        tool = %prepared.tool_call.name,
+        duration_ms,
+        is_error = result.is_error,
+        result_len = result.model_text().len(),
+        "tool execution completed"
+    );
+    let _ = event_tx
+        .send(AgentEvent::ToolExecutionEnd {
+            tool_call: prepared.tool_call.clone(),
+            result: result.clone(),
+        })
+        .await;
+
+    Ok(CommittedToolCall {
+        tool_call: prepared.tool_call,
+        result,
+        message: tool_msg,
+        tool_use_uuid: prepared.tool_use_uuid,
+    })
+}
+
+async fn commit_failed_tool_call(
+    state: &AgentState,
+    prepared: PreparedToolCall,
+    error_text: &str,
+    event_tx: &AgentEventSender,
+) -> Result<(), AgentError> {
+    append_error_tool_result(
+        state,
+        &prepared.tool_call,
+        Some(prepared.tool_use_uuid),
+        error_text,
+        event_tx,
+    )
+    .await
+}
+
+fn tool_result_message(tool_call: &ToolCall, result: &ToolOutput) -> Message {
+    Message {
+        id: uuid::Uuid::new_v4().to_string(),
+        role: MessageRole::Tool,
+        content: vec![ContentBlock::ToolResult {
+            id: tool_call.id.clone(),
+            content: result.content.clone(),
+            is_error: result.is_error,
+        }],
+        tool_call_id: Some(tool_call.id.clone()),
+        usage: None,
+        timestamp: chrono::Utc::now().timestamp_millis(),
+    }
+}
+
 async fn commit_tool_intent(
     state: &AgentState,
     tool_call: &ToolCall,
     llm_call_uuid: &str,
 ) -> Result<String, AgentError> {
+    let (record, record_id) = tool_intent_record(tool_call, llm_call_uuid);
+    state
+        .session
+        .append_records(vec![record])
+        .await
+        .map_err(|error| AgentError::Other(format!("commit tool intent: {error}")))?;
+    Ok(record_id)
+}
+
+fn tool_intent_record(tool_call: &ToolCall, llm_call_uuid: &str) -> (SessionRecord, String) {
     let mut record = SessionRecord::execution(
         "tool_use",
         EventEmitter::runtime(),
@@ -268,12 +529,7 @@ async fn commit_tool_intent(
     );
     record.parent_record_id = Some(llm_call_uuid.to_string());
     let record_id = record.record_id.clone();
-    state
-        .session
-        .append_records(vec![record])
-        .await
-        .map_err(|error| AgentError::Other(format!("commit tool intent: {error}")))?;
-    Ok(record_id)
+    (record, record_id)
 }
 
 async fn commit_tool_outcome(
@@ -314,7 +570,7 @@ async fn append_error_tool_result(
     tool_call: &ToolCall,
     parent_uuid: Option<String>,
     error_text: &str,
-    event_tx: &mpsc::UnboundedSender<AgentEvent>,
+    event_tx: &AgentEventSender,
 ) -> Result<(), AgentError> {
     let result = ToolOutput::error(error_text.to_string());
     let tool_message = Message {
@@ -335,10 +591,12 @@ async fn append_error_tool_result(
     } else {
         state.session.append_message(message, None).await;
     }
-    let _ = event_tx.send(AgentEvent::ToolExecutionEnd {
-        tool_call: tool_call.clone(),
-        result,
-    });
+    let _ = event_tx
+        .send(AgentEvent::ToolExecutionEnd {
+            tool_call: tool_call.clone(),
+            result,
+        })
+        .await;
     Ok(())
 }
 
@@ -351,7 +609,7 @@ async fn backfill_aborted_tool_results(
     remaining: &[ToolCall],
     llm_call_uuid: &str,
     error_text: &str,
-    event_tx: &mpsc::UnboundedSender<AgentEvent>,
+    event_tx: &AgentEventSender,
 ) -> Result<(), AgentError> {
     for tool_call in remaining {
         let tool_use_uuid = commit_tool_intent(state, tool_call, llm_call_uuid).await?;
@@ -364,7 +622,7 @@ async fn backfill_aborted_tool_results(
 struct ActualToolCall {
     tool: Arc<dyn Tool>,
     cancel: CancellationToken,
-    event_tx: mpsc::UnboundedSender<AgentEvent>,
+    event_tx: AgentEventSender,
     session_id: String,
     workspace: Option<std::path::PathBuf>,
     bus: Option<BusHandle>,

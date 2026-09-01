@@ -1,8 +1,9 @@
 // INPUT:  alva_kernel_core::AgentEvent, alva_kernel_abi::{AgentMessage, ContentBlock, StreamEvent}, alva_engine_runtime::{RuntimeEvent, RuntimeUsage, is_consumer_visible_delta}
-// OUTPUT: EventMapper
-// POS:    Projects complete BaseAgent loop events onto the engine contract.
+// OUTPUT: EventMapper with tool execution duration preservation
+// POS:    Projects complete BaseAgent loop events onto the engine contract without dropping tool timing.
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use alva_engine_runtime::{is_consumer_visible_delta, RuntimeEvent, RuntimeUsage};
 use alva_kernel_abi::{AgentMessage, ContentBlock, MessageRole};
@@ -14,6 +15,7 @@ pub(crate) struct EventMapper {
     tools: Vec<String>,
     turn_count: u32,
     tool_names: HashMap<String, String>,
+    tool_started_at: HashMap<String, Instant>,
     /// Last non-empty assistant text for Completed.result (never a placeholder).
     last_assistant_text: Option<String>,
 }
@@ -26,6 +28,7 @@ impl EventMapper {
             tools,
             turn_count: 0,
             tool_names: HashMap::new(),
+            tool_started_at: HashMap::new(),
             last_assistant_text: None,
         }
     }
@@ -57,22 +60,30 @@ impl EventMapper {
                 recoverable: true,
             }],
             AgentEvent::MessageEnd { message } => self.map_message_end(message),
-            // ToolStart is announced when the assistant message declares tool_use
-            // (map_message_end). Execution lifecycle is ToolEnd only here so we
-            // do not double-open the same id.
-            AgentEvent::ToolExecutionStart { .. } | AgentEvent::ToolExecutionUpdate { .. } => {
+            // ToolStart is announced when the assistant message declares
+            // tool_use (map_message_end). The actual execution event starts
+            // the monotonic timer without opening a duplicate runtime item.
+            AgentEvent::ToolExecutionStart { tool_call } => {
+                self.tool_started_at.insert(tool_call.id, Instant::now());
                 vec![]
             }
-            AgentEvent::ToolExecutionEnd { tool_call, result } => vec![RuntimeEvent::ToolEnd {
-                name: self
-                    .tool_names
-                    .get(&tool_call.id)
-                    .cloned()
-                    .unwrap_or_else(|| tool_call.name.clone()),
-                id: tool_call.id,
-                result,
-                duration_ms: None,
-            }],
+            AgentEvent::ToolExecutionUpdate { .. } => vec![],
+            AgentEvent::ToolExecutionEnd { tool_call, result } => {
+                let duration_ms = self
+                    .tool_started_at
+                    .remove(&tool_call.id)
+                    .map(|started_at| started_at.elapsed().as_millis() as u64);
+                vec![RuntimeEvent::ToolEnd {
+                    name: self
+                        .tool_names
+                        .get(&tool_call.id)
+                        .cloned()
+                        .unwrap_or_else(|| tool_call.name.clone()),
+                    id: tool_call.id,
+                    result,
+                    duration_ms,
+                }]
+            }
             AgentEvent::AgentEnd { error: None } => vec![RuntimeEvent::Completed {
                 session_id: self.session_id.clone(),
                 result: self.last_assistant_text.clone(),
@@ -257,5 +268,31 @@ mod tests {
             result: ToolOutput::text("ok"),
         });
         assert!(matches!(&end[0], RuntimeEvent::ToolEnd { id, .. } if id == "t1"));
+    }
+
+    #[test]
+    fn tool_execution_duration_is_preserved_on_runtime_end() {
+        let mut m = mapper();
+        let call = ToolCall {
+            id: "t-duration".into(),
+            name: "bash".into(),
+            arguments: json!({"cmd": "true"}),
+        };
+        assert!(m
+            .map(AgentEvent::ToolExecutionStart {
+                tool_call: call.clone(),
+            })
+            .is_empty());
+        let events = m.map(AgentEvent::ToolExecutionEnd {
+            tool_call: call,
+            result: ToolOutput::text("ok"),
+        });
+        assert!(matches!(
+            &events[0],
+            RuntimeEvent::ToolEnd {
+                duration_ms: Some(_),
+                ..
+            }
+        ));
     }
 }

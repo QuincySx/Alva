@@ -1,5 +1,5 @@
 // INPUT:  Alva/Claude/Codex/Pi engine adapters, alva_engine_runtime, alva_llm_provider, permissions
-// OUTPUT: build_engine() and route-aware assembly for ALVA, Claude Code, Codex, or Pi
+// OUTPUT: build_engine(), route-aware assembly, and shared-repository Inspector assembly
 // POS:    Hub Desktop engine assembly; adapters stay behind EngineRuntime and
 //         are always configured from the session permission profile.
 
@@ -15,6 +15,7 @@ use alva_engine_adapter_pi::{
 use alva_engine_runtime::EngineRuntime;
 use alva_llm_provider::ProviderConfig;
 
+use crate::inspection::HubInspectorService;
 use crate::permissions::{enforcement_for, EngineEnforcement, PermissionProfile};
 use crate::store::EngineTarget;
 
@@ -44,6 +45,45 @@ pub fn build_engine_for_target(
     workspace: &Path,
     history_dir: &Path,
 ) -> Result<Arc<dyn EngineRuntime>, String> {
+    build_engine_for_target_with_repository(
+        target,
+        provider_config,
+        profile,
+        workspace,
+        history_dir,
+        None,
+    )
+}
+
+/// Assemble an engine using the same Alva native repository as Hub Inspector.
+/// Non-Alva adapters ignore the service because they truthfully expose no full
+/// native inspection capability yet.
+pub fn build_engine_for_target_with_inspector(
+    target: &EngineTarget,
+    provider_config: Option<ProviderConfig>,
+    profile: PermissionProfile,
+    workspace: &Path,
+    history_dir: &Path,
+    inspector: &HubInspectorService,
+) -> Result<Arc<dyn EngineRuntime>, String> {
+    build_engine_for_target_with_repository(
+        target,
+        provider_config,
+        profile,
+        workspace,
+        history_dir,
+        Some(inspector.repository()),
+    )
+}
+
+fn build_engine_for_target_with_repository(
+    target: &EngineTarget,
+    provider_config: Option<ProviderConfig>,
+    profile: PermissionProfile,
+    workspace: &Path,
+    history_dir: &Path,
+    repository: Option<SessionRepository>,
+) -> Result<Arc<dyn EngineRuntime>, String> {
     let engine_id = target.engine_id.as_str();
     let plan = enforcement_for(engine_id, profile)?;
     match (engine_id, plan.enforcement) {
@@ -52,6 +92,7 @@ pub fn build_engine_for_target(
             workspace,
             history_dir,
             provider_config.ok_or("the selected Alva route has no provider configuration")?,
+            repository,
         ),
         ("claude", EngineEnforcement::ClaudePrintMode(permission_mode)) => {
             let config = claude_config(target, provider_config, permission_mode, workspace)?;
@@ -244,6 +285,7 @@ fn build_alva_engine(
     workspace: &Path,
     history_dir: &Path,
     config: ProviderConfig,
+    repository: Option<SessionRepository>,
 ) -> Result<Arc<dyn EngineRuntime>, String> {
     if config.api_key.is_empty() {
         return Err("no Alva provider API key configured".into());
@@ -260,7 +302,10 @@ fn build_alva_engine(
         .with_provider_registry(provider_registry)
         .with_reasoning_effort(effort);
 
-    let repository = SessionRepository::open(history_dir.join("alva-agent-records.db"))?;
+    let repository = match repository {
+        Some(repository) => repository,
+        None => SessionRepository::open(history_dir.join("alva-agent-records.db"))?,
+    };
     Ok(Arc::new(
         AlvaAdapter::new(Arc::new(factory)).with_session_repository(repository),
     ))

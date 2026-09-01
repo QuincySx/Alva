@@ -5,6 +5,7 @@
 mod alva;
 mod claims;
 mod failure;
+mod inspection;
 mod permissions;
 mod provider_diagnostics;
 mod provider_plane;
@@ -17,9 +18,10 @@ mod session_workspace;
 mod store;
 mod worktree;
 
-pub use alva::{build_engine, build_engine_for_target};
+pub use alva::{build_engine, build_engine_for_target, build_engine_for_target_with_inspector};
 pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
+pub use inspection::{HubInspectionRecord, HubInspectionSnapshot, HubInspectorService};
 pub use permissions::{
     enforcement_for, permission_eligibility, permission_group_key, EnforcementPlan,
     EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup, PermissionMember,
@@ -46,9 +48,7 @@ pub use run::{
     run_once, run_persisted, run_persisted_with_target, RunOutcome, RunRequest, TimelineActivity,
     TimelineEvent, TimelineStatus,
 };
-pub use session_workspace::{
-    create_managed_session_workspace, WorkspaceBinding, WorkspaceKind,
-};
+pub use session_workspace::{create_managed_session_workspace, WorkspaceBinding, WorkspaceKind};
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch, StoredTimelineEvent,

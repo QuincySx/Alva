@@ -30,6 +30,9 @@ structs.
 - Concrete session backends (`InMemoryAgentSession`) live in `alva-kernel-core`.
 - Scheduling **types** (`ResourceKey` / `LockMode` / `ExecutionMode`) stay
   here; the `ToolLockRegistry` runtime lives in `alva-kernel-core::tool_lock`.
+- `ToolRegistry` preserves first-registration order and reports replacement;
+  `AgentSession::supports_atomic_records()` advertises whether tool batches can
+  be committed without partial durable state.
 - All traits are `Send + Sync`
 - `ToolContext` is a trait (not a struct) to stay generic across deployments
 

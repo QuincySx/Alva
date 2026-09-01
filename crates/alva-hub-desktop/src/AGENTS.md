@@ -12,10 +12,11 @@
 2. `store` 在私有 SQLite 中原子保存 HubSession（含 project/session workspace kind）、global/session FallbackPolicy snapshot、多 EngineBranch（含 reasoning effort/Fast）、watermark、switch、handoff、timeline、Turn 和 Attempt；同 route 调参更新原 branch，不制造伪切换。
 2.1. `session_workspace` 只在用户明确选择“独立会话”后，于 Desktop app-data 创建 owner-only 专属目录和受管标记；项目模式继续使用用户选择的 Workspace，受管目录不隐式清理。
 3. `run` 创建或恢复 active branch 的 product/native session 映射；parked return 注入 delta，native resume 失效时原子升级完整 handoff 再 fresh 执行。
-4. SessionStarted/ToolEnd 增量落盘，Completed 原子提交 Attempt usage 与 Turn 终态。
+4. SessionStarted/ToolEnd 增量落盘，Completed 原子提交 Attempt usage 与 Turn 终态；Alva adapter 的真实 ToolExecution duration 穿透到 side-effect evidence。
 5. 运行中 switch 持久化为 queued；终态或启动 crash repair 后再原子应用。
-6. runtime events 与 switch facts 被投影为稳定 timeline states。
+6. runtime events 与 switch facts 被投影为稳定 timeline states；每个 TimelineEvent 在产品创建点取得统一 `created_at`，所有 engine 共用一个产品时间轴，UI 不读取 adapter-native clock。
 7. `main` 从 Tauri app-data 初始化 store，并暴露运行、切换、列表和详情 IPC。
+7.1. `inspection` 持有与 Alva adapter 共享的 `SessionRepository`，按 HubSession/EngineBranch 校验 native session 必须是根或可达子孙，再把 `EngineInspector` snapshot 投影为稳定 `HubInspectionSnapshot`；`main::get_hub_inspection` 只暴露该 DTO，非 Alva engine truthful unsupported。
 8. `main` 暴露全局与单 session fallback policy IPC；自动使用必须来自当前 session snapshot 的明确授权。
 9. `readiness` 用只读 `EngineProbe` facts（PATH 发现、`--version`、凭证存在性、attempt 历史）分类 ALVA/Claude Code/Codex/Pi 的结构化 EngineReadiness；target-aware fast veto 对 API-backed CLI route 仍要求 binary，但不再错误要求该 CLI 的私有订阅登录。
 9.1. `provider_diagnostics` 只消费后端解析出的 ProviderConfig：按协议发现远端模型，连接测试走 canonical provider factory 的最小真实 inference；跨 IPC 只返回模型标识、耗时和脱敏分类，不返回 URL、响应正文、样例、密钥或 header。
@@ -59,7 +60,8 @@
 |---|---|---|
 | Crate facade | `lib.rs` | 导出 run seam 与 DTO |
 | Engine assembly | `alva.rs` | 统一 ProviderConfig 到 ALVA、Claude Code、Codex、Pi 的 route-aware 安全装配 |
-| Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、自动 fallback 循环、事件投影与结果 |
+| Inspector bridge | `inspection.rs` | 共享 native repository、session 树归属校验、RunRecord/raw durable record 稳定 DTO 投影 |
+| Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、自动 fallback 循环、带产品时钟的事件投影与结果 |
 | Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
 | Permission contract | `permissions.rs` | PermissionProfile、adapter 映射资格契约、eligibility DTO 与 PermissionRouter |
 | Provider plane | `provider_plane/` | 版本化模型身份、显式 binding 校验、per-engine override 与纯路由规划 |
@@ -72,4 +74,4 @@
 | Worktree isolation | `worktree.rs` | 受管 git worktree、adoption 预览与丢弃 |
 | Engine repair | `repair.rs` | readiness→RepairAction 映射、一键安装 allowlist 执行器 |
 | SQLite store | `store/` | `db.rs` storage kernel；`mod.rs` 共享数据访问层与 `pub(crate)` 常量/helper；`branch.rs`/`handoff.rs`/`team.rs`/`turn.rs` 各持久化簇；`tests.rs` 全量测试。covering workspace kind、identity、模型选项、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
-| Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness command 和 event bridge |
+| Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness/Inspector command 和 timestamp-preserving event bridge |

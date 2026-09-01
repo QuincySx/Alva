@@ -1,5 +1,5 @@
 // INPUT:  tokio::{fs,io,process,time}, OS process-group primitives, alva_kernel_abi::{ToolFs, ToolFsDirEntry, ToolFsExecResult, AgentError}
-// OUTPUT: LocalToolFs (ToolFs impl backed by local OS with bounded shell capture and process-tree cleanup)
+// OUTPUT: LocalToolFs (ToolFs impl backed by local OS), LocalToolFs::spawn_background
 // POS:    Concrete native ToolFs implementation and the final resource boundary for host shell execution.
 
 use async_trait::async_trait;
@@ -57,6 +57,23 @@ fn kill_process_group(pid: Option<u32>) {
 
 #[cfg(not(unix))]
 fn kill_process_group(_pid: Option<u32>) {}
+
+/// Ensures cancellation by an outer future still terminates the full process
+/// group. `Child::kill_on_drop` only guarantees the direct shell is killed;
+/// this guard covers descendants created by that shell as well.
+struct ProcessGroupGuard(Option<u32>);
+
+impl ProcessGroupGuard {
+    fn kill(&mut self) {
+        kill_process_group(self.0.take());
+    }
+}
+
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Secret env scrubbing for spawned shells
@@ -136,6 +153,53 @@ impl LocalToolFs {
             self.root.join(p)
         }
     }
+
+    /// Spawn a deliberately detached shell command and return its process id.
+    ///
+    /// Unlike [`ToolFs::exec`], this method does not attach a process-tree
+    /// cleanup guard: surviving the initiating tool call is the explicit
+    /// contract of background execution. Standard streams are disconnected,
+    /// credentials are scrubbed, and Unix children start in a separate process
+    /// group so terminal interrupts aimed at the agent do not reach them.
+    pub async fn spawn_background(
+        &self,
+        command: &str,
+        cwd: Option<&str>,
+    ) -> Result<u32, AgentError> {
+        let mut cmd = Command::new("sh");
+        cmd.kill_on_drop(false);
+        cmd.arg("-c").arg(command);
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        configure_process_group(&mut cmd);
+        scrub_secret_env(&mut cmd);
+
+        if let Some(dir) = cwd {
+            cmd.current_dir(self.resolve(dir));
+        } else {
+            cmd.current_dir(&self.root);
+        }
+
+        let mut child = cmd.spawn().map_err(|io_err| AgentError::ToolError {
+            tool_name: "local_fs::spawn_background".to_string(),
+            message: format!("failed to spawn background command: {io_err}"),
+        })?;
+        let pid = child.id().ok_or_else(|| AgentError::ToolError {
+            tool_name: "local_fs::spawn_background".to_string(),
+            message: "background command started without a process id".to_string(),
+        })?;
+
+        // Reap the process while this runtime is alive. If the runtime itself
+        // shuts down, kill_on_drop(false) intentionally leaves the detached
+        // command running instead of silently violating the background API.
+        tokio::spawn(async move {
+            if let Err(error) = child.wait().await {
+                tracing::warn!(pid, %error, "failed to reap background command");
+            }
+        });
+        Ok(pid)
+    }
 }
 
 #[async_trait]
@@ -166,6 +230,7 @@ impl ToolFs for LocalToolFs {
             message: format!("failed to spawn command: {}", io_err),
         })?;
         let pid = child.id();
+        let mut process_group = ProcessGroupGuard(pid);
         let stdout = child
             .stdout
             .take()
@@ -179,7 +244,7 @@ impl ToolFs for LocalToolFs {
 
         let status = match timeout(duration, child.wait()).await {
             Err(_elapsed) => {
-                kill_process_group(pid);
+                process_group.kill();
                 let _ = child.kill().await;
                 let _ = child.wait().await;
                 stdout_task.abort();
@@ -192,7 +257,7 @@ impl ToolFs for LocalToolFs {
                 });
             }
             Ok(Err(io_err)) => {
-                kill_process_group(pid);
+                process_group.kill();
                 let _ = child.kill().await;
                 let _ = child.wait().await;
                 stdout_task.abort();
@@ -210,7 +275,7 @@ impl ToolFs for LocalToolFs {
         // Terminate descendants that remain in its private group. The capture
         // deadline below still prevents an explicitly re-parented/re-grouped
         // process from holding these pipes and hanging the tool call forever.
-        kill_process_group(pid);
+        process_group.kill();
 
         let remaining = duration.saturating_sub(started.elapsed());
         let captures = match timeout(remaining, async {
@@ -462,6 +527,24 @@ mod tests {
             !marker.exists(),
             "background descendant outlived the tool call and created {}",
             marker.display()
+        );
+    }
+
+    #[tokio::test]
+    async fn spawn_background_survives_the_initiating_call() {
+        let (fs, dir) = make_fs();
+        let marker = dir.path().join("detached-marker.txt");
+        let command = format!("sleep 0.1; touch '{}'", marker.display());
+
+        let pid = fs
+            .spawn_background(&command, None)
+            .await
+            .expect("background command should start");
+        assert!(pid > 0);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            marker.exists(),
+            "detached command did not outlive its caller"
         );
     }
 

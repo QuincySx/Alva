@@ -11,11 +11,11 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 1. 产品控制器通过 `EngineRuntime` seam 驱动 `HubRuntime`。
 2. `HubStore` 以 Desktop 私有 SQLite 持久化 product session、session-scoped FallbackPolicy snapshot、多 EngineBranch、switch、handoff、timeline、Turn 和 EngineAttempt。
-3. Attempt 运行中增量记录 native session 与工具开始/完成证据，终态记录 usage/失败原因。
+3. Attempt 运行中增量记录 native session 与工具开始/完成证据（含 adapter 保留的真实 duration），终态记录 usage/失败原因。
 4. 用户显式选择 ALVA/Claude Code/Codex/Pi；源 branch parked 并保留 native session，目标 branch 创建或恢复。Claude/Codex 可用自己的订阅，也可消费协议兼容的第三方 API；ALVA/Pi 只消费第三方 API。模型 route 按 provider × model × engine 精确声明 reasoning 档位与 Fast 能力，未知模型不猜测；选择随 EngineBranch 持久化并投影到实际 adapter，Fast 仅进入声明支持它的 Codex route。
 5. 首次进入目标 branch 注入完整 HandoffPackage；返回 parked branch 以 watermark 生成 delta 并先 native resume，失效时原子升级 full handoff 后 fresh 执行。
 6. 运行中切换排队到安全终态；启动修复 running Attempt 后自动应用可执行的 pending switch。
-7. Tauri command 把用户运行/切换请求转换为 Hub 产品操作，并把 timeline event 发给 React。
+7. Tauri command 把用户运行/切换请求转换为 Hub 产品操作；所有 engine 的产品 TimelineEvent 在创建点取得同一产品时钟的 `created_at` 后再发给 React，raw adapter clock 不出产品边界。
 8. React/Vite/TypeScript 前端的新会话中央入口优先并推荐“项目”，显式选择现有 Workspace；“独立会话”作为第二选项在 app-data 获得 owner-only 专属目录。Sidebar 不重复放 Workspace 入口。两种模式的 HubSession 历史、分支和运行状态都独立，项目模式仅共享项目文件。
 9. 用户保存全局或 session fallback chain 前可看到 target 的 model/provider、账号、账单路径和自动使用授权；手动切换不授予自动 fallback 权限。
 10. Engines dashboard 自动发现三个 engine 并展示版本兼容性、capabilities、auth 与 stream health；不可用原因是结构化 reason，可从 composer 与详情到达；刷新只读。
@@ -44,7 +44,9 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 24. Lead 与 Worker 默认继承 HubSession PermissionProfile，建 Worker 不隐式放宽权限，每个 Worker 的 adapter mapping 都必须满足该 profile；autonomous TeamRun 需要独立、可见、持久化的用户选择；等价并发 PermissionRequest 合并为一张审批卡但逐条展示 Worker/操作/资源范围，一次 allow/deny 精确路由到全部被选请求并留审计记录。
 
-25. 两栏信息架构收口：左栏 HubSession 创建/选择/搜索，composer 集中 engine、model、PermissionProfile 与 FallbackPolicy，timeline 只用产品 TimelineEvent；可选 Details 抽屉完整检视 branches、attempts、handoff 与 engine diagnostics；collaboration surface 管理 Lead/Workers/queues/lifecycle；fallback、permission 与 Worker 卡片在重启后要么可操作要么明确终态。
+25. 两栏信息架构收口：左栏 HubSession 创建/选择/搜索，composer 集中 engine、model、PermissionProfile 与 FallbackPolicy，timeline 只用产品 TimelineEvent，并按 shared clock 投影 Input/Agent/Tools 三泳道；可选 Details 抽屉完整检视 branches、attempts、handoff 与 engine diagnostics；collaboration surface 管理 Lead/Workers/queues/lifecycle；fallback、permission 与 Worker 卡片在重启后要么可操作要么明确终态。
+
+25.1. Workbench Inspector 与 timeline 分层：timeline 继续只读产品 TimelineEvent；Inspector 经 `HubInspectorService` 使用与 Alva adapter 共享的 `SessionRepository`，把权威 typed records 投影为稳定 IPC DTO。Tauri command 与 headless HTTP endpoint 同构；前端可钻取 LLM/Tool/Middleware/raw durable record 和递归子 Agent，并按详情→当前 Agent→父 Agent 逐页回退。非 Alva engine 明确显示 unsupported，不伪造内部事件。
 
 26. V1 验收矩阵在 `ACCEPTANCE.md`：18 条 scenario 逐条映射到可执行断言或明确标注为待打包运行时验证；外部链接经 `tauri-plugin-opener`（wry webview 里裸 `<a target="_blank">` 不生效）；worktree 隔离测试在缺 git 时**响亮失败**而非静默跳过（它们是"未 adopt 的工作不进共享 workspace"的唯一证据）。
 
@@ -54,24 +56,25 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 - canary 测试钉死敏感字段不达另一 EngineRuntime。
 - 未分类（Other）失败与成功但质量不佳的结果都不触发自动 fallback。
 - 不复用 `alva-app-tauri` 的 Rust backend 或 session database。
-- raw adapter stream 不直接泄露给 UI；先投影为产品 timeline vocabulary。
+- raw adapter stream 不直接泄露给 UI；产品运行态先投影为 timeline vocabulary，调试态只通过稳定 Hub Inspector DTO 暴露 durable typed records。
 - SQLite 路径来自 Tauri app-data；目录/文件私有、拒绝符号链接、写入走事务，并以实例锁保护启动修复。
 
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
-| Product seam | `src/run.rs` | 动态 engine Hub 运行、完整 handoff 注入与 timeline 投影 |
+| Product seam | `src/run.rs` | 动态 engine Hub 运行、完整 handoff 注入与 shared-clock timeline 投影 |
 | Engine assembly | `src/alva.rs` | 为 workspace 构造 ALVA、Claude Code、Codex 或 Pi adapter，并投影统一第三方 ProviderConfig |
+| Inspector bridge | `src/inspection.rs` | 共享 Alva SessionRepository、校验 product/native session 归属并投影稳定递归 Inspector DTO |
 | Engine readiness | `src/readiness.rs` | 只读 probe、结构化 readiness 分类与 dashboard DTO |
 | Permission contract | `src/permissions.rs` | session PermissionProfile、adapter 映射资格与 PermissionRouter |
 | Provider plane | `src/provider_plane/` | 版本化模型身份、显式 binding 校验、per-engine override 与无 I/O 路由规划 |
 | Provider catalog | `src/providers.rs` | Provider 连接配置、backend-validated model binding、私密凭证与 route DTO 投影 |
 | Session workspace | `src/session_workspace.rs` | owner-only 独立会话目录创建与 project/session workspace kind |
 | Session store | `src/store/` | 私有 SQLite（`db.rs` storage kernel + `mod.rs` 共享数据层 + `branch.rs`/`handoff.rs`/`team.rs`/`turn.rs`/`tests.rs` 持久化簇）covering workspace kind、policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
-| Tauri entry | `src/main.rs` | workspace 创建、运行/切换 IPC、event emission 与 Desktop runtime |
+| Tauri entry | `src/main.rs` | workspace 创建、运行/切换/Inspector IPC、event emission 与 Desktop runtime |
 | Crate facade | `src/lib.rs` | 对 Tauri 层和测试暴露产品类型 |
-| Web frontend | `web/` | React/Vite/TypeScript workspace、composer 与 timeline |
+| Web frontend | `web/` | React/Vite/TypeScript workspace、composer、三泳道 timeline 与递归 Inspector 页栈 |
 | Desktop config | `tauri.conf.json` / `capabilities/` | window、build 与最小权限配置 |
 | Presentation assets | `icons/` | walking-skeleton 暂用的 Alva 图标 |
 | Acceptance matrix | `ACCEPTANCE.md` | 18 条 V1 scenario → 证据映射与剩余缺口 |

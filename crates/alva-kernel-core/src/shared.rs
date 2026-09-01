@@ -172,10 +172,7 @@ mod tests {
         ext.insert(TokenCount(42));
         ext.insert(RequestId("req-123".to_string()));
 
-        assert_eq!(
-            ext.get::<TokenCount>().as_deref(),
-            Some(&TokenCount(42))
-        );
+        assert_eq!(ext.get::<TokenCount>().as_deref(), Some(&TokenCount(42)));
         assert_eq!(
             ext.get::<RequestId>().as_deref(),
             Some(&RequestId("req-123".to_string()))

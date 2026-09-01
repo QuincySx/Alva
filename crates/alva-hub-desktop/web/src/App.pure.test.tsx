@@ -271,6 +271,7 @@ describe("mergeLiveTimeline", () => {
       {
         ...completed,
         role: "assistant",
+        started_at: 100,
         message: "Hello world",
       },
     ]);

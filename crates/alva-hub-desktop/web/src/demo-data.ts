@@ -1,5 +1,5 @@
 // INPUT:  bridge types
-// OUTPUT: deterministic demo data for `?demo=1` in the vite dev server
+// OUTPUT: deterministic session, timeline, team, readiness, and Inspector demo data for `?demo=1`
 // POS:    Lets the wireframe/vision review tools see a DATA state (sessions,
 //         timeline cards, team run) without the Tauri runtime. Never active
 //         in production: hasTauri=true bypasses every demo branch.
@@ -7,6 +7,7 @@ import type {
   EngineReadiness,
   EngineTarget,
   FallbackPolicy,
+  HubInspectionSnapshot,
   HubSessionDetail,
   HubSessionSummary,
   ModelRoute,
@@ -561,5 +562,88 @@ export function demoFallbackPolicy(): FallbackPolicy {
   return {
     targets: [engine("alva"), engine("claude"), engine("codex"), engine("pi")],
     updated_at: 1724998000000,
+  };
+}
+
+export function demoInspection(nativeSessionId = "native-alva-1"): HubInspectionSnapshot {
+  return {
+    product_session_id: "ps-demo-1",
+    branch_id: "branch-demo-alva",
+    root_native_session_id: "native-alva-1",
+    engine_id: "alva",
+    native_session_id: nativeSessionId,
+    parent_session_id: nativeSessionId === "native-alva-1" ? null : "native-alva-1",
+    high_water_seq: 12,
+    live: false,
+    capabilities: {
+      level: "full",
+      historical: true,
+      live: true,
+      raw_records: true,
+      recursive_children: true,
+      export_jsonl_bundle: true,
+    },
+    run: {
+      total_duration_ms: 842,
+      total_input_tokens: 820,
+      total_output_tokens: 164,
+      middleware_hooks: [{
+        middleware_name: "security",
+        hook: "on_agent_start",
+        duration_ms: 2,
+        outcome: "success",
+        error: null,
+        tool_call_id: null,
+      }],
+      user_messages: [{ before_turn_number: 1, text: "Inspect the workspace", timestamp_ms: 1725000000000 }],
+      turns: [{
+        turn_number: 1,
+        duration_ms: 820,
+        llm_call: {
+          messages_sent: [{ role: "user", content: "Inspect the workspace" }],
+          messages_sent_count: 1,
+          response: { role: "assistant", content: "I will inspect the project." },
+          input_tokens: 820,
+          output_tokens: 164,
+          duration_ms: 612,
+          stop_reason: "tool_use",
+          error_message: null,
+          middleware_hooks: [{
+            middleware_name: "security",
+            hook: "wrap_llm_call",
+            duration_ms: 614,
+            outcome: "success",
+            error: null,
+            tool_call_id: null,
+          }],
+          first_event_ms: 31,
+          time_to_first_output_ms: 48,
+          time_to_first_token_ms: 48,
+          stream_duration_ms: 610,
+          stream_event_count: 18,
+          visible_stream_event_count: 14,
+          stream_transport: "stream",
+          stream_outcome: "completed",
+        },
+        tool_calls: [{
+          tool_call: { id: "tool-demo-1", name: "read_file", arguments: { path: "src/main.rs" } },
+          result: { content: "…" },
+          is_error: false,
+          duration_ms: 104,
+          middleware_hooks: [],
+        }],
+      }],
+    },
+    records: [
+      { seq: 1, record_id: "r1", parent_record_id: null, timestamp: 1725000000000, category: "execution", type_name: "run_start", emitter: { kind: "runtime" }, payload: {} },
+      { seq: 8, record_id: "r8", parent_record_id: "r3", timestamp: 1725000000610, category: "execution", type_name: "llm_stream_summary", emitter: { kind: "runtime" }, payload: { event_count: 18 } },
+      { seq: 12, record_id: "r12", parent_record_id: "r1", timestamp: 1725000000842, category: "execution", type_name: "run_end", emitter: { kind: "runtime" }, payload: {} },
+    ],
+    children: nativeSessionId === "native-alva-1" ? [{
+      child_session_id: "demo-native-child",
+      parent_session_id: "native-alva-1",
+      parent_run_id: "run-demo-1",
+      spawn_tool_call_id: "tool-demo-spawn",
+    }] : [],
   };
 }

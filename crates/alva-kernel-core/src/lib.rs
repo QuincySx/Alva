@@ -1,5 +1,5 @@
 // INPUT:  alva_kernel_abi, tokio, tokio_stream, tracing, uuid, chrono, async_trait, thiserror, serde, serde_json
-// OUTPUT: AgentState, AgentConfig, AgentEvent, AgentMessage, Middleware, MiddlewareStack, Extensions, run_agent, builtins
+// OUTPUT: AgentState, AgentConfig, AgentEvent/Sender, AgentMessage, Middleware stack, run_agent, builtins
 // POS:    Crate root — declares modules and re-exports the public API for the agent engine.
 
 pub mod agent_session;
@@ -32,7 +32,9 @@ pub use run_child::{run_child_agent, ChildAgentOutput, ChildAgentParams};
 pub use tool_batch::{CommittedToolCall, ToolBatchCoordinator};
 
 // Re-exports — event
-pub use event::AgentEvent;
+pub use event::{
+    AgentEvent, AgentEventSendError, AgentEventSender, DEFAULT_AGENT_EVENT_CHANNEL_CAPACITY,
+};
 
 // Re-exports — runtime context
 pub use runtime_context::RuntimeExecutionContext;

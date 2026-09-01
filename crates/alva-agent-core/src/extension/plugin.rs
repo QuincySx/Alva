@@ -1,3 +1,6 @@
+// INPUT:  async_trait, std::sync::Arc, alva_kernel_abi::{AgentError, Tool}, Registrar, LateContext
+// OUTPUT: Plugin trait
+// POS:    SDK plugin lifecycle contract with backward-compatible fallible registration and finalization seams.
 //! Plugin — 装配期跨层捆绑包（取代 Extension）。
 //!
 //! `Plugin::register()` 每次装配调用一次，发生在 tools 与 model 定稿之前。
@@ -7,6 +10,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::AgentError;
 
 use super::registrar::{LateContext, Registrar};
 
@@ -94,7 +98,16 @@ pub trait Plugin: Send + Sync {
     /// 即使先注册的 plugin 的结果在实现上可能可见，也**不保证**装配顺序——
     /// 需要读别家能力的逻辑请放到运行期（middleware/tool 执行时）或
     /// [`finalize`](Self::finalize)。
-    async fn register(&self, r: &Registrar);
+    async fn register(&self, _r: &Registrar) {}
+
+    /// Fallible registration entry point used by the builder. Existing
+    /// plugins can keep implementing [`register`](Self::register); plugins
+    /// that perform I/O or validation override this method and return a
+    /// configuration error instead of logging or panicking.
+    async fn try_register(&self, r: &Registrar) -> Result<(), AgentError> {
+        self.register(r).await;
+        Ok(())
+    }
 
     /// **晚期钩子** — 在所有 `register()` 调用结束、完整 tool 集合与 model
     /// 都已就绪后调用。用于动态 tool 发现 + 跨插件晚期接线（读别家在
@@ -105,5 +118,12 @@ pub trait Plugin: Send + Sync {
     /// `Registrar`，无法调 `r.tool()`，晚期 tool 只能从本方法返回。
     async fn finalize(&self, _cx: &LateContext) -> Vec<Arc<dyn Tool>> {
         vec![]
+    }
+
+    /// Fallible late wiring entry point. The default preserves the original
+    /// `finalize()` API while allowing production plugins to surface failed
+    /// discovery or cross-plugin validation to `AgentBuilder::build()`.
+    async fn try_finalize(&self, cx: &LateContext) -> Result<Vec<Arc<dyn Tool>>, AgentError> {
+        Ok(self.finalize(cx).await)
     }
 }

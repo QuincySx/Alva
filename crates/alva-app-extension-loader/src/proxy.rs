@@ -1,7 +1,7 @@
-// INPUT:  subprocess::SubprocessRuntime, dispatcher::RpcDispatcher, manifest::PluginManifest,
+// INPUT:  plugin_bundle::StagedPluginBundle, subprocess::SubprocessRuntime, dispatcher::RpcDispatcher,
 //         protocol::{InitializeParams, InitializeResult, ExtensionAction, BeforeToolCallParams, ...}
 // OUTPUT: RemotePluginProxy, ProxyError
-// POS:    Phase 3 — one subprocess plugin, ready to dispatch events to.
+// POS:    One capability-gated subprocess proxy executing from an immutable owner-only bundle snapshot.
 
 //! A single dynamically-loaded plugin, wrapped so it can participate
 //! in the host's phase/event dispatch machinery.
@@ -37,6 +37,7 @@
 //! currently honours: `Continue`, `Block`, tool argument/result
 //! mutation, and LLM request/response mutation.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,6 +49,7 @@ use serde_json::Value;
 use crate::dispatcher::{DispatchError, RpcDispatcher};
 use crate::host_api::{AlvaHostHandler, StateSnapshot};
 use crate::manifest::PluginManifest;
+use crate::plugin_bundle::{PluginBundleError, StagedPluginBundle};
 use crate::protocol::{
     methods, BeforeToolCallParams, ExtensionAction, HostCapabilities, HostInfo, InitializeParams,
     InitializeResult, StateHandle, ToolCallWire, PROTOCOL_VERSION,
@@ -168,6 +170,22 @@ fn is_legal_action(event: &str, kind: AepActionKind) -> bool {
 /// wedged and treating the event as `Continue`. Matches the spec's
 /// default `extension/*` timeout.
 const EVENT_TIMEOUT: Duration = Duration::from_secs(5);
+const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(10);
+const TOOL_CALL_TIMEOUT: Duration = Duration::from_secs(120);
+const SHUTDOWN_RPC_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_REMOTE_TOOLS: usize = 128;
+const MAX_TOOL_NAME_BYTES: usize = 128;
+const MAX_TOOL_DESCRIPTION_BYTES: usize = 8 * 1024;
+const MAX_TOOL_SCHEMA_BYTES: usize = 256 * 1024;
+const SUPPORTED_EVENT_SUBSCRIPTIONS: &[&str] = &[
+    "before_tool_call",
+    "after_tool_call",
+    "on_llm_call_start",
+    "on_llm_call_end",
+    "on_agent_start",
+    "on_agent_end",
+    "on_user_message",
+];
 
 /// Event-scoped state handle used in AEP params. The host refreshes
 /// the snapshot behind this handle immediately before dispatching
@@ -181,16 +199,20 @@ pub struct RemotePluginProxy {
     init_result: InitializeResult,
     dispatcher: RpcDispatcher,
     host_handler: Arc<AlvaHostHandler>,
+    staged_bundle: StagedPluginBundle,
 }
 
 impl RemotePluginProxy {
     /// Spawn `manifest.entry` under `plugin_dir`, drive the handshake,
     /// and return a proxy ready to dispatch events to.
     pub async fn start(plugin_dir: PathBuf, manifest: PluginManifest) -> Result<Self, ProxyError> {
-        let entry = plugin_dir.join(&manifest.entry);
+        let staged_bundle = StagedPluginBundle::stage(plugin_dir, manifest.clone()).await?;
+        let entry = staged_bundle.entry().to_path_buf();
+        let staged_root = staged_bundle.root().to_path_buf();
         tracing::info!(
             plugin = %manifest.name,
             entry = %entry.display(),
+            content_sha256 = %staged_bundle.content_sha256(),
             "starting plugin subprocess"
         );
 
@@ -198,7 +220,7 @@ impl RemotePluginProxy {
             &manifest.name,
             manifest.runtime,
             entry,
-            Some(plugin_dir),
+            Some(staged_root),
             None,
         )
         .await?;
@@ -218,15 +240,10 @@ impl RemotePluginProxy {
             },
             host_capabilities: HostCapabilities {
                 state_access: vec!["messages".into(), "metadata".into()],
-                events: vec![
-                    "before_tool_call".into(),
-                    "after_tool_call".into(),
-                    "on_llm_call_start".into(),
-                    "on_llm_call_end".into(),
-                    "on_agent_start".into(),
-                    "on_agent_end".into(),
-                    "on_user_message".into(),
-                ],
+                events: SUPPORTED_EVENT_SUBSCRIPTIONS
+                    .iter()
+                    .map(|event| (*event).to_string())
+                    .collect(),
                 host_api: vec![
                     "log".into(),
                     "notify".into(),
@@ -238,13 +255,20 @@ impl RemotePluginProxy {
             },
         };
 
-        let init_value = dispatcher
-            .call(
+        let init_value = tokio::time::timeout(
+            INITIALIZE_TIMEOUT,
+            dispatcher.call(
                 methods::INITIALIZE,
                 Some(serde_json::to_value(&init_params)?),
-            )
-            .await?;
+            ),
+        )
+        .await
+        .map_err(|_| ProxyError::Timeout {
+            operation: "initialize",
+            seconds: INITIALIZE_TIMEOUT.as_secs(),
+        })??;
         let init_result: InitializeResult = serde_json::from_value(init_value)?;
+        validate_initialize_result(&manifest, &init_result)?;
         tracing::info!(
             plugin = %manifest.name,
             declared = %init_result.plugin.name,
@@ -261,6 +285,7 @@ impl RemotePluginProxy {
             init_result,
             dispatcher,
             host_handler,
+            staged_bundle,
         })
     }
 
@@ -276,6 +301,11 @@ impl RemotePluginProxy {
     #[allow(dead_code)]
     pub fn init_result(&self) -> &InitializeResult {
         &self.init_result
+    }
+
+    /// Digest of the immutable bundle snapshot this process is executing.
+    pub fn content_sha256(&self) -> &str {
+        self.staged_bundle.content_sha256()
     }
 
     pub fn update_state_snapshot(&self, messages: Vec<Message>, metadata: Value) {
@@ -334,16 +364,21 @@ impl RemotePluginProxy {
         tool_name: &str,
         arguments: Value,
     ) -> Result<ToolOutput, ProxyError> {
-        let value = self
-            .dispatcher
-            .call(
+        let value = tokio::time::timeout(
+            TOOL_CALL_TIMEOUT,
+            self.dispatcher.call(
                 methods::TOOLS_CALL,
                 Some(serde_json::json!({
                     "name": tool_name,
                     "arguments": arguments,
                 })),
-            )
-            .await?;
+            ),
+        )
+        .await
+        .map_err(|_| ProxyError::Timeout {
+            operation: "tools/call",
+            seconds: TOOL_CALL_TIMEOUT.as_secs(),
+        })??;
         parse_tool_output(value)
     }
 
@@ -352,13 +387,136 @@ impl RemotePluginProxy {
     pub async fn shutdown(self) -> Result<(), ProxyError> {
         let plugin = self.name.clone();
         // Best-effort: plugin might already be gone.
-        if let Err(e) = self.dispatcher.call(methods::SHUTDOWN, None).await {
-            tracing::warn!(plugin = %plugin, error = %e, "shutdown rpc failed");
+        match tokio::time::timeout(
+            SHUTDOWN_RPC_TIMEOUT,
+            self.dispatcher.call(methods::SHUTDOWN, None),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                tracing::warn!(plugin = %plugin, %error, "shutdown rpc failed");
+            }
+            Err(_) => {
+                tracing::warn!(
+                    plugin = %plugin,
+                    timeout_seconds = SHUTDOWN_RPC_TIMEOUT.as_secs(),
+                    "shutdown rpc timed out"
+                );
+            }
         }
         let status = self.dispatcher.shutdown().await?;
         tracing::info!(plugin = %plugin, ?status, "plugin subprocess exited");
         Ok(())
     }
+}
+
+fn validate_initialize_result(
+    manifest: &PluginManifest,
+    result: &InitializeResult,
+) -> Result<(), ProxyError> {
+    if result.protocol_version != PROTOCOL_VERSION {
+        return Err(ProxyError::InvalidInitialize(format!(
+            "protocol version mismatch: host supports {PROTOCOL_VERSION}, plugin returned {}",
+            result.protocol_version
+        )));
+    }
+    if result.plugin.name != manifest.name || result.plugin.version != manifest.version {
+        return Err(ProxyError::InvalidInitialize(format!(
+            "plugin identity mismatch: manifest is {}@{}, initialize returned {}@{}",
+            manifest.name, manifest.version, result.plugin.name, result.plugin.version
+        )));
+    }
+
+    let declared_capabilities: HashSet<&str> = manifest
+        .requested_capabilities
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let returned_capabilities: HashSet<&str> = result
+        .requested_capabilities
+        .iter()
+        .map(String::as_str)
+        .collect();
+    if returned_capabilities.len() != result.requested_capabilities.len() {
+        return Err(ProxyError::InvalidInitialize(
+            "initialize returned duplicate requested capabilities".to_string(),
+        ));
+    }
+    if returned_capabilities != declared_capabilities {
+        return Err(ProxyError::InvalidInitialize(
+            "initialize requestedCapabilities must exactly match the validated manifest"
+                .to_string(),
+        ));
+    }
+
+    if result.event_subscriptions.len() > SUPPORTED_EVENT_SUBSCRIPTIONS.len() {
+        return Err(ProxyError::InvalidInitialize(format!(
+            "plugin declared more than {} event subscriptions",
+            SUPPORTED_EVENT_SUBSCRIPTIONS.len()
+        )));
+    }
+    let mut subscriptions = HashSet::new();
+    for subscription in &result.event_subscriptions {
+        if !SUPPORTED_EVENT_SUBSCRIPTIONS.contains(&subscription.as_str()) {
+            return Err(ProxyError::InvalidInitialize(format!(
+                "unsupported event subscription: {subscription}"
+            )));
+        }
+        if !subscriptions.insert(subscription.as_str()) {
+            return Err(ProxyError::InvalidInitialize(format!(
+                "duplicate event subscription: {subscription}"
+            )));
+        }
+    }
+
+    if result.tools.len() > MAX_REMOTE_TOOLS {
+        return Err(ProxyError::InvalidInitialize(format!(
+            "plugin declared more than {MAX_REMOTE_TOOLS} tools"
+        )));
+    }
+    let mut tool_names = HashSet::new();
+    for tool in &result.tools {
+        if tool.name.is_empty()
+            || tool.name.len() > MAX_TOOL_NAME_BYTES
+            || !tool
+                .name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        {
+            return Err(ProxyError::InvalidInitialize(format!(
+                "invalid remote tool name: {:?}",
+                tool.name
+            )));
+        }
+        if !tool_names.insert(tool.name.as_str()) {
+            return Err(ProxyError::InvalidInitialize(format!(
+                "duplicate remote tool name: {}",
+                tool.name
+            )));
+        }
+        if tool.description.len() > MAX_TOOL_DESCRIPTION_BYTES {
+            return Err(ProxyError::InvalidInitialize(format!(
+                "remote tool '{}' description exceeds {MAX_TOOL_DESCRIPTION_BYTES} bytes",
+                tool.name
+            )));
+        }
+        if !tool.input_schema.is_object() {
+            return Err(ProxyError::InvalidInitialize(format!(
+                "remote tool '{}' inputSchema must be a JSON object",
+                tool.name
+            )));
+        }
+        let schema_size = serde_json::to_vec(&tool.input_schema)?.len();
+        if schema_size > MAX_TOOL_SCHEMA_BYTES {
+            return Err(ProxyError::InvalidInitialize(format!(
+                "remote tool '{}' inputSchema exceeds {MAX_TOOL_SCHEMA_BYTES} bytes",
+                tool.name
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn parse_tool_output(mut value: Value) -> Result<ToolOutput, ProxyError> {
@@ -669,6 +827,9 @@ fn call_dispatcher_blocking(
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProxyError {
+    #[error("plugin bundle error: {0}")]
+    Bundle(#[from] PluginBundleError),
+
     #[error("subprocess error: {0}")]
     Subprocess(#[from] SubprocessError),
 
@@ -677,11 +838,20 @@ pub enum ProxyError {
 
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    #[error("plugin initialize contract rejected: {0}")]
+    InvalidInitialize(String),
+
+    #[error("plugin {operation} timed out after {seconds}s")]
+    Timeout {
+        operation: &'static str,
+        seconds: u64,
+    },
 }
 
 #[cfg(test)]
 mod tests {
-    //! Tests for proxy.rs pure-sync helpers — 7 tests covering 3
+    //! Tests for proxy.rs helpers and timeout contracts.
     //! contract families:
     //!
     //! 1. **`aep_event_name` wire-name translation** — [`AepEvent`]
@@ -704,6 +874,105 @@ mod tests {
     //!    + a merged forward-compat/defensive test covering unsupported
     //!      variants AND malformed JSON.
     use super::*;
+    use crate::manifest::Runtime;
+    use crate::protocol::{PluginInfo, ToolDef};
+
+    fn handshake_manifest() -> PluginManifest {
+        PluginManifest {
+            name: "example-plugin".to_string(),
+            version: "1.2.3".to_string(),
+            description: None,
+            author: None,
+            runtime: Runtime::Python,
+            entry: "main.py".to_string(),
+            requested_capabilities: vec!["host:log".to_string()],
+            content_sha256: None,
+        }
+    }
+
+    fn handshake_result() -> InitializeResult {
+        InitializeResult {
+            protocol_version: PROTOCOL_VERSION.to_string(),
+            plugin: PluginInfo {
+                name: "example-plugin".to_string(),
+                version: "1.2.3".to_string(),
+                description: None,
+                author: None,
+            },
+            tools: vec![ToolDef {
+                name: "remote_echo".to_string(),
+                description: "Echo a value".to_string(),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
+            event_subscriptions: vec!["before_tool_call".to_string()],
+            requested_capabilities: vec!["host:log".to_string()],
+        }
+    }
+
+    #[test]
+    fn initialize_contract_accepts_matching_bounded_declarations() {
+        validate_initialize_result(&handshake_manifest(), &handshake_result()).unwrap();
+    }
+
+    #[test]
+    fn initialize_contract_rejects_protocol_identity_and_capability_drift() {
+        let manifest = handshake_manifest();
+
+        let mut result = handshake_result();
+        result.protocol_version = "99.0.0".to_string();
+        assert!(validate_initialize_result(&manifest, &result)
+            .unwrap_err()
+            .to_string()
+            .contains("protocol version mismatch"));
+
+        let mut result = handshake_result();
+        result.plugin.name = "impersonator".to_string();
+        assert!(validate_initialize_result(&manifest, &result)
+            .unwrap_err()
+            .to_string()
+            .contains("identity mismatch"));
+
+        let mut result = handshake_result();
+        result.requested_capabilities = vec!["host:notify".to_string()];
+        assert!(validate_initialize_result(&manifest, &result)
+            .unwrap_err()
+            .to_string()
+            .contains("exactly match"));
+    }
+
+    #[test]
+    fn initialize_contract_rejects_unknown_or_duplicate_declarations() {
+        let manifest = handshake_manifest();
+
+        let mut result = handshake_result();
+        result.event_subscriptions.push("future_event".to_string());
+        assert!(validate_initialize_result(&manifest, &result)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported event"));
+
+        let mut result = handshake_result();
+        result.tools.push(result.tools[0].clone());
+        assert!(validate_initialize_result(&manifest, &result)
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate remote tool"));
+
+        let mut result = handshake_result();
+        result.tools[0].input_schema = Value::Bool(true);
+        assert!(validate_initialize_result(&manifest, &result)
+            .unwrap_err()
+            .to_string()
+            .contains("inputSchema must be a JSON object"));
+    }
+
+    #[test]
+    fn rpc_timeouts_are_finite() {
+        assert_eq!(INITIALIZE_TIMEOUT, Duration::from_secs(10));
+        assert_eq!(EVENT_TIMEOUT, Duration::from_secs(5));
+        assert_eq!(TOOL_CALL_TIMEOUT, Duration::from_secs(120));
+        assert_eq!(SHUTDOWN_RPC_TIMEOUT, Duration::from_secs(3));
+    }
     use alva_kernel_abi::{ContentBlock, MessageRole};
 
     // -- aep_event_name: parametric over 7 variants --------------------

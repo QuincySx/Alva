@@ -217,11 +217,11 @@ mod tests {
     #[tokio::test]
     async fn test_no_tool_calls_passes_through() {
         let mw = LoopDetectionMiddleware::new();
-        let mut state = make_state();
+        let state = make_state();
         let mut response = text_only_response();
         let original_text = response.text_content();
 
-        mw.after_llm_call(&mut state, &mut response).await.unwrap();
+        mw.after_llm_call(&state, &mut response).await.unwrap();
 
         assert_eq!(response.text_content(), original_text);
         assert!(!response.has_tool_calls());
@@ -230,13 +230,13 @@ mod tests {
     #[tokio::test]
     async fn test_below_warn_threshold_no_change() {
         let mw = LoopDetectionMiddleware::with_thresholds(3, 5, 20);
-        let mut state = make_state();
+        let state = make_state();
 
         // First two identical calls: no action
         for _ in 0..2 {
             let mut response =
                 assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
-            mw.after_llm_call(&mut state, &mut response).await.unwrap();
+            mw.after_llm_call(&state, &mut response).await.unwrap();
             assert!(
                 response.has_tool_calls(),
                 "tool_calls should still be present"
@@ -247,18 +247,18 @@ mod tests {
     #[tokio::test]
     async fn test_warn_threshold_keeps_tool_calls() {
         let mw = LoopDetectionMiddleware::with_thresholds(3, 5, 20);
-        let mut state = make_state();
+        let state = make_state();
 
         // Reach warn threshold (3 identical calls)
         for _ in 0..3 {
             let mut response =
                 assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
-            mw.after_llm_call(&mut state, &mut response).await.unwrap();
+            mw.after_llm_call(&state, &mut response).await.unwrap();
         }
         // At warn threshold, tool_calls are still present (only a log warning)
         let mut response =
             assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
-        mw.after_llm_call(&mut state, &mut response).await.unwrap();
+        mw.after_llm_call(&state, &mut response).await.unwrap();
         // 4th call: above warn but below hard limit
         assert!(response.has_tool_calls());
     }
@@ -266,19 +266,19 @@ mod tests {
     #[tokio::test]
     async fn test_hard_limit_strips_tool_calls() {
         let mw = LoopDetectionMiddleware::with_thresholds(3, 5, 20);
-        let mut state = make_state();
+        let state = make_state();
 
         // First 4 identical calls
         for _ in 0..4 {
             let mut response =
                 assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
-            mw.after_llm_call(&mut state, &mut response).await.unwrap();
+            mw.after_llm_call(&state, &mut response).await.unwrap();
         }
 
         // 5th identical call: hard limit reached
         let mut response =
             assistant_with_tool_calls(vec![("grep", serde_json::json!({"pattern": "foo"}))]);
-        mw.after_llm_call(&mut state, &mut response).await.unwrap();
+        mw.after_llm_call(&state, &mut response).await.unwrap();
 
         assert!(!response.has_tool_calls(), "tool_calls should be stripped");
         let text = response.text_content();
@@ -291,7 +291,7 @@ mod tests {
     #[tokio::test]
     async fn test_different_tool_calls_no_loop() {
         let mw = LoopDetectionMiddleware::with_thresholds(3, 5, 20);
-        let mut state = make_state();
+        let state = make_state();
 
         // Different tool calls each time
         for i in 0..10 {
@@ -299,7 +299,7 @@ mod tests {
                 "grep",
                 serde_json::json!({"pattern": format!("query_{i}")}),
             )]);
-            mw.after_llm_call(&mut state, &mut response).await.unwrap();
+            mw.after_llm_call(&state, &mut response).await.unwrap();
             assert!(
                 response.has_tool_calls(),
                 "tool_calls should remain for unique calls"
@@ -314,20 +314,16 @@ mod tests {
         let tool_calls = vec![("grep", serde_json::json!({"pattern": "foo"}))];
 
         // Session A: 2 calls (reaches warn)
-        let mut state_a = make_state();
+        let state_a = make_state();
         for _ in 0..2 {
             let mut response = assistant_with_tool_calls(tool_calls.clone());
-            mw.after_llm_call(&mut state_a, &mut response)
-                .await
-                .unwrap();
+            mw.after_llm_call(&state_a, &mut response).await.unwrap();
         }
 
         // Session B: 1 call (below warn) — different session since make_state() creates unique IDs
-        let mut state_b = make_state();
+        let state_b = make_state();
         let mut response_b = assistant_with_tool_calls(tool_calls.clone());
-        mw.after_llm_call(&mut state_b, &mut response_b)
-            .await
-            .unwrap();
+        mw.after_llm_call(&state_b, &mut response_b).await.unwrap();
 
         // Session B should not be affected by session A's history
         assert!(response_b.has_tool_calls());
@@ -336,14 +332,14 @@ mod tests {
     #[tokio::test]
     async fn test_sliding_window_evicts_old_hashes() {
         let mw = LoopDetectionMiddleware::with_thresholds(3, 5, 5);
-        let mut state = make_state();
+        let state = make_state();
 
         let repeated = vec![("grep", serde_json::json!({"pattern": "same"}))];
 
         // Add 2 identical calls
         for _ in 0..2 {
             let mut response = assistant_with_tool_calls(repeated.clone());
-            mw.after_llm_call(&mut state, &mut response).await.unwrap();
+            mw.after_llm_call(&state, &mut response).await.unwrap();
         }
 
         // Add 5 different calls to push the old ones out of the window
@@ -352,12 +348,12 @@ mod tests {
                 "read",
                 serde_json::json!({"file": format!("file_{i}")}),
             )]);
-            mw.after_llm_call(&mut state, &mut response).await.unwrap();
+            mw.after_llm_call(&state, &mut response).await.unwrap();
         }
 
         // Now add the same repeated call again — should only count 1 in window
         let mut response = assistant_with_tool_calls(repeated.clone());
-        mw.after_llm_call(&mut state, &mut response).await.unwrap();
+        mw.after_llm_call(&state, &mut response).await.unwrap();
         assert!(
             response.has_tool_calls(),
             "old hashes should have been evicted"

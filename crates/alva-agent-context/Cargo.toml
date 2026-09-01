@@ -23,7 +23,7 @@ tracing = "0.1"
 # filesystem — gate the tokio features it needs to non-wasm targets,
 # and gate the module itself in src/lib.rs.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-tokio = { version = "1", features = ["process", "fs"] }
+tokio = { version = "1", features = ["process", "fs", "io-util"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros"] }

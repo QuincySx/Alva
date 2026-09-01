@@ -1,9 +1,10 @@
 // INPUT:  rusqlite, serde_json, kernel AgentSession contract, listenable in-memory projection
 // OUTPUT: SQLite-backed authoritative Alva AgentSession repository
-// POS:    Engine-native durable record store used by Hub resume and Inspector; replaces message-only HistoryStore
+// POS:    Engine-native durable record store with atomic batches and flush-time dirty projection repair for Hub resume and Inspector.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use alva_engine_runtime::{
@@ -120,6 +121,7 @@ impl SessionRepository {
             sessions: Arc::clone(&self.sessions),
             memory: ListenableInMemorySession::new(),
             write_lock: tokio::sync::Mutex::new(()),
+            dirty: AtomicBool::new(false),
             record_listeners: tokio::sync::RwLock::new(Vec::new()),
         });
         session.restore().await?;
@@ -275,6 +277,7 @@ pub struct SqliteAgentSession {
     sessions: Arc<Mutex<HashMap<String, Weak<SqliteAgentSession>>>>,
     memory: ListenableInMemorySession,
     write_lock: tokio::sync::Mutex<()>,
+    dirty: AtomicBool,
     record_listeners: tokio::sync::RwLock<Vec<tokio::sync::mpsc::UnboundedSender<SessionRecord>>>,
 }
 
@@ -369,6 +372,47 @@ fn child_links(parent_session_id: &str, records: &[SessionRecord]) -> Vec<ChildS
 }
 
 impl SqliteAgentSession {
+    async fn sync_memory_to_db(&self) -> Result<(), SessionError> {
+        let records = self.memory.records(0).await;
+        let snapshot = self.memory.load_snapshot().await;
+        let prepared: Vec<SessionRecord> = records
+            .into_iter()
+            .map(|record| self.prepare_record(record))
+            .collect::<Result<_, _>>()?;
+
+        let mut connection = self.connection.lock().map_err(lock_error)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(sql_error)?;
+        transaction
+            .execute(
+                "DELETE FROM native_records WHERE session_id = ?1",
+                [&self.session_id],
+            )
+            .map_err(sql_error)?;
+        for record in prepared {
+            transaction
+                .execute(
+                    "INSERT INTO native_records(session_id, seq, record_json) VALUES (?1, ?2, ?3)",
+                    params![
+                        self.session_id,
+                        record.seq as i64,
+                        serde_json::to_vec(&record)?
+                    ],
+                )
+                .map_err(sql_error)?;
+        }
+        transaction
+            .execute(
+                "UPDATE native_sessions SET snapshot = ?2 WHERE session_id = ?1",
+                params![self.session_id, snapshot],
+            )
+            .map_err(sql_error)?;
+        transaction.commit().map_err(sql_error)?;
+        self.dirty.store(false, Ordering::Release);
+        Ok(())
+    }
+
     fn persisted_records(&self) -> Result<Vec<SessionRecord>, SessionError> {
         let connection = self.connection.lock().map_err(lock_error)?;
         let mut statement = connection
@@ -501,9 +545,15 @@ impl AgentSession for SqliteAgentSession {
         let _guard = self.write_lock.lock().await;
         let uuid = event.uuid.clone();
         self.memory.append(event).await;
-        if let Ok(event) = self.appended_event(&uuid).await {
-            if let Ok(record) = self.persist_record(SessionRecord::from_event(event)) {
-                self.broadcast_records(&[record]).await;
+        let persisted = match self.appended_event(&uuid).await {
+            Ok(event) => self.persist_record(SessionRecord::from_event(event)),
+            Err(error) => Err(error),
+        };
+        match persisted {
+            Ok(record) => self.broadcast_records(&[record]).await,
+            Err(error) => {
+                self.dirty.store(true, Ordering::Release);
+                tracing::error!(session_id = %self.session_id, %error, "persist native session event");
             }
         }
     }
@@ -523,8 +573,12 @@ impl AgentSession for SqliteAgentSession {
             .next()
             .map(|matched| matched.event)
         {
-            if let Ok(record) = self.persist_record(SessionRecord::from_event(event)) {
-                self.broadcast_records(&[record]).await;
+            match self.persist_record(SessionRecord::from_event(event)) {
+                Ok(record) => self.broadcast_records(&[record]).await,
+                Err(error) => {
+                    self.dirty.store(true, Ordering::Release);
+                    tracing::error!(session_id = %self.session_id, %error, "persist native session message");
+                }
             }
         }
     }
@@ -541,6 +595,13 @@ impl AgentSession for SqliteAgentSession {
             });
         }
         let _guard = self.write_lock.lock().await;
+        if self.dirty.load(Ordering::Acquire) {
+            self.sync_memory_to_db().await?;
+        }
+        // Validate the existing durable projection before committing a batch.
+        // After COMMIT there must be no ordinary fallible hydration step that
+        // can make the caller believe an already-committed batch failed.
+        self.persisted_events()?;
         let (first_seq, committed) = {
             let mut connection = self.connection.lock().map_err(lock_error)?;
             let transaction = connection
@@ -583,6 +644,10 @@ impl AgentSession for SqliteAgentSession {
         })
     }
 
+    fn supports_atomic_records(&self) -> bool {
+        true
+    }
+
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
         self.memory.query(filter).await
     }
@@ -622,11 +687,17 @@ impl AgentSession for SqliteAgentSession {
             .find(|matched| matched.event.uuid == uuid)
             .map(|matched| matched.event.seq)
         {
-            if let Ok(connection) = self.connection.lock() {
-                let _ = connection.execute(
-                    "DELETE FROM native_records WHERE session_id = ?1 AND seq > ?2",
-                    params![self.session_id, seq as i64],
-                );
+            match self.connection.lock() {
+                Ok(connection) => {
+                    if let Err(error) = connection.execute(
+                        "DELETE FROM native_records WHERE session_id = ?1 AND seq > ?2",
+                        params![self.session_id, seq as i64],
+                    ) {
+                        self.dirty.store(true, Ordering::Release);
+                        tracing::error!(session_id = %self.session_id, %error, "rollback native session records");
+                    }
+                }
+                Err(_) => self.dirty.store(true, Ordering::Release),
             }
         }
         removed
@@ -634,11 +705,17 @@ impl AgentSession for SqliteAgentSession {
 
     async fn save_snapshot(&self, data: &[u8]) {
         self.memory.save_snapshot(data).await;
-        if let Ok(connection) = self.connection.lock() {
-            let _ = connection.execute(
-                "UPDATE native_sessions SET snapshot = ?2 WHERE session_id = ?1",
-                params![self.session_id, data],
-            );
+        match self.connection.lock() {
+            Ok(connection) => {
+                if let Err(error) = connection.execute(
+                    "UPDATE native_sessions SET snapshot = ?2 WHERE session_id = ?1",
+                    params![self.session_id, data],
+                ) {
+                    self.dirty.store(true, Ordering::Release);
+                    tracing::error!(session_id = %self.session_id, %error, "persist native session snapshot");
+                }
+            }
+            Err(_) => self.dirty.store(true, Ordering::Release),
         }
     }
 
@@ -663,6 +740,8 @@ impl AgentSession for SqliteAgentSession {
     }
 
     async fn flush(&self) -> Result<(), SessionError> {
+        let _guard = self.write_lock.lock().await;
+        self.sync_memory_to_db().await?;
         let connection = self.connection.lock().map_err(lock_error)?;
         connection
             .execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
@@ -722,11 +801,14 @@ impl AgentSession for SqliteAgentSession {
         })();
         match committed {
             Ok(records) => self.broadcast_records(&records).await,
-            Err(error) => tracing::error!(
-                session_id = %self.session_id,
-                %error,
-                "persist compacted native session projection"
-            ),
+            Err(error) => {
+                self.dirty.store(true, Ordering::Release);
+                tracing::error!(
+                    session_id = %self.session_id,
+                    %error,
+                    "persist compacted native session projection"
+                );
+            }
         }
     }
 }
@@ -1178,6 +1260,40 @@ mod tests {
             panic!("compacted projection must restore a standard message");
         };
         assert_eq!(message.text_content(), "summary");
+    }
+
+    #[tokio::test]
+    async fn flush_repairs_a_transient_infallible_append_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SessionRepository::open(directory.path().join("records.db")).unwrap();
+        let session = repository.open_session("s1", None).await.unwrap();
+        {
+            let connection = repository.connection.lock().unwrap();
+            connection.execute("DROP TABLE native_records", []).unwrap();
+        }
+
+        session
+            .append(SessionEvent::new_runtime("transient_failure"))
+            .await;
+        assert!(session.dirty.load(Ordering::Acquire));
+
+        {
+            let connection = repository.connection.lock().unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE native_records (
+                        session_id TEXT NOT NULL REFERENCES native_sessions(session_id) ON DELETE CASCADE,
+                        seq INTEGER NOT NULL,
+                        record_json BLOB NOT NULL,
+                        PRIMARY KEY(session_id, seq)
+                    );",
+                )
+                .unwrap();
+        }
+
+        session.flush().await.unwrap();
+        assert!(!session.dirty.load(Ordering::Acquire));
+        assert_eq!(repository.records("s1").unwrap().len(), 1);
     }
 
     #[tokio::test]

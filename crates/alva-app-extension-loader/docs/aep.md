@@ -35,6 +35,13 @@
 | Encoding | UTF-8 |
 | Direction | Full duplex, both sides may originate requests |
 
+One frame is limited to **16 MiB** in both directions. The host also bounds
+the writer queue (128), outstanding host-originated calls (128), concurrent
+plugin-originated host callbacks (32), and forwarded stderr (256 KiB per
+process while continuing to drain excess bytes). These limits apply before
+JSON parsing so a child cannot grow host memory by withholding a newline or
+flooding callbacks.
+
 Request/response ids are strings of the form `"h-<seq>"` (host
 originated) or `"p-<seq>"` (plugin originated) to avoid collisions
 on the shared channel.
@@ -128,9 +135,27 @@ on the shared channel.
 ```
 
 `requestedCapabilities` carries the plugin's explicit capability
-declaration. **In v0.1 this is observation-only** — the host logs a
-warning when the plugin calls a host method it did not declare, but
-does not block. v0.2 will switch to strict enforcement.
+declaration. The host enforces it fail-closed: every `host/<name>` call
+requires the matching `host:<name>` declaration, otherwise the request
+returns `CapabilityDenied`. The initialize response must exactly match the
+validated manifest's name, version, and capability set. Protocol-version
+drift, unsupported or duplicate subscriptions, and malformed, duplicate, or
+oversized tool declarations reject the plugin before registration.
+
+Before launch, the host validates the manifest and entry path, rejects
+symbolic links and special files, traverses the source tree relative to opened
+capability directory handles, verifies opened file/directory identity, enforces
+bundle entry/file/byte/depth limits, and copies the bundle into an owner-only
+temporary snapshot. The child runs
+from that snapshot, so source-directory changes cannot swap code after
+discovery. `content_sha256` may pin the normalized manifest and all bundle
+files; a mismatch aborts launch. Plugin children start with a cleared
+environment containing only a fixed safe `PATH`, locale, and explicitly
+configured launcher overrides.
+
+The current bundle caps are 512 total directory entries, 256 regular files,
+16 MiB total bytes, 8 MiB per file, 16 directory levels, and 64 KiB for the
+manifest.
 
 Current implementation note: event subscriptions are wired, and remote
 tool declarations are registered as executable `Tool`s by the Rust
@@ -144,8 +169,9 @@ No params. Signals the plugin may begin normal operation.
 
 ### 2.4 `shutdown` — host → plugin
 
-Plugin has **3 s** to clean up and return `{}`. After that the host
-sends SIGTERM; 2 s later, SIGKILL.
+The shutdown RPC has **3 s** to return `{}`. The host then closes stdin and
+allows another **3 s** for graceful process exit before force-killing and
+waiting up to **2 s** for OS reap. Initialization is capped at **10 s**.
 
 ---
 
@@ -323,13 +349,15 @@ in phase 6.)
 
 ### 5.1 Event Timeouts
 
-Default **5 s** per `extension/*` request; overridable per event in
-the manifest. On timeout:
+Current v0.1 uses a fixed **5 s** cap per `extension/*` request. On timeout:
 
 - Host proceeds as if the plugin returned `continue`.
 - Warning is logged.
-- Three consecutive timeouts → plugin is marked `unhealthy` and
-  event dispatch to it is paused. The process is **not** killed.
+- The cancelled pending request is removed immediately, so repeated timeouts
+  cannot leak pending-map entries.
+
+`tools/call` is capped at **120 s**. Per-event timeout overrides and automatic
+unhealthy-plugin quarantine are not implemented in v0.1.
 
 ### 5.2 Error Codes
 
@@ -406,7 +434,6 @@ Deferred explicitly — do not implement until planned:
 
 - **Hot reload.** Plugin code change → operator runs
   `alva extension restart <name>`.
-- **Capability enforcement.** `requestedCapabilities` observed only.
 - **Streaming events.** Token-level hooks, streaming LLM response
   hooks.
 - **Plugin as memory backend.** `provides: ["memory"]` routing.
@@ -427,5 +454,5 @@ Recorded so later discussion does not relitigate these:
 |---|---|
 | Plugin package format | Directory: `~/.alva/extensions/<name>/` with `alva.toml` + `main.{py,js}` |
 | Subprocess launch mode | SDK launcher: `python -m alva_sdk <entry>` — plugin code never touches stdio |
-| `requestedCapabilities` in v0.1 | Observation mode — log warning only |
+| `requestedCapabilities` in v0.1 | Strict fail-closed host API gate |
 | `host/memory.*` in v0.1 | Included. First real E2E demo replaces the memory backend |

@@ -1,6 +1,6 @@
 // INPUT:  alva_agent_core::Agent, bus/session/tool registry, permission services
 // OUTPUT: BaseAgent
-// POS:    Harness-level agent facade exposing prompt/session/control and assembly observability.
+// POS:    Harness facade exposing compatible and production-bounded prompt streams plus session/control observability.
 use std::sync::Arc;
 
 use alva_agent_core::Agent;
@@ -9,8 +9,9 @@ use alva_kernel_abi::{
     AgentMessage, BusHandle, BusWriter, CancellationToken, Message, ToolRegistry,
 };
 use alva_kernel_core::event::AgentEvent;
-use alva_kernel_core::DefaultAgentLoop;
 use alva_kernel_core::AgentLoop;
+use alva_kernel_core::DefaultAgentLoop;
+use alva_kernel_core::DEFAULT_AGENT_EVENT_CHANNEL_CAPACITY;
 
 use tokio::sync::mpsc;
 
@@ -54,6 +55,12 @@ impl BaseAgent {
         self.prompt(vec![msg]).await
     }
 
+    /// Production-facing text prompt with bounded event backpressure.
+    pub async fn prompt_text_bounded(&self, text: &str) -> mpsc::Receiver<AgentEvent> {
+        let msg = AgentMessage::Standard(Message::user(text));
+        self.prompt_bounded(vec![msg]).await
+    }
+
     /// Send messages to the agent and receive events via an unbounded channel.
     ///
     /// A fresh `CancellationToken` is created for each call so that a
@@ -69,15 +76,8 @@ impl BaseAgent {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         let cancel = CancellationToken::new();
-        {
-            let mut current = self
-                .current_cancel
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            *current = cancel.clone();
-        }
-
         let inner = self.inner.clone();
+        let current_cancel = self.current_cancel.clone();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
 
         tokio::spawn(async move {
@@ -87,6 +87,10 @@ impl BaseAgent {
             // behind this run (single shared agent = one active turn).
             let st = inner.state().lock().await;
             let config = inner.config().await;
+            {
+                let mut current = current_cancel.lock().unwrap_or_else(|e| e.into_inner());
+                *current = cancel.clone();
+            }
             let _ = started_tx.send(());
             if let Err(e) = DefaultAgentLoop
                 .drive(&st, &config, cancel, messages, event_tx)
@@ -97,6 +101,41 @@ impl BaseAgent {
         });
 
         // Close the spawn→lock race window before returning to the harness.
+        let _ = started_rx.await;
+        event_rx
+    }
+
+    /// Send messages with a bounded production event stream.
+    ///
+    /// Lifecycle, message, and terminal tool events push back on the kernel at
+    /// [`DEFAULT_AGENT_EVENT_CHANNEL_CAPACITY`]. Synchronous high-frequency
+    /// tool progress updates are best-effort and may be dropped while the
+    /// channel is full; the matching ToolExecutionEnd is
+    /// always delivered losslessly.
+    pub async fn prompt_bounded(&self, messages: Vec<AgentMessage>) -> mpsc::Receiver<AgentEvent> {
+        let (event_tx, event_rx) = mpsc::channel(DEFAULT_AGENT_EVENT_CHANNEL_CAPACITY);
+
+        let cancel = CancellationToken::new();
+        let inner = self.inner.clone();
+        let current_cancel = self.current_cancel.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            let st = inner.state().lock().await;
+            let config = inner.config().await;
+            {
+                let mut current = current_cancel.lock().unwrap_or_else(|e| e.into_inner());
+                *current = cancel.clone();
+            }
+            let _ = started_tx.send(());
+            if let Err(error) = DefaultAgentLoop
+                .drive_bounded(&st, &config, cancel, messages, event_tx)
+                .await
+            {
+                tracing::error!(%error, "agent loop failed");
+            }
+        });
+
         let _ = started_rx.await;
         event_rx
     }
@@ -168,20 +207,24 @@ impl BaseAgent {
     }
 
     /// Clear the current session's message history, starting fresh.
-    pub async fn new_session(&self) {
+    pub async fn new_session(&self) -> bool {
         let st = self.inner.state().lock().await;
-        let _ = st.session.clear().await;
+        st.session.clear().await.is_ok()
     }
 
     /// Restore message history (e.g., when resuming a session).
     ///
     /// Clears any existing messages first, then appends the restored history.
-    pub async fn restore_messages(&self, messages: Vec<AgentMessage>) {
+    pub async fn restore_messages(&self, messages: Vec<AgentMessage>) -> bool {
         let st = self.inner.state().lock().await;
-        let _ = st.session.clear().await;
+        if let Err(error) = st.session.clear().await {
+            tracing::error!(%error, "failed to clear session before restoring messages");
+            return false;
+        }
         for msg in messages {
             st.session.append_message(msg, None).await;
         }
+        true
     }
 
     /// Swap the current session for a new one. After this call, all reads and
@@ -194,9 +237,14 @@ impl BaseAgent {
     pub async fn swap_session(
         &self,
         new_session: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
-    ) {
+    ) -> bool {
         let mut st = self.inner.state().lock().await;
+        if let Err(error) = st.session.flush().await {
+            tracing::error!(%error, "refusing to swap away from a session that failed to flush");
+            return false;
+        }
         st.session = new_session;
+        true
     }
 
     /// Build a fresh [`ToolRegistry`] snapshot from the currently-registered
@@ -351,15 +399,16 @@ impl BaseAgent {
         request_id: &str,
         tool_name: &str,
         decision: alva_agent_security::PermissionDecision,
-    ) {
+    ) -> bool {
         if let Some(guard) = self
             .inner
             .bus()
             .get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
         {
             let mut g = guard.lock().await;
-            g.resolve_permission(request_id, tool_name, decision);
+            return g.resolve_permission(request_id, tool_name, decision);
         }
+        false
     }
 
     /// Register a checkpoint callback for auto-checkpointing before file writes.
@@ -381,9 +430,55 @@ impl BaseAgent {
 mod tests {
     use super::*;
     use crate::base_agent::BaseAgent;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
 
     use alva_test::fixtures::make_assistant_message;
     use alva_test::mock_provider::MockLanguageModel;
+    use async_trait::async_trait;
+    use futures::Stream;
+
+    struct FirstPendingThenEcho {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl alva_kernel_abi::LanguageModel for FirstPendingThenEcho {
+        async fn complete(
+            &self,
+            _messages: &[Message],
+            _tools: &[&dyn alva_kernel_abi::Tool],
+            _config: &alva_kernel_abi::ModelConfig,
+        ) -> Result<alva_kernel_abi::CompletionResponse, alva_kernel_abi::AgentError> {
+            Err(alva_kernel_abi::AgentError::LlmError(
+                "unexpected fallback".into(),
+            ))
+        }
+
+        fn stream(
+            &self,
+            _messages: &[Message],
+            _tools: &[&dyn alva_kernel_abi::Tool],
+            _config: &alva_kernel_abi::ModelConfig,
+        ) -> Pin<Box<dyn Stream<Item = alva_kernel_abi::StreamEvent> + Send>> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                Box::pin(tokio_stream::pending())
+            } else {
+                Box::pin(tokio_stream::iter([
+                    alva_kernel_abi::StreamEvent::Start,
+                    alva_kernel_abi::StreamEvent::TextDelta {
+                        text: "second completed".into(),
+                    },
+                    alva_kernel_abi::StreamEvent::Done,
+                ]))
+            }
+        }
+
+        fn model_id(&self) -> &str {
+            "first-pending-then-echo"
+        }
+    }
 
     /// Helper: build a BaseAgent with minimal config using a mock model.
     async fn build_test_agent(model: Arc<dyn alva_kernel_abi::LanguageModel>) -> BaseAgent {
@@ -562,6 +657,46 @@ mod tests {
             !text_b.iter().any(|t| t.contains("message-for-a")),
             "session B must not steal the first turn, got {text_b:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn cancel_targets_the_active_turn_not_a_queued_prompt() {
+        let model = Arc::new(FirstPendingThenEcho {
+            calls: AtomicUsize::new(0),
+        });
+        let agent = Arc::new(build_test_agent(model).await);
+
+        let mut first = agent.prompt_text("first").await;
+        let queued_agent = agent.clone();
+        let queued = tokio::spawn(async move { queued_agent.prompt_text("second").await });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        agent.cancel();
+
+        let first_error = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Some(AgentEvent::AgentEnd { error }) = first.recv().await {
+                    break error;
+                }
+            }
+        })
+        .await
+        .expect("the active turn must be cancelled");
+        assert!(first_error.is_some());
+
+        let mut second = tokio::time::timeout(Duration::from_secs(1), queued)
+            .await
+            .expect("queued prompt must acquire the turn after cancellation")
+            .expect("queued prompt task joins");
+        let second_error = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Some(AgentEvent::AgentEnd { error }) = second.recv().await {
+                    break error;
+                }
+            }
+        })
+        .await
+        .expect("queued prompt must complete normally");
+        assert!(second_error.is_none());
     }
 
     #[tokio::test]

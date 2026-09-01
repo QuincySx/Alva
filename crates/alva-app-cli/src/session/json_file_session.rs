@@ -1,7 +1,7 @@
 // INPUT:  alva_kernel_abi::agent_session, serde, serde_json, tokio sync/fs, base64
-// OUTPUT: JsonFileAgentSession, private atomic SessionFile persistence
+// OUTPUT: JsonFileAgentSession, private atomic typed-record SessionFile persistence
 // POS:    CLI-private AgentSession backend — stores a single session's full
-//         event log + snapshot in one JSON file. Serializes mutation+persist
+//         canonical typed records + snapshot in one backward-compatible JSON file. Serializes mutation+persist
 //         and atomically replaces a mode-0600 file on every write.
 
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::Mutex;
 
-use alva_kernel_abi::AgentMessage;
+use alva_kernel_abi::{AgentMessage, AppendReceipt, SessionRecord};
 use alva_kernel_core::agent_session::{
     AgentSession, EventMatch, EventQuery, InMemoryAgentSession, SessionError, SessionEvent,
 };
@@ -23,6 +23,11 @@ use alva_kernel_core::agent_session::{
 struct SessionFile {
     session_id: String,
     parent_session_id: Option<String>,
+    /// Canonical typed records used by current writers. Keeping the legacy
+    /// event field below makes existing session files forward-readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    records: Option<Vec<SessionRecord>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     events: Vec<SessionEvent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     snapshot_base64: Option<String>,
@@ -32,9 +37,10 @@ struct SessionFile {
 ///
 /// All in-memory state is held by an inner `InMemoryAgentSession`. Every
 /// write operation (append, rollback, snapshot, clear) triggers a full
-/// file rewrite. Failures during persistence are logged but do not
-/// propagate — the in-memory state always reflects the most recent writes
-/// even if persistence lags.
+/// file rewrite. Legacy infallible session methods retain dirty state in
+/// memory and surface persistent failures from `flush`; the fallible typed
+/// record path rolls its in-memory batch back when the atomic file replace
+/// fails.
 pub struct JsonFileAgentSession {
     path: PathBuf,
     inner: InMemoryAgentSession,
@@ -82,17 +88,14 @@ impl JsonFileAgentSession {
     }
 
     async fn persist_inner_locked(&self) -> Result<(), SessionError> {
-        // Pull all events via a single query. The in-memory backend serves
-        // this from its Vec in O(n) without allocations beyond the clones.
-        let events: Vec<SessionEvent> = self
-            .inner
-            .query(&EventQuery {
-                limit: usize::MAX,
-                ..Default::default()
-            })
-            .await
-            .into_iter()
-            .map(|m: EventMatch| m.event)
+        let records = self.inner.records(0).await;
+        // Keep the legacy event projection alongside canonical typed records.
+        // Current readers prefer `records`, while older CLI builds can still
+        // resume files written by this version without seeing an empty log.
+        let events = records
+            .iter()
+            .cloned()
+            .map(SessionRecord::into_event)
             .collect();
 
         let snapshot = self.inner.load_snapshot().await;
@@ -100,6 +103,7 @@ impl JsonFileAgentSession {
         let file = SessionFile {
             session_id: self.inner.session_id().to_string(),
             parent_session_id: self.inner.parent_session_id().map(String::from),
+            records: Some(records),
             events,
             snapshot_base64: snapshot.map(|b| B64.encode(b)),
         };
@@ -124,12 +128,14 @@ impl JsonFileAgentSession {
         let file: SessionFile =
             serde_json::from_str(&contents).map_err(SessionError::Serialization)?;
 
-        // Replay events via `restore_events` so both the event log AND
-        // the messages projection get rebuilt. Plain `append()` only
-        // writes to the log, leaving the messages cache empty — which
-        // the UI reads as "history is gone". See
-        // InMemoryAgentSession::restore_events for the contract.
-        self.inner.restore_events(file.events).await;
+        if let Some(records) = file.records {
+            self.inner.clear().await?;
+            self.inner.append_records(records).await?;
+        } else {
+            // Legacy v1 files stored only events. Replay them so both the
+            // event log and message projection are rebuilt.
+            self.inner.restore_events(file.events).await;
+        }
 
         if let Some(snap_b64) = file.snapshot_base64 {
             let bytes = B64
@@ -164,6 +170,39 @@ impl AgentSession for JsonFileAgentSession {
         self.persist_locked().await;
     }
 
+    async fn append_records(
+        &self,
+        records: Vec<SessionRecord>,
+    ) -> Result<AppendReceipt, SessionError> {
+        let _guard = self.write_lock.lock().await;
+        let previous_last_id = self
+            .inner
+            .records(0)
+            .await
+            .last()
+            .map(|record| record.record_id.clone());
+        let previous_snapshot = self.inner.load_snapshot().await;
+        let receipt = self.inner.append_records(records).await?;
+        match self.persist_inner_locked().await {
+            Ok(()) => Ok(receipt),
+            Err(error) => {
+                if let Some(record_id) = previous_last_id {
+                    self.inner.rollback_after(&record_id).await;
+                } else {
+                    self.inner.clear().await?;
+                    if let Some(snapshot) = previous_snapshot {
+                        self.inner.save_snapshot(&snapshot).await;
+                    }
+                }
+                Err(error)
+            }
+        }
+    }
+
+    fn supports_atomic_records(&self) -> bool {
+        true
+    }
+
     async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
         let _guard = self.write_lock.lock().await;
         // Non-destructive: keep the event log intact, then persist the
@@ -178,6 +217,10 @@ impl AgentSession for JsonFileAgentSession {
 
     async fn count(&self, filter: &EventQuery) -> usize {
         self.inner.count(filter).await
+    }
+
+    async fn records(&self, from_seq: u64) -> Vec<SessionRecord> {
+        self.inner.records(from_seq).await
     }
 
     async fn messages(&self) -> Vec<AgentMessage> {
@@ -311,6 +354,7 @@ mod tests {
     //!
     //! tempfile dev-dep already available in alva-app-cli.
     use super::*;
+    use alva_kernel_abi::{EventEmitter, ExecutionRecord};
     use serde_json::json;
 
     fn session_path(dir: &Path, label: &str) -> PathBuf {
@@ -508,6 +552,69 @@ mod tests {
         let restored = JsonFileAgentSession::with_id_at(path, "concurrent-id".into());
         restored.restore().await.unwrap();
         assert_eq!(restored.count(&EventQuery::default()).await, 24);
+    }
+
+    #[tokio::test]
+    async fn failed_atomic_record_persist_rolls_back_the_in_memory_batch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let invalid_parent = tmp.path().join("not-a-directory");
+        std::fs::write(&invalid_parent, "blocking file").unwrap();
+        let session = JsonFileAgentSession::with_id_at(
+            invalid_parent.join("session.json"),
+            "atomic-failure".into(),
+        );
+        let record = SessionRecord::execution(
+            "test_record",
+            EventEmitter::runtime(),
+            ExecutionRecord::Event {
+                data: json!({ "value": 1 }),
+            },
+        );
+
+        let error = session
+            .append_records(vec![record])
+            .await
+            .expect_err("atomic file replacement must fail");
+
+        assert!(error.to_string().contains("not a directory"));
+        assert!(session.records(0).await.is_empty());
+        assert!(session.messages().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn typed_records_keep_their_payload_kind_after_restart() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = session_path(tmp.path(), "typed-records");
+        let writer = JsonFileAgentSession::with_id_at(path.clone(), "typed-id".into());
+        writer
+            .append_records(vec![SessionRecord::execution(
+                "tool_intent",
+                EventEmitter::runtime(),
+                ExecutionRecord::Intent {
+                    operation_id: "op-1".into(),
+                    operation: "read".into(),
+                    input: alva_kernel_abi::RecordValue::Inline {
+                        value: json!({ "path": "README.md" }),
+                    },
+                },
+            )])
+            .await
+            .unwrap();
+
+        let reader = JsonFileAgentSession::with_id_at(path, "typed-id".into());
+        reader.restore().await.unwrap();
+        let records = reader.records(0).await;
+
+        assert!(
+            matches!(
+                &records[0].payload,
+                alva_kernel_abi::SessionRecordPayload::Execution(
+                    ExecutionRecord::Intent { operation_id, .. }
+                ) if operation_id == "op-1"
+            ),
+            "restored payload: {:?}",
+            records[0].payload
+        );
     }
 
     #[cfg(unix)]

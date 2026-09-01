@@ -144,6 +144,19 @@ impl Plugin for ProvidesBusCapabilityPlugin {
     }
 }
 
+struct FailingPlugin;
+
+#[async_trait]
+impl Plugin for FailingPlugin {
+    fn name(&self) -> &str {
+        "failing-plugin"
+    }
+
+    async fn try_register(&self, _r: &Registrar) -> Result<(), AgentError> {
+        Err(AgentError::ConfigError("invalid external config".into()))
+    }
+}
+
 struct BlockingBeforeToolHandler;
 
 #[async_trait]
@@ -309,6 +322,67 @@ async fn build_records_structured_plugin_contributions() {
 }
 
 #[tokio::test]
+async fn build_rejects_duplicate_plugin_names() {
+    let result = AgentBuilder::new()
+        .model(Arc::new(DummyModel))
+        .plugin(Box::new(NamedPlugin))
+        .plugin(Box::new(NamedPlugin))
+        .build()
+        .await;
+
+    let error = match result {
+        Ok(_) => panic!("duplicate plugin names must fail the build"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("duplicate plugin name"));
+}
+
+#[tokio::test]
+async fn build_rejects_duplicate_tool_names() {
+    let result = AgentBuilder::new()
+        .model(Arc::new(DummyModel))
+        .tool(Box::new(NamedTool))
+        .tool(Box::new(NamedTool))
+        .build()
+        .await;
+
+    let error = match result {
+        Ok(_) => panic!("duplicate tool names must fail the build"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("duplicate tool name"));
+}
+
+#[tokio::test]
+async fn build_preserves_tool_registration_order() {
+    let agent = AgentBuilder::new()
+        .model(Arc::new(DummyModel))
+        .tool(Box::new(NamedTool))
+        .tool(Box::new(LateNamedTool))
+        .build()
+        .await
+        .expect("unique tools build");
+
+    let names: Vec<&str> = agent.tools().iter().map(|tool| tool.name()).collect();
+    assert_eq!(names, vec!["named-tool", "late-named-tool"]);
+}
+
+#[tokio::test]
+async fn fallible_plugin_registration_surfaces_from_build() {
+    let result = AgentBuilder::new()
+        .model(Arc::new(DummyModel))
+        .plugin(Box::new(FailingPlugin))
+        .build()
+        .await;
+
+    let error = match result {
+        Ok(_) => panic!("plugin registration failure must fail build"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("invalid external config"));
+}
+
+#[tokio::test]
 async fn build_records_direct_middleware_separately_from_plugin_middleware() {
     let agent = AgentBuilder::new()
         .model(Arc::new(DummyModel))
@@ -365,7 +439,7 @@ async fn phase_handler_contribution_is_recorded_and_executable() {
         snapshot.middleware_names
     );
 
-    let mut state = agent.state().lock().await;
+    let state = agent.state().lock().await;
     let config = agent.config().await;
     let tool_call = ToolCall {
         id: "call-1".to_string(),
@@ -374,7 +448,7 @@ async fn phase_handler_contribution_is_recorded_and_executable() {
     };
     match config
         .middleware
-        .run_before_tool_call(&mut state, &tool_call)
+        .run_before_tool_call(&state, &tool_call)
         .await
     {
         Err(MiddlewareError::Blocked { reason }) => assert_eq!(reason, "blocked shell"),
@@ -396,11 +470,11 @@ async fn input_committed_phase_handler_runs_only_on_input_commit() {
         .await
         .expect("build should succeed");
 
-    let mut state = agent.state().lock().await;
+    let state = agent.state().lock().await;
     let config = agent.config().await;
     config
         .middleware
-        .run_on_agent_start(&mut state)
+        .run_on_agent_start(&state)
         .await
         .expect("run start should not trigger input committed");
     assert_eq!(run_start_calls.load(Ordering::SeqCst), 0);
@@ -409,7 +483,7 @@ async fn input_committed_phase_handler_runs_only_on_input_commit() {
     config
         .middleware
         .run_input_committed(
-            &mut state,
+            &state,
             &AgentMessage::Standard(Message::user("committed input")),
         )
         .await

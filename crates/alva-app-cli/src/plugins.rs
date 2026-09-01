@@ -188,6 +188,7 @@ async fn run_exec(args: &[String]) -> i32 {
         proxy.name(),
         proxy.manifest().runtime
     );
+    println!("[plugins] content sha256: {}", proxy.content_sha256());
     println!(
         "[plugins] subscribes to: {:?}",
         proxy.init_result().event_subscriptions

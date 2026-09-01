@@ -121,7 +121,7 @@ mod tests {
         #[derive(Debug, PartialEq)]
         struct TokenBudget(u32);
 
-        let mut state = AgentState {
+        let state = AgentState {
             model: Arc::new(StubModel),
             tools: vec![],
             session: Arc::new(InMemoryAgentSession::new()),

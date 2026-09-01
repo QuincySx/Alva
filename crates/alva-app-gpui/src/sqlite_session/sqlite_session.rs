@@ -53,27 +53,31 @@ impl SqliteEvalSession {
     }
 
     /// Ensure a row exists in the `sessions` table for this session.
-    async fn ensure_session_row(&self) {
+    async fn ensure_session_row(&self) -> Result<(), SessionError> {
         let conn = self.conn.clone();
         let session_id = self.inner.session_id().to_string();
         let parent = self.inner.parent_session_id().map(String::from);
         let now = chrono::Utc::now().timestamp_millis();
-        let _ = tokio::task::spawn_blocking(move || -> rusqlite::Result<()> {
-            let conn = conn.lock().unwrap();
+        tokio::task::spawn_blocking(move || -> Result<(), SessionError> {
+            let conn = conn
+                .lock()
+                .map_err(|_| SessionError::Other("SQLite connection lock poisoned".into()))?;
             conn.execute(
                 "INSERT OR IGNORE INTO sessions (session_id, parent_session_id, created_at)
                  VALUES (?1, ?2, ?3)",
                 params![session_id, parent, now],
-            )?;
+            )
+            .map_err(|error| SessionError::Other(format!("SQLite error: {error}")))?;
             Ok(())
         })
-        .await;
+        .await
+        .map_err(|error| SessionError::Other(format!("spawn_blocking join error: {error}")))?
     }
 
     /// Persist the full in-memory state to SQLite in a single transaction.
     /// Replaces any existing rows for this session (DELETE + bulk INSERT).
     async fn persist_to_db(&self) -> Result<(), SessionError> {
-        self.ensure_session_row().await;
+        self.ensure_session_row().await?;
 
         // Pull all events from inner.
         let events: Vec<SessionEvent> = self

@@ -1,6 +1,6 @@
 // INPUT:  async_trait, serde, serde_json, crate::base::error::AgentError
 // OUTPUT: ToolDefinition, ToolCall, Tool (trait), ToolRegistry, ToolFs, ToolFsExecResult, ToolFsDirEntry
-// POS:    Canonical tool abstractions — defines the Tool trait (using ToolExecutionContext), wire types, and a name-based registry.
+// POS:    Canonical tool abstractions with deterministic registration order and explicit replacement detection.
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -309,24 +309,38 @@ pub trait Tool: Send + Sync {
 
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
+    order: Vec<String>,
 }
 
 impl ToolRegistry {
     pub fn new() -> Self {
         Self {
             tools: HashMap::new(),
+            order: Vec::new(),
         }
     }
 
-    pub fn register(&mut self, tool: Box<dyn Tool>) {
+    /// Register a tool. Returns `true` for a new name and `false` when an
+    /// existing name was replaced.
+    pub fn register(&mut self, tool: Box<dyn Tool>) -> bool {
         let name = tool.name().to_string();
+        let is_new = !self.tools.contains_key(&name);
+        if is_new {
+            self.order.push(name.clone());
+        }
         self.tools.insert(name, Arc::from(tool));
+        is_new
     }
 
     /// Register a tool that is already wrapped in an Arc.
-    pub fn register_arc(&mut self, tool: Arc<dyn Tool>) {
+    pub fn register_arc(&mut self, tool: Arc<dyn Tool>) -> bool {
         let name = tool.name().to_string();
+        let is_new = !self.tools.contains_key(&name);
+        if is_new {
+            self.order.push(name.clone());
+        }
         self.tools.insert(name, tool);
+        is_new
     }
 
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
@@ -339,20 +353,33 @@ impl ToolRegistry {
     }
 
     pub fn list(&self) -> Vec<&dyn Tool> {
-        self.tools.values().map(|t| t.as_ref()).collect()
+        self.order
+            .iter()
+            .filter_map(|name| self.tools.get(name).map(|tool| tool.as_ref()))
+            .collect()
     }
 
     /// Get all tools as Arc references.
     pub fn list_arc(&self) -> Vec<Arc<dyn Tool>> {
-        self.tools.values().cloned().collect()
+        self.order
+            .iter()
+            .filter_map(|name| self.tools.get(name).cloned())
+            .collect()
     }
 
     pub fn definitions(&self) -> Vec<ToolDefinition> {
-        self.tools.values().map(|t| t.definition()).collect()
+        self.order
+            .iter()
+            .filter_map(|name| self.tools.get(name).map(|tool| tool.definition()))
+            .collect()
     }
 
     pub fn remove(&mut self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.remove(name)
+        let removed = self.tools.remove(name);
+        if removed.is_some() {
+            self.order.retain(|registered| registered != name);
+        }
+        removed
     }
 }
 

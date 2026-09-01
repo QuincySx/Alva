@@ -1,6 +1,6 @@
 // INPUT:  tokio::process, manifest::Runtime
 // OUTPUT: SubprocessRuntime, ReadHalf, WriteHalf, ShutdownHandle, SubprocessError
-// POS:    Phase 2 — spawn / read / write / shutdown a plugin subprocess.
+// POS:    Secret-minimized subprocess transport with piped AEP stdio and bounded shutdown.
 
 //! Subprocess runtime for AEP plugins.
 //!
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::task::JoinHandle;
 
@@ -36,6 +36,25 @@ const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 /// error. This is only hit if the OS refuses to reap the child.
 const HARD_KILL_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// Hard cap for one newline-delimited JSON-RPC frame in either direction.
+/// A child process is untrusted and must not make the host grow a `String`
+/// without bound by withholding the newline delimiter.
+pub(crate) const MAX_AEP_FRAME_BYTES: usize = 16 * 1024 * 1024;
+
+/// Stderr is always drained to prevent child-process deadlock, but only this
+/// many bytes are forwarded to tracing per process to bound log amplification.
+const MAX_PLUGIN_STDERR_LOG_BYTES: usize = 256 * 1024;
+
+/// Deliberately excludes user-controlled language injection variables and all
+/// provider credentials. Explicit `LauncherOverride::env` entries are the only
+/// additional environment inherited by a plugin process.
+#[cfg(unix)]
+const SAFE_PLUGIN_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+#[cfg(windows)]
+const SAFE_PLUGIN_PATH: &str = r"C:\Windows\System32;C:\Windows";
+#[cfg(not(any(unix, windows)))]
+const SAFE_PLUGIN_PATH: &str = "/usr/bin:/bin";
+
 /// Caller-supplied override for the launcher command.
 ///
 /// If `None`, a sensible per-runtime default is used
@@ -47,8 +66,8 @@ pub struct LauncherOverride {
     pub program: String,
     /// Args to prepend before the entry file path.
     pub prepend_args: Vec<String>,
-    /// Extra environment variables for the child process. Merged on
-    /// top of the inherited parent environment. Typical use: `PYTHONPATH`
+    /// Extra environment variables for the child process. Added explicitly
+    /// after the parent environment is cleared. Typical use: `PYTHONPATH`
     /// so a test or install can find a locally-built SDK.
     pub env: Vec<(String, String)>,
 }
@@ -84,7 +103,10 @@ impl SubprocessRuntime {
         let launcher = launcher_override.unwrap_or_else(|| default_launcher(runtime));
 
         let mut cmd = Command::new(&launcher.program);
-        cmd.args(&launcher.prepend_args)
+        cmd.env_clear()
+            .env("PATH", SAFE_PLUGIN_PATH)
+            .env("LANG", "C.UTF-8")
+            .args(&launcher.prepend_args)
             .arg(&entry)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -276,25 +298,61 @@ impl ShutdownHandle {
 // Internals
 // ===========================================================
 
-async fn read_one_line(
-    stdout: &mut BufReader<ChildStdout>,
-) -> Result<Option<String>, SubprocessError> {
-    let mut line = String::new();
-    let n = stdout.read_line(&mut line).await?;
-    if n == 0 {
-        return Ok(None);
-    }
-    // Strip trailing newline(s).
-    if line.ends_with('\n') {
-        line.pop();
-        if line.ends_with('\r') {
-            line.pop();
+async fn read_one_line<R>(stdout: &mut R) -> Result<Option<String>, SubprocessError>
+where
+    R: AsyncBufRead + Unpin,
+{
+    read_one_line_with_limit(stdout, MAX_AEP_FRAME_BYTES).await
+}
+
+async fn read_one_line_with_limit<R>(
+    stdout: &mut R,
+    frame_limit: usize,
+) -> Result<Option<String>, SubprocessError>
+where
+    R: AsyncBufRead + Unpin,
+{
+    let mut bytes = Vec::new();
+    loop {
+        let available = stdout.fill_buf().await?;
+        if available.is_empty() {
+            if bytes.is_empty() {
+                return Ok(None);
+            }
+            break;
         }
+
+        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+            if bytes.len().saturating_add(newline) > frame_limit {
+                return Err(SubprocessError::FrameTooLarge(frame_limit));
+            }
+            bytes.extend_from_slice(&available[..newline]);
+            stdout.consume(newline + 1);
+            break;
+        }
+
+        if bytes.len().saturating_add(available.len()) > frame_limit {
+            return Err(SubprocessError::FrameTooLarge(frame_limit));
+        }
+        let consumed = available.len();
+        bytes.extend_from_slice(available);
+        stdout.consume(consumed);
     }
-    Ok(Some(line))
+    if bytes.last() == Some(&b'\r') {
+        bytes.pop();
+    }
+    Ok(Some(String::from_utf8(bytes)?))
 }
 
 async fn write_one_line(stdin: &mut ChildStdin, line: &str) -> Result<(), SubprocessError> {
+    if line.len() > MAX_AEP_FRAME_BYTES {
+        return Err(SubprocessError::FrameTooLarge(MAX_AEP_FRAME_BYTES));
+    }
+    if line.bytes().any(|byte| matches!(byte, b'\r' | b'\n')) {
+        return Err(SubprocessError::InvalidFrame(
+            "embedded newline in JSON-RPC frame".to_string(),
+        ));
+    }
     stdin.write_all(line.as_bytes()).await?;
     stdin.write_all(b"\n").await?;
     stdin.flush().await?;
@@ -316,20 +374,39 @@ fn default_launcher(runtime: Runtime) -> LauncherOverride {
     }
 }
 
-fn spawn_stderr_drain(plugin: String, stderr: ChildStderr) -> JoinHandle<()> {
+fn spawn_stderr_drain(plugin: String, mut stderr: ChildStderr) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
+        let mut buffer = [0_u8; 8192];
+        let mut logged = 0_usize;
+        let mut truncation_reported = false;
         loop {
-            match reader.next_line().await {
-                Ok(Some(line)) => {
-                    tracing::warn!(
-                        target: "aep.plugin.stderr",
-                        plugin = %plugin,
-                        "{}",
-                        line
-                    );
+            match stderr.read(&mut buffer).await {
+                Ok(0) => break,
+                Ok(read) => {
+                    let remaining = MAX_PLUGIN_STDERR_LOG_BYTES.saturating_sub(logged);
+                    let visible = read.min(remaining);
+                    if visible > 0 {
+                        logged += visible;
+                        let text = String::from_utf8_lossy(&buffer[..visible]);
+                        for line in text.lines() {
+                            tracing::warn!(
+                                target: "aep.plugin.stderr",
+                                plugin = %plugin,
+                                "{}",
+                                line
+                            );
+                        }
+                    }
+                    if visible < read && !truncation_reported {
+                        truncation_reported = true;
+                        tracing::warn!(
+                            target: "aep.plugin.stderr",
+                            plugin = %plugin,
+                            limit = MAX_PLUGIN_STDERR_LOG_BYTES,
+                            "plugin stderr log limit reached; continuing to drain silently"
+                        );
+                    }
                 }
-                Ok(None) => break,
                 Err(e) => {
                     tracing::error!(
                         target: "aep.plugin.stderr",
@@ -358,6 +435,12 @@ pub enum SubprocessError {
 
     #[error("invalid UTF-8 from subprocess stdout: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
+
+    #[error("subprocess JSON-RPC frame exceeds {0} bytes")]
+    FrameTooLarge(usize),
+
+    #[error("invalid subprocess JSON-RPC frame: {0}")]
+    InvalidFrame(String),
 
     #[error("subprocess did not exit within {0}s after shutdown signal")]
     ShutdownTimeout(u64),
@@ -416,6 +499,36 @@ mod tests {
         // means the runtime returns Ok before the OS actually freed
         // the PID, racing with the next spawn.
         assert_eq!(HARD_KILL_TIMEOUT, Duration::from_secs(2));
+    }
+
+    #[test]
+    fn transport_limits_are_bounded() {
+        assert_eq!(MAX_AEP_FRAME_BYTES, 16 * 1024 * 1024);
+        assert_eq!(MAX_PLUGIN_STDERR_LOG_BYTES, 256 * 1024);
+    }
+
+    #[tokio::test]
+    async fn frame_reader_strips_crlf_and_returns_final_unterminated_frame() {
+        let mut reader = BufReader::new(&b"first\r\nsecond"[..]);
+        assert_eq!(
+            read_one_line_with_limit(&mut reader, 16).await.unwrap(),
+            Some("first".to_string())
+        );
+        assert_eq!(
+            read_one_line_with_limit(&mut reader, 16).await.unwrap(),
+            Some("second".to_string())
+        );
+        assert_eq!(
+            read_one_line_with_limit(&mut reader, 16).await.unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn frame_reader_rejects_before_growing_past_limit() {
+        let mut reader = BufReader::new(&b"123456789\n"[..]);
+        let error = read_one_line_with_limit(&mut reader, 8).await.unwrap_err();
+        assert!(matches!(error, SubprocessError::FrameTooLarge(8)));
     }
 
     // -- LauncherOverride::default --------------------------------------

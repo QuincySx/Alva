@@ -12,11 +12,11 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use crate::permissions::PermissionProfile;
 use crate::session_workspace::WorkspaceKind;
 
+pub(crate) use branch::{default_account_source, default_billing_route};
 use db::{
     acquire_instance_lock, ensure_private_database_file, ensure_private_parent,
     initialize_schema_and_recover, validate_database_file,
 };
-pub(crate) use branch::{default_account_source, default_billing_route};
 
 mod branch;
 mod db;
@@ -34,14 +34,12 @@ pub use handoff::{
     HandoffCompletedWork, HandoffKind, HandoffPackage, HandoffPendingWork, McpSnapshot,
     SkillSnapshot, TranscriptTurn,
 };
-pub use team::{
-    TaskClaim, TeamRunDetail, TeamWorker, WorkerLifecycle, WorkerTask,
-};
+pub use team::{TaskClaim, TeamRunDetail, TeamWorker, WorkerLifecycle, WorkerTask};
+pub(crate) use turn::PreparedTurn;
 pub use turn::{
     HubSessionDetail, HubSessionSummary, SideEffectEvidence, StoredAttempt, StoredTimelineEvent,
     StoredTurn, StoredUsage,
 };
-pub(crate) use turn::PreparedTurn;
 
 pub(crate) const SCHEMA_VERSION: i64 = 17;
 pub(crate) const STATUS_RUNNING: &str = "running";
@@ -198,7 +196,10 @@ pub(crate) fn insert_engine_branch(
     Ok(())
 }
 
-pub(crate) fn query_branch_target(connection: &Connection, branch_id: &str) -> Result<EngineTarget, String> {
+pub(crate) fn query_branch_target(
+    connection: &Connection,
+    branch_id: &str,
+) -> Result<EngineTarget, String> {
     let row = connection
         .query_row(
             "SELECT engine_id, model_id, provider_id, account_source, billing_route,
@@ -259,7 +260,11 @@ pub(crate) fn update_engine_branch_options(
     }
 }
 
-pub(crate) fn legacy_engine_target(engine_id: String, model_id: String, provider_id: String) -> EngineTarget {
+pub(crate) fn legacy_engine_target(
+    engine_id: String,
+    model_id: String,
+    provider_id: String,
+) -> EngineTarget {
     EngineTarget {
         engine_id,
         model_id,

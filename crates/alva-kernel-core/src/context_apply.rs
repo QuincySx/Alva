@@ -10,6 +10,8 @@ use alva_kernel_abi::scope::context::{
     CompressAction, ContextHandle, Injection, InjectionContent, MessageSelector,
 };
 use alva_kernel_abi::AgentMessage;
+use std::collections::HashSet;
+use std::time::Duration;
 use tracing::debug;
 
 /// Apply a list of Injections to the layered system prompt and message
@@ -121,8 +123,27 @@ pub async fn apply_compressions(
                     debug!(drop_count, keep_recent, "budget: applied sliding window");
                 }
             }
-            CompressAction::RemoveByPriority { .. } => {
-                // Will activate once ContextStore holds real entries.
+            CompressAction::RemoveByPriority { priority } => {
+                let snapshot = handle.snapshot(session_id);
+                let removable: HashSet<String> = snapshot
+                    .entries
+                    .into_iter()
+                    .filter(|entry| entry.priority == priority)
+                    .map(|entry| entry.id)
+                    .collect();
+                if !removable.is_empty() {
+                    messages.retain(|message| {
+                        !matches!(message, AgentMessage::Standard(message) if removable.contains(&message.id))
+                    });
+                    for id in &removable {
+                        handle.remove_message(session_id, id);
+                    }
+                    debug!(
+                        removed = removable.len(),
+                        ?priority,
+                        "budget: removed messages by priority"
+                    );
+                }
             }
             CompressAction::ReplaceToolResult {
                 message_id,
@@ -145,13 +166,19 @@ pub async fn apply_compressions(
                 let to_idx = resolve_selector(&range.to, messages, msg_len);
 
                 if from_idx < to_idx && to_idx <= msg_len {
-                    // The kernel does not enforce a timeout here — that is the
-                    // ContextHandle implementation's responsibility. A real impl
-                    // (e.g., LLM-backed) should bound its own latency; a noop or
-                    // synchronous impl returns immediately. This keeps kernel-abi
-                    // free of any tokio::time dependency.
                     let _range_text = serialize_range(&messages[from_idx..to_idx], from_idx);
-                    let summary_text = handle.summarize(session_id, range.clone(), &hints).await;
+                    let summary_text = match tokio::time::timeout(
+                        Duration::from_secs(5),
+                        handle.summarize(session_id, range.clone(), &hints),
+                    )
+                    .await
+                    {
+                        Ok(summary) => summary,
+                        Err(_) => {
+                            tracing::warn!("budget summarization timed out after 5s");
+                            continue;
+                        }
+                    };
 
                     let summary_msg = AgentMessage::Standard(Message {
                         id: uuid::Uuid::new_v4().to_string(),

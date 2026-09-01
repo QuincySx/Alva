@@ -97,9 +97,8 @@ fn minimal_state() -> alva_kernel_core::AgentState {
             _messages: &[alva_kernel_abi::Message],
             _tools: &[&dyn alva_kernel_abi::Tool],
             _config: &alva_kernel_abi::ModelConfig,
-        ) -> std::pin::Pin<
-            Box<dyn futures_core::Stream<Item = alva_kernel_abi::StreamEvent> + Send>,
-        > {
+        ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = alva_kernel_abi::StreamEvent> + Send>>
+        {
             Box::pin(futures::stream::empty())
         }
         fn model_id(&self) -> &str {

@@ -594,7 +594,9 @@ impl ContextHooks for DefaultContextHooks {
 
         // Extract user text for memory query
         let query = match message {
-            AgentMessage::Standard(m) => m.text_content(),
+            AgentMessage::Standard(m) if m.role == alva_kernel_abi::MessageRole::User => {
+                m.text_content()
+            }
             _ => String::new(),
         };
 
@@ -627,6 +629,15 @@ impl ContextHooks for DefaultContextHooks {
         entry: &ContextEntry,
     ) -> IngestAction {
         // Record LLM output text into the recent messages buffer for memory extraction.
+        // User input is recorded by `on_message`; recording it here as well
+        // would duplicate every user turn in the extraction transcript.
+        if matches!(
+            &entry.message,
+            AgentMessage::Standard(message)
+                if message.role == alva_kernel_abi::MessageRole::User
+        ) {
+            return IngestAction::Keep;
+        }
         let text = match &entry.message {
             AgentMessage::Standard(m) => m.text_content(),
             AgentMessage::Extension { data, .. } => data.to_string(),
@@ -920,5 +931,22 @@ mod tests {
         let result = plugin.assemble(&sdk, "agent-1", vec![], 100_000).await;
 
         assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_messages_are_recorded_once_across_ingest_and_on_message() {
+        let sdk = test_sdk();
+        let plugin = DefaultContextHooks::new(DefaultHooksConfig::default());
+        let user = user_msg("hello");
+
+        plugin
+            .ingest(&sdk, "agent-1", &wrap_entry(user.clone()))
+            .await;
+        plugin.on_message(&sdk, "agent-1", &user).await;
+
+        let state = plugin.state.lock().await;
+        assert_eq!(state.recent_messages.len(), 1);
+        assert_eq!(state.recent_messages[0].role, "User");
+        assert_eq!(state.recent_messages[0].text, "hello");
     }
 }

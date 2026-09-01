@@ -1,9 +1,10 @@
 // INPUT:  LanguageModel, Tool, Middleware, Plugin, Registrar, AgentState/AgentConfig
 // OUTPUT: AgentBuilder
-// POS:    SDK-level builder that runs plugin lifecycles and records assembly metadata.
+// POS:    SDK-level builder that fail-fast validates plugin/tool/session assembly and records contribution metadata.
 //! AgentBuilder — SDK-level builder that assembles an `Agent` from
 //! plugins, tools, middleware, model, and kernel config.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
@@ -150,6 +151,15 @@ impl AgentBuilder {
                     .into(),
             ));
         }
+        let mut unique_plugin_names = HashSet::new();
+        for plugin in &self.plugins {
+            if !unique_plugin_names.insert(plugin.name().to_string()) {
+                return Err(AgentError::ConfigError(format!(
+                    "duplicate plugin name `{}`; plugin names must be unique",
+                    plugin.name()
+                )));
+            }
+        }
 
         // 2. Set up the bus. Prefer a caller-supplied writer (so the caller
         //    can register capabilities on it). If only a `BusHandle` was
@@ -186,7 +196,12 @@ impl AgentBuilder {
                 bus_writer.clone(),
                 workspace_for_ctx.clone(),
             );
-            p.register(&reg).await;
+            p.try_register(&reg).await.map_err(|error| {
+                AgentError::ConfigError(format!(
+                    "plugin `{}` registration failed: {error}",
+                    p.name()
+                ))
+            })?;
             all_tools.extend(reg.take_tools());
             let contribution = reg.contribution();
             plugin_snapshots.push(PluginAssemblySnapshot {
@@ -245,14 +260,29 @@ impl AgentBuilder {
         // 6. Register the collected tools into a ToolRegistry.
         let mut registry = ToolRegistry::new();
         for tool in all_tools {
-            registry.register(tool);
+            let name = tool.name().to_string();
+            if !registry.register(tool) {
+                return Err(AgentError::ConfigError(format!(
+                    "duplicate tool name `{name}`; tool names must be unique"
+                )));
+            }
         }
+
+        // Session is needed during middleware configuration, not only when
+        // constructing AgentState. Production middleware must never receive
+        // the test-only `session: None` context.
+        let session: Arc<dyn AgentSession> = self
+            .session
+            .unwrap_or_else(|| Arc::new(InMemoryAgentSession::new()));
 
         // 7. Configure middleware that needs shared infrastructure.
         middleware_stack.configure_all(&MiddlewareContext {
             bus: Some(bus.clone()),
             workspace: self.workspace.clone(),
-            session: None, // TODO(phase-2): per-middleware scoped session
+            session: Some(alva_kernel_abi::agent_session::ScopedSession::new(
+                session.clone(),
+                alva_kernel_abi::agent_session::EventEmitter::runtime(),
+            )),
         });
 
         // 8. Finalize phase: plugins can return additional tools that depend
@@ -269,15 +299,30 @@ impl AgentBuilder {
             max_iterations: self.max_iterations,
         };
         for (idx, p) in self.plugins.iter().enumerate() {
-            for tool in p.finalize(&late_ctx).await {
+            for tool in p.try_finalize(&late_ctx).await.map_err(|error| {
+                AgentError::ConfigError(format!(
+                    "plugin `{}` finalization failed: {error}",
+                    p.name()
+                ))
+            })? {
                 let tool_name = tool.name().to_string();
                 if let Some(snapshot) = plugin_snapshots.get_mut(idx) {
-                    snapshot.finalized_tool_names.push(tool_name);
+                    snapshot.finalized_tool_names.push(tool_name.clone());
                 }
-                registry.register_arc(tool);
+                if !registry.register_arc(tool) {
+                    return Err(AgentError::ConfigError(format!(
+                        "duplicate tool name `{tool_name}`; tool names must be unique"
+                    )));
+                }
             }
         }
         let tools_arc: Vec<Arc<dyn Tool>> = registry.list_arc();
+        if !tools_arc.is_empty() && !session.supports_atomic_records() {
+            return Err(AgentError::ConfigError(format!(
+                "session `{}` does not support atomic typed records required for tool execution",
+                session.session_id()
+            )));
+        }
 
         // 9. Assemble the final system prompt:
         //      [user-provided base]
@@ -299,12 +344,7 @@ impl AgentBuilder {
             self.workspace.as_deref(),
         );
 
-        // 10. Session — default to in-memory if not provided.
-        let session: Arc<dyn AgentSession> = self
-            .session
-            .unwrap_or_else(|| Arc::new(InMemoryAgentSession::new()));
-
-        // 11. AgentState
+        // 10. AgentState
         let state = AgentState {
             model,
             tools: tools_arc,
@@ -312,7 +352,7 @@ impl AgentBuilder {
             extensions: Extensions::new(),
         };
 
-        // 12. AgentConfig
+        // 11. AgentConfig
         let config = AgentConfig {
             middleware: middleware_stack,
             system_prompt,
@@ -325,7 +365,7 @@ impl AgentBuilder {
             context_token_budget: self.context_token_budget,
         };
 
-        // 13. Wrap up. The bus_writer is intentionally dropped here — any
+        // 12. Wrap up. The bus_writer is intentionally dropped here — any
         //     capabilities the caller / plugins wanted to register on it
         //     have already been published, and the run loop only needs the
         //     read-side `BusHandle`.
@@ -335,8 +375,8 @@ impl AgentBuilder {
         let tools_snapshot = state.tools.clone();
 
         Ok(Agent {
-            state: Mutex::new(state),
-            config: tokio::sync::RwLock::new(config),
+            state: Arc::new(Mutex::new(state)),
+            config: Arc::new(tokio::sync::RwLock::new(config)),
             bus,
             host,
             tools: tools_snapshot,

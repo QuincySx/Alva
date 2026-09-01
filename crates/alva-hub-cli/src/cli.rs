@@ -1,8 +1,12 @@
 // INPUT:  process argument strings
-// OUTPUT: Engine, ClaudeMode, PermissionPolicy, Invocation, ParseOutcome, ParseError, parse_args
-// POS:    Fail-closed command-line grammar for selecting one Hub engine and one prompt.
+// OUTPUT: Engine, policies, bounded Invocation, version/help outcomes, parse_args
+// POS:    Fail-closed command-line grammar for selecting and bounding one Hub execution.
 
 use std::fmt;
+
+const MAX_TIMEOUT_SECONDS: u64 = 7 * 24 * 60 * 60;
+const MAX_AGENT_TURNS: u32 = 10_000;
+const MAX_SESSION_ID_BYTES: usize = 128;
 
 /// Product-visible engine choices supported by this CLI build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +103,11 @@ pub(crate) struct Invocation {
     /// Print ToolStart/ToolEnd / session metadata on stderr.
     pub(crate) verbose: bool,
     pub(crate) permission: PermissionPolicy,
+    /// Total wall-clock budget for each turn. `None` uses the production
+    /// default selected by the binary.
+    pub(crate) timeout_seconds: Option<u64>,
+    /// Engine-level agentic turn ceiling when the selected adapter supports it.
+    pub(crate) max_turns: Option<u32>,
     /// Empty when `--repl` with no initial prompt.
     pub(crate) prompt: String,
 }
@@ -106,6 +115,7 @@ pub(crate) struct Invocation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ParseOutcome {
     Help,
+    Version,
     Run(Invocation),
 }
 
@@ -122,11 +132,18 @@ pub(crate) enum ParseError {
     DuplicateCwd,
     MissingSessionValue,
     DuplicateSession,
+    InvalidSession(String),
     DuplicateRepl,
     DuplicateVerbose,
     MissingPermissionValue,
     DuplicatePermission,
     UnknownPermission(String),
+    MissingTimeoutValue,
+    DuplicateTimeout,
+    InvalidTimeout(String),
+    MissingMaxTurnsValue,
+    DuplicateMaxTurns,
+    InvalidMaxTurns(String),
     UnknownOption(String),
     EmptyPrompt,
 }
@@ -158,6 +175,11 @@ impl fmt::Display for ParseError {
             Self::DuplicateCwd => write!(f, "--cwd may be supplied only once"),
             Self::MissingSessionValue => write!(f, "--session requires a product session id"),
             Self::DuplicateSession => write!(f, "--session may be supplied only once"),
+            Self::InvalidSession(value) => write!(
+                f,
+                "invalid --session '{}' (expected 1–128 ASCII letters, digits, '-' or '_')",
+                printable_value(value)
+            ),
             Self::DuplicateRepl => write!(f, "--repl may be supplied only once"),
             Self::DuplicateVerbose => write!(f, "--verbose may be supplied only once"),
             Self::MissingPermissionValue => {
@@ -168,6 +190,22 @@ impl fmt::Display for ParseError {
                 write!(
                     f,
                     "unknown permission '{value}' (expected deny, allow, or ask)"
+                )
+            }
+            Self::MissingTimeoutValue => write!(f, "--timeout requires positive seconds"),
+            Self::DuplicateTimeout => write!(f, "--timeout may be supplied only once"),
+            Self::InvalidTimeout(value) => {
+                write!(
+                    f,
+                    "invalid --timeout '{value}' (expected 1–{MAX_TIMEOUT_SECONDS} seconds)"
+                )
+            }
+            Self::MissingMaxTurnsValue => write!(f, "--max-turns requires a positive integer"),
+            Self::DuplicateMaxTurns => write!(f, "--max-turns may be supplied only once"),
+            Self::InvalidMaxTurns(value) => {
+                write!(
+                    f,
+                    "invalid --max-turns '{value}' (expected 1–{MAX_AGENT_TURNS})"
                 )
             }
             Self::UnknownOption(option) => write!(f, "unknown option '{option}'"),
@@ -191,6 +229,8 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ParseOutcome, ParseError> {
     let mut verbose = false;
     let mut permission = PermissionPolicy::Deny;
     let mut permission_set = false;
+    let mut timeout_seconds = None;
+    let mut max_turns = None;
     let mut prompt_parts = Vec::new();
     let mut options_ended = false;
     let mut index = 0;
@@ -202,6 +242,9 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ParseOutcome, ParseError> {
         }
         if matches!(argument.as_str(), "--help" | "-h") {
             return Ok(ParseOutcome::Help);
+        }
+        if matches!(argument.as_str(), "--version" | "-V") {
+            return Ok(ParseOutcome::Version);
         }
         if argument == "--" {
             options_ended = true;
@@ -232,6 +275,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ParseOutcome, ParseError> {
                 .get(index + 1)
                 .filter(|value| !value.starts_with('-'))
                 .ok_or(ParseError::MissingSessionValue)?;
+            validate_session_id(value)?;
             session = Some(value.clone());
             index += 2;
             continue;
@@ -243,6 +287,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ParseOutcome, ParseError> {
             if value.is_empty() {
                 return Err(ParseError::MissingSessionValue);
             }
+            validate_session_id(value)?;
             session = Some(value.to_string());
             index += 1;
             continue;
@@ -292,6 +337,52 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ParseOutcome, ParseError> {
             }
             permission = PermissionPolicy::parse(value)?;
             permission_set = true;
+            index += 1;
+            continue;
+        }
+        if argument == "--timeout" {
+            if timeout_seconds.is_some() {
+                return Err(ParseError::DuplicateTimeout);
+            }
+            let value = args
+                .get(index + 1)
+                .filter(|value| !value.starts_with('-'))
+                .ok_or(ParseError::MissingTimeoutValue)?;
+            timeout_seconds = Some(parse_timeout(value)?);
+            index += 2;
+            continue;
+        }
+        if let Some(value) = argument.strip_prefix("--timeout=") {
+            if timeout_seconds.is_some() {
+                return Err(ParseError::DuplicateTimeout);
+            }
+            if value.is_empty() {
+                return Err(ParseError::MissingTimeoutValue);
+            }
+            timeout_seconds = Some(parse_timeout(value)?);
+            index += 1;
+            continue;
+        }
+        if argument == "--max-turns" {
+            if max_turns.is_some() {
+                return Err(ParseError::DuplicateMaxTurns);
+            }
+            let value = args
+                .get(index + 1)
+                .filter(|value| !value.starts_with('-'))
+                .ok_or(ParseError::MissingMaxTurnsValue)?;
+            max_turns = Some(parse_max_turns(value)?);
+            index += 2;
+            continue;
+        }
+        if let Some(value) = argument.strip_prefix("--max-turns=") {
+            if max_turns.is_some() {
+                return Err(ParseError::DuplicateMaxTurns);
+            }
+            if value.is_empty() {
+                return Err(ParseError::MissingMaxTurnsValue);
+            }
+            max_turns = Some(parse_max_turns(value)?);
             index += 1;
             continue;
         }
@@ -371,8 +462,46 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ParseOutcome, ParseError> {
         repl,
         verbose,
         permission,
+        timeout_seconds,
+        max_turns,
         prompt,
     }))
+}
+
+fn parse_timeout(value: &str) -> Result<u64, ParseError> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|seconds| (1..=MAX_TIMEOUT_SECONDS).contains(seconds))
+        .ok_or_else(|| ParseError::InvalidTimeout(value.to_string()))
+}
+
+fn parse_max_turns(value: &str) -> Result<u32, ParseError> {
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|turns| (1..=MAX_AGENT_TURNS).contains(turns))
+        .ok_or_else(|| ParseError::InvalidMaxTurns(value.to_string()))
+}
+
+fn validate_session_id(value: &str) -> Result<(), ParseError> {
+    if value.is_empty()
+        || value.len() > MAX_SESSION_ID_BYTES
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(ParseError::InvalidSession(value.into()));
+    }
+    Ok(())
+}
+
+fn printable_value(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(80)
+        .collect()
 }
 
 #[cfg(test)]
@@ -396,6 +525,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "hello world".into(),
             }))
         );
@@ -418,6 +549,8 @@ mod tests {
                     repl: false,
                     verbose: false,
                     permission: PermissionPolicy::Deny,
+                    timeout_seconds: None,
+                    max_turns: None,
                     prompt: "hello".into(),
                 }))
             );
@@ -444,6 +577,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "hello".into(),
             }))
         );
@@ -468,6 +603,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "hello".into(),
             }))
         );
@@ -482,6 +619,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "hi".into(),
             }))
         );
@@ -496,6 +635,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "hi".into(),
             }))
         );
@@ -514,6 +655,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "hello".into(),
             }))
         );
@@ -528,6 +671,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "hello".into(),
             }))
         );
@@ -552,6 +697,8 @@ mod tests {
                 repl: true,
                 verbose: true,
                 permission: PermissionPolicy::Allow,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "first".into(),
             }))
         );
@@ -566,6 +713,8 @@ mod tests {
                 repl: true,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: String::new(),
             }))
         );
@@ -580,6 +729,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Allow,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "x".into(),
             }))
         );
@@ -594,6 +745,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Ask,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "x".into(),
             }))
         );
@@ -608,6 +761,8 @@ mod tests {
                 repl: true,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: String::new(),
             }))
         );
@@ -655,6 +810,8 @@ mod tests {
                 repl: false,
                 verbose: false,
                 permission: PermissionPolicy::Deny,
+                timeout_seconds: None,
+                max_turns: None,
                 prompt: "--explain -v".into(),
             }))
         );
@@ -664,5 +821,47 @@ mod tests {
     fn help_is_successful() {
         assert_eq!(parse_args(&args(&["--help"])), Ok(ParseOutcome::Help));
         assert_eq!(parse_args(&args(&["-h"])), Ok(ParseOutcome::Help));
+        assert_eq!(parse_args(&args(&["--version"])), Ok(ParseOutcome::Version));
+        assert_eq!(parse_args(&args(&["-V"])), Ok(ParseOutcome::Version));
+    }
+
+    #[test]
+    fn parses_and_validates_execution_bounds() {
+        let ParseOutcome::Run(invocation) =
+            parse_args(&args(&["--timeout=45", "--max-turns", "7", "do work"])).unwrap()
+        else {
+            panic!("expected runnable invocation");
+        };
+        assert_eq!(invocation.timeout_seconds, Some(45));
+        assert_eq!(invocation.max_turns, Some(7));
+
+        assert_eq!(
+            parse_args(&args(&["--timeout", "0", "x"])),
+            Err(ParseError::InvalidTimeout("0".into()))
+        );
+        assert_eq!(
+            parse_args(&args(&["--max-turns=nope", "x"])),
+            Err(ParseError::InvalidMaxTurns("nope".into()))
+        );
+        assert_eq!(
+            parse_args(&args(&["--timeout=604801", "x"])),
+            Err(ParseError::InvalidTimeout("604801".into()))
+        );
+        assert_eq!(
+            parse_args(&args(&["--max-turns=10001", "x"])),
+            Err(ParseError::InvalidMaxTurns("10001".into()))
+        );
+    }
+
+    #[test]
+    fn rejects_session_ids_that_can_inject_logs_or_exhaust_maps() {
+        assert!(matches!(
+            parse_args(&args(&["--session", "bad\nid", "x"])),
+            Err(ParseError::InvalidSession(_))
+        ));
+        assert!(matches!(
+            parse_args(&args(&["--session", &"a".repeat(129), "x"])),
+            Err(ParseError::InvalidSession(_))
+        ));
     }
 }

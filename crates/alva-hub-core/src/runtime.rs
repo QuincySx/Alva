@@ -124,8 +124,8 @@ struct HubSession {
     previous_engine_session_id: Option<String>,
     /// Cleared on the first execute after a handoff.
     pending_handoff: bool,
-    /// Product-supplied handoff context retained only when engine startup fails
-    /// synchronously, so the next retry can reuse the same one-shot preamble.
+    /// Product-supplied handoff context retained when engine startup or the
+    /// first post-switch stream fails, so a retry can reuse the same preamble.
     pending_handoff_context: Option<String>,
     status: HubSessionStatus,
     stream_hard_violations: u32,
@@ -179,7 +179,7 @@ pub struct HubRequest {
     pub request: RuntimeRequest,
     /// Optional preamble injected once on the first turn after
     /// [`HubRuntime::switch_engine`] (when `pending_handoff` is set).
-    /// Products typically include previous-engine previews / transcript excerpts.
+    /// Products decide which policy-approved context, if any, may cross engines.
     pub handoff_context: Option<String>,
 }
 
@@ -496,6 +496,7 @@ impl HubRuntime {
                 return Err(error.into());
             }
         };
+        let failed_handoff_rollback = previous_session.zip(handoff_context_used);
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let sessions = self.sessions.clone();
         let engine_id = request.engine_id;
@@ -505,6 +506,7 @@ impl HubRuntime {
             let mut engine_stream = engine_stream;
             let mut output_open = true;
             let mut saw_completed = false;
+            let mut saw_fatal_error = false;
             // Multi-engine stream contract (cindy lessons): observe every
             // engine event. Hard violations are logged; Hub still forwards
             // events so adapters stay debuggable, and missing Completed is
@@ -529,7 +531,14 @@ impl HubRuntime {
                         );
                     }
                 }
-                saw_completed |= matches!(event, RuntimeEvent::Completed { .. });
+                saw_completed |= matches!(&event, RuntimeEvent::Completed { .. });
+                saw_fatal_error |= matches!(
+                    &event,
+                    RuntimeEvent::Error {
+                        recoverable: false,
+                        ..
+                    }
+                );
                 update_session(&sessions, &output_session_id, &event);
                 if output_open
                     && event_tx
@@ -586,6 +595,7 @@ impl HubRuntime {
                 );
             }
             if !saw_completed {
+                saw_fatal_error = true;
                 let engine_session_id =
                     mark_session_failed(&sessions, &output_session_id).unwrap_or_default();
                 if output_open {
@@ -598,7 +608,7 @@ impl HubRuntime {
                         },
                     });
                     let _ = event_tx.send(HubEvent {
-                        product_session_id: output_session_id,
+                        product_session_id: output_session_id.clone(),
                         engine_id,
                         event: RuntimeEvent::Completed {
                             session_id: engine_session_id,
@@ -606,6 +616,11 @@ impl HubRuntime {
                             usage: None,
                         },
                     });
+                }
+            }
+            if saw_fatal_error {
+                if let Some((previous, context)) = failed_handoff_rollback {
+                    restore_failed_handoff(&sessions, &output_session_id, previous, context);
                 }
             }
         });
@@ -734,6 +749,24 @@ fn record_soft_warnings(
     session.stream_soft_warnings = session.stream_soft_warnings.saturating_add(count);
 }
 
+fn restore_failed_handoff(
+    sessions: &RwLock<HashMap<ProductSessionId, HubSession>>,
+    product_session_id: &ProductSessionId,
+    mut previous: HubSession,
+    context: String,
+) {
+    let mut sessions = sessions
+        .write()
+        .expect("Hub session registry lock poisoned");
+    if let Some(failed) = sessions.get(product_session_id) {
+        previous.stream_hard_violations = failed.stream_hard_violations;
+        previous.stream_soft_warnings = failed.stream_soft_warnings;
+        previous.last_stream_violation = failed.last_stream_violation.clone();
+    }
+    previous.pending_handoff_context = Some(context);
+    sessions.insert(product_session_id.clone(), previous);
+}
+
 /// Minimal handoff banner when the product does not supply richer context.
 fn default_handoff_banner(from_engine: &str, to_engine: &str) -> String {
     format!(
@@ -744,7 +777,7 @@ You are continuing **product-session** work after a handoff from engine \
 `{from_engine}` to engine `{to_engine}`.
 
 The previous engine's full conversation is **not** automatically available \
-here. Infer carefully from any previews below and from the new user message. \
+here. Use only the handoff metadata and the new user message. \
 If critical context is missing, say what you need."
     )
 }
@@ -978,6 +1011,71 @@ mod tests {
     struct FailOnceEngine {
         calls: AtomicUsize,
         requests: Mutex<Vec<RuntimeRequest>>,
+    }
+
+    struct FatalStreamOnceEngine {
+        calls: AtomicUsize,
+        requests: Mutex<Vec<RuntimeRequest>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for FatalStreamOnceEngine {
+        fn execute(
+            &self,
+            request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            self.requests.lock().unwrap().push(request);
+            let events = if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                vec![
+                    RuntimeEvent::Error {
+                        message: "target failed after startup".into(),
+                        recoverable: false,
+                    },
+                    RuntimeEvent::Completed {
+                        session_id: String::new(),
+                        result: None,
+                        usage: None,
+                    },
+                ]
+            } else {
+                vec![
+                    RuntimeEvent::SessionStarted {
+                        session_id: "stream-retry-engine".into(),
+                        model: None,
+                        tools: vec![],
+                    },
+                    RuntimeEvent::Completed {
+                        session_id: "stream-retry-engine".into(),
+                        result: Some("done".into()),
+                        usage: None,
+                    },
+                ]
+            };
+            Ok(Box::pin(stream::iter(events)))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
     }
 
     #[async_trait]
@@ -1315,6 +1413,60 @@ mod tests {
         assert_eq!(requests.len(), 2);
         assert!(requests[1].prompt.contains("CUSTOM_HANDOFF_BLOCK"));
         assert!(requests[1].prompt.contains("retry attempt"));
+        assert!(!hub.session(&product_id).unwrap().pending_handoff);
+    }
+
+    #[tokio::test]
+    async fn fatal_first_handoff_stream_preserves_context_for_retry() {
+        let hub = HubRuntime::new();
+        hub.register_engine("alva", Arc::new(FakeEngine::new()))
+            .unwrap();
+        let retry_engine = Arc::new(FatalStreamOnceEngine {
+            calls: AtomicUsize::new(0),
+            requests: Mutex::new(Vec::new()),
+        });
+        hub.register_engine("retry", retry_engine.clone()).unwrap();
+
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("alva", RuntimeRequest::new("start")))
+            .unwrap()
+            .collect()
+            .await;
+        let product_id = first[0].product_session_id.clone();
+        hub.switch_engine(&product_id, "retry").unwrap();
+
+        let failed: Vec<_> = hub
+            .execute(
+                HubRequest::new("retry", RuntimeRequest::new("first attempt"))
+                    .resume(product_id.clone())
+                    .with_handoff_context("SAFE_HANDOFF_BLOCK"),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        assert!(matches!(
+            failed[0].event,
+            RuntimeEvent::Error {
+                recoverable: false,
+                ..
+            }
+        ));
+        let after_failure = hub.session(&product_id).unwrap();
+        assert!(after_failure.pending_handoff);
+        assert_eq!(after_failure.engine_id.as_str(), "retry");
+        assert!(after_failure.engine_session_id.is_none());
+
+        let _: Vec<_> = hub
+            .execute(
+                HubRequest::new("retry", RuntimeRequest::new("second attempt"))
+                    .resume(product_id.clone()),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        let requests = retry_engine.requests.lock().unwrap();
+        assert!(requests[0].prompt.contains("SAFE_HANDOFF_BLOCK"));
+        assert!(requests[1].prompt.contains("SAFE_HANDOFF_BLOCK"));
         assert!(!hub.session(&product_id).unwrap().pending_handoff);
     }
 

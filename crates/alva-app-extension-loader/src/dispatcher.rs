@@ -1,7 +1,7 @@
 // INPUT:  subprocess::{SubprocessRuntime, ReadHalf, WriteHalf, ShutdownHandle},
 //         protocol::{Request, Response, Notification, RpcError, methods, error_codes}
 // OUTPUT: RpcDispatcher, HostHandler, NoopHostHandler, DispatchError
-// POS:    Phase 2 — bidirectional JSON-RPC dispatcher on top of a subprocess.
+// POS:    Bounded bidirectional JSON-RPC dispatcher with cancellable pending calls and host concurrency limits.
 
 //! Bidirectional JSON-RPC 2.0 dispatcher for AEP plugins.
 //!
@@ -30,8 +30,8 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
 use serde_json::Value;
-use tokio::sync::{mpsc, oneshot, watch};
-use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, oneshot, watch, Semaphore};
+use tokio::task::{JoinHandle, JoinSet};
 
 use crate::protocol::{error_codes, Notification, Request, RequestId, Response, RpcError};
 use crate::subprocess::{ReadHalf, ShutdownHandle, SubprocessError, SubprocessRuntime, WriteHalf};
@@ -90,14 +90,37 @@ impl HostHandler for NoopHostHandler {
 // Dispatcher
 // ===========================================================
 
-type PendingMap = Arc<StdMutex<HashMap<RequestId, oneshot::Sender<Response>>>>;
+struct DispatcherState {
+    pending: HashMap<RequestId, oneshot::Sender<Response>>,
+    transport_open: bool,
+}
+
+type SharedState = Arc<StdMutex<DispatcherState>>;
+
+const DISPATCH_WRITE_QUEUE_CAPACITY: usize = 128;
+const MAX_PENDING_REQUESTS: usize = 128;
+const MAX_CONCURRENT_HOST_REQUESTS: usize = 32;
+const MAX_LOGGED_FRAME_CHARS: usize = 2048;
+
+struct PendingRequestGuard {
+    id: RequestId,
+    state: SharedState,
+}
+
+impl Drop for PendingRequestGuard {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.pending.remove(&self.id);
+        }
+    }
+}
 
 /// Bidirectional JSON-RPC dispatcher. See module docs for the model.
 pub struct RpcDispatcher {
     name: String,
     next_id: AtomicU64,
-    pending: PendingMap,
-    write_tx: mpsc::UnboundedSender<String>,
+    state: SharedState,
+    write_tx: mpsc::Sender<String>,
     shutdown_tx: watch::Sender<bool>,
     reader_handle: Option<JoinHandle<()>>,
     writer_handle: Option<JoinHandle<()>>,
@@ -113,23 +136,33 @@ impl RpcDispatcher {
     pub fn spawn(runtime: SubprocessRuntime, handler: Arc<dyn HostHandler>) -> Self {
         let name = runtime.name().to_string();
         let (read_half, write_half, shutdown) = runtime.split();
-        let pending: PendingMap = Arc::new(StdMutex::new(HashMap::new()));
-        let (write_tx, write_rx) = mpsc::unbounded_channel::<String>();
+        let state: SharedState = Arc::new(StdMutex::new(DispatcherState {
+            pending: HashMap::new(),
+            transport_open: true,
+        }));
+        let (write_tx, write_rx) = mpsc::channel::<String>(DISPATCH_WRITE_QUEUE_CAPACITY);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let host_request_limit = Arc::new(Semaphore::new(MAX_CONCURRENT_HOST_REQUESTS));
 
         let reader_handle = tokio::spawn(reader_loop(
             read_half,
-            Arc::clone(&pending),
+            Arc::clone(&state),
             handler,
             write_tx.clone(),
+            host_request_limit,
             shutdown_rx.clone(),
         ));
-        let writer_handle = tokio::spawn(writer_loop(write_half, write_rx, shutdown_rx));
+        let writer_handle = tokio::spawn(writer_loop(
+            write_half,
+            write_rx,
+            Arc::clone(&state),
+            shutdown_rx,
+        ));
 
         Self {
             name,
             next_id: AtomicU64::new(0),
-            pending,
+            state,
             write_tx,
             shutdown_tx,
             reader_handle: Some(reader_handle),
@@ -152,15 +185,26 @@ impl RpcDispatcher {
 
         let (tx, rx) = oneshot::channel();
         {
-            let mut pending = self
-                .pending
+            let mut state = self
+                .state
                 .lock()
                 .map_err(|_| DispatchError::PendingPoisoned)?;
-            pending.insert(id.clone(), tx);
+            if !state.transport_open {
+                return Err(DispatchError::ChannelClosed);
+            }
+            if state.pending.len() >= MAX_PENDING_REQUESTS {
+                return Err(DispatchError::Capacity(MAX_PENDING_REQUESTS));
+            }
+            state.pending.insert(id.clone(), tx);
         }
+        let _pending_guard = PendingRequestGuard {
+            id: id.clone(),
+            state: Arc::clone(&self.state),
+        };
 
         self.write_tx
             .send(json)
+            .await
             .map_err(|_| DispatchError::ChannelClosed)?;
 
         let response = match rx.await {
@@ -168,11 +212,6 @@ impl RpcDispatcher {
             Err(_) => {
                 // oneshot sender dropped without sending — typically
                 // means the reader task exited / subprocess died.
-                let mut pending = self
-                    .pending
-                    .lock()
-                    .map_err(|_| DispatchError::PendingPoisoned)?;
-                pending.remove(&id);
                 return Err(DispatchError::ChannelClosed);
             }
         };
@@ -188,10 +227,19 @@ impl RpcDispatcher {
 
     /// Send a JSON-RPC notification. Does not await a response.
     pub async fn notify(&self, method: &str, params: Option<Value>) -> Result<(), DispatchError> {
+        if !self
+            .state
+            .lock()
+            .map_err(|_| DispatchError::PendingPoisoned)?
+            .transport_open
+        {
+            return Err(DispatchError::ChannelClosed);
+        }
         let notif = Notification::new(method, params);
         let json = serde_json::to_string(&notif)?;
         self.write_tx
             .send(json)
+            .await
             .map_err(|_| DispatchError::ChannelClosed)
     }
 
@@ -237,8 +285,9 @@ impl RpcDispatcher {
 
         // Fail any still-pending callers.
         {
-            if let Ok(mut pending) = self.pending.lock() {
-                pending.clear();
+            if let Ok(mut state) = self.state.lock() {
+                state.transport_open = false;
+                state.pending.clear();
             }
         }
 
@@ -266,12 +315,14 @@ impl Drop for RpcDispatcher {
 
 async fn reader_loop(
     mut read_half: ReadHalf,
-    pending: PendingMap,
+    state: SharedState,
     handler: Arc<dyn HostHandler>,
-    write_tx: mpsc::UnboundedSender<String>,
+    write_tx: mpsc::Sender<String>,
+    host_request_limit: Arc<Semaphore>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
     let plugin_name = read_half.name().to_string();
+    let mut host_tasks = JoinSet::new();
     loop {
         tokio::select! {
             biased;
@@ -279,6 +330,15 @@ async fn reader_loop(
                 if *shutdown_rx.borrow() {
                     tracing::debug!(plugin = %plugin_name, "reader task: shutdown signalled");
                     break;
+                }
+            }
+            joined = host_tasks.join_next(), if !host_tasks.is_empty() => {
+                if let Some(Err(error)) = joined {
+                    tracing::error!(
+                        plugin = %plugin_name,
+                        error = %error,
+                        "plugin host callback task failed"
+                    );
                 }
             }
             result = read_half.read_message() => {
@@ -291,16 +351,18 @@ async fn reader_loop(
                         if let Err(e) = dispatch_incoming(
                             &plugin_name,
                             &line,
-                            &pending,
+                            &state,
                             &handler,
                             &write_tx,
+                            &host_request_limit,
+                            &mut host_tasks,
                         )
                         .await
                         {
                             tracing::error!(
                                 plugin = %plugin_name,
                                 error = %e,
-                                line = %line,
+                                frame_preview = %frame_preview(&line),
                                 "reader task: dispatch failed"
                             );
                         }
@@ -317,14 +379,23 @@ async fn reader_loop(
             }
         }
     }
+
+    // Plugin-originated callbacks belong to this dispatcher. They must not
+    // survive EOF, shutdown, or a transport failure and retain host state in
+    // detached tasks.
+    host_tasks.abort_all();
+    while host_tasks.join_next().await.is_some() {}
+    close_transport(&state);
 }
 
 async fn dispatch_incoming(
     plugin_name: &str,
     line: &str,
-    pending: &PendingMap,
+    state: &SharedState,
     handler: &Arc<dyn HostHandler>,
-    write_tx: &mpsc::UnboundedSender<String>,
+    write_tx: &mpsc::Sender<String>,
+    host_request_limit: &Arc<Semaphore>,
+    host_tasks: &mut JoinSet<()>,
 ) -> Result<(), serde_json::Error> {
     let value: Value = serde_json::from_str(line)?;
 
@@ -335,14 +406,14 @@ async fn dispatch_incoming(
     if has_result_or_error && has_id {
         let response: Response = serde_json::from_value(value)?;
         let waiter = {
-            let mut pending = match pending.lock() {
-                Ok(p) => p,
+            let mut state = match state.lock() {
+                Ok(state) => state,
                 Err(_) => {
                     tracing::error!(plugin = %plugin_name, "pending map poisoned");
                     return Ok(());
                 }
             };
-            pending.remove(&response.id)
+            state.pending.remove(&response.id)
         };
         match waiter {
             Some(tx) => {
@@ -359,10 +430,32 @@ async fn dispatch_incoming(
     } else if has_method && has_id {
         // Plugin-originated request.
         let request: Request = serde_json::from_value(value)?;
+        let permit = match Arc::clone(host_request_limit).try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                tracing::warn!(
+                    plugin = %plugin_name,
+                    limit = MAX_CONCURRENT_HOST_REQUESTS,
+                    "rejecting plugin host request because concurrency limit is full"
+                );
+                let response = Response::err(
+                    request.id,
+                    RpcError::new(
+                        error_codes::INTERNAL_ERROR,
+                        "host request concurrency limit exceeded",
+                    ),
+                );
+                if let Ok(json) = serde_json::to_string(&response) {
+                    let _ = write_tx.send(json).await;
+                }
+                return Ok(());
+            }
+        };
         let handler = Arc::clone(handler);
         let write_tx = write_tx.clone();
         let plugin = plugin_name.to_string();
-        tokio::spawn(async move {
+        host_tasks.spawn(async move {
+            let _permit = permit;
             let id = request.id.clone();
             let result = handler.handle_request(request.method, request.params).await;
             let response = match result {
@@ -371,7 +464,7 @@ async fn dispatch_incoming(
             };
             match serde_json::to_string(&response) {
                 Ok(json) => {
-                    if write_tx.send(json).is_err() {
+                    if write_tx.send(json).await.is_err() {
                         tracing::warn!(
                             plugin = %plugin,
                             "could not send response: writer channel closed"
@@ -388,8 +481,17 @@ async fn dispatch_incoming(
     } else if has_method {
         // Notification.
         let notif: Notification = serde_json::from_value(value)?;
+        let Ok(permit) = Arc::clone(host_request_limit).try_acquire_owned() else {
+            tracing::warn!(
+                plugin = %plugin_name,
+                limit = MAX_CONCURRENT_HOST_REQUESTS,
+                "dropping plugin notification because host concurrency limit is full"
+            );
+            return Ok(());
+        };
         let handler = Arc::clone(handler);
-        tokio::spawn(async move {
+        host_tasks.spawn(async move {
+            let _permit = permit;
             handler
                 .handle_notification(notif.method, notif.params)
                 .await;
@@ -397,7 +499,7 @@ async fn dispatch_incoming(
     } else {
         tracing::warn!(
             plugin = %plugin_name,
-            line = %line,
+            frame_preview = %frame_preview(line),
             "unparseable JSON-RPC message — neither request, response, nor notification"
         );
     }
@@ -407,7 +509,8 @@ async fn dispatch_incoming(
 
 async fn writer_loop(
     mut write_half: WriteHalf,
-    mut write_rx: mpsc::UnboundedReceiver<String>,
+    mut write_rx: mpsc::Receiver<String>,
+    state: SharedState,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
     let plugin_name = write_half.name().to_string();
@@ -441,6 +544,22 @@ async fn writer_loop(
         }
     }
     // write_half drops here -> stdin closes.
+    close_transport(&state);
+}
+
+fn close_transport(state: &SharedState) {
+    if let Ok(mut state) = state.lock() {
+        state.transport_open = false;
+        state.pending.clear();
+    }
+}
+
+fn frame_preview(frame: &str) -> String {
+    let mut preview: String = frame.chars().take(MAX_LOGGED_FRAME_CHARS).collect();
+    if preview.len() < frame.len() {
+        preview.push('…');
+    }
+    preview
 }
 
 // ===========================================================
@@ -466,6 +585,9 @@ pub enum DispatchError {
 
     #[error("pending-request map mutex was poisoned")]
     PendingPoisoned,
+
+    #[error("dispatcher reached its {0}-request capacity")]
+    Capacity(usize),
 
     #[error("shutdown already called")]
     ShutdownAlreadyCalled,
@@ -515,6 +637,54 @@ mod tests {
             "diagnostic must include requested method: {}",
             err.message
         );
+    }
+
+    #[test]
+    fn dispatcher_limits_are_bounded() {
+        assert_eq!(DISPATCH_WRITE_QUEUE_CAPACITY, 128);
+        assert_eq!(MAX_PENDING_REQUESTS, 128);
+        assert_eq!(MAX_CONCURRENT_HOST_REQUESTS, 32);
+    }
+
+    #[test]
+    fn dropping_pending_guard_removes_cancelled_request() {
+        let state: SharedState = Arc::new(StdMutex::new(DispatcherState {
+            pending: HashMap::new(),
+            transport_open: true,
+        }));
+        let (tx, _rx) = oneshot::channel();
+        state.lock().unwrap().pending.insert("h-1".to_string(), tx);
+
+        {
+            let _guard = PendingRequestGuard {
+                id: "h-1".to_string(),
+                state: Arc::clone(&state),
+            };
+            assert_eq!(state.lock().unwrap().pending.len(), 1);
+        }
+
+        assert!(state.lock().unwrap().pending.is_empty());
+    }
+
+    #[test]
+    fn closing_transport_fails_all_pending_requests_atomically() {
+        let state: SharedState = Arc::new(StdMutex::new(DispatcherState {
+            pending: HashMap::new(),
+            transport_open: true,
+        }));
+        let (tx, mut rx) = oneshot::channel();
+        state.lock().unwrap().pending.insert("h-1".to_string(), tx);
+
+        close_transport(&state);
+
+        let state_guard = state.lock().unwrap();
+        assert!(!state_guard.transport_open);
+        assert!(state_guard.pending.is_empty());
+        drop(state_guard);
+        assert!(matches!(
+            rx.try_recv(),
+            Err(oneshot::error::TryRecvError::Closed)
+        ));
     }
 
     #[test]

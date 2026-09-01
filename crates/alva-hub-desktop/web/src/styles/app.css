@@ -544,19 +544,178 @@ input {
   line-height: 1.6;
 }
 
+.timeline-overview {
+  display: grid;
+  gap: 7px;
+  margin: 0 16px 8px;
+  padding: 12px 14px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface) 84%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.timeline-overview__header,
+.timeline-overview__axis,
+.timeline-overview__lane {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+}
+
+.timeline-overview__header strong {
+  grid-column: 1 / -1;
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
+
+.timeline-overview__header span {
+  display: none;
+}
+
+.timeline-overview__axis {
+  color: var(--color-text-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+}
+
+.timeline-overview__axis::before {
+  content: "";
+}
+
+.timeline-overview__axis > span {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.timeline-overview__axis > span:nth-child(1) { justify-self: start; }
+.timeline-overview__axis > span:nth-child(2) { justify-self: center; }
+.timeline-overview__axis > span:nth-child(3) { justify-self: end; }
+
+.timeline-overview__lane > span {
+  color: var(--color-text-subtle);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.timeline-overview__track {
+  position: relative;
+  height: 12px;
+  border-left: 1px solid var(--color-border-strong);
+  border-right: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  background-image: linear-gradient(
+    to right,
+    transparent calc(50% - .5px),
+    var(--color-border) 50%,
+    transparent calc(50% + .5px)
+  );
+}
+
+.timeline-overview__mark {
+  position: absolute;
+  top: 2px;
+  min-width: 3px;
+  height: 8px;
+  border-radius: 2px;
+  opacity: .86;
+}
+
+.timeline-overview__mark--input { background: var(--color-focus); }
+.timeline-overview__mark--agent { background: var(--color-success); }
+.timeline-overview__mark--tools { background: var(--color-warning); }
+
 .timeline-card {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-2);
+  transition: all var(--duration-color) var(--ease-out);
+}
+
+.timeline-role-user {
+  border-left: 3px solid var(--color-focus, #8f91ff);
+  background: color-mix(in srgb, var(--color-surface) 90%, #8f91ff 10%);
+}
+
+.timeline-role-assistant {
+  border-left: 3px solid var(--color-success, #5ec98b);
+  background: var(--surface-2);
+}
+
+.timeline-activity-row {
+  margin-top: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+  transition: all var(--duration-color) var(--ease-out);
+}
+
+.timeline-activity-row:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.timeline-activity-row__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.timeline-activity-row__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.timeline-activity-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.timeline-activity-duration {
+  font-size: 11px;
+  color: var(--color-text-subtle);
+}
+
+.timeline-activity-row__details {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  font-size: 11px;
+}
+
+.timeline-activity-output {
+  margin: 4px 0 0;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
 }
 
 .timeline-meta {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
@@ -570,7 +729,7 @@ input {
   padding: 2px 9px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -578,7 +737,7 @@ input {
   margin: 0;
   color: var(--text-2);
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.6;
   white-space: pre-wrap;
 }
 

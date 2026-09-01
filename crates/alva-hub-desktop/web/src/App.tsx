@@ -1,5 +1,5 @@
 // INPUT:  React hooks, bridge workspace/run/timeline/session functions
-// OUTPUT: session/project workspace onboarding, engine selection, durable branches, composer, timeline UI
+// OUTPUT: session/project onboarding, engine selection, durable branches, composer, timestamp-preserving timeline projection
 // POS:    Primary Hub Desktop product surface for reversible, user-authorized engine sessions.
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -394,24 +394,30 @@ export function mergeLiveTimeline(
   current: HubTimelineEvent[],
   event: HubTimelineEvent,
 ): HubTimelineEvent[] {
-  if (!event.item_id) return [...current, event];
+  const observed = {
+    ...event,
+    started_at: event.started_at ?? event.created_at,
+  };
+  if (!event.item_id) return [...current, observed];
   const index = current.findIndex(
     (candidate) =>
       candidate.product_session_id === event.product_session_id &&
       candidate.item_id === event.item_id,
   );
-  if (index < 0) return [...current, event];
+  if (index < 0) return [...current, observed];
   const next = [...current];
   const previous = current[index];
   next[index] = event.status === "assistant_message"
     ? {
         ...previous,
         ...event,
+        started_at: previous.started_at ?? previous.created_at ?? event.created_at,
         message: `${previous.message ?? ""}${event.message ?? ""}`,
       }
     : {
         ...previous,
         ...event,
+        started_at: previous.started_at ?? previous.created_at ?? event.created_at,
         message: event.message ?? previous.message,
       };
   return next;

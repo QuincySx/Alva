@@ -4,6 +4,7 @@
 //         environment variables, background execution, description, and git operation tracking.
 //! execute_shell — run shell commands via ToolFs
 
+use crate::local_fs::LocalToolFs;
 use alva_kernel_abi::{
     AgentError, CancellationToken, ProgressEvent, Tool, ToolContent, ToolExecutionContext,
     ToolFsExecResult, ToolOutput,
@@ -12,24 +13,11 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
-use std::path::Path;
-use std::process::Stdio;
-use std::time::Duration;
-use tokio::process::Command;
 
-use crate::local_fs::LocalToolFs;
-
-// Foreground exec path — bypasses `ToolFs::exec` so we can `select!` on the
-// caller's CancellationToken alongside timeout / wait. `ToolFs::exec`'s
-// trait signature has no token slot; rather than break that public API for
-// every adapter, we spawn directly here and rely on `kill_on_drop(true)`
-// for cleanup. When the user cancels, the wait future is dropped, the
-// owned Child drops, and the OS receives SIGKILL.
 enum ForegroundOutcome {
     Output(ToolFsExecResult),
-    TimedOut,
     Cancelled,
-    SpawnFailed(String),
+    Failed(AgentError),
 }
 
 /// Wrap `s` as a POSIX single-quoted literal that is safe to embed anywhere a
@@ -51,51 +39,22 @@ fn is_valid_env_key(key: &str) -> bool {
 }
 
 async fn exec_foreground_cancellable(
+    fs: &dyn alva_kernel_abi::ToolFs,
     command: &str,
-    cwd: &Path,
+    cwd: Option<&str>,
     timeout_ms: u64,
     cancel: &CancellationToken,
 ) -> ForegroundOutcome {
-    let mut cmd = Command::new("sh");
-    cmd.kill_on_drop(true);
-    cmd.arg("-c").arg(command);
-    cmd.current_dir(cwd);
-    // Strip credential-bearing env vars so a model-driven command cannot read
-    // them back (e.g. `printenv ANTHROPIC_API_KEY`). See `scrub_secret_env`.
-    crate::local_fs::scrub_secret_env(&mut cmd);
-    // `spawn()` inherits stdio from the parent by default; `wait_with_output()`
-    // only reads captured pipes. Explicit `piped()` here is what
-    // `Command::output()` does internally — required to get stdout/stderr.
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-
-    let child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => return ForegroundOutcome::SpawnFailed(e.to_string()),
-    };
-
-    // `wait_with_output` consumes the Child; dropping this future drops the
-    // Child which (via kill_on_drop) terminates the process group.
-    let wait_fut = child.wait_with_output();
-    tokio::pin!(wait_fut);
-
-    // `CancellationToken::cancelled()` needs `&mut`; clone the shared
-    // watch handle so we don't have to plumb a mut borrow through the
-    // tool API.
     let mut cancel = cancel.clone();
-    let duration = Duration::from_millis(timeout_ms);
+    let exec = fs.exec(command, cwd, timeout_ms);
+    tokio::pin!(exec);
 
     tokio::select! {
         biased;
         _ = cancel.cancelled() => ForegroundOutcome::Cancelled,
-        _ = tokio::time::sleep(duration) => ForegroundOutcome::TimedOut,
-        result = &mut wait_fut => match result {
-            Ok(output) => ForegroundOutcome::Output(ToolFsExecResult {
-                stdout: String::from_utf8_lossy(&output.stdout).trim_end().to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).trim_end().to_string(),
-                exit_code: output.status.code().unwrap_or(-1),
-            }),
-            Err(e) => ForegroundOutcome::SpawnFailed(e.to_string()),
+        result = &mut exec => match result {
+            Ok(output) => ForegroundOutcome::Output(output),
+            Err(error) => ForegroundOutcome::Failed(error),
         }
     }
 }
@@ -241,6 +200,22 @@ impl ExecuteShellTool {
 
         // Handle background execution
         if params.run_in_background.unwrap_or(false) {
+            if ctx.tool_fs().is_none() {
+                let pid = fallback.spawn_background(&effective_command, cwd).await?;
+                return Ok(ToolOutput {
+                    content: vec![ToolContent::text(format!(
+                        "Command started in background (PID: {})\nCommand: {}",
+                        pid, params.command
+                    ))],
+                    is_error: false,
+                    details: Some(json!({
+                        "background": true,
+                        "pid": pid,
+                        "command": params.command,
+                    })),
+                });
+            }
+
             // For background: spawn the command but don't wait for it.
             // `effective_command` may itself contain single quotes (from the
             // env exports above), so it must be safely single-quoted before
@@ -275,27 +250,10 @@ impl ExecuteShellTool {
             }
         }
 
-        // Resolve cwd against workspace for the direct spawn path. The
-        // foreground branch no longer routes through `ToolFs::exec` — we
-        // spawn directly to gain CancellationToken support (see comment on
-        // `exec_foreground_cancellable`). Test/MockToolFs injection still
-        // applies to background path + read/write/list_dir/exists.
-        let resolved_cwd = match cwd {
-            Some(rel) => {
-                let p = Path::new(rel);
-                if p.is_absolute() {
-                    p.to_path_buf()
-                } else {
-                    workspace.join(p)
-                }
-            }
-            None => workspace.to_path_buf(),
-        };
-        let _ = &fs; // foreground path bypasses fs; binding kept for background
-
         match exec_foreground_cancellable(
+            fs,
             &effective_command,
-            &resolved_cwd,
+            cwd,
             timeout_ms,
             ctx.cancel_token(),
         )
@@ -362,23 +320,24 @@ impl ExecuteShellTool {
                     details: Some(details),
                 })
             }
-            ForegroundOutcome::TimedOut => Ok(ToolOutput {
-                content: vec![ToolContent::text(format!(
-                    "Command timed out after {}ms",
-                    timeout_ms
-                ))],
-                is_error: true,
-                details: Some(json!({ "timed_out": true, "timeout_ms": timeout_ms })),
-            }),
             ForegroundOutcome::Cancelled => Ok(ToolOutput {
                 content: vec![ToolContent::text("Command cancelled by user".to_string())],
                 is_error: true,
                 details: Some(json!({ "cancelled": true })),
             }),
-            ForegroundOutcome::SpawnFailed(msg) => Err(AgentError::ToolError {
-                tool_name: "execute_shell".into(),
-                message: format!("Failed to execute command: {}", msg),
-            }),
+            ForegroundOutcome::Failed(AgentError::ToolError { message, .. })
+                if message.contains("timed out") =>
+            {
+                Ok(ToolOutput {
+                    content: vec![ToolContent::text(format!(
+                        "Command timed out after {}ms",
+                        timeout_ms
+                    ))],
+                    is_error: true,
+                    details: Some(json!({ "timed_out": true, "timeout_ms": timeout_ms })),
+                })
+            }
+            ForegroundOutcome::Failed(error) => Err(error),
         }
     }
 }
@@ -387,6 +346,7 @@ impl ExecuteShellTool {
 mod tests {
     use std::any::Any;
     use std::path::{Path, PathBuf};
+    use std::time::Duration;
 
     use super::*;
     use alva_kernel_abi::{CancellationToken, ToolExecutionContext};

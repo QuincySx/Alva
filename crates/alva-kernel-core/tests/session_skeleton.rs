@@ -1,3 +1,6 @@
+// INPUT:  alva-kernel-core run/session, alva-kernel-abi model/event types, futures
+// OUTPUT: integration coverage for durable run/LLM skeleton events and cache audit payloads
+// POS:    Pins the session event topology and provider-cache observability contract.
 //! Integration test: run a minimal agent with a stub model and verify
 //! that the session event stream contains the expected skeleton events
 //! in the expected parent chain.
@@ -85,7 +88,7 @@ async fn full_run_produces_skeleton_events_in_order() {
     // it after the run completes.
     let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
 
-    let mut state = AgentState {
+    let state = AgentState {
         model: Arc::new(EchoModel),
         tools: vec![],
         session: session.clone(),
@@ -111,7 +114,7 @@ async fn full_run_produces_skeleton_events_in_order() {
     // event emission in run.rs. We use a single user message so the loop
     // completes after one LLM call.
     run_agent(
-        &mut state,
+        &state,
         &config,
         cancel,
         vec![AgentMessage::Standard(Message::user("hello skeleton"))],
@@ -280,4 +283,40 @@ async fn full_run_produces_skeleton_events_in_order() {
         parent,
         llm_call_start_uuids
     );
+
+    // -----------------------------------------------------------------------
+    // 7. Cache diagnostics identify the logical stable base without claiming
+    //    a provider hit when the provider did not report cache metrics.
+    // -----------------------------------------------------------------------
+    let llm_call_start = all_events
+        .iter()
+        .find(|em| em.event.event_type == "llm_call_start")
+        .expect("llm_call_start event missing");
+    let start_data = llm_call_start
+        .event
+        .data
+        .as_ref()
+        .expect("llm_call_start data missing");
+    assert_eq!(start_data["cache_base_fingerprint_version"], 1);
+    assert_eq!(start_data["stable_system_prompt_segments"], 1);
+    assert_eq!(
+        start_data["cache_base_fingerprint"].as_str().map(str::len),
+        Some(64)
+    );
+    assert_eq!(
+        start_data["tool_schema_fingerprint"].as_str().map(str::len),
+        Some(64)
+    );
+
+    let llm_call_end = all_events
+        .iter()
+        .find(|em| em.event.event_type == "llm_call_end")
+        .expect("llm_call_end event missing");
+    let end_data = llm_call_end
+        .event
+        .data
+        .as_ref()
+        .expect("llm_call_end data missing");
+    assert_eq!(end_data["cache_metrics_reported"], false);
+    assert_eq!(end_data["cache_outcome"], "unreported");
 }

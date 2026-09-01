@@ -387,13 +387,7 @@ export function ModelPicker({
               )}
             </div>
             <div className="hub-model-picker__capabilities">
-              {(inspected.capabilities ?? []).length > 0 ? (
-                inspected.capabilities?.map((capability) => (
-                  <Badge key={capability}>{localize(capability)}</Badge>
-                ))
-              ) : (
-                <small>{t("modelPicker.capabilities")}</small>
-              )}
+              <small style={{ opacity: 0.6 }}>{t("modelPicker.capabilities")}</small>
             </div>
             <Disclosure
               className="hub-model-picker__details"

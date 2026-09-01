@@ -4,7 +4,7 @@ Maps every scenario in `docs/ALVA-HUB-V1.md` §17 to its evidence. Two kinds
 of evidence exist and they are **not** interchangeable:
 
 - **Automated** — an executable assertion in this repo. Re-run with
-  `cargo test -p alva-hub-desktop` (128 tests) plus the named suites.
+  `cargo test -p alva-hub-desktop` (180 tests) plus the named suites.
 - **Packaged runtime** — requires a built desktop app driven by a human
   against real engine CLIs. Listed honestly as outstanding where it is.
 
@@ -270,9 +270,10 @@ marked done:
    path itself still needs a human-driven session.
 2. **Packaged-runtime observation of each fallback trigger** (scenario 3) —
    the classifier is pinned, the live provider behaviour is not.
-3. ~~Web-layer tests.~~ `web/` now runs 11 vitest tests (fallback-card
+3. ~~Web-layer tests.~~ `web/` now runs 63 Vitest tests (fallback-card
    controls, handoff expansion, session search, timeline projection, claim
-   parsing); UI claims in scenarios 8 rest on those plus `tsc`.
+   parsing, provider settings, workbench and shared UI primitives); UI claims
+   in scenarios 8 rest on those plus `tsc` and 11 Playwright visual scenarios.
 4. ~~A signed/bundled artifact.~~ `tauri build` produces
    `target/release/bundle/macos/ALVA Hub.app`, which was launched, observed
    alive with its private `alva-hub.db` initialised, and exited cleanly.

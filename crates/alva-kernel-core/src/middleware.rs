@@ -1,9 +1,10 @@
 // INPUT:  std::sync::Arc, async_trait, alva_kernel_abi::{AgentError, Message, ToolCall, ToolOutput}, crate::state::AgentState
-// OUTPUT: LlmCallFn, ToolCallFn, Middleware (trait), MiddlewareStack
-// POS:    Middleware trait and stack — receives &AgentState directly, with wrap hooks for interceptor pattern.
+// OUTPUT: LlmCallFn, ToolCallFn, Middleware (trait), MiddlewareStack, packed durable hook-phase envelopes
+// POS:    Middleware trait and observed onion stack — receives &AgentState directly, with wrap hooks for interceptor pattern.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use alva_kernel_abi::agent_session::SessionEvent;
 use alva_kernel_abi::{AgentError, AgentMessage, Message, ToolCall, ToolOutput};
 use async_trait::async_trait;
 
@@ -19,11 +20,8 @@ pub use crate::shared::{Extensions, MiddlewareError, MiddlewarePriority};
 /// Callback for the "next" step in the LLM wrapping chain.
 #[async_trait]
 pub trait LlmCallFn: Send + Sync {
-    async fn call(
-        &self,
-        state: &AgentState,
-        messages: Vec<Message>,
-    ) -> Result<Message, AgentError>;
+    async fn call(&self, state: &AgentState, messages: Vec<Message>)
+        -> Result<Message, AgentError>;
 }
 
 /// Callback for the "next" step in the tool wrapping chain.
@@ -184,6 +182,49 @@ pub struct MiddlewareStack {
     layers: Vec<Arc<dyn Middleware>>,
 }
 
+/// Build one operation inside a packed middleware phase event. Payloads omit
+/// middleware-owned data and retain only identity, ordering, timing, outcome,
+/// and the optional tool-call relation used by Inspector projections.
+fn middleware_hook_observation(
+    middleware: &dyn Middleware,
+    hook: &'static str,
+    layer_index: usize,
+    duration_ms: u64,
+    error: Option<&str>,
+    tool_call_id: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "middleware_name": middleware.name(),
+        "hook": hook,
+        "layer_index": layer_index,
+        "duration_ms": duration_ms,
+        "outcome": if error.is_some() { "error" } else { "ok" },
+        "error": error,
+        "tool_call_id": tool_call_id,
+        "timing": "inclusive",
+    })
+}
+
+/// Persist all middleware operations in one stack phase as a single runtime-
+/// emitted event. This keeps SQLite write amplification bounded by phases,
+/// not by the number of installed middleware layers.
+async fn record_middleware_phase(
+    state: &AgentState,
+    hook: &'static str,
+    calls: Vec<serde_json::Value>,
+) {
+    if calls.is_empty() {
+        return;
+    }
+    let mut event = SessionEvent::new_runtime("middleware_hook_batch");
+    event.data = Some(serde_json::json!({
+        "schema_version": 1,
+        "hook": hook,
+        "calls": calls,
+    }));
+    state.session.append(event).await;
+}
+
 impl MiddlewareStack {
     pub fn new() -> Self {
         Self { layers: Vec::new() }
@@ -217,7 +258,21 @@ impl MiddlewareStack {
     /// Call `configure()` on all middleware with the given context.
     pub fn configure_all(&self, ctx: &MiddlewareContext) {
         for layer in &self.layers {
-            layer.configure(ctx);
+            let layer_ctx = MiddlewareContext {
+                bus: ctx.bus.clone(),
+                workspace: ctx.workspace.clone(),
+                session: ctx.session.as_ref().map(|session| {
+                    alva_kernel_abi::agent_session::ScopedSession::new(
+                        session.inner(),
+                        alva_kernel_abi::agent_session::EventEmitter {
+                            kind: alva_kernel_abi::agent_session::EmitterKind::Middleware,
+                            id: layer.name().to_string(),
+                            instance: None,
+                        },
+                    )
+                }),
+            };
+            layer.configure(&layer_ctx);
         }
     }
 
@@ -235,17 +290,32 @@ impl MiddlewareStack {
 
     /// Run `on_agent_start` top-to-bottom.
     pub async fn run_on_agent_start(&self, state: &AgentState) -> Result<(), MiddlewareError> {
-        for layer in &self.layers {
+        let mut calls = Vec::with_capacity(self.layers.len());
+        for (index, layer) in self.layers.iter().enumerate() {
             let start = web_time::Instant::now();
-            layer.on_agent_start(state).await?;
+            let result = layer.on_agent_start(state).await;
             let elapsed = start.elapsed().as_millis() as u64;
+            let hook_error = result.as_ref().err().map(ToString::to_string);
+            calls.push(middleware_hook_observation(
+                layer.as_ref(),
+                "on_agent_start",
+                index,
+                elapsed,
+                hook_error.as_deref(),
+                None,
+            ));
             tracing::debug!(
                 middleware = layer.name(),
                 hook = "on_agent_start",
                 duration_ms = elapsed,
                 "middleware hook"
             );
+            if let Err(error) = result {
+                record_middleware_phase(state, "on_agent_start", calls).await;
+                return Err(error);
+            }
         }
+        record_middleware_phase(state, "on_agent_start", calls).await;
         Ok(())
     }
 
@@ -255,17 +325,32 @@ impl MiddlewareStack {
         state: &AgentState,
         message: &AgentMessage,
     ) -> Result<(), MiddlewareError> {
-        for layer in &self.layers {
+        let mut calls = Vec::with_capacity(self.layers.len());
+        for (index, layer) in self.layers.iter().enumerate() {
             let start = web_time::Instant::now();
-            layer.input_committed(state, message).await?;
+            let result = layer.input_committed(state, message).await;
             let elapsed = start.elapsed().as_millis() as u64;
+            let hook_error = result.as_ref().err().map(ToString::to_string);
+            calls.push(middleware_hook_observation(
+                layer.as_ref(),
+                "input_committed",
+                index,
+                elapsed,
+                hook_error.as_deref(),
+                None,
+            ));
             tracing::debug!(
                 middleware = layer.name(),
                 hook = "input_committed",
                 duration_ms = elapsed,
                 "middleware hook"
             );
+            if let Err(error) = result {
+                record_middleware_phase(state, "input_committed", calls).await;
+                return Err(error);
+            }
         }
+        record_middleware_phase(state, "input_committed", calls).await;
         Ok(())
     }
 
@@ -280,10 +365,20 @@ impl MiddlewareStack {
         error: Option<&str>,
     ) -> Result<(), MiddlewareError> {
         let mut first_error: Option<MiddlewareError> = None;
-        for layer in self.layers.iter().rev() {
+        let mut calls = Vec::with_capacity(self.layers.len());
+        for (index, layer) in self.layers.iter().enumerate().rev() {
             let start = web_time::Instant::now();
             let result = layer.on_agent_end(state, error).await;
             let elapsed = start.elapsed().as_millis() as u64;
+            let hook_error = result.as_ref().err().map(ToString::to_string);
+            calls.push(middleware_hook_observation(
+                layer.as_ref(),
+                "on_agent_end",
+                index,
+                elapsed,
+                hook_error.as_deref(),
+                None,
+            ));
             tracing::debug!(
                 middleware = layer.name(),
                 hook = "on_agent_end",
@@ -301,6 +396,7 @@ impl MiddlewareStack {
                 }
             }
         }
+        record_middleware_phase(state, "on_agent_end", calls).await;
         first_error.map_or(Ok(()), Err)
     }
 
@@ -312,17 +408,32 @@ impl MiddlewareStack {
         state: &AgentState,
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
-        for layer in &self.layers {
+        let mut calls = Vec::with_capacity(self.layers.len());
+        for (index, layer) in self.layers.iter().enumerate() {
             let start = web_time::Instant::now();
-            layer.before_llm_call(state, messages).await?;
+            let result = layer.before_llm_call(state, messages).await;
             let elapsed = start.elapsed().as_millis() as u64;
+            let hook_error = result.as_ref().err().map(ToString::to_string);
+            calls.push(middleware_hook_observation(
+                layer.as_ref(),
+                "before_llm_call",
+                index,
+                elapsed,
+                hook_error.as_deref(),
+                None,
+            ));
             tracing::debug!(
                 middleware = layer.name(),
                 hook = "before_llm_call",
                 duration_ms = elapsed,
                 "middleware hook"
             );
+            if let Err(error) = result {
+                record_middleware_phase(state, "before_llm_call", calls).await;
+                return Err(error);
+            }
         }
+        record_middleware_phase(state, "before_llm_call", calls).await;
         Ok(())
     }
 
@@ -332,17 +443,32 @@ impl MiddlewareStack {
         state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<(), MiddlewareError> {
-        for layer in &self.layers {
+        let mut calls = Vec::with_capacity(self.layers.len());
+        for (index, layer) in self.layers.iter().enumerate() {
             let start = web_time::Instant::now();
-            layer.before_tool_call(state, tool_call).await?;
+            let result = layer.before_tool_call(state, tool_call).await;
             let elapsed = start.elapsed().as_millis() as u64;
+            let hook_error = result.as_ref().err().map(ToString::to_string);
+            calls.push(middleware_hook_observation(
+                layer.as_ref(),
+                "before_tool_call",
+                index,
+                elapsed,
+                hook_error.as_deref(),
+                Some(&tool_call.id),
+            ));
             tracing::debug!(
                 middleware = layer.name(),
                 hook = "before_tool_call",
                 duration_ms = elapsed,
                 "middleware hook"
             );
+            if let Err(error) = result {
+                record_middleware_phase(state, "before_tool_call", calls).await;
+                return Err(error);
+            }
         }
+        record_middleware_phase(state, "before_tool_call", calls).await;
         Ok(())
     }
 
@@ -354,17 +480,32 @@ impl MiddlewareStack {
         state: &AgentState,
         response: &mut Message,
     ) -> Result<(), MiddlewareError> {
-        for layer in self.layers.iter().rev() {
+        let mut calls = Vec::with_capacity(self.layers.len());
+        for (index, layer) in self.layers.iter().enumerate().rev() {
             let start = web_time::Instant::now();
-            layer.after_llm_call(state, response).await?;
+            let result = layer.after_llm_call(state, response).await;
             let elapsed = start.elapsed().as_millis() as u64;
+            let hook_error = result.as_ref().err().map(ToString::to_string);
+            calls.push(middleware_hook_observation(
+                layer.as_ref(),
+                "after_llm_call",
+                index,
+                elapsed,
+                hook_error.as_deref(),
+                None,
+            ));
             tracing::debug!(
                 middleware = layer.name(),
                 hook = "after_llm_call",
                 duration_ms = elapsed,
                 "middleware hook"
             );
+            if let Err(error) = result {
+                record_middleware_phase(state, "after_llm_call", calls).await;
+                return Err(error);
+            }
         }
+        record_middleware_phase(state, "after_llm_call", calls).await;
         Ok(())
     }
 
@@ -375,17 +516,32 @@ impl MiddlewareStack {
         tool_call: &ToolCall,
         result: &mut ToolOutput,
     ) -> Result<(), MiddlewareError> {
-        for layer in self.layers.iter().rev() {
+        let mut calls = Vec::with_capacity(self.layers.len());
+        for (index, layer) in self.layers.iter().enumerate().rev() {
             let start = web_time::Instant::now();
-            layer.after_tool_call(state, tool_call, result).await?;
+            let hook_result = layer.after_tool_call(state, tool_call, result).await;
             let elapsed = start.elapsed().as_millis() as u64;
+            let hook_error = hook_result.as_ref().err().map(ToString::to_string);
+            calls.push(middleware_hook_observation(
+                layer.as_ref(),
+                "after_tool_call",
+                index,
+                elapsed,
+                hook_error.as_deref(),
+                Some(&tool_call.id),
+            ));
             tracing::debug!(
                 middleware = layer.name(),
                 hook = "after_tool_call",
                 duration_ms = elapsed,
                 "middleware hook"
             );
+            if let Err(error) = hook_result {
+                record_middleware_phase(state, "after_tool_call", calls).await;
+                return Err(error);
+            }
         }
+        record_middleware_phase(state, "after_tool_call", calls).await;
         Ok(())
     }
 
@@ -405,19 +561,26 @@ impl MiddlewareStack {
     ) -> Result<Message, MiddlewareError> {
         // Fold from innermost (index = len) outward to index 0.
         let mut next: Arc<dyn LlmCallFn> = actual_call;
+        let observations = Arc::new(Mutex::new(Vec::with_capacity(self.layers.len())));
         for index in (0..self.layers.len()).rev() {
             let inner = next;
             next = Arc::new(ChainedLlmCall {
                 stack: Arc::new(self.clone()),
                 inner,
                 index,
+                observations: observations.clone(),
             });
         }
         // `next` is now the outermost wrapper; call it with the innermost being
         // `actual_call` that every layer reverts to once its own wrap runs.
-        next.call(state, messages)
-            .await
-            .map_err(MiddlewareError::from)
+        let result = next.call(state, messages).await;
+        let calls = std::mem::take(
+            &mut *observations
+                .lock()
+                .expect("middleware observation lock poisoned"),
+        );
+        record_middleware_phase(state, "wrap_llm_call", calls).await;
+        result.map_err(MiddlewareError::from)
     }
 
     /// Run `wrap_tool_call` through the full middleware chain.
@@ -430,17 +593,24 @@ impl MiddlewareStack {
         actual_call: Arc<dyn ToolCallFn>,
     ) -> Result<ToolOutput, MiddlewareError> {
         let mut next: Arc<dyn ToolCallFn> = actual_call;
+        let observations = Arc::new(Mutex::new(Vec::with_capacity(self.layers.len())));
         for index in (0..self.layers.len()).rev() {
             let inner = next;
             next = Arc::new(ChainedToolCall {
                 stack: Arc::new(self.clone()),
                 inner,
                 index,
+                observations: observations.clone(),
             });
         }
-        next.call(state, tool_call)
-            .await
-            .map_err(MiddlewareError::from)
+        let result = next.call(state, tool_call).await;
+        let calls = std::mem::take(
+            &mut *observations
+                .lock()
+                .expect("middleware observation lock poisoned"),
+        );
+        record_middleware_phase(state, "wrap_tool_call", calls).await;
+        result.map_err(MiddlewareError::from)
     }
 }
 
@@ -457,6 +627,7 @@ struct ChainedLlmCall {
     stack: Arc<MiddlewareStack>,
     inner: Arc<dyn LlmCallFn>,
     index: usize,
+    observations: Arc<Mutex<Vec<serde_json::Value>>>,
 }
 
 #[async_trait]
@@ -466,10 +637,25 @@ impl LlmCallFn for ChainedLlmCall {
         state: &AgentState,
         messages: Vec<Message>,
     ) -> Result<Message, AgentError> {
-        self.stack.layers[self.index]
+        let layer = &self.stack.layers[self.index];
+        let start = web_time::Instant::now();
+        let result = layer
             .wrap_llm_call(state, messages, self.inner.as_ref())
-            .await
-            .map_err(MiddlewareError::into_agent_error)
+            .await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        let hook_error = result.as_ref().err().map(ToString::to_string);
+        self.observations
+            .lock()
+            .expect("middleware observation lock poisoned")
+            .push(middleware_hook_observation(
+                layer.as_ref(),
+                "wrap_llm_call",
+                self.index,
+                elapsed,
+                hook_error.as_deref(),
+                None,
+            ));
+        result.map_err(MiddlewareError::into_agent_error)
     }
 }
 
@@ -479,6 +665,7 @@ struct ChainedToolCall {
     stack: Arc<MiddlewareStack>,
     inner: Arc<dyn ToolCallFn>,
     index: usize,
+    observations: Arc<Mutex<Vec<serde_json::Value>>>,
 }
 
 #[async_trait]
@@ -488,10 +675,25 @@ impl ToolCallFn for ChainedToolCall {
         state: &AgentState,
         tool_call: &ToolCall,
     ) -> Result<ToolOutput, AgentError> {
-        self.stack.layers[self.index]
+        let layer = &self.stack.layers[self.index];
+        let start = web_time::Instant::now();
+        let result = layer
             .wrap_tool_call(state, tool_call, self.inner.as_ref())
-            .await
-            .map_err(MiddlewareError::into_agent_error)
+            .await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        let hook_error = result.as_ref().err().map(ToString::to_string);
+        self.observations
+            .lock()
+            .expect("middleware observation lock poisoned")
+            .push(middleware_hook_observation(
+                layer.as_ref(),
+                "wrap_tool_call",
+                self.index,
+                elapsed,
+                hook_error.as_deref(),
+                Some(&tool_call.id),
+            ));
+        result.map_err(MiddlewareError::into_agent_error)
     }
 }
 

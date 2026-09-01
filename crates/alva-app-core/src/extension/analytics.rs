@@ -372,15 +372,15 @@ mod tests {
         };
         let mut result = ToolOutput::text("ok");
         let config = agent.config().await;
-        let mut state = agent.state().lock().await;
+        let state = agent.state().lock().await;
         config
             .middleware
-            .run_before_tool_call(&mut state, &tool_call)
+            .run_before_tool_call(&state, &tool_call)
             .await
             .expect("before phase should run");
         config
             .middleware
-            .run_after_tool_call(&mut state, &tool_call, &mut result)
+            .run_after_tool_call(&state, &tool_call, &mut result)
             .await
             .expect("after phase should run");
         drop(state);

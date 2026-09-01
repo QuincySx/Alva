@@ -2,12 +2,16 @@
 // OUTPUT: Regression checks for composer, model-picker identity, and provider secret/default saves
 // POS:    Behavior coverage above primitives and below full App integration
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { EngineTarget, ModelRoute, ProviderDiagnosticResult, ProviderProfile } from "../bridge";
+import { I18nProvider } from "../i18n";
+import { demoDetail, demoInspection } from "../demo-data";
 import { UIProvider } from "../ui";
 import { HubComposer } from "./hub-composer";
+import { EngineInspectorPanel } from "./engine-inspector";
+import { HubTimeline } from "./hub-timeline";
 import { ModelPicker, type HubModelRoute } from "./model-picker";
 import { ProviderSettings } from "./provider-settings";
 
@@ -95,6 +99,76 @@ function providerRoute(providerId: string, available = true): ModelRoute {
 }
 
 describe("Hub domain components", () => {
+  it("drills into a child Agent and returns through the Inspector page stack", async () => {
+    window.localStorage.setItem("alva-hub.language", "en-US");
+    const user = userEvent.setup();
+    const loadInspection = vi.fn(async (_productSessionId: string, nativeSessionId?: string | null) =>
+      demoInspection(nativeSessionId ?? undefined));
+    render(
+      <I18nProvider>
+        <UIProvider>
+          <EngineInspectorPanel detail={demoDetail()} loadInspection={loadInspection} />
+        </UIProvider>
+      </I18nProvider>,
+    );
+
+    const childLabel = await screen.findByText(/Child Agent demo-nat/i);
+    const childRow = childLabel.closest(".ui-list-row");
+    expect(childRow).not.toBeNull();
+    await user.click(within(childRow as HTMLElement).getByRole("button", { name: "Open" }));
+
+    await waitFor(() => expect(loadInspection).toHaveBeenLastCalledWith("ps-demo-1", "demo-native-child"));
+    expect(screen.getByText(/native-a \/ demo-nat/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByText(/Child Agent demo-nat/i)).toBeInTheDocument();
+  });
+
+  it("renders a shared-clock execution overview above timed events", () => {
+    render(
+      <I18nProvider>
+        <HubTimeline
+          activeSessionId="ps-1"
+          answeredPermissions={{}}
+          attemptIsLive={false}
+          events={[
+            {
+              status: "user_message",
+              role: "user",
+              engine_id: "alva",
+              product_session_id: "ps-1",
+              message: "Inspect the project",
+              created_at: 1_000,
+              item_id: "user-1",
+            },
+            {
+              status: "activity_completed",
+              engine_id: "alva",
+              product_session_id: "ps-1",
+              message: "read_file completed",
+              created_at: 1_180,
+              started_at: 1_050,
+              item_id: "tool-1",
+              activity: {
+                tool_name: "read_file",
+                succeeded: true,
+                duration_ms: 130,
+                path: "src/lib.rs",
+              },
+            },
+          ]}
+          onAnswerPermission={vi.fn()}
+          onStop={vi.fn()}
+          onSwitchBack={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(
+      screen.getByRole("img", { name: /Agent execution timeline overview|Agent 执行时间线概览/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Tools|工具/)).toBeInTheDocument();
+  });
+
   it("filters and selects a model route from the anchored picker", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

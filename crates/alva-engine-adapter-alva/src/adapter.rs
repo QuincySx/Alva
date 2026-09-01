@@ -587,6 +587,14 @@ mod tests {
             .records
             .windows(2)
             .all(|pair| pair[0].seq < pair[1].seq));
+        let type_names: std::collections::HashSet<_> = snapshot
+            .records
+            .iter()
+            .map(|record| record.type_name.as_str())
+            .collect();
+        assert!(type_names.contains("llm_first_output"));
+        assert!(type_names.contains("llm_stream_summary"));
+        assert!(type_names.contains("middleware_hook_batch"));
     }
 
     #[tokio::test]

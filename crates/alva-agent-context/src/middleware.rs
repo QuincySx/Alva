@@ -9,11 +9,13 @@
 //! are always preserved verbatim.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
-use alva_kernel_abi::{BusHandle, Message, ModelConfig};
+use alva_kernel_abi::{BusHandle, CancellationToken, ContentBlock, Message, ModelConfig};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
 use alva_kernel_core::state::AgentState;
 use async_trait::async_trait;
+use futures::future::{select, Either};
 
 /// Configuration for the compaction middleware.
 pub struct CompactionConfig {
@@ -90,23 +92,74 @@ fn estimate_tokens(messages: &[Message]) -> usize {
         .sum()
 }
 
+fn message_tokens(message: &Message, counter: Option<&dyn alva_kernel_abi::TokenCounter>) -> usize {
+    counter
+        .map(|counter| counter.count_tokens(&message.text_content()))
+        .unwrap_or_else(|| {
+            message
+                .content
+                .iter()
+                .map(|block| block.estimated_tokens())
+                .sum()
+        })
+        + 4
+}
+
 /// Find the split point: walk backwards from the end, keeping messages
 /// until we've accumulated `keep_tokens` worth of recent messages.
 /// Returns the index where "old" messages end and "recent" messages begin.
+#[cfg(test)]
 fn find_split_point(messages: &[Message], keep_tokens: usize) -> usize {
+    find_split_point_with_counter(messages, keep_tokens, None)
+}
+
+fn find_split_point_with_counter(
+    messages: &[Message],
+    keep_tokens: usize,
+    counter: Option<&dyn alva_kernel_abi::TokenCounter>,
+) -> usize {
     let mut accumulated = 0;
     for i in (0..messages.len()).rev() {
-        let msg_tokens: usize = messages[i]
-            .content
-            .iter()
-            .map(|b| b.estimated_tokens())
-            .sum();
-        accumulated += msg_tokens + 4;
+        accumulated += message_tokens(&messages[i], counter);
         if accumulated > keep_tokens {
-            return i + 1;
+            // Keep the message that crosses the threshold. Excluding it can
+            // leave no recent messages at all when a single large message is
+            // bigger than `keep_tokens`, which in turn prevents compaction.
+            return i;
         }
     }
     0 // Keep everything (nothing to compact)
+}
+
+/// A provider requires every retained tool result to retain the assistant
+/// tool-use message that declared it. If a token split lands inside a batch of
+/// tool results, move the boundary back to that declaring assistant message.
+fn protect_tool_pair_boundary(messages: &[Message], split: usize) -> usize {
+    let Some(first_recent) = messages.get(split) else {
+        return split;
+    };
+    if first_recent.role != alva_kernel_abi::MessageRole::Tool {
+        return split;
+    }
+
+    let leading_result_ids: Vec<&str> = messages[split..]
+        .iter()
+        .take_while(|message| message.role == alva_kernel_abi::MessageRole::Tool)
+        .filter_map(|message| message.tool_call_id.as_deref())
+        .collect();
+    if leading_result_ids.is_empty() {
+        return split;
+    }
+
+    messages[..split]
+        .iter()
+        .rposition(|message| {
+            message.content.iter().any(|block| {
+                matches!(block, ContentBlock::ToolUse { id, .. }
+                    if leading_result_ids.iter().any(|result_id| *result_id == id))
+            })
+        })
+        .unwrap_or(split)
 }
 
 /// Build the summarization prompt for the LLM.
@@ -150,20 +203,29 @@ impl Middleware for CompactionMiddleware {
         messages: &mut Vec<Message>,
     ) -> Result<(), MiddlewareError> {
         // Use bus TokenCounter for better estimation; fall back to local heuristic.
-        let total_tokens = if let Some(bus) = self.bus.get() {
-            if let Some(counter) = bus.get::<dyn alva_kernel_abi::TokenCounter>() {
-                messages
-                    .iter()
-                    .map(|m| counter.count_tokens(&m.text_content()) + 4)
-                    .sum()
-            } else {
-                estimate_tokens(messages)
-            }
-        } else {
-            estimate_tokens(messages)
-        };
+        let counter = self
+            .bus
+            .get()
+            .and_then(|bus| bus.get::<dyn alva_kernel_abi::TokenCounter>());
+        let total_tokens = messages
+            .iter()
+            .map(|message| message_tokens(message, counter.as_deref()))
+            .sum();
+        let trigger_tokens = counter
+            .as_ref()
+            .map(|counter| {
+                self.config
+                    .trigger_tokens
+                    .min(
+                        counter
+                            .context_window()
+                            .saturating_sub(self.config.reserve_tokens),
+                    )
+                    .max(1)
+            })
+            .unwrap_or(self.config.trigger_tokens.max(1));
 
-        if total_tokens <= self.config.trigger_tokens {
+        if total_tokens <= trigger_tokens {
             return Ok(()); // Under budget, no compaction needed
         }
 
@@ -171,24 +233,17 @@ impl Middleware for CompactionMiddleware {
         if let Some(bus) = self.bus.get() {
             bus.emit(alva_kernel_abi::TokenBudgetExceeded {
                 agent_id: String::new(),
-                usage_ratio: total_tokens as f32 / self.config.trigger_tokens as f32,
+                usage_ratio: total_tokens as f32 / trigger_tokens as f32,
                 used_tokens: total_tokens,
-                budget_tokens: self.config.trigger_tokens,
+                budget_tokens: trigger_tokens,
             });
         }
 
         tracing::info!(
             total_tokens,
-            trigger = self.config.trigger_tokens,
+            trigger = trigger_tokens,
             "compaction triggered — summarizing old messages"
         );
-
-        // Find split point: keep recent messages, summarize old ones
-        let split = find_split_point(messages, self.config.keep_recent_tokens);
-        if split <= 1 {
-            // Nothing meaningful to compact (only system prompt + recent)
-            return Ok(());
-        }
 
         // Separate system prompt from conversation messages
         let (system_msgs, conversation): (Vec<_>, Vec<_>) = messages
@@ -203,55 +258,57 @@ impl Middleware for CompactionMiddleware {
         }
 
         // Find split in conversation messages only
-        let conv_split = {
-            let mut acc = 0;
-            let mut idx = conv_messages.len();
-            for i in (0..conv_messages.len()).rev() {
-                let t: usize = conv_messages[i]
-                    .content
-                    .iter()
-                    .map(|b| b.estimated_tokens())
-                    .sum();
-                acc += t + 4;
-                if acc > self.config.keep_recent_tokens {
-                    idx = i + 1;
-                    break;
-                }
-            }
-            idx
-        };
+        let conv_owned: Vec<Message> = conv_messages
+            .iter()
+            .map(|message| (*message).clone())
+            .collect();
+        let conv_split = protect_tool_pair_boundary(
+            &conv_owned,
+            find_split_point_with_counter(
+                &conv_owned,
+                self.config.keep_recent_tokens,
+                counter.as_deref(),
+            ),
+        );
 
         if conv_split == 0 || conv_split >= conv_messages.len() {
             return Ok(());
         }
 
-        let old_messages: Vec<Message> = conv_messages[..conv_split]
-            .iter()
-            .map(|m| (*m).clone())
-            .collect();
-        let recent_messages: Vec<Message> = conv_messages[conv_split..]
-            .iter()
-            .map(|m| (*m).clone())
-            .collect();
+        let old_messages = conv_owned[..conv_split].to_vec();
+        let recent_messages = conv_owned[conv_split..].to_vec();
 
         // Call LLM to generate summary
         let summary_prompt = build_summary_prompt(&old_messages);
         let summary_msg = Message::user(summary_prompt);
+        let summary_messages = [summary_msg];
+        let summary_config = ModelConfig {
+            max_tokens: Some(2000),
+            temperature: Some(0.0),
+            ..Default::default()
+        };
 
-        let summary_result = state
-            .model
-            .complete(
-                &[summary_msg],
+        let summary_call = tokio::time::timeout(
+            Duration::from_secs(30),
+            state.model.complete(
+                &summary_messages,
                 &[], // no tools for summarization
-                &ModelConfig {
-                    max_tokens: Some(2000),
-                    temperature: Some(0.0),
-                    ..Default::default()
-                },
-            )
-            .await
-            .map_err(|e| MiddlewareError::Other(format!("compaction LLM call failed: {}", e)))?
-            .message;
+                &summary_config,
+            ),
+        );
+        let summary_result = if let Some(cancel) = state.extensions.get::<CancellationToken>() {
+            let mut cancel = (*cancel).clone();
+            let result = match select(Box::pin(summary_call), Box::pin(cancel.cancelled())).await {
+                Either::Left((result, _)) => result,
+                Either::Right(_) => return Err(alva_kernel_abi::AgentError::Cancelled.into()),
+            };
+            result
+        } else {
+            summary_call.await
+        }
+        .map_err(|_| MiddlewareError::Other("compaction LLM call timed out after 30s".into()))?
+        .map_err(|e| MiddlewareError::Other(format!("compaction LLM call failed: {e}")))?
+        .message;
 
         let summary_text = summary_result.text_content();
         if summary_text.is_empty() {
@@ -318,7 +375,7 @@ impl Middleware for CompactionMiddleware {
             "new_message_count": new_count,
             "old_tokens": total_tokens,
             "new_tokens": new_tokens,
-            "trigger_tokens": self.config.trigger_tokens,
+            "trigger_tokens": trigger_tokens,
             "summary_length": summary_text.len(),
         }));
         state.session.append(compaction_event).await;
@@ -404,6 +461,48 @@ mod tests {
         let msgs = vec![make_user_msg("short")];
         let split = find_split_point(&msgs, 10000);
         assert_eq!(split, 0); // everything fits
+    }
+
+    #[test]
+    fn split_inside_tool_results_moves_back_to_the_declaring_assistant() {
+        let assistant = Message {
+            id: "assistant-tools".into(),
+            role: alva_kernel_abi::MessageRole::Assistant,
+            content: vec![
+                ContentBlock::ToolUse {
+                    id: "call-a".into(),
+                    name: "read_file".into(),
+                    input: serde_json::json!({}),
+                },
+                ContentBlock::ToolUse {
+                    id: "call-b".into(),
+                    name: "read_file".into(),
+                    input: serde_json::json!({}),
+                },
+            ],
+            tool_call_id: None,
+            usage: None,
+            timestamp: 0,
+        };
+        let tool_result = |id: &str| Message {
+            id: format!("result-{id}"),
+            role: alva_kernel_abi::MessageRole::Tool,
+            content: vec![ContentBlock::Text {
+                text: "result".into(),
+            }],
+            tool_call_id: Some(id.to_string()),
+            usage: None,
+            timestamp: 0,
+        };
+        let messages = vec![
+            make_user_msg("old"),
+            assistant,
+            tool_result("call-a"),
+            tool_result("call-b"),
+            make_user_msg("latest"),
+        ];
+
+        assert_eq!(protect_tool_pair_boundary(&messages, 3), 1);
     }
 
     #[test]

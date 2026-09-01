@@ -128,25 +128,17 @@ impl InMemoryAgentSession {
                 }
             }
         }
-        {
-            let mut log = self.events.write().await;
-            *log = events;
-        }
-        {
-            let records = self
-                .events
-                .read()
-                .await
-                .iter()
-                .cloned()
-                .map(SessionRecord::from_event)
-                .collect();
-            *self.records.write().await = records;
-        }
-        {
-            let mut msgs = self.messages.write().await;
-            *msgs = rebuilt_messages;
-        }
+        let rebuilt_records = events
+            .iter()
+            .cloned()
+            .map(SessionRecord::from_event)
+            .collect();
+        let mut log = self.events.write().await;
+        let mut records = self.records.write().await;
+        let mut msgs = self.messages.write().await;
+        *log = events;
+        *records = rebuilt_records;
+        *msgs = rebuilt_messages;
         // Advance the counter past every restored seq, so next `append`
         // or `append_message` gets a unique new seq.
         let next = max_seq.saturating_add(1);
@@ -291,6 +283,10 @@ impl AgentSession for InMemoryAgentSession {
         })
     }
 
+    fn supports_atomic_records(&self) -> bool {
+        true
+    }
+
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
         let events = self.events.read().await;
 
@@ -358,6 +354,8 @@ impl AgentSession for InMemoryAgentSession {
 
     async fn rollback_after(&self, uuid: &str) -> usize {
         let mut events = self.events.write().await;
+        let mut records = self.records.write().await;
+        let mut msgs = self.messages.write().await;
         let Some(pos) = events.iter().position(|e| e.uuid == *uuid) else {
             return 0;
         };
@@ -365,23 +363,15 @@ impl AgentSession for InMemoryAgentSession {
         let removed = events.len() - pos - 1;
         events.truncate(pos + 1);
 
-        // Clone the surviving events for cache rebuild, then drop the
-        // events lock before acquiring the messages lock.
-        let surviving: Vec<SessionEvent> = events.iter().cloned().collect();
-        let last_seq = surviving.last().map(|event| event.seq).unwrap_or(0);
-        drop(events);
-        self.records
-            .write()
-            .await
-            .retain(|record| record.seq <= last_seq);
+        let last_seq = events.last().map(|event| event.seq).unwrap_or(0);
+        records.retain(|record| record.seq <= last_seq);
 
         // Rebuild the message cache by deserializing the AgentMessage
         // from each surviving event's `data` field. Events without a
         // serialized AgentMessage in `data` (progress, hooks, skeleton
         // events) are skipped — they were never in the cache.
-        let mut msgs = self.messages.write().await;
         msgs.clear();
-        for ev in &surviving {
+        for ev in events.iter() {
             if let Some(data) = &ev.data {
                 if let Ok(m) = serde_json::from_value::<AgentMessage>(data.clone()) {
                     msgs.push_back(m);
@@ -416,9 +406,12 @@ impl AgentSession for InMemoryAgentSession {
     }
 
     async fn clear(&self) -> Result<(), SessionError> {
-        self.events.write().await.clear();
-        self.records.write().await.clear();
-        self.messages.write().await.clear();
+        let mut events = self.events.write().await;
+        let mut records = self.records.write().await;
+        let mut messages = self.messages.write().await;
+        events.clear();
+        records.clear();
+        messages.clear();
         *self.snapshot.write().await = None;
         self.seq_counter.store(1, Ordering::SeqCst);
         Ok(())
@@ -429,9 +422,19 @@ impl AgentSession for InMemoryAgentSession {
         // causal history) is left untouched. The `compaction` marker the
         // caller appended just before this call delimits the projection on
         // reload — see `restore_events`.
-        self.messages.write().await.clear();
+        let mut events = self.events.write().await;
+        let mut records = self.records.write().await;
+        let mut messages = self.messages.write().await;
+        messages.clear();
         for msg in replacement {
-            self.append_message(msg, None).await;
+            let (event_type, session_msg) = Self::classify_message(&msg);
+            let mut event = SessionEvent::new_runtime(event_type);
+            event.message = session_msg;
+            event.data = Some(serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null));
+            event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
+            records.push(SessionRecord::from_event(event.clone()));
+            events.push(event);
+            messages.push_back(msg);
         }
     }
 }
@@ -478,20 +481,17 @@ impl ListenableInMemorySession {
     }
 
     /// Broadcast one event to every listener, then reap any that reported
-    /// themselves inactive. The notify loop runs under a read guard (many
-    /// appends can broadcast concurrently); the reap takes the write guard
-    /// only when something actually died, so the steady state (all live)
-    /// pays no extra lock. Broadcast happens OUTSIDE any inner-session lock —
-    /// listeners run arbitrary async code and may read this very session.
+    /// themselves inactive. Listener handles are cloned under the read lock,
+    /// then arbitrary async callbacks run after the lock is released so a
+    /// slow listener cannot block subscribe/unsubscribe bookkeeping.
+    /// Broadcast also happens outside every inner-session lock.
     async fn broadcast(&self, event: &SessionEvent) {
         let mut any_dead = false;
-        {
-            let listeners = self.listeners.read().await;
-            for l in listeners.iter() {
-                l.on_event(event).await;
-                if !l.is_active() {
-                    any_dead = true;
-                }
+        let listeners = self.listeners.read().await.clone();
+        for listener in listeners {
+            listener.on_event(event).await;
+            if !listener.is_active() {
+                any_dead = true;
             }
         }
         if any_dead {
@@ -601,6 +601,10 @@ impl AgentSession for ListenableInMemorySession {
             last_seq,
             count: committed.len(),
         })
+    }
+
+    fn supports_atomic_records(&self) -> bool {
+        true
     }
 
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {

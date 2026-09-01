@@ -1,6 +1,6 @@
 // INPUT:  (phase 1) serde, serde_json, thiserror
-// OUTPUT: (phase 1) AEP protocol types, plugin manifest types
-// POS:    Crate root — dynamic loader for subprocess-based extensions.
+// OUTPUT: AEP protocol, validated/staged plugin bundles, subprocess loader
+// POS:    Crate root — dynamic loader for capability-gated subprocess extensions.
 
 //! `alva-app-extension-loader` — dynamic loader for third-party
 //! plugins written in languages other than Rust.
@@ -36,6 +36,9 @@ pub mod protocol;
 
 #[cfg(not(target_family = "wasm"))]
 pub mod manifest;
+
+#[cfg(not(target_family = "wasm"))]
+pub mod plugin_bundle;
 
 #[cfg(not(target_family = "wasm"))]
 pub mod subprocess;

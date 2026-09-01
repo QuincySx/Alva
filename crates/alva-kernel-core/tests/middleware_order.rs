@@ -95,10 +95,10 @@ async fn wrap_tool_call_runs_top_to_bottom_for_argument_mutation() {
     let mut stack = MiddlewareStack::new();
     stack.push(Arc::new(AppendArgMiddleware { label: "A" }));
     stack.push(Arc::new(AppendArgMiddleware { label: "B" }));
-    let mut state = state();
+    let state = state();
 
     let result = stack
-        .run_wrap_tool_call(&mut state, &tool_call(""), Arc::new(EchoToolCall))
+        .run_wrap_tool_call(&state, &tool_call(""), Arc::new(EchoToolCall))
         .await
         .expect("wrap chain should succeed");
 
@@ -110,11 +110,11 @@ async fn after_tool_call_runs_bottom_to_top_for_result_mutation() {
     let mut stack = MiddlewareStack::new();
     stack.push(Arc::new(AppendResultMiddleware { label: "A" }));
     stack.push(Arc::new(AppendResultMiddleware { label: "B" }));
-    let mut state = state();
+    let state = state();
     let mut result = ToolOutput::text("");
 
     stack
-        .run_after_tool_call(&mut state, &tool_call(""), &mut result)
+        .run_after_tool_call(&state, &tool_call(""), &mut result)
         .await
         .expect("after chain should succeed");
 

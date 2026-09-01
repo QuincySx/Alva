@@ -2,7 +2,7 @@
 name = "alva-hub-cli"
 version = "0.1.0"
 edition = "2021"
-description = "Minimal Alva Hub command-line client"
+description = "Headless automation and diagnostics client for Alva Hub"
 
 [[bin]]
 name = "alva-hub"
@@ -19,8 +19,11 @@ alva-llm-provider = { path = "../alva-llm-provider" }
 dirs = "5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time"] }
 tokio-stream = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "3"

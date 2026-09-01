@@ -1,11 +1,15 @@
-// INPUT:  alva_kernel_abi (StreamEvent, ToolCall, ToolOutput, ProgressEvent, AgentMessage)
-// OUTPUT: AgentEvent
-// POS:    Defines the event enum emitted by the agent loop for callers to observe progress, messages, and tool execution.
+// INPUT:  alva_kernel_abi event values, tokio mpsc
+// OUTPUT: AgentEvent, AgentEventSender, AgentEventSendError, DEFAULT_AGENT_EVENT_CHANNEL_CAPACITY
+// POS:    Defines agent observability events and the bounded/unbounded sender used by the run loop.
 use serde::Serialize;
+use tokio::sync::mpsc;
 
 use alva_kernel_abi::AgentMessage;
 use alva_kernel_abi::ProgressEvent;
 use alva_kernel_abi::{StreamEvent, ToolCall, ToolOutput};
+
+/// Default capacity for production-facing bounded event streams.
+pub const DEFAULT_AGENT_EVENT_CHANNEL_CAPACITY: usize = 256;
 
 /// Events emitted by the agent loop so callers can observe progress.
 #[derive(Debug, Clone, Serialize)]
@@ -48,6 +52,65 @@ pub enum AgentEvent {
         tool_call: ToolCall,
         result: ToolOutput,
     },
+}
+
+/// Event transport accepted by the kernel loop.
+///
+/// The unbounded variant preserves the pre-existing SDK API and executor-free
+/// wasm path. Native product harnesses should prefer `Bounded`: lifecycle and
+/// message events then apply real producer backpressure instead of growing an
+/// unbounded queue when a UI or adapter stops draining temporarily.
+#[derive(Clone)]
+pub enum AgentEventSender {
+    Unbounded(mpsc::UnboundedSender<AgentEvent>),
+    Bounded(mpsc::Sender<AgentEvent>),
+}
+
+/// Small transport error that does not carry a potentially large event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AgentEventSendError {
+    #[error("agent event receiver is closed")]
+    Closed,
+    #[error("agent event channel is full")]
+    Full,
+}
+
+impl AgentEventSender {
+    /// Send a lossless event. A bounded transport waits for capacity.
+    pub async fn send(&self, event: AgentEvent) -> Result<(), AgentEventSendError> {
+        match self {
+            Self::Unbounded(sender) => sender.send(event).map_err(|_| AgentEventSendError::Closed),
+            Self::Bounded(sender) => sender
+                .send(event)
+                .await
+                .map_err(|_| AgentEventSendError::Closed),
+        }
+    }
+
+    /// Send a best-effort high-frequency event without blocking a synchronous
+    /// callback. Used only for tool progress updates; lifecycle, message, and
+    /// terminal tool events always go through [`Self::send`].
+    pub fn try_send(&self, event: AgentEvent) -> Result<(), AgentEventSendError> {
+        match self {
+            Self::Unbounded(sender) => sender.send(event).map_err(|_| AgentEventSendError::Closed),
+            Self::Bounded(sender) => sender.try_send(event).map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => AgentEventSendError::Full,
+                mpsc::error::TrySendError::Closed(_) => AgentEventSendError::Closed,
+            }),
+        }
+    }
+}
+
+impl From<mpsc::UnboundedSender<AgentEvent>> for AgentEventSender {
+    fn from(sender: mpsc::UnboundedSender<AgentEvent>) -> Self {
+        Self::Unbounded(sender)
+    }
+}
+
+impl From<mpsc::Sender<AgentEvent>> for AgentEventSender {
+    fn from(sender: mpsc::Sender<AgentEvent>) -> Self {
+        Self::Bounded(sender)
+    }
 }
 
 #[cfg(test)]
@@ -234,5 +297,38 @@ mod tests {
             json!({"TextDelta": {"text": "hello"}}),
             "delta wire shape: {v}"
         );
+    }
+
+    #[tokio::test]
+    async fn bounded_sender_waits_for_receiver_capacity() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let sender = AgentEventSender::from(tx);
+        sender.send(AgentEvent::AgentStart).await.unwrap();
+
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(20),
+                sender.send(AgentEvent::TurnStart),
+            )
+            .await
+            .is_err(),
+            "a full bounded channel must push back on lossless events"
+        );
+
+        assert!(matches!(rx.recv().await, Some(AgentEvent::AgentStart)));
+        sender.send(AgentEvent::TurnStart).await.unwrap();
+        assert!(matches!(rx.recv().await, Some(AgentEvent::TurnStart)));
+    }
+
+    #[tokio::test]
+    async fn bounded_try_send_drops_only_when_full() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let sender = AgentEventSender::from(tx);
+        sender.try_send(AgentEvent::AgentStart).unwrap();
+        assert_eq!(
+            sender.try_send(AgentEvent::TurnStart),
+            Err(AgentEventSendError::Full)
+        );
+        assert!(matches!(rx.recv().await, Some(AgentEvent::AgentStart)));
     }
 }

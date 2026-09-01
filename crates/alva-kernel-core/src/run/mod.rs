@@ -1,6 +1,6 @@
-// INPUT:  crate::state::{AgentState, AgentConfig}, crate::event::AgentEvent, alva_kernel_abi::*
+// INPUT:  crate::state::{AgentState, AgentConfig}, crate::event::{AgentEvent, AgentEventSender}, alva_kernel_abi::*
 // OUTPUT: pub async fn run_agent(), pub trait AgentLoop, pub struct DefaultAgentLoop
-// POS:    session-centric agent loop. run_agent is the default implementation behind the
+// POS:    session-centric agent loop with bounded/unbounded event transport behind the
 //         swappable AgentLoop driver interface (ADR-0007). Mid-run steering is NOT a kernel
 //         concern — external callers inject messages by appending them to the session directly
 //         (typically via an opt-in `PendingPlugin` middleware). Before each LLM call, tool
@@ -8,18 +8,18 @@
 //         `Tool::parameters_schema_with` sees live runtime state.
 use std::sync::Arc;
 
+use crate::context_runtime::ContextRuntime;
+use crate::event::{AgentEvent, AgentEventSender};
+use crate::middleware::MiddlewareError;
+use crate::session_events::emit_runtime_event;
+use crate::state::{AgentConfig, AgentState};
 use alva_kernel_abi::agent_session::{ComponentDescriptor, EmitterKind};
 use alva_kernel_abi::tool::Tool;
 use alva_kernel_abi::{
     AgentError, AgentMessage, CancellationToken, ContentBlock, Message, MessageRole, ToolCall,
+    UsageMetadata,
 };
-use tokio::sync::mpsc;
-
-use crate::context_runtime::ContextRuntime;
-use crate::event::AgentEvent;
-use crate::middleware::MiddlewareError;
-use crate::session_events::emit_runtime_event;
-use crate::state::{AgentConfig, AgentState};
+use sha2::{Digest, Sha256};
 
 mod llm_call;
 mod loop_impl;
@@ -76,18 +76,92 @@ fn apply_turn_system_additions(system_prompt: &mut Vec<String>, additions: &[Str
     system_prompt[idx].push_str(&joined);
 }
 
+fn update_framed_hash(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update((value.len() as u64).to_be_bytes());
+    hasher.update(value);
+}
+
+fn sha256_hex(value: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(value))
+}
+
+/// Fingerprint the provider-cache base without folding in the volatile system
+/// tail or conversation history. Consumers can compare consecutive
+/// `llm_call_start` events to distinguish a stable-prefix change from an
+/// ordinary provider cache miss.
+fn cache_base_fingerprints(
+    provider: &str,
+    model: &str,
+    system_prompt: &[String],
+    tools: &[Arc<dyn Tool>],
+) -> Option<(String, String, usize)> {
+    let stable_system_segments = match system_prompt.len() {
+        0 => 0,
+        1 => 1,
+        count => count - 1,
+    };
+
+    let mut tools_hasher = Sha256::new();
+    update_framed_hash(&mut tools_hasher, b"alva-tool-schema-fingerprint-v1");
+    for tool in tools {
+        let definition = serde_json::to_vec(&tool.definition())
+            .map_err(|error| {
+                tracing::warn!(tool = tool.name(), %error, "failed to fingerprint tool schema");
+                error
+            })
+            .ok()?;
+        update_framed_hash(&mut tools_hasher, &definition);
+    }
+    let tool_schema_fingerprint = format!("{:x}", tools_hasher.finalize());
+
+    let mut base_hasher = Sha256::new();
+    update_framed_hash(&mut base_hasher, b"alva-cache-base-fingerprint-v1");
+    update_framed_hash(&mut base_hasher, provider.as_bytes());
+    update_framed_hash(&mut base_hasher, model.as_bytes());
+    for segment in system_prompt.iter().take(stable_system_segments) {
+        update_framed_hash(&mut base_hasher, segment.as_bytes());
+    }
+    update_framed_hash(&mut base_hasher, tool_schema_fingerprint.as_bytes());
+    let cache_base_fingerprint = format!("{:x}", base_hasher.finalize());
+
+    Some((
+        cache_base_fingerprint,
+        tool_schema_fingerprint,
+        stable_system_segments,
+    ))
+}
+
+fn cache_outcome(usage: Option<&UsageMetadata>) -> &'static str {
+    let Some(usage) = usage else {
+        return "unreported";
+    };
+    match (
+        usage.cache_creation_input_tokens,
+        usage.cache_read_input_tokens,
+    ) {
+        (Some(write), Some(read)) if write > 0 && read > 0 => "hit_and_write",
+        (_, Some(read)) if read > 0 => "hit",
+        (Some(write), _) if write > 0 => "write",
+        (Some(_), _) | (_, Some(_)) => "miss",
+        (None, None) => "unreported",
+    }
+}
 
 /// agent loop — session-centric with middleware hooks.
 ///
 /// Messages are never stored in local variables across iterations;
 /// instead, every iteration reads the full history from `state.session`.
-pub async fn run_agent(
+pub async fn run_agent<E>(
     state: &AgentState,
     config: &AgentConfig,
     cancel: CancellationToken,
     input: Vec<AgentMessage>,
-    event_tx: mpsc::UnboundedSender<AgentEvent>,
-) -> Result<(), AgentError> {
+    event_tx: E,
+) -> Result<(), AgentError>
+where
+    E: Into<AgentEventSender>,
+{
+    let event_tx = event_tx.into();
     state.extensions.insert(cancel.clone());
 
     let agent_id = state.session.session_id().to_string();
@@ -99,7 +173,7 @@ pub async fn run_agent(
     // run_end + on_agent_end + dispose), even if `on_agent_start` or
     // `input_committed` fails. Previously those paths `?`-returned and the
     // consumer just saw the event stream close with no AgentEnd.
-    let _ = event_tx.send(AgentEvent::AgentStart);
+    let _ = event_tx.send(AgentEvent::AgentStart).await;
 
     // --- Session skeleton: run_start ---
     let run_start_uuid = emit_runtime_event(
@@ -116,7 +190,7 @@ pub async fn run_agent(
     // Fallible body: on the first error we stop running it but still fall
     // through to the finalizer. The `async` block scopes the borrows of
     // `state` / `context_runtime` so they are free again for cleanup.
-    let result: Result<(), AgentError> = async {
+    let mut result: Result<(), AgentError> = async {
         // 1. Lifecycle: on_agent_start
         config
             .middleware
@@ -174,12 +248,12 @@ pub async fn run_agent(
     }
     .await;
 
-    let error: Option<String> = result.as_ref().err().map(|e| e.to_string());
+    let run_error: Option<String> = result.as_ref().err().map(|e| e.to_string());
 
     // 4. Lifecycle: on_agent_end
     if let Err(e) = config
         .middleware
-        .run_on_agent_end(state, error.as_deref())
+        .run_on_agent_end(state, run_error.as_deref())
         .await
     {
         tracing::warn!(error = %e, "on_agent_end middleware failed");
@@ -193,23 +267,32 @@ pub async fn run_agent(
         "run_end",
         Some(run_start_uuid.clone()),
         Some(serde_json::json!({
-            "error": error.clone(),
+            "error": run_error,
         })),
     )
     .await;
 
     // Durability flush at agent end (lifecycle contract point a): everything
     // appended this run — including run_end above — is persisted before the
-    // caller observes completion. A flush failure is a durability signal, but
-    // the run's own result takes precedence, so log rather than overwrite it.
+    // caller observes completion. Preserve an earlier execution error, but a
+    // flush failure must turn an otherwise-successful run into a failure.
     if let Err(e) = state.session.flush().await {
-        tracing::warn!(error = %e, "session flush at agent end failed");
+        if result.is_ok() {
+            result = Err(AgentError::Other(format!(
+                "session durability flush failed: {e}"
+            )));
+        } else {
+            tracing::warn!(error = %e, "session flush also failed after run error");
+        }
     }
 
     // 5. Emit AgentEnd
-    let _ = event_tx.send(AgentEvent::AgentEnd {
-        error: error.clone(),
-    });
+    let error = result.as_ref().err().map(|e| e.to_string());
+    let _ = event_tx
+        .send(AgentEvent::AgentEnd {
+            error: error.clone(),
+        })
+        .await;
 
     result
 }
@@ -223,7 +306,7 @@ async fn run_loop(
     state: &AgentState,
     config: &AgentConfig,
     cancel: &CancellationToken,
-    event_tx: &mpsc::UnboundedSender<AgentEvent>,
+    event_tx: &AgentEventSender,
     run_start_uuid: &str,
     context_runtime: &mut ContextRuntime,
 ) -> Result<(), AgentError> {
@@ -257,9 +340,9 @@ async fn run_loop(
         if total_iterations.is_multiple_of(FLUSH_EVERY_N_ITERATIONS)
             || last_flush.elapsed() >= FLUSH_INTERVAL
         {
-            if let Err(e) = state.session.flush().await {
-                tracing::warn!(error = %e, "periodic session flush failed");
-            }
+            state.session.flush().await.map_err(|e| {
+                AgentError::Other(format!("periodic session durability flush failed: {e}"))
+            })?;
             last_flush = web_time::Instant::now();
         }
 
@@ -273,7 +356,7 @@ async fn run_loop(
         .await;
 
         // Emit TurnStart
-        let _ = event_tx.send(AgentEvent::TurnStart);
+        let _ = event_tx.send(AgentEvent::TurnStart).await;
         let turn_start = web_time::Instant::now();
 
         // 3a. Get messages from session (optionally windowed)
@@ -307,19 +390,9 @@ async fn run_loop(
         let total_segments = system_prompt_buf.len();
         let total_chars: usize = system_prompt_buf.iter().map(|s| s.len()).sum();
         if total_chars > 0 {
-            let head_segment = system_prompt_buf
-                .first()
-                .map(|s| s.chars().take(200).collect::<String>())
-                .unwrap_or_default();
-            let tail_segment = system_prompt_buf
-                .last()
-                .map(|s| tail_chars(s, 200))
-                .unwrap_or_default();
             tracing::debug!(
                 segments = total_segments,
                 total_chars,
-                head_first = %head_segment,
-                tail_last = %tail_segment,
                 "llm_call: system_prompt"
             );
         }
@@ -337,67 +410,6 @@ async fn run_loop(
             }
         }
 
-        // Session skeleton: llm_call_start — emitted BEFORE before_llm_call
-        // middleware so that any events emitted by middleware (loop_detection,
-        // compaction, etc.) land between llm_call_start and llm_call_end in
-        // causal order (spec §9 timing contract).
-        // message_count reflects the pre-middleware message list; the
-        // middleware may shrink or grow llm_messages, but the skeleton event
-        // records the count at the point the LLM turn was initiated.
-        //
-        // llm_call_start carries the full messages list so projection-based consumers
-        // (eval, debug) can show exactly what was sent to the model for this turn.
-        //
-        // Per-turn observability fields (P2 markers):
-        //   * `system_prompt_segments` — cache boundary count (>1 = stable+dynamic split)
-        //   * `system_prompt_segment_hashes` — sha256 per segment, lets the user diagnose
-        //     "which segment caused a cache miss" by hash diff across turns
-        //   * `disable_tools` — whether this call ran without tools
-        //   * `tools_count_sent` — actual number of tools in the request body
-        //   * `provider_options_applied` — whether vendor `extra_body` was non-empty
-        let segment_hashes: Vec<String> = system_prompt_buf
-            .iter()
-            .map(|seg| {
-                use sha2::{Digest, Sha256};
-                let h = Sha256::digest(seg.as_bytes());
-                format!("{:x}", h).chars().take(16).collect::<String>()
-            })
-            .collect();
-        let provider_options_applied = config
-            .model_config
-            .extra_body
-            .as_ref()
-            .map(|m| !m.is_empty())
-            .unwrap_or(false);
-        let tools_count_sent_for_event = if config.model_config.disable_tools {
-            0
-        } else {
-            state.tools.len()
-        };
-        let llm_start_uuid = emit_runtime_event(
-            &state.session,
-            "llm_call_start",
-            Some(iteration_start_uuid.clone()),
-            Some(serde_json::json!({
-                "iteration": total_iterations,
-                "message_count": llm_messages.len(),
-                "messages": llm_messages,
-                "system_prompt_segments": system_prompt_buf.len(),
-                "system_prompt_segment_hashes": segment_hashes,
-                "disable_tools": config.model_config.disable_tools,
-                "tools_count_sent": tools_count_sent_for_event,
-                "provider_options_applied": provider_options_applied,
-            })),
-        )
-        .await;
-        // Wall-clock start for analytics. Captured here (just before
-        // before_llm_call middleware) so the latency includes any
-        // pre-call middleware work too. web_time, NOT std::time —
-        // std::time::Instant::now() panics on wasm32-unknown-unknown
-        // (`:608` uses web_time for the same reason; this line was the
-        // regression that made every wasm agent die on its first turn).
-        let llm_call_started_at = web_time::Instant::now();
-
         // 3c. Middleware: before_llm_call
         config
             .middleware
@@ -408,9 +420,11 @@ async fn run_loop(
         // 3d. Emit MessageStart before the LLM call
         let message_id = uuid::Uuid::new_v4().to_string();
         let placeholder_msg = placeholder_assistant_message(&message_id);
-        let _ = event_tx.send(AgentEvent::MessageStart {
-            message: placeholder_msg.clone(),
-        });
+        let _ = event_tx
+            .send(AgentEvent::MessageStart {
+                message: placeholder_msg.clone(),
+            })
+            .await;
 
         // 3e. Call LLM through wrap_llm_call middleware chain.
         //
@@ -445,12 +459,72 @@ async fn run_loop(
         } else {
             bake_tool_schemas(&state.tools, config.bus.as_ref())
         };
+
+        // Record the final provider-bound request only after all preparation
+        // middleware has run. This keeps replay/audit faithful when middleware
+        // compacts, injects, or redacts messages.
+        let segment_hashes: Vec<String> = system_prompt_buf
+            .iter()
+            .map(|segment| {
+                sha256_hex(segment.as_bytes())
+                    .chars()
+                    .take(16)
+                    .collect::<String>()
+            })
+            .collect();
+        let cache_fingerprints = cache_base_fingerprints(
+            state.model.provider_id(),
+            state.model.model_id(),
+            &system_prompt_buf,
+            &baked_tools,
+        );
+        let cache_base_fingerprint = cache_fingerprints
+            .as_ref()
+            .map(|(fingerprint, _, _)| fingerprint);
+        let tool_schema_fingerprint = cache_fingerprints
+            .as_ref()
+            .map(|(_, fingerprint, _)| fingerprint);
+        let stable_system_prompt_segments = cache_fingerprints
+            .as_ref()
+            .map(|(_, _, count)| *count)
+            .unwrap_or(0);
+        let provider_options_applied = config
+            .model_config
+            .extra_body
+            .as_ref()
+            .is_some_and(|options| !options.is_empty());
+        let llm_start_uuid = emit_runtime_event(
+            &state.session,
+            "llm_call_start",
+            Some(iteration_start_uuid.clone()),
+            Some(serde_json::json!({
+                "iteration": total_iterations,
+                "provider": state.model.provider_id(),
+                "model": state.model.model_id(),
+                "message_count": llm_messages.len(),
+                "messages": llm_messages,
+                "system_prompt_segments": system_prompt_buf.len(),
+                "stable_system_prompt_segments": stable_system_prompt_segments,
+                "system_prompt_segment_hashes": segment_hashes,
+                "cache_base_fingerprint_version": 1,
+                "cache_base_fingerprint": cache_base_fingerprint,
+                "tool_schema_fingerprint": tool_schema_fingerprint,
+                "disable_tools": config.model_config.disable_tools,
+                "tools_count_sent": baked_tools.len(),
+                "provider_options_applied": provider_options_applied,
+            })),
+        )
+        .await;
+        let llm_call_started_at = web_time::Instant::now();
+
         let actual_call = ActualLlmCall {
             model: state.model.clone(),
             tools: baked_tools,
             model_config: config.model_config.clone(),
             event_tx: event_tx.clone(),
             message_id,
+            session: state.session.clone(),
+            llm_call_id: llm_start_uuid.clone(),
             cancel: cancel.clone(),
         };
         let mut response = match config
@@ -461,10 +535,12 @@ async fn run_loop(
             Ok(response) => response,
             Err(error) => {
                 let agent_error = error.into_agent_error();
-                let _ = event_tx.send(AgentEvent::MessageError {
-                    message: placeholder_msg.clone(),
-                    error: agent_error.to_string(),
-                });
+                let _ = event_tx
+                    .send(AgentEvent::MessageError {
+                        message: placeholder_msg.clone(),
+                        error: agent_error.to_string(),
+                    })
+                    .await;
                 return Err(agent_error);
             }
         };
@@ -476,10 +552,12 @@ async fn run_loop(
             .await
         {
             let agent_error = error.into_agent_error();
-            let _ = event_tx.send(AgentEvent::MessageError {
-                message: AgentMessage::Standard(response.clone()),
-                error: agent_error.to_string(),
-            });
+            let _ = event_tx
+                .send(AgentEvent::MessageError {
+                    message: AgentMessage::Standard(response.clone()),
+                    error: agent_error.to_string(),
+                })
+                .await;
             return Err(agent_error);
         }
 
@@ -488,17 +566,23 @@ async fn run_loop(
         // cache stats for providers that report them (e.g. Anthropic).
         // Absent fields (e.g. OpenAI cache) serialize as null, not 0,
         // so consumers can distinguish "unknown" from "zero".
+        let cache_metrics_reported = response.usage.as_ref().is_some_and(|usage| {
+            usage.cache_creation_input_tokens.is_some() || usage.cache_read_input_tokens.is_some()
+        });
         emit_runtime_event(
-                &state.session,
-                "llm_call_end",
-                Some(llm_start_uuid.clone()),
-                Some(serde_json::json!({
-                    "input_tokens": response.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0),
-                    "output_tokens": response.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0),
-                    "cache_creation_input_tokens": response.usage.as_ref().and_then(|u| u.cache_creation_input_tokens),
-                    "cache_read_input_tokens": response.usage.as_ref().and_then(|u| u.cache_read_input_tokens),
-                })),
-            ).await;
+            &state.session,
+            "llm_call_end",
+            Some(llm_start_uuid.clone()),
+            Some(serde_json::json!({
+                "input_tokens": response.usage.as_ref().map(|u| u.input_tokens).unwrap_or(0),
+                "output_tokens": response.usage.as_ref().map(|u| u.output_tokens).unwrap_or(0),
+                "cache_creation_input_tokens": response.usage.as_ref().and_then(|u| u.cache_creation_input_tokens),
+                "cache_read_input_tokens": response.usage.as_ref().and_then(|u| u.cache_read_input_tokens),
+                "cache_metrics_reported": cache_metrics_reported,
+                "cache_outcome": cache_outcome(response.usage.as_ref()),
+            })),
+        )
+        .await;
 
         // Analytics: emit a structured LlmCall event for telemetry sinks.
         // No-op if no AnalyticsSink is registered on the bus.
@@ -550,7 +634,9 @@ async fn run_loop(
         // (MessageStart was emitted before the LLM call; MessageUpdate
         // events were emitted during streaming inside ActualLlmCall.)
         let agent_msg = AgentMessage::Standard(response.clone());
-        let _ = event_tx.send(AgentEvent::MessageEnd { message: agent_msg });
+        let _ = event_tx
+            .send(AgentEvent::MessageEnd { message: agent_msg })
+            .await;
 
         // 3i. Extract tool_calls from response
         let tool_calls: Vec<ToolCall> = response
@@ -577,7 +663,7 @@ async fn run_loop(
                 tool_calls = 0,
                 "turn completed (no tool calls)"
             );
-            let _ = event_tx.send(AgentEvent::TurnEnd);
+            let _ = event_tx.send(AgentEvent::TurnEnd).await;
             context_runtime.after_turn(config).await;
             emit_runtime_event(
                 &state.session,
@@ -610,7 +696,7 @@ async fn run_loop(
             tool_calls = tool_calls.len(),
             "turn completed (with tool calls)"
         );
-        let _ = event_tx.send(AgentEvent::TurnEnd);
+        let _ = event_tx.send(AgentEvent::TurnEnd).await;
         context_runtime.after_turn(config).await;
 
         // Session skeleton: end of iteration (tool-calls path).
@@ -632,53 +718,44 @@ async fn run_loop(
     Ok(())
 }
 
-/// Last `n` characters (not bytes) of `s`.
-///
-/// This exists because the previous inline `&s[s.len() - 200..]` sliced a
-/// `String` by byte offset: on a CJK or emoji system prompt the cut landed in
-/// the middle of a multibyte character and panicked the whole run. The head
-/// side was already char-based (`.chars().take(200)`); this restores the same
-/// safety on the tail. It feeds a debug log, so clarity matters more than the
-/// extra scan.
-fn tail_chars(s: &str, n: usize) -> String {
-    if n == 0 {
-        return String::new();
-    }
-    let start = s.char_indices().nth_back(n - 1).map_or(0, |(i, _)| i);
-    s[start..].to_string()
-}
-
-
 #[cfg(test)]
-mod tail_chars_tests {
-    use super::tail_chars;
+mod run_helpers_tests {
+    use std::sync::Arc;
 
-    #[test]
-    fn multibyte_tail_does_not_panic_and_keeps_last_n_chars() {
-        // 300 CJK chars = 900 bytes; byte offset 900-200=700 lands mid-char,
-        // which is exactly what panicked the old byte slice.
-        let s: String = "中".repeat(300);
-        let tail = tail_chars(&s, 200);
-        assert_eq!(tail.chars().count(), 200);
-        assert!(tail.chars().all(|c| c == '中'));
-        assert!(s.ends_with(&tail));
+    use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
+    use alva_kernel_abi::{AgentError, Tool, UsageMetadata};
+    use async_trait::async_trait;
+
+    use super::{apply_turn_system_additions, cache_base_fingerprints, cache_outcome};
+
+    struct FingerprintTool;
+
+    #[async_trait]
+    impl Tool for FingerprintTool {
+        fn name(&self) -> &str {
+            "echo"
+        }
+
+        fn description(&self) -> &str {
+            "Echo a value"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "value": { "type": "string" } },
+                "required": ["value"]
+            })
+        }
+
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+            _ctx: &dyn ToolExecutionContext,
+        ) -> Result<ToolOutput, AgentError> {
+            Ok(ToolOutput::text("ok"))
+        }
     }
-
-    #[test]
-    fn shorter_than_n_returns_whole_string() {
-        assert_eq!(tail_chars("héllo", 200), "héllo");
-        assert_eq!(tail_chars("", 200), "");
-    }
-
-    #[test]
-    fn ascii_tail_matches_byte_intuition() {
-        assert_eq!(tail_chars("abcdef", 3), "def");
-    }
-}
-
-#[cfg(test)]
-mod turn_system_additions_tests {
-    use super::apply_turn_system_additions;
 
     #[test]
     fn empty_additions_leave_prompt_untouched() {
@@ -709,5 +786,75 @@ mod turn_system_additions_tests {
         let mut prompt = Vec::new();
         apply_turn_system_additions(&mut prompt, &["skill".into()]);
         assert_eq!(prompt, vec!["skill".to_string()]);
+    }
+
+    #[test]
+    fn cache_base_ignores_dynamic_system_tail() {
+        let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(FingerprintTool)];
+        let first = cache_base_fingerprints(
+            "anthropic",
+            "claude-test",
+            &["stable".into(), "dynamic-a".into()],
+            &tools,
+        )
+        .unwrap();
+        let second = cache_base_fingerprints(
+            "anthropic",
+            "claude-test",
+            &["stable".into(), "dynamic-b".into()],
+            &tools,
+        )
+        .unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(first.2, 1);
+    }
+
+    #[test]
+    fn cache_base_changes_with_stable_system_or_model() {
+        let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(FingerprintTool)];
+        let baseline = cache_base_fingerprints(
+            "anthropic",
+            "claude-test",
+            &["stable-a".into(), "dynamic".into()],
+            &tools,
+        )
+        .unwrap();
+        let changed_system = cache_base_fingerprints(
+            "anthropic",
+            "claude-test",
+            &["stable-b".into(), "dynamic".into()],
+            &tools,
+        )
+        .unwrap();
+        let changed_model = cache_base_fingerprints(
+            "anthropic",
+            "claude-other",
+            &["stable-a".into(), "dynamic".into()],
+            &tools,
+        )
+        .unwrap();
+
+        assert_ne!(baseline.0, changed_system.0);
+        assert_ne!(baseline.0, changed_model.0);
+    }
+
+    #[test]
+    fn cache_outcome_distinguishes_provider_observations() {
+        let usage = |write, read| UsageMetadata {
+            cache_creation_input_tokens: write,
+            cache_read_input_tokens: read,
+            ..Default::default()
+        };
+
+        assert_eq!(cache_outcome(None), "unreported");
+        assert_eq!(cache_outcome(Some(&usage(None, None))), "unreported");
+        assert_eq!(cache_outcome(Some(&usage(Some(0), Some(0)))), "miss");
+        assert_eq!(cache_outcome(Some(&usage(Some(3), Some(0)))), "write");
+        assert_eq!(cache_outcome(Some(&usage(Some(0), Some(5)))), "hit");
+        assert_eq!(
+            cache_outcome(Some(&usage(Some(3), Some(5)))),
+            "hit_and_write"
+        );
     }
 }
