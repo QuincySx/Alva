@@ -137,8 +137,14 @@ impl PermissionManager {
                 _ => {}
             }
 
-            let _ = pending.tx.send(decision);
-            true
+            // `true` must mean "the decision reached a live waiter", not merely
+            // "it was still in the map". The middleware drops its receiver in the
+            // timeout/cancel arms *before* taking the guard lock to call
+            // `cancel_permission`, so a respond landing in that window would
+            // otherwise report success for a decision nobody received — and the
+            // product layer would write an "Allowed ..." audit line for a tool
+            // the middleware then blocks.
+            pending.tx.send(decision).is_ok()
         } else {
             false
         }

@@ -832,6 +832,13 @@ mod tests {
             1,
             "the refused member must be surfaced, not dropped"
         );
+        // Pin *why* it failed. Without this the test passes even when the engine
+        // is never consulted at all (e.g. a router-map miss), which is a
+        // different failure with an identical outcome shape.
+        assert_eq!(
+            outcome.failures[0], "session: Permission request not found: req-gone",
+            "the failure must be the engine's refusal, not a router-map miss"
+        );
     }
 
     /// When no engine accepts, the whole call fails so the caller's `?` stops
@@ -849,7 +856,14 @@ mod tests {
             m.clone(),
         );
 
-        assert!(router.respond_many(&[m], true, None).await.is_err());
+        let error = router
+            .respond_many(&[m], true, None)
+            .await
+            .expect_err("a fully refused group must fail the call");
+        assert!(
+            error.contains("Permission request not found"),
+            "the error must name the engine's refusal, got {error:?}"
+        );
     }
 
     #[tokio::test]

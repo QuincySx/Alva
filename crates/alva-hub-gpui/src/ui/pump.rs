@@ -196,7 +196,7 @@ async fn run_worker_task(
     .await;
     let pending_answers = auto_answers.lock().unwrap().clone();
     for (pid, request_id) in pending_answers {
-        let _ = router
+        if let Err(error) = router
             .respond(
                 &pid,
                 &request_id,
@@ -204,7 +204,10 @@ async fn run_worker_task(
                     updated_input: None,
                 },
             )
-            .await;
+            .await
+        {
+            tracing::warn!(%error, "autonomous auto-approval was not accepted by the engine");
+        }
     }
     let finished = match &outcome {
         Ok(outcome) => {

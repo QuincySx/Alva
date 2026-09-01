@@ -729,6 +729,52 @@ mod tests {
         assert!(result.is_err(), "timed out approvals should be blocked");
     }
 
+    /// The whole audit-integrity chain rests on this: once the middleware times
+    /// an approval out (and blocks the tool), a decision arriving afterwards must
+    /// report that it was **not delivered**. `AlvaAdapter::respond_permission`
+    /// turns that `false` into `PermissionNotFound`, which is what keeps a
+    /// product layer from writing "Allowed ..." for a tool that never ran.
+    ///
+    /// Without this test the chain's foundation is unasserted: the layer above
+    /// is green even if the timeout stops clearing `pending`.
+    #[tokio::test]
+    async fn a_decision_arriving_after_the_timeout_reports_undelivered() {
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        let bus_writer = bus.writer();
+        bus_writer.provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus.handle())
+            .with_approval_timeout(std::time::Duration::from_millis(20));
+        let guard = mw.guard();
+        let mut state = make_state();
+
+        let tc = ToolCall {
+            id: "5".into(),
+            name: "execute_shell".into(),
+            arguments: serde_json::json!({ "command": "ls /projects/test" }),
+        };
+
+        // The call blocks until the approval times out, so grab the raised
+        // request concurrently rather than after.
+        let (result, raised) =
+            tokio::join!(mw.before_tool_call(&mut state, &tc), approval_rx.recv());
+        assert!(result.is_err(), "timed out approvals should be blocked");
+        let raised = raised.expect("the middleware raises an approval request");
+
+        let delivered = guard.lock().await.resolve_permission(
+            &raised.request_id,
+            "test",
+            crate::PermissionDecision::AllowOnce,
+        );
+        assert!(
+            !delivered,
+            "a decision arriving after the timeout must report that it was not delivered"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // requires_action event-log integration
     //

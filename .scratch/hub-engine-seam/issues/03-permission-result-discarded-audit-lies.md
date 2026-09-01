@@ -136,3 +136,31 @@ claude 全模式的 bridge 侧：迟到的 `permission_response` 静默丢弃、
 把引擎侧审批期限上报给 Hub、统一 60/180/300 三套口径。这是能力协商面的事，应随 EngineDescriptor 一起做。
 
 验证：adapter-alva 22 / hub-desktop 184 / hub-gpui 163 全绿。
+
+## Review 修正（三 lens 并行审查后）
+
+review 证明了**第一版修复不闭合**，并用变异实证了两个测试是空转的。全部已修：
+
+1. **根因：`PermissionManager::resolve` 在 `tx.send()` 失败时仍返回 `true`。** `true` 的真实含义只是「当时还在 pending」，不是「决定送到了等待方」。中间件的 timeout/cancel 分支**先丢弃 rx、之后才拿 guard 锁调 `cancel_permission`**，一条 respond 抢在这个空档里就会：remove 命中 → 返回 true → send 失败被 `let _ =` 吞掉 → adapter 报 Ok → 产品层照写 `Allowed`。同一个谎言活在低一层，而窗口恰好在 t=300s 打开。改为 `pending.tx.send(decision).is_ok()`（`crates/alva-agent-security/src/permission.rs`）。
+2. **我的改动把 hub-cli 的「审批过期」升级成了「整轮 run 中止」。** hub-cli 是第四个产品面（不走 PermissionRouter，走 `HubRuntime::respond_permission`），收到任何 Err 都 `failed = true; cancel_requested = true; break` 并以非零码退出。改动前 adapter 返 Ok，CLI 继续跑、工具被 Block、agent 可自行恢复；改动后同一情形直接杀掉整个会话。已单独放行 `PermissionNotFound`：打印说明并继续。
+3. **两个 router 测试是空转的。** 变异实证：把 `router.register` 的 key 改成 typo，使 `respond()` 在 router map 查找阶段就 miss、`RejectingEngine` 完全不被调用，**两个测试依然全绿**——它们守的是「有一个成员失败了」，不是「引擎拒收了这个决定」。已加断言钉死失败来源（`"session: Permission request not found: req-gone"`）。
+4. **gpui 分组审批把 `outcome.failures` 整个丢在地上，且无条件把全部 request_id 标成已回答**——引擎拒收的卡片在 gpui 里仍然收起、显示成「已允许」。工单原始表述里「界面收起卡片 + 审计留下 Allowed」是两件事，第一版只修了后半。已改为只标记 `answered`，并把 failures 推给用户。
+5. **gpui autonomous 自动审批（第五处）仍是 `let _ = router.respond(..)`**，且是所有自动审批站点里唯一连日志都不打的一处。我的改动让它从「返回 Ok、无所谓」变成「必定返回 Err、且被静默吞掉」。已补 warn。
+
+**新增地基测试**：`security.rs::a_decision_arriving_after_the_timeout_reports_undelivered`。整条修复押在「超时会让 pending 里没有这个 id」上，而这一步此前**没有任何断言**。
+变异验证揭示了一个有价值的结构（第一次变异因为只替换了 4 处 `cancel_permission` 中的 1 处而误判"测试无效"，修正后）：
+- 只拆「超时清 pending」（保留 `is_ok()`）→ **绿**：`is_ok()` 单独就能守住
+- 两层都拆 → **红**
+
+即两者是互补的纵深防御，`is_ok()` 的价值被这个变异精确证明了。
+
+## 未做（已知缺口，按 review 的实证记录）
+
+- **adapter 层的成功路径零覆盖。** 变异实证：把 `adapter.rs` 的 `if !` 改成 `if true`（即无条件返回 `PermissionNotFound`），`cargo test -p alva-engine-adapter-alva --lib` **22/22 全绿**。这是比原 bug 更响的故障（每次点「允许」都失败、工具永不执行）却没有测试拦。guard 层的正向有覆盖（`guard.rs:760/797/901`），缺的是 adapter 这一行；补它需要端到端审批流（ApprovalPlugin + 危险工具 + mock 模型），成本明显高于本工单其余部分。
+- **desktop 前端卡片「可点但点不动」。** `App.tsx` 的 `answerPermission` 只在成功时写 `answeredPermissions`，而 `PermissionRouter::respond` 是先 remove 再问引擎，所以第二次点会得到「router 里没有」的另一种错误。工单验收里「界面给出明确的『该审批已过期』提示」这半没做，需要第三种 `PermissionAnswer` 状态 + i18n 键。
+- **hub-server 的用户驱动审批完全不写审计**（两个 handler 都没有 `record_permission_decision`），而它与 desktop 共用同一套 React 前端。这不是说谎，是缺席，但和本工单立的「审计轨迹必须可信」是同一件事的两面。
+- **hub-server 那段改动零测试覆盖**（该 crate 无任何测试、无 dev-dependencies）。review 建议把闭包体上提到 hub-desktop 成为可测的纯函数（约 40-50 行、零新依赖），而不是在 hub-server 里建测试基建。
+- **同形但无持久化审计的三处**（非 Hub 线，严重度低一档）：`app-gpui/src/service.rs:281` + `main.rs:713`、`app-cli/src/event_handler.rs`。新写的 AGENTS.md 规则只在 adapter-alva 目录里，改这些文件的人看不到。
+- **Err 分支「沉默」而非写真话。** hub-server 的失败分支现在只 warn 不写审计——不再说谎，但审计轨迹也解释不了「这个工具为什么没跑」。写一条否定记录的成本几乎为零，是一个产品决策，留待拍板。
+
+验证：agent-security 190 / adapter-alva 22 / hub-cli 35 / hub-core 22 / hub-desktop 184 / hub-gpui 163 全绿。

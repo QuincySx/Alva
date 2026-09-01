@@ -53,8 +53,25 @@ impl HubApp {
                                 .store
                                 .record_permission_decision(&member.product_session_id, &summary);
                         }
-                        for request_id in request_ids {
-                            hub.answered_permissions.insert(request_id, allow);
+                        // Only members the engine actually accepted may be
+                        // marked answered. Marking all of them collapses the
+                        // cards of refused requests too, which shows the user an
+                        // "allowed" they never got — the same lie this ticket
+                        // removed from the audit trail.
+                        for member in &outcome.answered {
+                            hub.answered_permissions
+                                .insert(member.request_id.clone(), allow);
+                        }
+                        if !outcome.failures.is_empty() {
+                            hub.push_local_failure(
+                                &format!(
+                                    "answered {} of {} request(s); the rest could not be delivered: {}",
+                                    outcome.answered.len(),
+                                    request_ids.len(),
+                                    outcome.failures.join("; ")
+                                ),
+                                cx,
+                            );
                         }
                         hub.refresh_approval_groups();
                         cx.notify();

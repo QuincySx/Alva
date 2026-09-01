@@ -772,14 +772,35 @@ async fn run_turn(
                         break 'events;
                     }
                 };
-                if let Err(error) = response {
-                    failed = true;
-                    cancel_requested = true;
-                    eprintln!(
-                        "alva-hub: could not answer permission request; cancelling session: {}",
-                        safe_diagnostic_text(&error.to_string(), 1_000)
-                    );
-                    break;
+                match response {
+                    Ok(()) => {}
+                    // An approval that already expired on the engine side means
+                    // this one tool was blocked — the middleware hands the agent
+                    // a tool error it can recover from. Killing the whole run
+                    // over it would turn a single blocked tool into a failed
+                    // task, so report it and keep going.
+                    Err(error)
+                        if matches!(
+                            error,
+                            alva_hub_core::HubError::Runtime(
+                                alva_engine_runtime::RuntimeError::PermissionNotFound(_)
+                            )
+                        ) =>
+                    {
+                        eprintln!(
+                            "alva-hub: permission request already expired on the engine; the tool was blocked: {}",
+                            safe_diagnostic_text(&error.to_string(), 1_000)
+                        );
+                    }
+                    Err(error) => {
+                        failed = true;
+                        cancel_requested = true;
+                        eprintln!(
+                            "alva-hub: could not answer permission request; cancelling session: {}",
+                            safe_diagnostic_text(&error.to_string(), 1_000)
+                        );
+                        break;
+                    }
                 }
             }
             RuntimeEvent::Error {
