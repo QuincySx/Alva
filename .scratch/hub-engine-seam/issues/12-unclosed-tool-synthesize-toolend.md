@@ -46,7 +46,7 @@
 
 1. 用一个能在工具执行中被杀掉的引擎跑一轮：让 agent 调用一个长时间运行的工具（例如 `execute_shell` 跑 `sleep 300`）。
 2. 在工具运行期间 `kill -9` 掉引擎子进程（codex / claude CLI / pi 的 child）。
-3. 观察到：时间线出现失败卡片（`engine stream ended without terminal Completed event`，`crates/alva-hub-core/src/runtime.rs:606`），但那张工具卡片仍显示"正在使用工具 …"。
+3. 观察到：时间线出现失败卡片（`alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE`，合成分支见 `crates/alva-hub-core/src/runtime.rs` 的 `if !saw_completed`（工单 02 已把措辞提成常量，旧字面量不再存在）），但那张工具卡片仍显示"正在使用工具 …"。
 4. 关掉 desktop 再打开，进入同一会话。观察到：工具卡片**仍然**是"正在运行"（因为 `record_side_effect` 落的是 `succeeded: None`）。
 5. 期望：引擎流终止时，未闭合的工具应被标记为失败并给出原因。
 

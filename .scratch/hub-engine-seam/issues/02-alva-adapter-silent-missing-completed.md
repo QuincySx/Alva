@@ -122,3 +122,23 @@
 `run::tests::treats_stream_without_terminal_event_as_failed`（run.rs:1455）原本硬编码合成消息字符串，改消息后立刻变红。已改为绑定 `alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE`——它本来就属于本轮要消除的那类字符串耦合，现在措辞漂移会编译期/断言层面被抓到，而不是静默失效。
 
 验证：`cargo test -p alva-engine-adapter-alva -p alva-hub-core -p alva-hub-desktop` = 21 / 22 / 182 全绿。
+
+## Review 修正（三 lens 并行审查后）
+
+review 抓到 1 个 blocking + 3 个 notable，全部已修：
+
+1. **【blocking】漏改姊妹拷贝 `alva-hub-gpui`。** `crates/alva-hub-gpui/src/run.rs` 是 hub-desktop `run.rs` 的整份拷贝，同样硬编码旧合成消息，改措辞后立刻变红；而 CI 跑的是 `cargo test --workspace --exclude alva-app-tauri`，**不排除 gpui**，推上去 Test job 会挂、Coverage（needs: test）连跑都不跑。已绑常量修复，`cargo test -p alva-hub-gpui --lib` = 161 全绿。
+   > 讽刺的是这正是本批工单 README 里命名的那个模式——「每一次字符串比较都会被按前端复制粘贴一遍」——我自己踩了一次。
+2. **【notable】路径 1 的消息内插 UUID，仍会触发付费 fallback。** `failure.rs::has_http_code` 只要求状态码左右非数字，而 UUID 的十六进制串里出现被字母/连字符包围的 `401`/`403`/`429` 完全可能 → 分类成 Auth/RateLimit → `triggers_fallback == true`。两个 lens 独立做了 20 万次 uuid4 模拟，命中率 0.5%–0.77%（约 1/150）。修法：消息提成 `pub const SESSION_REMOVED_WHILE_STARTING` / `AGENT_STOPPED_PRODUCING_EVENTS`（不含 id），session id 改走 `tracing::warn!` 结构化字段。
+3. **【notable】两个新测试都存在空转风险。** 断言只看事件形状不看消息，而 `factory.build` 失败路径发的是**完全同形**的 Error+Completed 对。review 用双重变异实测：bug 回归 + build 恰好失败 → 测试照样绿。已改为钉死消息内容（绑常量），并补 `assert_eq!(map.len(), 1)` 把「只有一个 session」这个隐含前提显式化、补 `SessionStarted` 断言区分「开跑后断流」与「启动即失败」。
+4. **【notable】全局 panic hook 交换有害且不必要。** `#[tokio::test]` 是 current_thread runtime，libtest 本就按测试捕获 panic；而 `set_hook` 是进程级状态，libtest 默认并行跑同一 binary 的 21 个测试，窗口内别的测试失败会**丢掉全部诊断信息**（review 做了对照实验证实），且中途 panic 时 hook 永不还原。已删除。
+5. 顺带：desktop 与 gpui **两份** `failure.rs` 现在都有护栏测试，覆盖全部三条契约违规消息（此前 gpui 那份完全没有）；矩阵测试里的旧措辞行加了注释说明它是「刻意迁走的历史文案」；工单 12 引用的旧字符串已更新。
+
+**修正后重做变异验证，三条全部 CAUGHT**：
+- 常量措辞漂进 Transport 关键词表 → desktop 护栏红（`got transport failure`）
+- 同一漂移 → **gpui 护栏也红**（这份此前零保护）
+- 路径 1 退回静默 return → adapter 测试红（`got []`）
+
+**一处认知订正**：commit `bb8aa17` 的 message 说把 run.rs 测试绑常量后「措辞漂移会被断言抓到」——review 实测这是**夸大**的。run.rs 那条绑常量后守的是「hub 真的用了这个常量而非另写字面量」，真正的措辞护栏唯一落在 `failure.rs` 的分类断言上。设计本身合理，描述不准确。
+
+验证：`cargo test` = adapter-alva 21 / hub-core 22 / hub-desktop 182 / hub-gpui 161 全绿。clippy 对 adapter-alva 与 hub-core 零 warning（4 条落在 `alva-app-core/src/session_projection.rs`，来自 8fb5357 那批累积工作，非本次引入）。

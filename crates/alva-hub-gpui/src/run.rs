@@ -1319,7 +1319,7 @@ mod tests {
         );
         assert_eq!(
             timeline.last().and_then(|event| event.message.as_deref()),
-            Some("engine stream ended without terminal Completed event")
+            Some(alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE)
         );
     }
 

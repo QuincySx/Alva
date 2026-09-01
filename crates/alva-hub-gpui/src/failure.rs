@@ -182,6 +182,35 @@ fn has_http_code(message: &str, code: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Hub synthesizes a terminal pair when an adapter ends its stream without
+    /// `Completed`, and the Alva adapter synthesizes its own pair on early
+    /// exits. All three are adapter contract violations, not operational
+    /// continuity failures, so none may consume another engine's account.
+    ///
+    /// Bound to the constants rather than copies: if any wording drifts into a
+    /// keyword table (or an interpolated id smuggles in a bare 401/403/429),
+    /// this fails instead of silently re-enabling paid fallback.
+    #[test]
+    fn contract_violation_messages_never_trigger_fallback() {
+        for message in [
+            alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE,
+            alva_engine_adapter_alva::SESSION_REMOVED_WHILE_STARTING,
+            alva_engine_adapter_alva::AGENT_STOPPED_PRODUCING_EVENTS,
+        ] {
+            let class = classify_failure(message);
+            assert_eq!(
+                class,
+                FailureClass::Other,
+                "{message:?} must stay unclassified, got {}",
+                class.label()
+            );
+            assert!(
+                !triggers_fallback(class),
+                "{message:?} must not spend another engine's account"
+            );
+        }
+    }
+
     #[test]
     fn matrix_covers_all_v1_operational_failure_categories() {
         let cases = [
@@ -224,6 +253,11 @@ mod tests {
             ("engine process died unexpectedly", FailureClass::Crash),
             ("child exited with signal 9 (killed)", FailureClass::Crash),
             ("connection refused (ECONNREFUSED)", FailureClass::Transport),
+            // Historical wording: Hub used to synthesize this and it was
+            // (correctly) read as Transport, which is exactly why it triggered
+            // paid fallback. Kept to pin that fact — the live wording now lives
+            // in alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE and must land in
+            // Other, see contract_violation_messages_never_trigger_fallback.
             (
                 "stream ended without terminal Completed event",
                 FailureClass::Transport,

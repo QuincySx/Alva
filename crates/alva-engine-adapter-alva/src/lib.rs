@@ -8,6 +8,7 @@ mod mapping;
 mod session_repository;
 
 pub use adapter::AlvaAdapter;
+pub use adapter::{AGENT_STOPPED_PRODUCING_EVENTS, SESSION_REMOVED_WHILE_STARTING};
 pub use alva_app_core::session_projection::{build_run_record, RunRecord};
 pub use factory::{
     BaseAgentFactory, BuiltAgent, CatalogBaseAgentFactory, DefaultBaseAgentFactory,

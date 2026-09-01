@@ -183,26 +183,32 @@ mod tests {
     use super::*;
 
     /// Hub synthesizes a terminal pair when an adapter ends its stream without
-    /// `Completed`. That is a contract violation by the adapter, not an
-    /// operational-continuity failure, so it must never consume another
-    /// engine's account via fallback.
+    /// `Completed`, and the Alva adapter synthesizes its own pair on early
+    /// exits. All three are adapter contract violations, not operational
+    /// continuity failures, so none may consume another engine's account.
     ///
-    /// Bound to the constant rather than a copied string: if the wording ever
-    /// drifts back into the transport keyword table, this test fails instead of
-    /// silently re-enabling paid fallback.
+    /// Bound to the constants rather than copies: if any wording drifts into a
+    /// keyword table (or an interpolated id smuggles in a bare 401/403/429),
+    /// this fails instead of silently re-enabling paid fallback.
     #[test]
-    fn synthesized_terminal_message_does_not_trigger_fallback() {
-        let class = classify_failure(alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE);
-        assert_eq!(
-            class,
-            FailureClass::Other,
-            "synthesized terminal message must stay unclassified, got {}",
-            class.label()
-        );
-        assert!(
-            !triggers_fallback(class),
-            "an adapter contract violation must not spend another engine's account"
-        );
+    fn contract_violation_messages_never_trigger_fallback() {
+        for message in [
+            alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE,
+            alva_engine_adapter_alva::SESSION_REMOVED_WHILE_STARTING,
+            alva_engine_adapter_alva::AGENT_STOPPED_PRODUCING_EVENTS,
+        ] {
+            let class = classify_failure(message);
+            assert_eq!(
+                class,
+                FailureClass::Other,
+                "{message:?} must stay unclassified, got {}",
+                class.label()
+            );
+            assert!(
+                !triggers_fallback(class),
+                "{message:?} must not spend another engine's account"
+            );
+        }
     }
 
     #[test]
@@ -247,6 +253,11 @@ mod tests {
             ("engine process died unexpectedly", FailureClass::Crash),
             ("child exited with signal 9 (killed)", FailureClass::Crash),
             ("connection refused (ECONNREFUSED)", FailureClass::Transport),
+            // Historical wording: Hub used to synthesize this and it was
+            // (correctly) read as Transport, which is exactly why it triggered
+            // paid fallback. Kept to pin that fact — the live wording now lives
+            // in alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE and must land in
+            // Other, see contract_violation_messages_never_trigger_fallback.
             (
                 "stream ended without terminal Completed event",
                 FailureClass::Transport,

@@ -84,6 +84,20 @@ impl AlvaAdapter {
     }
 }
 
+/// Terminal-pair messages this adapter synthesizes for its own early exits.
+///
+/// These strings reach `classify_failure` in the Hub product layer verbatim, so
+/// they are load-bearing: a wording that lands in any failure keyword table
+/// would make an adapter contract violation trigger a paid fallback onto
+/// another engine. They are constants (and deliberately carry no session id —
+/// an interpolated UUID can contain a bare `401`/`403`/`429` that the product's
+/// HTTP-code heuristic reads as an auth or rate-limit failure) so the product
+/// side can pin that property with a test.
+pub const SESSION_REMOVED_WHILE_STARTING: &str = "Alva session was removed while it was starting";
+/// See [`SESSION_REMOVED_WHILE_STARTING`].
+pub const AGENT_STOPPED_PRODUCING_EVENTS: &str =
+    "Alva agent stopped producing events before the turn completed";
+
 #[async_trait]
 impl EngineRuntime for AlvaAdapter {
     fn execute(
@@ -273,10 +287,12 @@ impl EngineRuntime for AlvaAdapter {
                 }
             };
             if session_gone {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "session deleted while the engine turn was starting"
+                );
                 let _ = event_tx.send(RuntimeEvent::Error {
-                    message: format!(
-                        "Alva session '{session_id}' was removed while it was starting"
-                    ),
+                    message: SESSION_REMOVED_WHILE_STARTING.into(),
                     recoverable: false,
                 });
                 let _ = event_tx.send(RuntimeEvent::Completed {
@@ -331,9 +347,7 @@ impl EngineRuntime for AlvaAdapter {
                             // indistinguishable from an engine outage downstream.
                             if output_open {
                                 let _ = event_tx.send(RuntimeEvent::Error {
-                                    message:
-                                        "Alva agent stopped producing events before the turn completed"
-                                            .into(),
+                                    message: AGENT_STOPPED_PRODUCING_EVENTS.into(),
                                     recoverable: false,
                                 });
                                 let _ = event_tx.send(RuntimeEvent::Completed {
@@ -870,14 +884,17 @@ mod tests {
 
         // execute() registers the session before spawning, so the id is visible
         // here even though SessionStarted has not been emitted yet.
-        let session_id = adapter
-            .sessions
-            .lock()
-            .expect("Alva adapter session lock poisoned")
-            .keys()
-            .next()
-            .cloned()
-            .expect("execute must register the session synchronously");
+        let session_id = {
+            let map = adapter
+                .sessions
+                .lock()
+                .expect("Alva adapter session lock poisoned");
+            assert_eq!(map.len(), 1, "test assumes a single registered session");
+            map.keys()
+                .next()
+                .cloned()
+                .expect("execute must register the session synchronously")
+        };
 
         adapter.delete_session(&session_id).await.unwrap();
         let _ = release.send(());
@@ -892,13 +909,17 @@ mod tests {
             2,
             "expected exactly Error + Completed, got {events:#?}"
         );
-        assert!(matches!(
-            events[0],
-            RuntimeEvent::Error {
-                recoverable: false,
-                ..
-            }
-        ));
+        // Pin the message, not just the shape: `factory.build` failures emit an
+        // identical Error+Completed pair, so a shape-only assertion would still
+        // pass if this path regressed and the build happened to fail instead.
+        assert!(
+            matches!(
+                &events[0],
+                RuntimeEvent::Error { message, recoverable: false }
+                    if message == SESSION_REMOVED_WHILE_STARTING
+            ),
+            "expected the session-removed terminal pair, got {events:#?}"
+        );
         assert!(matches!(
             events[1],
             RuntimeEvent::Completed { result: None, .. }
@@ -945,26 +966,31 @@ mod tests {
             DefaultBaseAgentFactoryConfig::new(Arc::new(PanickingModel), std::env::temp_dir());
         let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
 
-        // The panic is deliberate; keep it out of the test log.
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
+        // The model panic is deliberate. libtest already captures it per-test, so
+        // do NOT swap the global panic hook here: it is process-wide state and
+        // would silently swallow diagnostics from tests running in parallel.
         let mut stream = adapter.execute(RuntimeRequest::new("hello")).unwrap();
         let mut events = Vec::new();
         while let Some(event) = stream.next().await {
             events.push(event);
         }
-        std::panic::set_hook(previous);
 
+        // The turn must have actually started — otherwise this would be testing
+        // a startup failure, not a mid-turn channel close.
+        assert!(
+            matches!(events.first(), Some(RuntimeEvent::SessionStarted { .. })),
+            "expected the turn to start before the channel closed, got {events:#?}"
+        );
         let terminal = &events[events.len().saturating_sub(2)..];
+        // Pin the message so this keeps testing *this* path even if the agent
+        // layer later turns run-task panics into graceful error reporting.
         assert!(
             matches!(
                 terminal.first(),
-                Some(RuntimeEvent::Error {
-                    recoverable: false,
-                    ..
-                })
+                Some(RuntimeEvent::Error { message, recoverable: false })
+                    if message == AGENT_STOPPED_PRODUCING_EVENTS
             ),
-            "expected a fatal Error before Completed, got {events:#?}"
+            "expected the channel-closed terminal pair, got {events:#?}"
         );
         assert!(
             matches!(terminal.last(), Some(RuntimeEvent::Completed { .. })),
