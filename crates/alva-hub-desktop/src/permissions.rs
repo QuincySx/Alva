@@ -432,6 +432,57 @@ pub fn release_run_engines(
     }
 }
 
+/// RAII lease over the engine handles a single run registers.
+///
+/// Cleanup must survive three exits, not one: the success path, the failure
+/// path, and **the run's future being dropped** — an axum handler is cancelled
+/// whenever the client disconnects mid-run, and a plain statement after the
+/// `.await` never executes in that case. Holding the lease for the duration of
+/// the run turns "released exactly once" into a structural property instead of
+/// something the next maintainer has to remember.
+pub struct RunEngineLease {
+    engines: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<dyn EngineRuntime>>>>,
+    router: Arc<PermissionRouter>,
+    ids: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl RunEngineLease {
+    pub fn new(
+        engines: Arc<std::sync::Mutex<std::collections::HashMap<String, Arc<dyn EngineRuntime>>>>,
+        router: Arc<PermissionRouter>,
+    ) -> Self {
+        Self {
+            engines,
+            router,
+            ids: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Handle for the engine-build closure to record what it registered.
+    pub fn registry(&self) -> Arc<std::sync::Mutex<Vec<String>>> {
+        Arc::clone(&self.ids)
+    }
+}
+
+impl Drop for RunEngineLease {
+    fn drop(&mut self) {
+        // Take the ids out first so the registry lock is released before the
+        // engines lock is acquired; the build closure takes them in the other
+        // order (engines, then registry) as two separate statements.
+        let ids: Vec<String> = {
+            let mut guard = self
+                .ids
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            std::mem::take(&mut *guard)
+        };
+        if ids.is_empty() {
+            return;
+        }
+        release_run_engines(&self.engines, &self.router, ids);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Contract tests for the three Hub adapter permission mappings and the

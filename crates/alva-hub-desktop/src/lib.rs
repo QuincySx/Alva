@@ -25,7 +25,7 @@ pub use inspection::{HubInspectionRecord, HubInspectionSnapshot, HubInspectorSer
 pub use permissions::{
     enforcement_for, permission_eligibility, permission_group_key, release_run_engines,
     EnforcementPlan, EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup,
-    PermissionMember, PermissionProfile, PermissionRouter,
+    PermissionMember, PermissionProfile, PermissionRouter, RunEngineLease,
 };
 pub use provider_diagnostics::{
     diagnose_provider_inference, discover_provider_models, DiscoveredProviderModel,

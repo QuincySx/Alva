@@ -750,12 +750,16 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
     let health_workspace = workspace.clone();
     let active_engines_for_build = state.active_engines.clone();
     let active_engines_for_emit = state.active_engines.clone();
-    // Which ids this run actually registered. Cleanup keys off this rather than
-    // off the outcome, because the error path has no outcome to read a session
-    // id from — that is precisely why the old cleanup could not run there.
-    let run_registry = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
-    let build_registry = std::sync::Arc::clone(&run_registry);
     let permission_router = state.permission_router.clone();
+    // RAII: releases the engine handles this run registers on every exit —
+    // success, failure, and the handler future being dropped when the client
+    // disconnects mid-run (an axum handler is cancelled at its await point, so
+    // a statement after the `.await` would simply never run).
+    let engine_lease = alva_hub_desktop::RunEngineLease::new(
+        active_engines_for_build.clone(),
+        permission_router.clone(),
+    );
+    let build_registry = engine_lease.registry();
     let autonomy_store = state.store.clone();
     let request_product_session = request.product_session_id.clone().unwrap_or_default();
     let approval_scope = state
@@ -923,11 +927,7 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
     // finish_turn / apply_pending_switch writes, both of which run after the
     // engine is already registered) left the handle in the map forever. A later
     // stop on that session would then reach a dead adapter and report success.
-    alva_hub_desktop::release_run_engines(
-        &active_engines_for_build,
-        &permission_router,
-        std::mem::take(&mut *run_registry.lock().unwrap()),
-    );
+    drop(engine_lease);
     let outcome = match outcome_result {
         Ok(outcome) => outcome,
         Err(e) => {

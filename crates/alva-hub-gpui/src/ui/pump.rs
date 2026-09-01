@@ -137,6 +137,10 @@ async fn run_worker_task(
     // immediately; auto-answered after the run when this scope is
     // autonomous (the user opted this run out of per-request approval).
     let auto_answers: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+    // RAII lease: this path had no cleanup at all, so every finished worker
+    // task left a live adapter in `active_engines`.
+    let engine_lease = alva_hub_gpui::RunEngineLease::new(Arc::clone(engines), Arc::clone(router));
+    let build_registry = engine_lease.registry();
     let outcome = run_persisted(
         store,
         {
@@ -150,6 +154,10 @@ async fn run_worker_task(
                     .lock()
                     .unwrap()
                     .insert(product_session_id.to_string(), Arc::clone(&engine));
+                build_registry
+                    .lock()
+                    .unwrap()
+                    .push(product_session_id.to_string());
                 Ok(engine)
             }
         },
@@ -190,6 +198,19 @@ async fn run_worker_task(
                             .push((event.product_session_id.clone(), info.request_id.clone()));
                     }
                 }
+                if matches!(
+                    event.status,
+                    alva_hub_gpui::TimelineStatus::Completed
+                        | alva_hub_gpui::TimelineStatus::Failed
+                        | alva_hub_gpui::TimelineStatus::Interrupted
+                        | alva_hub_gpui::TimelineStatus::Fallback
+                        | alva_hub_gpui::TimelineStatus::Exhausted
+                ) {
+                    // The emitting attempt reached a terminal state (or fell
+                    // back); its approvals are dead and must not be answerable.
+                    // hub-desktop and hub-server both do this; this path did not.
+                    router.clear_session(&event.product_session_id);
+                }
             }
         },
     )
@@ -209,6 +230,9 @@ async fn run_worker_task(
             tracing::warn!(%error, "autonomous auto-approval was not accepted by the engine");
         }
     }
+    // Dropped after the autonomous auto-answers above, which still need the
+    // handle to be routable.
+    drop(engine_lease);
     let finished = match &outcome {
         Ok(outcome) => {
             store.finish_worker_task(&task.task_id, !outcome.failed, outcome.result.as_deref())

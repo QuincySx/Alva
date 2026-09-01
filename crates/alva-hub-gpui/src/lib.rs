@@ -37,7 +37,7 @@ pub use models::{
 pub use permissions::{
     enforcement_for, permission_eligibility, permission_group_key, release_run_engines,
     EnforcementPlan, EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup,
-    PermissionMember, PermissionProfile, PermissionRouter,
+    PermissionMember, PermissionProfile, PermissionRouter, RunEngineLease,
 };
 pub use plugin_store::{InstalledPlugin, PluginScope, PluginStore};
 pub use provider_store::ProviderStore;

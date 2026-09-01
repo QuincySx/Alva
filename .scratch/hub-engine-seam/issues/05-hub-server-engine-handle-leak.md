@@ -154,7 +154,7 @@
 | 2 | Ok 路径同样清空 | 🔶 **部分**：helper 本身有测试，调用点无 |
 | 3 | Err 后 stop 返回 "no live engine" | ❌ **未做** |
 | 4 | 被否决的 fallback 候选不在 `active_engines` | ❌ **未做**（见上，运行期间仍短暂存在） |
-| 5 | 人工逐处确认每处 insert 有配对清理 | ✅ **做了**（下表） |
+| 5 | 人工逐处确认每处 insert 有配对清理 | ⚠️ **第一版做错了，已重做**（见下面的 Review 修正） |
 | 6 | `cargo test` 全绿 | ✅ desktop 185 / gpui 165 / server 0（该 crate 无测试） |
 
 第 5 条的核对结果：
@@ -168,3 +168,39 @@
 **1/3/4 未做的原因**：`alva-hub-server` 整个 crate 零测试、零 `[dev-dependencies]`，改动点埋在 axum handler 里约 150 行深处的闭包中。上一轮 review 已评估过：在 hub-server 内建基建要新增 3 个 dev-dep + 自写 stub engine 约 130-150 行。本次走的是它建议的另一条路——把可测部分抽成 lib 里的纯函数，`release_run_engines` 因此有了变异验证过的覆盖（分别去掉"清 router"和"移除 handle"两条，测试各自变红）。
 
 **但要说清楚剩下的缺口**：有测试的是 helper 自身；"Err 路径确实调用了 helper"仍然只靠控制流可证（清理位于 `match` 之前，该函数内此后无其它出口），没有测试拦住有人把它挪回分支里。
+
+## Review 修正（第 5 条验收我做错了）
+
+**根源：我的核对脚本硬编码了三个文件的列表，而不是全仓 grep。** 于是那张"每处 insert 都有配对清理"的表是按**文件**核的，不是按 **insert** 核的。`rg -n 'insert\(product_session_id' crates/` 会立刻打出 5 处，我只覆盖了 3 处。
+
+漏掉的两处：
+
+1. **【blocking】`hub-gpui/src/ui/pump.rs:152`——worker 队列泵的第二条 run 路径。** 它往同一张 `active_engines` insert，而整个函数直到 `.await` 之后**没有任何清理**：没有 registry、没有 release。这是本工单要修的 bug 的完整同构体，只是在同一 crate 的另一个文件里。desktop 没这个问题是因为它的 worker 走同一个 `execute_session_run`，gpui 是拷了一份独立实现。
+   后果：gpui 每跑完一个 worker task 就永久滞留一个引擎句柄 + 一批待批权限；worker 会话在 `list_sessions` 里可见、可打开，`stop_attempt` 会拿到这个死 adapter。
+   同时该路径的 emit 闭包**缺了** desktop / hub-server 都有的终态 `router.clear_session`（Completed/Failed/Interrupted/Fallback/Exhausted），所以非 autonomous 的 worker 审批没有任何出口。两者一并修。
+
+2. **【notable】`hub-gpui/src/ui/app.rs:1777`——`active_inspectors` 这第二张表完全没有清理。** 不只是内存：`inspector_handle()` 命中 map 时返回 `live = true`，`load_inspector_session` 于是对着一个早已结束的 adapter 走实时 `subscribe` 分支，而不是回落到 `RepositoryInspector` 读历史。**"引擎死了但 Inspector 仍自称 live"，和"adapter 死了但 stop 仍自称成功"是同一类谎言，只是换了张表。** 现在用 lease 的 registry ids 一并释放。
+
+**另一处 notable：hub-server 的清理不是 cancel-safe。** `release_run_engines` 是 handler 函数体里的普通语句，只有 `outcome_fut.await` 正常返回才执行。axum/hyper 在客户端断开时直接 drop handler future——一次跑几分钟的 `POST /api/run` 期间用户关标签页、刷新、反代超时，future 在 await 点被 drop，清理一行都不跑，留下的状态与本工单描述的 P0 一模一样。**P0 原本只堵了"收尾写库失败"这一半，"请求被取消"那一半在一个 HTTP 服务里比 SQLite busy 更容易复现。**
+
+改为 RAII：新增 `RunEngineLease`，构造时给出 registry 句柄供 build 闭包登记，`Drop` 时释放。这同时把验收第 2 条那句"只靠控制流可证，没有测试拦住有人把它挪回分支里"变成了结构性保证——guard 在，就一定释放，挪不回去。hub-server / gpui 两处 run 路径都已迁移；hub-desktop 保持直接调用（tauri command 跑到底，无取消风险，且它的 `active_engines` 不是 `Arc`）。
+
+**锁顺序**：guard 的 `Drop` 先把 ids 取出（registry 锁在此处即释放）再进 `release_run_engines`（取 engines 锁），与 build 闭包的 engines→registry 顺序不构成反向嵌套；helper 的 doc 已写明锁序。
+
+## 第 5 条验收重做（这次用全仓 grep）
+
+| insert 点 | 类型 | 配对 |
+|---|---|---|
+| `hub-server/src/main.rs:811` | engine | registry push ✅ → lease Drop |
+| `hub-desktop/src/main.rs:275` | engine | registry push ✅ → 显式 release |
+| `hub-gpui/src/ui/app.rs:1771` | engine | registry push ✅ → lease Drop |
+| `hub-gpui/src/ui/app.rs:1780` | **inspector** | 用 lease 的 registry ids 一并移除 ✅ |
+| `hub-gpui/src/ui/pump.rs:156` | engine | registry push ✅ → lease Drop |
+
+两份 `permissions.rs`（desktop / gpui）经 `diff` 确认仍逐字节相同，helper、guard、测试三者都同步。
+
+验证：hub-desktop 185 / hub-gpui 165 全绿。
+
+## 已知取舍（review 核实后建议记录，不改代码）
+
+stall 路径（`run.rs` 的 180s 超时）上 `hub.cancel()` 是 best-effort，失败只 warn 就 break。此时引擎可能仍在跑却被摘出 map，之后 stop 会返回 "no live engine"。这**不是本次引入的**（desktop 一直如此，hub-server 原来的 Ok 路径摘的是同一个 key、同样时机），而且两害相权，留着句柄正是本工单要修的"stop 假装成功"。
