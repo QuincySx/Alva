@@ -706,6 +706,20 @@ mod tests {
         }
     }
 
+    /// The engine catalog is the single source for every surface that offers an
+    /// engine: readiness, the permission profile table, the main engine picker
+    /// and the fallback-chain catalog. A local copy in `ui/fallback.rs` once
+    /// listed only three of them, so Pi could be selected as a main engine and
+    /// appeared in readiness, but could not be added to a fallback chain at all.
+    #[test]
+    fn engine_catalog_covers_every_supported_engine() {
+        assert_eq!(
+            HUB_ENGINE_IDS.as_slice(),
+            ["alva", "claude", "codex", "pi"].as_slice(),
+            "shrinking this catalog silently drops an engine from every UI that reads it"
+        );
+    }
+
     #[test]
     fn missing_binary_reports_structured_search_locations() {
         let facts = EngineProbeFacts {

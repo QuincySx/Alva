@@ -2,7 +2,7 @@
 
 - 级别：P0
 - 影响：GPUI 版 Team 面板的「Interrupt」按钮点了等于没点——worker 继续烧钱跑，界面却刷新成已处理；同时 Pi 引擎在降级链面板里根本不出现，用户配不出带 Pi 的 fallback。
-- 状态：TODO
+- 状态：DONE（2026-09-01，分支 `fix/engine-seam-tickets`）
 
 两个缺陷同源：desktop 那一份写对了，GPUI 移植时抄错，且 GPUI 侧没有测试兜底，所以一直没人发现。
 
@@ -84,3 +84,37 @@
 - [ ] `rg -n 'const ENGINE_IDS' crates/alva-hub-gpui/src` 输出为空；`rg -n 'HUB_ENGINE_IDS' crates/alva-hub-gpui/src/ui/fallback.rs` 有命中。
 - [ ] 新增测试：断言降级链目录渲染出的 engine id 集合 `== HUB_ENGINE_IDS`（长度 4 且包含 `"pi"`）。
 - [ ] 手动确认：GPUI Fallback chain 面板出现 `+ pi`，点击后策略列表新增 pi 行并可保存、可上下移动。
+
+## 完成记录
+
+**(a) `interrupt_worker` —— 委托而不是再抄一份**
+
+按工单首选方案改成 `self.stop_attempt(worker_session_id, cx)` + `refresh_team_silent`。desktop 正是这么做的（`main.rs` 的 `interrupt_worker` 命令体只有一行委托）。这一次改动同时补齐了原实现缺的**四件事**：真正的 `engine_session_id`（而不是 `""`）、`record_attempt_cancelled`、`permission_router.clear_session`、以及失败时的 `push_local_failure`——因为它们本来就在 `stop_attempt` 里。
+
+`stop_attempt` 的 `record_attempt_cancelled` 是在 spawn **之前**同步执行的，所以紧接着的 `refresh_team_silent` 能看到已更新的 store 状态，时序正确。
+
+**(b) 引擎目录三份副本收敛成一份**
+
+删掉 `ui/fallback.rs` 的 3 元素 `ENGINE_IDS`，改用 `alva_hub_gpui::HUB_ENGINE_IDS`。顺带把工单只要求"评估"的第三份副本 `ui/app.rs:40` 的 `ENGINE_OPTIONS`（4 元素、内容相同）也一并收敛，3 个使用点重定向。现在全 crate 只有 `readiness.rs:15` 一处定义。
+
+注意路径：`ui/` 下的模块属于 bin crate，`readiness` 在 lib crate，要走 `alva_hub_gpui::HUB_ENGINE_IDS` 这个 lib 导出而不是 `crate::readiness::`。
+
+**验收 grep 全过**：`cancel("")` 全仓无命中；`const ENGINE_IDS` / `const ENGINE_OPTIONS` 在 gpui 无命中；`fallback.rs` 引用 `HUB_ENGINE_IDS`。
+
+## 覆盖情况（变异实测，不是估计）
+
+| 修复 | 变异 | 结果 |
+|---|---|---|
+| (b) 引擎目录 | 把 `HUB_ENGINE_IDS` 缩回 3 元素 | **RED** ✓ 有覆盖 |
+| (a) `interrupt_worker` | 退回 no-op | **GREEN** ✗ **无覆盖** |
+
+新增 `readiness.rs::engine_catalog_covers_every_supported_engine` 钉死目录内容（不只是长度——既有的 `:634` 只断言 `report.len() == HUB_ENGINE_IDS.len()`，两边一起缩水时不会红）。
+
+**(a) 至今无测试覆盖，这是本工单的已知缺口。** 工单验收要求的三个测试（fake engine 记录 cancel 入参 / `engine_session_id` 为 None 时可见失败 / `clear_session` 被调用）都需要 gpui 的 UI 交互测试基建，而：
+- `crates/alva-hub-gpui/src/ui/team_actions.rs` 与 `ui/actions.rs` 均零测试；
+- 委托目标 `stop_attempt` 本身**也没有测试**；
+- `ui/` 下现有的 7 个测试文件全在 `components/`，是纯组件级的，不含 `HubApp` + `Context` 的交互基建。
+
+考虑到该 crate 已是退役路线（`AGENTS.md:279`），建这套基建的投入产出比低。缓解因素是这次修复**消除了重复**而不是修补它：`interrupt_worker` 不再持有自己的 cancel 逻辑，所以"传错 session id"这个具体缺陷不可能再单独回归——但如果有人重新给它写一份独立实现，没有测试会拦住。
+
+若日后要补，最小落点是给 `stop_attempt` 建一次基建，`interrupt_worker` 自动继承。

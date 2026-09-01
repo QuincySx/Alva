@@ -37,7 +37,6 @@ use super::workspace::{HubWorkspace, ToolPanel, WorkspaceTool};
 use super::{profile_label, EffortOption, EngineOption, ModelOption, WorkerOption};
 use alva_hub_gpui::{project_chat, project_timeline, ProjectedChatItem, ProjectedEvent};
 
-const ENGINE_OPTIONS: [&str; 4] = ["alva", "claude", "codex", "pi"];
 const PROFILE_OPTIONS: [&str; 3] = ["interactive", "workspace_write", "unrestricted"];
 
 fn route_key(route: &ModelRoute) -> String {
@@ -229,7 +228,7 @@ impl HubApp {
             .default_route(AgentRuntime::Alva)
             .or_else(|| model_catalog.default_route(AgentRuntime::ClaudeCode))
             .expect("built-in model catalog must expose at least one route");
-        let initial_engine_index = ENGINE_OPTIONS
+        let initial_engine_index = alva_hub_gpui::HUB_ENGINE_IDS
             .iter()
             .position(|engine| *engine == initial_route.runtime.id());
         let initial_models = Self::model_options(&model_catalog, initial_route.runtime);
@@ -447,7 +446,7 @@ impl HubApp {
     }
 
     fn engine_options(readiness: &[EngineReadiness]) -> Vec<EngineOption> {
-        ENGINE_OPTIONS
+        alva_hub_gpui::HUB_ENGINE_IDS
             .iter()
             .map(|id| {
                 let display = match *id {
@@ -1244,7 +1243,7 @@ impl HubApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let index = ENGINE_OPTIONS
+        let index = alva_hub_gpui::HUB_ENGINE_IDS
             .iter()
             .position(|candidate| *candidate == engine_id);
         self.engine.update(cx, |state, cx| {

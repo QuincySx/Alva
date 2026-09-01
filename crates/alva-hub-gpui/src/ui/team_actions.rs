@@ -243,25 +243,18 @@ impl HubApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let engine = self
-            .active_engines
-            .lock()
-            .unwrap()
-            .get(worker_session_id)
-            .cloned();
-        let weak = cx.entity().downgrade();
-        cx.spawn(async move |_this, cx| {
-            if let Some(engine) = engine {
-                let _ = engine.cancel("").await;
-            }
-            if let Some(hub) = weak.upgrade() {
-                hub.update(cx, |hub, cx| {
-                    hub.refresh_team_silent(cx);
-                    cx.notify();
-                });
-            }
-        })
-        .detach();
+        // Delegate rather than hand-roll: a worker's turn is stopped exactly
+        // like any other attempt, and hub-desktop delegates the same way
+        // (`interrupt_worker` -> `stop_attempt_inner`). The previous copy passed
+        // `""` as the native session id, so every adapter's `cancel` missed its
+        // session table and returned SessionNotFound — which was then dropped by
+        // `let _ =`. It also skipped `record_attempt_cancelled` and
+        // `permission_router.clear_session`, both of which `stop_attempt` does.
+        self.stop_attempt(worker_session_id, cx);
+        // `stop_attempt` records the cancellation synchronously before spawning,
+        // so the team projection already reflects it here.
+        self.refresh_team_silent(cx);
+        cx.notify();
     }
 
     pub fn end_team_run(&mut self, _window: &mut Window, cx: &mut Context<Self>) {

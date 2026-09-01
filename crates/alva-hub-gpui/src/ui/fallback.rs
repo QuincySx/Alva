@@ -17,8 +17,6 @@ use alva_hub_gpui::EngineTarget;
 
 use super::app::{with_window, HubApp};
 
-const ENGINE_IDS: [&str; 3] = ["alva", "claude", "codex"];
-
 impl HubApp {
     /// Keep the per-target model/provider input states aligned with the
     /// policy targets (length + value). Call after every policy mutation or
@@ -134,7 +132,7 @@ impl HubApp {
         let weak = cx.entity().downgrade();
         h_flex()
             .gap_1()
-            .children(ENGINE_IDS.iter().map(|engine_id| {
+            .children(alva_hub_gpui::HUB_ENGINE_IDS.iter().map(|engine_id| {
                 let is_selected = selected.iter().any(|id| id == engine_id);
                 let engine_id = *engine_id;
                 let weak = weak.clone();
