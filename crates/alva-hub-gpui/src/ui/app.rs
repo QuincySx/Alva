@@ -1727,6 +1727,12 @@ impl HubApp {
         let store = Arc::clone(&self.store);
         let engines = Arc::clone(&self.active_engines);
         let inspectors = Arc::clone(&self.active_inspectors);
+        // Which ids this run registered. The outcome only carries a session id
+        // on success, so cleanup cannot key off it — that is why the failure
+        // path had no way to release anything.
+        let run_registry = Arc::new(Mutex::new(Vec::<String>::new()));
+        let build_registry = Arc::clone(&run_registry);
+        let router_for_cleanup = Arc::clone(&self.permission_router);
         let model_catalog = self.model_catalog.clone();
         let handle = self.window_handle;
         let history_dir = store.path().parent().map(PathBuf::from);
@@ -1760,6 +1766,10 @@ impl HubApp {
                             .lock()
                             .unwrap()
                             .insert(product_session_id.to_string(), Arc::clone(&engine));
+                        build_registry
+                            .lock()
+                            .unwrap()
+                            .push(product_session_id.to_string());
                         if let Some(inspector) = built.inspector {
                             inspectors
                                 .lock()
@@ -1798,6 +1808,14 @@ impl HubApp {
                     hub.update(cx, |hub, cx| hub.apply_live_event(event, cx));
                 }
             }
+            // Release before branching: this used to never happen at all, so
+            // every finished run left its adapter in `active_engines` and a
+            // later Stop reached a dead handle.
+            alva_hub_gpui::release_run_engines(
+                &engines,
+                &router_for_cleanup,
+                std::mem::take(&mut *run_registry.lock().unwrap()),
+            );
             let outcome_session = outcome.as_ref().ok().map(|o| o.product_session_id.clone());
             if let Some(hub) = weak.upgrade() {
                 hub.update(cx, |hub, cx| {

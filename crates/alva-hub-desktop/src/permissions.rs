@@ -410,6 +410,28 @@ impl PermissionRouter {
     }
 }
 
+/// Release every engine handle a single run registered, together with that
+/// session's pending approvals.
+///
+/// Callers must invoke this on **both** the success and the failure path. It is
+/// keyed off the ids the run actually registered rather than off the run's
+/// outcome, because the failure path has no outcome to read a session id from —
+/// that is exactly why hub-server's old cleanup could not run there, leaving a
+/// dead adapter in the map that a later stop would reach and report success on.
+pub fn release_run_engines(
+    engines: &std::sync::Mutex<std::collections::HashMap<String, Arc<dyn EngineRuntime>>>,
+    router: &PermissionRouter,
+    ids: impl IntoIterator<Item = String>,
+) {
+    let mut engines = engines
+        .lock()
+        .expect("Hub active-engine registry lock poisoned");
+    for id in ids {
+        engines.remove(&id);
+        router.clear_session(&id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Contract tests for the three Hub adapter permission mappings and the
@@ -751,6 +773,47 @@ mod tests {
                 cancel: true,
             }
         }
+    }
+
+    /// A run's engine handle and its pending approvals must be released
+    /// together, and this must happen on the failure path too — hub-server's
+    /// old cleanup sat after an early `return`, so a turn that failed while
+    /// finishing (a SQLite busy timeout in `finish_turn` is the easy one) left a
+    /// dead adapter in the map. A later stop on that session then reached the
+    /// dead handle and reported success while nothing was actually stopped.
+    #[tokio::test]
+    async fn releasing_a_run_clears_both_the_handle_and_its_approvals() {
+        let engines: StdMutex<std::collections::HashMap<String, Arc<dyn EngineRuntime>>> =
+            StdMutex::new(std::collections::HashMap::new());
+        let router = PermissionRouter::new();
+        let engine = Arc::new(RecordingEngine::new()) as Arc<dyn EngineRuntime>;
+        engines
+            .lock()
+            .unwrap()
+            .insert("product-1".into(), Arc::clone(&engine));
+        router.register(
+            "product-1",
+            "req-1",
+            Arc::clone(&engine),
+            "engine-session-a",
+            member("product-1", "req-1", "session", None),
+        );
+        assert_eq!(
+            router.groups().len(),
+            1,
+            "precondition: one pending approval"
+        );
+
+        release_run_engines(&engines, &router, ["product-1".to_string()]);
+
+        assert!(
+            engines.lock().unwrap().is_empty(),
+            "the handle must not outlive the run that registered it"
+        );
+        assert!(
+            router.groups().is_empty(),
+            "the run's pending approvals must be released with it"
+        );
     }
 
     /// An engine that refuses every decision, e.g. because the approval already

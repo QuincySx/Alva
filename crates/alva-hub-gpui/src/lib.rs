@@ -35,9 +35,9 @@ pub use models::{
     ProviderProfile, ProviderRuntimeConfig, ReasoningEffort, StoredCustomProvider,
 };
 pub use permissions::{
-    enforcement_for, permission_eligibility, permission_group_key, EnforcementPlan,
-    EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup, PermissionMember,
-    PermissionProfile, PermissionRouter,
+    enforcement_for, permission_eligibility, permission_group_key, release_run_engines,
+    EnforcementPlan, EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup,
+    PermissionMember, PermissionProfile, PermissionRouter,
 };
 pub use plugin_store::{InstalledPlugin, PluginScope, PluginStore};
 pub use provider_store::ProviderStore;

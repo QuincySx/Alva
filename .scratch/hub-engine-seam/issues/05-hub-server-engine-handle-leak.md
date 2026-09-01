@@ -2,7 +2,7 @@
 
 - 级别：P0
 - 影响：一次运行只要在收尾阶段出错（最常见：SQLite 忙/锁超时），这个会话的引擎句柄就永远留在服务端；用户之后对该会话点「停止」，服务端返回成功、时间线显示已中断，实际上什么都没停——正在跑的那一轮继续烧钱，同时该会话的旧待批权限也没被清掉。
-- 状态：TODO
+- 状态：DONE（2026-09-01，分支 `fix/engine-seam-tickets`）
 
 ## 证据
 
@@ -127,3 +127,44 @@
 - [ ] 新增测试：一个带 `required_capabilities` 且必然被否决的 fallback 候选，跑完后断言该候选 engine 未出现在 `active_engines` 中。
 - [ ] 人工逐处确认并在 PR 描述中列出：`rg -n 'active_engines' crates/alva-hub-server/src/main.rs` 的每一处 insert 都能在同一函数内找到配对的无条件清理路径。
 - [ ] `cargo test -p alva-hub-server` 与 `cargo test -p alva-hub-desktop` 全绿。
+
+## 完成记录
+
+**主修复：清理移到分支之外，并改为按 registry 而非 outcome 取键**
+
+工单的诊断精确——问题不是"忘了写一行"，而是"按当前写法写不出来"：清理块引用 `outcome.product_session_id`，而 `Err` 变体根本不持有 session id。照 desktop 的方案加了独立的 `run_registry: Arc<Mutex<Vec<String>>>`，build 闭包插 map 的同时 push 进去；`outcome_fut.await` 之后**先无条件清理、再 match**，Ok/Err 两条路径都走得到。
+
+**额外发现（不在工单内）：gpui 压根没有清理，比 hub-server 更严重**
+
+`rg 'engines.*remove|clear_session' crates/alva-hub-gpui/src/ui/` 只命中 `stop_attempt` 里那一处（用户主动停止时）。也就是说 **gpui 每一次运行结束后，引擎句柄都留在 `active_engines` 里**，不分成败。而且它的 run 收尾是 `outcome.as_ref().ok().map(|o| o.product_session_id.clone())`——与 hub-server **完全同构**的"只有 Ok 才拿得到 id"。已一并修（registry + 无条件释放）。
+
+顺带说明：工单 04 刚把 `stop_attempt` 改成失败时可见报错，正好让这个泄漏从"假装停止成功"变成"明确报错"，但根因是这里。
+
+**抽出共享 helper，消除三份重复**
+
+`release_run_engines(engines, router, ids)` 落在 `hub-desktop/src/permissions.rs` 并由 lib 导出，hub-desktop 与 hub-server 共用；gpui 不依赖 hub-desktop（它是 "migrated verbatim" 的整份拷贝），所以同步了一份到 `hub-gpui/src/permissions.rs`——与该仓库既有的拷贝模式一致，并把测试也一起同步了。
+
+**被 capability 否决的候选**：现在也会被 registry 覆盖，运行结束时一并清理。运行**期间**它仍会短暂存在于 map 里（build 之后、下一个候选覆盖之前），要彻底消除需要"不 build 就知道 capabilities"，那属于工单 15 的 EngineDescriptor。
+
+## 验收逐条（工单 04 的教训：不拿"改了什么"冒充"验收过了"）
+
+| # | 验收项 | 状态 |
+|---|---|---|
+| 1 | hub-server 层测试：Err 后 `active_engines` 无残留 | ❌ **未做** |
+| 2 | Ok 路径同样清空 | 🔶 **部分**：helper 本身有测试，调用点无 |
+| 3 | Err 后 stop 返回 "no live engine" | ❌ **未做** |
+| 4 | 被否决的 fallback 候选不在 `active_engines` | ❌ **未做**（见上，运行期间仍短暂存在） |
+| 5 | 人工逐处确认每处 insert 有配对清理 | ✅ **做了**（下表） |
+| 6 | `cargo test` 全绿 | ✅ desktop 185 / gpui 165 / server 0（该 crate 无测试） |
+
+第 5 条的核对结果：
+
+| 文件 | engine insert | 配对 registry push | release 调用 |
+|---|---|---|---|
+| `hub-server/src/main.rs` | L807（1 处） | ✅ | L926，无条件路径 |
+| `hub-desktop/src/main.rs` | L275（1 处） | ✅ | L391，无条件路径 |
+| `hub-gpui/src/ui/app.rs` | L1768（1 处） | ✅ | L1814，spawn 闭包内无条件路径 |
+
+**1/3/4 未做的原因**：`alva-hub-server` 整个 crate 零测试、零 `[dev-dependencies]`，改动点埋在 axum handler 里约 150 行深处的闭包中。上一轮 review 已评估过：在 hub-server 内建基建要新增 3 个 dev-dep + 自写 stub engine 约 130-150 行。本次走的是它建议的另一条路——把可测部分抽成 lib 里的纯函数，`release_run_engines` 因此有了变异验证过的覆盖（分别去掉"清 router"和"移除 handle"两条，测试各自变红）。
+
+**但要说清楚剩下的缺口**：有测试的是 helper 自身；"Err 路径确实调用了 helper"仍然只靠控制流可证（清理位于 `match` 之前，该函数内此后无其它出口），没有测试拦住有人把它挪回分支里。

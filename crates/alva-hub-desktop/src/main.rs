@@ -388,12 +388,11 @@ async fn execute_session_run(
         },
     )
     .await;
-    let mut engines = state.active_engines.lock().unwrap();
-    for product_session_id in registry.lock().unwrap().drain(..) {
-        engines.remove(&product_session_id);
-        state.permission_router.clear_session(&product_session_id);
-    }
-    drop(engines);
+    alva_hub_desktop::release_run_engines(
+        &state.active_engines,
+        &state.permission_router,
+        registry.lock().unwrap().drain(..).collect::<Vec<_>>(),
+    );
     outcome
 }
 

@@ -750,6 +750,11 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
     let health_workspace = workspace.clone();
     let active_engines_for_build = state.active_engines.clone();
     let active_engines_for_emit = state.active_engines.clone();
+    // Which ids this run actually registered. Cleanup keys off this rather than
+    // off the outcome, because the error path has no outcome to read a session
+    // id from — that is precisely why the old cleanup could not run there.
+    let run_registry = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
+    let build_registry = std::sync::Arc::clone(&run_registry);
     let permission_router = state.permission_router.clone();
     let autonomy_store = state.store.clone();
     let request_product_session = request.product_session_id.clone().unwrap_or_default();
@@ -800,6 +805,10 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
                     .lock()
                     .unwrap()
                     .insert(product_session_id.to_string(), Arc::clone(&engine));
+                build_registry
+                    .lock()
+                    .unwrap()
+                    .push(product_session_id.to_string());
                 Ok(engine)
             }
         },
@@ -908,20 +917,24 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
         },
     );
 
-    let outcome = match outcome_fut.await {
+    let outcome_result = outcome_fut.await;
+    // Clean up before branching: the error path used to `return` above this
+    // block, so a failing turn (most easily a SQLite busy timeout in the
+    // finish_turn / apply_pending_switch writes, both of which run after the
+    // engine is already registered) left the handle in the map forever. A later
+    // stop on that session would then reach a dead adapter and report success.
+    alva_hub_desktop::release_run_engines(
+        &active_engines_for_build,
+        &permission_router,
+        std::mem::take(&mut *run_registry.lock().unwrap()),
+    );
+    let outcome = match outcome_result {
         Ok(outcome) => outcome,
         Err(e) => {
             warn!(error = %e, "run failed");
             return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
         }
     };
-    // clean engine registry for this run
-    {
-        let mut map = active_engines_for_build.lock().unwrap();
-        // remove any entries inserted for this product session (including fallbacks)
-        map.retain(|k, _| k != &outcome.product_session_id);
-        permission_router.clear_session(&outcome.product_session_id);
-    }
     Json(outcome).into_response()
 }
 
