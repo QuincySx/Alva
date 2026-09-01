@@ -14,8 +14,8 @@ use tracing::warn;
 use uuid::Uuid;
 
 use alva_engine_runtime::{
-    EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
-    RuntimeRequest,
+    is_fatal_error, EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError,
+    RuntimeEvent, RuntimeRequest,
 };
 
 use crate::config::PiAdapterConfig;
@@ -78,6 +78,9 @@ impl EngineRuntime for PiAdapter {
 
             let mut mapper = EventMapper::new();
             let mut native_session = provisional_id.clone();
+            // Stream contract R2: after a non-recoverable Error only Completed may
+            // follow, so stop reading as soon as one is forwarded.
+            let mut fatal_seen = false;
             loop {
                 tokio::select! {
                     _ = kill_rx.recv() => {
@@ -114,7 +117,15 @@ impl EngineRuntime for PiAdapter {
                                             native_session = session_id.clone();
                                         }
                                     }
+                                    let fatal = is_fatal_error(&runtime_event);
                                     let _ = event_tx.send(runtime_event);
+                                    if fatal {
+                                        fatal_seen = true;
+                                        break;
+                                    }
+                                }
+                                if fatal_seen {
+                                    break;
                                 }
                             }
                             Ok(None) => break,
@@ -182,5 +193,79 @@ impl EngineRuntime for PiAdapter {
             resume: true,
             cancel: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alva_engine_runtime::validate_event_stream;
+    use tokio_stream::StreamExt;
+
+    #[cfg(unix)]
+    fn write_fake_pi(path: &std::path::Path, script: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::write(path, script).unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    /// A normal Pi failure emits `message_update{error}` immediately followed by
+    /// `message_end{stopReason:"error"}`, and both map to a fatal `Error`.
+    /// Stream contract R2 allows only the first one to reach the consumer.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stops_reading_after_fatal_error() {
+        let fixture = tempfile::tempdir().unwrap();
+        let executable = fixture.path().join("fake-pi");
+        write_fake_pi(
+            &executable,
+            r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
+printf '%s\n' '{"type":"message_start","message":{"role":"assistant"}}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"errorMessage":"upstream refused"}}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"must not be forwarded"}}'
+"#,
+        );
+
+        let adapter = PiAdapter::new(PiAdapterConfig {
+            pi_path: executable.to_string_lossy().into_owned(),
+            default_cwd: Some(fixture.path().to_path_buf()),
+            session_dir: fixture.path().join("sessions"),
+            ..Default::default()
+        });
+
+        let mut stream = adapter.execute(RuntimeRequest::new("hi")).unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+
+        let fatals: Vec<&str> = events
+            .iter()
+            .filter_map(|event| match event {
+                RuntimeEvent::Error {
+                    message,
+                    recoverable: false,
+                } => Some(message.as_str()),
+                _ => None,
+            })
+            .collect();
+        // Asserting the count alone cannot tell "the break worked" apart from
+        // "only one fatal was ever produced" (e.g. the message_update line
+        // drifting into PiEvent::Unknown). Pinning *which* fatal arrived keeps
+        // the test honest if either wire shape changes.
+        assert_eq!(
+            fatals,
+            vec!["upstream refused"],
+            "only the first fatal Error may be forwarded: {events:#?}"
+        );
+        assert!(
+            matches!(events.last(), Some(RuntimeEvent::Completed { .. })),
+            "Completed must be the terminal event: {events:#?}"
+        );
+        assert!(validate_event_stream(&events).is_ok());
     }
 }

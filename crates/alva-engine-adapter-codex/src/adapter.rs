@@ -15,8 +15,8 @@ use tracing::warn;
 use uuid::Uuid;
 
 use alva_engine_runtime::{
-    EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
-    RuntimeRequest,
+    is_fatal_error, EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError,
+    RuntimeEvent, RuntimeRequest,
 };
 
 use crate::config::CodexAdapterConfig;
@@ -95,6 +95,9 @@ impl EngineRuntime for CodexAdapter {
             let mut native_session = provisional_id.clone();
             let mut retry_tracker = RecoverableRetryTracker::new();
             let mut escalated = false;
+            // Stream contract R2: after a non-recoverable Error only Completed may
+            // follow, so stop reading as soon as one is forwarded.
+            let mut fatal_seen = false;
 
             loop {
                 tokio::select! {
@@ -164,9 +167,14 @@ impl EngineRuntime for CodexAdapter {
                                         }
                                     }
 
+                                    let fatal = is_fatal_error(&runtime_event);
                                     let _ = event_tx.send(runtime_event);
+                                    if fatal {
+                                        fatal_seen = true;
+                                        break;
+                                    }
                                 }
-                                if escalated {
+                                if escalated || fatal_seen {
                                     break;
                                 }
                             }
@@ -181,6 +189,9 @@ impl EngineRuntime for CodexAdapter {
                         }
                     }
                 }
+                // Unreachable in practice: every path that sets `escalated` /
+                // `fatal_seen` already broke out of the loop inside the arm.
+                // Kept as-is (pre-existing) rather than widened.
                 if escalated {
                     break;
                 }
@@ -244,5 +255,77 @@ impl EngineRuntime for CodexAdapter {
             resume: true,
             cancel: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alva_engine_runtime::validate_event_stream;
+    use tokio_stream::StreamExt;
+
+    #[cfg(unix)]
+    fn write_fake_codex(path: &std::path::Path, script: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::write(path, script).unwrap();
+        let mut permissions = std::fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).unwrap();
+    }
+
+    /// Stream contract R2: only `Completed` may follow a non-recoverable
+    /// `Error`. `codex exec --json` keeps printing after a failed turn, so the
+    /// adapter must stop reading rather than forward the trailing items.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stops_reading_after_fatal_error() {
+        let fixture = tempfile::tempdir().unwrap();
+        let executable = fixture.path().join("fake-codex");
+        write_fake_codex(
+            &executable,
+            r#"#!/bin/sh
+printf '%s\n' '{"type":"thread.started","thread_id":"codex-thread-1"}'
+printf '%s\n' '{"type":"turn.failed","error":{"message":"usage limit reached"}}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"must not be forwarded"}}'
+"#,
+        );
+
+        let adapter = CodexAdapter::new(CodexAdapterConfig {
+            codex_path: executable.to_string_lossy().into_owned(),
+            default_cwd: Some(fixture.path().to_path_buf()),
+            ..Default::default()
+        });
+
+        let mut stream = adapter.execute(RuntimeRequest::new("hi")).unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, RuntimeEvent::Message { .. })),
+            "no Message may follow a fatal Error: {events:#?}"
+        );
+        assert_eq!(
+            events.len(),
+            3,
+            "expected SessionStarted / Error / Completed: {events:#?}"
+        );
+        assert!(matches!(events[0], RuntimeEvent::SessionStarted { .. }));
+        assert!(matches!(
+            events[1],
+            RuntimeEvent::Error {
+                recoverable: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            events[2],
+            RuntimeEvent::Completed { result: None, .. }
+        ));
+        assert!(validate_event_stream(&events).is_ok());
     }
 }

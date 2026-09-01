@@ -17,6 +17,7 @@ Hub multi-engine 的 Pi 后端。子进程和 JSONL 映射都留在本 crate；�
 - workspace-write 映射为只读工具 allowlist，宁可更严格，不得伪装成等价沙箱。
 - custom Provider 密钥不得进入 argv、日志或临时 `models.json`。
 - stdout EOF 后 adapter 统一补唯一 `Completed`。
+- stream contract R2：转发 fatal `Error`（`recoverable: false`）后**立即停止读取循环**，只补 `Completed`。一次正常失败会连续产出 `message_update{assistantMessageEvent.type=error}` 与 `message_end{stopReason="error"}` 两条 fatal，只有第一条可送达。判定用 `alva_engine_runtime::is_fatal_error`，不要在本 crate 重写。
 
 ## 业务域清单
 | 名称 | 文件 | 职责 |

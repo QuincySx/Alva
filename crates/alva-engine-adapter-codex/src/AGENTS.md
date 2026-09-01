@@ -22,6 +22,7 @@ Hub multi-engine 的 Codex 后端。与 Claude adapter 对称：子进程 + 事�
 - 不打印/记录 auth token；stderr 仅 warn 非空行。
 - 原生 CLI/Tauri 禁止依赖本 crate（Rule 18）。
 - stream contract：`item.updated` 不得重复 `ToolStart`；stdout EOF 后 adapter 统一补 `Completed`；fatal 路径 `Completed.result = None`。
+- stream contract R2：转发 fatal `Error`（`recoverable: false`）后**立即停止读取循环**，只补 `Completed`——`codex exec --json` 在失败轮之后仍会继续打印 item，转发它们会违约。判定用 `alva_engine_runtime::is_fatal_error`，不要在本 crate 重写。
 - cindy 对齐：`Reconnecting...` / 网络类 error 标 `recoverable: true`（UI 不释放 running）；硬错误 `recoverable: false` + 最终 `Completed`。
 - cindy retry-escalation：同 execute 内 recoverable 错误累计 ≥30 次或跨 120s 则升级为 fatal、kill 子进程并 `Completed`（见 `retry_escalation.rs`）。
 
