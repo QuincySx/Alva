@@ -753,6 +753,105 @@ mod tests {
         }
     }
 
+    /// An engine that refuses every decision, e.g. because the approval already
+    /// timed out on its side and the tool was blocked.
+    struct RejectingEngine;
+
+    #[async_trait]
+    impl EngineRuntime for RejectingEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            Err(RuntimeError::ProcessError("not used".into()))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Err(RuntimeError::PermissionNotFound(request_id.to_string()))
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: true,
+                permission_callback: true,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    /// `answered` is what the callers audit. A member whose engine refused the
+    /// decision must never appear there, or the session's audit trail records an
+    /// "Allowed ..." for a tool that was in fact never allowed.
+    #[tokio::test]
+    async fn engine_rejection_keeps_the_member_out_of_answered() {
+        let router = PermissionRouter::new();
+        let accepting = Arc::new(RecordingEngine::new());
+        let rejecting = Arc::new(RejectingEngine);
+        let ok_member = member("product-1", "req-ok", "session", None);
+        let rejected_member = member("product-2", "req-gone", "session", None);
+        router.register(
+            "product-1",
+            "req-ok",
+            Arc::clone(&accepting) as Arc<dyn EngineRuntime>,
+            "engine-session-a",
+            ok_member.clone(),
+        );
+        router.register(
+            "product-2",
+            "req-gone",
+            Arc::clone(&rejecting) as Arc<dyn EngineRuntime>,
+            "engine-session-b",
+            rejected_member.clone(),
+        );
+
+        let outcome = router
+            .respond_many(&[ok_member, rejected_member], true, None)
+            .await
+            .expect("a partially answered group still reports its outcome");
+
+        assert_eq!(
+            outcome.answered.len(),
+            1,
+            "only the accepted member may be audited: {:#?}",
+            outcome.answered
+        );
+        assert_eq!(outcome.answered[0].request_id, "req-ok");
+        assert_eq!(
+            outcome.failures.len(),
+            1,
+            "the refused member must be surfaced, not dropped"
+        );
+    }
+
+    /// When no engine accepts, the whole call fails so the caller's `?` stops
+    /// before it can write any audit line.
+    #[tokio::test]
+    async fn total_engine_rejection_fails_the_call() {
+        let router = PermissionRouter::new();
+        let rejecting = Arc::new(RejectingEngine);
+        let m = member("product-1", "req-gone", "session", None);
+        router.register(
+            "product-1",
+            "req-gone",
+            Arc::clone(&rejecting) as Arc<dyn EngineRuntime>,
+            "engine-session-a",
+            m.clone(),
+        );
+
+        assert!(router.respond_many(&[m], true, None).await.is_err());
+    }
+
     #[tokio::test]
     async fn decision_routes_to_the_engine_session_that_asked() {
         let router = PermissionRouter::new();

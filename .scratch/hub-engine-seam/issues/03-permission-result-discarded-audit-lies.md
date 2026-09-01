@@ -2,7 +2,7 @@
 
 - 级别：P0
 - 影响：用户点了「允许」，界面收起卡片、审计留下一条「Allowed」，但引擎那边这个工具早已超时被拒——事后翻记录会认为是自己批准的操作，实际从未发生（反之亦然）。
-- 状态：TODO
+- 状态：PARTIAL（2026-09-01，alva 侧完成；claude 侧拆为工单 18）
 
 ## 证据
 
@@ -107,3 +107,32 @@
 - [ ] `grep -rn '60_000' crates/alva-engine-adapter-claude/bridge/index.mjs` 无命中（魔数已移除或改为下发参数）。
 - [ ] `cargo test -p alva-engine-adapter-alva -p alva-engine-adapter-claude -p alva-hub-desktop` 全绿。
 - [ ] 手工验证复现 B：等 65 秒后点「允许」，界面给出明确的「该审批已过期」提示，会话时间线上没有 `Allowed` 这一行。
+
+## 完成记录（alva 侧）
+
+**核心修复**
+- `crates/alva-engine-adapter-alva/src/adapter.rs` 的 `respond_permission` 接住 `resolve_permission` 的 bool：`false`（审批已不在 pending —— 引擎已超时并 Block 了工具，或它从未存在）现在返回 `Err(RuntimeError::PermissionNotFound(..))`，不再无条件 `Ok(())`。
+
+**审计绑定：核对了全部三个产品面，发现工单没写到的第三处**
+| 面 | 位置 | 原状 |
+|---|---|---|
+| desktop 单条 | `main.rs:437` `respond(..).await?` | 已正确绑定 ✓ |
+| desktop 分组 | `main.rs:499` 遍历 `outcome.answered` | 已正确绑定 ✓（`permissions.rs:391` 只在 `Ok` 时 push） |
+| gpui 单条/分组 | `ui/actions.rs:80`、`ui/approval.rs:46` | 已正确绑定 ✓ |
+| **hub-server 自动审批** | `main.rs:859` `let _ = router.respond(..)` 后**无条件**写 `"Auto-allowed"` | **未绑定 ✗ —— 已修** |
+
+hub-server 的 autonomous TeamRun 路径原本丢弃 respond 结果后照写审计，是第三处「审计说谎」，工单正文没有覆盖到。已改为 `match`，失败时只 `tracing::warn!` 不写审计行。
+
+**测试**
+- `adapter.rs::respond_permission_reports_not_found_when_the_approval_is_gone`：变异验证 CAUGHT（把返回值改回丢弃 → `expected PermissionNotFound, got Ok(())`）。
+- `permissions.rs::engine_rejection_keeps_the_member_out_of_answered`：新增 `RejectingEngine`，断言部分拒收时 `answered` 只含被接受的成员、`failures` 非空——`answered` 正是各产品面用来写审计的依据。
+- `permissions.rs::total_engine_rejection_fails_the_call`：全部拒收时 `respond_many` 返回 Err，调用方的 `?` 在写审计之前就停住。
+- **同步了 gpui 的 `permissions.rs` 拷贝**（与 desktop 曾逐字节相同，加测试后会分叉——工单 02 的教训），gpui `--lib` 163 全绿。
+
+**未做（拆到工单 18）**
+claude 全模式的 bridge 侧：迟到的 `permission_response` 静默丢弃、60s 魔数、ack 只证明"写进了 stdin"。这半需要跨语言协议往返设计（bridge 新出站帧 + `BridgeMessage` 加变体 + `respond_permission` 等语义 ack + 无回复的上限），三步不能拆开做——只做前两步会让 `respond_permission` 仍返回 Ok，反而给出「已修」的错觉。
+
+**未做（属于工单 15）**
+把引擎侧审批期限上报给 Hub、统一 60/180/300 三套口径。这是能力协商面的事，应随 EngineDescriptor 一起做。
+
+验证：adapter-alva 22 / hub-desktop 184 / hub-gpui 163 全绿。

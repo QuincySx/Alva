@@ -20,6 +20,7 @@
 - 一个 engine session 只拥有一个 BaseAgent，不能用 `swap_session` 共享 agent 支撑并发。
 - 这是 app/product 层 crate，不能被 SDK/kernel/agent crate 反向依赖；Hub core 只依赖 `alva-engine-runtime` contract。
 - **`execute` 的每一条出口都必须发 `Error{recoverable:false}` + `Completed`**，静默 `return` / `break` 一律禁止。消费者无法区分「静默 EOF」与「引擎失联」，Hub 会替你合成兜底并可能触发付费 fallback。两条曾经违规的路径（session map 回写落空、agent 事件通道提前关闭）已各自带回归测试。
+- **`respond_permission` 必须消费 `BaseAgent::resolve_permission` 的返回值**：`false` 表示该审批已不在 pending（引擎已超时并 Block 了工具），必须回 `RuntimeError::PermissionNotFound`。返回 `Ok(())` 会让产品层把一条 `Allowed …` 写进会话审计轨迹，而那个工具实际从未执行。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |

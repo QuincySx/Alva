@@ -432,7 +432,14 @@ impl EngineRuntime for AlvaAdapter {
                 ));
             }
         };
-        agent.resolve_permission(request_id, "hub", decision).await;
+        // The bool is load-bearing: `false` means the approval was no longer
+        // pending (the engine already timed it out and Blocked the tool), so the
+        // caller's decision never reached anything. Reporting Ok here is how a
+        // "Allowed ..." line ends up in the audit trail for a tool that was in
+        // fact denied.
+        if !agent.resolve_permission(request_id, "hub", decision).await {
+            return Err(RuntimeError::PermissionNotFound(request_id.to_string()));
+        }
         Ok(())
     }
 
@@ -997,5 +1004,39 @@ mod tests {
             "stream must end with Completed, got {events:#?}"
         );
         assert!(validate_event_stream(&events).is_ok());
+    }
+    /// `BaseAgent::resolve_permission` returns false when the approval is no
+    /// longer pending — the engine already timed it out and blocked the tool, or
+    /// it never existed. Reporting Ok in that case is what lets an "Allowed ..."
+    /// line reach the session audit trail for a tool that was actually denied.
+    #[tokio::test]
+    async fn respond_permission_reports_not_found_when_the_approval_is_gone() {
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("ok")));
+        let config = DefaultBaseAgentFactoryConfig::new(model, std::env::temp_dir());
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
+
+        let mut stream = adapter.execute(RuntimeRequest::new("hello")).unwrap();
+        let mut session_id = None;
+        while let Some(event) = stream.next().await {
+            if let RuntimeEvent::SessionStarted { session_id: id, .. } = &event {
+                session_id = Some(id.clone());
+            }
+        }
+        let session_id = session_id.expect("the turn must report its native session id");
+
+        let result = adapter
+            .respond_permission(
+                &session_id,
+                "no-such-approval",
+                alva_engine_runtime::PermissionDecision::Allow {
+                    updated_input: None,
+                },
+            )
+            .await;
+
+        assert!(
+            matches!(&result, Err(RuntimeError::PermissionNotFound(id)) if id == "no-such-approval"),
+            "expected PermissionNotFound, got {result:?}"
+        );
     }
 }

@@ -856,7 +856,11 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
                         let tool_name = info.tool_name.clone();
                         let resource = info.resource.clone();
                         tokio::spawn(async move {
-                            let _ = router
+                            // The audit line must follow the engine actually
+                            // accepting the decision. Writing it unconditionally
+                            // records an "Auto-allowed" for a tool the engine may
+                            // have already timed out and blocked.
+                            match router
                                 .respond(
                                     &session,
                                     &request_id,
@@ -864,13 +868,24 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
                                         updated_input: None,
                                     },
                                 )
-                                .await;
-                            let summary = format!(
-                                "Auto-allowed '{}'{} (autonomous TeamRun)",
-                                tool_name,
-                                resource.map(|r| format!(" on {r}")).unwrap_or_default()
-                            );
-                            let _ = store.record_permission_decision(&session, &summary);
+                                .await
+                            {
+                                Ok(()) => {
+                                    let summary = format!(
+                                        "Auto-allowed '{}'{} (autonomous TeamRun)",
+                                        tool_name,
+                                        resource.map(|r| format!(" on {r}")).unwrap_or_default()
+                                    );
+                                    let _ = store.record_permission_decision(&session, &summary);
+                                }
+                                Err(error) => {
+                                    tracing::warn!(
+                                        %error,
+                                        %request_id,
+                                        "autonomous auto-approval was not accepted by the engine; no audit line written"
+                                    );
+                                }
+                            }
                         });
                     }
                 }
