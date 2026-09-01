@@ -250,11 +250,12 @@ impl HubApp {
         // session table and returned SessionNotFound — which was then dropped by
         // `let _ =`. It also skipped `record_attempt_cancelled` and
         // `permission_router.clear_session`, both of which `stop_attempt` does.
+        // The team panel is refreshed by the pump once the worker task actually
+        // finishes (pump.rs). Refreshing here would be a no-op: the only thing
+        // `stop_attempt` writes synchronously is a switch_timeline row, and
+        // `TeamRunDetail` is built from team_runs / team_workers / worker_tasks,
+        // none of which that row touches.
         self.stop_attempt(worker_session_id, cx);
-        // `stop_attempt` records the cancellation synchronously before spawning,
-        // so the team projection already reflects it here.
-        self.refresh_team_silent(cx);
-        cx.notify();
     }
 
     pub fn end_team_run(&mut self, _window: &mut Window, cx: &mut Context<Self>) {

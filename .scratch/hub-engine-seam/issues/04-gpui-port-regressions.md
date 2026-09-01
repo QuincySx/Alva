@@ -108,7 +108,10 @@
 | (b) 引擎目录 | 把 `HUB_ENGINE_IDS` 缩回 3 元素 | **RED** ✓ 有覆盖 |
 | (a) `interrupt_worker` | 退回 no-op | **GREEN** ✗ **无覆盖** |
 
-新增 `readiness.rs::engine_catalog_covers_every_supported_engine` 钉死目录内容（不只是长度——既有的 `:634` 只断言 `report.len() == HUB_ENGINE_IDS.len()`，两边一起缩水时不会红）。
+新增 `readiness.rs::engine_catalog_covers_every_supported_engine` 钉死目录内容。
+
+> **订正**：完成记录第一版说「既有的只比长度，两边一起缩水时不会红」——**这是错的**。`readiness.rs:599-610` 的 `dashboard_discovers_all_engines_without_manual_paths` 早就断言了内容（`assert_eq!(ids, vec!["alva","claude","codex","pi"])`，而 `probe_readiness` 直接读 `HUB_ENGINE_IDS`）。所以"缩回 3 元素立刻 RED"这个变异**无法区分新旧测试**，新测试对该变异的增量为零，它只是常量层的一道重复钉死。
+> **真正没有覆盖的**是工单验收里写明的那条：「断言降级链目录**渲染出的** engine id 集合 == HUB_ENGINE_IDS」。`fallback.rs:135` 现在直接读常量，但任何人在这行补一个 `.filter(|id| *id != "pi")` 或再起一份本地副本，全套测试依旧全绿——这次修的缺陷本身仍无回归防线。若要真正补上，把目录 id 的生成抽成纯函数再对它写单测，不需要 HubApp+Context 基建。
 
 **(a) 至今无测试覆盖，这是本工单的已知缺口。** 工单验收要求的三个测试（fake engine 记录 cancel 入参 / `engine_session_id` 为 None 时可见失败 / `clear_session` 被调用）都需要 gpui 的 UI 交互测试基建，而：
 - `crates/alva-hub-gpui/src/ui/team_actions.rs` 与 `ui/actions.rs` 均零测试；
@@ -118,3 +121,32 @@
 考虑到该 crate 已是退役路线（`AGENTS.md:279`），建这套基建的投入产出比低。缓解因素是这次修复**消除了重复**而不是修补它：`interrupt_worker` 不再持有自己的 cancel 逻辑，所以"传错 session id"这个具体缺陷不可能再单独回归——但如果有人重新给它写一份独立实现，没有测试会拦住。
 
 若日后要补，最小落点是给 `stop_attempt` 建一次基建，`interrupt_worker` 自动继承。
+
+## Review 修正（第一版标 DONE 是不对的）
+
+review 指出：**工单「工作」段点名要求的两条行为、以及验收清单第 2 条，第一版根本没有实现**，而完成记录只承认了"无测试覆盖"，没有承认"行为未实现"。委托掩盖了这一点——因为委托目标 `stop_attempt` 自己也没做。
+
+**已修（改在 `stop_attempt` 里，这样主 Stop 按钮一起修好）**：
+
+原实现是 `if let (Some(engine), Some(session_id)) = (engine, engine_session_id) { let _ = engine.cancel(&session_id).await; }` —— 两个 None 分支都没有 else，cancel 的 `Err` 被 `let _ =` 吞，而且**无论走哪条都无条件 push `TimelineStatus::Interrupted`**，`record_attempt_cancelled` 也早在此之前就写进库了。
+
+于是有一个真实窗口让「点了等于没点、UI 却宣称已处理」继续成立：worker 任务被 claim 后 session 立刻置 running，而 `engine_session_id` 要等适配器发 `SessionStarted` 才写库；`pump.rs` 又在 build_engine 时就把 engine 塞进 `active_engines`。**引擎冷启动那几秒（claude/codex/pi 都要拉子进程）里点 Interrupt：一次 cancel 都不发，store 里却已落 `attempt_cancelled`、时间线也记了 Interrupted。** 引擎 fallback 换分支后新分支 `engine_session_id` 为 NULL 的那段同理。cancel 返回 Err 时也一样。
+
+**这与工单 03 是同一形状**：上层修了，底层仍在说谎。
+
+现在对齐 hub-desktop 的 `stop_attempt_inner`：
+- engine 为 None → `push_local_failure("The running attempt is not owned by this app instance.")`，**在 record 之前返回**；
+- `engine_session_id` 为 None → `push_local_failure("The engine has not started a native session yet; try again in a moment.")`，同样前置返回；
+- `record_attempt_cancelled` 失败 → 直接返回（原来只提示然后继续，desktop 是 `?` 中止）；
+- `engine.cancel(..)` 的 `Err` → `push_local_failure`，且**只有 `Ok` 才 push `Interrupted`**。
+
+**另一处订正**：`interrupt_worker` 里那行 `refresh_team_silent` 及其"record 是同步的所以能看到"的注释是**错误论证**，已删除。`record_attempt_cancelled` 只写 `switch_timeline` 一行，而 `TeamRunDetail` 由 team_runs / team_workers / worker_tasks / adoption 构成，不含该表任何字段——那次刷新读回逐字节相同的数据，是纯 no-op。团队面板实际由 pump 在任务结束后刷新。（这个错误论证同时写进了注释、commit message 和完成记录三处。）
+
+## 仍未做（如实记录）
+
+- **`interrupt_worker` / `stop_attempt` 仍无测试覆盖**：变异实测退回 no-op 后全绿。gpui 的 `ui/` 只有 components 级测试，没有 HubApp+Context 交互基建，该 crate 已退役，建基建投入产出比低。
+- **降级链目录的渲染面无覆盖**（见上面的覆盖订正）。
+- **Team 面板的 `worker_running` 快照在运行期不刷新**（`team_run` 只在少数几处被赋值，`apply_live_event` 不刷它）。后果是 worker 真正在跑的那段时间里 Interrupt 按钮多半是 disabled 的——这次修复正确，但**可达性被这个陈旧快照压得很低**。值得单开一张：让 pump 在 `claim_next_worker_task` 成功后也刷一次。
+- **`stop_attempt` 的收尾会对 `active_session_id` 执行 `load_session`**，它会把 `primary_surface` 重置为 Chat 并清空展开态。中断 worker 时若用户正停在 Automation / Plugins / Settings 面上，会被弹回 Chat。desktop 的 interrupt 路径没有这一步。可条件化为「仅当 pid == active_session_id 时」。
+
+**测试基线订正**：完成记录第一版写「164 全绿」。review 在自己机器上实测是 `163 passed; 1 failed`，失败项 `readiness::tests::system_probe_matches_the_real_machine` 与本次改动无关——它给 `pi --version` 5 秒超时，而同轮的三个 `real_codex_*` 用例各跑 60s+ 抢占 CPU，探针那次超时导致 version 变 None。本机复跑仍是 164 绿。**这条测试是真机负载敏感的 flaky 项**，作为变异实验的基线时需要注意。

@@ -104,13 +104,29 @@ impl HubApp {
             self.push_local_failure("This Hub session has no running attempt to stop.", cx);
             return;
         }
-        let engine = self
+        // Both of these used to be silent `if let (Some, Some)` arms further
+        // down, after the cancellation had already been recorded — so during
+        // engine cold start (session is running, but no native session id yet)
+        // a click would write an "attempt_cancelled" audit row and push an
+        // Interrupted timeline entry without ever sending a cancel. Fail before
+        // recording anything, matching hub-desktop's `stop_attempt_inner`.
+        let Some(engine) = self
             .active_engines
             .lock()
             .unwrap()
             .get(product_session_id)
-            .cloned();
-        let engine_session_id = detail.session.engine_session_id.clone();
+            .cloned()
+        else {
+            self.push_local_failure("The running attempt is not owned by this app instance.", cx);
+            return;
+        };
+        let Some(engine_session_id) = detail.session.engine_session_id.clone() else {
+            self.push_local_failure(
+                "The engine has not started a native session yet; try again in a moment.",
+                cx,
+            );
+            return;
+        };
         let engine_id = detail.session.engine_id.clone();
         let pid = product_session_id.to_string();
         if let Err(error) = self
@@ -118,6 +134,7 @@ impl HubApp {
             .record_attempt_cancelled(&pid, "User stopped the attempt")
         {
             self.push_local_failure(&error, cx);
+            return;
         }
         // The stopped attempt's approvals die with it — clear them before the
         // cancel so a stale Allow can no longer reach the cancelled session.
@@ -125,19 +142,27 @@ impl HubApp {
         let weak = cx.entity().downgrade();
         let handle = self.window_handle;
         cx.spawn(async move |_this, cx| {
-            if let (Some(engine), Some(session_id)) = (engine, engine_session_id) {
-                let _ = engine.cancel(&session_id).await;
-            }
+            let cancelled = engine.cancel(&engine_session_id).await;
             if let Some(hub) = weak.upgrade() {
                 hub.update(cx, |hub, cx| {
-                    hub.timeline
-                        .push(alva_hub_gpui::ProjectedEvent::from_live(TimelineEvent {
-                            status: alva_hub_gpui::TimelineStatus::Interrupted,
-                            engine_id: engine_id.clone(),
-                            product_session_id: pid.clone(),
-                            message: Some("User stopped the attempt".to_string()),
-                            permission_request: None,
-                        }));
+                    // Only claim the attempt was interrupted when the engine
+                    // actually accepted the cancel. Pushing Interrupted on an
+                    // Err told the user it stopped while it kept running.
+                    match &cancelled {
+                        Ok(()) => hub.timeline.push(alva_hub_gpui::ProjectedEvent::from_live(
+                            TimelineEvent {
+                                status: alva_hub_gpui::TimelineStatus::Interrupted,
+                                engine_id: engine_id.clone(),
+                                product_session_id: pid.clone(),
+                                message: Some("User stopped the attempt".to_string()),
+                                permission_request: None,
+                            },
+                        )),
+                        Err(error) => hub.push_local_failure(
+                            &format!("The engine did not accept the interrupt: {error}"),
+                            cx,
+                        ),
+                    }
                     hub.refresh_sessions();
                     let reload = hub.active_session_id.clone();
                     with_window(cx, handle, move |hub, window, cx| {
