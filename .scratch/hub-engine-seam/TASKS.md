@@ -8,7 +8,7 @@
 | # | 标题 | 一句话影响 |
 |---|---|---|
 | [01](./issues/01-codex-pi-fatal-no-break.md) ✅ | codex / pi 在 fatal Error 后不停止读取循环 | ~~时间线已标「失败」，助手还在继续追加正文和工具活动~~ **DONE 2026-09-01** |
-| [02](./issues/02-alva-adapter-silent-missing-completed.md) | alva adapter 两条早退路径漏发 Completed | 本地 panic 被伪装成引擎故障，**自动换 Claude/Codex 重跑，用户付另一家的账** |
+| [02](./issues/02-alva-adapter-silent-missing-completed.md) ✅ | alva adapter 两条早退路径漏发 Completed | ~~本地 panic 被伪装成引擎故障，自动换引擎重跑~~ **DONE 2026-09-01** |
 | [03](./issues/03-permission-result-discarded-audit-lies.md) | 审批结果被丢弃 | 引擎早已拒绝，UI 和**审计记录却说「已允许」** |
 | [04](./issues/04-gpui-port-regressions.md) | GPUI 移植走样 | Interrupt 按钮保证无效（worker 继续烧钱）+ Pi 加不进降级链 |
 | [05](./issues/05-hub-server-engine-handle-leak.md) | hub-server 错误路径泄漏引擎句柄 | 之后点「停止」返回成功、显示已中断，实际什么都没停 |

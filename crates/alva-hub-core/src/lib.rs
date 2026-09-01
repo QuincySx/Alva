@@ -8,5 +8,5 @@ mod runtime;
 pub use error::HubError;
 pub use runtime::{
     EngineId, HubEvent, HubEventStream, HubRequest, HubRuntime, HubSessionSnapshot,
-    HubSessionStatus, ProductSessionId,
+    HubSessionStatus, ProductSessionId, SYNTHETIC_TERMINAL_MESSAGE,
 };

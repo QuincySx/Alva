@@ -1452,9 +1452,13 @@ mod tests {
                 TimelineStatus::Failed,
             ]
         );
+        // Bound to the constant, not a copy: the wording is load-bearing
+        // (it must stay out of the transport keyword table so a contract
+        // violation never triggers paid fallback) and is pinned by
+        // `failure::tests::synthesized_terminal_message_does_not_trigger_fallback`.
         assert_eq!(
             timeline.last().and_then(|event| event.message.as_deref()),
-            Some("engine stream ended without terminal Completed event")
+            Some(alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE)
         );
     }
 

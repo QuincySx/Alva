@@ -259,12 +259,32 @@ impl EngineRuntime for AlvaAdapter {
                 }
             };
 
-            {
+            // `delete_session` can remove the entry while `factory.build` is still
+            // awaiting. Every exit of this task owes the consumer a terminal pair
+            // (stream contract), so this path may not return silently.
+            let session_gone = {
                 let mut sessions = sessions.lock().expect("Alva adapter session lock poisoned");
-                let Some(session) = sessions.get_mut(&session_id) else {
-                    return;
-                };
-                session.agent = Some(agent.clone());
+                match sessions.get_mut(&session_id) {
+                    Some(session) => {
+                        session.agent = Some(agent.clone());
+                        false
+                    }
+                    None => true,
+                }
+            };
+            if session_gone {
+                let _ = event_tx.send(RuntimeEvent::Error {
+                    message: format!(
+                        "Alva session '{session_id}' was removed while it was starting"
+                    ),
+                    recoverable: false,
+                });
+                let _ = event_tx.send(RuntimeEvent::Completed {
+                    session_id: session_id.clone(),
+                    result: None,
+                    usage: None,
+                });
+                return;
             }
 
             let model = agent.model_id().await;
@@ -305,6 +325,23 @@ impl EngineRuntime for AlvaAdapter {
                     }
                     event = events.recv() => {
                         let Some(event) = event else {
+                            // Channel closed without AgentEnd (e.g. the BaseAgent run
+                            // task panicked). Synthesize the terminal pair here rather
+                            // than letting the stream EOF silently — a silent EOF is
+                            // indistinguishable from an engine outage downstream.
+                            if output_open {
+                                let _ = event_tx.send(RuntimeEvent::Error {
+                                    message:
+                                        "Alva agent stopped producing events before the turn completed"
+                                            .into(),
+                                    recoverable: false,
+                                });
+                                let _ = event_tx.send(RuntimeEvent::Completed {
+                                    session_id: session_id.clone(),
+                                    result: None,
+                                    usage: None,
+                                });
+                            }
                             break;
                         };
                         let mapped = mapper.map(event);
@@ -791,5 +828,148 @@ mod tests {
 
         assert!(!repository.contains(&parent_id).unwrap());
         assert!(!repository.contains(&child_id).unwrap());
+    }
+
+    /// A factory that blocks inside `build()` until released, so a test can
+    /// delete the session while the task is still starting up.
+    struct GatedFactory {
+        inner: DefaultBaseAgentFactory,
+        gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait]
+    impl BaseAgentFactory for GatedFactory {
+        async fn build(
+            &self,
+            request: &RuntimeRequest,
+            session: Arc<dyn alva_kernel_abi::AgentSession>,
+        ) -> Result<BuiltAgent, EngineError> {
+            let gate = self.gate.lock().expect("gate lock poisoned").take();
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
+            self.inner.build(request, session).await
+        }
+    }
+
+    /// Every exit of the execute task owes the consumer a terminal pair. A
+    /// concurrent `delete_session` during `factory.build` used to return
+    /// silently, letting the stream EOF with zero events — which Hub then
+    /// reports as an engine outage and may pay another engine to retry.
+    #[tokio::test]
+    async fn emits_terminal_pair_when_session_is_deleted_while_starting() {
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("hi")));
+        let config = DefaultBaseAgentFactoryConfig::new(model, std::env::temp_dir());
+        let (release, gate) = tokio::sync::oneshot::channel();
+        let adapter = AlvaAdapter::new(Arc::new(GatedFactory {
+            inner: DefaultBaseAgentFactory::new(config),
+            gate: Mutex::new(Some(gate)),
+        }));
+
+        let mut stream = adapter.execute(RuntimeRequest::new("hello")).unwrap();
+
+        // execute() registers the session before spawning, so the id is visible
+        // here even though SessionStarted has not been emitted yet.
+        let session_id = adapter
+            .sessions
+            .lock()
+            .expect("Alva adapter session lock poisoned")
+            .keys()
+            .next()
+            .cloned()
+            .expect("execute must register the session synchronously");
+
+        adapter.delete_session(&session_id).await.unwrap();
+        let _ = release.send(());
+
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+
+        assert_eq!(
+            events.len(),
+            2,
+            "expected exactly Error + Completed, got {events:#?}"
+        );
+        assert!(matches!(
+            events[0],
+            RuntimeEvent::Error {
+                recoverable: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            events[1],
+            RuntimeEvent::Completed { result: None, .. }
+        ));
+        assert!(validate_event_stream(&events).is_ok());
+    }
+
+    /// A model that panics, so the BaseAgent run task dies and drops the event
+    /// sender without ever emitting AgentEnd.
+    struct PanickingModel;
+
+    #[async_trait]
+    impl alva_kernel_abi::LanguageModel for PanickingModel {
+        async fn complete(
+            &self,
+            _messages: &[alva_kernel_abi::Message],
+            _tools: &[&dyn alva_kernel_abi::Tool],
+            _config: &alva_kernel_abi::ModelConfig,
+        ) -> Result<alva_kernel_abi::CompletionResponse, alva_kernel_abi::AgentError> {
+            panic!("simulated BaseAgent run-task crash")
+        }
+
+        fn stream(
+            &self,
+            _messages: &[alva_kernel_abi::Message],
+            _tools: &[&dyn alva_kernel_abi::Tool],
+            _config: &alva_kernel_abi::ModelConfig,
+        ) -> Pin<Box<dyn futures_core::Stream<Item = alva_kernel_abi::StreamEvent> + Send>>
+        {
+            panic!("simulated BaseAgent run-task crash")
+        }
+
+        fn model_id(&self) -> &str {
+            "panicking-model"
+        }
+    }
+
+    /// When the agent event channel closes without AgentEnd (run task panic),
+    /// the adapter must synthesize the terminal pair rather than EOF silently.
+    /// A silent EOF is indistinguishable downstream from an engine outage.
+    #[tokio::test]
+    async fn emits_terminal_pair_when_agent_channel_closes_early() {
+        let config =
+            DefaultBaseAgentFactoryConfig::new(Arc::new(PanickingModel), std::env::temp_dir());
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
+
+        // The panic is deliberate; keep it out of the test log.
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let mut stream = adapter.execute(RuntimeRequest::new("hello")).unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+        std::panic::set_hook(previous);
+
+        let terminal = &events[events.len().saturating_sub(2)..];
+        assert!(
+            matches!(
+                terminal.first(),
+                Some(RuntimeEvent::Error {
+                    recoverable: false,
+                    ..
+                })
+            ),
+            "expected a fatal Error before Completed, got {events:#?}"
+        );
+        assert!(
+            matches!(terminal.last(), Some(RuntimeEvent::Completed { .. })),
+            "stream must end with Completed, got {events:#?}"
+        );
+        assert!(validate_event_stream(&events).is_ok());
     }
 }

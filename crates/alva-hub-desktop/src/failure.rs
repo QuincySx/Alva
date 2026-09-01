@@ -182,6 +182,29 @@ fn has_http_code(message: &str, code: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// Hub synthesizes a terminal pair when an adapter ends its stream without
+    /// `Completed`. That is a contract violation by the adapter, not an
+    /// operational-continuity failure, so it must never consume another
+    /// engine's account via fallback.
+    ///
+    /// Bound to the constant rather than a copied string: if the wording ever
+    /// drifts back into the transport keyword table, this test fails instead of
+    /// silently re-enabling paid fallback.
+    #[test]
+    fn synthesized_terminal_message_does_not_trigger_fallback() {
+        let class = classify_failure(alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE);
+        assert_eq!(
+            class,
+            FailureClass::Other,
+            "synthesized terminal message must stay unclassified, got {}",
+            class.label()
+        );
+        assert!(
+            !triggers_fallback(class),
+            "an adapter contract violation must not spend another engine's account"
+        );
+    }
+
     #[test]
     fn matrix_covers_all_v1_operational_failure_categories() {
         let cases = [

@@ -208,6 +208,18 @@ impl HubRequest {
     }
 }
 
+/// Message Hub puts on the terminal pair it synthesizes when an engine stream
+/// ends without `Completed`.
+///
+/// Deliberately worded to avoid every phrase in the product's transport
+/// keyword table: this is an adapter contract violation, not an operational
+/// continuity failure, and must not spend another engine's account on a
+/// fallback attempt. `alva-hub-desktop` pins that property against this
+/// constant, so changing the wording will fail that test rather than silently
+/// re-enable paid fallback.
+pub const SYNTHETIC_TERMINAL_MESSAGE: &str =
+    "engine produced no terminal event (adapter contract violation)";
+
 /// An engine event with its Hub routing identity attached.
 #[derive(Debug, Clone)]
 pub struct HubEvent {
@@ -597,13 +609,23 @@ impl HubRuntime {
             if !saw_completed {
                 saw_fatal_error = true;
                 let engine_session_id =
-                    mark_session_failed(&sessions, &output_session_id).unwrap_or_default();
+                    mark_session_failed(&sessions, &output_session_id).unwrap_or_else(|| {
+                        // No native session id exists when the engine never sent
+                        // SessionStarted. The empty string is the honest value —
+                        // downstream guards on `!is_empty()` — but it must not be
+                        // silent, or a missing id looks like a downstream bug.
+                        tracing::warn!(
+                            product_session_id = %output_session_id,
+                            "synthesizing terminal pair with no native engine session id"
+                        );
+                        String::new()
+                    });
                 if output_open {
                     let _ = event_tx.send(HubEvent {
                         product_session_id: output_session_id.clone(),
                         engine_id: engine_id.clone(),
                         event: RuntimeEvent::Error {
-                            message: "engine stream ended without terminal Completed event".into(),
+                            message: SYNTHETIC_TERMINAL_MESSAGE.into(),
                             recoverable: false,
                         },
                     });

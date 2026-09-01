@@ -2,7 +2,7 @@
 
 - 级别：P0
 - 影响：本地 Alva agent 自己崩了，界面却说「引擎连接中断」，并自动把这一轮换到 Claude / Codex 重跑一遍——用户为一次本地 panic 付了另一家的账。
-- 状态：TODO
+- 状态：DONE（2026-09-01，分支 `fix/engine-seam-tickets`）
 
 ## 证据
 
@@ -100,3 +100,25 @@
 - [ ] 新增 `crates/alva-hub-desktop/src/failure.rs` 单测：断言 `classify_failure(<Hub 合成兜底的最终 message 文本>)` 返回的 class 满足 `triggers_fallback(class) == false`（或按所选方案，断言合成路径不会进入 `crates/alva-hub-desktop/src/run.rs:272` 的 fallback 循环）。
 - [ ] `cargo test -p alva-engine-adapter-alva -p alva-hub-core -p alva-hub-desktop` 全绿。
 - [ ] `grep -n 'Completed' crates/alva-engine-adapter-alva/src/AGENTS.md` 有命中。
+
+## 完成记录
+
+**adapter 侧（主修复）**
+- 路径 1（session map 回写落空）：改成先在锁内判定、释放锁后再发 `Error{recoverable:false}` + `Completed`。用 flag 而不是在持锁状态下发事件——当前 `event_tx` 是 unbounded 不会阻塞，但没必要把这个前提焊进代码。按工单所述未补 `remove`（key 已不在 map 里）。
+- 路径 2（agent 事件通道提前关闭）：`None` 分支在 `break` 前补同一对事件，用 `if output_open` 与主循环内既有写法保持一致。收尾的 `flush()` 与状态清理未动。
+- 收尾逻辑未改：两条路径都在收尾之前 `return` / `break`，落点与既有 5 处正确早退一致。
+
+**hub-core 侧（纵深防御）**
+- 合成兜底的消息提成 `pub const SYNTHETIC_TERMINAL_MESSAGE`，措辞改为 `"engine produced no terminal event (adapter contract violation)"`——逐条比对过 `failure.rs` 全部 9 张关键词表均不命中（注意 `contract` ≠ `context`，`produced no terminal` ≠ `no progress`），落到 `FailureClass::Other`，`triggers_fallback == false`。**适配器契约违规不再花用户的钱。**
+- 采用工单的方案（a）而非（b）：不新增 `terminal_synthesized` 字段。理由是主修复已在 adapter 侧堵住源头，hub-core 这层是第二道防线，(b) 要改 `HubSession` + snapshot + hub-desktop 消费三处，收益不抵 scope。
+- `unwrap_or_default()` 的空串保留（确实没有 native session，是诚实值，下游 `!is_empty()` 守卫正确处理），但补了一条 `tracing::warn!`，不再静默。
+
+**测试**
+- `emits_terminal_pair_when_session_is_deleted_while_starting`：`GatedFactory` 在 `build()` 内阻塞，测试从 `adapter.sessions` 读出自铸 id 后 `delete_session`，再放行。
+- `emits_terminal_pair_when_agent_channel_closes_early`：`PanickingModel`（`LanguageModel` 仅 3 个必需方法）让 run task panic → sender drop → `recv()` 返回 None。临时换 panic hook 避免污染测试输出。
+- 双重变异验证均 CAUGHT：路径 1 退回静默 `return` → `got []`（**精确复现工单描述的「长度 0」症状**）；路径 2 退回静默 `break` → "expected a fatal Error before Completed"。
+
+**顺带修掉一个脆弱测试**
+`run::tests::treats_stream_without_terminal_event_as_failed`（run.rs:1455）原本硬编码合成消息字符串，改消息后立刻变红。已改为绑定 `alva_hub_core::SYNTHETIC_TERMINAL_MESSAGE`——它本来就属于本轮要消除的那类字符串耦合，现在措辞漂移会编译期/断言层面被抓到，而不是静默失效。
+
+验证：`cargo test -p alva-engine-adapter-alva -p alva-hub-core -p alva-hub-desktop` = 21 / 22 / 182 全绿。
