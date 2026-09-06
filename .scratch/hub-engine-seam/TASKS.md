@@ -32,7 +32,7 @@
 | [08](./issues/08-abandon-verb-stuck-session.md) ✅ | 会话卡在 Starting/Running 无出口（补 `abandon`） | ~~消费者提前放弃某轮 → 该会话**永久**不可用，且此时连取消都调不动~~ **DONE 2026-09-06** |
 | [09](./issues/09-restore-session-illegal-state.md) ✅ | `restore_session` 可直接种出非法状态 | ~~恢复时传错状态值 → 会话一落地就永远报 "already running"~~ **DONE 2026-09-06** |
 | [10](./issues/10-cancel-semantics-three-tiers.md) 🔶 | cancel 是三档而非一档 | ~~显示「已停止」但子进程仍在计费；另有窗口期停不掉、180s 后自动换引擎重跑~~ **主体 DONE 2026-09-06**（契约文档 + 三档 adapter 的 cancel terminal 测试 + claude full grace→kill + bridge 对齐 + Hub 两级）；桌面 Stop 时序随工单 13 收口 |
-| [11](./issues/11-resume-failure-self-heal-is-dead-code.md) | resume 失败的自愈路径生产永不触发 | 会话被永久焊死，每次都拿同一个失效 id 去 resume |
+| [11](./issues/11-resume-failure-self-heal-is-dead-code.md) ✅ | resume 失败的自愈路径生产永不触发 | ~~会话被永久焊死，每次都拿同一个失效 id 去 resume~~ **DONE 2026-09-06** |
 | [12](./issues/12-unclosed-tool-synthesize-toolend.md) ✅ | 未闭合工具卡片永远停在 running | ~~已落盘，刷新和重开应用都恢复不了~~ **DONE 2026-09-06** |
 
 ## P2 —— 架构收口（修的是「明天不会更糟」）

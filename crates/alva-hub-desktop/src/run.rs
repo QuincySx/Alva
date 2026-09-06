@@ -574,12 +574,18 @@ where
     .await)
 }
 
+/// Match a fatal turn that means "the stored native session id is no longer
+/// valid" (ticket 11). Previously these substrings never matched any real
+/// adapter error, so the delta→full-handoff self-heal was dead code; the
+/// trigger now matches the four genuine Alva adapter resume-failure texts
+/// plus the exact `RuntimeError::SessionNotFound` display prefix.
 fn is_invalid_native_resume_error(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
-    error.contains("session not found")
-        || error.contains("invalid session")
-        || error.contains("unknown session")
-        || (error.contains("resume") && error.contains("session"))
+    error.starts_with("session not found:")
+        || error.contains("is not in this process and no native record store")
+        || error.contains("not found in memory or native record store")
+        || error.contains("record lookup failed")
+        || error.contains("record store failed")
 }
 
 async fn execute_turn<F>(
@@ -1974,6 +1980,122 @@ mod tests {
         assert_eq!(latest_turn.attempts.len(), 2);
         assert_eq!(latest_turn.attempts[0].status, "failed");
         assert_eq!(latest_turn.attempts[1].status, "completed");
+    }
+
+    /// ticket 11: every REAL Alva adapter resume-failure text must trigger the
+    /// delta→full-handoff upgrade. Emits the failure as a fatal stream error
+    /// (the adapter's actual shape) with no SessionStarted.
+    struct ResumeFailureTextEngine {
+        failure_text: String,
+        requests: Arc<Mutex<Vec<RuntimeRequest>>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for ResumeFailureTextEngine {
+        fn execute(
+            &self,
+            request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            self.requests.lock().unwrap().push(request.clone());
+            if request.resume_session.is_some() {
+                return Ok(Box::pin(tokio_stream::iter(vec![RuntimeEvent::Error {
+                    message: self.failure_text.clone(),
+                    recoverable: false,
+                }])));
+            }
+            Ok(Box::pin(tokio_stream::iter(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: "replacement-native".into(),
+                    model: None,
+                    tools: Vec::new(),
+                },
+                RuntimeEvent::Completed {
+                    session_id: "replacement-native".into(),
+                    result: Some("continued after fresh start".into()),
+                    usage: None,
+                },
+            ])))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn real_alva_resume_failure_text_triggers_upgrade() {
+        let texts = [
+            "Alva session 'x' is not in this process and no native record store is configured".to_string(),
+            "Alva session 'x' not found in memory or native record store".to_string(),
+            "Alva record lookup failed: boom".to_string(),
+            "Alva record store failed: boom".to_string(),
+        ];
+        for (index, text) in texts.iter().enumerate() {
+            let workspace = tempfile::tempdir().unwrap();
+            let data_dir = tempfile::tempdir().unwrap();
+            let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+            let alva = EngineTarget::for_engine("alva").unwrap();
+            let claude = EngineTarget::for_engine("claude").unwrap();
+            let product = format!("product-resume-text-{index}");
+            let initial = store
+                .prepare_new_turn(&product, workspace.path(), "initial Alva work", &alva, PermissionProfile::WorkspaceWrite)
+                .unwrap();
+            store.record_engine_session(&initial, "expired-native").unwrap();
+            store.finish_turn(&initial, Some("expired-native"), Some("Alva result"), None, None).unwrap();
+            store.request_engine_switch(&product, &claude, "switch to Claude").unwrap();
+            let claude_turn = store.prepare_resumed_turn(&product, "Claude follow-up").unwrap();
+            store.finish_turn(&claude_turn, None, Some("Claude progress"), None, None).unwrap();
+            store.request_engine_switch(&product, &alva, "return to Alva").unwrap();
+
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let engine = Arc::new(ResumeFailureTextEngine {
+                failure_text: text.clone(),
+                requests: Arc::clone(&requests),
+            });
+            let outcome = run_persisted(
+                &store,
+                single_engine(engine),
+                healthy,
+                RunRequest {
+                    prompt: "finish it".into(),
+                    workspace: workspace.path().to_path_buf(),
+                    engine_id: "alva".into(),
+                    product_session_id: Some(product.clone()),
+                    permission_profile: None,
+                },
+                |_| {},
+            )
+            .await
+            .unwrap();
+
+            assert!(
+                !outcome.failed,
+                "text #{index} '{text}' must trigger the fresh-start upgrade"
+            );
+            let requests = requests.lock().unwrap();
+            assert_eq!(requests.len(), 2, "text #{index} must retry fresh");
+            assert!(requests[0].resume_session.is_some());
+            assert!(requests[1].resume_session.is_none(), "text #{index}");
+        }
     }
 
     struct StartFailingEngine;

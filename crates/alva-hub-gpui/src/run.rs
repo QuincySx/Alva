@@ -556,12 +556,17 @@ where
     .await)
 }
 
+/// Match a fatal turn that means "the stored native session id is no longer
+/// valid" (ticket 11) — mirrors alva-hub-desktop/src/run.rs. Matches the four
+/// genuine Alva adapter resume-failure texts plus the exact
+/// `RuntimeError::SessionNotFound` display prefix.
 fn is_invalid_native_resume_error(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
-    error.contains("session not found")
-        || error.contains("invalid session")
-        || error.contains("unknown session")
-        || (error.contains("resume") && error.contains("session"))
+    error.starts_with("session not found:")
+        || error.contains("is not in this process and no native record store")
+        || error.contains("not found in memory or native record store")
+        || error.contains("record lookup failed")
+        || error.contains("record store failed")
 }
 
 async fn execute_turn<F>(

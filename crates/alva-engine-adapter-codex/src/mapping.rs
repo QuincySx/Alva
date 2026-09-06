@@ -41,13 +41,21 @@ impl EventMapper {
     pub fn map(&mut self, event: CodexEvent) -> Vec<RuntimeEvent> {
         match event {
             CodexEvent::ThreadStarted { thread_id } => {
-                let session_id = thread_id.unwrap_or_else(|| Uuid::new_v4().to_string());
-                self.session_id = Some(session_id.clone());
-                vec![RuntimeEvent::SessionStarted {
-                    session_id,
-                    model: None,
-                    tools: Vec::new(),
-                }]
+                // A missing thread_id means there is no real resumable native
+                // session. Fabricating a random uuid here would be echoed back
+                // to `codex exec resume <uuid>` on the next turn and rejected
+                // (ticket 11): the turn is session-less instead.
+                if let Some(thread_id) = thread_id {
+                    self.session_id = Some(thread_id.clone());
+                    vec![RuntimeEvent::SessionStarted {
+                        session_id: thread_id,
+                        model: None,
+                        tools: Vec::new(),
+                    }]
+                } else {
+                    self.session_id = None;
+                    Vec::new()
+                }
             }
             CodexEvent::TurnStarted => Vec::new(),
             CodexEvent::TurnCompleted { usage } => {
@@ -255,7 +263,6 @@ mod tests {
             &started[0],
             RuntimeEvent::SessionStarted { session_id, .. } if session_id == "thr-1"
         ));
-
         let msg = mapper.map(CodexEvent::ItemCompleted {
             item: CodexItem::AgentMessage {
                 id: Some("item_1".into()),
@@ -269,6 +276,19 @@ mod tests {
             other => panic!("expected Message, got {other:?}"),
         }
         assert_eq!(mapper.last_agent_text(), Some("hello from codex"));
+    }
+
+    /// ticket 11: a missing thread_id must not fabricate a random native
+    /// session id that a later turn would hand to `codex exec resume <uuid>`.
+    #[test]
+    fn thread_started_without_id_does_not_fabricate_session_id() {
+        let mut mapper = EventMapper::new();
+        let events = mapper.map(CodexEvent::ThreadStarted { thread_id: None });
+        assert!(
+            events.is_empty(),
+            "no SessionStarted may be fabricated: {events:?}"
+        );
+        assert_eq!(mapper.session_id(), None);
     }
 
     #[test]

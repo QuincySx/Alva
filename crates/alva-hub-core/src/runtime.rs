@@ -302,8 +302,10 @@ impl HubRuntime {
     ///
     /// Used by products that rehydrate from disk after process restart.
     /// The engine must still understand `engine_session_id` (e.g. Claude
-    /// `--resume`); in-memory engines like Alva only work if that native
-    /// session still lives in the same adapter process.
+    /// `--resume`). In-memory engines like Alva resume across processes when
+    /// the adapter is configured with a native record repository
+    /// (`alva-hub-desktop/src/alva.rs` wires `SessionRepository`); without
+    /// one, the same-process adapter instance must still hold the session.
     ///
     /// Fails if the product id is already registered to a different engine or
     /// a different engine session id.
@@ -545,6 +547,11 @@ impl HubRuntime {
             }
         };
 
+        // True when this turn carries a native resume id (filled by the claim
+        // block above): a fatal stream that never starts a native session means
+        // the id was rejected and must be cleared (ticket 11). Captured before
+        // `engine.execute` consumes the request.
+        let was_resume = runtime_request.resume_session.is_some();
         let engine_stream = match engine.execute(runtime_request) {
             Ok(stream) => stream,
             Err(error) => {
@@ -578,6 +585,7 @@ impl HubRuntime {
             // still synthesized below.
             let mut contract = StreamContract::new();
             let mut hard_violations = 0u32;
+            let mut saw_session_started = false;
             loop {
                 // `abandon` cancels this token so the loop stops draining an
                 // engine stream that will never terminate on its own.
@@ -604,6 +612,7 @@ impl HubRuntime {
                     }
                 }
                 saw_completed |= matches!(&event, RuntimeEvent::Completed { .. });
+                saw_session_started |= matches!(&event, RuntimeEvent::SessionStarted { .. });
                 saw_fatal_error |= matches!(
                     &event,
                     RuntimeEvent::Error {
@@ -678,6 +687,13 @@ impl HubRuntime {
                     "engine stream finished with contract hard violations"
                 );
             }
+            // A resume turn that never started a native session and failed
+            // fatally means the stored id was rejected. Drop it so the next
+            // turn attempts a fresh native session instead of reusing a dead id
+            // forever (ticket 11).
+            if was_resume && !saw_session_started && saw_fatal_error {
+                clear_rejected_resume_session(&sessions, &output_session_id, my_seq);
+            }
             // Close any tools left open, before the terminal pair so the
             // product receives ToolEnd before Error/Completed.
             if !unclosed_tools.is_empty() && output_open {
@@ -729,6 +745,13 @@ impl HubRuntime {
                         },
                     });
                 }
+            }
+            // A resume turn that never started a native session and failed
+            // fatally means the stored id was rejected. Drop it so the next
+            // turn attempts a fresh native session instead of reusing a dead id
+            // forever (ticket 11).
+            if was_resume && !saw_session_started && saw_fatal_error {
+                clear_rejected_resume_session(&sessions, &output_session_id, my_seq);
             }
             if saw_fatal_error {
                 if let Some((previous, context)) = failed_handoff_rollback {
@@ -852,6 +875,25 @@ fn mark_session_failed(
     }
     session.status = HubSessionStatus::Failed;
     session.engine_session_id.clone()
+}
+
+/// Drop a rejected native session id after a failed resume turn so the next
+/// execute starts fresh instead of reusing a dead id (ticket 11).
+fn clear_rejected_resume_session(
+    sessions: &RwLock<HashMap<ProductSessionId, HubSession>>,
+    product_session_id: &ProductSessionId,
+    my_seq: u64,
+) {
+    let mut sessions = sessions
+        .write()
+        .expect("Hub session registry lock poisoned");
+    let Some(session) = sessions.get_mut(product_session_id) else {
+        return;
+    };
+    if session.claim_seq != my_seq {
+        return;
+    }
+    session.engine_session_id = None;
 }
 
 fn record_hard_violation(
@@ -2303,6 +2345,91 @@ mod tests {
                 "A's stale rollback must not release B's claim"
             );
         }
+    }
+
+    // ticket 11: a resume turn that fails fatally before any SessionStarted must
+    // drop the stored native id so the next turn starts fresh instead of
+    // resuming the rejected id forever.
+    struct ResumeRejectEngine;
+
+    #[async_trait]
+    impl EngineRuntime for ResumeRejectEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            Ok(Box::pin(stream::iter(vec![
+                RuntimeEvent::Error {
+                    message: "Alva session 'x' not found in memory or native record store".into(),
+                    recoverable: false,
+                },
+                RuntimeEvent::Completed {
+                    session_id: String::new(),
+                    result: None,
+                    usage: None,
+                },
+            ])))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn rejected_resume_clears_stored_engine_session_id() {
+        let hub = HubRuntime::new();
+        hub.register_engine("alva", Arc::new(ResumeRejectEngine))
+            .unwrap();
+        let product_id = ProductSessionId::from_existing("p-resume");
+        hub.restore_session(
+            product_id.clone(),
+            "alva",
+            "dead-native",
+            HubSessionStatus::Completed,
+        )
+        .unwrap();
+        assert_eq!(
+            hub.session(&product_id).unwrap().engine_session_id.as_deref(),
+            Some("dead-native")
+        );
+
+        let _: Vec<_> = hub
+            .execute(
+                HubRequest::new("alva", RuntimeRequest::new("resume dead")).resume(product_id.clone()),
+            )
+            .unwrap()
+            .collect()
+            .await;
+
+        assert_eq!(
+            hub.session(&product_id).unwrap().engine_session_id,
+            None,
+            "rejected resume id must be cleared so the next turn starts fresh"
+        );
+        assert_eq!(
+            hub.session(&product_id).unwrap().status,
+            HubSessionStatus::Failed
+        );
     }
 
     // ticket 12: an engine that dies with an open tool must have that tool

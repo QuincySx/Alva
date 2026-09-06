@@ -172,7 +172,7 @@ impl EngineRuntime for AlvaAdapter {
                                 recoverable: false,
                             });
                             let _ = event_tx.send(RuntimeEvent::Completed {
-                                session_id: session_id.clone(),
+                                session_id: String::new(),
                                 result: None,
                                 usage: None,
                             });
@@ -192,7 +192,7 @@ impl EngineRuntime for AlvaAdapter {
                                     recoverable: false,
                                 });
                                 let _ = event_tx.send(RuntimeEvent::Completed {
-                                    session_id: session_id.clone(),
+                                    session_id: String::new(),
                                     result: None,
                                     usage: None,
                                 });
@@ -208,7 +208,7 @@ impl EngineRuntime for AlvaAdapter {
                                     recoverable: false,
                                 });
                                 let _ = event_tx.send(RuntimeEvent::Completed {
-                                    session_id: session_id.clone(),
+                                    session_id: String::new(),
                                     result: None,
                                     usage: None,
                                 });
@@ -231,7 +231,7 @@ impl EngineRuntime for AlvaAdapter {
                                         recoverable: false,
                                     });
                                     let _ = event_tx.send(RuntimeEvent::Completed {
-                                        session_id: session_id.clone(),
+                                        session_id: String::new(),
                                         result: None,
                                         usage: None,
                                     });
@@ -616,6 +616,46 @@ mod tests {
         assert!(
             validate_event_stream(&events).is_ok(),
             "Alva adapter stream must satisfy multi-engine contract: {events:?}"
+        );
+    }
+
+    /// ticket 11: resuming a native id that no longer exists must fail
+    /// fatally and must NOT echo the dead id back in Completed.session_id —
+    /// otherwise the next turn would resume the same rejected id forever.
+    #[tokio::test]
+    async fn resume_missing_native_session_emits_fatal_without_echoing_dead_id() {
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("x")));
+        let config = DefaultBaseAgentFactoryConfig::new(model, std::env::temp_dir());
+        // No record repository configured → the "not in this process and no
+        // native record store" resume-failure path.
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
+        let dead = "dead-native-session-id";
+
+        let mut request = RuntimeRequest::new("resume dead session");
+        request.resume_session = Some(dead.to_string());
+        let events: Vec<_> = adapter
+            .execute(request)
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+
+        assert!(events.iter().any(|event| matches!(
+            event,
+            RuntimeEvent::Error {
+                recoverable: false,
+                ..
+            }
+        )));
+        let completed = events
+            .iter()
+            .find_map(|event| match event {
+                RuntimeEvent::Completed { session_id, .. } => Some(session_id.clone()),
+                _ => None,
+            })
+            .expect("resume failure must still complete");
+        assert!(
+            completed.is_empty() && completed != dead,
+            "Completed.session_id must not echo the rejected native id: '{completed}'"
         );
     }
 
