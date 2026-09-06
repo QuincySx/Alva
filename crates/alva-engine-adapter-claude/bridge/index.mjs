@@ -43,6 +43,19 @@ rl.on("line", (line) => {
       } else {
         resolve({ behavior: "deny", message: decision.message || "Denied" });
       }
+      // Semantic ack (ticket 18): the bridge has actually settled the
+      // canUseTool promise — the round trip is complete, not merely written
+      // to stdin. Rust waits for this before reporting "allowed".
+      emit("permission_response_accepted", { request_id: msg.request_id });
+    } else {
+      // The request already expired (auto-deny below) or never existed:
+      // the tool was already denied or is unknown. Do not silently swallow
+      // the user's answer — report it so Rust can surface "this approval
+      // expired" instead of recording a false Allow.
+      emit("permission_response_rejected", {
+        request_id: msg.request_id,
+        reason: "expired",
+      });
     }
   } else if (msg.type === "cancel") {
     abortController.abort();
@@ -74,13 +87,16 @@ async function canUseTool(toolName, toolInput, { signal }) {
     if (signal) {
       signal.addEventListener("abort", onAbort, { once: true });
     }
-    // Timeout: auto-deny after 60s if no response
+    // Permission auto-deny after the configured deadline if no response
+    // arrives (defaults to 60s when Rust does not supply a value). When the
+    // user answers late, the else branch above reports `rejected`.
+    const approvalTimeoutMs = config.approval_timeout_ms || 60_000;
     setTimeout(() => {
       if (pendingPermissions.has(requestId)) {
         pendingPermissions.delete(requestId);
         resolve({ behavior: "deny", message: "Permission timeout" });
       }
-    }, 60_000);
+    }, approvalTimeoutMs);
   });
 }
 

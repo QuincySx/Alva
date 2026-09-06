@@ -1,8 +1,22 @@
-# 17 claude 两个 adapter 疑似同一 R2 漏网（待验证）
+# 17 claude 两个 adapter 疑似同一 R2 漏网（已验证：不成立）
 
-- 级别：P0（若验证成立；与工单 01 同类）
-- 影响：与 01 相同——一次运行已标「失败」后，助手仍可能继续往同一条时间线追加正文和工具活动。
-- 状态：TODO（**先验证再动手**）
+- 级别：P0（~~若验证成立~~ 验证结论：**不成立，关闭**）
+- 影响：~~与 01 相同~~ 无法构成：两个 claude adapter 的每个 fatal Error 都与其 Completed 在同一个 mapper 批次里产出，且两个读取循环都在 Completed 上 break。
+- 状态：**CLOSED 2026-09-06（验证结论：非 bug + 防御性 pin 测试）**
+
+## 验证结论（2026-09-06）
+
+逐条核对工单 01 的四个待验证项：
+
+1. **claude CLI 在 fatal 之后是否继续输出？** 无关紧要——结构上不可能泄漏：
+   `mapping.rs` 的全部生产 fatal 产出点（`BridgeMessage::Error` :88、`SdkMessage::Result` is_error :319、empty-response :324）都把 `Error{recoverable:false}` 与 `Completed` **成对**推入同一个 `map()` 返回的 Vec；`:496/:800` 是测试段。`claude -p` 与 full 的读取循环都在 `if is_completed` 分支 `return`（print `:215`、full `:422`）。fatal 之后不可能再有 Message/工具事件被转发。
+2. `mapping.rs` 5 处 fatal 产出点逐一核对：:88（生产，成对）、:319（生产，成对）、:324（生产，成对）、:496/:800（`mod tests`）。无不成对的生产路径。
+3. 全模式 `ClaudeAdapter` 与 print 模式读取循环形状不同，但都在 Completed 上 break；bridge `error` 帧（`main().catch` → `emit("error")` → `process.exit(1)`）同样成对且 EOF。
+4. bridge 在 abort/error 后是否仍推事件——被 Rust 侧 `kill_rx` / grace 杀（工单 10 落地），且 bridge error 帧自带 Exit。
+
+新增防御性测试 `no_reader_resumes_after_a_fatal_result_frame`：fake CLI 在 result-error 帧之后继续输出一个 assistant 帧，断言该 Message **不**被转发（现状即通过，pin 住 R2 不泄漏）。
+
+结论：**claude 与 codex/pi 不同，fatal 一定成对 Completed，读取循环成对 break——本工单不成立，关闭。** 未来若有人改动 mapper 让 fatal 不成对产出，应同步给两个 claude adapter 的读取循环补 `is_fatal_error` 早停（形如 codex/pi 的 `fatal_seen`），并跑 `no_reader_resumes_after_a_fatal_result_frame`。
 
 ## 来源
 

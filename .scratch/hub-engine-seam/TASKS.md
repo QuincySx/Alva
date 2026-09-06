@@ -13,8 +13,8 @@
 | [04](./issues/04-gpui-port-regressions.md) ✅ | GPUI 移植走样 | ~~Interrupt 按钮保证无效 + Pi 加不进降级链~~ **DONE 2026-09-01** |
 | [05](./issues/05-hub-server-engine-handle-leak.md) ✅ | hub-server 错误路径泄漏引擎句柄 | ~~之后点「停止」返回成功、实际什么都没停~~ **DONE 2026-09-01**（顺带修了 gpui 完全无清理） |
 | [06](./issues/06-required-capabilities-vocabulary-collision.md) ✅ | required_capabilities 词表对撞 | ~~任何模型能力词进入该字段 → 降级目标被永久静默否决~~ **DONE 2026-09-02**（路线 B：白名单 + veto 只看引擎词） |
-| [17](./issues/17-claude-adapter-fatal-no-break.md) | claude 两个 adapter 疑似同一 R2 漏网（**待验证**） | 同 01；但 claude CLI 是否在 fatal 后继续输出尚未证实，先验证再动手 |
-| [18](./issues/18-claude-bridge-permission-ack.md) | claude 全模式审批 ack 只证明「写进了 stdin」 | 同 03 的另一半；需跨语言协议往返设计，三步不能拆开做 |
+| [17](./issues/17-claude-adapter-fatal-no-break.md) ✅ | claude 两个 adapter 疑似同一 R2 漏网（**验证：不成立**） | 同 01；但 claude 每个 fatal 都与 Completed 成对产出、读取循环成对 break——**CLOSED 2026-09-06**（验证结论 + 防御性 pin 测试） |
+| [18](./issues/18-claude-bridge-permission-ack.md) ✅ | claude 全模式审批 ack 只证明「写进了 stdin」 | ~~同 03 的另一半；需跨语言协议往返设计，三步不能拆开做~~ **DONE 2026-09-06**（accepted/rejected 语义帧 + pending oneshot + 超时 + 60s 下沉 Rust） |
 
 > 06 是**埋着的雷不是正在爆的雷**：出厂 UI 路径今天一律写 `capabilities: []`。修在填充数据之前是几行的事，填完之后是线上事故。
 

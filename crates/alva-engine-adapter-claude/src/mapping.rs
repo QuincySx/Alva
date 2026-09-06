@@ -82,6 +82,10 @@ impl EventMapper {
             }
             // Transport EOF only — Completed already came from Result (or Error pair).
             BridgeMessage::Done => vec![],
+            // Control-plane acks (ticket 18); the read loop settles them and
+            // never maps them to RuntimeEvents.
+            BridgeMessage::PermissionResponseAccepted { .. }
+            | BridgeMessage::PermissionResponseRejected { .. } => vec![],
             BridgeMessage::Error { message } => vec![
                 RuntimeEvent::Error {
                     message: message.clone(),

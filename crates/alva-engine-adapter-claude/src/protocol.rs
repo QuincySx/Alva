@@ -19,6 +19,16 @@ pub enum BridgeMessage {
         tool_input: Value,
     },
 
+    /// Semantic ack for a permission response the bridge actually applied
+    /// (ticket 18): the canUseTool promise was settled.
+    #[serde(rename = "permission_response_accepted")]
+    PermissionResponseAccepted { request_id: String },
+
+    /// The permission response was too late — the bridge had already
+    /// auto-denied (or never saw) the request. Maps to `PermissionNotFound`.
+    #[serde(rename = "permission_response_rejected")]
+    PermissionResponseRejected { request_id: String, reason: String },
+
     #[serde(rename = "done")]
     Done,
 
@@ -218,6 +228,26 @@ mod tests {
         assert!(
             matches!(msg, BridgeMessage::PermissionRequest { request_id, .. } if request_id == "r1")
         );
+    }
+
+    #[test]
+    fn test_parse_permission_response_accepted() {
+        let json = r#"{"type":"permission_response_accepted","request_id":"r1"}"#;
+        let msg: BridgeMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(
+            msg,
+            BridgeMessage::PermissionResponseAccepted { request_id } if request_id == "r1"
+        ));
+    }
+
+    #[test]
+    fn test_parse_permission_response_rejected() {
+        let json = r#"{"type":"permission_response_rejected","request_id":"r1","reason":"expired"}"#;
+        let msg: BridgeMessage = serde_json::from_str(json).unwrap();
+        assert!(matches!(
+            msg,
+            BridgeMessage::PermissionResponseRejected { request_id, reason } if request_id == "r1" && reason == "expired"
+        ));
     }
 
     #[test]

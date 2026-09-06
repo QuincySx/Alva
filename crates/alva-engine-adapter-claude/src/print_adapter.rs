@@ -515,4 +515,45 @@ mod tests {
             Some(RuntimeEvent::Error { message, recoverable: false }) if message == "Claude CLI session cancelled"
         ));
     }
+
+    /// ticket 17 verification: a fatal result frame routes to Error + Completed
+    /// in one mapper batch, and the read loop breaks on Completed — a frame that
+    /// would otherwise follow the fatal must never be forwarded (no R2 leak).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn no_reader_resumes_after_a_fatal_result_frame() {
+        use tokio_stream::StreamExt;
+
+        let fixture = tempfile::tempdir().unwrap();
+        let executable = fixture.path().join("fake-claude");
+        fake_claude(
+            &executable,
+            "printf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"r2-session\",\"model\":\"fake\"}' \nprintf '%s\\n' '{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"session_id\":\"r2-session\",\"result\":null}' \nprintf '%s\\n' '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"must not be forwarded after fatal\"}]}}'",
+        );
+        let adapter = ClaudePrintAdapter::new(ClaudePrintConfig {
+            claude_path: executable.to_string_lossy().into_owned(),
+            ..Default::default()
+        });
+        let events: Vec<_> = adapter
+            .execute(RuntimeRequest::new("test").with_cwd(fixture.path()))
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+
+        assert!(
+            !events.iter().any(|event| matches!(event, RuntimeEvent::Message { .. })),
+            "no Message may follow a fatal Error: {events:#?}"
+        );
+        assert!(matches!(
+            events.as_slice(),
+            [
+                RuntimeEvent::SessionStarted { .. },
+                RuntimeEvent::Error {
+                    recoverable: false,
+                    ..
+                },
+                RuntimeEvent::Completed { result: None, .. },
+            ]
+        ));
+    }
 }

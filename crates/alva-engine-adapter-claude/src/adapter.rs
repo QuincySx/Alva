@@ -44,6 +44,11 @@ struct SessionHandle {
 /// bounded time).
 const CANCEL_GRACE_MS: u64 = 5_000;
 
+/// How long `respond_permission` waits for the bridge's semantic ack
+/// (accepted/rejected frame) before failing (ticket 18). Far shorter than the
+/// bridge auto-deny deadline so a dead bridge never hangs a UI.
+const PERMISSION_ACK_TIMEOUT_MS: u64 = 15_000;
+
 impl SessionHandle {
     fn new(
         control: mpsc::UnboundedSender<ControlCommand>,
@@ -66,6 +71,10 @@ pub struct ClaudeAdapter {
     config: ClaudeAdapterConfig,
     /// Active sessions: session_id -> control route + cancel-grace signal.
     sessions: Arc<Mutex<HashMap<String, SessionHandle>>>,
+    /// In-flight permission responses awaiting a semantic ack from the bridge
+    /// (ticket 18): request_id -> oneshot. Resolved Accepted/Rejected frames
+    /// settle these; a bounded timeout in `respond_permission` prevents hangs.
+    pending_responses: Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), RuntimeError>>>>>,
 }
 
 impl ClaudeAdapter {
@@ -73,6 +82,7 @@ impl ClaudeAdapter {
         Self {
             config,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            pending_responses: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -115,6 +125,7 @@ impl ClaudeAdapter {
             setting_sources: self.config.setting_sources.clone(),
             persist_session: self.config.persist_session,
             sdk_package_path: self.config.sdk_package_path.clone(),
+            approval_timeout_ms: self.config.approval_timeout_ms,
             env,
         }
     }
@@ -275,6 +286,7 @@ impl EngineRuntime for ClaudeAdapter {
         let (cancel_grace_tx, mut cancel_grace_rx) = mpsc::unbounded_channel::<()>();
         let (control_failure_tx, mut control_failures) = mpsc::unbounded_channel::<()>();
         let sessions = self.sessions.clone();
+        let pending_responses = self.pending_responses.clone();
         let idle_timeout = resolve_bridge_idle_timeout(&self.config);
 
         tokio::spawn(async move {
@@ -428,6 +440,41 @@ impl EngineRuntime for ClaudeAdapter {
                     }
                     received = process.recv() => match received {
                     Ok(Some(msg)) => {
+                        // Control-plane acks (ticket 18): settle the pending
+                        // respond_permission oneshot. These are never mapped to
+                        // RuntimeEvents.
+                        if let crate::protocol::BridgeMessage::PermissionResponseAccepted {
+                            request_id,
+                        }
+                        | crate::protocol::BridgeMessage::PermissionResponseRejected {
+                            request_id,
+                            reason: _,
+                        } = &msg
+                        {
+                            let result = match &msg {
+                                crate::protocol::BridgeMessage::PermissionResponseAccepted {
+                                    ..
+                                } => Ok(()),
+                                crate::protocol::BridgeMessage::PermissionResponseRejected {
+                                    request_id, ..
+                                } => Err(RuntimeError::PermissionNotFound(
+                                    request_id.clone(),
+                                )),
+                                _ => unreachable!(),
+                            };
+                            if let Some(tx) =
+                                pending_responses.lock().await.remove(request_id)
+                            {
+                                let _ = tx.send(result);
+                            }
+                            // Still progress for the idle watchdog.
+                            schedule_idle(
+                                &mut idle_deadline,
+                                idle_timeout,
+                                idle_gate.waiting_on_upstream(),
+                            );
+                            continue;
+                        }
                         let is_done = matches!(&msg, crate::protocol::BridgeMessage::Done);
                         let events = mapper.map(msg);
 
@@ -596,14 +643,51 @@ impl EngineRuntime for ClaudeAdapter {
             PermissionDecision::Deny { message } => BridgePermissionDecision::Deny { message },
         };
 
-        self.send_control(
-            session_id,
-            BridgeOutbound::PermissionResponse {
-                request_id: request_id.into(),
-                decision: bridge_decision,
-            },
+        // Register the expected semantic ack before writing the control so a
+        // fast bridge reply cannot race ahead of the subscription (ticket 18).
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.pending_responses
+            .lock()
+            .await
+            .insert(request_id.to_string(), ack_tx);
+
+        if let Err(error) = self
+            .send_control(
+                session_id,
+                BridgeOutbound::PermissionResponse {
+                    request_id: request_id.into(),
+                    decision: bridge_decision,
+                },
+            )
+            .await
+        {
+            self.pending_responses.lock().await.remove(request_id);
+            return Err(error);
+        }
+
+        // Wait for the *semantic* ack: the bridge settled the canUseTool
+        // promise (accepted) or reported the request was expired/unknown
+        // (rejected → PermissionNotFound, matching the Alva side).
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(PERMISSION_ACK_TIMEOUT_MS),
+            ack_rx,
         )
         .await
+        {
+            Ok(Ok(inner)) => inner,
+            Ok(Err(_)) => {
+                self.pending_responses.lock().await.remove(request_id);
+                Err(RuntimeError::ProcessError(
+                    "permission response acknowledgement dropped".into(),
+                ))
+            }
+            Err(_) => {
+                self.pending_responses.lock().await.remove(request_id);
+                Err(RuntimeError::ProcessError(
+                    "permission response acknowledgement timed out".into(),
+                ))
+            }
+        }
     }
 
     fn capabilities(&self) -> RuntimeCapabilities {
@@ -890,6 +974,127 @@ export function query({ options }) {
             adapter.cancel(&session_id).await,
             Err(RuntimeError::SessionNotFound(id)) if id == session_id
         ));
+    }
+
+    /// ticket 18: a permission response for a request the bridge already lost
+    /// (expired auto-deny or never-registered id) must surface as
+    /// PermissionNotFound instead of a silent swallow + false Allow.
+    #[tokio::test(flavor = "current_thread")]
+    async fn late_permission_response_fails_as_permission_not_found() {
+        let _environment_lock = node_environment_lock().lock().await;
+        if Command::new("node").arg("--version").output().is_err() {
+            eprintln!("skipping Node bridge integration test: node is not installed");
+            return;
+        }
+
+        let workspace = tempfile::tempdir().unwrap();
+        let package = workspace
+            .path()
+            .join("node_modules/@anthropic-ai/claude-agent-sdk");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"@anthropic-ai/claude-agent-sdk","type":"module","exports":"./index.js"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package.join("index.js"),
+            r#"
+export function query({ options }) {
+  return (async function* () {
+    yield { type: "system", subtype: "init", session_id: "fake-session", model: "fake", tools: [] };
+    await options.canUseTool("FakeTool", { secret: "must-not-log" }, { signal: options.abortController.signal });
+    yield { type: "result", subtype: "success", session_id: "fake-session", result: "done", duration_ms: 1, num_turns: 1, usage: {} };
+  })();
+}
+"#,
+        )
+        .unwrap();
+
+        let adapter = ClaudeAdapter::new(ClaudeAdapterConfig::default());
+        let mut events = adapter
+            .execute(RuntimeRequest::new("test").with_cwd(workspace.path()))
+            .unwrap();
+        let (session_id, real_request_id) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                let mut session_id = None;
+                while let Some(event) = events.next().await {
+                    match event {
+                        RuntimeEvent::SessionStarted { session_id: id, .. } => session_id = Some(id),
+                        RuntimeEvent::PermissionRequest { request_id, .. } => {
+                            return (session_id.unwrap(), request_id)
+                        }
+                        RuntimeEvent::Error { message, .. } => panic!("bridge failed: {message}"),
+                        _ => {}
+                    }
+                }
+                panic!("bridge stream ended before a permission request")
+            })
+            .await
+            .expect("fake bridge must surface the permission request");
+
+        // 1. Responding to an id the bridge never had must fail loud:
+        let rejected = adapter
+            .respond_permission(
+                &session_id,
+                "never-registered-request-id",
+                PermissionDecision::Allow { updated_input: None },
+            )
+            .await;
+        assert!(
+            matches!(
+                rejected,
+                Err(RuntimeError::PermissionNotFound(ref id)) if id == "never-registered-request-id"
+            ),
+            "late/unknown approval must fail as PermissionNotFound, got {rejected:?}"
+        );
+
+        // 2. The real request still works afterwards (rejected was isolated).
+        adapter
+            .respond_permission(
+                &session_id,
+                &real_request_id,
+                PermissionDecision::Deny {
+                    message: "test denial".into(),
+                },
+            )
+            .await
+            .expect("the live approval must be accepted");
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while let Some(event) = events.next().await {
+                if matches!(event, RuntimeEvent::Completed { .. }) {
+                    return;
+                }
+            }
+            panic!("bridge stream ended before Completed")
+        })
+        .await
+        .expect("live permission response must let the turn finish");
+    }
+
+    /// ticket 18: a bridge that never acknowledges must not hang
+    /// respond_permission past a bounded time (the control-write ack timeout
+    /// bounds it when no bridge process exists).
+    #[tokio::test]
+    async fn permission_ack_timeout_is_bounded_and_reports_failure() {
+        let config = ClaudeAdapterConfig::default();
+        let adapter = ClaudeAdapter::new(config);
+        let start = std::time::Instant::now();
+        let result = adapter
+            .respond_permission(
+                "no-such-session",
+                "req-1",
+                PermissionDecision::Allow { updated_input: None },
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(RuntimeError::SessionNotFound(id)) if id == "no-such-session"
+        ));
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(30),
+            "respond_permission must not hang beyond a bounded time"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -49,6 +49,11 @@ pub struct ClaudeAdapterConfig {
     /// Tools to always deny.
     pub disallowed_tools: Vec<String>,
 
+    /// Bridge-side permission auto-deny deadline in milliseconds
+    /// (ticket 18). `None` → bridge default (60s). Rust owns this number so
+    /// the bridge never hardcodes it.
+    pub approval_timeout_ms: Option<u64>,
+
     // ── 执行环境 ─────────────────────────────────────────────────
     /// Enable sandbox execution.
     /// Maps to SDK `sandbox` option.
@@ -157,6 +162,9 @@ pub(crate) struct BridgeConfig {
     pub permission_mode: String,
     pub allowed_tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_timeout_ms: Option<u64>,
 
     // Execution
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -317,6 +325,7 @@ mod tests {
             setting_sources: vec![],
             persist_session: None,
             sdk_package_path: None,
+            approval_timeout_ms: None,
             env: HashMap::new(),
         }
     }
