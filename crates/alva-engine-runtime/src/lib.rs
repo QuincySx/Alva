@@ -1,6 +1,7 @@
 // INPUT:  error, event, request, runtime, stream_contract (sub-modules)
 // OUTPUT: RuntimeError, RuntimeEvent, RuntimeCapabilities, RuntimeUsage, PermissionDecision, RuntimeOptions, RuntimeRequest, EngineRuntime, StreamContract*
 // POS:    Crate root for alva-engine-runtime — re-exports error types, events, requests, the EngineRuntime trait, and stream-contract helpers
+pub mod descriptor;
 pub mod error;
 pub mod event;
 pub mod inspector;
@@ -15,6 +16,10 @@ pub use conformance::{
     assert_conforms, assert_conforms_events, collect_stream, soft_warnings_for, Scenario,
 };
 
+pub use descriptor::{
+    ConfigSurface, EngineDescriptor, InstallMetadata, PermissionPlanDecl, PermissionRelation,
+    ProviderProtocol,
+};
 pub use error::RuntimeError;
 pub use event::{PermissionDecision, RuntimeCapabilities, RuntimeEvent, RuntimeUsage};
 pub use alva_kernel_abi::ToolOutput;

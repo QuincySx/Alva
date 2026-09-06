@@ -48,10 +48,21 @@ one-shot function, not a resident queue-fed driver with a lifecycle status.
 
 `alva-hub-core::HubRuntime` exposes `register_engine(Arc<dyn EngineRuntime>)`.
 `EngineRuntime` is object-safe (`execute / cancel / respond_permission / capabilities`),
-so any engine backend can already be registered. Today only the four official
-adapters (alva / claude / codex / pi) use this seam. There is no third-party
+so any engine backend can be registered **at the type level**. Today only the four
+official adapters (alva / claude / codex / pi) use this seam. There is no third-party
 surface above it: fallback policy, handoff, timeline projection, and team
 orchestration are hard-wired product logic, not plugins.
+
+**Correction (seam ticket 15):** the type-level registration is real, but the
+**product-level path is not** — a fifth engine registers cleanly into
+`HubRuntime` and is then rejected by four hard-coded engine-name `match`es in
+`alva-hub-desktop/src/permissions.rs` (`enforcement_for`, "unsupported Hub
+engine"), `store/branch.rs` (`EngineTarget::for_engine`), `readiness.rs`
+(`quick_veto_for_target`), and `alva.rs` (`build_engine_for_target_with_repository`),
+replicated in gpui. `EngineDescriptor` (alva-engine-runtime, ticket 15 batch 1)
+is the fix surface: engines declare permission plans, config surface, and
+install metadata at registration; the product modules must consult the
+descriptor instead of switch-ing on engine names (ticket 15 batch 3, tracked).
 
 ### Finding 3 — Layer separation was previously conflated
 

@@ -7,8 +7,8 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use alva_engine_runtime::{
-    EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeRequest, SoftStreamWarning,
-    StreamContract, ToolOutput,
+    EngineDescriptor, EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeRequest,
+    SoftStreamWarning, StreamContract, ToolOutput,
 };
 use futures_core::Stream;
 use tokio::sync::mpsc;
@@ -276,17 +276,19 @@ impl HubRuntime {
         Self::default()
     }
 
-    /// Register one product-visible engine.
+    /// Register one product-visible engine with its self-description
+    /// (ticket 15 batch 1/2). The descriptor carries the permission plans,
+    /// config surface, and install metadata that products consult instead of
+    /// matching on engine names. Existing callers keep using
+    /// [`Self::register_engine`] (runtime-only) until they migrate batch-by-batch.
     ///
     /// Replacement is fail-closed because routing ambiguity would otherwise
     /// let a new registration silently hijack the control plane of runs that
-    /// began on the old instance (ticket 13: a run is controlled through its
-    /// [`RunHandle`], but the product session identity still scopes to one
-    /// engine at a time).
-    pub fn register_engine(
+    /// began on the old instance.
+    pub fn register_engine_descriptor(
         &self,
         id: impl Into<EngineId>,
-        engine: Arc<dyn EngineRuntime>,
+        descriptor: EngineDescriptor,
     ) -> Result<(), HubError> {
         let id = id.into();
         let mut engines = self
@@ -296,8 +298,21 @@ impl HubRuntime {
         if engines.contains_key(&id) {
             return Err(HubError::EngineAlreadyRegistered(id.to_string()));
         }
-        engines.insert(id, engine);
+        engines.insert(id, descriptor.runtime);
         Ok(())
+    }
+
+    /// Register one product-visible engine.
+    ///
+    /// Replacement is fail-closed because routing ambiguity would otherwise
+    /// let a new registration silently hijack the control plane of runs that
+    /// began on the old instance.
+    pub fn register_engine(
+        &self,
+        id: impl Into<EngineId>,
+        engine: Arc<dyn EngineRuntime>,
+    ) -> Result<(), HubError> {
+        self.register_engine_descriptor(id, EngineDescriptor::from_runtime(engine))
     }
 
     pub fn engine_ids(&self) -> Vec<EngineId> {
@@ -1953,6 +1968,46 @@ mod tests {
             .register_engine("alva", Arc::new(FakeEngine::new()))
             .unwrap_err();
         assert!(matches!(error, HubError::EngineAlreadyRegistered(_)));
+    }
+
+    /// ticket 15: a fifth engine can register with an EngineDescriptor, and
+    /// products can ask it (by declared plan, not by name) whether it can
+    /// satisfy a permission profile.
+    #[test]
+    fn descriptor_declares_permission_plans_without_engine_name() {
+        use alva_engine_runtime::{
+            ConfigSurface, InstallMetadata, PermissionPlanDecl, PermissionRelation, ProviderProtocol,
+        };
+
+        let descriptor = EngineDescriptor {
+            runtime: Arc::new(FakeEngine::new()),
+            inspector: None,
+            permission_plans: vec![PermissionPlanDecl {
+                profile_id: "workspace-read".into(),
+                relation: PermissionRelation::Equivalent,
+                summary: "read-only FUSE sandbox".into(),
+            }],
+            config_surface: ConfigSurface {
+                supports_max_turns: true,
+                provider_protocol: ProviderProtocol::Native,
+                supports_fast_mode: false,
+                supports_custom_http_headers: false,
+            },
+            install_metadata: InstallMetadata {
+                required_binary: Some("gemini".into()),
+                install_hint: Some("brew install gemini-cli".into()),
+            },
+        };
+        let hub = HubRuntime::new();
+        hub.register_engine_descriptor("gemini", descriptor)
+            .unwrap();
+
+        let queried = EngineDescriptor::from_runtime(Arc::new(FakeEngine::new()));
+        assert!(
+            hub.engine_ids().iter().any(|id| id.as_str() == "gemini"),
+            "fifth engine must register at the type level"
+        );
+        assert!(queried.permission_plans.is_empty());
     }
 
     /// Emits a post-Completed event — hard stream-contract violation.

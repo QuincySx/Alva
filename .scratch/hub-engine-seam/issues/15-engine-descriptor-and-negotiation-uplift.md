@@ -2,7 +2,7 @@
 
 - 级别：P2
 - 影响：新增第五个引擎能成功注册进 Hub 内核，但在产品层会被四道写死引擎名的 `match` 依次拒绝，用户看到的是「unsupported Hub engine」；而且每一处这样的判断都被 Tauri 与 GPUI 两个前端各复制了一份，其中两份已经开始漂移。
-- 状态：TODO
+- 状态：🔶 批次 1–2 DONE 2026-09-06（EngineDescriptor + register_engine_descriptor）；批次 3（permissions/readiness/repair 上移 hub-core、消灭引擎名字面量）为后续增量
 
 ## 根因
 

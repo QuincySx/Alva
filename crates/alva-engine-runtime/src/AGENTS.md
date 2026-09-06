@@ -29,6 +29,7 @@
 | RuntimeEvent | event.rs | 引擎输出事件枚举：SessionStarted、Message、MessageDelta、ToolStart、ToolEnd、PermissionRequest、Completed、Error |
 | StreamContract | stream_contract.rs | 多引擎流不变量检查器 + `validate_event_stream` |
 | conformance | conformance.rs | 五剧本一致性 harness（feature = `test-support`）：Normal / SpawnFailure / KilledMidRun / EofWithoutResult / OutputAfterFatal |
+| descriptor | descriptor.rs | EngineDescriptor + 能力协商面（ticket 15 batch 1）：permission plans / config surface / install metadata，产品按声明而非引擎名判定 |
 | RuntimeUsage | event.rs | 引擎级使用统计：token 数、费用、时长、轮次 |
 | RuntimeCapabilities | event.rs | 引擎能力声明：streaming、tool_control、permission_callback、resume、cancel |
 | PermissionDecision | event.rs | 权限决策类型，用于 respond_permission 回传 |
