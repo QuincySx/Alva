@@ -501,10 +501,16 @@ impl HubRuntime {
                 // - without native id → handoff / first turn after switch_engine
                 match &existing.engine_session_id {
                     Some(engine_sid) => {
-                        if !engine.capabilities().resume {
-                            return Err(HubError::ResumeUnsupported(request.engine_id.to_string()));
+                        if engine.capabilities().resume {
+                            runtime_request.resume_session = Some(engine_sid.clone());
+                        } else {
+                            // Stateless engine (ticket 14 D-2): a stored native
+                            // id cannot be resumed. Drop it and start a fresh
+                            // native session instead of failing the turn forever
+                            // with ResumeUnsupported.
+                            existing.engine_session_id = None;
+                            runtime_request.resume_session = None;
                         }
-                        runtime_request.resume_session = Some(engine_sid.clone());
                     }
                     None => {
                         runtime_request.resume_session = None;
@@ -2345,6 +2351,95 @@ mod tests {
                 "A's stale rollback must not release B's claim"
             );
         }
+    }
+
+    // ticket 14 D-2: an engine that cannot resume must start a fresh native
+    // session on its second turn instead of failing with ResumeUnsupported.
+    struct NoResumeEngine {
+        requests: Mutex<Vec<RuntimeRequest>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for NoResumeEngine {
+        fn execute(
+            &self,
+            request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            self.requests.lock().unwrap().push(request);
+            Ok(Box::pin(stream::iter(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: "stateless-1".into(),
+                    model: None,
+                    tools: vec![],
+                },
+                RuntimeEvent::Completed {
+                    session_id: "stateless-1".into(),
+                    result: Some("done".into()),
+                    usage: None,
+                },
+            ])))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: false,
+                cancel: true,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stateless_engine_starts_a_fresh_native_session_instead_of_failing() {
+        let hub = HubRuntime::new();
+        let engine = Arc::new(NoResumeEngine {
+            requests: Mutex::new(Vec::new()),
+        });
+        hub.register_engine("stateless", engine.clone()).unwrap();
+
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("stateless", RuntimeRequest::new("first")))
+            .unwrap()
+            .collect()
+            .await;
+        let pid = first[0].product_session_id.clone();
+        assert_eq!(
+            hub.session(&pid).unwrap().engine_session_id.as_deref(),
+            Some("stateless-1")
+        );
+
+        // Second turn: engine has resume=false, so hub must NOT fail and must
+        // start fresh (no resume_session filled).
+        let second = hub
+            .execute(
+                HubRequest::new("stateless", RuntimeRequest::new("second")).resume(pid.clone()),
+            )
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(!second.is_empty(), "second turn must succeed");
+        let requests = engine.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1].resume_session.is_none(),
+            "stateless engine must not be asked to resume: {:?}",
+            requests[1]
+        );
     }
 
     // ticket 11: a resume turn that fails fatally before any SessionStarted must

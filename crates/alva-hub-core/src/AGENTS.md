@@ -5,6 +5,8 @@
 
 位于引擎 contract 之上、具体 adapter 之下。它只依赖 `alva-engine-runtime`，绝不依赖 kernel、agent SDK 或 app harness。
 
+**Authoritative boundary（seam ticket 14）**：hub-core 的 `HubRuntime` 是**瞬时每轮 dispatcher**——engine registry + 单轮流投影 + `ProductSessionId ↔ engine_session_id` + restore 再水合。持久化多 branch 的 switch/handoff 权威实现是 alva-hub-desktop 的 store/branch 层（及 gpui 镜像）；hub-core 的 `switch_engine` / `pending_handoff` / `previous_*` 只是 hub-cli 单会话流程的便利设施，**不是**跨轮多 branch 切换的权威。D-1（单槽 previous_*，A→B→C→A 只能由 store 保证）是有意的范围边界；D-2（无 resume 能力引擎退化为 fresh native session）已修。
+
 ## 逻辑
 
 1. 注册 product-visible `EngineId -> Arc<dyn EngineRuntime>`；同名替换 fail closed，避免已有 native session 被路由到新 engine 实例。

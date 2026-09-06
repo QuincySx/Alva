@@ -65,6 +65,43 @@ switch back.
   billing route for automatic use.
 - Hub never selects an installed but unauthorized engine.
 
+### Authority — where switch is implemented (seam ticket 14)
+
+The durable multi-branch **switch / handoff authority is the store/branch
+layer**, not the transient per-turn dispatcher:
+
+- `crates/alva-hub-desktop/src/store/branch.rs` (`request_engine_switch`),
+  `store/turn.rs` (`upgrade_failed_native_resume`, `prepare_resumed_turn`), and
+  `store/handoff.rs` (`HandoffKind::{Full, Delta}`) are the **authoritative**
+  implementation of branch parking, watermark tracking, Full-vs-Delta handoff,
+  and the A→B→C→A "resume a parked native session" guarantee of this ADR's
+  Reversibility section. They are transactional, durable (SQLite), and
+  multi-branch. The gpui product mirrors this store under its own crate.
+- `alva-hub-core::HubRuntime` is a **transient per-turn dispatcher**: engine
+  registry + single-stream projection + `ProductSessionId` ↔ `engine_session_id`
+  mapping + `restore_session` rehydration. Its `switch_engine` /
+  `pending_handoff` / `previous_*` machinery is a **convenience for the
+  hub-cli single-session flow only** and is explicitly **not** the authority for
+  durable multi-branch switching.
+
+Verifiable boundary (hub-core): `crates/alva-hub-core/src/runtime.rs`
+`HubRuntime::switch_engine` + `pending_handoff` + `previous_engine_id`; every
+GUI product routes switch through the store, not through `HubRuntime`.
+
+Known, deliberate limits of the hub-core convenience (not bugs to be "fixed"
+inside hub-core):
+- **D-1 (single parked branch):** `previous_engine_id` is single-slot, so
+  A→B→C→A native-resume is only guaranteed by the store layer (which keeps a
+  `hub_branches` row per engine). hub-core does not attempt multi-branch
+  parking.
+- **D-2 (stateless engines) — fixed:** an engine whose `capabilities().resume`
+  is false used to fail every turn after the first (`ResumeUnsupported`). It
+  now drops the stored id and starts a fresh native session instead.
+
+A full option-1 teardown (moving the store out of `alva-hub-desktop` and
+rewiring hub-cli to consume it) is tracked separately and not required for the
+product-layer authority this ADR asserts.
+
 ## Consequences
 
 ### Positive
