@@ -30,6 +30,15 @@ pub trait EngineRuntime: Send + Sync {
     ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError>;
 
     /// Cancel a running session.
+    ///
+    /// **Contract (ticket 10):** `Ok(())` means *the cancel request was
+    /// delivered*, **not** that the session has stopped. Implementations that
+    /// accept a cancel MUST guarantee the session's stream then produces a
+    /// terminal pair — `Error { recoverable: false }` followed by
+    /// `Completed` — within a bounded time, even if that requires escalating
+    /// (kill the child process). Returning `Ok` without ever terminating the
+    /// stream is a contract violation: the caller may only show "stopped"
+    /// after the stream has closed.
     async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError>;
 
     /// Respond to a permission request from the engine.

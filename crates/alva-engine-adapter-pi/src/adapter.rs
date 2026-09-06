@@ -268,4 +268,72 @@ printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":
         );
         assert!(validate_event_stream(&events).is_ok());
     }
+
+    /// ticket 10: cancel must close the stream with Error{fatal} + Completed
+    /// within a bounded time, even when the child would otherwise run forever.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancel_emits_one_fatal_error_then_completed() {
+        use std::time::Duration;
+
+        let fixture = tempfile::tempdir().unwrap();
+        let executable = fixture.path().join("fake-pi");
+        write_fake_pi(
+            &executable,
+            r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
+sleep 600
+"#,
+        );
+
+        let adapter = Arc::new(PiAdapter::new(PiAdapterConfig {
+            pi_path: executable.to_string_lossy().into_owned(),
+            default_cwd: Some(fixture.path().to_path_buf()),
+            session_dir: fixture.path().join("sessions"),
+            ..Default::default()
+        }));
+        let mut stream = adapter.execute(RuntimeRequest::new("hi")).unwrap();
+        let session_id = tokio::time::timeout(Duration::from_secs(5), async {
+            while let Some(event) = stream.next().await {
+                if let RuntimeEvent::SessionStarted { session_id, .. } = event {
+                    return session_id;
+                }
+            }
+            panic!("fake pi stream ended before SessionStarted")
+        })
+        .await
+        .expect("fake pi must start");
+
+        let collector = tokio::spawn(async move {
+            let mut events = Vec::new();
+            while let Some(event) = stream.next().await {
+                events.push(event);
+            }
+            events
+        });
+
+        adapter
+            .cancel(&session_id)
+            .await
+            .expect("cancel must be deliverable");
+
+        let events = tokio::time::timeout(Duration::from_secs(10), collector)
+            .await
+            .expect("cancel must close the pi stream")
+            .unwrap();
+        assert!(
+            matches!(
+                events.as_slice(),
+                [
+                    RuntimeEvent::Error {
+                        recoverable: false,
+                        ..
+                    },
+                    RuntimeEvent::Completed { result: None, .. }
+                ]
+            ),
+            "cancel must end with Error{{fatal}} + Completed: {events:#?}"
+        );
+        assert!(validate_event_stream(&events).is_ok());
+    }
 }

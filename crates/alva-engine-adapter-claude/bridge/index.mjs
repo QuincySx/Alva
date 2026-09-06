@@ -46,6 +46,11 @@ rl.on("line", (line) => {
     }
   } else if (msg.type === "cancel") {
     abortController.abort();
+    // Graceful abort should end the SDK iteration quickly. If it does not
+    // (a blocking tool call), force-exit the bridge so the Rust side observes
+    // a closed stdout and produces the terminal pair. Rust's local kill is the
+    // backstop; this is the bridge-side bound (ticket 10).
+    setTimeout(() => process.exit(0), 5000);
   } else if (msg.type === "shutdown") {
     abortController.abort();
     setTimeout(() => process.exit(0), 1000);

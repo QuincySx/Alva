@@ -29,7 +29,33 @@ use crate::process::{BridgeProcess, BridgeSpawnConfig};
 use crate::protocol::{BridgeOutbound, BridgePermissionDecision};
 
 type ControlCommand = (BridgeOutbound, oneshot::Sender<Result<(), RuntimeError>>);
-type SessionSender = mpsc::UnboundedSender<ControlCommand>;
+/// A registered session route: the bridge control channel plus a cancel-grace
+/// signal. `cancel()` sends `BridgeOutbound::Cancel`, then pings `cancel_grace`
+/// (ticket 10) so the execute-loop task starts a bounded grace timer and
+/// escalates to killing the child if the stream has not terminated.
+#[derive(Clone)]
+struct SessionHandle {
+    control: mpsc::UnboundedSender<ControlCommand>,
+    cancel_grace: mpsc::UnboundedSender<()>,
+}
+
+/// How long cancel waits for the bridge stream to terminate before the child
+/// is killed locally (ticket 10: cancel must produce terminal events in a
+/// bounded time).
+const CANCEL_GRACE_MS: u64 = 5_000;
+
+impl SessionHandle {
+    fn new(
+        control: mpsc::UnboundedSender<ControlCommand>,
+        cancel_grace: mpsc::UnboundedSender<()>,
+    ) -> Self {
+        Self { control, cancel_grace }
+    }
+
+    fn same_channel(&self, other: &SessionHandle) -> bool {
+        self.control.same_channel(&other.control)
+    }
+}
 const CONTROL_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Claude Agent SDK bridge adapter.
@@ -38,8 +64,8 @@ const CONTROL_ACK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 /// communicates with the Claude Agent SDK via stdin/stdout JSON-line protocol.
 pub struct ClaudeAdapter {
     config: ClaudeAdapterConfig,
-    /// Active sessions: session_id -> sender for control messages.
-    sessions: Arc<Mutex<HashMap<String, SessionSender>>>,
+    /// Active sessions: session_id -> control route + cancel-grace signal.
+    sessions: Arc<Mutex<HashMap<String, SessionHandle>>>,
 }
 
 impl ClaudeAdapter {
@@ -106,7 +132,7 @@ impl ClaudeAdapter {
             .cloned()
             .ok_or_else(|| RuntimeError::SessionNotFound(session_id.into()))?;
         let (ack_tx, ack_rx) = oneshot::channel();
-        if sender.send((message, ack_tx)).is_err() {
+        if sender.control.send((message, ack_tx)).is_err() {
             remove_session_if_current(&self.sessions, session_id, &sender).await;
             return Err(RuntimeError::ProcessError("Session channel closed".into()));
         }
@@ -160,15 +186,12 @@ async fn await_control_ack(
 }
 
 async fn remove_session_if_current(
-    sessions: &Mutex<HashMap<String, SessionSender>>,
+    sessions: &Mutex<HashMap<String, SessionHandle>>,
     session_id: &str,
-    expected_sender: &SessionSender,
+    expected_sender: &SessionHandle,
 ) {
     let mut sessions = sessions.lock().await;
-    if sessions
-        .get(session_id)
-        .is_some_and(|sender| sender.same_channel(expected_sender))
-    {
+    if sessions.get(session_id).is_some_and(|h| h.same_channel(expected_sender)) {
         sessions.remove(session_id);
     }
 }
@@ -176,31 +199,31 @@ async fn remove_session_if_current(
 /// Install a session route without allowing a newer child to steal an active
 /// native session ID. A closed sender is stale and may be replaced.
 async fn register_session(
-    sessions: &Mutex<HashMap<String, SessionSender>>,
+    sessions: &Mutex<HashMap<String, SessionHandle>>,
     session_id: &str,
-    sender: SessionSender,
+    handle: SessionHandle,
 ) -> Result<(), RuntimeError> {
     let mut sessions = sessions.lock().await;
     if let Some(existing) = sessions.get(session_id) {
-        if existing.same_channel(&sender) {
+        if existing.same_channel(&handle) {
             return Ok(());
         }
-        if !existing.is_closed() {
+        if !existing.control.is_closed() {
             return Err(RuntimeError::ProcessError(
                 "Duplicate active Claude session ID".into(),
             ));
         }
     }
-    sessions.insert(session_id.into(), sender);
+    sessions.insert(session_id.into(), handle);
     Ok(())
 }
 
 async fn finish_session(
     mut process: BridgeProcess,
     control_task: tokio::task::JoinHandle<()>,
-    sessions: &Mutex<HashMap<String, SessionSender>>,
+    sessions: &Mutex<HashMap<String, SessionHandle>>,
     session_id: Option<String>,
-    expected_sender: SessionSender,
+    expected_sender: SessionHandle,
 ) {
     control_task.abort();
     if let Some(session_id) = session_id {
@@ -217,9 +240,9 @@ async fn finish_session(
 async fn kill_session(
     mut process: BridgeProcess,
     control_task: tokio::task::JoinHandle<()>,
-    sessions: &Mutex<HashMap<String, SessionSender>>,
+    sessions: &Mutex<HashMap<String, SessionHandle>>,
     session_id: Option<String>,
-    expected_sender: SessionSender,
+    expected_sender: SessionHandle,
 ) {
     control_task.abort();
     if let Some(session_id) = session_id {
@@ -249,6 +272,7 @@ impl EngineRuntime for ClaudeAdapter {
 
         let (event_tx, event_rx) = mpsc::unbounded_channel::<RuntimeEvent>();
         let (control_tx, control_rx) = mpsc::unbounded_channel::<ControlCommand>();
+        let (cancel_grace_tx, mut cancel_grace_rx) = mpsc::unbounded_channel::<()>();
         let (control_failure_tx, mut control_failures) = mpsc::unbounded_channel::<()>();
         let sessions = self.sessions.clone();
         let idle_timeout = resolve_bridge_idle_timeout(&self.config);
@@ -306,10 +330,52 @@ impl EngineRuntime for ClaudeAdapter {
                             control_task,
                             &sessions,
                             active_session_id,
-                            control_tx.clone(),
+                            SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
                         )
                         .await;
                         return;
+                    }
+                    Some(()) = cancel_grace_rx.recv() => {
+                        // Cancel was delivered to the bridge (ticket 10). The
+                        // bridge aborts its AbortController, but if the stream
+                        // has not produced terminal events within the grace
+                        // window, escalate to killing the child here — where
+                        // `process` lives. The terminal pair is emitted locally.
+                        let grace = tokio::time::sleep(std::time::Duration::from_millis(CANCEL_GRACE_MS));
+                        tokio::pin!(grace);
+                        tokio::select! {
+                            _ = event_tx.closed() => {
+                                kill_session(
+                                    process,
+                                    control_task,
+                                    &sessions,
+                                    active_session_id,
+                                    SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
+                                )
+                                .await;
+                                return;
+                            }
+                            () = &mut grace => {
+                                let _ = event_tx.send(RuntimeEvent::Error {
+                                    message: "claude bridge did not stop within cancel grace; killed".into(),
+                                    recoverable: false,
+                                });
+                                kill_session(
+                                    process,
+                                    control_task,
+                                    &sessions,
+                                    active_session_id,
+                                    SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
+                                )
+                                .await;
+                                let _ = event_tx.send(RuntimeEvent::Completed {
+                                    session_id: mapper.session_id().to_string(),
+                                    result: None,
+                                    usage: None,
+                                });
+                                return;
+                            }
+                        }
                     }
                     Some(()) = control_failures.recv() => {
                         let _ = event_tx.send(RuntimeEvent::Error {
@@ -321,7 +387,7 @@ impl EngineRuntime for ClaudeAdapter {
                             control_task,
                             &sessions,
                             active_session_id,
-                            control_tx.clone(),
+                            SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
                         )
                         .await;
                         let _ = event_tx.send(RuntimeEvent::Completed {
@@ -350,7 +416,7 @@ impl EngineRuntime for ClaudeAdapter {
                             control_task,
                             &sessions,
                             active_session_id,
-                            control_tx.clone(),
+                            SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
                         )
                         .await;
                         let _ = event_tx.send(RuntimeEvent::Completed {
@@ -370,13 +436,11 @@ impl EngineRuntime for ClaudeAdapter {
                         // intact and terminate only this new bridge child.
                         for event in &events {
                             if let RuntimeEvent::SessionStarted { session_id, .. } = event {
-                                if let Err(error) = register_session(
-                                    &sessions,
-                                    session_id,
-                                    control_tx.clone(),
-                                )
-                                .await
-                                {
+                                let handle = SessionHandle {
+                                    control: control_tx.clone(),
+                                    cancel_grace: cancel_grace_tx.clone(),
+                                };
+                                if let Err(error) = register_session(&sessions, session_id, handle).await {
                                     let _ = event_tx.send(RuntimeEvent::Error {
                                         message: error.to_string(),
                                         recoverable: false,
@@ -386,7 +450,7 @@ impl EngineRuntime for ClaudeAdapter {
                                         control_task,
                                         &sessions,
                                         None,
-                                        control_tx.clone(),
+                                        SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
                                     )
                                     .await;
                                     let _ = event_tx.send(RuntimeEvent::Completed {
@@ -409,7 +473,7 @@ impl EngineRuntime for ClaudeAdapter {
                                     control_task,
                                     &sessions,
                                     active_session_id,
-                                    control_tx.clone(),
+                                    SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
                                 )
                                 .await;
                                 let _ = event_tx.send(event);
@@ -421,7 +485,7 @@ impl EngineRuntime for ClaudeAdapter {
                                     control_task,
                                     &sessions,
                                     active_session_id,
-                                    control_tx.clone(),
+                                    SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
                                 )
                                 .await;
                                 return;
@@ -448,7 +512,7 @@ impl EngineRuntime for ClaudeAdapter {
                                 control_task,
                                 &sessions,
                                 active_session_id,
-                                control_tx.clone(),
+                                SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
                             )
                             .await;
                             let _ = event_tx.send(RuntimeEvent::Completed {
@@ -470,7 +534,7 @@ impl EngineRuntime for ClaudeAdapter {
                             control_task,
                             &sessions,
                             active_session_id,
-                            control_tx.clone(),
+                            SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
                         )
                         .await;
                         let _ = event_tx.send(RuntimeEvent::Completed {
@@ -490,7 +554,7 @@ impl EngineRuntime for ClaudeAdapter {
                             control_task,
                             &sessions,
                             active_session_id,
-                            control_tx.clone(),
+                            SessionHandle::new(control_tx.clone(), cancel_grace_tx.clone()),
                         )
                         .await;
                         let _ = event_tx.send(RuntimeEvent::Completed {
@@ -509,7 +573,14 @@ impl EngineRuntime for ClaudeAdapter {
     }
 
     async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
-        self.send_control(session_id, BridgeOutbound::Cancel).await
+        self.send_control(session_id, BridgeOutbound::Cancel).await?;
+        // Start the local grace clock (ticket 10): the execute-loop task kills
+        // the child if the bridge stream has not terminated within the grace
+        // window, so cancel always ends in Error + Completed within a bound.
+        if let Some(handle) = self.sessions.lock().await.get(session_id).cloned() {
+            let _ = handle.cancel_grace.send(());
+        }
+        Ok(())
     }
 
     async fn respond_permission(
@@ -670,8 +741,11 @@ mod tests {
     #[tokio::test]
     async fn stale_cleanup_keeps_a_newer_sender_for_the_same_session() {
         let sessions = Mutex::new(HashMap::new());
-        let (old_sender, _old_receiver) = mpsc::unbounded_channel::<ControlCommand>();
-        let (new_sender, _new_receiver) = mpsc::unbounded_channel::<ControlCommand>();
+        let (old_control, _old_receiver) = mpsc::unbounded_channel::<ControlCommand>();
+        let (new_control, _new_receiver) = mpsc::unbounded_channel::<ControlCommand>();
+        let (_, _grace_rx) = mpsc::unbounded_channel::<()>();
+        let old_sender = SessionHandle::new(old_control.clone(), unbounded_grace_sender());
+        let new_sender = SessionHandle::new(new_control.clone(), unbounded_grace_sender());
         sessions
             .lock()
             .await
@@ -695,8 +769,11 @@ mod tests {
     #[tokio::test]
     async fn duplicate_active_session_id_keeps_existing_route_and_rejects_new_child() {
         let sessions = Mutex::new(HashMap::new());
-        let (active_sender, active_receiver) = mpsc::unbounded_channel::<ControlCommand>();
-        let (duplicate_sender, _duplicate_receiver) = mpsc::unbounded_channel::<ControlCommand>();
+        let (active_control, active_receiver) = mpsc::unbounded_channel::<ControlCommand>();
+        let (duplicate_control, _duplicate_receiver) = mpsc::unbounded_channel::<ControlCommand>();
+        let active_sender = SessionHandle::new(active_control.clone(), unbounded_grace_sender());
+        let duplicate_sender =
+            SessionHandle::new(duplicate_control.clone(), unbounded_grace_sender());
 
         register_session(&sessions, "native-session", active_sender.clone())
             .await
@@ -717,8 +794,10 @@ mod tests {
         assert!(current.same_channel(&active_sender));
 
         drop(active_receiver);
-        let (replacement_sender, _replacement_receiver) =
+        let (replacement_control, _replacement_receiver) =
             mpsc::unbounded_channel::<ControlCommand>();
+        let replacement_sender =
+            SessionHandle::new(replacement_control.clone(), unbounded_grace_sender());
         register_session(&sessions, "native-session", replacement_sender.clone())
             .await
             .expect("closed stale sender may be replaced");
@@ -727,6 +806,11 @@ mod tests {
             .await
             .get("native-session")
             .is_some_and(|current| current.same_channel(&replacement_sender)));
+    }
+
+    fn unbounded_grace_sender() -> mpsc::UnboundedSender<()> {
+        let (tx, _rx) = mpsc::unbounded_channel::<()>();
+        tx
     }
 
     #[tokio::test]
@@ -806,6 +890,88 @@ export function query({ options }) {
             adapter.cancel(&session_id).await,
             Err(RuntimeError::SessionNotFound(id)) if id == session_id
         ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancel_kills_bridge_when_no_terminal_event_within_grace() {
+        let _environment_lock = node_environment_lock().lock().await;
+        if Command::new("node").arg("--version").output().is_err() {
+            eprintln!("skipping Node bridge integration test: node is not installed");
+            return;
+        }
+
+        let workspace = tempfile::tempdir().unwrap();
+        let package = workspace
+            .path()
+            .join("node_modules/@anthropic-ai/claude-agent-sdk");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"@anthropic-ai/claude-agent-sdk","type":"module","exports":"./index.js"}"#,
+        )
+        .unwrap();
+        // A bridge that starts but never terminates, and ignores cancel/abort —
+        // the ticket-10 reproduction: cancel must still produce a terminal
+        // pair within the grace window by killing the child locally.
+        std::fs::write(
+            package.join("index.js"),
+            r#"
+export function query({ options }) {
+  return (async function* () {
+    yield { type: "system", subtype: "init", session_id: "fake-session", model: "fake", tools: [] };
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 100_000));
+    }
+  })();
+}
+"#,
+        )
+        .unwrap();
+
+        let adapter = ClaudeAdapter::new(ClaudeAdapterConfig::default());
+        let mut events = adapter
+            .execute(RuntimeRequest::new("test").with_cwd(workspace.path()))
+            .unwrap();
+        let session_id = tokio::time::timeout(Duration::from_secs(5), async {
+            while let Some(event) = events.next().await {
+                if let RuntimeEvent::SessionStarted { session_id, .. } = event {
+                    return session_id;
+                }
+            }
+            panic!("bridge stream ended before SessionStarted")
+        })
+        .await
+        .expect("fake bridge must start");
+
+        adapter
+            .cancel(&session_id)
+            .await
+            .expect("cancel deliver must succeed");
+
+        // The bridge never terminates on its own, so only the local grace
+        // kill can close the stream. Assert the terminal pair arrives within
+        // a bound larger than CANCEL_GRACE_MS.
+        let mut saw_fatal = false;
+        let mut saw_completed = false;
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while let Some(event) = events.next().await {
+                match event {
+                    RuntimeEvent::Error {
+                        recoverable: false,
+                        ..
+                    } => saw_fatal = true,
+                    RuntimeEvent::Completed { .. } => {
+                        saw_completed = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("cancel must close the bridge stream within the grace bound");
+        assert!(saw_fatal, "cancel must produce Error{{fatal}} before Completed");
+        assert!(saw_completed, "cancel must produce Completed");
     }
 
     #[tokio::test(flavor = "current_thread")]
