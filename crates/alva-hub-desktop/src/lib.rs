@@ -23,9 +23,10 @@ pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
 pub use inspection::{HubInspectionRecord, HubInspectionSnapshot, HubInspectorService};
 pub use permissions::{
-    enforcement_for, permission_eligibility, permission_group_key, release_run_engines,
-    EnforcementPlan, EnforcementRelation, EngineEligibility, EngineEnforcement, PermissionGroup,
-    PermissionMember, PermissionProfile, PermissionRouter, RunEngineLease,
+    enforcement_for, is_stale_permission_error, permission_eligibility, permission_group_key,
+    release_run_engines, EnforcementPlan, EnforcementRelation, EngineEligibility, EngineEnforcement,
+    PermissionAnswerOutcome, PermissionGroup, PermissionMember, PermissionProfile, PermissionRouter,
+    RunEngineLease,
 };
 pub use provider_diagnostics::{
     diagnose_provider_inference, discover_provider_models, DiscoveredProviderModel,

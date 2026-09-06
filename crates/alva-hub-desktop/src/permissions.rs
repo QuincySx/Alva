@@ -268,6 +268,48 @@ pub struct PermissionRouter {
     pending: Mutex<HashMap<(String, String), PendingPermission>>,
 }
 
+/// A permission response's backend outcome, surfaced to the UI so a stale
+/// approval card can be told apart from a genuine delivery failure (ticket 03).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionAnswerOutcome {
+    /// The decision was routed to the engine (or the engine confirmed it was
+    /// already denied on its side).
+    Delivered,
+    /// The request is no longer answerable — already answered, the attempt
+    /// ended, or the engine auto-denied it before the user replied.
+    Expired,
+}
+
+/// Whether a `respond` error string means "this approval is no longer
+/// actionable" rather than a genuine failure. The router miss text and the
+/// engine's `PermissionNotFound` / `SessionNotFound` displays are the stale
+/// class; everything else (process errors, timeouts) is a real failure.
+pub fn is_stale_permission_error(error: &str) -> bool {
+    error.contains("is not pending for Hub session")
+        || error.contains("Permission request not found:")
+        || error.contains("Session not found:")
+}
+
+#[cfg(test)]
+mod stale_tests {
+    use super::*;
+
+    #[test]
+    fn classifies_stale_and_genuine_messages() {
+        // Stale class: the engine already auto-denied / the attempt ended.
+        assert!(is_stale_permission_error(
+            "permission request 'req-1' is not pending for Hub session 'p-1'; \
+             it may already be answered or the attempt ended"
+        ));
+        assert!(is_stale_permission_error("Permission request not found: req-1"));
+        assert!(is_stale_permission_error("Session not found: native-1"));
+        // Genuine failures must not be labeled expired.
+        assert!(!is_stale_permission_error("Process error: codex exited with 1"));
+        assert!(!is_stale_permission_error("Bridge process failed"));
+    }
+}
+
 impl PermissionRouter {
     pub fn new() -> Self {
         Self::default()

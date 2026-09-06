@@ -537,8 +537,9 @@ export default function App() {
   const [transcriptSharing, setTranscriptSharingState] = useState(false);
   const [eligibility, setEligibility] = useState<EngineEligibility[]>([]);
   // request_id → outcome, so an answered approval card cannot be re-sent.
+  // "expired" marks a card whose engine already auto-denied / attempt ended.
   const [answeredPermissions, setAnsweredPermissions] = useState<
-    Record<string, "allowed" | "denied">
+    Record<string, "allowed" | "denied" | "expired">
   >({});
   const [fallbackPolicy, setFallbackPolicy] = useState<FallbackPolicy>({
     targets: [],
@@ -1417,12 +1418,19 @@ export default function App() {
     allow: boolean,
   ) {
     try {
-      await respondHubPermission(productSessionId, requestId, allow);
-      setAnsweredPermissions((current) => ({
-        ...current,
-        [requestId]: allow ? "allowed" : "denied",
-      }));
-      // A group card must not keep offering a request that is now answered.
+      const outcome = await respondHubPermission(productSessionId, requestId, allow);
+      if (outcome === "expired") {
+        // The engine already auto-denied (or the attempt ended) before the
+        // user replied — never record a decision, just mark the card stale.
+        setAnsweredPermissions((current) => ({ ...current, [requestId]: "expired" }));
+      } else {
+        setAnsweredPermissions((current) => ({
+          ...current,
+          [requestId]: allow ? "allowed" : "denied",
+        }));
+      }
+      // A group card must not keep offering a request that is now answered
+      // (or no longer pending).
       await refreshApprovalGroups();
     } catch (error) {
       appendLocalFailure(error);

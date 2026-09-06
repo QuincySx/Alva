@@ -15,7 +15,7 @@ import type { EngineTarget, HandoffPackage, TimelineEvent } from "../bridge";
 import { Button } from "../ui";
 import { localizeSystemText, useI18n } from "../i18n";
 
-export type PermissionAnswer = "allowed" | "denied";
+export type PermissionAnswer = "allowed" | "denied" | "expired";
 
 export type HubTimelineEvent = TimelineEvent & {
   role?: "user" | "assistant";
@@ -286,7 +286,9 @@ export function HubTimeline({
                     <small className="permission-answered">
                       {answeredPermissions[entry.permission_request.request_id] === "allowed"
                         ? t("timeline.allowed")
-                        : t("timeline.denied")}
+                        : answeredPermissions[entry.permission_request.request_id] === "denied"
+                          ? t("timeline.denied")
+                          : t("timeline.expired")}
                     </small>
                   ) : (
                     <div className="timeline-controls">

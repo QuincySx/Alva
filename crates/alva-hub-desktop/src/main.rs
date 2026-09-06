@@ -409,7 +409,7 @@ struct PermissionDecisionRequest {
 async fn respond_hub_permission(
     state: State<'_, DesktopState>,
     request: PermissionDecisionRequest,
-) -> Result<(), String> {
+) -> Result<alva_hub_desktop::PermissionAnswerOutcome, String> {
     let member = state
         .permission_router
         .groups()
@@ -430,30 +430,41 @@ async fn respond_hub_permission(
                 .unwrap_or_else(|| "Denied by the user".to_string()),
         }
     };
-    state
+    match state
         .permission_router
         .respond(&request.product_session_id, &request.request_id, decision)
-        .await?;
-    if let Some(member) = member {
-        let summary = format!(
-            "{} '{}'{} for {}",
-            if request.allow { "Allowed" } else { "Denied" },
-            member.tool_name,
-            member
-                .resource
-                .as_deref()
-                .map(|resource| format!(" on {resource}"))
-                .unwrap_or_default(),
-            member.requester,
-        );
-        if let Err(error) = state
-            .store
-            .record_permission_decision(&request.product_session_id, &summary)
-        {
-            tracing::warn!(%error, "failed to record Hub approval audit");
+        .await
+    {
+        Ok(()) => {
+            if let Some(member) = member {
+                let summary = format!(
+                    "{} '{}'{} for {}",
+                    if request.allow { "Allowed" } else { "Denied" },
+                    member.tool_name,
+                    member
+                        .resource
+                        .as_deref()
+                        .map(|resource| format!(" on {resource}"))
+                        .unwrap_or_default(),
+                    member.requester,
+                );
+                if let Err(error) = state
+                    .store
+                    .record_permission_decision(&request.product_session_id, &summary)
+                {
+                    tracing::warn!(%error, "failed to record Hub approval audit");
+                }
+            }
+            Ok(alva_hub_desktop::PermissionAnswerOutcome::Delivered)
         }
+        Err(message) if alva_hub_desktop::is_stale_permission_error(&message) => {
+            // Already answered / attempt ended / engine auto-denied before the
+            // user replied: never record an audit row, tell the UI the card is
+            // stale (ticket 03).
+            Ok(alva_hub_desktop::PermissionAnswerOutcome::Expired)
+        }
+        Err(message) => Err(message),
     }
-    Ok(())
 }
 
 #[derive(Deserialize)]

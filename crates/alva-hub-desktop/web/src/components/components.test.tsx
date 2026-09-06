@@ -5,7 +5,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { EngineTarget, ModelRoute, ProviderDiagnosticResult, ProviderProfile } from "../bridge";
+import type { EngineTarget, ModelRoute, ProviderDiagnosticResult, ProviderProfile, TimelineEvent } from "../bridge";
 import { I18nProvider } from "../i18n";
 import { demoDetail, demoInspection } from "../demo-data";
 import { UIProvider } from "../ui";
@@ -99,6 +99,41 @@ function providerRoute(providerId: string, available = true): ModelRoute {
 }
 
 describe("Hub domain components", () => {
+  it("renders an expired approval card without re-offering Allow/Deny", () => {
+    window.localStorage.setItem("alva-hub.language", "en-US");
+    const event: TimelineEvent = {
+      status: "permission_required",
+      engine_id: "alva",
+      product_session_id: "p-1",
+      message: null,
+      permission_request: {
+        request_id: "req-expired",
+        tool_name: "Bash",
+        description: null,
+        engine_session_id: "native-1",
+      },
+    };
+    render(
+      <I18nProvider>
+        <UIProvider>
+          <HubTimeline
+            activeSessionId="p-1"
+            answeredPermissions={{ "req-expired": "expired" }}
+            attemptIsLive={false}
+            events={[event]}
+            onAnswerPermission={() => void Promise.resolve()}
+            onStop={() => void Promise.resolve()}
+            onSwitchBack={() => void Promise.resolve()}
+          />
+        </UIProvider>
+      </I18nProvider>,
+    );
+    expect(screen.getByText("This approval has expired.")).toBeTruthy();
+    // No Allow/Deny buttons on a stale card — the answer can never land.
+    expect(screen.queryByText("Allow")).toBeNull();
+    expect(screen.queryByText("Deny")).toBeNull();
+  });
+
   it("drills into a child Agent and returns through the Inspector page stack", async () => {
     window.localStorage.setItem("alva-hub.language", "en-US");
     const user = userEvent.setup();

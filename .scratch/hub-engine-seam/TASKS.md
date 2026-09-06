@@ -9,7 +9,7 @@
 |---|---|---|
 | [01](./issues/01-codex-pi-fatal-no-break.md) ✅ | codex / pi 在 fatal Error 后不停止读取循环 | ~~时间线已标「失败」，助手还在继续追加正文和工具活动~~ **DONE 2026-09-01** |
 | [02](./issues/02-alva-adapter-silent-missing-completed.md) ✅ | alva adapter 两条早退路径漏发 Completed | ~~本地 panic 被伪装成引擎故障，自动换引擎重跑~~ **DONE 2026-09-01** |
-| [03](./issues/03-permission-result-discarded-audit-lies.md) 🔶 | 审批结果被丢弃 | ~~引擎早已拒绝，审计却说「已允许」~~ **alva 侧 DONE 2026-09-01；claude 侧见 18** |
+| [03](./issues/03-permission-result-discarded-audit-lies.md) ✅ | 审批结果被丢弃 | ~~引擎早已拒绝，审计却说「已允许」~~ **DONE 2026-09-06**：alva 侧 + claude 侧（工单 18）+ desktop 卡片「该审批已过期」态补齐 |
 | [04](./issues/04-gpui-port-regressions.md) ✅ | GPUI 移植走样 | ~~Interrupt 按钮保证无效 + Pi 加不进降级链~~ **DONE 2026-09-01** |
 | [05](./issues/05-hub-server-engine-handle-leak.md) ✅ | hub-server 错误路径泄漏引擎句柄 | ~~之后点「停止」返回成功、实际什么都没停~~ **DONE 2026-09-01**（顺带修了 gpui 完全无清理） |
 | [06](./issues/06-required-capabilities-vocabulary-collision.md) ✅ | required_capabilities 词表对撞 | ~~任何模型能力词进入该字段 → 降级目标被永久静默否决~~ **DONE 2026-09-02**（路线 B：白名单 + veto 只看引擎词） |

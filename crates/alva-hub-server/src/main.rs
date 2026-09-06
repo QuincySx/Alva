@@ -446,7 +446,12 @@ async fn respond_permission(
         .respond(&id, &body.request_id, decision)
         .await
     {
-        Ok(()) => Json(json!({ "ok": true })).into_response(),
+        Ok(()) => Json(json!({ "ok": true, "outcome": "delivered" })).into_response(),
+        Err(e) if alva_hub_desktop::is_stale_permission_error(&e) => {
+            // Never record an audit row for a stale card (ticket 03): the
+            // engine already auto-denied or the attempt ended.
+            Json(json!({ "ok": false, "outcome": "expired" })).into_response()
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }

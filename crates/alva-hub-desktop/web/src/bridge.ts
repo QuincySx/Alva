@@ -770,17 +770,21 @@ export async function respondHubPermission(
   requestId: string,
   allow: boolean,
   message?: string,
-): Promise<void> {
+): Promise<"delivered" | "expired"> {
   if (HTTP) {
-    await httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/permission`, { request_id: requestId, allow, message: message ?? null });
-    return;
+    const body = await httpJson<{ outcome?: string }>(
+      `/api/sessions/${encodeURIComponent(productSessionId)}/permission`,
+      { request_id: requestId, allow, message: message ?? null },
+    );
+    if (body?.outcome === "expired") return "expired";
+    return "delivered";
   }
   if (!hasTauri) {
     throw new Error(
       "Answering a permission request requires the ALVA Hub desktop runtime.",
     );
   }
-  await invoke("respond_hub_permission", {
+  return await invoke<"delivered" | "expired">("respond_hub_permission", {
     request: { productSessionId, requestId, allow, message: message ?? null },
   });
 }
