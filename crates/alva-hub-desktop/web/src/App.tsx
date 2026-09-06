@@ -141,7 +141,7 @@ import {
   type SaveProviderProfile,
   type WorkspaceKind,
 } from "./bridge";
-import { localizeProductText, localizeSystemText, useI18n, type Locale } from "./i18n";
+import { localizeProductText, localizeSystemText, useI18n, type Locale, type Translate } from "./i18n";
 
 export function describeReadinessReason(reason: ReadinessReason, locale: Locale = "en-US"): string {
   const zh = locale === "zh-CN";
@@ -388,6 +388,80 @@ export function projectTimeline(detail: HubSessionDetail, locale: Locale = "en-U
   return [...turns, ...switches].sort(
     (left, right) => (left.created_at ?? 0) - (right.created_at ?? 0),
   );
+}
+
+/// What the header shows next to the session title.
+///
+/// `timeline.at(-1)` is "the last thing that happened", **not** "what the
+/// system is doing right now". A finished turn replayed from the store ends on
+/// `assistant_message` — `projectTimeline` has no completed state, it only
+/// special-cases failed / running / interrupted — so deriving an in-progress
+/// phrasing from the last event alone leaves the header stuck on
+/// "<engine> is replying" for a turn that ended minutes ago. Every in-progress
+/// wording is therefore gated on the attempt actually being live.
+export function statusLabelFor(
+  latest: HubTimelineEvent | undefined,
+  attemptIsLive: boolean,
+  t: Translate,
+): string {
+  if (!latest) return t("status.ready");
+  if (!attemptIsLive) {
+    switch (latest.status) {
+      case "failed":
+        return t("status.failed");
+      case "interrupted":
+        return t("status.interrupted");
+      case "exhausted":
+        return t("status.fallbackExhausted");
+      case "queued":
+        return t("status.switchQueued");
+      case "cancelled":
+        return t("status.switchCancelled");
+      case "switched":
+        return t("status.switched");
+      case "permission_required":
+        return t("status.awaitingApproval", { engine: latest.engine_id });
+      default:
+        return t("status.completed");
+    }
+  }
+  switch (latest.status) {
+    case "user_message":
+      return t("status.messageSent");
+    case "assistant_message":
+      return t("status.responding", { engine: latest.engine_id });
+    case "activity_started":
+      return t("status.usingTool", {
+        engine: latest.engine_id,
+        tool: latest.activity?.tool_name ?? t("settings.tools"),
+      });
+    case "activity_completed":
+      return t("status.activityCompleted");
+    case "running":
+      return t("status.working", { engine: latest.engine_id });
+    case "completed":
+      return t("status.completed");
+    case "failed":
+      return t("status.failed");
+    case "interrupted":
+      return t("status.interrupted");
+    case "queued":
+      return t("status.switchQueued");
+    case "switched":
+      return t("status.switched");
+    case "cancelled":
+      return t("status.switchCancelled");
+    case "fallback":
+      return t("status.fallback");
+    case "exhausted":
+      return t("status.fallbackExhausted");
+    case "permission_required":
+      return t("status.awaitingApproval", { engine: latest.engine_id });
+    case "worker":
+      return t("status.workerOutcome");
+    default:
+      return t("status.ready");
+  }
 }
 
 export function mergeLiveTimeline(
@@ -719,42 +793,10 @@ export default function App() {
     activeSessionId !== null && cancellableSessionId === activeSessionId;
 
   const latest = timeline.at(-1);
-  const statusLabel = useMemo(() => {
-    switch (latest?.status) {
-      case "user_message":
-        return t("status.messageSent");
-      case "assistant_message":
-        return t("status.responding", { engine: latest.engine_id });
-      case "activity_started":
-        return t("status.usingTool", { engine: latest.engine_id, tool: latest.activity?.tool_name ?? t("settings.tools") });
-      case "activity_completed":
-        return t("status.activityCompleted");
-      case "running":
-        return t("status.working", { engine: latest.engine_id });
-      case "completed":
-        return t("status.completed");
-      case "failed":
-        return t("status.failed");
-      case "interrupted":
-        return t("status.interrupted");
-      case "queued":
-        return t("status.switchQueued");
-      case "switched":
-        return t("status.switched");
-      case "cancelled":
-        return t("status.switchCancelled");
-      case "fallback":
-        return t("status.fallback");
-      case "exhausted":
-        return t("status.fallbackExhausted");
-      case "permission_required":
-        return t("status.awaitingApproval", { engine: latest.engine_id });
-      case "worker":
-        return t("status.workerOutcome");
-      default:
-        return t("status.ready");
-    }
-  }, [latest, t]);
+  const statusLabel = useMemo(
+    () => statusLabelFor(latest, attemptIsLive, t),
+    [latest, attemptIsLive, t],
+  );
 
   const activeBranch = sessionDetail?.branches.find(
     (branch) => branch.branch_id === sessionDetail.session.active_branch_id,

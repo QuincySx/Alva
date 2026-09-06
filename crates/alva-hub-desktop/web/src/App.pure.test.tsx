@@ -13,6 +13,7 @@ import {
   mergeLiveTimeline,
   parseClaims,
   projectTimeline,
+  statusLabelFor,
 } from "./App";
 import type { HubSessionDetail } from "./bridge";
 import type { HubTimelineEvent } from "./components/hub-timeline";
@@ -293,5 +294,54 @@ describe("formatRelativeTime", () => {
 
   it("never goes negative for future timestamps", () => {
     expect(formatRelativeTime(NOW + 60_000, NOW)).toBe("just now");
+  });
+});
+
+describe("statusLabelFor", () => {
+  // Assert the message key, not the copy: this pins behaviour without going
+  // red every time the wording is edited.
+  const key = ((k: string) => k) as never;
+
+  const event = (status: string): HubTimelineEvent =>
+    ({
+      status,
+      role: "assistant",
+      engine_id: "alva",
+      product_session_id: "session-1",
+      message: "hi",
+      created_at: 1,
+      item_id: "assistant-1",
+    }) as HubTimelineEvent;
+
+  it("does not claim the engine is replying once the attempt is over", () => {
+    // A turn replayed from the store ends on `assistant_message` —
+    // `projectTimeline` only special-cases failed/running/interrupted — so the
+    // header used to sit on "…is replying" forever after any reload.
+    expect(statusLabelFor(event("assistant_message"), false, key)).toBe(
+      "status.completed",
+    );
+  });
+
+  it("still reports live progress while the attempt is running", () => {
+    expect(statusLabelFor(event("assistant_message"), true, key)).toBe(
+      "status.responding",
+    );
+    expect(statusLabelFor(event("activity_started"), true, key)).toBe(
+      "status.usingTool",
+    );
+  });
+
+  it("keeps terminal outcomes distinguishable when the attempt is over", () => {
+    expect(statusLabelFor(event("failed"), false, key)).toBe("status.failed");
+    expect(statusLabelFor(event("interrupted"), false, key)).toBe(
+      "status.interrupted",
+    );
+    expect(statusLabelFor(event("exhausted"), false, key)).toBe(
+      "status.fallbackExhausted",
+    );
+  });
+
+  it("reports ready for a session that has not run yet", () => {
+    expect(statusLabelFor(undefined, false, key)).toBe("status.ready");
   });
 });
