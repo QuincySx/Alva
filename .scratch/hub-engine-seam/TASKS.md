@@ -24,15 +24,16 @@
 
 > 多数今天被「旗舰产品每轮重建 `HubRuntime`」掩盖，只有 hub-cli 持长生命周期实例。
 > `docs/specs/hub-headless-service.md` 路线 A 的常驻 hub-server 一旦落地，07/08/09 当天变成线上并发 bug。
+> **07/08/09/12 已于 2026-09-06 随 `46a2xxx`（claim_seq + abandon + 终端态收窄 + ToolEnd 合成）一起落地**；剩余 10/11 是各自独立的工程面改动。
 
 | # | 标题 | 一句话影响 |
 |---|---|---|
-| [07](./issues/07-session-state-clobber-claim-seq.md) | 旧轮回滚快照覆写新轮状态（引入 `claim_seq`） | 同一会话可能同时跑两条引擎流；致命失败的一轮被显示成「已完成」 |
-| [08](./issues/08-abandon-verb-stuck-session.md) | 会话卡在 Starting/Running 无出口（补 `abandon`） | 消费者提前放弃某轮 → 该会话**永久**不可用，且此时连取消都调不动 |
-| [09](./issues/09-restore-session-illegal-state.md) | `restore_session` 可直接种出非法状态 | 恢复时传错状态值 → 会话一落地就永远报 "already running" |
-| [10](./issues/10-cancel-semantics-three-tiers.md) | cancel 是三档而非一档 | 显示「已停止」但子进程仍在计费；另有窗口期停不掉、180s 后自动换引擎重跑 |
+| [07](./issues/07-session-state-clobber-claim-seq.md) ✅ | 旧轮回滚快照覆写新轮状态（引入 `claim_seq`） | ~~同一会话可能同时跑两条引擎流；致命失败的一轮被显示成「已完成」~~ **DONE 2026-09-06** |
+| [08](./issues/08-abandon-verb-stuck-session.md) ✅ | 会话卡在 Starting/Running 无出口（补 `abandon`） | ~~消费者提前放弃某轮 → 该会话**永久**不可用，且此时连取消都调不动~~ **DONE 2026-09-06** |
+| [09](./issues/09-restore-session-illegal-state.md) ✅ | `restore_session` 可直接种出非法状态 | ~~恢复时传错状态值 → 会话一落地就永远报 "already running"~~ **DONE 2026-09-06** |
+| [10](./issues/10-cancel-semantics-three-tiers.md) 🔶 | cancel 是三档而非一档 | 显示「已停止」但子进程仍在计费；另有窗口期停不掉、180s 后自动换引擎重跑（Hub 侧两级已随 08 落地，剩引擎契约文档 + claude grace + UI 时序） |
 | [11](./issues/11-resume-failure-self-heal-is-dead-code.md) | resume 失败的自愈路径生产永不触发 | 会话被永久焊死，每次都拿同一个失效 id 去 resume |
-| [12](./issues/12-unclosed-tool-synthesize-toolend.md) | 未闭合工具卡片永远停在 running | 已落盘，刷新和重开应用都恢复不了 |
+| [12](./issues/12-unclosed-tool-synthesize-toolend.md) ✅ | 未闭合工具卡片永远停在 running | ~~已落盘，刷新和重开应用都恢复不了~~ **DONE 2026-09-06** |
 
 ## P2 —— 架构收口（修的是「明天不会更糟」）
 

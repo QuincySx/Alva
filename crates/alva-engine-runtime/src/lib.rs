@@ -10,6 +10,7 @@ pub mod stream_contract;
 
 pub use error::RuntimeError;
 pub use event::{PermissionDecision, RuntimeCapabilities, RuntimeEvent, RuntimeUsage};
+pub use alva_kernel_abi::ToolOutput;
 pub use inspector::{
     encode_jsonl_bundle, ChildSessionLink, EngineInspector, InspectionCapabilities,
     InspectionLevel, InspectionSnapshot, InspectionStream, InspectionUpdate,

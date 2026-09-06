@@ -7,11 +7,13 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use alva_engine_runtime::{
-    EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeRequest, StreamContract,
+    EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeRequest, SoftStreamWarning,
+    StreamContract, ToolOutput,
 };
 use futures_core::Stream;
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::HubError;
@@ -131,6 +133,14 @@ struct HubSession {
     stream_hard_violations: u32,
     stream_soft_warnings: u32,
     last_stream_violation: Option<String>,
+    /// Monotonic per-turn claim counter. Every execute / abandon bumps it;
+    /// a spawned turn only mutates the session while `claim_seq == my_seq`,
+    /// so a superseded turn's tail writes can never clobber a newer claim.
+    claim_seq: u64,
+    /// Cancellation handle for the currently claimed turn. `abandon` cancels
+    /// it so the spawned task stops draining an engine stream that will never
+    /// terminate on its own.
+    cancel_token: Option<CancellationToken>,
 }
 
 impl HubSession {
@@ -146,6 +156,8 @@ impl HubSession {
             stream_hard_violations: 0,
             stream_soft_warnings: 0,
             last_stream_violation: None,
+            claim_seq: 0,
+            cancel_token: None,
         }
     }
 
@@ -307,6 +319,17 @@ impl HubRuntime {
         if engine_session_id.trim().is_empty() {
             return Err(HubError::SessionNotReady(product_session_id.to_string()));
         }
+        // A restored session is rehydrated from disk with no running turn.
+        // Refuse non-terminal states so a product cannot plant a session that
+        // is forever "already running" with no recoverable exit.
+        if !matches!(
+            status,
+            HubSessionStatus::Completed | HubSessionStatus::Failed
+        ) {
+            return Err(HubError::SessionNotReady(format!(
+                "restored session '{product_session_id}' cannot be in non-terminal state {status:?}"
+            )));
+        }
         // Engine must be registered so resume routing is possible.
         let _ = self.engine(&engine_id)?;
 
@@ -399,6 +422,32 @@ impl HubRuntime {
         Ok(session.snapshot(product_session_id.clone()))
     }
 
+    /// Abandon a stuck product session and release its claim.
+    ///
+    /// Consumers that give up on a turn (timeout, Ctrl-C, closed tab) must not
+    /// leave the session permanently busy. `abandon` cancels the in-flight
+    /// spawned turn (via its [`CancellationToken`]) and moves the session to a
+    /// terminal [`HubSessionStatus::Failed`], so the next [`Self::execute`] or
+    /// [`Self::switch_engine`] can reclaim it. The abandoned turn's tail writes
+    /// are blocked by the `claim_seq` guard.
+    pub fn abandon(&self, product_session_id: &ProductSessionId) -> Result<HubSessionSnapshot, HubError> {
+        let mut sessions = self
+            .sessions
+            .write()
+            .expect("Hub session registry lock poisoned");
+        let session = sessions
+            .get_mut(product_session_id)
+            .ok_or_else(|| HubError::SessionNotFound(product_session_id.to_string()))?;
+        if let Some(token) = session.cancel_token.take() {
+            token.cancel();
+        }
+        // Invalidate any in-flight turn so its tail writes become no-ops even
+        // if a new claim races in before the old task finishes unwinding.
+        session.claim_seq = session.claim_seq.wrapping_add(1);
+        session.status = HubSessionStatus::Failed;
+        Ok(session.snapshot(product_session_id.clone()))
+    }
+
     pub fn sessions(&self) -> Vec<HubSessionSnapshot> {
         let mut sessions = self
             .sessions
@@ -421,11 +470,12 @@ impl HubRuntime {
         let product_session_id = request.product_session_id.unwrap_or_default();
         let mut runtime_request = request.request;
         let handoff_context = request.handoff_context;
+        let cancel_token = CancellationToken::new();
 
         // Claim the product session under one write lock. Without this
         // transition a pair of concurrent resume calls can both observe
         // `Completed` and enter the same native session.
-        let (previous_session, handoff_context_used) = {
+        let (previous_session, handoff_context_used, my_seq) = {
             let mut sessions = self
                 .sessions
                 .write()
@@ -479,16 +529,19 @@ impl HubRuntime {
                     existing.pending_handoff = false;
                 }
 
+                existing.claim_seq = existing.claim_seq.wrapping_add(1);
+                let my_seq = existing.claim_seq;
+                existing.cancel_token = Some(cancel_token.clone());
                 existing.status = HubSessionStatus::Starting;
                 // New execute turn: diagnostics describe the stream about to run.
                 existing.reset_stream_diagnostics();
-                (Some(rollback), handoff_context_used)
+                (Some(rollback), handoff_context_used, my_seq)
             } else {
-                sessions.insert(
-                    product_session_id.clone(),
-                    HubSession::new(request.engine_id.clone()),
-                );
-                (None, None)
+                let mut fresh = HubSession::new(request.engine_id.clone());
+                fresh.claim_seq = 1;
+                fresh.cancel_token = Some(cancel_token.clone());
+                sessions.insert(product_session_id.clone(), fresh);
+                (None, None, 1)
             }
         };
 
@@ -525,10 +578,17 @@ impl HubRuntime {
             // still synthesized below.
             let mut contract = StreamContract::new();
             let mut hard_violations = 0u32;
-            while let Some(event) = engine_stream.next().await {
+            loop {
+                // `abandon` cancels this token so the loop stops draining an
+                // engine stream that will never terminate on its own.
+                let event = tokio::select! {
+                    ev = engine_stream.next() => ev,
+                    _ = cancel_token.cancelled() => None,
+                };
+                let Some(event) = event else { break };
                 if let Err(err) = contract.observe(&event) {
                     hard_violations = hard_violations.saturating_add(1);
-                    record_hard_violation(&sessions, &output_session_id, &err.to_string());
+                    record_hard_violation(&sessions, &output_session_id, my_seq, &err.to_string());
                     warn!(
                         product_session = %output_session_id,
                         engine = %engine_id,
@@ -551,7 +611,7 @@ impl HubRuntime {
                         ..
                     }
                 );
-                update_session(&sessions, &output_session_id, &event);
+                update_session(&sessions, &output_session_id, my_seq, &event);
                 if output_open
                     && event_tx
                         .send(HubEvent {
@@ -567,14 +627,21 @@ impl HubRuntime {
                     output_open = false;
                 }
             }
+            // Unclosed tools are closed with a synthesized failing ToolEnd so
+            // a mid-tool death / stall does not leave the product's tool card
+            // stuck on "running" (ticket 12). Take warnings on both branches.
+            let mut unclosed_tools = Vec::new();
             match contract.finish() {
                 Ok(()) => {
                     let warnings = contract.soft_warnings();
                     let soft_count = warnings.len() as u32;
                     if soft_count > 0 {
-                        record_soft_warnings(&sessions, &output_session_id, soft_count);
+                        record_soft_warnings(&sessions, &output_session_id, my_seq, soft_count);
                     }
                     for warning in warnings {
+                        if let SoftStreamWarning::UnclosedTool { id, name } = &warning {
+                            unclosed_tools.push((id.clone(), name.clone()));
+                        }
                         debug!(
                             product_session = %output_session_id,
                             engine = %engine_id,
@@ -588,7 +655,12 @@ impl HubRuntime {
                     // synthesis below repairs the product edge.
                     if hard_violations == 0 {
                         hard_violations = 1;
-                        record_hard_violation(&sessions, &output_session_id, &err.to_string());
+                        record_hard_violation(&sessions, &output_session_id, my_seq, &err.to_string());
+                    }
+                    for warning in contract.soft_warnings() {
+                        if let SoftStreamWarning::UnclosedTool { id, name } = &warning {
+                            unclosed_tools.push((id.clone(), name.clone()));
+                        }
                     }
                     warn!(
                         product_session = %output_session_id,
@@ -606,10 +678,28 @@ impl HubRuntime {
                     "engine stream finished with contract hard violations"
                 );
             }
+            // Close any tools left open, before the terminal pair so the
+            // product receives ToolEnd before Error/Completed.
+            if !unclosed_tools.is_empty() && output_open {
+                for (id, name) in &unclosed_tools {
+                    let _ = event_tx.send(HubEvent {
+                        product_session_id: output_session_id.clone(),
+                        engine_id: engine_id.clone(),
+                        event: RuntimeEvent::ToolEnd {
+                            id: id.clone(),
+                            name: name.clone(),
+                            result: ToolOutput::error(
+                                "engine ended with tool still running".to_string(),
+                            ),
+                            duration_ms: None,
+                        },
+                    });
+                }
+            }
             if !saw_completed {
                 saw_fatal_error = true;
                 let engine_session_id =
-                    mark_session_failed(&sessions, &output_session_id).unwrap_or_else(|| {
+                    mark_session_failed(&sessions, &output_session_id, my_seq).unwrap_or_else(|| {
                         // No native session id exists when the engine never sent
                         // SessionStarted. The empty string is the honest value —
                         // downstream guards on `!is_empty()` — but it must not be
@@ -642,7 +732,7 @@ impl HubRuntime {
             }
             if saw_fatal_error {
                 if let Some((previous, context)) = failed_handoff_rollback {
-                    restore_failed_handoff(&sessions, &output_session_id, previous, context);
+                    restore_failed_handoff(&sessions, &output_session_id, previous, context, my_seq);
                 }
             }
         });
@@ -651,17 +741,28 @@ impl HubRuntime {
     }
 
     /// Route a product-level cancellation request to the active engine session.
+    ///
+    /// Two-tier (ticket 08): when the request cannot be routed to a native
+    /// engine session (no `engine_session_id` yet, or the engine does not
+    /// support cancellation), Hub still releases its own claim via
+    /// [`Self::abandon`] so the product session is never permanently stuck in
+    /// a non-terminal state.
     pub async fn cancel(&self, product_session_id: &ProductSessionId) -> Result<(), HubError> {
         let session = self
             .session(product_session_id)
             .ok_or_else(|| HubError::SessionNotFound(product_session_id.to_string()))?;
         let engine = self.engine(&session.engine_id)?;
+        let Some(engine_session_id) = session.engine_session_id.clone() else {
+            // No native session yet (early stall) — release the Hub claim so
+            // the next execute can reclaim instead of being permanently busy.
+            self.abandon(product_session_id)?;
+            return Ok(());
+        };
         if !engine.capabilities().cancel {
-            return Err(HubError::CancelUnsupported(session.engine_id.to_string()));
+            // Engine cannot be told to stop; still un-stick the session.
+            self.abandon(product_session_id)?;
+            return Ok(());
         }
-        let engine_session_id = session
-            .engine_session_id
-            .ok_or_else(|| HubError::SessionNotReady(product_session_id.to_string()))?;
         engine.cancel(&engine_session_id).await?;
         Ok(())
     }
@@ -705,6 +806,7 @@ impl HubRuntime {
 fn update_session(
     sessions: &RwLock<HashMap<ProductSessionId, HubSession>>,
     product_session_id: &ProductSessionId,
+    my_seq: u64,
     event: &RuntimeEvent,
 ) {
     let mut sessions = sessions
@@ -713,6 +815,10 @@ fn update_session(
     let Some(session) = sessions.get_mut(product_session_id) else {
         return;
     };
+    // A superseded turn must never mutate the session a newer claim owns.
+    if session.claim_seq != my_seq {
+        return;
+    }
     match event {
         RuntimeEvent::SessionStarted { session_id, .. } => {
             session.engine_session_id = Some(session_id.clone());
@@ -722,7 +828,9 @@ fn update_session(
         }
         RuntimeEvent::Error {
             recoverable: false, ..
-        } => session.status = HubSessionStatus::Failed,
+        } if session.status != HubSessionStatus::Completed => {
+            session.status = HubSessionStatus::Failed;
+        }
         RuntimeEvent::Completed { .. } if session.status != HubSessionStatus::Failed => {
             session.status = HubSessionStatus::Completed;
         }
@@ -733,11 +841,15 @@ fn update_session(
 fn mark_session_failed(
     sessions: &RwLock<HashMap<ProductSessionId, HubSession>>,
     product_session_id: &ProductSessionId,
+    my_seq: u64,
 ) -> Option<String> {
     let mut sessions = sessions
         .write()
         .expect("Hub session registry lock poisoned");
     let session = sessions.get_mut(product_session_id)?;
+    if session.claim_seq != my_seq {
+        return None;
+    }
     session.status = HubSessionStatus::Failed;
     session.engine_session_id.clone()
 }
@@ -745,6 +857,7 @@ fn mark_session_failed(
 fn record_hard_violation(
     sessions: &RwLock<HashMap<ProductSessionId, HubSession>>,
     product_session_id: &ProductSessionId,
+    my_seq: u64,
     detail: &str,
 ) {
     let mut sessions = sessions
@@ -753,6 +866,9 @@ fn record_hard_violation(
     let Some(session) = sessions.get_mut(product_session_id) else {
         return;
     };
+    if session.claim_seq != my_seq {
+        return;
+    }
     session.stream_hard_violations = session.stream_hard_violations.saturating_add(1);
     session.last_stream_violation = Some(detail.to_string());
 }
@@ -760,6 +876,7 @@ fn record_hard_violation(
 fn record_soft_warnings(
     sessions: &RwLock<HashMap<ProductSessionId, HubSession>>,
     product_session_id: &ProductSessionId,
+    my_seq: u64,
     count: u32,
 ) {
     let mut sessions = sessions
@@ -768,6 +885,9 @@ fn record_soft_warnings(
     let Some(session) = sessions.get_mut(product_session_id) else {
         return;
     };
+    if session.claim_seq != my_seq {
+        return;
+    }
     session.stream_soft_warnings = session.stream_soft_warnings.saturating_add(count);
 }
 
@@ -776,16 +896,28 @@ fn restore_failed_handoff(
     product_session_id: &ProductSessionId,
     mut previous: HubSession,
     context: String,
+    my_seq: u64,
 ) {
     let mut sessions = sessions
         .write()
         .expect("Hub session registry lock poisoned");
-    if let Some(failed) = sessions.get(product_session_id) {
-        previous.stream_hard_violations = failed.stream_hard_violations;
-        previous.stream_soft_warnings = failed.stream_soft_warnings;
-        previous.last_stream_violation = failed.last_stream_violation.clone();
+    let Some(failed) = sessions.get(product_session_id) else {
+        return;
+    };
+    // If a newer claim has taken over this session, the failed turn's tail
+    // must not clobber the newer turn's state.
+    if failed.claim_seq != my_seq {
+        return;
     }
+    previous.stream_hard_violations = failed.stream_hard_violations;
+    previous.stream_soft_warnings = failed.stream_soft_warnings;
+    previous.last_stream_violation = failed.last_stream_violation.clone();
+    previous.claim_seq = failed.claim_seq;
+    previous.cancel_token = failed.cancel_token.clone();
     previous.pending_handoff_context = Some(context);
+    // The turn failed; never restore the rollback's stale terminal status
+    // (ticket 07) — a fatal turn must be observable as Failed, not Completed.
+    previous.status = HubSessionStatus::Failed;
     sessions.insert(product_session_id.clone(), previous);
 }
 
@@ -838,6 +970,7 @@ mod tests {
         update_session(
             &sessions,
             &product_session_id,
+            0,
             &RuntimeEvent::Error {
                 message: "engine failed".into(),
                 recoverable: false,
@@ -846,6 +979,7 @@ mod tests {
         update_session(
             &sessions,
             &product_session_id,
+            0,
             &RuntimeEvent::Completed {
                 session_id: String::new(),
                 result: None,
@@ -865,6 +999,7 @@ mod tests {
         update_session(
             &sessions,
             &product_session_id,
+            0,
             &RuntimeEvent::Error {
                 message: "temporary failure".into(),
                 recoverable: true,
@@ -873,6 +1008,7 @@ mod tests {
         update_session(
             &sessions,
             &product_session_id,
+            0,
             &RuntimeEvent::SessionStarted {
                 session_id: "native-session".into(),
                 model: None,
@@ -882,6 +1018,7 @@ mod tests {
         update_session(
             &sessions,
             &product_session_id,
+            0,
             &RuntimeEvent::Completed {
                 session_id: "native-session".into(),
                 result: Some("done".into()),
@@ -1805,6 +1942,54 @@ mod tests {
         );
     }
 
+    /// Dies mid-tool: leaves a ToolStart open and then the stream ends without
+    /// a terminal pair — the reproduction for ticket 12.
+    struct MidrunDeathEngine;
+
+    #[async_trait]
+    impl EngineRuntime for MidrunDeathEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            Ok(Box::pin(stream::iter(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: "die-1".into(),
+                    model: None,
+                    tools: vec![],
+                },
+                RuntimeEvent::ToolStart {
+                    id: "t-open".into(),
+                    name: "bash".into(),
+                    input: serde_json::json!({}),
+                },
+            ])))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: true,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
     #[tokio::test]
     async fn clean_stream_has_zero_diagnostics() {
         let hub = HubRuntime::new();
@@ -1845,19 +2030,19 @@ mod tests {
     #[tokio::test]
     async fn switch_engine_refuses_a_running_session() {
         let hub = HubRuntime::new();
-        let engine = Arc::new(FakeEngine::new());
-        hub.register_engine("alva", engine).unwrap();
+        hub.register_engine("pending", Arc::new(PendingEngine))
+            .unwrap();
         let product_id = ProductSessionId::new();
-        hub.restore_session(
-            product_id.clone(),
-            "alva",
-            "native-running",
-            HubSessionStatus::Running,
-        )
-        .unwrap();
+        // A live claim (Starting) is the honest way to have a running session;
+        // restore_session no longer accepts non-terminal states.
+        let _first = hub
+            .execute(
+                HubRequest::new("pending", RuntimeRequest::new("first")).resume(product_id.clone()),
+            )
+            .unwrap();
 
         let error = hub
-            .switch_engine(&product_id, "alva")
+            .switch_engine(&product_id, "pending")
             .expect_err("a running session must not be switched");
         assert!(
             error.to_string().contains("already running"),
@@ -1877,5 +2062,285 @@ mod tests {
             error.to_string().contains("already registered"),
             "duplicate error names the id: {error}"
         );
+    }
+
+    // ticket 08: abandon must release a stuck claim so the session can be
+    // reclaimed by a later execute, and must stop the abandoned spawned turn.
+    #[tokio::test]
+    async fn abandoned_session_can_be_reclaimed() {
+        let hub = HubRuntime::new();
+        hub.register_engine("pending", Arc::new(PendingEngine))
+            .unwrap();
+        let product_id = ProductSessionId::new();
+
+        let _first = hub
+            .execute(
+                HubRequest::new("pending", RuntimeRequest::new("first")).resume(product_id.clone()),
+            )
+            .unwrap();
+        assert_eq!(
+            hub.session(&product_id).unwrap().status,
+            HubSessionStatus::Starting
+        );
+        // Before abandon: busy.
+        assert!(matches!(
+            hub.execute(
+                HubRequest::new("pending", RuntimeRequest::new("second")).resume(product_id.clone())
+            ),
+            Err(HubError::SessionBusy(_))
+        ));
+
+        hub.abandon(&product_id).unwrap();
+        assert_eq!(
+            hub.session(&product_id).unwrap().status,
+            HubSessionStatus::Failed
+        );
+        // After abandon: reclaimable.
+        assert!(hub
+            .execute(HubRequest::new("pending", RuntimeRequest::new("third")).resume(product_id))
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn abandon_stops_the_spawned_turn() {
+        let hub = HubRuntime::new();
+        hub.register_engine("pending", Arc::new(PendingEngine))
+            .unwrap();
+        let product_id = ProductSessionId::new();
+
+        let _stream = hub
+            .execute(
+                HubRequest::new("pending", RuntimeRequest::new("first")).resume(product_id.clone()),
+            )
+            .unwrap();
+        hub.abandon(&product_id).unwrap();
+
+        // The spawned task must terminate within a bounded time instead of
+        // hanging on stream::pending() forever. Give it a moment to unwind.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn cancel_releases_claim_when_engine_session_is_unknown() {
+        let hub = HubRuntime::new();
+        hub.register_engine("pending", Arc::new(PendingEngine))
+            .unwrap();
+        let product_id = ProductSessionId::new();
+        let _first = hub
+            .execute(
+                HubRequest::new("pending", RuntimeRequest::new("first")).resume(product_id.clone()),
+            )
+            .unwrap();
+        // stream::pending() never emits SessionStarted, so engine_session_id is
+        // None; cancel must release the claim rather than return SessionNotReady.
+        hub.cancel(&product_id).await.unwrap();
+        assert!(hub
+            .execute(HubRequest::new("pending", RuntimeRequest::new("second")).resume(product_id))
+            .is_ok());
+    }
+
+    // ticket 09: restore_session must refuse non-terminal states.
+    #[tokio::test]
+    async fn restore_session_rejects_non_terminal_status() {
+        let hub = HubRuntime::new();
+        hub.register_engine("alva", Arc::new(FakeEngine::new()))
+            .unwrap();
+        let err = hub
+            .restore_session(
+                ProductSessionId::from_existing("p-nonterm"),
+                "alva",
+                "e1",
+                HubSessionStatus::Running,
+            )
+            .unwrap_err();
+        assert!(matches!(err, HubError::SessionNotReady(_)));
+    }
+
+    // ticket 07: a Completed turn must not be re-written to Failed by a late
+    // fatal Error (the violation is still counted on the snapshot).
+    #[tokio::test]
+    async fn fatal_error_after_completed_keeps_completed() {
+        let (product_session_id, sessions) = session_registry();
+        update_session(
+            &sessions,
+            &product_session_id,
+            0,
+            &RuntimeEvent::Completed {
+                session_id: "e1".into(),
+                result: Some("done".into()),
+                usage: None,
+            },
+        );
+        update_session(
+            &sessions,
+            &product_session_id,
+            0,
+            &RuntimeEvent::Error {
+                message: "late fatal after completed".into(),
+                recoverable: false,
+            },
+        );
+        let session = &sessions.read().unwrap()[&product_session_id];
+        assert_eq!(session.status, HubSessionStatus::Completed);
+    }
+
+    /// Fatal first handoff turn whose trailing event lands after a delay, so
+    /// the consumer can claim the next turn while the first turn's tail is
+    /// still unwinding — the ticket-07 race.
+    struct DelayedFatalHandoffEngine {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for DelayedFatalHandoffEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            let nth = self.calls.fetch_add(1, Ordering::SeqCst);
+            if nth == 0 {
+                // Fatal + Completed immediately, then a trailing event after a
+                // short sleep so the spawned tail cannot finish before a newer
+                // claim lands.
+                let stream = stream::iter(vec![
+                    RuntimeEvent::Error {
+                        message: "target failed after startup".into(),
+                        recoverable: false,
+                    },
+                    RuntimeEvent::Completed {
+                        session_id: String::new(),
+                        result: None,
+                        usage: None,
+                    },
+                ])
+                .chain(stream::once(async {
+                    tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+                    RuntimeEvent::Error {
+                        message: "late tail event".into(),
+                        recoverable: true,
+                    }
+                }));
+                Ok(Box::pin(stream))
+            } else {
+                // Subsequent claim stays running so a third execute must be busy.
+                Ok(Box::pin(stream::pending()))
+            }
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stale_turn_tail_does_not_release_next_turn_claim() {
+        for _ in 0..30 {
+            let hub = HubRuntime::new();
+            hub.register_engine("a", Arc::new(FakeEngine::new()))
+                .unwrap();
+            let wrapped = Arc::new(DelayedFatalHandoffEngine {
+                calls: AtomicUsize::new(0),
+            });
+            hub.register_engine("b", wrapped.clone()).unwrap();
+
+            let first: Vec<_> = hub
+                .execute(HubRequest::new("a", RuntimeRequest::new("start")))
+                .unwrap()
+                .collect()
+                .await;
+            let pid = first[0].product_session_id.clone();
+            hub.switch_engine(&pid, "b").unwrap();
+
+            // Turn A on b: fatal handoff stream. Consumer reads until Completed
+            // then immediately reclaims the same product session (turn B).
+            let stream_a = hub
+                .execute(
+                    HubRequest::new("b", RuntimeRequest::new("t1"))
+                        .resume(pid.clone())
+                        .with_handoff_context("C"),
+                )
+                .unwrap();
+            let mut stream_a = Box::pin(stream_a);
+            while let Some(ev) = stream_a.next().await {
+                if matches!(ev.event, RuntimeEvent::Completed { .. }) {
+                    break;
+                }
+            }
+            drop(stream_a);
+
+            // Turn B claims now, while A's tail is still in flight.
+            assert!(hub
+                .execute(HubRequest::new("b", RuntimeRequest::new("t2")).resume(pid.clone()))
+                .is_ok());
+
+            // Let A's tail land; the seq guard must keep B's claim intact.
+            tokio::time::sleep(std::time::Duration::from_millis(90)).await;
+
+            let claim_c = hub.execute(
+                HubRequest::new("b", RuntimeRequest::new("t3")).resume(pid.clone()),
+            );
+            assert!(
+                matches!(claim_c, Err(HubError::SessionBusy(_))),
+                "A's stale rollback must not release B's claim"
+            );
+        }
+    }
+
+    // ticket 12: an engine that dies with an open tool must have that tool
+    // closed with a synthesized failing ToolEnd before the terminal pair.
+    #[tokio::test]
+    async fn unclosed_tool_is_synthesized_as_failing_toolend_on_midrun_death() {
+        let hub = HubRuntime::new();
+        hub.register_engine("die-mid-tool", Arc::new(MidrunDeathEngine))
+            .unwrap();
+
+        let events: Vec<_> = hub
+            .execute(HubRequest::new("die-mid-tool", RuntimeRequest::new("probe")))
+            .unwrap()
+            .collect()
+            .await;
+
+        // Forwarded SessionStarted + ToolStart, then synthesized failing
+        // ToolEnd for the open tool, then terminal Error + Completed.
+        assert_eq!(events.len(), 5);
+        assert!(matches!(events[0].event, RuntimeEvent::SessionStarted { .. }));
+        assert!(matches!(events[1].event, RuntimeEvent::ToolStart { .. }));
+        assert!(matches!(
+            events[2].event,
+            RuntimeEvent::ToolEnd { id: ref i, .. } if i == "t-open"
+        ));
+        if let RuntimeEvent::ToolEnd { result, .. } = &events[2].event {
+            assert!(result.is_error, "synthesized ToolEnd must be an error");
+        }
+        assert!(matches!(
+            events[3].event,
+            RuntimeEvent::Error {
+                recoverable: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            events[4].event,
+            RuntimeEvent::Completed { result: None, .. }
+        ));
     }
 }

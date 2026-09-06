@@ -20,7 +20,9 @@ use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
 use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeOptions, RuntimeRequest,
 };
-use alva_hub_core::{HubEventStream, HubRequest, HubRuntime, HubSessionStatus, ProductSessionId};
+use alva_hub_core::{
+    HubError, HubEventStream, HubRequest, HubRuntime, HubSessionStatus, ProductSessionId,
+};
 use tokio_stream::StreamExt;
 
 use crate::cli::{parse_args, ClaudeMode, Engine, ParseOutcome, PermissionPolicy};
@@ -950,7 +952,32 @@ async fn run_turn(
         println!("{result}");
     }
 
-    let terminate_repl = exit_override.is_some();
+    let mut terminate_repl = exit_override.is_some();
+    if terminate_repl {
+        // ticket 08: a stuck session must not force the whole REPL to exit.
+        // Try to release the claim first; only terminate if abandon fails for
+        // a reason other than "session already gone".
+        if let Some(sid) = product_session_id.as_ref() {
+            let still_claimed = hub.session(sid).is_some_and(|s| {
+                matches!(
+                    s.status,
+                    HubSessionStatus::Starting | HubSessionStatus::Running
+                )
+            });
+            match hub.abandon(sid) {
+                Ok(_) => {
+                    if still_claimed {
+                        eprintln!("alva-hub: released stuck product session claim");
+                    }
+                    terminate_repl = false;
+                }
+                Err(HubError::SessionNotFound(_)) => terminate_repl = false,
+                Err(error) => eprintln!(
+                    "alva-hub: could not release session, terminating REPL: {error}"
+                ),
+            }
+        }
+    }
     TurnOutcome {
         exit_code: exit_override.unwrap_or(if failed { 1 } else { 0 }),
         product_session_id,

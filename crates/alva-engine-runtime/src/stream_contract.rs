@@ -60,7 +60,7 @@
 //! using [`StreamContract::check_soft`]; [`validate_event_stream`] enforces
 //! hard rules only.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use alva_kernel_abi::{ContentBlock, StreamEvent};
@@ -147,7 +147,10 @@ impl fmt::Display for StreamContractViolation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SoftStreamWarning {
     /// `ToolStart` without matching `ToolEnd` when the stream finished.
-    UnclosedTool { id: String },
+    ///
+    /// `name` mirrors the `ToolStart.name` so Hub can synthesise a terminal
+    /// `ToolEnd` for the abandoned call without re-deriving the mapping.
+    UnclosedTool { id: String, name: String },
     /// Stream never emitted `SessionStarted`.
     MissingSessionStarted,
     /// Fatal path closed with a non-empty `Completed.result` (usually wrong).
@@ -157,7 +160,7 @@ pub enum SoftStreamWarning {
 impl fmt::Display for SoftStreamWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnclosedTool { id } => write!(f, "unclosed ToolStart id '{id}'"),
+            Self::UnclosedTool { id, .. } => write!(f, "unclosed ToolStart id '{id}'"),
             Self::MissingSessionStarted => write!(f, "stream missing SessionStarted"),
             Self::FatalCompletedWithResult => {
                 write!(f, "fatal Error path Completed with non-empty result")
@@ -215,6 +218,8 @@ pub struct StreamContract {
     session_started: bool,
     completed: bool,
     open_tools: HashSet<String>,
+    /// id → ToolStart name, so an unclosed tool can be closed with a real name.
+    open_tool_names: HashMap<String, String>,
     /// Fatal error seen; next non-Completed hard-fails, Completed closes.
     awaiting_completed_after_fatal: bool,
     fatal_error_index: Option<usize>,
@@ -276,13 +281,14 @@ impl StreamContract {
                     });
                 }
             }
-            RuntimeEvent::ToolStart { id, .. } => {
+            RuntimeEvent::ToolStart { id, name, .. } => {
                 if !self.open_tools.insert(id.clone()) {
                     return Err(StreamContractError {
                         index,
                         kind: StreamContractViolation::DuplicateToolStart { id: id.clone() },
                     });
                 }
+                self.open_tool_names.insert(id.clone(), name.clone());
             }
             RuntimeEvent::ToolEnd { id, .. } => {
                 if !self.open_tools.remove(id) {
@@ -291,6 +297,7 @@ impl StreamContract {
                         kind: StreamContractViolation::OrphanToolEnd { id: id.clone() },
                     });
                 }
+                self.open_tool_names.remove(id);
             }
             RuntimeEvent::PermissionRequest { .. } => {}
             RuntimeEvent::Error { recoverable, .. } => {
@@ -343,7 +350,10 @@ impl StreamContract {
             out.push(SoftStreamWarning::MissingSessionStarted);
         }
         for id in &self.open_tools {
-            out.push(SoftStreamWarning::UnclosedTool { id: id.clone() });
+            out.push(SoftStreamWarning::UnclosedTool {
+                id: id.clone(),
+                name: self.open_tool_names.get(id).cloned().unwrap_or_default(),
+            });
         }
         if self.fatal_completed_with_result {
             out.push(SoftStreamWarning::FatalCompletedWithResult);
@@ -661,7 +671,7 @@ mod tests {
         let warnings = StreamContract::check_soft(&events).unwrap();
         assert!(warnings.iter().any(|w| matches!(
             w,
-            SoftStreamWarning::UnclosedTool { id } if id == "t1"
+            SoftStreamWarning::UnclosedTool { id, .. } if id == "t1"
         )));
     }
 
