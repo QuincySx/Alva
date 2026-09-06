@@ -831,6 +831,9 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
         },
         request,
         selected_target,
+        // Server keeps its own shadow table for now; the run seam sink (ticket
+        // 13 batch 4) is desktop-only in this increment.
+        None,
         {
             let tx = tx.clone();
             let run_token = run_token.clone();

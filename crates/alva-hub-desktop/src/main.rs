@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use alva_engine_runtime::{EngineRuntime, PermissionDecision};
+use alva_hub_core::{HubRuntime, ProductSessionId};
 use alva_hub_desktop::{
     build_engine_for_target_with_inspector, create_managed_session_workspace,
     diagnose_provider_inference, discover_provider_models, permission_eligibility, probe_readiness,
@@ -38,9 +39,10 @@ struct DesktopState {
     /// Shared with every Alva adapter so Inspector snapshots remain live and
     /// historical reads use the same authoritative native record store.
     inspector: HubInspectorService,
-    /// Engine currently executing each product session, so a user Stop can
-    /// reach the live adapter. Entries live only for the duration of a run.
-    active_engines: Mutex<HashMap<String, Arc<dyn EngineRuntime>>>,
+    /// Live per-session HubRuntime so a user Stop can route through
+    /// `HubRuntime::cancel` (seam ticket 13 batch 4). Filled by the run seam
+    /// for the duration of each turn; entries live only while a run is live.
+    active_hubs: Mutex<HashMap<String, HubRuntime>>,
     /// Pending engine permission requests keyed to the exact native session
     /// that asked, so user decisions never leak into a fallback engine.
     permission_router: Arc<PermissionRouter>,
@@ -228,9 +230,12 @@ async fn execute_session_run(
     let health_workspace = workspace.clone();
     let build_providers = state.providers.clone();
     let health_providers = state.providers.clone();
-    let registry = Arc::new(Mutex::new(Vec::<String>::new()));
-    let build_registry = Arc::clone(&registry);
-    let engines = &state.active_engines;
+    // Run-scoped engine clones for permission routing only (the router stores
+    // the engine it must reach when a decision lands). Dropped when the run
+    // returns, so it cannot leak or drift (ticket 13 batch 4).
+    let live_engines = Arc::new(Mutex::new(HashMap::<String, Arc<dyn EngineRuntime>>::new()));
+    let permission_engines = Arc::clone(&live_engines);
+    let active_hubs = &state.active_hubs;
     let router: &Arc<PermissionRouter> = &state.permission_router;
     let autonomy_store = state.store.clone();
     // How this session shows up on a grouped approval card: aggregation must
@@ -267,16 +272,13 @@ async fn execute_session_run(
                 &history_dir,
                 &inspector,
             )?;
-            // Register the live engine so `stop_hub_attempt` can cancel it;
-            // fallback replaces the entry with the newly active engine.
-            engines
+            // The engine is registered into the run seam's own HubRuntime
+            // (published via the active_hubs sink); keep a run-scoped clone
+            // only for permission routing.
+            live_engines
                 .lock()
                 .unwrap()
                 .insert(product_session_id.to_string(), Arc::clone(&engine));
-            build_registry
-                .lock()
-                .unwrap()
-                .push(product_session_id.to_string());
             Ok(engine)
         },
         // Fast readiness veto for fallback candidates: missing binaries and
@@ -294,11 +296,12 @@ async fn execute_session_run(
         },
         request,
         selected_target,
+        Some(active_hubs),
         move |event| {
             if let Some(info) = &event.permission_request {
-                // The active-engines entry is the adapter currently streaming
+                // The live-engines entry is the adapter currently streaming
                 // this session, i.e. the one that emitted the request.
-                let engine = engines
+                let engine = permission_engines
                     .lock()
                     .unwrap()
                     .get(&event.product_session_id)
@@ -388,11 +391,13 @@ async fn execute_session_run(
         },
     )
     .await;
-    alva_hub_desktop::release_run_engines(
-        &state.active_engines,
-        &state.permission_router,
-        registry.lock().unwrap().drain(..).collect::<Vec<_>>(),
-    );
+    // The run seam already removed its hub entry; clear any leftovers and
+    // stale permission routes for this session (replaces the old registry
+    // drain — no global engine table remains, ticket 13 batch 4).
+    if !session_key.is_empty() {
+        state.active_hubs.lock().unwrap().remove(&session_key);
+        state.permission_router.clear_session(&session_key);
+    }
     outcome
 }
 
@@ -641,7 +646,7 @@ async fn hibernate_worker(
         tracing::debug!(%error, worker = %worker_id, "no live worker runtime to release");
     }
     state
-        .active_engines
+        .active_hubs
         .lock()
         .unwrap()
         .remove(&worker.worker_session_id);
@@ -705,7 +710,7 @@ async fn release_worker_runtime(app: &AppHandle, state: &DesktopState, worker_se
         }
     }
     state
-        .active_engines
+        .active_hubs
         .lock()
         .unwrap()
         .remove(worker_session_id);
@@ -729,7 +734,7 @@ async fn complete_team_run(
             tracing::debug!(%error, "no live runtime to release for worker");
         }
         state
-            .active_engines
+            .active_hubs
             .lock()
             .unwrap()
             .remove(&worker.worker_session_id);
@@ -1238,25 +1243,23 @@ async fn stop_attempt_inner(
     if detail.session.status != "running" {
         return Err("This Hub session has no running attempt to stop.".to_string());
     }
-    let engine = state
-        .active_engines
+    let hub = state
+        .active_hubs
         .lock()
         .unwrap()
         .get(&product_session_id)
         .cloned()
         .ok_or("The running attempt is not owned by this app instance.")?;
-    let engine_session_id = detail
-        .session
-        .engine_session_id
-        .ok_or("The engine has not started a native session yet; try again in a moment.")?;
     state
         .store
         .record_attempt_cancelled(&product_session_id, "User stopped the attempt")?;
     // The stopped attempt's approvals die with it — clear them before the
     // cancel so a stale Allow can no longer reach the cancelled session.
     state.permission_router.clear_session(&product_session_id);
-    engine
-        .cancel(&engine_session_id)
+    // Route through the live HubRuntime: it reaches the running engine via its
+    // RunHandle (ticket 13) and releases the Hub claim when no native session
+    // has started yet (ticket 08/10) instead of failing the stop.
+    hub.cancel(&ProductSessionId::from_existing(&product_session_id))
         .await
         .map_err(|error| error.to_string())?;
     if let Err(error) = app.emit(
@@ -1530,7 +1533,7 @@ fn main() {
                 providers,
                 history_dir,
                 inspector,
-                active_engines: Mutex::new(HashMap::new()),
+                active_hubs: Mutex::new(HashMap::new()),
                 worker_pumps: Mutex::new(std::collections::HashSet::new()),
                 worktree_root: alva_hub_desktop::worktree_root(&data_dir),
                 session_workspace_root: data_dir.join("session-workspaces"),

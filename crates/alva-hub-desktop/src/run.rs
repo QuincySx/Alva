@@ -2,9 +2,9 @@
 // OUTPUT: multi-engine run seams, delta/full handoff injection, Attempt capture, shared-clock timeline DTOs
 // POS:    Highest product seam for durable Hub Desktop branch execution, native-resume recovery, and product timeline projection.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use alva_engine_runtime::{EngineRuntime, RuntimeEvent, RuntimeRequest, RuntimeUsage};
 use alva_hub_core::{HubRequest, HubRuntime, HubSessionStatus, ProductSessionId};
@@ -23,6 +23,11 @@ use crate::store::{
 /// No-activity window after which an armed watchdog declares a stall. The
 /// timer never runs while a tool is open or a user approval is pending.
 const STALL_WINDOW: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// Per-session live [`HubRuntime`] clones so a product's Stop/permission
+/// commands can reach the run's control plane (seam ticket 13 batch 4).
+/// Filled by the run seam when a turn starts, emptied when it ends.
+pub type ActiveHubs = Mutex<HashMap<String, HubRuntime>>;
 
 fn default_engine_id() -> String {
     "alva".to_string()
@@ -145,6 +150,7 @@ where
         workspace,
         &target.engine_id,
         None,
+        None,
         &mut emit,
     )
     .await
@@ -163,17 +169,24 @@ where
     B: Fn(&EngineTarget, &str, PermissionProfile) -> Result<Arc<dyn EngineRuntime>, String>,
     H: Fn(&EngineTarget) -> Option<String>,
 {
-    run_persisted_with_target(store, build_engine, health_veto, request, None, emit).await
+    run_persisted_with_target(store, build_engine, health_veto, request, None, None, emit).await
 }
 
 /// Desktop route-aware variant. Existing callers keep `run_persisted` and
 /// therefore retain the engine-default behavior.
+///
+/// `hub_sink` (ticket 13 batch 4): when supplied, the live per-session
+/// [`HubRuntime`] is published there for the duration of each turn so the
+/// product's Stop command can route through `HubRuntime::cancel` instead of a
+/// hand-rolled engine table. The run seam inserts on claim and removes when
+/// the turn ends.
 pub async fn run_persisted_with_target<F, B, H>(
     store: &HubStore,
     build_engine: B,
     health_veto: H,
     request: RunRequest,
     selected_target: Option<EngineTarget>,
+    hub_sink: Option<&ActiveHubs>,
     mut emit: F,
 ) -> Result<RunOutcome, String>
 where
@@ -233,7 +246,7 @@ where
         prepared.permission_profile,
     ) {
         Ok(engine) => {
-            execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
+            execute_persisted_turn(store, engine, &prepared, &request.prompt, hub_sink, &mut emit).await?
         }
         Err(error) => start_failure_execution(&prepared, error, &mut emit),
     };
@@ -254,7 +267,7 @@ where
             prepared.permission_profile,
         ) {
             Ok(engine) => {
-                execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
+                execute_persisted_turn(store, engine, &prepared, &request.prompt, hub_sink, &mut emit).await?
             }
             Err(error) => start_failure_execution(&prepared, error, &mut emit),
         };
@@ -399,7 +412,7 @@ where
                 if let Some(handoff) = &prepared.handoff {
                     store.mark_handoff_used(&handoff.handoff_id)?;
                 }
-                execute_persisted_turn(store, engine, &prepared, &request.prompt, &mut emit).await?
+                execute_persisted_turn(store, engine, &prepared, &request.prompt, hub_sink, &mut emit).await?
             }
             Err(error) => start_failure_execution(&prepared, error, &mut emit),
         };
@@ -533,6 +546,7 @@ async fn execute_persisted_turn<F>(
     engine: Arc<dyn EngineRuntime>,
     prepared: &PreparedTurn,
     user_prompt: &str,
+    hub_sink: Option<&ActiveHubs>,
     emit: &mut F,
 ) -> Result<ExecutedTurn, String>
 where
@@ -569,6 +583,7 @@ where
         canonical_workspace(&prepared.workspace)?,
         &prepared.target.engine_id,
         Some((store, prepared)),
+        hub_sink,
         emit,
     )
     .await)
@@ -588,6 +603,7 @@ fn is_invalid_native_resume_error(error: &str) -> bool {
         || error.contains("record store failed")
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_turn<F>(
     hub: &HubRuntime,
     product_session_id: ProductSessionId,
@@ -595,6 +611,7 @@ async fn execute_turn<F>(
     workspace: PathBuf,
     engine_id: &str,
     persistence: Option<(&HubStore, &PreparedTurn)>,
+    hub_sink: Option<&ActiveHubs>,
     emit: &mut F,
 ) -> ExecutedTurn
 where
@@ -648,6 +665,13 @@ where
     let mut engine_session_id = None;
     let mut usage = None;
     let mut failure_class = None;
+    // Publish the live hub so the product's Stop command can reach the run's
+    // control plane (ticket 13 batch 4). Removed when the turn ends below.
+    if let Some(sink) = hub_sink {
+        sink.lock()
+            .expect("active hubs lock poisoned")
+            .insert(product_id.clone(), hub.clone());
+    }
     // Stall watchdog state: the timer only runs while nothing is legitimately
     // in flight. Open tools and a pending user approval disarm it; every
     // received event (including streamed deltas) resets the window. Once the
@@ -996,6 +1020,12 @@ where
             }
             _ => {}
         }
+    }
+
+    if let Some(sink) = hub_sink {
+        sink.lock()
+            .expect("active hubs lock poisoned")
+            .remove(&product_id);
     }
 
     ExecutedTurn {
@@ -1617,6 +1647,7 @@ mod tests {
                 permission_profile: None,
             },
             Some(target.clone()),
+            None,
             |_| {},
         )
         .await
@@ -1637,7 +1668,153 @@ mod tests {
         assert_eq!(branch.model_id, target.model_id);
     }
 
+    /// Engine whose cancel() closes the stream, so a hub-routed stop ends the
+    /// run quickly under a real clock (unlike ScriptedEngine's no-op cancel).
+    struct DropOnCancelEngine {
+        senders: Arc<Mutex<Vec<tokio::sync::mpsc::Sender<RuntimeEvent>>>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for DropOnCancelEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            let (sender, receiver) = tokio::sync::mpsc::channel(16);
+            self.senders.lock().unwrap().push(sender.clone());
+            // SessionStarted immediately; the stream stays open until the
+            // sender (held by the vec) is dropped by cancel().
+            let events = vec![RuntimeEvent::SessionStarted {
+                session_id: "drop-native".into(),
+                model: None,
+                tools: vec![],
+            }];
+            tokio::spawn(async move {
+                for event in events {
+                    if sender.send(event).await.is_err() {
+                        return;
+                    }
+                }
+            });
+            Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(receiver)))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            // Dropping every sender closes the streams → the hub sees EOF
+            // without Completed and synthesizes the terminal pair.
+            self.senders.lock().unwrap().clear();
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    /// ticket 13 batch 4: the run seam publishes the live HubRuntime into the
+    /// sink while a turn is running and removes it when the turn ends, so a
+    /// product's Stop can route through HubRuntime::cancel (which reaches the
+    /// engine via its RunHandle).
     #[tokio::test]
+    async fn live_hub_is_published_while_running_and_removed_at_end() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let database = data_dir.path().join("alva-hub.db");
+        let store = Arc::new(crate::HubStore::open(&database).unwrap());
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        store
+            .prepare_new_turn(
+                "p-sink-live",
+                workspace.path(),
+                "start",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        let engine = Arc::new(DropOnCancelEngine {
+            senders: Arc::new(Mutex::new(Vec::new())),
+        });
+        let sink: Arc<ActiveHubs> = Arc::new(Mutex::new(HashMap::new()));
+        let sink_in_run = Arc::clone(&sink);
+        let store_in_run = Arc::clone(&store);
+
+        let run = tokio::spawn(async move {
+            run_persisted_with_target(
+                store_in_run.as_ref(),
+                single_engine(engine),
+                healthy,
+                RunRequest {
+                    prompt: "go".into(),
+                    workspace: workspace.path().to_path_buf(),
+                    engine_id: "alva".into(),
+                    product_session_id: None,
+                    permission_profile: None,
+                },
+                None,
+                Some(sink_in_run.as_ref()),
+                |_| {},
+            )
+            .await
+        });
+
+        // Wait for the seam to publish the live hub (a fresh run's pid is
+        // generated inside the seam), then Stop through that hub.
+        let hub = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let published = sink
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .next()
+                    .map(|(pid, hub)| (pid.clone(), hub.clone()));
+                if let Some((pid, hub)) = published {
+                    return (pid, hub);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("run seam must publish the live HubRuntime while running");
+        let (pid, hub) = hub;
+        assert!(sink.lock().unwrap().contains_key(&pid));
+
+        // Stop routes through the hub — the run terminates and the sink empties.
+        hub.cancel(&ProductSessionId::from_existing(&pid))
+            .await
+            .expect("hub cancel must reach the running run");
+        let outcome = run
+            .await
+            .expect("run task must not panic")
+            .expect("run must return");
+        assert!(outcome.failed, "a stopped run must not report success");
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if sink.lock().unwrap().is_empty() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("run seam must remove the live hub when the turn ends");
+    }
+
+#[tokio::test]
     async fn persists_attempt_usage_and_side_effect_evidence() {
         let workspace = tempfile::tempdir().unwrap();
         let data_dir = tempfile::tempdir().unwrap();

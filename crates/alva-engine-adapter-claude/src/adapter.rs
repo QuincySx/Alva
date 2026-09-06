@@ -11,7 +11,7 @@ use futures_core::Stream;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{sleep_until, Instant};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
@@ -38,6 +38,10 @@ struct SessionHandle {
     control: mpsc::UnboundedSender<ControlCommand>,
     cancel_grace: mpsc::UnboundedSender<()>,
 }
+
+/// A pending permission-response acknowledgement (ticket 18): resolved by the
+/// bridge's accepted/rejected frame.
+type PendingResponse = oneshot::Sender<Result<(), RuntimeError>>;
 
 /// How long cancel waits for the bridge stream to terminate before the child
 /// is killed locally (ticket 10: cancel must produce terminal events in a
@@ -74,7 +78,7 @@ pub struct ClaudeAdapter {
     /// In-flight permission responses awaiting a semantic ack from the bridge
     /// (ticket 18): request_id -> oneshot. Resolved Accepted/Rejected frames
     /// settle these; a bounded timeout in `respond_permission` prevents hangs.
-    pending_responses: Arc<Mutex<HashMap<String, oneshot::Sender<Result<(), RuntimeError>>>>>,
+    pending_responses: Arc<Mutex<HashMap<String, PendingResponse>>>,
 }
 
 impl ClaudeAdapter {
@@ -448,7 +452,7 @@ impl EngineRuntime for ClaudeAdapter {
                         }
                         | crate::protocol::BridgeMessage::PermissionResponseRejected {
                             request_id,
-                            reason: _,
+                            ..
                         } = &msg
                         {
                             let result = match &msg {
@@ -462,11 +466,25 @@ impl EngineRuntime for ClaudeAdapter {
                                 )),
                                 _ => unreachable!(),
                             };
+                            // Surface the bridge's rejection cause (currently
+                            // "expired") for diagnostics; the error handed to
+                            // respond_permission stays PermissionNotFound so the
+                            // UI's stale-classification is stable (ticket 18).
+                            if let crate::protocol::BridgeMessage::PermissionResponseRejected {
+                                reason, ..
+                            } = &msg
+                            {
+                                debug!(%reason, "claude bridge rejected a permission response");
+                            }
                             if let Some(tx) =
                                 pending_responses.lock().await.remove(request_id)
                             {
                                 let _ = tx.send(result);
                             }
+                            // Surface the bridge's rejection cause (currently
+                            // "expired") for diagnostics; the error handed to
+                            // respond_permission stays PermissionNotFound so the
+                            // UI's stale-classification is stable (ticket 18).
                             // Still progress for the idle watchdog.
                             schedule_idle(
                                 &mut idle_deadline,

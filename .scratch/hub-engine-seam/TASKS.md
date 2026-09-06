@@ -31,7 +31,7 @@
 | [07](./issues/07-session-state-clobber-claim-seq.md) ✅ | 旧轮回滚快照覆写新轮状态（引入 `claim_seq`） | ~~同一会话可能同时跑两条引擎流；致命失败的一轮被显示成「已完成」~~ **DONE 2026-09-06** |
 | [08](./issues/08-abandon-verb-stuck-session.md) ✅ | 会话卡在 Starting/Running 无出口（补 `abandon`） | ~~消费者提前放弃某轮 → 该会话**永久**不可用，且此时连取消都调不动~~ **DONE 2026-09-06** |
 | [09](./issues/09-restore-session-illegal-state.md) ✅ | `restore_session` 可直接种出非法状态 | ~~恢复时传错状态值 → 会话一落地就永远报 "already running"~~ **DONE 2026-09-06** |
-| [10](./issues/10-cancel-semantics-three-tiers.md) 🔶 | cancel 是三档而非一档 | ~~显示「已停止」但子进程仍在计费；另有窗口期停不掉、180s 后自动换引擎重跑~~ **主体 DONE 2026-09-06**（契约文档 + 三档 adapter 的 cancel terminal 测试 + claude full grace→kill + bridge 对齐 + Hub 两级）；桌面 Stop 时序随工单 13 收口 |
+| [10](./issues/10-cancel-semantics-three-tiers.md) ✅ | cancel 是三档而非一档 | ~~显示「已停止」但子进程仍在计费；另有窗口期停不掉、180s 后自动换引擎重跑~~ **DONE 2026-09-06**（契约文档 + 三档 adapter cancel terminal 测试 + claude full grace→kill + bridge 对齐 + Hub 两级；桌面 Stop 时序经 RunHandle 收口） |
 | [11](./issues/11-resume-failure-self-heal-is-dead-code.md) ✅ | resume 失败的自愈路径生产永不触发 | ~~会话被永久焊死，每次都拿同一个失效 id 去 resume~~ **DONE 2026-09-06** |
 | [12](./issues/12-unclosed-tool-synthesize-toolend.md) ✅ | 未闭合工具卡片永远停在 running | ~~已落盘，刷新和重开应用都恢复不了~~ **DONE 2026-09-06** |
 
@@ -39,7 +39,7 @@
 
 | # | 标题 | 一句话影响 |
 |---|---|---|
-| [13](./issues/13-model-the-run-not-the-engine.md) 🔶 | 给「一次运行」建模，而不是给 engine 建模 | ~~Hub 内核没有能停下那一次运行的句柄；三份手抄影子表纪律已分叉~~ **hub-core RunHandle（批次 1–3）DONE 2026-09-06**：`RunHandle{abort, engine 强引用, engine_session_id}` + `runs` 表 + cancel/respond_permission 优先走 run 句柄 + abandon 收编 + unregister/`has_live_run`；**产品三份影子表收编（批次 4）为后续增量** |
+| [13](./issues/13-model-the-run-not-the-engine.md) ✅ | 给「一次运行」建模，而不是给 engine 建模 | ~~Hub 内核没有能停下那一次运行的句柄；三份手抄影子表纪律已分叉~~ **DONE 2026-09-06**：hub-core RunHandle（批次 1–3）+ desktop 影子表收编（批次 4）：`active_engines` → `active_hubs` sink，Stop 走 `HubRuntime::cancel`，run 内 permission 路由用 run-scoped 生命周期表；gpui/server 影子表为剩余增量 |
 | [14](./issues/14-decide-switch-handoff-authority.md) ✅ | 拍板 switch / handoff 的权威层 | ~~一个用户动作两套实现，旗舰走的是另一套；内核那套已与 ADR-0002 矛盾~~ **DONE 2026-09-06**（ADR-0002 Authority 节：store/branch 层权威；hub-core 定位为瞬时 dispatcher；D-2 无 resume 引擎退化为 fresh；D-1 记为有意范围） |
 | [15](./issues/15-engine-descriptor-and-negotiation-uplift.md) 🔶 | EngineDescriptor + 协商模块上移 | ~~第五个引擎注册成功后被四道 match 拒绝~~ **批次 1–2 DONE 2026-09-06**（descriptor + 注册入口 + ADR-0007 Finding 2 订正）；批次 3（permissions/readiness/repair 上移）为后续增量 |
 | [16](./issues/16-stream-contract-conformance-harness.md) ✅ | 流契约 conformance harness + 违约处置动词 | ~~改 pi / claude-print 的映射导致违约，`cargo test --workspace` 全绿~~ **DONE 2026-09-06**（alva-engine-runtime 导出五剧本 harness；pi / claude-print 零断言缺口补齐；codex / alva / claude-full 接入） |
