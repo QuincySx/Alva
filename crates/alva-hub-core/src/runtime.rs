@@ -250,6 +250,25 @@ pub type HubEventStream = Pin<Box<dyn Stream<Item = HubEvent> + Send>>;
 pub struct HubRuntime {
     engines: Arc<RwLock<HashMap<EngineId, Arc<dyn EngineRuntime>>>>,
     sessions: Arc<RwLock<HashMap<ProductSessionId, HubSession>>>,
+    /// Live runs (ticket 13): per product session, the control-plane handle
+    /// that can stop the run and reach its engine even after the registry
+    /// entry for that engine is gone. Removed when the spawned task exits.
+    runs: Arc<RwLock<HashMap<ProductSessionId, RunHandle>>>,
+}
+
+/// A handle on one running `execute()` turn (ticket 13).
+///
+/// Holds a strong reference to the engine that produced the stream — unlike
+/// the registry, which may drop the entry while the run is still alive — so
+/// [`HubRuntime::cancel`] / [`HubRuntime::respond_permission`] keep working
+/// for this run regardless of registry state.
+#[derive(Clone)]
+pub struct RunHandle {
+    abort: tokio::task::AbortHandle,
+    engine: Arc<dyn EngineRuntime>,
+    engine_id: EngineId,
+    /// Native session id, filled once `SessionStarted` arrives on this run.
+    engine_session_id: Arc<RwLock<Option<String>>>,
 }
 
 impl HubRuntime {
@@ -259,8 +278,11 @@ impl HubRuntime {
 
     /// Register one product-visible engine.
     ///
-    /// Engine replacement is fail-closed because existing product sessions
-    /// carry native session IDs owned by the originally registered instance.
+    /// Replacement is fail-closed because routing ambiguity would otherwise
+    /// let a new registration silently hijack the control plane of runs that
+    /// began on the old instance (ticket 13: a run is controlled through its
+    /// [`RunHandle`], but the product session identity still scopes to one
+    /// engine at a time).
     pub fn register_engine(
         &self,
         id: impl Into<EngineId>,
@@ -288,6 +310,28 @@ impl HubRuntime {
             .collect::<Vec<_>>();
         ids.sort_by(|left, right| left.as_str().cmp(right.as_str()));
         ids
+    }
+
+    /// Remove an engine from the directory (ticket 13).
+    ///
+    /// New executes on this id fail. Runs that started before the removal
+    /// keep working through their [`RunHandle`]'s strong engine reference, so
+    /// cancel / respond_permission still reach them.
+    pub fn unregister_engine(&self, id: &EngineId) -> bool {
+        self.engines
+            .write()
+            .expect("Hub engine registry lock poisoned")
+            .remove(id)
+            .is_some()
+    }
+
+    /// Whether a run is currently registered for this product session
+    /// (inspection / tests).
+    pub fn has_live_run(&self, product_session_id: &ProductSessionId) -> bool {
+        self.runs
+            .read()
+            .expect("Hub runs lock poisoned")
+            .contains_key(product_session_id)
     }
 
     pub fn session(&self, id: &ProductSessionId) -> Option<HubSessionSnapshot> {
@@ -443,6 +487,17 @@ impl HubRuntime {
         if let Some(token) = session.cancel_token.take() {
             token.cancel();
         }
+        // Abort the run task (ticket 13): even a stream that ignores the
+        // cancellation token is stopped at the task boundary. The run entry is
+        // removed here because an aborted task never runs its body-end cleanup.
+        if let Some(handle) = self
+            .runs
+            .write()
+            .expect("Hub runs lock poisoned")
+            .remove(product_session_id)
+        {
+            handle.abort.abort();
+        }
         // Invalidate any in-flight turn so its tail writes become no-ops even
         // if a new claim races in before the old task finishes unwinding.
         session.claim_seq = session.claim_seq.wrapping_add(1);
@@ -577,10 +632,18 @@ impl HubRuntime {
         let failed_handoff_rollback = previous_session.zip(handoff_context_used);
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let sessions = self.sessions.clone();
+        let runs = self.runs.clone();
         let engine_id = request.engine_id;
+        let run_engine_id = engine_id.clone();
         let output_session_id = product_session_id.clone();
+        let run_key = output_session_id.clone();
+        // Shared slot that mirrors `engine_session_id` for this run, so the
+        // RunHandle can route cancel/permission even after the registry entry
+        // for this engine is gone (ticket 13).
+        let run_slot = Arc::new(RwLock::new(None::<String>));
+        let handle_run_slot = run_slot.clone();
 
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let mut engine_stream = engine_stream;
             let mut output_open = true;
             let mut saw_completed = false;
@@ -592,6 +655,7 @@ impl HubRuntime {
             let mut contract = StreamContract::new();
             let mut hard_violations = 0u32;
             let mut saw_session_started = false;
+            let run_slot = run_slot;
             loop {
                 // `abandon` cancels this token so the loop stops draining an
                 // engine stream that will never terminate on its own.
@@ -619,6 +683,10 @@ impl HubRuntime {
                 }
                 saw_completed |= matches!(&event, RuntimeEvent::Completed { .. });
                 saw_session_started |= matches!(&event, RuntimeEvent::SessionStarted { .. });
+                if let RuntimeEvent::SessionStarted { session_id, .. } = &event {
+                    *run_slot.write().expect("run slot lock poisoned") =
+                        Some(session_id.clone());
+                }
                 saw_fatal_error |= matches!(
                     &event,
                     RuntimeEvent::Error {
@@ -764,31 +832,69 @@ impl HubRuntime {
                     restore_failed_handoff(&sessions, &output_session_id, previous, context, my_seq);
                 }
             }
+            // This run is done; release the control-plane handle so a later
+            // execute on the same product session can register a fresh one.
+            runs.write().expect("Hub runs lock poisoned").remove(&output_session_id);
         });
+
+        // Hold the abort handle + a strong engine reference so this run stays
+        // controllable even if its engine is later unregistered.
+        self.runs
+            .write()
+            .expect("Hub runs lock poisoned")
+            .insert(
+                run_key,
+                RunHandle {
+                    abort: task.abort_handle(),
+                    engine,
+                    engine_id: run_engine_id,
+                    engine_session_id: handle_run_slot,
+                },
+            );
 
         Ok(Box::pin(UnboundedReceiverStream::new(event_rx)))
     }
 
     /// Route a product-level cancellation request to the active engine session.
     ///
-    /// Two-tier (ticket 08): when the request cannot be routed to a native
-    /// engine session (no `engine_session_id` yet, or the engine does not
-    /// support cancellation), Hub still releases its own claim via
-    /// [`Self::abandon`] so the product session is never permanently stuck in
-    /// a non-terminal state.
+    /// Prefers the live [`RunHandle`] (strong engine ref + native session id),
+    /// so cancellation works even after the engine's registry entry is gone
+    /// (ticket 13). Falls back to the session/registry path for restored
+    /// sessions with no live run. Two-tier (ticket 08): when the request
+    /// cannot reach a native session, Hub still releases its own claim via
+    /// [`Self::abandon`].
     pub async fn cancel(&self, product_session_id: &ProductSessionId) -> Result<(), HubError> {
+        let live_handle = self
+            .runs
+            .read()
+            .expect("Hub runs lock poisoned")
+            .get(product_session_id)
+            .cloned();
+        if let Some(handle) = live_handle {
+            let engine_session_id = {
+                handle
+                    .engine_session_id
+                    .read()
+                    .expect("run slot lock poisoned")
+                    .clone()
+            };
+            if let Some(engine_session_id) = engine_session_id {
+                handle.engine.cancel(&engine_session_id).await?;
+                return Ok(());
+            }
+            self.abandon(product_session_id)?;
+            return Ok(());
+        }
+
         let session = self
             .session(product_session_id)
             .ok_or_else(|| HubError::SessionNotFound(product_session_id.to_string()))?;
         let engine = self.engine(&session.engine_id)?;
         let Some(engine_session_id) = session.engine_session_id.clone() else {
-            // No native session yet (early stall) — release the Hub claim so
-            // the next execute can reclaim instead of being permanently busy.
             self.abandon(product_session_id)?;
             return Ok(());
         };
         if !engine.capabilities().cancel {
-            // Engine cannot be told to stop; still un-stick the session.
             self.abandon(product_session_id)?;
             return Ok(());
         }
@@ -804,6 +910,37 @@ impl HubRuntime {
         request_id: &str,
         decision: PermissionDecision,
     ) -> Result<(), HubError> {
+        // Prefer the live run's engine reference (ticket 13) so permission
+        // routing survives an engine being unregistered mid-run.
+        let live_handle = self
+            .runs
+            .read()
+            .expect("Hub runs lock poisoned")
+            .get(product_session_id)
+            .cloned();
+        if let Some(handle) = live_handle {
+            let engine_session_id = {
+                handle
+                    .engine_session_id
+                    .read()
+                    .expect("run slot lock poisoned")
+                    .clone()
+            };
+            let Some(engine_session_id) = engine_session_id else {
+                return Err(HubError::SessionNotReady(product_session_id.to_string()));
+            };
+            if !handle.engine.capabilities().permission_callback {
+                return Err(HubError::PermissionUnsupported(
+                    handle.engine_id.to_string(),
+                ));
+            }
+            handle
+                .engine
+                .respond_permission(&engine_session_id, request_id, decision)
+                .await?;
+            return Ok(());
+        }
+
         let session = self
             .session(product_session_id)
             .ok_or_else(|| HubError::SessionNotFound(product_session_id.to_string()))?;
@@ -2440,6 +2577,113 @@ mod tests {
             "stateless engine must not be asked to resume: {:?}",
             requests[1]
         );
+    }
+
+    /// ticket 13: a run that stays alive and has a native id; cancel records
+    /// the call so tests can assert the RunHandle routed it.
+    struct LiveRunEngine {
+        cancelled: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for LiveRunEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            let stream = stream::iter(vec![RuntimeEvent::SessionStarted {
+                session_id: "live-1".into(),
+                model: None,
+                tools: vec![],
+            }])
+            .chain(stream::pending());
+            Ok(Box::pin(stream))
+        }
+
+        async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
+            self.cancelled.lock().unwrap().push(session_id.into());
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_reaches_a_running_run_after_engine_is_unregistered() {
+        let hub = HubRuntime::new();
+        let engine = Arc::new(LiveRunEngine {
+            cancelled: Mutex::new(Vec::new()),
+        });
+        hub.register_engine("live", engine.clone()).unwrap();
+
+        let mut stream = hub
+            .execute(HubRequest::new("live", RuntimeRequest::new("hi")))
+            .unwrap();
+        let pid = stream.next().await.unwrap().product_session_id;
+        assert!(hub.has_live_run(&pid));
+        assert_eq!(
+            hub.session(&pid).unwrap().engine_session_id.as_deref(),
+            Some("live-1")
+        );
+
+        // Remove the registry entry while the run is still alive.
+        assert!(hub.unregister_engine(&EngineId::from("live")));
+
+        // cancel must reach the running engine through its RunHandle even
+        // though the registry no longer has the entry.
+        hub.cancel(&pid).await.unwrap();
+        assert_eq!(
+            engine.cancelled.lock().unwrap().as_slice(),
+            &["live-1".to_string()],
+            "cancel must be routed to the live run's engine"
+        );
+    }
+
+    #[tokio::test]
+    async fn abandon_aborts_the_stream_task() {
+        let hub = HubRuntime::new();
+        hub.register_engine("pending", Arc::new(PendingEngine))
+            .unwrap();
+        let product_id = ProductSessionId::new();
+        let _stream = hub
+            .execute(
+                HubRequest::new("pending", RuntimeRequest::new("first")).resume(product_id.clone()),
+            )
+            .unwrap();
+        assert!(hub.has_live_run(&product_id));
+
+        hub.abandon(&product_id).unwrap();
+
+        // The spawned turn must exit within a bounded time and release its
+        // run entry (the token-cancelled loop finishes its body and removes
+        // itself).
+        tokio::time::timeout(std::time::Duration::from_millis(500), async {
+            loop {
+                if !hub.has_live_run(&product_id) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("abandon must stop the spawned turn and release its run entry");
     }
 
     // ticket 11: a resume turn that fails fatally before any SessionStarted must

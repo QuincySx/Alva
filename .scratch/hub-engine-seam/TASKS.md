@@ -39,7 +39,7 @@
 
 | # | 标题 | 一句话影响 |
 |---|---|---|
-| [13](./issues/13-model-the-run-not-the-engine.md) 🔶 | 给「一次运行」建模，而不是给 engine 建模 | ~~Hub 内核没有能停下那一次运行的句柄；三份手抄影子表纪律已分叉~~ **abandon/claim_seq 已随 07/08 落地；RunHandle + 影子表收编进行中** |
+| [13](./issues/13-model-the-run-not-the-engine.md) 🔶 | 给「一次运行」建模，而不是给 engine 建模 | ~~Hub 内核没有能停下那一次运行的句柄；三份手抄影子表纪律已分叉~~ **hub-core RunHandle（批次 1–3）DONE 2026-09-06**：`RunHandle{abort, engine 强引用, engine_session_id}` + `runs` 表 + cancel/respond_permission 优先走 run 句柄 + abandon 收编 + unregister/`has_live_run`；**产品三份影子表收编（批次 4）为后续增量** |
 | [14](./issues/14-decide-switch-handoff-authority.md) ✅ | 拍板 switch / handoff 的权威层 | ~~一个用户动作两套实现，旗舰走的是另一套；内核那套已与 ADR-0002 矛盾~~ **DONE 2026-09-06**（ADR-0002 Authority 节：store/branch 层权威；hub-core 定位为瞬时 dispatcher；D-2 无 resume 引擎退化为 fresh；D-1 记为有意范围） |
 | [15](./issues/15-engine-descriptor-and-negotiation-uplift.md) | EngineDescriptor + 协商模块上移 | 第五个引擎注册成功后被四道 `match` 拒绝；每处判断被两个前端各抄一份 |
 | [16](./issues/16-stream-contract-conformance-harness.md) ✅ | 流契约 conformance harness + 违约处置动词 | ~~改 pi / claude-print 的映射导致违约，`cargo test --workspace` 全绿~~ **DONE 2026-09-06**（alva-engine-runtime 导出五剧本 harness；pi / claude-print 零断言缺口补齐；codex / alva / claude-full 接入） |
