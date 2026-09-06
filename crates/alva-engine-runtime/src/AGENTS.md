@@ -14,6 +14,7 @@
 ## 约束
 - `EngineRuntime` 必须是 object-safe（文件末尾有编译期断言 `_assert_object_safe`），支持 `dyn EngineRuntime` 动态分发。
 - `execute()` 返回的 Stream 必须为 `Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>`，生命周期为 `'static`，不借用 `&self`。
+- **新增 `impl EngineRuntime`（含内部 adapter 扩展）必须附带 conformance harness 实例化**（`feature = "test-support"` 的 `conformance.rs`），五个剧本一个不少：`Normal` / `SpawnFailure` / `KilledMidRun` / `EofWithoutResult` / `OutputAfterFatal`——契约断言的位置必须在 `execute()` 边界上（漏发 Completed、fatal 后继续发事件这类违约只发生在 select 循环里，mapper 级测试测不到）。
 - **流契约**（`stream_contract.rs`）是多引擎共同底线：`Completed` 唯一且收尾；fatal `Error` 后**只能**再发 `Completed`（中间不得夹 Message/Tool）；`ToolStart`/`ToolEnd` 同 id 配对；`Message` 不含 Tool 块；`MessageDelta` 只允许 Text/Reasoning（工具参数 delta 不得泄漏）。
 - `Error.recoverable` 对齐 cindy：`false` ≈ `isTerminal`，`true` ≈ `willRetry`/非终态横幅；UI 不得因 recoverable error 释放 running。
 - 适配器在错误时必须先发 `Error { recoverable: false }` 再发 `Completed { result: None }`，消费者应等待 `Completed` 后才做清理（比 cindy「终态 error 可单独收尾」更严，保证单一 cleanup edge）。
@@ -27,6 +28,7 @@
 | EngineRuntime | runtime.rs | 统一引擎 trait：execute / cancel / respond_permission / capabilities |
 | RuntimeEvent | event.rs | 引擎输出事件枚举：SessionStarted、Message、MessageDelta、ToolStart、ToolEnd、PermissionRequest、Completed、Error |
 | StreamContract | stream_contract.rs | 多引擎流不变量检查器 + `validate_event_stream` |
+| conformance | conformance.rs | 五剧本一致性 harness（feature = `test-support`）：Normal / SpawnFailure / KilledMidRun / EofWithoutResult / OutputAfterFatal |
 | RuntimeUsage | event.rs | 引擎级使用统计：token 数、费用、时长、轮次 |
 | RuntimeCapabilities | event.rs | 引擎能力声明：streaming、tool_control、permission_callback、resume、cancel |
 | PermissionDecision | event.rs | 权限决策类型，用于 respond_permission 回传 |

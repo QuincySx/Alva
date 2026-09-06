@@ -7,6 +7,13 @@ pub mod inspector;
 pub mod request;
 pub mod runtime;
 pub mod stream_contract;
+#[cfg(feature = "test-support")]
+pub mod conformance;
+
+#[cfg(feature = "test-support")]
+pub use conformance::{
+    assert_conforms, assert_conforms_events, collect_stream, soft_warnings_for, Scenario,
+};
 
 pub use error::RuntimeError;
 pub use event::{PermissionDecision, RuntimeCapabilities, RuntimeEvent, RuntimeUsage};

@@ -199,8 +199,19 @@ impl EngineRuntime for PiAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_engine_runtime::validate_event_stream;
+    use alva_engine_runtime::{validate_event_stream, RuntimeError};
+    use std::time::Duration;
     use tokio_stream::StreamExt;
+
+    fn pi_adapter(executable: std::path::PathBuf) -> PiAdapter {
+        let fixture_dir = executable.parent().unwrap().to_path_buf();
+        PiAdapter::new(PiAdapterConfig {
+            pi_path: executable.to_string_lossy().into_owned(),
+            default_cwd: Some(fixture_dir.clone()),
+            session_dir: fixture_dir.join("sessions"),
+            ..Default::default()
+        })
+    }
 
     #[cfg(unix)]
     fn write_fake_pi(path: &std::path::Path, script: &str) {
@@ -335,5 +346,118 @@ sleep 600
             "cancel must end with Error{{fatal}} + Completed: {events:#?}"
         );
         assert!(validate_event_stream(&events).is_ok());
+    }
+
+    /// ticket 16: five canned scenarios against the whole execute() boundary —
+    /// pi previously had zero contract assertions on its streaming loop.
+    #[cfg(unix)]
+    mod conformance {
+        use super::*;
+        use alva_engine_runtime::{assert_conforms, assert_conforms_events, RuntimeRequest, Scenario};
+        use std::time::Duration;
+
+        #[tokio::test]
+        async fn normal_run_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-pi");
+            write_fake_pi(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
+printf '%s\n' '{"type":"message_start","message":{"role":"assistant","id":"m1"}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","id":"m1","stopReason":"end","content":[{"type":"text","text":"two plus two is four"}],"usage":{"input":1,"output":1,"cost":{"total":0.001}}}'"#,
+            );
+            assert_conforms(&pi_adapter(executable), RuntimeRequest::new("hi"), Scenario::Normal)
+                .await;
+        }
+
+        #[tokio::test]
+        async fn spawn_failure_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let adapter = pi_adapter(fixture.path().join("no-such-pi"));
+            assert_conforms(&adapter, RuntimeRequest::new("hi"), Scenario::SpawnFailure).await;
+        }
+
+        #[tokio::test]
+        async fn killed_mid_run_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-pi");
+            write_fake_pi(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
+exec /bin/sleep 60
+"#,
+            );
+            let adapter = Arc::new(pi_adapter(executable));
+            let mut stream = adapter.execute(RuntimeRequest::new("hi")).unwrap();
+            let session_id = tokio::time::timeout(Duration::from_secs(5), async {
+                while let Some(event) = stream.next().await {
+                    if let RuntimeEvent::SessionStarted { session_id, .. } = event {
+                        return session_id;
+                    }
+                }
+                panic!("fake pi must start")
+            })
+            .await
+            .expect("fake pi must start");
+
+            let collector = tokio::spawn(async move {
+                let mut events = Vec::new();
+                while let Some(event) = stream.next().await {
+                    events.push(event);
+                }
+                events
+            });
+            adapter
+                .cancel(&session_id)
+                .await
+                .expect("cancel must be deliverable");
+            let events = tokio::time::timeout(Duration::from_secs(5), collector)
+                .await
+                .expect("cancel must close the pi stream")
+                .unwrap();
+            assert_conforms_events(&events, Scenario::KilledMidRun);
+        }
+
+        #[tokio::test]
+        async fn eof_without_result_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-pi");
+            write_fake_pi(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
+printf '%s\n' '{"type":"message_start","message":{"role":"assistant","id":"m1"}}'
+"#,
+            );
+            assert_conforms(
+                &pi_adapter(executable),
+                RuntimeRequest::new("hi"),
+                Scenario::EofWithoutResult,
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn output_after_fatal_is_not_forwarded() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-pi");
+            write_fake_pi(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
+printf '%s\n' '{"type":"message_start","message":{"role":"assistant"}}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"errorMessage":"upstream refused"}}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"must not be forwarded"}}'
+"#,
+            );
+            assert_conforms(
+                &pi_adapter(executable),
+                RuntimeRequest::new("hi"),
+                Scenario::OutputAfterFatal,
+            )
+            .await;
+        }
     }
 }

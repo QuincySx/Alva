@@ -556,4 +556,129 @@ mod tests {
             ]
         ));
     }
+
+    /// ticket 16: the five canned scenarios against the whole execute()
+    /// boundary — print adapter previously had only the cancel script
+    /// asserting its stream.
+    #[cfg(unix)]
+    mod conformance {
+        use super::*;
+        use alva_engine_runtime::{assert_conforms, assert_conforms_events, RuntimeRequest, Scenario};
+        use std::time::Duration;
+        use tokio_stream::StreamExt;
+
+        #[tokio::test]
+        async fn normal_run_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-claude");
+            fake_claude(
+                &executable,
+                "printf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"p-sess\",\"model\":\"fake\"}' \nprintf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"p-sess\",\"result\":\"done\",\"usage\":null}'",
+            );
+            let adapter = ClaudePrintAdapter::new(ClaudePrintConfig {
+                claude_path: executable.to_string_lossy().into_owned(),
+                ..Default::default()
+            });
+            assert_conforms(
+                &adapter,
+                RuntimeRequest::new("test").with_cwd(fixture.path()),
+                Scenario::Normal,
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn spawn_failure_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let adapter = ClaudePrintAdapter::new(ClaudePrintConfig {
+                claude_path: fixture.path().join("no-such-claude").to_string_lossy().into_owned(),
+                ..Default::default()
+            });
+            assert_conforms(
+                &adapter,
+                RuntimeRequest::new("test").with_cwd(fixture.path()),
+                Scenario::SpawnFailure,
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn killed_mid_run_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-claude");
+            fake_claude(
+                &executable,
+                "printf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"kill-sess\",\"model\":\"fake\"}' \nexec /bin/sleep 60",
+            );
+            let adapter = Arc::new(ClaudePrintAdapter::new(ClaudePrintConfig {
+                claude_path: executable.to_string_lossy().into_owned(),
+                ..Default::default()
+            }));
+            let mut stream = adapter
+                .execute(RuntimeRequest::new("test").with_cwd(fixture.path()))
+                .unwrap();
+            let session_id = match tokio::time::timeout(Duration::from_secs(5), stream.next())
+                .await
+                .expect("fake claude must start")
+                .unwrap()
+            {
+                RuntimeEvent::SessionStarted { session_id, .. } => session_id,
+                event => panic!("expected SessionStarted, got {event:?}"),
+            };
+
+            let collector = tokio::spawn(async move {
+                let mut events = Vec::new();
+                while let Some(event) = stream.next().await {
+                    events.push(event);
+                }
+                events
+            });
+            adapter
+                .cancel(&session_id)
+                .await
+                .expect("cancel must be deliverable");
+            let events = tokio::time::timeout(Duration::from_secs(5), collector)
+                .await
+                .expect("cancel must close the print stream")
+                .unwrap();
+            assert_conforms_events(&events, Scenario::KilledMidRun);
+        }
+
+        #[tokio::test]
+        async fn eof_without_result_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-claude");
+            fake_claude(&executable, "exit 0");
+            let adapter = ClaudePrintAdapter::new(ClaudePrintConfig {
+                claude_path: executable.to_string_lossy().into_owned(),
+                ..Default::default()
+            });
+            assert_conforms(
+                &adapter,
+                RuntimeRequest::new("test").with_cwd(fixture.path()),
+                Scenario::EofWithoutResult,
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn output_after_fatal_is_not_forwarded() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-claude");
+            fake_claude(
+                &executable,
+                "printf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"r2-pass\",\"model\":\"fake\"}' \nprintf '%s\\n' '{\"type\":\"result\",\"subtype\":\"error_max_turns\",\"session_id\":\"r2-pass\",\"result\":null}' \nprintf '%s\\n' '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"must not be forwarded\"}]}}'",
+            );
+            let adapter = ClaudePrintAdapter::new(ClaudePrintConfig {
+                claude_path: executable.to_string_lossy().into_owned(),
+                ..Default::default()
+            });
+            assert_conforms(
+                &adapter,
+                RuntimeRequest::new("test").with_cwd(fixture.path()),
+                Scenario::OutputAfterFatal,
+            )
+            .await;
+        }
+    }
 }

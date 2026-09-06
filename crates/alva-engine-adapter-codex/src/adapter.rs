@@ -396,4 +396,49 @@ sleep 600
         );
         assert!(validate_event_stream(&events).is_ok());
     }
+
+    /// ticket 16: the five canned scenarios against the whole execute()
+    /// boundary (SpawnFailure + OutputAfterFatal + KilledMidRun are already
+    /// covered by spawn/`stops_reading_after_fatal_error`/`cancel_emits...`;
+    /// Normal and EofWithoutResult are missing, added here via the harness).
+    #[cfg(unix)]
+    mod conformance {
+        use super::*;
+        use alva_engine_runtime::{assert_conforms, RuntimeRequest, Scenario};
+
+        #[tokio::test]
+        async fn normal_run_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-codex");
+            write_fake_codex(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' '{"type":"thread.started","thread_id":"codex-thread-1"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"two plus two is four"}}'
+"#,
+            );
+            let adapter = CodexAdapter::new(CodexAdapterConfig {
+                codex_path: executable.to_string_lossy().into_owned(),
+                default_cwd: Some(fixture.path().to_path_buf()),
+                ..Default::default()
+            });
+            assert_conforms(&adapter, RuntimeRequest::new("hi"), Scenario::Normal).await;
+        }
+
+        #[tokio::test]
+        async fn eof_without_result_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-codex");
+            write_fake_codex(
+                &executable,
+                "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"codex-thread-1\"}' \nexit 0\n",
+            );
+            let adapter = CodexAdapter::new(CodexAdapterConfig {
+                codex_path: executable.to_string_lossy().into_owned(),
+                default_cwd: Some(fixture.path().to_path_buf()),
+                ..Default::default()
+            });
+            assert_conforms(&adapter, RuntimeRequest::new("hi"), Scenario::EofWithoutResult).await;
+        }
+    }
 }

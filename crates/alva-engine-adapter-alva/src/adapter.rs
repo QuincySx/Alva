@@ -619,6 +619,20 @@ mod tests {
         );
     }
 
+    /// ticket 16: end-to-end conformance over the real in-process agent.
+    #[tokio::test]
+    async fn normal_run_conforms() {
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("hub")));
+        let config = DefaultBaseAgentFactoryConfig::new(model, std::env::temp_dir());
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
+        alva_engine_runtime::assert_conforms(
+            &adapter,
+            RuntimeRequest::new("say hub"),
+            alva_engine_runtime::Scenario::Normal,
+        )
+        .await;
+    }
+
     /// ticket 11: resuming a native id that no longer exists must fail
     /// fatally and must NOT echo the dead id back in Completed.session_id —
     /// otherwise the next turn would resume the same rejected id forever.

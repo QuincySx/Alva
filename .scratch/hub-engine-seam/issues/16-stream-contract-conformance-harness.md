@@ -2,7 +2,7 @@
 
 - 级别：P2
 - 影响：给 pi 或 claude-print 改一条事件映射导致漏发/多发终结事件，`cargo test --workspace` 会全绿；这个回归只在真机跑该引擎时以 CLI 的一行 stderr 出现，Tauri 与 GPUI 下完全静默，用户看到的是会话永远转圈或提前收尾。
-- 状态：TODO
+- 状态：DONE 2026-09-06
 
 ## 先说要肯定的部分
 
