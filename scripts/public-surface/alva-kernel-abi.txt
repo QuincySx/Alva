@@ -134,6 +134,7 @@ mod	base::error
 mod	base::message
 mod	base::stream
 mod	constants
+mod	conversation_log
 mod	diagnostic
 mod	model
 mod	phase
@@ -145,6 +146,7 @@ mod	scope
 mod	scope::context
 mod	scope::spawn
 mod	session_record
+mod	session_store
 mod	task
 mod	token_estimation
 mod	tool
@@ -212,6 +214,7 @@ struct	tool::types::ToolRegistry
 trait	agent_session::AgentSession
 trait	agent_session::SessionEventListener
 trait	analytics::AnalyticsSink
+trait	conversation_log::ConversationLog
 trait	model::LanguageModel
 trait	model::TokenCounter
 trait	provider::credential::CredentialSource
@@ -222,6 +225,7 @@ trait	scope::context::traits::ContextHooks
 trait	scope::spawn::communication::OnChildComplete
 trait	scope::spawn::communication::SpawnCommunication
 trait	scope::spawn::communication::SpawnCommunicationRegistry
+trait	session_store::SessionStore
 trait	token_estimation::TokenEstimator
 trait	tool::execution::ToolExecutionContext
 trait	tool::types::Tool
@@ -251,6 +255,14 @@ traitfn	agent_session::AgentSession::fn supports_atomic_records fn supports_atom
 traitfn	agent_session::SessionEventListener::async fn on_event async fn on_event(&self, event: &SessionEvent)
 traitfn	agent_session::SessionEventListener::fn is_active fn is_active(&self) -> bool
 traitfn	analytics::AnalyticsSink::fn record fn record(&self, event: AnalyticsEvent)
+traitfn	conversation_log::ConversationLog::async fn append async fn append(&self, event: SessionEvent)
+traitfn	conversation_log::ConversationLog::async fn append_message async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>)
+traitfn	conversation_log::ConversationLog::async fn append_records async fn append_records( &self, records: Vec<SessionRecord>, ) -> Result<AppendReceipt, SessionError>
+traitfn	conversation_log::ConversationLog::async fn flush async fn flush(&self) -> Result<(), SessionError>
+traitfn	conversation_log::ConversationLog::async fn messages async fn messages(&self) -> Vec<AgentMessage>
+traitfn	conversation_log::ConversationLog::async fn recent_messages async fn recent_messages(&self, n: usize) -> Vec<AgentMessage>
+traitfn	conversation_log::ConversationLog::fn session_id fn session_id(&self) -> &str
+traitfn	conversation_log::ConversationLog::fn supports_atomic_records fn supports_atomic_records(&self) -> bool
 traitfn	model::LanguageModel::async fn complete async fn complete( &self, messages: &[Message], tools: &[&dyn Tool], config: &ModelConfig, ) -> Result<CompletionResponse, AgentError>
 traitfn	model::LanguageModel::fn model_id fn model_id(&self) -> &str
 traitfn	model::LanguageModel::fn provider_id fn provider_id(&self) -> &str
@@ -300,6 +312,20 @@ traitfn	scope::spawn::communication::SpawnCommunication::fn kind fn kind(&self) 
 traitfn	scope::spawn::communication::SpawnCommunicationRegistry::fn get fn get(&self, kind: &str) -> Option<Arc<dyn SpawnCommunication>>
 traitfn	scope::spawn::communication::SpawnCommunicationRegistry::fn list fn list(&self) -> Vec<Arc<dyn SpawnCommunication>>
 traitfn	scope::spawn::communication::SpawnCommunicationRegistry::fn register fn register(&self, ch: Arc<dyn SpawnCommunication>)
+traitfn	session_store::SessionStore::async fn clear async fn clear(&self) -> Result<(), SessionError>
+traitfn	session_store::SessionStore::async fn close async fn close(&self) -> Result<(), SessionError>
+traitfn	session_store::SessionStore::async fn compact_messages async fn compact_messages(&self, replacement: Vec<AgentMessage>)
+traitfn	session_store::SessionStore::async fn count async fn count(&self, filter: &EventQuery) -> usize
+traitfn	session_store::SessionStore::async fn create_child_session async fn create_child_session( &self, _parent_run_id: &str, _spawn_tool_call_id: &str, ) -> Result<Option<std::sync::Arc<dyn AgentSession>>, SessionError>
+traitfn	session_store::SessionStore::async fn load_snapshot async fn load_snapshot(&self) -> Option<Vec<u8>>
+traitfn	session_store::SessionStore::async fn messages_since async fn messages_since(&self, after_seq: u64) -> Vec<AgentMessage>
+traitfn	session_store::SessionStore::async fn query async fn query(&self, filter: &EventQuery) -> Vec<EventMatch>
+traitfn	session_store::SessionStore::async fn records async fn records(&self, from_seq: u64) -> Vec<SessionRecord>
+traitfn	session_store::SessionStore::async fn restore async fn restore(&self) -> Result<(), SessionError>
+traitfn	session_store::SessionStore::async fn rollback_after async fn rollback_after(&self, uuid: &str) -> usize
+traitfn	session_store::SessionStore::async fn save_snapshot async fn save_snapshot(&self, data: &[u8])
+traitfn	session_store::SessionStore::async fn subscribe_events async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream
+traitfn	session_store::SessionStore::fn parent_session_id fn parent_session_id(&self) -> Option<&str>
 traitfn	token_estimation::TokenEstimator::fn estimate_message_tokens fn estimate_message_tokens(&self, messages: &[crate::Message]) -> usize
 traitfn	token_estimation::TokenEstimator::fn estimate_tokens fn estimate_tokens(&self, text: &str) -> usize
 traitfn	tool::execution::ToolExecutionContext::fn allow_dangerous fn allow_dangerous(&self) -> bool
@@ -347,6 +373,7 @@ use	pub use base::stream::StreamEvent
 use	pub use communication::*
 use	pub use config::{ModelConfig, ReasoningEffort}
 use	pub use content_payload::{ProgressEvent, ToolContent, ToolOutput}
+use	pub use conversation_log::ConversationLog
 use	pub use credential::{CredentialSource, StaticCredential}
 use	pub use diagnostic::{Diagnostic, Severity}
 use	pub use error::*
@@ -364,6 +391,7 @@ use	pub use scope::context::{ContextCompacted, MemoryExtracted, TokenBudgetExcee
 use	pub use scope::spawn::{ OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication, SpawnCommunicationRegistry, SpawnResult, }
 use	pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot}
 use	pub use session_record::{ AppendReceipt, BlobReference, ConversationRecord, ExecutionRecord, ExtensionRecord, RecordCategory, RecordValue, SessionRecord, SessionRecordPayload, SESSION_RECORD_SCHEMA_VERSION, }
+use	pub use session_store::SessionStore
 use	pub use super::content_payload::{ProgressEvent, ToolContent, ToolOutput}
 use	pub use system::*
 use	pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType}

@@ -19,9 +19,11 @@ pub mod provider;
 // provider_test is now at provider::tests; re-export for backward compatibility
 pub use provider::tests as provider_test;
 pub mod agent_session;
+pub mod conversation_log;
 pub mod runtime;
 pub mod scope;
 pub mod session_record;
+pub mod session_store;
 // tool_guard is now at tool::guard
 
 pub use analytics::{AnalyticsEvent, AnalyticsSink, NoopAnalyticsSink};
@@ -64,6 +66,8 @@ pub use agent_session::{
     AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery,
     ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionMessage,
 };
+pub use conversation_log::ConversationLog;
+pub use session_store::SessionStore;
 #[doc(inline)]
 pub use alva_macros::{bus_cap, bus_event};
 pub use provider::{CredentialSource, Provider, ProviderError, ProviderRegistry, StaticCredential};

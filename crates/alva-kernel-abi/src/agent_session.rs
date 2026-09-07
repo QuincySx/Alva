@@ -593,3 +593,116 @@ pub trait SessionEventListener: Send + Sync {
         true
     }
 }
+
+// ===========================================================================
+// Expand (ticket 05): ConversationLog / SessionStore — the contract split.
+// ===========================================================================
+//
+// The split is defined in CONTEXT.md: the kernel's entire requirement on
+// history is the ConversationLog (read messages, append); the SessionStore is
+// the harness/UI superset (query, rollback, snapshot, subscribe, compact,
+// persistence). This is the EXPAND half only: AgentSession still declares all
+// methods, every implementor is untouched, and these blanket impls let any
+// `T: AgentSession` already act as both narrower contracts. Ticket 06 turns
+// the supertrait relationship real and narrows the kernel loop.
+
+#[async_trait]
+impl<T: AgentSession + ?Sized> crate::conversation_log::ConversationLog for T {
+    fn session_id(&self) -> &str {
+        AgentSession::session_id(self)
+    }
+
+    async fn messages(&self) -> Vec<AgentMessage> {
+        AgentSession::messages(self).await
+    }
+
+    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
+        AgentSession::recent_messages(self, n).await
+    }
+
+    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
+        AgentSession::append_message(self, msg, parent_uuid).await
+    }
+
+    async fn append(&self, event: SessionEvent) {
+        AgentSession::append(self, event).await
+    }
+
+    async fn append_records(
+        &self,
+        records: Vec<crate::session_record::SessionRecord>,
+    ) -> Result<crate::session_record::AppendReceipt, SessionError> {
+        AgentSession::append_records(self, records).await
+    }
+
+    fn supports_atomic_records(&self) -> bool {
+        AgentSession::supports_atomic_records(self)
+    }
+
+    async fn flush(&self) -> Result<(), SessionError> {
+        AgentSession::flush(self).await
+    }
+}
+
+#[async_trait]
+impl<T: AgentSession + ?Sized> crate::session_store::SessionStore for T {
+    fn parent_session_id(&self) -> Option<&str> {
+        AgentSession::parent_session_id(self)
+    }
+
+    async fn create_child_session(
+        &self,
+        parent_run_id: &str,
+        spawn_tool_call_id: &str,
+    ) -> Result<Option<std::sync::Arc<dyn AgentSession>>, SessionError> {
+        AgentSession::create_child_session(self, parent_run_id, spawn_tool_call_id).await
+    }
+
+    async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
+        AgentSession::query(self, filter).await
+    }
+
+    async fn count(&self, filter: &EventQuery) -> usize {
+        AgentSession::count(self, filter).await
+    }
+
+    async fn records(&self, from_seq: u64) -> Vec<crate::session_record::SessionRecord> {
+        AgentSession::records(self, from_seq).await
+    }
+
+    async fn messages_since(&self, after_seq: u64) -> Vec<AgentMessage> {
+        AgentSession::messages_since(self, after_seq).await
+    }
+
+    async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream {
+        AgentSession::subscribe_events(self, from_seq).await
+    }
+
+    async fn rollback_after(&self, uuid: &str) -> usize {
+        AgentSession::rollback_after(self, uuid).await
+    }
+
+    async fn save_snapshot(&self, data: &[u8]) {
+        AgentSession::save_snapshot(self, data).await
+    }
+
+    async fn load_snapshot(&self) -> Option<Vec<u8>> {
+        AgentSession::load_snapshot(self).await
+    }
+
+    async fn restore(&self) -> Result<(), SessionError> {
+        AgentSession::restore(self).await
+    }
+
+    async fn close(&self) -> Result<(), SessionError> {
+        AgentSession::close(self).await
+    }
+
+    async fn clear(&self) -> Result<(), SessionError> {
+        AgentSession::clear(self).await
+    }
+
+    async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
+        AgentSession::compact_messages(self, replacement).await
+    }
+}
