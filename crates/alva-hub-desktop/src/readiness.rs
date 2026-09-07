@@ -582,7 +582,16 @@ impl SystemProbe {
                     }
                 })
             }
-            other => Some(format!("engine '{other}' is not supported by Hub")),
+            other => {
+                // A declared (fifth+) engine is vetted by its own descriptor,
+                // never rejected by name (ticket 15 batch 3): its declared
+                // binary must be present. Undeclared engines are genuinely
+                // unsupported — they must register into the catalog first.
+                let Some(descriptor) = crate::engine_descriptor(other) else {
+                    return Some(format!("engine '{other}' is not supported by Hub"));
+                };
+                veto_missing_declared_binary(&descriptor, |binary| self.locate(binary).is_some())
+            }
         }
     }
 
@@ -629,6 +638,22 @@ pub fn stream_health_from_outcome(
 }
 
 const CLI_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Veto a **declared** engine whose required binary is missing. The decision
+/// is made from the descriptor's install metadata, never the engine name
+/// (ticket 15 batch 3). In-process engines (`required_binary: None`) pass.
+pub fn veto_missing_declared_binary(
+    descriptor: &alva_engine_runtime::EngineDescriptor,
+    binary_exists: impl Fn(&str) -> bool,
+) -> Option<String> {
+    match &descriptor.install_metadata.required_binary {
+        Some(binary) if !binary_exists(binary) => {
+            Some(format!("engine binary '{binary}' not found"))
+        }
+        // Declared and (binary present or in-process): no veto.
+        Some(_) | None => None,
+    }
+}
 
 fn read_cli_version(binary: &Path) -> Result<String, String> {
     use std::process::Stdio;
@@ -696,6 +721,12 @@ mod tests {
     }
 
     use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use alva_engine_runtime::{
+        EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
+        RuntimeRequest,
+    };
 
     use super::*;
 
@@ -1215,5 +1246,78 @@ mod tests {
             assert_eq!(list(home.path()), before_home);
             assert_eq!(list(workspace.path()), before_workspace);
         }
+    }
+
+    struct DummyEngine;
+
+    #[async_trait::async_trait]
+    impl EngineRuntime for DummyEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<std::pin::Pin<Box<dyn futures_core::Stream<Item = RuntimeEvent> + Send>>, RuntimeError>
+        {
+            Ok(Box::pin(tokio_stream::iter(vec![])))
+        }
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: false,
+                tool_control: false,
+                permission_callback: false,
+                resume: false,
+                cancel: false,
+            }
+        }
+    }
+
+    /// ticket 15 batch 3: a declared engine is vetted by ITS declared binary
+    /// (never rejected by id); the "not supported by Hub" gate only applies to
+    /// engines that never registered a descriptor.
+    #[test]
+    fn declared_engine_is_vetted_by_its_binary_not_its_name() {
+        use alva_engine_runtime::{
+            ConfigSurface, EngineDescriptor, InstallMetadata, ProviderProtocol,
+        };
+        let declared = EngineDescriptor {
+            runtime: Arc::new(DummyEngine),
+            inspector: None,
+            permission_plans: Vec::new(),
+            config_surface: ConfigSurface {
+                supports_max_turns: true,
+                provider_protocol: ProviderProtocol::Native,
+                supports_fast_mode: false,
+                supports_custom_http_headers: false,
+            },
+            install_metadata: InstallMetadata {
+                required_binary: Some("gemini-cli".into()),
+                install_hint: None,
+            },
+        };
+        // Binary present → no veto, even though "gemini" used to be rejected by name.
+        assert_eq!(veto_missing_declared_binary(&declared, |b| b == "gemini-cli"), None);
+        // Binary missing → veto names the BINARY, not the engine.
+        let veto = veto_missing_declared_binary(&declared, |_| false).unwrap();
+        assert!(veto.contains("gemini-cli"), "veto must name the binary: {veto}");
+        assert!(!veto.contains("unsupported"), "declared engines are not 'unsupported': {veto}");
+        // In-process engine (no binary) passes.
+        let in_process = EngineDescriptor {
+            runtime: declared.runtime.clone(),
+            inspector: None,
+            permission_plans: Vec::new(),
+            config_surface: declared.config_surface.clone(),
+            install_metadata: InstallMetadata::default(),
+        };
+        assert_eq!(veto_missing_declared_binary(&in_process, |_| false), None);
     }
 }

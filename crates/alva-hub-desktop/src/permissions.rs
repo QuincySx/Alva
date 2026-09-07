@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use alva_engine_adapter_claude::ClaudePrintPermissionMode;
 use alva_engine_adapter_codex::CodexSandboxMode;
-use alva_engine_runtime::{EngineRuntime, PermissionDecision};
+use alva_engine_runtime::{EngineRuntime, PermissionDecision, PermissionRelation};
 use serde::{Deserialize, Serialize};
 
 /// Stable per-session permission contract. It is chosen when the Hub session
@@ -67,6 +67,9 @@ pub enum EngineEnforcement {
     CodexSandbox(CodexSandboxMode),
     PiReadOnly,
     PiUnrestricted,
+    /// A declared catalog engine whose plan the product cannot see (the engine
+    /// enforces its own declared plan). build_engine must be wired to it.
+    DeclaredByEngine,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,9 +158,38 @@ pub fn enforcement_for(
             enforcement: EngineEnforcement::PiUnrestricted,
             summary: "Pi runs its complete configured tool set".into(),
         }),
-        (other, _) => Err(format!(
-            "unsupported Hub engine '{other}'; expected alva, claude, codex, or pi"
-        )),
+        (other, profile) => {
+            let profile_key = profile.as_str();
+            // A declared (fifth+) engine is judged by its own descriptor
+            // (ticket 15 batch 3): undeclared → unsupported; declared but not
+            // capable → named profile failure; declared and capable → the
+            // engine enforces its own plan (the product never twists vendor
+            // knobs it cannot see).
+            let Some(descriptor) = crate::engine_descriptor(other) else {
+                return Err(format!(
+                    "unsupported Hub engine '{other}'; expected alva, claude, codex, or pi"
+                ));
+            };
+            if !descriptor.can_satisfy(profile_key) {
+                return Err(format!(
+                    "engine '{other}' is declared in the catalog but cannot satisfy permission \
+                     profile '{profile_key}'"
+                ));
+            }
+            let plan = descriptor
+                .permission_plans
+                .iter()
+                .find(|plan| plan.profile_id == profile_key)
+                .expect("can_satisfy checked the same plan set");
+            Ok(EnforcementPlan {
+                relation: match plan.relation {
+                    PermissionRelation::Equivalent => EnforcementRelation::Equivalent,
+                    PermissionRelation::Stricter => EnforcementRelation::Stricter,
+                },
+                enforcement: EngineEnforcement::DeclaredByEngine,
+                summary: plan.summary.clone(),
+            })
+        }
     }
 }
 

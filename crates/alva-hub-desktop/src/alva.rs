@@ -112,6 +112,11 @@ fn build_engine_for_target_with_repository(
             )?;
             Ok(Arc::new(PiAdapter::new(config)))
         }
+        (_, EngineEnforcement::DeclaredByEngine) => Err(format!(
+            "engine '{}' is declared in the catalog but has no builder wired in \
+             this product; register its adapter to run it",
+            engine_id
+        )),
         (other, enforcement) => Err(format!(
             "Hub permission mapping for engine '{other}' returned an enforcement \
              it cannot apply: {enforcement:?}"
