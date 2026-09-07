@@ -20,7 +20,7 @@ The current repository has:
   session router with resume, cancel, permission routing, engine switching, and
   stream diagnostics.
 - `alva-hub-cli`: one-shot and REPL flows, a private JSON session journal,
-  explicit Alva/Claude/Codex selection, manual switching, and text handoff.
+  explicit Alva/Claude/Codex/pi selection, manual switching, and text handoff.
 - `alva-hub-desktop`: a Tauri/React product that selects a workspace, runs Alva
   through the real `EngineRuntime` seam, and projects
   running/completed/failed product timeline states. Its private `alva-hub.db`

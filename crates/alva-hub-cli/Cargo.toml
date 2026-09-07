@@ -14,6 +14,7 @@ alva-engine-runtime = { path = "../alva-engine-runtime" }
 alva-engine-adapter-alva = { path = "../alva-engine-adapter-alva" }
 alva-engine-adapter-claude = { path = "../alva-engine-adapter-claude" }
 alva-engine-adapter-codex = { path = "../alva-engine-adapter-codex" }
+alva-engine-adapter-pi = { path = "../alva-engine-adapter-pi" }
 alva-hub-core = { path = "../alva-hub-core" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 dirs = "5"

@@ -14,6 +14,7 @@ pub(crate) enum Engine {
     Alva,
     Claude,
     Codex,
+    Pi,
 }
 
 impl Engine {
@@ -22,6 +23,7 @@ impl Engine {
             Self::Alva => "alva",
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Pi => "pi",
         }
     }
 
@@ -30,6 +32,7 @@ impl Engine {
             "alva" => Ok(Self::Alva),
             "claude" => Ok(Self::Claude),
             "codex" => Ok(Self::Codex),
+            "pi" => Ok(Self::Pi),
             _ => Err(ParseError::UnknownEngine(value.into())),
         }
     }

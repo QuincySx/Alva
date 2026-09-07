@@ -17,6 +17,7 @@ use alva_engine_adapter_claude::{
     ClaudePrintPermissionMode,
 };
 use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
+use alva_engine_adapter_pi::{PiAdapter, PiAdapterConfig, PiToolPolicy};
 use alva_engine_runtime::{
     EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeOptions, RuntimeRequest,
 };
@@ -111,16 +112,13 @@ async fn run() -> i32 {
         }
     }
     // ticket 15 batch 3: the engine decides whether it honors --max-turns
-    // (its descriptor declares it); the CLI no longer answers for engines.
-    if invocation.max_turns.is_some() {
-        let descriptor = CodexAdapter::descriptor();
-        if !descriptor.config_surface.supports_max_turns {
-            eprintln!(
-                "alva-hub: engine '{}' does not expose a compatible --max-turns control; omit the flag or select another engine",
-                engine.id()
-            );
-            return USAGE_EXIT;
-        }
+    // (its own descriptor declares it); the CLI no longer answers for engines.
+    if invocation.max_turns.is_some() && !engine_max_turns_supported(engine) {
+        eprintln!(
+            "alva-hub: engine '{}' does not expose a compatible --max-turns control; omit the flag or select another engine",
+            engine.id()
+        );
+        return USAGE_EXIT;
     }
 
     let hub = HubRuntime::new();
@@ -324,11 +322,27 @@ fn rehydrate_session(
     })
 }
 
+/// Whether an engine honors `--max-turns`, read from its own descriptor
+/// (ticket 15 batch 3) — never from a name check.
+fn engine_max_turns_supported(engine: Engine) -> bool {
+    match engine {
+        // Alva consumes RuntimeOptions.max_turns as its agentic-turn ceiling;
+        // it has no CLI binary, so there is no descriptor() to consult.
+        Engine::Alva => true,
+        Engine::Claude => alva_engine_adapter_claude::ClaudePrintAdapter::descriptor()
+            .config_surface
+            .supports_max_turns,
+        Engine::Codex => CodexAdapter::descriptor().config_surface.supports_max_turns,
+        Engine::Pi => PiAdapter::descriptor().config_surface.supports_max_turns,
+    }
+}
+
 fn parse_engine_id(id: &str) -> Option<Engine> {
     match id {
         "alva" => Some(Engine::Alva),
         "claude" => Some(Engine::Claude),
         "codex" => Some(Engine::Codex),
+        "pi" => Some(Engine::Pi),
         _ => None,
     }
 }
@@ -510,7 +524,7 @@ async fn run_repl(
                 eprintln!("alva-hub: engine is already {}", opts.engine_id);
                 continue;
             }
-            if opts.max_turns.is_some() && !CodexAdapter::descriptor().config_surface.supports_max_turns {
+            if opts.max_turns.is_some() && !engine_max_turns_supported(target) {
                 eprintln!(
                     "alva-hub: cannot switch to '{}' while --max-turns is set; restart without that flag",
                     target.id()
@@ -1366,6 +1380,33 @@ fn build_selected_engine(
             };
             Ok(Arc::new(CodexAdapter::new(config)))
         }
+        Engine::Pi => {
+            // Native pi sessions live under the Hub journal root so `--session`
+            // can resume them across process restarts.
+            let session_dir = crate::session_store::SessionStore::default_path()
+                .and_then(|path| path.parent().map(|directory| directory.join("pi-sessions")))
+                .unwrap_or_else(|| std::env::temp_dir().join("alva-hub-pi-sessions"));
+            std::fs::create_dir_all(&session_dir).map_err(|error| {
+                format!("create pi session dir {}: {error}", session_dir.display())
+            })?;
+            let config = PiAdapterConfig {
+                pi_path: std::env::var("PI_HUB_PATH")
+                    .ok()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| "pi".into()),
+                model: std::env::var("PI_HUB_MODEL")
+                    .ok()
+                    .filter(|value| !value.is_empty()),
+                default_cwd: Some(workspace.to_path_buf()),
+                session_dir,
+                tool_policy: match permission {
+                    PermissionPolicy::Allow => PiToolPolicy::Unrestricted,
+                    _ => PiToolPolicy::ReadOnly,
+                },
+                ..Default::default()
+            };
+            Ok(Arc::new(PiAdapter::new(config)))
+        }
     }
 }
 
@@ -1387,7 +1428,7 @@ fn print_usage() {
         "Usage: alva-hub [options] [--] <prompt>\n\
          \n\
          Options:\n  \
-         --engine alva|claude|codex   Engine (default: alva; journal may override with --session)\n  \
+         --engine alva|claude|codex|pi  Engine (default: alva; journal may override with --session)\n  \
          --claude-mode light|full     Claude transport (default: light)\n  \
          --cwd <dir>                  Workspace (default: process cwd)\n  \
          --session <id>               Resume product session from journal\n  \
@@ -1403,7 +1444,8 @@ fn print_usage() {
          Engines:\n  \
          alva    Full Alva harness; typed records under ~/.config/alva/hub/alva-history for --session\n  \
          claude  Claude Code (light/full); journal + native --resume\n  \
-         codex   `codex exec --json` / `codex exec resume <id> --json`\n\
+         codex   `codex exec --json` / `codex exec resume <id> --json`\n  \
+         pi      `pi --print --mode json`; native sessions under the hub journal\n\
          \n\
          Session journal: $ALVA_HUB_HOME/sessions.json or ~/.config/alva/hub/sessions.json\n\
          REPL commands: /session  /sessions  /engine <name>  /help  /quit"
