@@ -460,4 +460,111 @@ printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":
             .await;
         }
     }
+
+    /// Real pi CLI end-to-end evidence (ticket 16/10 L-tier). Skips when pi
+    /// is missing; the model is machine-specific (defaults to the local
+    /// catalogue entry, overridable via PI_REAL_TEST_MODEL).
+    #[cfg(unix)]
+    mod real_pi {
+        use super::*;
+        use alva_engine_runtime::{assert_conforms, RuntimeRequest, Scenario};
+        use std::process::Command;
+        use std::time::Duration;
+        use tokio_stream::StreamExt;
+
+        fn real_config(workspace: &tempfile::TempDir) -> PiAdapterConfig {
+            let model = std::env::var("PI_REAL_TEST_MODEL")
+                .unwrap_or_else(|_| "cc-switch-open-code-go/glm-5.2".into());
+            PiAdapterConfig {
+                pi_path: "pi".into(),
+                model: Some(model),
+                provider: None,
+                default_cwd: Some(workspace.path().to_path_buf()),
+                session_dir: workspace.path().join("sessions"),
+                ..Default::default()
+            }
+        }
+
+        #[tokio::test]
+        async fn real_pi_completes_a_turn_conformant() {
+            if Command::new("pi").arg("--version").output().is_err() {
+                eprintln!("skipping real-pi: pi CLI is not installed");
+                return;
+            }
+            let workspace = tempfile::tempdir().unwrap();
+            let adapter = PiAdapter::new(real_config(&workspace));
+            assert_conforms(
+                &adapter,
+                RuntimeRequest::new("Answer with just the number: 2+2").with_cwd(workspace.path()),
+                Scenario::Normal,
+            )
+            .await;
+        }
+
+        #[tokio::test]
+        async fn real_pi_cancel_stops_the_cli_within_the_grace_bound() {
+            if Command::new("pi").arg("--version").output().is_err() {
+                eprintln!("skipping real-pi: pi CLI is not installed");
+                return;
+            }
+            let workspace = tempfile::tempdir().unwrap();
+            let adapter = Arc::new(PiAdapter::new(real_config(&workspace)));
+            let mut stream = adapter
+                .execute(
+                    RuntimeRequest::new(
+                        "Reason slowly and at length, step by step, about the history of \
+                         computing; then write a 400-word essay. Do not stop early.",
+                    )
+                    .with_cwd(workspace.path()),
+                )
+                .unwrap();
+            let session_id = tokio::time::timeout(Duration::from_secs(20), async {
+                while let Some(event) = stream.next().await {
+                    if let RuntimeEvent::SessionStarted { session_id, .. } = event {
+                        return session_id;
+                    }
+                }
+                panic!("real pi stream ended before SessionStarted")
+            })
+            .await
+            .expect("real pi must start");
+
+            let collector = tokio::spawn(async move {
+                let mut events = Vec::new();
+                while let Some(event) = stream.next().await {
+                    events.push(event);
+                }
+                events
+            });
+            adapter
+                .cancel(&session_id)
+                .await
+                .expect("cancel must be deliverable");
+
+            // The stream must close quickly: real pi would otherwise keep
+            // streaming for minutes. A terminal pair here is direct evidence
+            // the pi child process was killed (ticket 13 acceptance).
+            let events = tokio::time::timeout(Duration::from_secs(5), collector)
+                .await
+                .expect("cancel must kill the pi CLI and close the stream")
+                .unwrap();
+            assert!(
+                matches!(
+                    events.last(),
+                    Some(RuntimeEvent::Completed { .. })
+                ),
+                "cancel must end with Completed: {events:#?}"
+            );
+            assert!(
+                events.iter().any(|event| matches!(
+                    event,
+                    RuntimeEvent::Error {
+                        recoverable: false,
+                        ..
+                    }
+                )),
+                "cancel must surface Error{{fatal}}: {events:#?}"
+            );
+        }
+    }
 }
