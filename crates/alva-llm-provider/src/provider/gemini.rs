@@ -185,7 +185,12 @@ impl LanguageModel for GeminiProvider {
         let url = self.endpoint("generateContent");
         let adapter = GeminiAdapter::new();
         let encoded = adapter.encode_messages(messages);
-        let tool_defs: Vec<ToolDefinition> = tools.iter().map(|t| t.definition()).collect();
+        let tool_defs: Vec<ToolDefinition> = tools
+            .iter()
+            .map(|t| {
+                alva_kernel_abi::tool_definition(*t, &alva_kernel_abi::ToolSchemaContext::empty())
+            })
+            .collect();
         let api_tools = adapter.encode_tools(&tool_defs);
         let max_tokens = config.max_tokens.unwrap_or(self.max_tokens);
         let body = build_body(&self.model, max_tokens, &encoded, &api_tools, config);
@@ -264,7 +269,12 @@ impl LanguageModel for GeminiProvider {
 
         let adapter = GeminiAdapter::new();
         let encoded = adapter.encode_messages(messages);
-        let tool_defs: Vec<ToolDefinition> = tools.iter().map(|t| t.definition()).collect();
+        let tool_defs: Vec<ToolDefinition> = tools
+            .iter()
+            .map(|t| {
+                alva_kernel_abi::tool_definition(*t, &alva_kernel_abi::ToolSchemaContext::empty())
+            })
+            .collect();
         let api_tools = adapter.encode_tools(&tool_defs);
         let body = build_body(&self.model, max_tokens, &encoded, &api_tools, config);
 

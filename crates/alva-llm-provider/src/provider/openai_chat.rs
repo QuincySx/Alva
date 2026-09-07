@@ -201,7 +201,12 @@ impl LanguageModel for OpenAIChatProvider {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
         let adapter = OpenAIChatAdapter::new();
         let encoded = adapter.encode_messages(messages);
-        let tool_defs: Vec<ToolDefinition> = tools.iter().map(|t| t.definition()).collect();
+        let tool_defs: Vec<ToolDefinition> = tools
+            .iter()
+            .map(|t| {
+                alva_kernel_abi::tool_definition(*t, &alva_kernel_abi::ToolSchemaContext::empty())
+            })
+            .collect();
         let api_tools = adapter.encode_tools(&tool_defs);
         let max_tokens = config.max_tokens.unwrap_or(self.max_tokens);
         let body = build_body(
@@ -287,7 +292,12 @@ impl LanguageModel for OpenAIChatProvider {
 
         let adapter = OpenAIChatAdapter::new();
         let encoded = adapter.encode_messages(messages);
-        let tool_defs: Vec<ToolDefinition> = tools.iter().map(|t| t.definition()).collect();
+        let tool_defs: Vec<ToolDefinition> = tools
+            .iter()
+            .map(|t| {
+                alva_kernel_abi::tool_definition(*t, &alva_kernel_abi::ToolSchemaContext::empty())
+            })
+            .collect();
         let api_tools = adapter.encode_tools(&tool_defs);
         let body = build_body(
             &model,

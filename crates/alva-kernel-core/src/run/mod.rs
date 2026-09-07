@@ -104,12 +104,15 @@ fn cache_base_fingerprints(
     let mut tools_hasher = Sha256::new();
     update_framed_hash(&mut tools_hasher, b"alva-tool-schema-fingerprint-v1");
     for tool in tools {
-        let definition = serde_json::to_vec(&tool.definition())
-            .map_err(|error| {
-                tracing::warn!(tool = tool.name(), %error, "failed to fingerprint tool schema");
-                error
-            })
-            .ok()?;
+        let definition = serde_json::to_vec(&alva_kernel_abi::tool_definition(
+            tool.as_ref(),
+            &alva_kernel_abi::tool::schema::ToolSchemaContext::empty(),
+        ))
+        .map_err(|error| {
+            tracing::warn!(tool = tool.name(), %error, "failed to fingerprint tool schema");
+            error
+        })
+        .ok()?;
         update_framed_hash(&mut tools_hasher, &definition);
     }
     let tool_schema_fingerprint = format!("{:x}", tools_hasher.finalize());
@@ -740,7 +743,10 @@ mod run_helpers_tests {
             "Echo a value"
         }
 
-        fn parameters_schema(&self) -> serde_json::Value {
+        fn parameters_schema(
+            &self,
+            _ctx: &alva_kernel_abi::tool::schema::ToolSchemaContext,
+        ) -> serde_json::Value {
             serde_json::json!({
                 "type": "object",
                 "properties": { "value": { "type": "string" } },

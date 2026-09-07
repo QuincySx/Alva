@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use alva_kernel_abi::{
-    AgentError, ExecutionMode, ProgressEvent, Tool, ToolContent, ToolExecutionContext,
+    AgentError, ProgressEvent, Scheduling, Tool, ToolContent, ToolExecutionContext,
     ToolFsExecResult, ToolOutput, ToolPermissionResult,
 };
 use async_trait::async_trait;
@@ -116,15 +116,15 @@ impl Tool for RequestEscalationTool {
          enters the normal PermissionMode approval flow. Always declare both command and cwd."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> serde_json::Value {
         let mut schema = serde_json::to_value(schemars::schema_for!(EscalationRequest))
             .expect("schemars::schema_for always produces valid JSON");
         alva_kernel_abi::tool::schema::normalize_llm_tool_schema(&mut schema);
         schema
     }
 
-    fn execution_mode(&self) -> ExecutionMode {
-        ExecutionMode::SerialGlobal
+    fn scheduling(&self, _input: &serde_json::Value) -> Scheduling {
+        Scheduling::serial_global()
     }
 
     fn check_permissions(

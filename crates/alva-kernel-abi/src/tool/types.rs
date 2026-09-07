@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::schema::ToolSchemaContext;
 use crate::base::error::AgentError;
 
 // ---------------------------------------------------------------------------
@@ -112,17 +113,15 @@ pub trait Tool: Send + Sync {
     /// Human-readable description for the LLM.
     fn description(&self) -> &str;
 
-    /// JSON Schema for parameters.
-    fn parameters_schema(&self) -> serde_json::Value;
-
-    /// Full definition for LLM function calling (convenience).
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: self.name().to_string(),
-            description: self.description().to_string(),
-            parameters: self.parameters_schema(),
-        }
-    }
+    /// JSON Schema for parameters, with access to runtime state.
+    ///
+    /// `ctx` carries the config bus when the run loop asks (most production
+    /// paths); providers and tests outside a run pass
+    /// [`ToolSchemaContext::empty`]. Tools whose schema depends on live
+    /// runtime state (e.g. a dynamic enum of sibling tool names, registered
+    /// `SpawnCommunication` kinds, MCP servers, Skills) read it from
+    /// `ctx.bus`; static tools ignore the argument.
+    fn parameters_schema(&self, ctx: &ToolSchemaContext) -> serde_json::Value;
 
     /// Execute the tool.
     ///
@@ -136,109 +135,20 @@ pub trait Tool: Send + Sync {
     ) -> Result<super::execution::ToolOutput, AgentError>;
 
     // -----------------------------------------------------------------------
-    // Extended metadata methods (all have defaults so existing impls compile)
+    // 调度与只读自述（唯一带默认值的两个非核心方法）
     // -----------------------------------------------------------------------
 
-    /// Whether this tool can safely run concurrently with other tool calls.
-    fn is_concurrency_safe(&self, _input: &serde_json::Value) -> bool {
-        false
-    }
-
-    /// Resource keys this invocation will lock. Scheduler uses multi-reader /
-    /// single-writer semantics: many `Read` on the same key run concurrently;
-    /// `Write` is exclusive. Default: empty (no locks — fully parallel).
+    /// 该调用如何被并发执行 —— 调度描述符。见 [`Scheduling`]。
     ///
-    /// By convention `key` is the absolute file path for file-mutating tools,
-    /// or any URI-shaped identifier for other contended resources. Keys are
-    /// sorted before acquisition to guarantee total order across invocations
-    /// and avoid cross-tool deadlock.
-    fn resource_keys(&self, _input: &serde_json::Value) -> Vec<super::scheduler::ResourceKey> {
-        Vec::new()
-    }
-
-    /// Execution mode for batch scheduling. Default: `Parallel` — tool
-    /// honors `resource_keys()` and runs concurrently with non-conflicting
-    /// peers. Override with `SerialGlobal` for tools whose side effects
-    /// cannot be precisely modeled (e.g. Bash: arbitrary FS + env + process
-    /// mutations → safer to treat as globally exclusive). Override with
-    /// `Coordinator` for orchestrator tools that take no lock themselves and
-    /// drive nested tools inline (e.g. `AgentSpawnTool`) — holding any lock
-    /// there would deadlock a nested `SerialGlobal` tool on the same task.
-    fn execution_mode(&self) -> super::scheduler::ExecutionMode {
-        super::scheduler::ExecutionMode::Parallel
+    /// 内核批量执行工具时唯一需要向工具打听的额外信息；默认值与拆分前的
+    /// 四个方法默认逐条一致（不进并行波、无锁、自管超时关闭）。
+    fn scheduling(&self, _input: &serde_json::Value) -> super::scheduler::Scheduling {
+        super::scheduler::Scheduling::default()
     }
 
     /// Whether this tool invocation is purely read-only (no side effects).
     fn is_read_only(&self, _input: &serde_json::Value) -> bool {
         false
-    }
-
-    /// Whether this tool manages its own execution timeout.
-    ///
-    /// When `true`, generic per-tool timeout middleware (e.g.
-    /// `ToolTimeoutMiddleware`) MUST NOT wrap this call with an additional
-    /// timeout. The tool is then solely responsible for bounding its own
-    /// runtime — via a scope budget, an internal cancellation protocol, or
-    /// similar.
-    ///
-    /// Examples:
-    /// - Sub-agent spawning tools that enforce their own per-scope budget
-    /// - Long-running stream/watch tools with explicit cancellation
-    ///
-    /// Default: `false` (the middleware's default timeout applies).
-    fn manages_own_timeout(&self) -> bool {
-        false
-    }
-
-    /// Hook for mutating the derived JSON schema with runtime data.
-    ///
-    /// Called by `#[derive(Tool)]`-generated `parameters_schema` after
-    /// `schema_for!(Input)` + `normalize_llm_tool_schema`. Tools whose
-    /// schema depends on runtime state (e.g. a dynamic enum computed
-    /// from the parent's tool list) define an **inherent** method on
-    /// their concrete type with the same signature — Rust's method
-    /// resolution prefers the inherent impl over this trait default,
-    /// so the derive's unqualified `self.apply_schema_overrides(...)`
-    /// call picks up the override automatically.
-    ///
-    /// Tools without runtime schema mutation leave this as a no-op.
-    fn apply_schema_overrides(&self, _schema: &mut serde_json::Value) {}
-
-    /// JSON Schema for parameters, with access to runtime state.
-    ///
-    /// Override when schema depends on live runtime state — e.g. a
-    /// dynamic `enum` of sibling tool names, registered
-    /// `SpawnCommunication` kinds, connected MCP servers, or
-    /// discovered Skills. Consumers that have a live bus (the
-    /// `alva-kernel-core` run loop) should prefer this method over
-    /// [`Tool::parameters_schema`] so overrides can see the bus.
-    ///
-    /// Default falls back to [`Tool::parameters_schema`], preserving
-    /// zero-change behavior for every existing `Tool` impl.
-    fn parameters_schema_with(&self, _ctx: &super::schema::ToolSchemaContext) -> serde_json::Value {
-        self.parameters_schema()
-    }
-
-    /// Hook for mutating the derived JSON schema with runtime data,
-    /// with access to the same [`super::schema::ToolSchemaContext`] passed
-    /// to [`Tool::parameters_schema_with`].
-    ///
-    /// Called by `#[derive(Tool)]`-generated `parameters_schema_with`
-    /// after `schema_for!(Input)` + `normalize_llm_tool_schema`. Same
-    /// inherent-wins-over-trait pattern as
-    /// [`Tool::apply_schema_overrides`]: tools plug in ctx-aware
-    /// mutations by defining a matching inherent method on their
-    /// concrete type.
-    ///
-    /// The default routes to the context-free
-    /// [`Tool::apply_schema_overrides`] so tools that only need the
-    /// legacy (bus-less) shape keep working unchanged.
-    fn apply_schema_overrides_with(
-        &self,
-        schema: &mut serde_json::Value,
-        _ctx: &super::schema::ToolSchemaContext,
-    ) {
-        self.apply_schema_overrides(schema);
     }
 
     /// Check whether the tool should be allowed to run with the given input.
@@ -316,9 +226,14 @@ impl ToolRegistry {
     }
 
     pub fn definitions(&self) -> Vec<ToolDefinition> {
+        let ctx = ToolSchemaContext::empty();
         self.order
             .iter()
-            .filter_map(|name| self.tools.get(name).map(|tool| tool.definition()))
+            .filter_map(|name| {
+                self.tools
+                    .get(name)
+                    .map(|tool| crate::tool::tool_definition(tool.as_ref(), &ctx))
+            })
             .collect()
     }
 
@@ -334,5 +249,21 @@ impl ToolRegistry {
 impl Default for ToolRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// tool_definition — build the LLM function-calling definition for a tool
+// ---------------------------------------------------------------------------
+
+/// Build a [`ToolDefinition`] from a tool's self-description. Replaces the
+/// old `Tool::definition` convenience method so the trait stays seven
+/// methods; providers and the run loop pass the `ToolSchemaContext` they
+/// already hold, everyone else passes [`ToolSchemaContext::empty`].
+pub fn tool_definition(tool: &dyn Tool, ctx: &ToolSchemaContext) -> ToolDefinition {
+    ToolDefinition {
+        name: tool.name().to_string(),
+        description: tool.description().to_string(),
+        parameters: tool.parameters_schema(ctx),
     }
 }

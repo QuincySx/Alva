@@ -52,7 +52,7 @@ impl Tool for McpToolAdapter {
         &self.full_description
     }
 
-    fn parameters_schema(&self) -> Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> Value {
         self.info.input_schema.clone()
     }
 

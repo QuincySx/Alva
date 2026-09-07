@@ -232,7 +232,7 @@ impl ProxyModel {
             .map(|tool| ToolDefinition {
                 name: tool.name().to_string(),
                 description: tool.description().to_string(),
-                parameters: tool.parameters_schema(),
+                parameters: tool.parameters_schema(&alva_kernel_abi::ToolSchemaContext::empty()),
             })
             .collect();
         let request = LlmProxyRequest::new(messages.to_vec(), proxy_tools, config.clone());

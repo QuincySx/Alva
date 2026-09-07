@@ -200,6 +200,7 @@ struct SpawnInput {
         Sub-agents can spawn further sub-agents up to the configured depth limit.",
     input = SpawnInput,
     manages_own_timeout,
+    schema = "apply_schema_overrides",
     // Orchestrator: takes no scheduler lock. The spawned sub-agent runs inline
     // on this same task and executes its own tools (which take their own
     // locks). Holding the global read lock here would deadlock a child's
@@ -309,34 +310,16 @@ impl AgentSpawnTool {
         }
     }
 
-    /// Context-free fallback path. Hit when the provider generates a
-    /// tool schema without a live [`ToolSchemaContext`] (e.g. an offline
-    /// dump, a test that calls `parameters_schema()` directly). Only
-    /// the scope-dependent `tools.items.enum` can be populated; the
-    /// bus-dependent comm-kinds enum is skipped here and injected by
-    /// the ctx-aware path instead.
+    /// Invoked by the `#[derive(Tool)]`-generated `parameters_schema`
+    /// (selected with `#[tool(schema = "apply_schema_overrides")]`).
     ///
-    /// Picked up automatically by the `#[derive(Tool)]`-generated
-    /// `parameters_schema`: it calls `self.apply_schema_overrides(...)`
-    /// unqualified, which Rust's method resolution binds to this
-    /// inherent method (winning over `Tool::apply_schema_overrides`'s
-    /// trait default).
-    fn apply_schema_overrides(&self, schema: &mut Value) {
-        self.inject_dynamic_enums(schema, &[], &[]);
-    }
-
-    /// Context-aware path — invoked by the `#[derive(Tool)]`-generated
-    /// `parameters_schema_with`. Same inherent-wins-over-trait pattern
-    /// as `apply_schema_overrides`: defining this inherent method
-    /// overrides the trait default that merely forwards to the
-    /// context-free variant.
-    ///
-    /// Reads `SpawnCommunicationRegistry` off
-    /// [`ToolSchemaContext::bus`] (if wired) and injects the full set of
-    /// registered kind ids as a JSON-Schema `enum` on
-    /// `comms.items.properties.kind`, so the LLM gets the precise live
-    /// set of choices instead of an unconstrained string.
-    fn apply_schema_overrides_with(
+    /// Reads `SpawnCommunicationRegistry` / `AgentTemplateRegistry` off
+    /// [`ToolSchemaContext::bus`] when wired and injects the live sets as
+    /// JSON-Schema `enum`s (`comms.items.properties.kind`, template ids),
+    /// so the LLM gets the precise live choices instead of unconstrained
+    /// strings. Without a bus the lists are empty and only the
+    /// scope-dependent `tools.items.enum` is populated.
+    fn apply_schema_overrides(
         &self,
         schema: &mut Value,
         ctx: &alva_kernel_abi::tool::schema::ToolSchemaContext,
@@ -1021,7 +1004,7 @@ mod tests {
     #[test]
     fn parameters_schema_without_ctx_omits_comm_enum() {
         let tool = build_spawn_tool();
-        let schema = tool.parameters_schema();
+        let schema = tool.parameters_schema(&ToolSchemaContext::empty());
         let kind = &schema["properties"]["comms"]["items"]["properties"]["kind"];
         assert_eq!(kind["type"], "string");
         assert!(kind.get("enum").is_none());
@@ -1046,7 +1029,7 @@ mod tests {
 
         let tool = build_spawn_tool();
         let ctx = ToolSchemaContext::with_bus(&handle);
-        let schema = tool.parameters_schema_with(&ctx);
+        let schema = tool.parameters_schema(&ctx);
 
         let kind = &schema["properties"]["comms"]["items"]["properties"]["kind"];
         let enum_vals = kind["enum"]
@@ -1186,7 +1169,7 @@ mod tests {
 
         let tool = build_spawn_tool();
         let ctx = ToolSchemaContext::with_bus(&handle);
-        let schema = tool.parameters_schema_with(&ctx);
+        let schema = tool.parameters_schema(&ctx);
 
         let at = &schema["properties"]["agent_type"];
         let enum_vals = at["enum"]

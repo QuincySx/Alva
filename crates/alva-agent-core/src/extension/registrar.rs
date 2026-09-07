@@ -258,7 +258,10 @@ mod tests {
         fn description(&self) -> &str {
             "stub"
         }
-        fn parameters_schema(&self) -> serde_json::Value {
+        fn parameters_schema(
+            &self,
+            _ctx: &alva_kernel_abi::ToolSchemaContext,
+        ) -> serde_json::Value {
             serde_json::json!({})
         }
         async fn execute(

@@ -11,7 +11,7 @@ use alva_kernel_abi::tool::execution::{
     ToolExecutionContext as AbiToolExecutionContext, ToolOutput as AbiToolOutput,
 };
 use alva_kernel_abi::tool::schema::ToolSchemaContext;
-use alva_kernel_abi::tool::{Tool, ToolDefinition, ToolPermissionResult};
+use alva_kernel_abi::tool::{Tool, ToolPermissionResult};
 use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message, MessageRole,
     ModelConfig, StreamEvent, StreamMessageAccumulator,
@@ -69,16 +69,8 @@ impl Tool for PrebakedSchemaTool {
         self.inner.description()
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(&self, _ctx: &ToolSchemaContext) -> serde_json::Value {
         self.schema.clone()
-    }
-
-    fn definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: self.inner.name().to_string(),
-            description: self.inner.description().to_string(),
-            parameters: self.schema.clone(),
-        }
     }
 
     async fn execute(
@@ -89,16 +81,12 @@ impl Tool for PrebakedSchemaTool {
         self.inner.execute(input, ctx).await
     }
 
-    fn is_concurrency_safe(&self, input: &serde_json::Value) -> bool {
-        self.inner.is_concurrency_safe(input)
+    fn scheduling(&self, input: &serde_json::Value) -> alva_kernel_abi::Scheduling {
+        self.inner.scheduling(input)
     }
 
     fn is_read_only(&self, input: &serde_json::Value) -> bool {
         self.inner.is_read_only(input)
-    }
-
-    fn manages_own_timeout(&self) -> bool {
-        self.inner.manages_own_timeout()
     }
 
     fn check_permissions(
@@ -129,7 +117,7 @@ pub(crate) fn bake_tool_schemas(
     tools
         .iter()
         .map(|t| -> Arc<dyn Tool> {
-            let schema = t.parameters_schema_with(&ctx);
+            let schema = t.parameters_schema(&ctx);
             Arc::new(PrebakedSchemaTool::new(t.clone(), schema))
         })
         .collect()

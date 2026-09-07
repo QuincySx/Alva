@@ -190,7 +190,10 @@ mod tests {
         fn description(&self) -> &str {
             "read-only"
         }
-        fn parameters_schema(&self) -> serde_json::Value {
+        fn parameters_schema(
+            &self,
+            _ctx: &alva_kernel_abi::ToolSchemaContext,
+        ) -> serde_json::Value {
             serde_json::json!({})
         }
         fn is_read_only(&self, _: &serde_json::Value) -> bool {
@@ -214,7 +217,10 @@ mod tests {
         fn description(&self) -> &str {
             "write"
         }
-        fn parameters_schema(&self) -> serde_json::Value {
+        fn parameters_schema(
+            &self,
+            _ctx: &alva_kernel_abi::ToolSchemaContext,
+        ) -> serde_json::Value {
             serde_json::json!({})
         }
         async fn execute(
@@ -235,7 +241,10 @@ mod tests {
         fn description(&self) -> &str {
             "mcp tool"
         }
-        fn parameters_schema(&self) -> serde_json::Value {
+        fn parameters_schema(
+            &self,
+            _ctx: &alva_kernel_abi::ToolSchemaContext,
+        ) -> serde_json::Value {
             serde_json::json!({})
         }
         async fn execute(

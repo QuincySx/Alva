@@ -40,6 +40,7 @@ fn	task::create_task_state fn create_task_state( task_type: TaskType, descriptio
 fn	task::generate_task_id fn generate_task_id(task_type: &TaskType) -> String
 fn	tool::scheduler::normalize_path_string fn normalize_path_string(raw: &str) -> String
 fn	tool::schema::normalize_llm_tool_schema fn normalize_llm_tool_schema(schema: &mut Value)
+fn	tool::types::tool_definition fn tool_definition(tool: &dyn Tool, ctx: &ToolSchemaContext) -> ToolDefinition
 implfn	CancellationToken::async fn cancelled pub async fn cancelled(&mut self)
 implfn	CancellationToken::fn cancel pub fn cancel(&self)
 implfn	CancellationToken::fn child pub fn child(&self) -> Self
@@ -77,6 +78,11 @@ implfn	ProviderRegistry::fn provider_ids pub fn provider_ids(&self) -> Vec<&str>
 implfn	ProviderRegistry::fn register pub fn register(&mut self, provider: Arc<dyn Provider>)
 implfn	ResourceKey::fn read pub fn read(key: impl Into<String>) -> Self
 implfn	ResourceKey::fn write pub fn write(key: impl Into<String>) -> Self
+implfn	Scheduling::fn concurrency_safe pub fn concurrency_safe(mut self) -> Self
+implfn	Scheduling::fn coordinator pub fn coordinator() -> Self
+implfn	Scheduling::fn manages_own_timeout pub fn manages_own_timeout(mut self) -> Self
+implfn	Scheduling::fn serial_global pub fn serial_global() -> Self
+implfn	Scheduling::fn with_resource_keys pub fn with_resource_keys(mut self, keys: Vec<ResourceKey>) -> Self
 implfn	ScopeId::fn as_str pub fn as_str(&self) -> &str
 implfn	ScopeId::fn new pub fn new() -> Self
 implfn	ScopedSession::async fn append pub async fn append(&self, mut event: SessionEvent)
@@ -196,6 +202,7 @@ struct	tool::guard::GuardError
 struct	tool::guard::GuardToken
 struct	tool::guard::ToolGuard
 struct	tool::scheduler::ResourceKey
+struct	tool::scheduler::Scheduling
 struct	tool::schema::ToolSchemaContext
 struct	tool::types::ToolCall
 struct	tool::types::ToolFsDirEntry
@@ -306,19 +313,12 @@ traitfn	tool::execution::ToolExecutionContext::fn tool_call_id fn tool_call_id(&
 traitfn	tool::execution::ToolExecutionContext::fn tool_fs fn tool_fs(&self) -> Option<&dyn ToolFs>
 traitfn	tool::execution::ToolExecutionContext::fn workspace fn workspace(&self) -> Option<&Path>
 traitfn	tool::types::Tool::async fn execute async fn execute( &self, input: serde_json::Value, ctx: &dyn super::execution::ToolExecutionContext, ) -> Result<super::execution::ToolOutput, AgentError>
-traitfn	tool::types::Tool::fn apply_schema_overrides fn apply_schema_overrides(&self, _schema: &mut serde_json::Value)
-traitfn	tool::types::Tool::fn apply_schema_overrides_with fn apply_schema_overrides_with( &self, schema: &mut serde_json::Value, _ctx: &super::schema::ToolSchemaContext, )
 traitfn	tool::types::Tool::fn check_permissions fn check_permissions( &self, _input: &serde_json::Value, _ctx: &dyn super::execution::ToolExecutionContext, ) -> ToolPermissionResult
-traitfn	tool::types::Tool::fn definition fn definition(&self) -> ToolDefinition
 traitfn	tool::types::Tool::fn description fn description(&self) -> &str
-traitfn	tool::types::Tool::fn execution_mode fn execution_mode(&self) -> super::scheduler::ExecutionMode
-traitfn	tool::types::Tool::fn is_concurrency_safe fn is_concurrency_safe(&self, _input: &serde_json::Value) -> bool
 traitfn	tool::types::Tool::fn is_read_only fn is_read_only(&self, _input: &serde_json::Value) -> bool
-traitfn	tool::types::Tool::fn manages_own_timeout fn manages_own_timeout(&self) -> bool
 traitfn	tool::types::Tool::fn name fn name(&self) -> &str
-traitfn	tool::types::Tool::fn parameters_schema fn parameters_schema(&self) -> serde_json::Value
-traitfn	tool::types::Tool::fn parameters_schema_with fn parameters_schema_with(&self, _ctx: &super::schema::ToolSchemaContext) -> serde_json::Value
-traitfn	tool::types::Tool::fn resource_keys fn resource_keys(&self, _input: &serde_json::Value) -> Vec<super::scheduler::ResourceKey>
+traitfn	tool::types::Tool::fn parameters_schema fn parameters_schema(&self, ctx: &ToolSchemaContext) -> serde_json::Value
+traitfn	tool::types::Tool::fn scheduling fn scheduling(&self, _input: &serde_json::Value) -> super::scheduler::Scheduling
 traitfn	tool::types::ToolFs::async fn exec async fn exec( &self, command: &str, cwd: Option<&str>, timeout_ms: u64, ) -> Result<ToolFsExecResult, AgentError>
 traitfn	tool::types::ToolFs::async fn exists async fn exists(&self, path: &str) -> Result<bool, AgentError>
 traitfn	tool::types::ToolFs::async fn list_dir async fn list_dir(&self, path: &str) -> Result<Vec<ToolFsDirEntry>, AgentError>
@@ -356,7 +356,7 @@ use	pub use phase::{Phase, PhaseEffect}
 use	pub use provider::tests as provider_test
 use	pub use provider::{CredentialSource, Provider, ProviderError, ProviderRegistry, StaticCredential}
 use	pub use runtime::{timeout, NoopSleeper, Sleeper, TimeoutError}
-use	pub use scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey}
+use	pub use scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey, Scheduling}
 use	pub use schema::{normalize_llm_tool_schema, ToolSchemaContext}
 use	pub use scope::context
 use	pub use scope::context::{ContextCompacted, MemoryExtracted, TokenBudgetExceeded}
@@ -368,10 +368,10 @@ use	pub use system::*
 use	pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType}
 use	pub use token_estimation::{SimpleTokenEstimator, TokenEstimator}
 use	pub use tool::execution::{ MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput, }
-use	pub use tool::scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey}
-use	pub use tool::{ Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, ToolSchemaContext, }
+use	pub use tool::scheduler::{ normalize_path_string, ExecutionMode, LockMode, ResourceKey, Scheduling, }
+use	pub use tool::{ tool_definition, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, ToolSchemaContext, }
 use	pub use traits::*
 use	pub use types::*
 use	pub use types::*
 use	pub use types::*
-use	pub use types::{ Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, }
+use	pub use types::{ tool_definition, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, }

@@ -39,7 +39,7 @@ impl Tool for McpRuntimeTool {
         "Interact with MCP (Model Context Protocol) servers. Actions: 'list_servers' to see available servers, 'list_tools' to see tools from connected servers, 'call_tool' to invoke a tool on a server."
     }
 
-    fn parameters_schema(&self) -> Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> Value {
         json!({
             "type": "object",
             "required": ["action"],

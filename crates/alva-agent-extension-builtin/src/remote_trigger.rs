@@ -31,7 +31,7 @@ impl Tool for RemoteTriggerTool {
          run (execute a trigger immediately)."
     }
 
-    fn parameters_schema(&self) -> Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> Value {
         json!({
             "type": "object",
             "required": ["action"],

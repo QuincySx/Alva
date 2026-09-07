@@ -263,7 +263,7 @@ impl Tool for NamedTool {
     fn description(&self) -> &str {
         "named tool"
     }
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> serde_json::Value {
         serde_json::json!({})
     }
     async fn execute(
@@ -285,7 +285,7 @@ impl Tool for LateNamedTool {
     fn description(&self) -> &str {
         "late named tool"
     }
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> serde_json::Value {
         serde_json::json!({})
     }
     async fn execute(

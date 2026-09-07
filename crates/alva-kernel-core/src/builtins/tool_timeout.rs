@@ -62,15 +62,15 @@ impl Middleware for ToolTimeoutMiddleware {
         tool_call: &ToolCall,
         next: &dyn ToolCallFn,
     ) -> Result<ToolOutput, MiddlewareError> {
-        // Honor the `Tool::manages_own_timeout` contract: tools that opt in
-        // (e.g. sub-agent spawning, long-running stream tools) bound their
-        // own runtime, so wrapping them again with the generic timeout
-        // would only ever shrink their budget.
+        // Honor the scheduling descriptor's `manages_own_timeout`: tools
+        // that opt in (e.g. sub-agent spawning, long-running stream tools)
+        // bound their own runtime, so wrapping them again with the generic
+        // timeout would only ever shrink their budget.
         let self_managed = state
             .tools
             .iter()
             .find(|t| t.name() == tool_call.name)
-            .is_some_and(|t| t.manages_own_timeout());
+            .is_some_and(|t| t.scheduling(&tool_call.arguments).manages_own_timeout);
         if self_managed {
             return next
                 .call(state, tool_call)

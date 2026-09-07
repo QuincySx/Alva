@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use alva_agent_extension_builtin::WasiFs;
-use alva_kernel_abi::{AgentError, ExecutionMode, Tool, ToolExecutionContext, ToolOutput};
+use alva_kernel_abi::{AgentError, Scheduling, Tool, ToolExecutionContext, ToolOutput};
 use alva_sandbox_abi::{FetchHeader, FetchRequest};
 use async_trait::async_trait;
 use rquickjs::{
@@ -435,7 +435,7 @@ impl Tool for RunScriptTool {
         "Run JavaScript in a bounded QuickJS runtime. No modules, npm, Node APIs, require, or ambient filesystem are available; use the documented file bindings and synchronous host-allowlisted fetch. Fetch failures are catchable JavaScript exceptions."
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> serde_json::Value {
         json!({
             "type": "object",
             "properties": {
@@ -477,7 +477,7 @@ impl Tool for RunScriptTool {
         }
     }
 
-    fn execution_mode(&self) -> ExecutionMode {
-        ExecutionMode::SerialGlobal
+    fn scheduling(&self, _input: &serde_json::Value) -> Scheduling {
+        Scheduling::serial_global()
     }
 }

@@ -674,7 +674,10 @@ async fn plugin_declared_tools_register_as_agent_tools_and_execute() {
         .expect("remote tool should be registered")
         .clone();
     assert_eq!(tool.description(), "Echo text through a remote plugin");
-    assert_eq!(tool.parameters_schema()["required"][0], "text");
+    assert_eq!(
+        tool.parameters_schema(&alva_kernel_abi::ToolSchemaContext::empty())["required"][0],
+        "text"
+    );
 
     let output = tool
         .execute(

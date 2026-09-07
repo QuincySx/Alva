@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use alva_kernel_abi::agent_session::{EmitterKind, EventEmitter, ScopedSession};
 use alva_kernel_abi::{
-    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, ExecutionMode,
-    ExecutionRecord, LockMode, RecordValue, ResourceKey, SessionRecord,
+    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, ExecutionRecord,
+    LockMode, RecordValue, ResourceKey, Scheduling, SessionRecord,
 };
 use alva_kernel_abi::{Message, MessageRole, Tool, ToolCall, ToolOutput};
 use async_trait::async_trait;
@@ -252,10 +252,11 @@ fn find_tool(state: &AgentState, tool_call: &ToolCall) -> Option<Arc<dyn Tool>> 
 
 /// Return the size of the next conflict-free parallel wave.
 ///
-/// A tool must opt in through `is_concurrency_safe`, use fine-grained
-/// `ExecutionMode::Parallel`, and have no read/write conflict with an earlier
-/// call in the same wave. Unknown, global, coordinator, and concurrency-unsafe
-/// calls are hard ordering barriers.
+/// A tool must opt in through its [`Scheduling`] descriptor —
+/// `concurrency_safe` with fine-grained `ExecutionMode::Parallel` — and have
+/// no read/write conflict with an earlier call in the same wave. Unknown,
+/// global, coordinator, and concurrency-unsafe calls are hard ordering
+/// barriers.
 fn parallel_wave_len(
     state: &AgentState,
     workspace: Option<&std::path::Path>,
@@ -267,35 +268,40 @@ fn parallel_wave_len(
     let Some(first_tool) = find_tool(state, first_call) else {
         return 1;
     };
-    if !is_parallel_candidate(first_tool.as_ref(), first_call) {
+    let first_scheduling = tool_scheduling(first_tool.as_ref(), first_call, workspace);
+    if !is_parallel_candidate(&first_scheduling) {
         return 1;
     }
 
-    let mut claimed = resolved_resource_keys(first_tool.as_ref(), first_call, workspace);
+    let mut claimed = first_scheduling.resource_keys;
     let mut wave_len = 1;
     for tool_call in &tool_calls[1..] {
         let Some(tool) = find_tool(state, tool_call) else {
             break;
         };
-        if !is_parallel_candidate(tool.as_ref(), tool_call) {
+        let scheduling = tool_scheduling(tool.as_ref(), tool_call, workspace);
+        if !is_parallel_candidate(&scheduling) {
             break;
         }
-        let keys = resolved_resource_keys(tool.as_ref(), tool_call, workspace);
-        if resource_sets_conflict(&claimed, &keys) {
+        if resource_sets_conflict(&claimed, &scheduling.resource_keys) {
             break;
         }
-        claimed.extend(keys);
+        claimed.extend(scheduling.resource_keys);
         wave_len += 1;
     }
     wave_len
 }
 
-fn resolved_resource_keys(
+/// Read the tool's scheduling descriptor with resource keys resolved against
+/// the workspace root (same normalization the lock registry applies).
+fn tool_scheduling(
     tool: &dyn Tool,
     tool_call: &ToolCall,
     workspace: Option<&std::path::Path>,
-) -> Vec<ResourceKey> {
-    tool.resource_keys(&tool_call.arguments)
+) -> Scheduling {
+    let mut scheduling = tool.scheduling(&tool_call.arguments);
+    scheduling.resource_keys = scheduling
+        .resource_keys
         .into_iter()
         .map(|resource| ResourceKey {
             key: workspace.map_or(resource.key.clone(), |workspace| {
@@ -303,12 +309,13 @@ fn resolved_resource_keys(
             }),
             mode: resource.mode,
         })
-        .collect()
+        .collect();
+    scheduling
 }
 
-fn is_parallel_candidate(tool: &dyn Tool, tool_call: &ToolCall) -> bool {
-    tool.execution_mode() == ExecutionMode::Parallel
-        && tool.is_concurrency_safe(&tool_call.arguments)
+fn is_parallel_candidate(scheduling: &Scheduling) -> bool {
+    scheduling.execution_mode == alva_kernel_abi::ExecutionMode::Parallel
+        && scheduling.concurrency_safe
 }
 
 fn resource_sets_conflict(left: &[ResourceKey], right: &[ResourceKey]) -> bool {
@@ -374,10 +381,18 @@ async fn execute_tool_call(
                 Some(tool) => 'locked: {
                     let _lock_guards = if let Some(bus) = config.bus.as_ref() {
                         if let Some(registry) = bus.get::<crate::ToolLockRegistry>() {
-                            let keys = tool.resource_keys(&tool_call.arguments);
-                            let mode = tool.execution_mode();
+                            let scheduling = tool_scheduling(
+                                tool.as_ref(),
+                                tool_call,
+                                config.workspace.as_deref(),
+                            );
+                            let mode = scheduling.execution_mode;
                             match registry
-                                .acquire_bounded(&keys, mode, config.workspace.as_deref())
+                                .acquire_bounded(
+                                    &scheduling.resource_keys,
+                                    mode,
+                                    config.workspace.as_deref(),
+                                )
                                 .await
                             {
                                 Ok(guards) => Some(guards),

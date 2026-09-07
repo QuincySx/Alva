@@ -43,7 +43,7 @@ impl Tool for RawTool {
         &self.description
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> serde_json::Value {
         self.schema.clone()
     }
 
@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(rt.name(), "read");
         assert_eq!(rt.description(), "desc");
         assert_eq!(
-            rt.parameters_schema(),
+            rt.parameters_schema(&alva_kernel_abi::ToolSchemaContext::empty()),
             serde_json::json!({"type": "object"})
         );
     }

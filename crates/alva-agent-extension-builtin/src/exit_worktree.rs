@@ -30,7 +30,7 @@ impl Tool for ExitWorktreeTool {
          Use 'keep' to preserve the worktree or 'remove' to delete it."
     }
 
-    fn parameters_schema(&self) -> Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> Value {
         json!({
             "type": "object",
             "required": ["action"],

@@ -39,10 +39,12 @@ pub use phase::{Phase, PhaseEffect};
 pub use tool::execution::{
     MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput,
 };
-pub use tool::scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey};
+pub use tool::scheduler::{
+    normalize_path_string, ExecutionMode, LockMode, ResourceKey, Scheduling,
+};
 pub use tool::{
-    Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult,
-    ToolRegistry, ToolSchemaContext,
+    tool_definition, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult,
+    ToolPermissionResult, ToolRegistry, ToolSchemaContext,
 };
 
 // Re-export proc macros from alva-macros. A derive macro and a trait

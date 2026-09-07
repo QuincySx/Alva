@@ -30,7 +30,7 @@ impl Tool for ConfigTool {
          set (write a value), and list (show all settings)."
     }
 
-    fn parameters_schema(&self) -> Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> Value {
         json!({
             "type": "object",
             "required": ["action"],

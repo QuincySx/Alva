@@ -6,9 +6,9 @@ pub mod scheduler;
 pub mod schema;
 mod types;
 pub use content_payload::{ProgressEvent, ToolContent, ToolOutput};
-pub use scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey};
+pub use scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey, Scheduling};
 pub use schema::{normalize_llm_tool_schema, ToolSchemaContext};
 pub use types::{
-    Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult,
-    ToolRegistry,
+    tool_definition, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult,
+    ToolPermissionResult, ToolRegistry,
 };

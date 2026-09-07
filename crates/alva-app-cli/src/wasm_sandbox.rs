@@ -328,7 +328,7 @@ impl Tool for DefinitionOnlyTool {
         &self.0.description
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> serde_json::Value {
         self.0.parameters.clone()
     }
 

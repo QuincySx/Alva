@@ -55,7 +55,7 @@ impl Tool for McpToolAdapter {
         &self.full_description
     }
 
-    fn parameters_schema(&self) -> Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> Value {
         self.info.input_schema.clone()
     }
 
@@ -139,7 +139,10 @@ mod tests {
         let info = sample_info();
         let expected = info.input_schema.clone();
         let adapter = McpToolAdapter::new(info, make_client());
-        assert_eq!(adapter.parameters_schema(), expected);
+        assert_eq!(
+            adapter.parameters_schema(&alva_kernel_abi::ToolSchemaContext::empty()),
+            expected
+        );
     }
 
     // ── tool_name static helper ─────────────────────────────────────────
@@ -194,7 +197,10 @@ mod tests {
     #[test]
     fn adapter_implements_tool_definition() {
         let adapter = McpToolAdapter::new(sample_info(), make_client());
-        let def = adapter.definition();
+        let def = alva_kernel_abi::tool_definition(
+            &adapter,
+            &alva_kernel_abi::ToolSchemaContext::empty(),
+        );
         assert_eq!(def.name, "mcp:my-server:do-stuff");
         assert_eq!(def.description, "[MCP:my-server] Does stuff");
     }

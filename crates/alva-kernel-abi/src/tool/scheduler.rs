@@ -1,5 +1,5 @@
 // INPUT:  std
-// OUTPUT: ResourceKey, LockMode, ExecutionMode, normalize_path_string
+// OUTPUT: ResourceKey, LockMode, ExecutionMode, Scheduling, normalize_path_string
 // POS:    Pure tool-scheduling vocabulary. Runtime lock map is
 //         `alva-kernel-core::tool_lock::ToolLockRegistry`.
 
@@ -84,6 +84,79 @@ pub fn normalize_path_string(raw: &str) -> String {
         ".".to_string()
     } else {
         segments.join("/")
+    }
+}
+
+/// 工具对自己**如何被并发执行**的自述 —— 内核唯一需要向工具打听的额外信息
+/// （因为内核负责批量执行）。描述机制，不描述策略：允不允许跑、要不要人审
+/// 是 harness 的工具策略层的事，不在这里。
+///
+/// 原来拆成四个独立 trait 方法（能否并行 / 碰哪些资源 / 执行模式 / 是否自管
+/// 超时）的调度问答，永远一起被问、一起被用，现在合成这一份描述符。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Scheduling {
+    /// 执行模式。`Parallel` 且 `concurrency_safe` 的调用才可能进并行波；
+    /// `SerialGlobal` 独占整批；`Coordinator` 不持锁、内联驱动嵌套工具。
+    pub execution_mode: ExecutionMode,
+    /// 能否与其它工具调用安全并行。默认 `false` —— 未显式声明的工具是
+    /// 顺序执行的硬屏障。
+    pub concurrency_safe: bool,
+    /// 本次调用会锁住的资源键。多读单写语义：同键多个 `Read` 并发，
+    /// `Write` 独占。约定文件类工具用绝对路径，其它资源用 URI 形状
+    /// 标识；键在获取前排序，跨调用全序、无死锁。
+    pub resource_keys: Vec<ResourceKey>,
+    /// 工具是否自管执行超时。`true` 时通用的单工具超时中间件不得再包一层
+    /// 额外超时 —— 自超时的子 agent 派生工具、带显式取消的长流工具用。
+    /// 默认 `false`（适用中间件的默认超时）。
+    pub manages_own_timeout: bool,
+}
+
+impl Default for Scheduling {
+    /// 默认值与拆分前的四个 trait 默认逐条一致：可并行模式但不声明并发
+    /// 安全（即不进并行波）、无资源锁、不自管超时。
+    fn default() -> Self {
+        Self {
+            execution_mode: ExecutionMode::Parallel,
+            concurrency_safe: false,
+            resource_keys: Vec::new(),
+            manages_own_timeout: false,
+        }
+    }
+}
+
+impl Scheduling {
+    /// 独占整批 —— 副作用无法精确建模的工具（如 Bash）。
+    pub fn serial_global() -> Self {
+        Self {
+            execution_mode: ExecutionMode::SerialGlobal,
+            ..Default::default()
+        }
+    }
+
+    /// 编排器 —— 不持锁，内联驱动嵌套工具各自拿锁。
+    pub fn coordinator() -> Self {
+        Self {
+            execution_mode: ExecutionMode::Coordinator,
+            ..Default::default()
+        }
+    }
+
+    /// 声明可与其它调用并行。
+    pub fn concurrency_safe(mut self) -> Self {
+        self.concurrency_safe = true;
+        self
+    }
+
+    /// 声明资源键。
+    pub fn with_resource_keys(mut self, keys: Vec<ResourceKey>) -> Self {
+        self.resource_keys = keys;
+        self
+    }
+
+    /// 声明自管超时。
+    pub fn manages_own_timeout(mut self) -> Self {
+        self.manages_own_timeout = true;
+        self
     }
 }
 

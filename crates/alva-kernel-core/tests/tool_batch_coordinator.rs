@@ -62,7 +62,10 @@ impl Tool for CancellingTool {
         "Cancels the batch after returning"
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(
+        &self,
+        _ctx: &alva_kernel_abi::tool::schema::ToolSchemaContext,
+    ) -> serde_json::Value {
         serde_json::json!({ "type": "object" })
     }
 
@@ -108,16 +111,17 @@ impl Tool for ConcurrencyProbeTool {
         "Records whether tool calls overlap"
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(
+        &self,
+        _ctx: &alva_kernel_abi::tool::schema::ToolSchemaContext,
+    ) -> serde_json::Value {
         serde_json::json!({ "type": "object" })
     }
 
-    fn is_concurrency_safe(&self, _input: &serde_json::Value) -> bool {
-        true
-    }
-
-    fn resource_keys(&self, _input: &serde_json::Value) -> Vec<alva_kernel_abi::ResourceKey> {
-        vec![self.resource.clone()]
+    fn scheduling(&self, _input: &serde_json::Value) -> alva_kernel_abi::Scheduling {
+        alva_kernel_abi::Scheduling::default()
+            .concurrency_safe()
+            .with_resource_keys(vec![self.resource.clone()])
     }
 
     async fn execute(

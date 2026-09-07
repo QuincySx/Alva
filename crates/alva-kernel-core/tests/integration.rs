@@ -984,7 +984,10 @@ impl Tool for CancelOnExecuteTool {
         self.name
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(
+        &self,
+        _ctx: &alva_kernel_abi::tool::schema::ToolSchemaContext,
+    ) -> serde_json::Value {
         serde_json::json!({
             "type": "object",
             "properties": {},
@@ -1521,7 +1524,10 @@ impl Tool for NamedNoopTool {
     fn description(&self) -> &str {
         self.0
     }
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(
+        &self,
+        _ctx: &alva_kernel_abi::tool::schema::ToolSchemaContext,
+    ) -> serde_json::Value {
         serde_json::json!({ "type": "object", "properties": {}, "additionalProperties": false })
     }
     async fn execute(

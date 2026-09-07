@@ -117,9 +117,9 @@ struct ToolAttrs {
     /// Type that the tool's JSON input deserializes into. Must derive
     /// `schemars::JsonSchema + serde::Deserialize`.
     input: syn::Path,
-    /// Override `Tool::manages_own_timeout` to return `true` — the tool
-    /// bounds its own runtime, so generic per-tool timeout middleware
-    /// should skip it. Default: `false`.
+    /// Set the descriptor's `manages_own_timeout` — the tool bounds its
+    /// own runtime, so generic per-tool timeout middleware should skip
+    /// it. Default: `false`.
     #[darling(default)]
     manages_own_timeout: bool,
     /// Override `Tool::is_read_only` to always return `true`, regardless
@@ -132,15 +132,25 @@ struct ToolAttrs {
     /// parallel with others. Default: `false`.
     #[darling(default)]
     concurrency_safe: bool,
-    /// Name of an inherent method that supplies [`Tool::resource_keys`].
-    /// Signature: `fn <name>(&self, input: &serde_json::Value) ->
-    /// Vec<alva_kernel_abi::ResourceKey>`. When set, the derive's
-    /// `impl Tool` emits a `resource_keys` that delegates to this
-    /// inherent method; otherwise the trait default (empty vec) is used.
-    /// See `docs/amp/alva-learnings/resource-lock-scheduler.md` for
-    /// context on multi-reader/single-writer lock semantics.
+    /// Name of an inherent method that supplies the descriptor's
+    /// `resource_keys`. Signature: `fn <name>(&self, input:
+    /// &serde_json::Value) -> Vec<alva_kernel_abi::ResourceKey>`. When
+    /// set, the derive's generated `scheduling` delegates to this
+    /// inherent method; otherwise the descriptor's default (empty vec)
+    /// is used. See `docs/amp/alva-learnings/resource-lock-scheduler.md`
+    /// for context on multi-reader/single-writer lock semantics.
     #[darling(default)]
     resource_keys: Option<syn::Ident>,
+
+    /// Name of an inherent method that post-processes the derived JSON
+    /// Schema with runtime state. Signature: `fn <name>(&self, schema:
+    /// &mut serde_json::Value, ctx: &ToolSchemaContext)`. When set, the
+    /// derive's generated `parameters_schema` calls it after
+    /// `schema_for!` + `normalize_llm_tool_schema` — tools plug in
+    /// dynamic enums (e.g. bus-registered comm kinds) without
+    /// hand-writing the whole `impl Tool`.
+    #[darling(default)]
+    schema: Option<syn::Ident>,
     /// Override `Tool::execution_mode`. Accepts `"parallel"` (default) or
     /// `"serial-global"`. Use `serial-global` only for tools whose side
     /// effects can't be precisely modeled (e.g. Bash: arbitrary FS/env
@@ -165,16 +175,38 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
     let description_lit = &attrs.description;
     let input_ty = &attrs.input;
 
-    // Conditionally emit the boolean metadata overrides. Omitting any
-    // of these when false lets the trait's default (`false`) apply
-    // naturally — no redundant reassertion.
-    let manages_own_timeout_impl = if attrs.manages_own_timeout {
-        quote! {
-            fn manages_own_timeout(&self) -> bool { true }
+    // Assemble the single `scheduling()` descriptor from the attribute
+    // flags. Flags left at their default simply keep the descriptor's
+    // default — no redundant reassertion.
+    let concurrency_safe = attrs.concurrency_safe;
+    let manages_own_timeout = attrs.manages_own_timeout;
+    let execution_mode_ctor = match attrs.execution_mode.as_deref() {
+        Some("serial-global") | Some("serial_global") | Some("SerialGlobal") => {
+            quote! { ::alva_kernel_abi::Scheduling::serial_global() }
         }
-    } else {
-        quote! {}
+        Some("coordinator") | Some("Coordinator") => {
+            quote! { ::alva_kernel_abi::Scheduling::coordinator() }
+        }
+        Some("parallel") | Some("Parallel") | None => {
+            quote! { ::alva_kernel_abi::Scheduling::default() }
+        }
+        Some(other) => {
+            let msg = format!(
+                "unknown execution_mode `{other}` \
+                 (expected `parallel`, `serial-global`, or `coordinator`)"
+            );
+            return quote! { compile_error!(#msg); }.into();
+        }
     };
+
+    let resource_keys_call = match attrs.resource_keys {
+        Some(ref ident) => {
+            let ident = ident;
+            quote! { scheduling.resource_keys = Self::#ident(self, input); }
+        }
+        None => quote! {},
+    };
+
     let read_only_impl = if attrs.read_only {
         quote! {
             fn is_read_only(&self, _input: &::serde_json::Value) -> bool { true }
@@ -182,45 +214,13 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
     } else {
         quote! {}
     };
-    let concurrency_safe_impl = if attrs.concurrency_safe {
-        quote! {
-            fn is_concurrency_safe(&self, _input: &::serde_json::Value) -> bool { true }
-        }
-    } else {
-        quote! {}
-    };
 
-    let resource_keys_impl = if let Some(ref ident) = attrs.resource_keys {
-        quote! {
-            fn resource_keys(&self, input: &::serde_json::Value)
-                -> ::std::vec::Vec<::alva_kernel_abi::ResourceKey>
-            {
-                Self::#ident(self, input)
-            }
+    let schema_override_call = match attrs.schema {
+        Some(ref ident) => {
+            let ident = ident;
+            quote! { Self::#ident(self, &mut schema, ctx); }
         }
-    } else {
-        quote! {}
-    };
-
-    let execution_mode_impl = match attrs.execution_mode.as_deref() {
-        Some("serial-global") | Some("serial_global") | Some("SerialGlobal") => quote! {
-            fn execution_mode(&self) -> ::alva_kernel_abi::ExecutionMode {
-                ::alva_kernel_abi::ExecutionMode::SerialGlobal
-            }
-        },
-        Some("coordinator") | Some("Coordinator") => quote! {
-            fn execution_mode(&self) -> ::alva_kernel_abi::ExecutionMode {
-                ::alva_kernel_abi::ExecutionMode::Coordinator
-            }
-        },
-        Some("parallel") | Some("Parallel") | None => quote! {},
-        Some(other) => {
-            let msg = format!(
-                "unknown execution_mode `{other}` \
-                 (expected `parallel`, `serial-global`, or `coordinator`)"
-            );
-            quote! { compile_error!(#msg); }
-        }
+        None => quote! {},
     };
 
     // All references to third-party items are fully qualified so the
@@ -237,32 +237,20 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
                 #description_lit
             }
 
-            #manages_own_timeout_impl
             #read_only_impl
-            #concurrency_safe_impl
-            #resource_keys_impl
-            #execution_mode_impl
 
-            fn parameters_schema(&self) -> ::serde_json::Value {
-                let mut schema = ::serde_json::to_value(
-                    ::schemars::schema_for!(#input_ty)
-                ).expect("schemars::schema_for always produces valid JSON");
-
-                ::alva_kernel_abi::tool::schema::normalize_llm_tool_schema(&mut schema);
-
-                // Plain method call — Rust's method resolution prefers
-                // an inherent method with the same name if the type
-                // defines one, otherwise falls through to the trait's
-                // default (a no-op). This lets a tool plug in runtime
-                // schema mutations (e.g. injecting a dynamic enum)
-                // just by writing its own inherent method with the
-                // same signature.
-                self.apply_schema_overrides(&mut schema);
-
-                schema
+            fn scheduling(
+                &self,
+                input: &::serde_json::Value,
+            ) -> ::alva_kernel_abi::Scheduling {
+                let mut scheduling = #execution_mode_ctor;
+                scheduling.concurrency_safe = #concurrency_safe;
+                scheduling.manages_own_timeout = #manages_own_timeout;
+                #resource_keys_call
+                scheduling
             }
 
-            fn parameters_schema_with(
+            fn parameters_schema(
                 &self,
                 ctx: &::alva_kernel_abi::tool::schema::ToolSchemaContext,
             ) -> ::serde_json::Value {
@@ -272,15 +260,10 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
 
                 ::alva_kernel_abi::tool::schema::normalize_llm_tool_schema(&mut schema);
 
-                // Mirrors `parameters_schema` but passes the
-                // `ToolSchemaContext` through. An inherent
-                // `apply_schema_overrides_with` on the concrete type
-                // wins over the trait default via Rust's method
-                // resolution — so tools plug in ctx-aware dynamic
-                // enums (e.g. bus-registered comm kinds) by defining
-                // that single inherent method, without touching the
-                // legacy context-free `apply_schema_overrides`.
-                self.apply_schema_overrides_with(&mut schema, ctx);
+                // Optional inherent post-processing for runtime state
+                // (e.g. injecting a dynamic enum off the bus), selected
+                // with `#[tool(schema = "method_name")]`.
+                #schema_override_call
 
                 schema
             }

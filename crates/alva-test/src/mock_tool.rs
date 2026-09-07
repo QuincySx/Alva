@@ -75,7 +75,7 @@ impl Tool for MockTool {
         "MockTool"
     }
 
-    fn parameters_schema(&self) -> serde_json::Value {
+    fn parameters_schema(&self, _ctx: &alva_kernel_abi::ToolSchemaContext) -> serde_json::Value {
         serde_json::json!({ "type": "object" })
     }
 
