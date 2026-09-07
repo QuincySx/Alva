@@ -13,7 +13,7 @@ use alva_kernel_abi::{
     ToolCall, ToolOutput,
 };
 use alva_kernel_core::agent_session::{AgentSession, EventQuery, InMemoryAgentSession};
-use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
+use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack, ToolCallFn};
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_kernel_core::tool_batch::ToolBatchCoordinator;
@@ -554,6 +554,138 @@ async fn lock_contention_times_out_as_tool_error_instead_of_hanging() {
         text.contains("timed out") || text.contains("Timeout"),
         "error must say the lock wait timed out, got: {text}"
     );
+}
+
+/// Ticket 07: the same dangling-call guarantee must hold for a middleware
+/// failing in ANY phase of the tool batch. `before_tool_call` variant.
+struct FailBeforeFirstMiddleware;
+
+#[async_trait]
+impl Middleware for FailBeforeFirstMiddleware {
+    async fn before_tool_call(
+        &self,
+        _state: &AgentState,
+        tool_call: &ToolCall,
+    ) -> Result<(), MiddlewareError> {
+        if tool_call.name == "first" {
+            Err(MiddlewareError::from(AgentError::ConfigError(
+                "boom in before_tool_call".into(),
+            )))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// `wrap_tool_call` variant — the failure happens around the actual
+/// execution, past the intent commit.
+struct FailWrapFirstMiddleware;
+
+#[async_trait]
+impl Middleware for FailWrapFirstMiddleware {
+    async fn wrap_tool_call(
+        &self,
+        _state: &AgentState,
+        _tool_call: &ToolCall,
+        next: &dyn ToolCallFn,
+    ) -> Result<ToolOutput, MiddlewareError> {
+        let _output = next.call(_state, _tool_call).await?;
+        Err(MiddlewareError::from(AgentError::ConfigError(
+            "boom in wrap_tool_call".into(),
+        )))
+    }
+}
+
+async fn assert_no_dangling_calls_with<F>(make_stack: F)
+where
+    F: FnOnce() -> MiddlewareStack,
+{
+    let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
+    let state = AgentState {
+        model: Arc::new(UnusedModel),
+        tools: vec![
+            Arc::new(MockTool::new("first").with_result(ToolOutput::text("one"))),
+            Arc::new(MockTool::new("second").with_result(ToolOutput::text("two"))),
+        ],
+        session: session.clone(),
+        extensions: Extensions::new(),
+    };
+    let mut config = test_config();
+    config.middleware = make_stack();
+
+    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let tool_calls = vec![
+        ToolCall {
+            id: "toolu_first".to_string(),
+            name: "first".to_string(),
+            arguments: serde_json::json!({}),
+        },
+        ToolCall {
+            id: "toolu_second".to_string(),
+            name: "second".to_string(),
+            arguments: serde_json::json!({}),
+        },
+    ];
+
+    let result = ToolBatchCoordinator::new()
+        .execute_batch(
+            &state,
+            &log_handle(&state),
+            &config,
+            CancellationToken::new(),
+            &tool_calls,
+            "llm_parent".to_string(),
+            event_tx,
+        )
+        .await;
+    assert!(result.is_err(), "the batch must still abort");
+
+    let events = session
+        .query(&EventQuery {
+            limit: 1000,
+            ..Default::default()
+        })
+        .await;
+    let tool_result_ids: Vec<String> = events
+        .iter()
+        .filter(|em| em.event.event_type == "tool_result")
+        .filter_map(|em| {
+            let content = &em.event.message.as_ref()?.content;
+            content
+                .as_array()?
+                .iter()
+                .find(|block| block.get("type").and_then(|ty| ty.as_str()) == Some("tool_result"))?
+                .get("id")?
+                .as_str()
+                .map(str::to_string)
+        })
+        .collect();
+    assert!(
+        tool_result_ids.contains(&"toolu_first".to_string()),
+        "aborting call must be paired; got {tool_result_ids:?}"
+    );
+    assert!(
+        tool_result_ids.contains(&"toolu_second".to_string()),
+        "remaining call must be backfilled; got {tool_result_ids:?}"
+    );
+}
+
+#[tokio::test]
+async fn before_phase_middleware_error_leaves_no_dangling_calls() {
+    assert_no_dangling_calls_with(|| {
+        let mut stack = MiddlewareStack::new();
+        stack.push(Arc::new(FailBeforeFirstMiddleware));
+        stack
+    });
+}
+
+#[tokio::test]
+async fn wrap_phase_middleware_error_leaves_no_dangling_calls() {
+    assert_no_dangling_calls_with(|| {
+        let mut stack = MiddlewareStack::new();
+        stack.push(Arc::new(FailWrapFirstMiddleware));
+        stack
+    });
 }
 
 /// Fails `after_tool_call` for the tool named "first" with a non-Blocked
