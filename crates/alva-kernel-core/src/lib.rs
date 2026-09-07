@@ -15,7 +15,6 @@ pub(crate) mod session_events;
 pub mod shared;
 pub mod state;
 pub mod tool_batch;
-pub mod tool_lock;
 
 // Re-exports — shared types
 pub use shared::{Extensions, MiddlewareError, MiddlewarePriority};
@@ -45,12 +44,6 @@ pub use context_runtime::ContextRuntime;
 
 // Re-exports — context apply helpers (runtime logic; contract types stay in abi).
 pub use context_apply::{apply_compressions, apply_injections};
-
-// Re-exports — tool lock registry (runtime; ResourceKey/ExecutionMode stay in abi).
-pub use tool_lock::{
-    AcquireError, LockSnapshot, ToolLockGuards, ToolLockRegistry, DEFAULT_ACQUIRE_TIMEOUT,
-    GLOBAL_SERIAL_KEY,
-};
 
 // Re-exports — concrete AgentSession backends (contract stays in alva-kernel-abi,
 // re-exported through agent_session for one-path consumer imports).

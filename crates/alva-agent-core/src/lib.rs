@@ -13,6 +13,12 @@ pub use extension::{PluginHost, RegisteredCommand};
 
 pub mod agent;
 pub mod agent_builder;
+pub mod tool_lock;
+
+pub use tool_lock::{
+    AcquireError, LockSnapshot, ToolLockGuards, ToolLockMiddleware, ToolLockRegistry,
+    DEFAULT_ACQUIRE_TIMEOUT, GLOBAL_SERIAL_KEY,
+};
 
 pub use agent::{Agent, AgentAssemblySnapshot, PluginAssemblySnapshot};
 pub use agent_builder::AgentBuilder;

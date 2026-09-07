@@ -1,11 +1,12 @@
 // INPUT:  std
 // OUTPUT: ResourceKey, LockMode, ExecutionMode, Scheduling, normalize_path_string
 // POS:    Pure tool-scheduling vocabulary. Runtime lock map is
-//         `alva-kernel-core::tool_lock::ToolLockRegistry`.
+//         `alva-agent-core::tool_lock::ToolLockRegistry`（SDK 装配层）.
 
 //! Tool scheduling **types** — concurrency declarations tools make.
 //!
-//! Runtime acquisition lives in `alva_kernel_core::tool_lock`.
+//! Runtime acquisition lives in `alva_agent_core::tool_lock` (the SDK
+//! assembly layer) — the kernel itself holds no cross-agent facility.
 
 use std::hash::Hash;
 
@@ -32,7 +33,7 @@ impl ResourceKey {
     /// Note: the normalization is **purely string-based**, doesn't touch
     /// the filesystem. Relative paths stay relative — resolve against a
     /// workspace root before constructing keys when absolute identity matters
-    /// (see `ToolLockRegistry::acquire_within` in `alva-kernel-core`).
+    /// (see `ToolLockRegistry::acquire_within` in `alva-agent-core`).
     pub fn read(key: impl Into<String>) -> Self {
         Self {
             key: normalize_path_string(&key.into()),
@@ -210,5 +211,19 @@ mod tests {
     #[test]
     fn execution_mode_default_is_parallel() {
         assert_eq!(ExecutionMode::default(), ExecutionMode::Parallel);
+    }
+}
+
+/// Join a resource key to a workspace root (absolute keys pass through),
+/// applying the same string normalization as [`ResourceKey`]. Pure path
+/// algebra — no filesystem access.
+pub fn resolve_against_workspace(key: &str, workspace: &std::path::Path) -> String {
+    if key.starts_with('/') {
+        // Already absolute — string-normalize was done at construction.
+        key.to_string()
+    } else {
+        // Relative key joined to absolute workspace → absolute normalized.
+        let joined = workspace.join(key);
+        normalize_path_string(&joined.to_string_lossy())
     }
 }

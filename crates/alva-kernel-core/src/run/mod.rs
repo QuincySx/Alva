@@ -274,7 +274,7 @@ where
     context_runtime.dispose(config).await;
 
     // --- Session skeleton: run_end ---
-    emit_runtime_event(
+    let _ = emit_runtime_event(
         &log,
         "run_end",
         Some(run_start_uuid.clone()),

@@ -1,7 +1,10 @@
 // INPUT:  alva_kernel_abi::{ResourceKey, LockMode, ExecutionMode, bus_cap}, tokio
 // OUTPUT: ToolLockRegistry, ToolLockGuards, AcquireError, LockSnapshot, DEFAULT_ACQUIRE_TIMEOUT
 // POS:    Runtime multi-reader/single-writer lock map for concurrent tool
-//         execution. Pure scheduling types live in alva-kernel-abi.
+//         execution, owned by the SDK assembly layer (L2.5). 跨 agent 资源锁
+//         是多 agent 协作机制，不属于内核——内核只保留调度词汇
+//         （ResourceKey / LockMode / ExecutionMode，alva-kernel-abi）与批内
+//         波次调度；这张进程级锁表连同 ToolLockMiddleware 在这里接线。
 
 //! Resource lock **runtime** for tool execution scheduling.
 //!
@@ -14,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use alva_kernel_abi::tool::scheduler::{
-    normalize_path_string, ExecutionMode, LockMode, ResourceKey,
+    normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
 };
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 
@@ -34,7 +37,9 @@ pub const DEFAULT_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(300);
 /// instance and publishes it on the bus. Sub-agents spawned through
 /// `AgentSpawnTool` see the same registry.
 /// **Consumers**: tool execution path in `alva-kernel-core::tool_batch`
-/// acquires locks before `tool.execute()` and releases on completion.
+/// acquires locks before `tool.execute()` and releases on completion (via
+/// [`ToolLockMiddleware`], registered by the same assembly that provides the
+/// registry).
 /// **Why bus**: multiple agent instances (main + sub-agents) must share
 /// one lock map for cross-agent contention to work; per-agent state would
 /// let two sub-agents both think they have the write lock on `/src/foo.rs`.
@@ -368,17 +373,6 @@ impl ToolLockRegistry {
     /// For diagnostics: how many distinct resource keys are currently tracked.
     pub fn tracked_keys(&self) -> usize {
         self.locks.lock().unwrap_or_else(|e| e.into_inner()).len()
-    }
-}
-
-pub(crate) fn resolve_against_workspace(key: &str, workspace: &std::path::Path) -> String {
-    if key.starts_with('/') {
-        // Already absolute — string-normalize was done at construction.
-        key.to_string()
-    } else {
-        // Relative key joined to absolute workspace → absolute normalized.
-        let joined = workspace.join(key);
-        normalize_path_string(&joined.to_string_lossy())
     }
 }
 
@@ -839,5 +833,115 @@ mod tests {
             s2[0].age
         );
         assert!(s2[0].age >= Duration::from_millis(15));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ToolLockMiddleware — the assembly-layer wiring for the lock table
+// ---------------------------------------------------------------------------
+
+/// 挂在工具执行洋葱上的锁中间件：wrap_tool_call 内先取锁、再执行内层、
+/// 返回后释放。取代原先住在内核工具批执行器里的内联取锁——跨 agent 资源
+/// 锁是多 agent 协作机制，属于装配层；内核不再认识"多个 agent 共享同一
+/// 份资源"。
+///
+/// 语义与搬出前逐条一致：注册表经 bus 可选发现（未装配则直接放行）、
+/// Coordinator 不持锁、SerialGlobal 独占、资源键按 workspace 解析、
+/// 超过 [`DEFAULT_ACQUIRE_TIMEOUT`]（或注册表自定义值）返回与原先逐字
+/// 相同的工具错误文案。
+pub struct ToolLockMiddleware {
+    bus: std::sync::OnceLock<alva_kernel_abi::BusHandle>,
+    workspace: std::sync::OnceLock<Option<std::path::PathBuf>>,
+}
+
+impl ToolLockMiddleware {
+    pub fn new() -> Self {
+        Self {
+            bus: std::sync::OnceLock::new(),
+            workspace: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// Attach a bus handle directly (tests, or assembly paths that bypass
+    /// `configure()`). The first caller wins.
+    pub fn with_bus(self, bus: alva_kernel_abi::BusHandle) -> Self {
+        let _ = self.bus.set(bus);
+        self
+    }
+}
+
+impl Default for ToolLockMiddleware {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait::async_trait]
+impl alva_kernel_core::middleware::Middleware for ToolLockMiddleware {
+    fn name(&self) -> &str {
+        "tool_lock"
+    }
+
+    fn configure(&self, ctx: &alva_kernel_core::middleware::MiddlewareContext) {
+        if let Some(bus) = &ctx.bus {
+            let _ = self.bus.set(bus.clone());
+        }
+        let _ = self.workspace.set(ctx.workspace.clone());
+    }
+
+    async fn wrap_tool_call(
+        &self,
+        _state: &alva_kernel_core::state::AgentState,
+        tool_call: &alva_kernel_abi::ToolCall,
+        next: &dyn alva_kernel_core::middleware::ToolCallFn,
+    ) -> Result<alva_kernel_abi::ToolOutput, alva_kernel_core::middleware::MiddlewareError> {
+        let Some(bus) = self.bus.get() else {
+            return next
+                .call(_state, tool_call)
+                .await
+                .map_err(alva_kernel_core::middleware::MiddlewareError::from);
+        };
+        let Some(registry) = bus.get::<ToolLockRegistry>() else {
+            return next
+                .call(_state, tool_call)
+                .await
+                .map_err(alva_kernel_core::middleware::MiddlewareError::from);
+        };
+
+        // The tool's scheduling descriptor drives the acquisition, exactly
+        // as the inlined kernel path did. `_state.tools` is the registry the
+        // coordinator executes against.
+        let tool = _state
+            .tools
+            .iter()
+            .find(|tool| tool.name() == tool_call.name);
+        let Some(tool) = tool else {
+            return next
+                .call(_state, tool_call)
+                .await
+                .map_err(alva_kernel_core::middleware::MiddlewareError::from);
+        };
+        let scheduling = tool.scheduling(&tool_call.arguments);
+
+        let guards = match registry
+            .acquire_bounded(
+                &scheduling.resource_keys,
+                scheduling.execution_mode,
+                self.workspace.get().and_then(|w| w.as_deref()),
+            )
+            .await
+        {
+            Ok(guards) => guards,
+            Err(error) => {
+                return Ok(alva_kernel_abi::ToolOutput::error(format!(
+                    "Tool lock acquisition failed: {error}. Another tool may be holding the lock \
+                     unusually long; try again."
+                )));
+            }
+        };
+
+        let output = next.call(_state, tool_call).await;
+        drop(guards);
+        output.map_err(alva_kernel_core::middleware::MiddlewareError::from)
     }
 }

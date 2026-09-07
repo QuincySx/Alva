@@ -1,3 +1,6 @@
+const	tool_lock::DEFAULT_ACQUIRE_TIMEOUT const DEFAULT_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(300)
+const	tool_lock::GLOBAL_SERIAL_KEY const GLOBAL_SERIAL_KEY: &str = " "
+enum	tool_lock::AcquireError
 implfn	Agent::async fn config pub async fn config(&self) -> tokio::sync::RwLockReadGuard<'_, AgentConfig>
 implfn	Agent::async fn run pub async fn run( &self, input: Vec<AgentMessage>, cancel: CancellationToken, ) -> Result<mpsc::UnboundedReceiver<AgentEvent>, AgentError>
 implfn	Agent::async fn run_bounded pub async fn run_bounded( &self, input: Vec<AgentMessage>, cancel: CancellationToken, capacity: usize, ) -> Result<mpsc::Receiver<AgentEvent>, AgentError>
@@ -59,10 +62,26 @@ implfn	Registrar::fn take_tools pub(crate) fn take_tools(&self) -> Vec<Box<dyn T
 implfn	Registrar::fn tool pub fn tool<T: Tool + 'static>(&self, t: T)
 implfn	Registrar::fn tools pub fn tools(&self, ts: Vec<Box<dyn Tool>>)
 implfn	Registrar::fn workspace pub fn workspace(&self) -> &Path
+implfn	ToolLockGuards::fn held_reads pub fn held_reads(&self) -> usize
+implfn	ToolLockGuards::fn held_writes pub fn held_writes(&self) -> usize
+implfn	ToolLockGuards::fn is_global pub fn is_global(&self) -> bool
+implfn	ToolLockMiddleware::fn new pub fn new() -> Self
+implfn	ToolLockMiddleware::fn with_bus pub fn with_bus(self, bus: alva_kernel_abi::BusHandle) -> Self
+implfn	ToolLockRegistry::async fn acquire pub async fn acquire(&self, keys: &[ResourceKey], mode: ExecutionMode) -> ToolLockGuards
+implfn	ToolLockRegistry::async fn acquire_bounded pub async fn acquire_bounded( &self, keys: &[ResourceKey], mode: ExecutionMode, workspace: Option<&std::path::Path>, ) -> Result<ToolLockGuards, AcquireError>
+implfn	ToolLockRegistry::async fn acquire_with_holder pub async fn acquire_with_holder( &self, keys: &[ResourceKey], mode: ExecutionMode, holder: Option<String>, ) -> ToolLockGuards
+implfn	ToolLockRegistry::async fn acquire_with_holder_and_timeout pub async fn acquire_with_holder_and_timeout( &self, keys: &[ResourceKey], mode: ExecutionMode, holder: Option<String>, timeout: Duration, ) -> Result<ToolLockGuards, AcquireError>
+implfn	ToolLockRegistry::async fn acquire_with_timeout pub async fn acquire_with_timeout( &self, keys: &[ResourceKey], mode: ExecutionMode, timeout: Duration, ) -> Result<ToolLockGuards, AcquireError>
+implfn	ToolLockRegistry::async fn acquire_within pub async fn acquire_within( &self, keys: &[ResourceKey], mode: ExecutionMode, workspace: &std::path::Path, ) -> ToolLockGuards
+implfn	ToolLockRegistry::fn inspect pub fn inspect(&self) -> Vec<LockSnapshot>
+implfn	ToolLockRegistry::fn new pub fn new() -> Self
+implfn	ToolLockRegistry::fn tracked_keys pub fn tracked_keys(&self) -> usize
+implfn	ToolLockRegistry::fn with_acquire_timeout pub fn with_acquire_timeout(mut self, timeout: Duration) -> Self
 mod	agent
 mod	agent_builder
 mod	extension
 mod	mock_fs
+mod	tool_lock
 struct	agent::Agent
 struct	agent::AgentAssemblySnapshot
 struct	agent::PluginAssemblySnapshot
@@ -73,6 +92,10 @@ struct	extension::phase::PhaseContribution
 struct	extension::registrar::LateContext
 struct	extension::registrar::Registrar
 struct	mock_fs::MockToolFs
+struct	tool_lock::LockSnapshot
+struct	tool_lock::ToolLockGuards
+struct	tool_lock::ToolLockMiddleware
+struct	tool_lock::ToolLockRegistry
 trait	extension::phase::PhaseHandler
 trait	extension::plugin::Plugin
 traitfn	extension::phase::PhaseHandler::async fn after_llm_call async fn after_llm_call( &self, _state: &AgentState, _response: &mut Message, ) -> Result<(), MiddlewareError>
@@ -99,3 +122,4 @@ use	pub use mock_fs::MockToolFs
 use	pub use phase::{PhaseContribution, PhaseHandler, PhaseOrder}
 use	pub use plugin::Plugin
 use	pub use registrar::{LateContext, Registrar}
+use	pub use tool_lock::{ AcquireError, LockSnapshot, ToolLockGuards, ToolLockMiddleware, ToolLockRegistry, DEFAULT_ACQUIRE_TIMEOUT, GLOBAL_SERIAL_KEY, }

@@ -38,6 +38,7 @@ fn	provider::tests::assert_unknown_model_returns_error fn assert_unknown_model_r
 fn	task::create_task_state fn create_task_state( task_type: TaskType, description: String, tool_use_id: Option<String>, output_file: PathBuf, ) -> TaskState
 fn	task::generate_task_id fn generate_task_id(task_type: &TaskType) -> String
 fn	tool::scheduler::normalize_path_string fn normalize_path_string(raw: &str) -> String
+fn	tool::scheduler::resolve_against_workspace fn resolve_against_workspace(key: &str, workspace: &std::path::Path) -> String
 fn	tool::schema::normalize_llm_tool_schema fn normalize_llm_tool_schema(schema: &mut Value)
 fn	tool::types::tool_definition fn tool_definition(tool: &dyn Tool, ctx: &ToolSchemaContext) -> ToolDefinition
 implfn	CancellationToken::async fn cancelled pub async fn cancelled(&mut self)

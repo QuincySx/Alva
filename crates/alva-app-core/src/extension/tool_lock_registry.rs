@@ -1,4 +1,4 @@
-// INPUT:  std::sync::Arc, async_trait, alva_kernel_core::ToolLockRegistry, crate::extension::{Plugin, Registrar}
+// INPUT:  std::sync::Arc, async_trait, alva_agent_core::{ToolLockRegistry, ToolLockMiddleware}, crate::extension::{Plugin, Registrar}
 // OUTPUT: ToolLockRegistryPlugin
 // POS:    Publishes a single shared `ToolLockRegistry` on the bus so sub-agent parallel spawns contend on one lock map.
 
@@ -17,9 +17,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use alva_kernel_core::ToolLockRegistry;
-
 use alva_agent_core::extension::{Plugin, Registrar};
+use alva_agent_core::{ToolLockMiddleware, ToolLockRegistry};
 
 /// Extension that provides a shared [`ToolLockRegistry`] on the bus.
 pub struct ToolLockRegistryPlugin {
@@ -60,5 +59,8 @@ impl Plugin for ToolLockRegistryPlugin {
 
     async fn register(&self, r: &Registrar) {
         r.provide::<ToolLockRegistry>(self.registry.clone());
+        // 资源锁的运行期表已搬去 SDK 装配层；内核不再直接取锁。装表的同时
+        // 挂上取锁中间件，行为与原先内核内联取锁逐条一致。
+        r.middleware(Arc::new(ToolLockMiddleware::new()));
     }
 }

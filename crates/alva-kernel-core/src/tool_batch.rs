@@ -311,7 +311,10 @@ fn tool_scheduling(
         .into_iter()
         .map(|resource| ResourceKey {
             key: workspace.map_or(resource.key.clone(), |workspace| {
-                crate::tool_lock::resolve_against_workspace(&resource.key, workspace)
+                alva_kernel_abi::tool::scheduler::resolve_against_workspace(
+                    &resource.key,
+                    workspace,
+                )
             }),
             mode: resource.mode,
         })
@@ -383,43 +386,17 @@ async fn execute_tool_call(
             }
             Err(error) => return Err(error.into_agent_error()),
             Ok(()) => match prepared.tool.as_ref() {
-                Some(tool) => 'locked: {
-                    let _lock_guards = if let Some(bus) = config.bus.as_ref() {
-                        if let Some(registry) = bus.get::<crate::ToolLockRegistry>() {
-                            let scheduling = tool_scheduling(
-                                tool.as_ref(),
-                                tool_call,
-                                config.workspace.as_deref(),
-                            );
-                            let mode = scheduling.execution_mode;
-                            match registry
-                                .acquire_bounded(
-                                    &scheduling.resource_keys,
-                                    mode,
-                                    config.workspace.as_deref(),
-                                )
-                                .await
-                            {
-                                Ok(guards) => Some(guards),
-                                Err(error) => {
-                                    break 'locked ToolOutput::error(format!(
-                                        "Tool lock acquisition failed: {error}. Another tool may \
-                                         be holding the lock unusually long; try again."
-                                    ));
-                                }
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
+                Some(tool) => {
+                    // 跨 agent 资源锁的运行期表与取锁中间件已搬去 SDK 装配层
+                    // （alva-agent-core::ToolLockMiddleware）；装配了锁插件的
+                    // agent 由洋葱中间件在 wrap 阶段取锁/释放，内核不再认识
+                    // "多个 agent 共享同一份资源"。
 
                     let actual_tool_call = ActualToolCall {
                         tool: tool.clone(),
                         cancel,
                         event_tx: event_tx.clone(),
-                        session_id: state.session.session_id().to_string(),
+                        session_id: log.session_id().to_string(),
                         workspace: config.workspace.clone(),
                         bus: config.bus.clone(),
                     };

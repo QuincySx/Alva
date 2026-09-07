@@ -245,7 +245,7 @@ fn stream_event_kind(event: &StreamEvent) -> &'static str {
 
 impl ActualLlmCall {
     async fn emit_first_output(&self, kind: &str, elapsed_ms: u64, transport: &str) {
-        emit_runtime_event(
+        let _ = emit_runtime_event(
             &self.session,
             "llm_first_output",
             Some(self.llm_call_id.clone()),
@@ -267,7 +267,7 @@ impl ActualLlmCall {
         outcome: &str,
         error: Option<&str>,
     ) {
-        emit_runtime_event(
+        let _ = emit_runtime_event(
             &self.session,
             "llm_stream_summary",
             Some(self.llm_call_id.clone()),
