@@ -246,7 +246,15 @@ where
         prepared.permission_profile,
     ) {
         Ok(engine) => {
-            execute_persisted_turn(store, engine, &prepared, &request.prompt, hub_sink, &mut emit).await?
+            execute_persisted_turn(
+                store,
+                engine,
+                &prepared,
+                &request.prompt,
+                hub_sink,
+                &mut emit,
+            )
+            .await?
         }
         Err(error) => start_failure_execution(&prepared, error, &mut emit),
     };
@@ -267,7 +275,15 @@ where
             prepared.permission_profile,
         ) {
             Ok(engine) => {
-                execute_persisted_turn(store, engine, &prepared, &request.prompt, hub_sink, &mut emit).await?
+                execute_persisted_turn(
+                    store,
+                    engine,
+                    &prepared,
+                    &request.prompt,
+                    hub_sink,
+                    &mut emit,
+                )
+                .await?
             }
             Err(error) => start_failure_execution(&prepared, error, &mut emit),
         };
@@ -412,7 +428,15 @@ where
                 if let Some(handoff) = &prepared.handoff {
                     store.mark_handoff_used(&handoff.handoff_id)?;
                 }
-                execute_persisted_turn(store, engine, &prepared, &request.prompt, hub_sink, &mut emit).await?
+                execute_persisted_turn(
+                    store,
+                    engine,
+                    &prepared,
+                    &request.prompt,
+                    hub_sink,
+                    &mut emit,
+                )
+                .await?
             }
             Err(error) => start_failure_execution(&prepared, error, &mut emit),
         };
@@ -1696,7 +1720,9 @@ mod tests {
                     }
                 }
             });
-            Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(receiver)))
+            Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(
+                receiver,
+            )))
         }
 
         async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
@@ -1814,7 +1840,7 @@ mod tests {
         .expect("run seam must remove the live hub when the turn ends");
     }
 
-#[tokio::test]
+    #[tokio::test]
     async fn persists_attempt_usage_and_side_effect_evidence() {
         let workspace = tempfile::tempdir().unwrap();
         let data_dir = tempfile::tempdir().unwrap();
@@ -2221,7 +2247,8 @@ mod tests {
     #[tokio::test]
     async fn real_alva_resume_failure_text_triggers_upgrade() {
         let texts = [
-            "Alva session 'x' is not in this process and no native record store is configured".to_string(),
+            "Alva session 'x' is not in this process and no native record store is configured"
+                .to_string(),
             "Alva session 'x' not found in memory or native record store".to_string(),
             "Alva record lookup failed: boom".to_string(),
             "Alva record store failed: boom".to_string(),
@@ -2234,14 +2261,38 @@ mod tests {
             let claude = EngineTarget::for_engine("claude").unwrap();
             let product = format!("product-resume-text-{index}");
             let initial = store
-                .prepare_new_turn(&product, workspace.path(), "initial Alva work", &alva, PermissionProfile::WorkspaceWrite)
+                .prepare_new_turn(
+                    &product,
+                    workspace.path(),
+                    "initial Alva work",
+                    &alva,
+                    PermissionProfile::WorkspaceWrite,
+                )
                 .unwrap();
-            store.record_engine_session(&initial, "expired-native").unwrap();
-            store.finish_turn(&initial, Some("expired-native"), Some("Alva result"), None, None).unwrap();
-            store.request_engine_switch(&product, &claude, "switch to Claude").unwrap();
-            let claude_turn = store.prepare_resumed_turn(&product, "Claude follow-up").unwrap();
-            store.finish_turn(&claude_turn, None, Some("Claude progress"), None, None).unwrap();
-            store.request_engine_switch(&product, &alva, "return to Alva").unwrap();
+            store
+                .record_engine_session(&initial, "expired-native")
+                .unwrap();
+            store
+                .finish_turn(
+                    &initial,
+                    Some("expired-native"),
+                    Some("Alva result"),
+                    None,
+                    None,
+                )
+                .unwrap();
+            store
+                .request_engine_switch(&product, &claude, "switch to Claude")
+                .unwrap();
+            let claude_turn = store
+                .prepare_resumed_turn(&product, "Claude follow-up")
+                .unwrap();
+            store
+                .finish_turn(&claude_turn, None, Some("Claude progress"), None, None)
+                .unwrap();
+            store
+                .request_engine_switch(&product, &alva, "return to Alva")
+                .unwrap();
 
             let requests = Arc::new(Mutex::new(Vec::new()));
             let engine = Arc::new(ResumeFailureTextEngine {

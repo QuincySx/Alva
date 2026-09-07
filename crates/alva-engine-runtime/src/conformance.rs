@@ -13,8 +13,8 @@
 use futures_util::StreamExt;
 
 use crate::{
-    EngineRuntime, RuntimeError, RuntimeEvent, RuntimeRequest, StreamContract,
-    validate_event_stream,
+    validate_event_stream, EngineRuntime, RuntimeError, RuntimeEvent, RuntimeRequest,
+    StreamContract,
 };
 
 /// A canned end-to-end scenario for one `execute()` call.

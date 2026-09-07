@@ -112,16 +112,11 @@ mod tests {
     /// T9 regression: enter_plan_mode mutates session permission state
     /// (design intent — current impl is a stub). Must NOT report
     /// is_read_only=true; CheckpointMiddleware + future audit/dry-run
-    /// middleware consult Tool::is_read_only. is_destructive stays false
-    /// because re-entering plan mode is idempotent / non-destructive.
+    /// middleware consult Tool::is_read_only.
     #[test]
     fn enter_plan_mode_classification() {
         let tool = EnterPlanModeTool;
         assert_eq!(tool.name(), "enter_plan_mode");
-        assert!(
-            !tool.is_destructive(&json!({})),
-            "not destructive — entering plan mode is restorable via exit_plan_mode"
-        );
         assert!(
             !tool.is_read_only(&json!({})),
             "T9: NOT read-only — writes session permission-mode state"

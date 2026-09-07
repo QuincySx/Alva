@@ -45,18 +45,6 @@ pub enum ToolPermissionResult {
 }
 
 // ---------------------------------------------------------------------------
-// SearchReadInfo — search/read nature of a tool invocation
-// ---------------------------------------------------------------------------
-
-/// Describes the search/read nature of a tool invocation.
-#[derive(Debug, Clone)]
-pub struct SearchReadInfo {
-    pub is_search: bool,
-    pub is_read: bool,
-    pub is_list: bool,
-}
-
-// ---------------------------------------------------------------------------
 // ToolFs — abstract filesystem + command execution interface
 // ---------------------------------------------------------------------------
 
@@ -185,11 +173,6 @@ pub trait Tool: Send + Sync {
         false
     }
 
-    /// Whether this tool invocation is destructive (deletes files, drops data, etc.).
-    fn is_destructive(&self, _input: &serde_json::Value) -> bool {
-        false
-    }
-
     /// Whether this tool manages its own execution timeout.
     ///
     /// When `true`, generic per-tool timeout middleware (e.g.
@@ -258,11 +241,6 @@ pub trait Tool: Send + Sync {
         self.apply_schema_overrides(schema);
     }
 
-    /// Classify the search/read nature of this invocation, if applicable.
-    fn is_search_or_read(&self, _input: &serde_json::Value) -> Option<SearchReadInfo> {
-        None
-    }
-
     /// Check whether the tool should be allowed to run with the given input.
     fn check_permissions(
         &self,
@@ -270,36 +248,6 @@ pub trait Tool: Send + Sync {
         _ctx: &dyn super::execution::ToolExecutionContext,
     ) -> ToolPermissionResult {
         ToolPermissionResult::Allow
-    }
-
-    /// A human-friendly display name, potentially customized based on input.
-    fn user_facing_name(&self, _input: &serde_json::Value) -> String {
-        self.name().to_string()
-    }
-
-    /// Maximum number of characters allowed in a tool result before truncation.
-    fn max_result_size_chars(&self) -> Option<usize> {
-        None
-    }
-
-    /// Whether this tool should be deferred (not shown in the initial tool list).
-    fn should_defer(&self) -> bool {
-        false
-    }
-
-    /// Alternative names that can be used to invoke this tool.
-    fn aliases(&self) -> Vec<String> {
-        vec![]
-    }
-
-    /// Whether this tool is currently enabled and available.
-    fn is_enabled(&self) -> bool {
-        true
-    }
-
-    /// The prompt/instructions text for this tool (defaults to description).
-    fn tool_prompt(&self) -> String {
-        self.description().to_string()
     }
 }
 

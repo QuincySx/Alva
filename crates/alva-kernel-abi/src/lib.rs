@@ -10,19 +10,11 @@ pub mod diagnostic;
 pub use scope::context;
 pub mod constants;
 pub mod model;
-pub mod multimodal;
 pub mod phase;
 pub mod task;
 pub mod token_estimation;
 pub mod tool;
 // backward-compatible re-exports for old module paths
-pub use multimodal::embedding;
-pub use multimodal::image;
-pub use multimodal::moderation;
-pub use multimodal::reranking;
-pub use multimodal::speech;
-pub use multimodal::transcription;
-pub use multimodal::video;
 pub mod provider;
 // provider_test is now at provider::tests; re-export for backward compatibility
 pub use provider::tests as provider_test;
@@ -49,8 +41,8 @@ pub use tool::execution::{
 };
 pub use tool::scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey};
 pub use tool::{
-    SearchReadInfo, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult,
-    ToolPermissionResult, ToolRegistry, ToolSchemaContext,
+    Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult,
+    ToolRegistry, ToolSchemaContext,
 };
 
 // Re-export proc macros from alva-macros. A derive macro and a trait
@@ -72,11 +64,7 @@ pub use agent_session::{
 };
 #[doc(inline)]
 pub use alva_macros::{bus_cap, bus_event};
-pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage};
-pub use image::{ImageConfig, ImageData, ImageEditConfig, ImageModel, ImageResult};
-pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, ModerationResult};
 pub use provider::{CredentialSource, Provider, ProviderError, ProviderRegistry, StaticCredential};
-pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel};
 pub use scope::spawn::{
     OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication,
     SpawnCommunicationRegistry, SpawnResult,
@@ -87,13 +75,8 @@ pub use session_record::{
     RecordCategory, RecordValue, SessionRecord, SessionRecordPayload,
     SESSION_RECORD_SCHEMA_VERSION,
 };
-pub use speech::{SpeechConfig, SpeechModel, SpeechResult};
 pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType};
 pub use token_estimation::{SimpleTokenEstimator, TokenEstimator};
-pub use transcription::{
-    TranscriptionConfig, TranscriptionModel, TranscriptionResult, TranscriptionSegment,
-};
-pub use video::{VideoConfig, VideoData, VideoModel, VideoResult};
 
 // Bus — cross-layer coordination
 pub use alva_kernel_bus::{

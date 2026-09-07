@@ -268,7 +268,6 @@ mod tests {
     #[test]
     fn task_list_is_read_only() {
         let tool = TaskListTool;
-        assert!(!tool.is_destructive(&json!({})));
         assert_eq!(tool.name(), "task_list");
     }
 }

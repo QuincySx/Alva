@@ -474,7 +474,12 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"t
                 default_cwd: Some(fixture.path().to_path_buf()),
                 ..Default::default()
             });
-            assert_conforms(&adapter, RuntimeRequest::new("hi"), Scenario::EofWithoutResult).await;
+            assert_conforms(
+                &adapter,
+                RuntimeRequest::new("hi"),
+                Scenario::EofWithoutResult,
+            )
+            .await;
         }
     }
 }

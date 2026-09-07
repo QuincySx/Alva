@@ -24,8 +24,7 @@ pub fn engine_descriptor(engine_id: &str) -> Option<EngineDescriptor> {
 /// Whether an engine is declared in the catalog and its descriptor satisfies
 /// a permission profile (used by the permission gate instead of a name match).
 pub fn engine_can_satisfy(engine_id: &str, profile: &str) -> bool {
-    engine_descriptor(engine_id)
-        .is_some_and(|descriptor| descriptor.can_satisfy(profile))
+    engine_descriptor(engine_id).is_some_and(|descriptor| descriptor.can_satisfy(profile))
 }
 
 #[cfg(test)]
@@ -48,7 +47,10 @@ mod tests {
         assert_eq!(pi.install_metadata.required_binary.as_deref(), Some("pi"));
 
         let undeclared = engine_descriptor("gemini");
-        assert!(undeclared.is_none(), "an undeclared engine is not supported");
+        assert!(
+            undeclared.is_none(),
+            "an undeclared engine is not supported"
+        );
         assert!(!engine_can_satisfy("gemini", "workspace_write"));
     }
 }

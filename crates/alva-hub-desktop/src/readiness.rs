@@ -1255,8 +1255,10 @@ mod tests {
         fn execute(
             &self,
             _request: RuntimeRequest,
-        ) -> Result<std::pin::Pin<Box<dyn futures_core::Stream<Item = RuntimeEvent> + Send>>, RuntimeError>
-        {
+        ) -> Result<
+            std::pin::Pin<Box<dyn futures_core::Stream<Item = RuntimeEvent> + Send>>,
+            RuntimeError,
+        > {
             Ok(Box::pin(tokio_stream::iter(vec![])))
         }
         async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
@@ -1305,11 +1307,20 @@ mod tests {
             },
         };
         // Binary present → no veto, even though "gemini" used to be rejected by name.
-        assert_eq!(veto_missing_declared_binary(&declared, |b| b == "gemini-cli"), None);
+        assert_eq!(
+            veto_missing_declared_binary(&declared, |b| b == "gemini-cli"),
+            None
+        );
         // Binary missing → veto names the BINARY, not the engine.
         let veto = veto_missing_declared_binary(&declared, |_| false).unwrap();
-        assert!(veto.contains("gemini-cli"), "veto must name the binary: {veto}");
-        assert!(!veto.contains("unsupported"), "declared engines are not 'unsupported': {veto}");
+        assert!(
+            veto.contains("gemini-cli"),
+            "veto must name the binary: {veto}"
+        );
+        assert!(
+            !veto.contains("unsupported"),
+            "declared engines are not 'unsupported': {veto}"
+        );
         // In-process engine (no binary) passes.
         let in_process = EngineDescriptor {
             runtime: declared.runtime.clone(),

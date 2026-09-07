@@ -709,11 +709,7 @@ async fn release_worker_runtime(app: &AppHandle, state: &DesktopState, worker_se
             return;
         }
     }
-    state
-        .active_hubs
-        .lock()
-        .unwrap()
-        .remove(worker_session_id);
+    state.active_hubs.lock().unwrap().remove(worker_session_id);
     state.permission_router.clear_session(worker_session_id);
 }
 

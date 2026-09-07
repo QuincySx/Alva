@@ -22,7 +22,6 @@ struct Input {
     name = "browser_stop",
     description = "Shut down a running Chrome browser instance and release all resources.",
     input = Input,
-    destructive,
 )]
 pub struct BrowserStopTool {
     pub manager: SharedBrowserManager,

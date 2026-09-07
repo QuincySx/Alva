@@ -329,9 +329,11 @@ fn engine_max_turns_supported(engine: Engine) -> bool {
         // Alva consumes RuntimeOptions.max_turns as its agentic-turn ceiling;
         // it has no CLI binary, so there is no descriptor() to consult.
         Engine::Alva => true,
-        Engine::Claude => alva_engine_adapter_claude::ClaudePrintAdapter::descriptor()
-            .config_surface
-            .supports_max_turns,
+        Engine::Claude => {
+            alva_engine_adapter_claude::ClaudePrintAdapter::descriptor()
+                .config_surface
+                .supports_max_turns
+        }
         Engine::Codex => CodexAdapter::descriptor().config_surface.supports_max_turns,
         Engine::Pi => PiAdapter::descriptor().config_surface.supports_max_turns,
     }
@@ -993,9 +995,9 @@ async fn run_turn(
                     terminate_repl = false;
                 }
                 Err(HubError::SessionNotFound(_)) => terminate_repl = false,
-                Err(error) => eprintln!(
-                    "alva-hub: could not release session, terminating REPL: {error}"
-                ),
+                Err(error) => {
+                    eprintln!("alva-hub: could not release session, terminating REPL: {error}")
+                }
             }
         }
     }

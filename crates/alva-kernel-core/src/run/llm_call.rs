@@ -11,7 +11,7 @@ use alva_kernel_abi::tool::execution::{
     ToolExecutionContext as AbiToolExecutionContext, ToolOutput as AbiToolOutput,
 };
 use alva_kernel_abi::tool::schema::ToolSchemaContext;
-use alva_kernel_abi::tool::{SearchReadInfo, Tool, ToolDefinition, ToolPermissionResult};
+use alva_kernel_abi::tool::{Tool, ToolDefinition, ToolPermissionResult};
 use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message, MessageRole,
     ModelConfig, StreamEvent, StreamMessageAccumulator,
@@ -97,16 +97,8 @@ impl Tool for PrebakedSchemaTool {
         self.inner.is_read_only(input)
     }
 
-    fn is_destructive(&self, input: &serde_json::Value) -> bool {
-        self.inner.is_destructive(input)
-    }
-
     fn manages_own_timeout(&self) -> bool {
         self.inner.manages_own_timeout()
-    }
-
-    fn is_search_or_read(&self, input: &serde_json::Value) -> Option<SearchReadInfo> {
-        self.inner.is_search_or_read(input)
     }
 
     fn check_permissions(
@@ -115,30 +107,6 @@ impl Tool for PrebakedSchemaTool {
         ctx: &dyn AbiToolExecutionContext,
     ) -> ToolPermissionResult {
         self.inner.check_permissions(input, ctx)
-    }
-
-    fn user_facing_name(&self, input: &serde_json::Value) -> String {
-        self.inner.user_facing_name(input)
-    }
-
-    fn max_result_size_chars(&self) -> Option<usize> {
-        self.inner.max_result_size_chars()
-    }
-
-    fn should_defer(&self) -> bool {
-        self.inner.should_defer()
-    }
-
-    fn aliases(&self) -> Vec<String> {
-        self.inner.aliases()
-    }
-
-    fn is_enabled(&self) -> bool {
-        self.inner.is_enabled()
-    }
-
-    fn tool_prompt(&self) -> String {
-        self.inner.tool_prompt()
     }
 }
 

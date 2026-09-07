@@ -386,7 +386,9 @@ sleep 600
     #[cfg(unix)]
     mod conformance {
         use super::*;
-        use alva_engine_runtime::{assert_conforms, assert_conforms_events, RuntimeRequest, Scenario};
+        use alva_engine_runtime::{
+            assert_conforms, assert_conforms_events, RuntimeRequest, Scenario,
+        };
         use std::time::Duration;
 
         #[tokio::test]
@@ -400,8 +402,12 @@ printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
 printf '%s\n' '{"type":"message_start","message":{"role":"assistant","id":"m1"}}'
 printf '%s\n' '{"type":"message_end","message":{"role":"assistant","id":"m1","stopReason":"end","content":[{"type":"text","text":"two plus two is four"}],"usage":{"input":1,"output":1,"cost":{"total":0.001}}}'"#,
             );
-            assert_conforms(&pi_adapter(executable), RuntimeRequest::new("hi"), Scenario::Normal)
-                .await;
+            assert_conforms(
+                &pi_adapter(executable),
+                RuntimeRequest::new("hi"),
+                Scenario::Normal,
+            )
+            .await;
         }
 
         #[tokio::test]
@@ -582,10 +588,7 @@ printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":
                 .expect("cancel must kill the pi CLI and close the stream")
                 .unwrap();
             assert!(
-                matches!(
-                    events.last(),
-                    Some(RuntimeEvent::Completed { .. })
-                ),
+                matches!(events.last(), Some(RuntimeEvent::Completed { .. })),
                 "cancel must end with Completed: {events:#?}"
             );
             assert!(

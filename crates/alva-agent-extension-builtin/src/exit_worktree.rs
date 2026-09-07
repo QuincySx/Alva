@@ -48,10 +48,6 @@ impl Tool for ExitWorktreeTool {
         })
     }
 
-    fn is_destructive(&self, input: &Value) -> bool {
-        input.get("action").and_then(|v| v.as_str()) == Some("remove")
-    }
-
     async fn execute(
         &self,
         input: Value,
@@ -265,14 +261,6 @@ mod tests {
             err.to_string().contains("action"),
             "unexpected error: {err}"
         );
-    }
-
-    #[test]
-    fn is_destructive_only_when_removing() {
-        let tool = ExitWorktreeTool;
-        assert!(tool.is_destructive(&json!({ "action": "remove" })));
-        assert!(!tool.is_destructive(&json!({ "action": "keep" })));
-        assert!(!tool.is_destructive(&json!({})));
     }
 
     #[tokio::test]

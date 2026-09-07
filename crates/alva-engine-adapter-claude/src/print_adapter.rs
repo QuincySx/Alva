@@ -107,7 +107,8 @@ impl ClaudePrintAdapter {
                 PermissionPlanDecl {
                     profile_id: "workspace_write".into(),
                     relation: PermissionRelation::Stricter,
-                    summary: "claude -p non-interactive mode (stricter than interactive write)".into(),
+                    summary: "claude -p non-interactive mode (stricter than interactive write)"
+                        .into(),
                 },
             ],
             config_surface: ConfigSurface {
@@ -577,7 +578,9 @@ mod tests {
             .await;
 
         assert!(
-            !events.iter().any(|event| matches!(event, RuntimeEvent::Message { .. })),
+            !events
+                .iter()
+                .any(|event| matches!(event, RuntimeEvent::Message { .. })),
             "no Message may follow a fatal Error: {events:#?}"
         );
         assert!(matches!(
@@ -599,7 +602,9 @@ mod tests {
     #[cfg(unix)]
     mod conformance {
         use super::*;
-        use alva_engine_runtime::{assert_conforms, assert_conforms_events, RuntimeRequest, Scenario};
+        use alva_engine_runtime::{
+            assert_conforms, assert_conforms_events, RuntimeRequest, Scenario,
+        };
         use std::time::Duration;
         use tokio_stream::StreamExt;
 
@@ -627,7 +632,11 @@ mod tests {
         async fn spawn_failure_conforms() {
             let fixture = tempfile::tempdir().unwrap();
             let adapter = ClaudePrintAdapter::new(ClaudePrintConfig {
-                claude_path: fixture.path().join("no-such-claude").to_string_lossy().into_owned(),
+                claude_path: fixture
+                    .path()
+                    .join("no-such-claude")
+                    .to_string_lossy()
+                    .into_owned(),
                 ..Default::default()
             });
             assert_conforms(

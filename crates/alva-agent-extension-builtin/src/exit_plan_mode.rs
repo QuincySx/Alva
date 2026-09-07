@@ -106,10 +106,6 @@ mod tests {
         let tool = ExitPlanModeTool;
         assert_eq!(tool.name(), "exit_plan_mode");
         assert!(
-            !tool.is_destructive(&json!({})),
-            "not destructive — re-entering plan mode is possible"
-        );
-        assert!(
             !tool.is_read_only(&json!({})),
             "T9: NOT read-only — writes session permission-mode state"
         );

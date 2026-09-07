@@ -13,17 +13,10 @@ const	constants::MAX_TOOL_TIMEOUT_MS const MAX_TOOL_TIMEOUT_MS: u64 = 600_000
 const	constants::MEMORY_EXTRACTION_THRESHOLD const MEMORY_EXTRACTION_THRESHOLD: usize = 20
 const	constants::POLICY_LIMITS_POLL_INTERVAL_SECS const POLICY_LIMITS_POLL_INTERVAL_SECS: u64 = 3600
 const	constants::RATE_LIMIT_WINDOW_HOURS const RATE_LIMIT_WINDOW_HOURS: u64 = 5
-const	constants::SPINNER_FRAME_RATE_MS const SPINNER_FRAME_RATE_MS: u64 = 80
 const	constants::WEB_FETCH_CACHE_TTL_SECS const WEB_FETCH_CACHE_TTL_SECS: u64 = 900
-const	constants::agent_tools::ALL_AGENT_DISALLOWED const ALL_AGENT_DISALLOWED: &[&str] = &[" ", " "]
-const	constants::agent_tools::ASYNC_AGENT_ALLOWED const ASYNC_AGENT_ALLOWED: &[&str] = &[ " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", ]
-const	constants::agent_tools::COORDINATOR_ONLY const COORDINATOR_ONLY: &[&str] = &[" ", " ", " "]
-const	constants::agent_tools::IN_PROCESS_TEAMMATE_ALLOWED const IN_PROCESS_TEAMMATE_ALLOWED: &[&str] = &[ " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", ]
 const	session_record::SESSION_RECORD_SCHEMA_VERSION const SESSION_RECORD_SCHEMA_VERSION: u32 = 1
 enum	agent_session::SessionError
 enum	base::error::AgentError
-enum	multimodal::image::ImageData
-enum	multimodal::video::VideoData
 enum	provider::types::ProviderError
 enum	scope::context::error::ContextError
 enum	scope::context::types::CompressAction
@@ -43,7 +36,6 @@ fn	provider::tests::assert_language_model_returns_valid_id fn assert_language_mo
 fn	provider::tests::assert_provider_conformance fn assert_provider_conformance(provider: &dyn Provider, known_model_id: &str)
 fn	provider::tests::assert_provider_id_non_empty fn assert_provider_id_non_empty(provider: &dyn Provider)
 fn	provider::tests::assert_unknown_model_returns_error fn assert_unknown_model_returns_error(provider: &dyn Provider)
-fn	provider::tests::assert_unsupported_models_return_error fn assert_unsupported_models_return_error(provider: &dyn Provider)
 fn	task::create_task_state fn create_task_state( task_type: TaskType, description: String, tool_use_id: Option<String>, output_file: PathBuf, ) -> TaskState
 fn	task::generate_task_id fn generate_task_id(task_type: &TaskType) -> String
 fn	tool::scheduler::normalize_path_string fn normalize_path_string(raw: &str) -> String
@@ -78,18 +70,11 @@ implfn	Injection::fn with_layer pub fn with_layer(mut self, layer: ContextLayer)
 implfn	Injection::fn with_priority pub fn with_priority(mut self, p: Priority) -> Self
 implfn	MinimalExecutionContext::fn new pub fn new() -> Self
 implfn	MinimalExecutionContext::fn with_cancel pub fn with_cancel(cancel: CancellationToken) -> Self
-implfn	ProviderRegistry::fn embedding_model pub fn embedding_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn EmbeddingModel>, ProviderError>
 implfn	ProviderRegistry::fn get pub fn get(&self, provider_id: &str) -> Option<&Arc<dyn Provider>>
-implfn	ProviderRegistry::fn image_model pub fn image_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn ImageModel>, ProviderError>
 implfn	ProviderRegistry::fn language_model pub fn language_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn LanguageModel>, ProviderError>
-implfn	ProviderRegistry::fn moderation_model pub fn moderation_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn ModerationModel>, ProviderError>
 implfn	ProviderRegistry::fn new pub fn new() -> Self
 implfn	ProviderRegistry::fn provider_ids pub fn provider_ids(&self) -> Vec<&str>
 implfn	ProviderRegistry::fn register pub fn register(&mut self, provider: Arc<dyn Provider>)
-implfn	ProviderRegistry::fn reranking_model pub fn reranking_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn RerankingModel>, ProviderError>
-implfn	ProviderRegistry::fn speech_model pub fn speech_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn SpeechModel>, ProviderError>
-implfn	ProviderRegistry::fn transcription_model pub fn transcription_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn TranscriptionModel>, ProviderError>
-implfn	ProviderRegistry::fn video_model pub fn video_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn VideoModel>, ProviderError>
 implfn	ResourceKey::fn read pub fn read(key: impl Into<String>) -> Self
 implfn	ResourceKey::fn write pub fn write(key: impl Into<String>) -> Self
 implfn	ScopeId::fn as_str pub fn as_str(&self) -> &str
@@ -143,17 +128,8 @@ mod	base::error
 mod	base::message
 mod	base::stream
 mod	constants
-mod	constants::agent_tools
 mod	diagnostic
 mod	model
-mod	multimodal
-mod	multimodal::embedding
-mod	multimodal::image
-mod	multimodal::moderation
-mod	multimodal::reranking
-mod	multimodal::speech
-mod	multimodal::transcription
-mod	multimodal::video
 mod	phase
 mod	provider
 mod	provider::credential
@@ -183,24 +159,6 @@ struct	base::cancel::CancellationToken
 struct	diagnostic::Diagnostic
 struct	model::CompletionResponse
 struct	model::HeuristicTokenCounter
-struct	multimodal::embedding::EmbeddingResult
-struct	multimodal::embedding::EmbeddingUsage
-struct	multimodal::image::ImageConfig
-struct	multimodal::image::ImageEditConfig
-struct	multimodal::image::ImageResult
-struct	multimodal::moderation::ModerationCategory
-struct	multimodal::moderation::ModerationEntry
-struct	multimodal::moderation::ModerationResult
-struct	multimodal::reranking::RankEntry
-struct	multimodal::reranking::RerankConfig
-struct	multimodal::reranking::RerankResult
-struct	multimodal::speech::SpeechConfig
-struct	multimodal::speech::SpeechResult
-struct	multimodal::transcription::TranscriptionConfig
-struct	multimodal::transcription::TranscriptionResult
-struct	multimodal::transcription::TranscriptionSegment
-struct	multimodal::video::VideoConfig
-struct	multimodal::video::VideoResult
 struct	provider::credential::StaticCredential
 struct	provider::types::ProviderRegistry
 struct	runtime::NoopSleeper
@@ -239,7 +197,6 @@ struct	tool::guard::GuardToken
 struct	tool::guard::ToolGuard
 struct	tool::scheduler::ResourceKey
 struct	tool::schema::ToolSchemaContext
-struct	tool::types::SearchReadInfo
 struct	tool::types::ToolCall
 struct	tool::types::ToolFsDirEntry
 struct	tool::types::ToolFsExecResult
@@ -249,13 +206,6 @@ trait	agent_session::SessionEventListener
 trait	analytics::AnalyticsSink
 trait	model::LanguageModel
 trait	model::TokenCounter
-trait	multimodal::embedding::EmbeddingModel
-trait	multimodal::image::ImageModel
-trait	multimodal::moderation::ModerationModel
-trait	multimodal::reranking::RerankingModel
-trait	multimodal::speech::SpeechModel
-trait	multimodal::transcription::TranscriptionModel
-trait	multimodal::video::VideoModel
 trait	provider::credential::CredentialSource
 trait	provider::types::Provider
 trait	runtime::Sleeper
@@ -299,34 +249,9 @@ traitfn	model::LanguageModel::fn provider_id fn provider_id(&self) -> &str
 traitfn	model::LanguageModel::fn stream fn stream( &self, messages: &[Message], tools: &[&dyn Tool], config: &ModelConfig, ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>>
 traitfn	model::TokenCounter::fn context_window fn context_window(&self) -> usize
 traitfn	model::TokenCounter::fn count_tokens fn count_tokens(&self, text: &str) -> usize
-traitfn	multimodal::embedding::EmbeddingModel::async fn embed async fn embed(&self, texts: &[&str]) -> Result<EmbeddingResult, AgentError>
-traitfn	multimodal::embedding::EmbeddingModel::fn dimensions fn dimensions(&self) -> Option<usize>
-traitfn	multimodal::embedding::EmbeddingModel::fn max_embeddings_per_call fn max_embeddings_per_call(&self) -> Option<usize>
-traitfn	multimodal::embedding::EmbeddingModel::fn model_id fn model_id(&self) -> &str
-traitfn	multimodal::image::ImageModel::async fn edit async fn edit( &self, _image: &[u8], _prompt: &str, _config: &ImageEditConfig, ) -> Result<ImageResult, AgentError>
-traitfn	multimodal::image::ImageModel::async fn generate async fn generate(&self, prompt: &str, config: &ImageConfig) -> Result<ImageResult, AgentError>
-traitfn	multimodal::image::ImageModel::fn max_images_per_call fn max_images_per_call(&self) -> Option<usize>
-traitfn	multimodal::image::ImageModel::fn model_id fn model_id(&self) -> &str
-traitfn	multimodal::moderation::ModerationModel::async fn classify async fn classify(&self, inputs: &[&str]) -> Result<ModerationResult, AgentError>
-traitfn	multimodal::moderation::ModerationModel::fn model_id fn model_id(&self) -> &str
-traitfn	multimodal::reranking::RerankingModel::async fn rerank async fn rerank( &self, query: &str, documents: &[&str], config: &RerankConfig, ) -> Result<RerankResult, AgentError>
-traitfn	multimodal::reranking::RerankingModel::fn model_id fn model_id(&self) -> &str
-traitfn	multimodal::speech::SpeechModel::async fn synthesize async fn synthesize( &self, text: &str, config: &SpeechConfig, ) -> Result<SpeechResult, AgentError>
-traitfn	multimodal::speech::SpeechModel::fn model_id fn model_id(&self) -> &str
-traitfn	multimodal::transcription::TranscriptionModel::async fn transcribe async fn transcribe( &self, audio: &[u8], config: &TranscriptionConfig, ) -> Result<TranscriptionResult, AgentError>
-traitfn	multimodal::transcription::TranscriptionModel::fn model_id fn model_id(&self) -> &str
-traitfn	multimodal::video::VideoModel::async fn generate async fn generate(&self, prompt: &str, config: &VideoConfig) -> Result<VideoResult, AgentError>
-traitfn	multimodal::video::VideoModel::fn model_id fn model_id(&self) -> &str
 traitfn	provider::credential::CredentialSource::async fn get_api_key async fn get_api_key(&self) -> Result<String, ProviderError>
-traitfn	provider::types::Provider::fn embedding_model fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn EmbeddingModel>, ProviderError>
 traitfn	provider::types::Provider::fn id fn id(&self) -> &str
-traitfn	provider::types::Provider::fn image_model fn image_model(&self, _model_id: &str) -> Result<Arc<dyn ImageModel>, ProviderError>
 traitfn	provider::types::Provider::fn language_model fn language_model(&self, model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError>
-traitfn	provider::types::Provider::fn moderation_model fn moderation_model(&self, _model_id: &str) -> Result<Arc<dyn ModerationModel>, ProviderError>
-traitfn	provider::types::Provider::fn reranking_model fn reranking_model(&self, _model_id: &str) -> Result<Arc<dyn RerankingModel>, ProviderError>
-traitfn	provider::types::Provider::fn speech_model fn speech_model(&self, _model_id: &str) -> Result<Arc<dyn SpeechModel>, ProviderError>
-traitfn	provider::types::Provider::fn transcription_model fn transcription_model( &self, _model_id: &str, ) -> Result<Arc<dyn TranscriptionModel>, ProviderError>
-traitfn	provider::types::Provider::fn video_model fn video_model(&self, _model_id: &str) -> Result<Arc<dyn VideoModel>, ProviderError>
 traitfn	runtime::Sleeper::async fn sleep async fn sleep(&self, duration: Duration)
 traitfn	scope::context::traits::ContextHandle::async fn summarize async fn summarize(&self, agent_id: &str, range: MessageRange, hints: &[String]) -> String
 traitfn	scope::context::traits::ContextHandle::fn budget fn budget(&self, agent_id: &str) -> BudgetInfo
@@ -381,7 +306,6 @@ traitfn	tool::execution::ToolExecutionContext::fn tool_call_id fn tool_call_id(&
 traitfn	tool::execution::ToolExecutionContext::fn tool_fs fn tool_fs(&self) -> Option<&dyn ToolFs>
 traitfn	tool::execution::ToolExecutionContext::fn workspace fn workspace(&self) -> Option<&Path>
 traitfn	tool::types::Tool::async fn execute async fn execute( &self, input: serde_json::Value, ctx: &dyn super::execution::ToolExecutionContext, ) -> Result<super::execution::ToolOutput, AgentError>
-traitfn	tool::types::Tool::fn aliases fn aliases(&self) -> Vec<String>
 traitfn	tool::types::Tool::fn apply_schema_overrides fn apply_schema_overrides(&self, _schema: &mut serde_json::Value)
 traitfn	tool::types::Tool::fn apply_schema_overrides_with fn apply_schema_overrides_with( &self, schema: &mut serde_json::Value, _ctx: &super::schema::ToolSchemaContext, )
 traitfn	tool::types::Tool::fn check_permissions fn check_permissions( &self, _input: &serde_json::Value, _ctx: &dyn super::execution::ToolExecutionContext, ) -> ToolPermissionResult
@@ -389,19 +313,12 @@ traitfn	tool::types::Tool::fn definition fn definition(&self) -> ToolDefinition
 traitfn	tool::types::Tool::fn description fn description(&self) -> &str
 traitfn	tool::types::Tool::fn execution_mode fn execution_mode(&self) -> super::scheduler::ExecutionMode
 traitfn	tool::types::Tool::fn is_concurrency_safe fn is_concurrency_safe(&self, _input: &serde_json::Value) -> bool
-traitfn	tool::types::Tool::fn is_destructive fn is_destructive(&self, _input: &serde_json::Value) -> bool
-traitfn	tool::types::Tool::fn is_enabled fn is_enabled(&self) -> bool
 traitfn	tool::types::Tool::fn is_read_only fn is_read_only(&self, _input: &serde_json::Value) -> bool
-traitfn	tool::types::Tool::fn is_search_or_read fn is_search_or_read(&self, _input: &serde_json::Value) -> Option<SearchReadInfo>
 traitfn	tool::types::Tool::fn manages_own_timeout fn manages_own_timeout(&self) -> bool
-traitfn	tool::types::Tool::fn max_result_size_chars fn max_result_size_chars(&self) -> Option<usize>
 traitfn	tool::types::Tool::fn name fn name(&self) -> &str
 traitfn	tool::types::Tool::fn parameters_schema fn parameters_schema(&self) -> serde_json::Value
 traitfn	tool::types::Tool::fn parameters_schema_with fn parameters_schema_with(&self, _ctx: &super::schema::ToolSchemaContext) -> serde_json::Value
 traitfn	tool::types::Tool::fn resource_keys fn resource_keys(&self, _input: &serde_json::Value) -> Vec<super::scheduler::ResourceKey>
-traitfn	tool::types::Tool::fn should_defer fn should_defer(&self) -> bool
-traitfn	tool::types::Tool::fn tool_prompt fn tool_prompt(&self) -> String
-traitfn	tool::types::Tool::fn user_facing_name fn user_facing_name(&self, _input: &serde_json::Value) -> String
 traitfn	tool::types::ToolFs::async fn exec async fn exec( &self, command: &str, cwd: Option<&str>, timeout_ms: u64, ) -> Result<ToolFsExecResult, AgentError>
 traitfn	tool::types::ToolFs::async fn exists async fn exists(&self, path: &str) -> Result<bool, AgentError>
 traitfn	tool::types::ToolFs::async fn list_dir async fn list_dir(&self, path: &str) -> Result<Vec<ToolFsDirEntry>, AgentError>
@@ -431,24 +348,13 @@ use	pub use config::{ModelConfig, ReasoningEffort}
 use	pub use content_payload::{ProgressEvent, ToolContent, ToolOutput}
 use	pub use credential::{CredentialSource, StaticCredential}
 use	pub use diagnostic::{Diagnostic, Severity}
-use	pub use embedding::{EmbeddingModel, EmbeddingResult, EmbeddingUsage}
 use	pub use error::*
 use	pub use events::*
-use	pub use image::{ImageConfig, ImageData, ImageEditConfig, ImageModel, ImageResult}
 use	pub use model::{CompletionResponse, LanguageModel, ModelConfig, ReasoningEffort, TokenCounter}
-use	pub use moderation::{ModerationCategory, ModerationEntry, ModerationModel, ModerationResult}
-use	pub use multimodal::embedding
-use	pub use multimodal::image
-use	pub use multimodal::moderation
-use	pub use multimodal::reranking
-use	pub use multimodal::speech
-use	pub use multimodal::transcription
-use	pub use multimodal::video
 use	pub use noop::*
 use	pub use phase::{Phase, PhaseEffect}
 use	pub use provider::tests as provider_test
 use	pub use provider::{CredentialSource, Provider, ProviderError, ProviderRegistry, StaticCredential}
-use	pub use reranking::{RankEntry, RerankConfig, RerankResult, RerankingModel}
 use	pub use runtime::{timeout, NoopSleeper, Sleeper, TimeoutError}
 use	pub use scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey}
 use	pub use schema::{normalize_llm_tool_schema, ToolSchemaContext}
@@ -457,18 +363,15 @@ use	pub use scope::context::{ContextCompacted, MemoryExtracted, TokenBudgetExcee
 use	pub use scope::spawn::{ OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication, SpawnCommunicationRegistry, SpawnResult, }
 use	pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot}
 use	pub use session_record::{ AppendReceipt, BlobReference, ConversationRecord, ExecutionRecord, ExtensionRecord, RecordCategory, RecordValue, SessionRecord, SessionRecordPayload, SESSION_RECORD_SCHEMA_VERSION, }
-use	pub use speech::{SpeechConfig, SpeechModel, SpeechResult}
 use	pub use super::content_payload::{ProgressEvent, ToolContent, ToolOutput}
 use	pub use system::*
 use	pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType}
 use	pub use token_estimation::{SimpleTokenEstimator, TokenEstimator}
 use	pub use tool::execution::{ MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput, }
 use	pub use tool::scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey}
-use	pub use tool::{ SearchReadInfo, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, ToolSchemaContext, }
+use	pub use tool::{ Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, ToolSchemaContext, }
 use	pub use traits::*
-use	pub use transcription::{ TranscriptionConfig, TranscriptionModel, TranscriptionResult, TranscriptionSegment, }
 use	pub use types::*
 use	pub use types::*
 use	pub use types::*
-use	pub use types::{ SearchReadInfo, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, }
-use	pub use video::{VideoConfig, VideoData, VideoModel, VideoResult}
+use	pub use types::{ Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, }

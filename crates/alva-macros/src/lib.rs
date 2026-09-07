@@ -127,11 +127,6 @@ struct ToolAttrs {
     /// (reads, searches, queries). Default: `false`.
     #[darling(default)]
     read_only: bool,
-    /// Override `Tool::is_destructive` to always return `true`, regardless
-    /// of input. Use sparingly — if *some* invocations are destructive
-    /// but others aren't, hand-write the impl. Default: `false`.
-    #[darling(default)]
-    destructive: bool,
     /// Override `Tool::is_concurrency_safe` to always return `true`.
     /// Use for stateless / side-effect-free tools that can run in
     /// parallel with others. Default: `false`.
@@ -183,13 +178,6 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
     let read_only_impl = if attrs.read_only {
         quote! {
             fn is_read_only(&self, _input: &::serde_json::Value) -> bool { true }
-        }
-    } else {
-        quote! {}
-    };
-    let destructive_impl = if attrs.destructive {
-        quote! {
-            fn is_destructive(&self, _input: &::serde_json::Value) -> bool { true }
         }
     } else {
         quote! {}
@@ -251,7 +239,6 @@ pub fn derive_tool(input: TokenStream) -> TokenStream {
 
             #manages_own_timeout_impl
             #read_only_impl
-            #destructive_impl
             #concurrency_safe_impl
             #resource_keys_impl
             #execution_mode_impl

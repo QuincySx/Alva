@@ -262,10 +262,6 @@ mod tests {
         let tool = SendMessageTool;
         assert_eq!(tool.name(), "send_message");
         assert!(
-            !tool.is_destructive(&json!({ "to": "x", "message": "y" })),
-            "not destructive — recipients can be re-messaged"
-        );
-        assert!(
             !tool.is_read_only(&json!({ "to": "x", "message": "y" })),
             "T8: NOT read-only — writes recipient inbox"
         );

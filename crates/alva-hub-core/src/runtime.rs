@@ -502,7 +502,10 @@ impl HubRuntime {
     /// terminal [`HubSessionStatus::Failed`], so the next [`Self::execute`] or
     /// [`Self::switch_engine`] can reclaim it. The abandoned turn's tail writes
     /// are blocked by the `claim_seq` guard.
-    pub fn abandon(&self, product_session_id: &ProductSessionId) -> Result<HubSessionSnapshot, HubError> {
+    pub fn abandon(
+        &self,
+        product_session_id: &ProductSessionId,
+    ) -> Result<HubSessionSnapshot, HubError> {
         let mut sessions = self
             .sessions
             .write()
@@ -710,8 +713,7 @@ impl HubRuntime {
                 saw_completed |= matches!(&event, RuntimeEvent::Completed { .. });
                 saw_session_started |= matches!(&event, RuntimeEvent::SessionStarted { .. });
                 if let RuntimeEvent::SessionStarted { session_id, .. } = &event {
-                    *run_slot.write().expect("run slot lock poisoned") =
-                        Some(session_id.clone());
+                    *run_slot.write().expect("run slot lock poisoned") = Some(session_id.clone());
                 }
                 saw_fatal_error |= matches!(
                     &event,
@@ -764,7 +766,12 @@ impl HubRuntime {
                     // synthesis below repairs the product edge.
                     if hard_violations == 0 {
                         hard_violations = 1;
-                        record_hard_violation(&sessions, &output_session_id, my_seq, &err.to_string());
+                        record_hard_violation(
+                            &sessions,
+                            &output_session_id,
+                            my_seq,
+                            &err.to_string(),
+                        );
                     }
                     for warning in contract.soft_warnings() {
                         if let SoftStreamWarning::UnclosedTool { id, name } = &warning {
@@ -814,8 +821,8 @@ impl HubRuntime {
             }
             if !saw_completed {
                 saw_fatal_error = true;
-                let engine_session_id =
-                    mark_session_failed(&sessions, &output_session_id, my_seq).unwrap_or_else(|| {
+                let engine_session_id = mark_session_failed(&sessions, &output_session_id, my_seq)
+                    .unwrap_or_else(|| {
                         // No native session id exists when the engine never sent
                         // SessionStarted. The empty string is the honest value —
                         // downstream guards on `!is_empty()` — but it must not be
@@ -855,28 +862,33 @@ impl HubRuntime {
             }
             if saw_fatal_error {
                 if let Some((previous, context)) = failed_handoff_rollback {
-                    restore_failed_handoff(&sessions, &output_session_id, previous, context, my_seq);
+                    restore_failed_handoff(
+                        &sessions,
+                        &output_session_id,
+                        previous,
+                        context,
+                        my_seq,
+                    );
                 }
             }
             // This run is done; release the control-plane handle so a later
             // execute on the same product session can register a fresh one.
-            runs.write().expect("Hub runs lock poisoned").remove(&output_session_id);
+            runs.write()
+                .expect("Hub runs lock poisoned")
+                .remove(&output_session_id);
         });
 
         // Hold the abort handle + a strong engine reference so this run stays
         // controllable even if its engine is later unregistered.
-        self.runs
-            .write()
-            .expect("Hub runs lock poisoned")
-            .insert(
-                run_key,
-                RunHandle {
-                    abort: task.abort_handle(),
-                    engine,
-                    engine_id: run_engine_id,
-                    engine_session_id: handle_run_slot,
-                },
-            );
+        self.runs.write().expect("Hub runs lock poisoned").insert(
+            run_key,
+            RunHandle {
+                abort: task.abort_handle(),
+                engine,
+                engine_id: run_engine_id,
+                engine_session_id: handle_run_slot,
+            },
+        );
 
         Ok(Box::pin(UnboundedReceiverStream::new(event_rx)))
     }
@@ -1987,7 +1999,8 @@ mod tests {
     #[test]
     fn descriptor_declares_permission_plans_without_engine_name() {
         use alva_engine_runtime::{
-            ConfigSurface, InstallMetadata, PermissionPlanDecl, PermissionRelation, ProviderProtocol,
+            ConfigSurface, InstallMetadata, PermissionPlanDecl, PermissionRelation,
+            ProviderProtocol,
         };
 
         let descriptor = EngineDescriptor {
@@ -2027,7 +2040,8 @@ mod tests {
     #[test]
     fn descriptor_is_queryable_and_decides_without_engine_names() {
         use alva_engine_runtime::{
-            ConfigSurface, InstallMetadata, PermissionPlanDecl, PermissionRelation, ProviderProtocol,
+            ConfigSurface, InstallMetadata, PermissionPlanDecl, PermissionRelation,
+            ProviderProtocol,
         };
         let descriptor = EngineDescriptor {
             runtime: Arc::new(NoResumeEngine {
@@ -2383,7 +2397,8 @@ mod tests {
         // Before abandon: busy.
         assert!(matches!(
             hub.execute(
-                HubRequest::new("pending", RuntimeRequest::new("second")).resume(product_id.clone())
+                HubRequest::new("pending", RuntimeRequest::new("second"))
+                    .resume(product_id.clone())
             ),
             Err(HubError::SessionBusy(_))
         ));
@@ -2593,9 +2608,8 @@ mod tests {
             // Let A's tail land; the seq guard must keep B's claim intact.
             tokio::time::sleep(std::time::Duration::from_millis(90)).await;
 
-            let claim_c = hub.execute(
-                HubRequest::new("b", RuntimeRequest::new("t3")).resume(pid.clone()),
-            );
+            let claim_c =
+                hub.execute(HubRequest::new("b", RuntimeRequest::new("t3")).resume(pid.clone()));
             assert!(
                 matches!(claim_c, Err(HubError::SessionBusy(_))),
                 "A's stale rollback must not release B's claim"
@@ -2861,13 +2875,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            hub.session(&product_id).unwrap().engine_session_id.as_deref(),
+            hub.session(&product_id)
+                .unwrap()
+                .engine_session_id
+                .as_deref(),
             Some("dead-native")
         );
 
         let _: Vec<_> = hub
             .execute(
-                HubRequest::new("alva", RuntimeRequest::new("resume dead")).resume(product_id.clone()),
+                HubRequest::new("alva", RuntimeRequest::new("resume dead"))
+                    .resume(product_id.clone()),
             )
             .unwrap()
             .collect()
@@ -2893,7 +2911,10 @@ mod tests {
             .unwrap();
 
         let events: Vec<_> = hub
-            .execute(HubRequest::new("die-mid-tool", RuntimeRequest::new("probe")))
+            .execute(HubRequest::new(
+                "die-mid-tool",
+                RuntimeRequest::new("probe"),
+            ))
             .unwrap()
             .collect()
             .await;
@@ -2901,7 +2922,10 @@ mod tests {
         // Forwarded SessionStarted + ToolStart, then synthesized failing
         // ToolEnd for the open tool, then terminal Error + Completed.
         assert_eq!(events.len(), 5);
-        assert!(matches!(events[0].event, RuntimeEvent::SessionStarted { .. }));
+        assert!(matches!(
+            events[0].event,
+            RuntimeEvent::SessionStarted { .. }
+        ));
         assert!(matches!(events[1].event, RuntimeEvent::ToolStart { .. }));
         assert!(matches!(
             events[2].event,

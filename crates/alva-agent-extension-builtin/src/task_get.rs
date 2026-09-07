@@ -200,7 +200,6 @@ mod tests {
     #[test]
     fn task_get_is_read_only() {
         let tool = TaskGetTool;
-        assert!(!tool.is_destructive(&json!({ "task_id": "x" })));
         assert_eq!(tool.name(), "task_get");
     }
 }

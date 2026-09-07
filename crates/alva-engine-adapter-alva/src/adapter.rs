@@ -647,11 +647,7 @@ mod tests {
 
         let mut request = RuntimeRequest::new("resume dead session");
         request.resume_session = Some(dead.to_string());
-        let events: Vec<_> = adapter
-            .execute(request)
-            .unwrap()
-            .collect::<Vec<_>>()
-            .await;
+        let events: Vec<_> = adapter.execute(request).unwrap().collect::<Vec<_>>().await;
 
         assert!(events.iter().any(|event| matches!(
             event,

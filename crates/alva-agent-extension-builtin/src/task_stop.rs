@@ -20,7 +20,6 @@ struct Input {
     name = "task_stop",
     description = "Stop or cancel a running task. The task will be marked as killed.",
     input = Input,
-    destructive,
 )]
 pub struct TaskStopTool;
 
@@ -171,12 +170,5 @@ mod tests {
             .await
             .expect_err("missing service should error");
         assert!(format!("{err}").contains("task service not registered"));
-    }
-
-    #[test]
-    fn task_stop_is_destructive() {
-        let tool = TaskStopTool;
-        assert!(tool.is_destructive(&json!({ "task_id": "x" })));
-        assert_eq!(tool.name(), "task_stop");
     }
 }

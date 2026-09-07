@@ -242,7 +242,8 @@ mod tests {
 
     #[test]
     fn test_parse_permission_response_rejected() {
-        let json = r#"{"type":"permission_response_rejected","request_id":"r1","reason":"expired"}"#;
+        let json =
+            r#"{"type":"permission_response_rejected","request_id":"r1","reason":"expired"}"#;
         let msg: BridgeMessage = serde_json::from_str(json).unwrap();
         assert!(matches!(
             msg,

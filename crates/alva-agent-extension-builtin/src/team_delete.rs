@@ -20,7 +20,6 @@ struct Input {
     name = "team_delete",
     description = "Delete a multi-agent team by name. This stops all agents in the team and removes it.",
     input = Input,
-    destructive,
 )]
 pub struct TeamDeleteTool;
 
@@ -168,12 +167,5 @@ mod tests {
             .await
             .expect_err("missing service should error");
         assert!(format!("{err}").contains("team service not registered"));
-    }
-
-    #[test]
-    fn team_delete_is_destructive() {
-        let tool = TeamDeleteTool;
-        assert!(tool.is_destructive(&json!({ "team_name": "x" })));
-        assert_eq!(tool.name(), "team_delete");
     }
 }

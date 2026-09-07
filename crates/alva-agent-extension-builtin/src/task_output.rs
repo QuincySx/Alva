@@ -211,7 +211,6 @@ mod tests {
     #[test]
     fn task_output_is_read_only() {
         let tool = TaskOutputTool;
-        assert!(!tool.is_destructive(&json!({ "task_id": "x" })));
         assert_eq!(tool.name(), "task_output");
     }
 }

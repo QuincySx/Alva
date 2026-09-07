@@ -110,7 +110,10 @@ impl EngineDescriptor {
     pub fn can_satisfy(&self, profile_id: &str) -> bool {
         self.permission_plans.iter().any(|plan| {
             plan.profile_id == profile_id
-                && matches!(plan.relation, PermissionRelation::Equivalent | PermissionRelation::Stricter)
+                && matches!(
+                    plan.relation,
+                    PermissionRelation::Equivalent | PermissionRelation::Stricter
+                )
         })
     }
 }

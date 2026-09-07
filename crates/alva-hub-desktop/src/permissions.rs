@@ -334,10 +334,14 @@ mod stale_tests {
             "permission request 'req-1' is not pending for Hub session 'p-1'; \
              it may already be answered or the attempt ended"
         ));
-        assert!(is_stale_permission_error("Permission request not found: req-1"));
+        assert!(is_stale_permission_error(
+            "Permission request not found: req-1"
+        ));
         assert!(is_stale_permission_error("Session not found: native-1"));
         // Genuine failures must not be labeled expired.
-        assert!(!is_stale_permission_error("Process error: codex exited with 1"));
+        assert!(!is_stale_permission_error(
+            "Process error: codex exited with 1"
+        ));
         assert!(!is_stale_permission_error("Bridge process failed"));
     }
 }

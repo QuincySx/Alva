@@ -59,7 +59,10 @@ impl SessionHandle {
         control: mpsc::UnboundedSender<ControlCommand>,
         cancel_grace: mpsc::UnboundedSender<()>,
     ) -> Self {
-        Self { control, cancel_grace }
+        Self {
+            control,
+            cancel_grace,
+        }
     }
 
     fn same_channel(&self, other: &SessionHandle) -> bool {
@@ -237,7 +240,10 @@ async fn remove_session_if_current(
     expected_sender: &SessionHandle,
 ) {
     let mut sessions = sessions.lock().await;
-    if sessions.get(session_id).is_some_and(|h| h.same_channel(expected_sender)) {
+    if sessions
+        .get(session_id)
+        .is_some_and(|h| h.same_channel(expected_sender))
+    {
         sessions.remove(session_id);
     }
 }
@@ -669,7 +675,8 @@ impl EngineRuntime for ClaudeAdapter {
     }
 
     async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
-        self.send_control(session_id, BridgeOutbound::Cancel).await?;
+        self.send_control(session_id, BridgeOutbound::Cancel)
+            .await?;
         // Start the local grace clock (ticket 10): the execute-loop task kills
         // the child if the bridge stream has not terminated within the grace
         // window, so cancel always ends in Error + Completed within a bound.
@@ -1069,7 +1076,9 @@ export function query({ options }) {
                 let mut session_id = None;
                 while let Some(event) = events.next().await {
                     match event {
-                        RuntimeEvent::SessionStarted { session_id: id, .. } => session_id = Some(id),
+                        RuntimeEvent::SessionStarted { session_id: id, .. } => {
+                            session_id = Some(id)
+                        }
                         RuntimeEvent::PermissionRequest { request_id, .. } => {
                             return (session_id.unwrap(), request_id)
                         }
@@ -1087,7 +1096,9 @@ export function query({ options }) {
             .respond_permission(
                 &session_id,
                 "never-registered-request-id",
-                PermissionDecision::Allow { updated_input: None },
+                PermissionDecision::Allow {
+                    updated_input: None,
+                },
             )
             .await;
         assert!(
@@ -1133,7 +1144,9 @@ export function query({ options }) {
             .respond_permission(
                 "no-such-session",
                 "req-1",
-                PermissionDecision::Allow { updated_input: None },
+                PermissionDecision::Allow {
+                    updated_input: None,
+                },
             )
             .await;
         assert!(matches!(
@@ -1211,8 +1224,7 @@ export function query({ options }) {
             while let Some(event) = events.next().await {
                 match event {
                     RuntimeEvent::Error {
-                        recoverable: false,
-                        ..
+                        recoverable: false, ..
                     } => saw_fatal = true,
                     RuntimeEvent::Completed { .. } => {
                         saw_completed = true;
@@ -1224,7 +1236,10 @@ export function query({ options }) {
         })
         .await
         .expect("cancel must close the bridge stream within the grace bound");
-        assert!(saw_fatal, "cancel must produce Error{{fatal}} before Completed");
+        assert!(
+            saw_fatal,
+            "cancel must produce Error{{fatal}} before Completed"
+        );
         assert!(saw_completed, "cancel must produce Completed");
     }
 

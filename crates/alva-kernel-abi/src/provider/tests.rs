@@ -73,38 +73,9 @@ pub fn assert_unknown_model_returns_error(provider: &dyn Provider) {
     }
 }
 
-/// Assert that unsupported capability methods return UnsupportedFunctionality or NoSuchModel.
-pub fn assert_unsupported_models_return_error(provider: &dyn Provider) {
-    let checks = [
-        ("embedding", provider.embedding_model("test").err()),
-        ("transcription", provider.transcription_model("test").err()),
-        ("speech", provider.speech_model("test").err()),
-        ("image", provider.image_model("test").err()),
-        ("video", provider.video_model("test").err()),
-        ("reranking", provider.reranking_model("test").err()),
-        ("moderation", provider.moderation_model("test").err()),
-    ];
-
-    for (capability, error) in checks {
-        if let Some(err) = error {
-            assert!(
-                matches!(
-                    err,
-                    ProviderError::UnsupportedFunctionality(_) | ProviderError::NoSuchModel { .. }
-                ),
-                "Provider '{}' returned unexpected error for {} capability: {}",
-                provider.id(),
-                capability,
-                err
-            );
-        }
-    }
-}
-
 /// Run all basic conformance checks.
 pub fn assert_provider_conformance(provider: &dyn Provider, known_model_id: &str) {
     assert_provider_id_non_empty(provider);
     assert_language_model_returns_valid_id(provider, known_model_id);
     assert_unknown_model_returns_error(provider);
-    assert_unsupported_models_return_error(provider);
 }
