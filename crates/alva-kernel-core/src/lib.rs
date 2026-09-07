@@ -2,7 +2,6 @@
 // OUTPUT: AgentState, AgentConfig, AgentEvent/Sender, AgentMessage, Middleware stack, run_agent, builtins
 // POS:    Crate root — declares modules and re-exports the public API for the agent engine.
 
-pub mod agent_session;
 pub mod builtins;
 pub mod context_apply;
 pub mod context_runtime;
@@ -44,10 +43,6 @@ pub use context_runtime::ContextRuntime;
 
 // Re-exports — context apply helpers (runtime logic; contract types stay in abi).
 pub use context_apply::{apply_compressions, apply_injections};
-
-// Re-exports — concrete AgentSession backends (contract stays in alva-kernel-abi,
-// re-exported through agent_session for one-path consumer imports).
-pub use agent_session::{InMemoryAgentSession, ListenableInMemorySession};
 
 // Re-export AgentMessage from alva-kernel-abi
 pub use alva_kernel_abi::AgentMessage;

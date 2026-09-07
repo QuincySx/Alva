@@ -31,6 +31,14 @@ implfn	AgentBuilder::fn with_bus_writer pub fn with_bus_writer(mut self, bw: Bus
 implfn	AgentBuilder::fn with_context_system pub fn with_context_system( mut self, cs: Arc<alva_kernel_abi::scope::context::ContextSystem>, ) -> Self
 implfn	AgentBuilder::fn with_context_token_budget pub fn with_context_token_budget(mut self, budget: usize) -> Self
 implfn	AgentBuilder::fn workspace pub fn workspace(mut self, p: impl Into<PathBuf>) -> Self
+implfn	InMemoryAgentSession::async fn restore_events pub async fn restore_events(&self, events: Vec<SessionEvent>)
+implfn	InMemoryAgentSession::fn new pub fn new() -> Self
+implfn	InMemoryAgentSession::fn with_id pub fn with_id(session_id: String) -> Self
+implfn	InMemoryAgentSession::fn with_parent pub fn with_parent(parent_session_id: impl Into<String>) -> Self
+implfn	ListenableInMemorySession::async fn restore_events pub async fn restore_events(&self, events: Vec<SessionEvent>)
+implfn	ListenableInMemorySession::async fn subscribe pub async fn subscribe(&self, listener: Arc<dyn SessionEventListener>)
+implfn	ListenableInMemorySession::fn new pub fn new() -> Self
+implfn	ListenableInMemorySession::fn with_parent pub fn with_parent(parent_id: impl Into<String>) -> Self
 implfn	MockToolFs::fn new pub fn new() -> Self
 implfn	MockToolFs::fn with_exec_response pub fn with_exec_response(self, result: ToolFsExecResult) -> Self
 implfn	MockToolFs::fn with_file pub fn with_file(self, path: &str, content: &[u8]) -> Self
@@ -79,6 +87,7 @@ implfn	ToolLockRegistry::fn tracked_keys pub fn tracked_keys(&self) -> usize
 implfn	ToolLockRegistry::fn with_acquire_timeout pub fn with_acquire_timeout(mut self, timeout: Duration) -> Self
 mod	agent
 mod	agent_builder
+mod	agent_session
 mod	extension
 mod	mock_fs
 mod	tool_lock
@@ -86,6 +95,8 @@ struct	agent::Agent
 struct	agent::AgentAssemblySnapshot
 struct	agent::PluginAssemblySnapshot
 struct	agent_builder::AgentBuilder
+struct	agent_session::InMemoryAgentSession
+struct	agent_session::ListenableInMemorySession
 struct	extension::host::PluginHost
 struct	extension::host::RegisteredCommand
 struct	extension::phase::PhaseContribution
@@ -116,6 +127,7 @@ traitfn	extension::plugin::Plugin::fn description fn description(&self) -> &str
 traitfn	extension::plugin::Plugin::fn name fn name(&self) -> &str
 use	pub use agent::{Agent, AgentAssemblySnapshot, PluginAssemblySnapshot}
 use	pub use agent_builder::AgentBuilder
+use	pub use alva_kernel_abi::agent_session::{ AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery, ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionEventStream, SessionMessage, }
 use	pub use extension::{PluginHost, RegisteredCommand}
 use	pub use host::{PluginHost, RegisteredCommand}
 use	pub use mock_fs::MockToolFs

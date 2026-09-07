@@ -339,7 +339,7 @@ mod tests {
         let built = factory
             .build(
                 &request,
-                Arc::new(alva_kernel_core::agent_session::InMemoryAgentSession::new()),
+                Arc::new(alva_agent_core::agent_session::InMemoryAgentSession::new()),
             )
             .await
             .expect("catalog agent builds");

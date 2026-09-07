@@ -13,12 +13,13 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::Mutex;
 
+use alva_agent_core::agent_session::InMemoryAgentSession;
+use alva_kernel_abi::agent_session::{
+    AgentSession, EventMatch, EventQuery, SessionError, SessionEvent,
+};
 use alva_kernel_abi::session_store::SessionStore;
 use alva_kernel_abi::ConversationLog;
 use alva_kernel_abi::{AgentMessage, AppendReceipt, SessionRecord};
-use alva_kernel_core::agent_session::{
-    AgentSession, EventMatch, EventQuery, InMemoryAgentSession, SessionError, SessionEvent,
-};
 
 /// On-disk representation of a session file.
 #[derive(Debug, Serialize, Deserialize)]

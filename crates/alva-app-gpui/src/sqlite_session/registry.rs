@@ -477,7 +477,7 @@ fn build_where(filter: &SessionFilter) -> (String, Vec<Box<dyn rusqlite::ToSql +
 mod tests {
     use super::*;
     use crate::sqlite_session::schema::init_schema;
-    use alva_kernel_core::agent_session::InMemoryAgentSession;
+    use alva_agent_core::agent_session::InMemoryAgentSession;
 
     fn make_registry() -> SqliteSessionRegistry {
         // In-memory DB so each test is hermetic. Schema is the same one

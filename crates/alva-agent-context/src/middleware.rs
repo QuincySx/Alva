@@ -627,7 +627,7 @@ mod tests {
     }
 
     fn make_state_with_summary_model() -> AgentState {
-        use alva_kernel_core::agent_session::InMemoryAgentSession;
+        use alva_agent_core::agent_session::InMemoryAgentSession;
         use alva_kernel_core::shared::Extensions;
 
         AgentState {

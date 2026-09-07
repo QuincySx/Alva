@@ -4,12 +4,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use alva_agent_core::agent_session::InMemoryAgentSession;
 use alva_agent_security::{SandboxMode, SecurityGuard};
+use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::{
     model::HeuristicTokenCounter, AgentError, Bus, BusHandle, BusPlugin, BusWriter, LanguageModel,
     ModelConfig, PluginRegistrar, TokenCounter, Tool, ToolRegistry,
 };
-use alva_kernel_core::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_core::builtins::{
     DanglingToolCallMiddleware, LoopDetectionMiddleware, ToolTimeoutMiddleware,
 };

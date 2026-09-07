@@ -245,7 +245,7 @@ impl EngineRuntime for AlvaAdapter {
                             }
                         } else {
                             Arc::new(
-                                alva_kernel_core::agent_session::ListenableInMemorySession::new(),
+                                alva_agent_core::agent_session::ListenableInMemorySession::new(),
                             )
                         };
 

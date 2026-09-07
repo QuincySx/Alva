@@ -22,6 +22,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use alva_agent_core::agent_session::ListenableInMemorySession;
+use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::context::{ContextHooks, ContextSystem};
 use alva_kernel_abi::model::LanguageModel;
@@ -32,7 +34,6 @@ use alva_kernel_abi::{
     EventEmitter, ExecutionRecord, OnChildComplete, ProviderRegistry, SessionRecord, Sleeper,
     SpawnCommContext, SpawnCommHandle, SpawnCommunicationRegistry, SpawnResult,
 };
-use alva_kernel_core::agent_session::{AgentSession, ListenableInMemorySession};
 use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
 
 use alva_agent_context::scope::SpawnScopeImpl;
@@ -674,7 +675,7 @@ impl AgentSpawnTool {
             // wall-clock budget actually fires; None would fall back to
             // NoopSleeper and let a runaway child run unbounded.
             sleeper: self.sleeper.clone(),
-            session: Some(child_session),
+            session: child_session,
             context_system,
             middleware: child_middleware,
         })

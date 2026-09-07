@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use alva_agent_core::agent_session::InMemoryAgentSession;
 use alva_agent_core::tool_lock::ToolLockRegistry;
 use alva_agent_core::ToolLockMiddleware;
 use alva_kernel_abi::base::error::AgentError;
@@ -15,7 +16,6 @@ use alva_kernel_abi::tool::scheduler::{ExecutionMode, Scheduling};
 use alva_kernel_abi::tool::{Tool, ToolCall, ToolOutput};
 use alva_kernel_abi::AgentSession;
 use alva_kernel_abi::CancellationToken;
-use alva_kernel_core::agent_session::InMemoryAgentSession;
 use alva_kernel_core::middleware::{Middleware, MiddlewareStack};
 use alva_kernel_core::state::{AgentConfig, AgentState};
 use alva_kernel_core::tool_batch::ToolBatchCoordinator;

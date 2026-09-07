@@ -578,7 +578,7 @@ mod tests {
     /// spawn→lock handshake, the second swap could win the state lock first.
     #[tokio::test]
     async fn concurrent_swap_cannot_steal_an_in_flight_turn_session() {
-        use alva_kernel_core::agent_session::InMemoryAgentSession;
+        use alva_agent_core::agent_session::InMemoryAgentSession;
         use std::sync::Arc;
         use std::time::Duration;
 

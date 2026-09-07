@@ -23,6 +23,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use alva_agent_core::agent_session::InMemoryAgentSession;
+use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::model::{LanguageModel, ModelConfig};
 use alva_kernel_abi::tool::Tool;
@@ -30,7 +32,6 @@ use alva_kernel_abi::AgentMessage;
 #[cfg(not(target_family = "wasm"))]
 use alva_kernel_abi::NoopSleeper;
 use alva_kernel_abi::{AgentError, Sleeper};
-use alva_kernel_core::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_core::builtins::ToolTimeoutMiddleware;
 use alva_kernel_core::middleware::MiddlewareStack;
 use alva_kernel_core::shared::Extensions;
@@ -69,7 +70,7 @@ impl WasmAgent {
     /// Like [`new`] but accepts a caller-provided `AgentSession` impl.
     /// This is the entry point for consumers that want persistence
     /// (IndexedDB, localStorage, server-side sync, etc.) — they
-    /// implement `alva_kernel_core::agent_session::AgentSession` themselves
+    /// implement `alva_kernel_abi::agent_session::AgentSession` themselves
     /// and pass an `Arc<dyn AgentSession>` here.
     pub fn with_session(
         model: Arc<dyn LanguageModel>,

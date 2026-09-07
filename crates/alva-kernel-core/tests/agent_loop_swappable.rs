@@ -109,7 +109,7 @@ fn minimal_state() -> alva_kernel_core::AgentState {
     alva_kernel_core::AgentState {
         model: Arc::new(StubModel),
         tools: vec![],
-        session: Arc::new(alva_kernel_core::InMemoryAgentSession::new()),
+        session: Arc::new(alva_agent_core::agent_session::InMemoryAgentSession::new()),
         extensions: alva_kernel_core::Extensions::new(),
     }
 }

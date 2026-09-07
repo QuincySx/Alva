@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
+use alva_agent_core::agent_session::ListenableInMemorySession;
 use alva_engine_runtime::{
     ChildSessionLink, EngineInspector, InspectionCapabilities, InspectionSnapshot,
     InspectionStream, InspectionUpdate, RuntimeError,
@@ -18,7 +19,6 @@ use alva_kernel_abi::{
     AgentMessage, AgentSession, AppendReceipt, BlobReference, EventEmitter, EventMatch, EventQuery,
     ExecutionRecord, RecordValue, SessionError, SessionEvent, SessionRecord, SessionRecordPayload,
 };
-use alva_kernel_core::agent_session::ListenableInMemorySession;
 use async_trait::async_trait;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use sha2::{Digest, Sha256};

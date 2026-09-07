@@ -8,6 +8,7 @@ description = "Alva Hub EngineRuntime adapter backed by complete alva-app-core B
 alva-engine-runtime = { path = "../alva-engine-runtime" }
 alva-app-core = { path = "../alva-app-core" }
 alva-kernel-core = { path = "../alva-kernel-core" }
+alva-agent-core = { path = "../alva-agent-core" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 async-trait = "0.1"
 futures-core = "0.3"

@@ -5,6 +5,7 @@ use std::sync::{
     Arc,
 };
 
+use alva_agent_core::agent_session::InMemoryAgentSession;
 use alva_kernel_abi::agent_session::{
     AgentSession, EventMatch, EventQuery, SessionError, SessionEvent,
 };
@@ -20,7 +21,6 @@ use alva_kernel_abi::{
     AgentMessage, AppendReceipt, CancellationToken, ModelConfig, SessionRecord,
     ToolExecutionContext, ToolOutput,
 };
-use alva_kernel_core::agent_session::InMemoryAgentSession;
 use alva_kernel_core::builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack};
 use alva_kernel_core::run::run_agent;
@@ -1407,7 +1407,7 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
 
     let session = Arc::new(InMemoryAgentSession::new());
     {
-        let s: &dyn alva_kernel_core::agent_session::AgentSession = session.as_ref();
+        let s: &dyn alva_kernel_abi::agent_session::AgentSession = session.as_ref();
         for i in 0..30 {
             s.append_message(
                 AgentMessage::Standard(Message::user(format!(

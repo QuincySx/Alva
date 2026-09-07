@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
+alva-agent-core = { path = "../alva-agent-core" }
 async-trait = "0.1"
 futures-core = "0.3"
 # tokio is already a transitive dep via alva-kernel-abi; we only need its

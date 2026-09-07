@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::agent_session::{AgentSession, InMemoryAgentSession};
+use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::model::LanguageModel;
@@ -48,11 +48,11 @@ pub struct ChildAgentParams {
     /// the cancel token allows). Production callers should pass a real
     /// runtime impl such as `alva-host-native::TokioSleeper`.
     pub sleeper: Option<Arc<dyn Sleeper>>,
-    /// If set, the child agent uses this pre-constructed session instead of
-    /// creating a new `InMemoryAgentSession`. The caller is responsible for
-    /// setting up any listeners before passing it in. Takes precedence over
-    /// `parent_session_id`.
-    pub session: Option<Arc<dyn AgentSession>>,
+    /// The child's session — provided by the caller (assembly layer).
+    /// 内核只剩会话契约，不构造任何具体后端（ticket 09）：调用方决定用
+    /// 持久化子会话（repository 派生）还是内存会话，并在传入前接好监听者。
+    /// `parent_session_id` 仅用于链路追踪标注，不再隐式创建回退会话。
+    pub session: Arc<dyn AgentSession>,
     /// Optional `ContextSystem` to mount on the child loop — allows the
     /// caller to install per-spawn `ContextHooks` (e.g. a Blackboard
     /// plugin chain built from `SpawnCommunication::attach`). When `None`
@@ -81,19 +81,10 @@ pub struct ChildAgentOutput {
 /// This encapsulates the common pattern shared by all sub-agent tools:
 /// build state → run_agent → collect output from events → fallback to session.
 pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
-    let session: Arc<dyn AgentSession> = if let Some(external) = params.session.clone() {
-        external
-    } else {
-        match &params.parent_session_id {
-            Some(parent_id) => Arc::new(InMemoryAgentSession::with_parent(parent_id)),
-            None => Arc::new(InMemoryAgentSession::new()),
-        }
-    };
-
     let state = AgentState {
         model: params.model,
         tools: params.tools,
-        session,
+        session: params.session,
         extensions: Extensions::new(),
     };
 

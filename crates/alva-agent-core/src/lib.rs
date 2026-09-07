@@ -8,6 +8,10 @@
 pub mod mock_fs;
 pub use mock_fs::MockToolFs;
 
+// 具体内存会话后端（ticket 09 自 kernel-core 迁入）：契约在 alva-kernel-abi，
+// 实现在 SDK 装配层——内核只剩会话契约，不含任何具体后端。
+pub mod agent_session;
+
 pub mod extension;
 pub use extension::{PluginHost, RegisteredCommand};
 

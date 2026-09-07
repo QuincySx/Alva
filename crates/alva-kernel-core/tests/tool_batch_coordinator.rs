@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use alva_agent_core::agent_session::InMemoryAgentSession;
+use alva_kernel_abi::agent_session::{AgentSession, EventQuery};
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
 use alva_kernel_abi::tool::Tool;
@@ -12,7 +14,6 @@ use alva_kernel_abi::{
     CancellationToken, ExecutionRecord, Message, ModelConfig, SessionRecordPayload, StreamEvent,
     ToolCall, ToolOutput,
 };
-use alva_kernel_core::agent_session::{AgentSession, EventQuery, InMemoryAgentSession};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack, ToolCallFn};
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::{AgentConfig, AgentState};

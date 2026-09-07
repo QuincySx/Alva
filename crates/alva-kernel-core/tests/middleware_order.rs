@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
+use alva_agent_core::agent_session::InMemoryAgentSession;
+use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::{AgentError, ToolCall, ToolOutput};
-use alva_kernel_core::agent_session::{AgentSession, InMemoryAgentSession};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewareStack, ToolCallFn};
 use alva_kernel_core::shared::Extensions;
 use alva_kernel_core::state::AgentState;

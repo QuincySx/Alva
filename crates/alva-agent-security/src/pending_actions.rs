@@ -13,8 +13,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use alva_kernel_abi::agent_session::{AgentSession, EventQuery};
 use alva_kernel_abi::ConversationLog;
-use alva_kernel_core::agent_session::{AgentSession, EventQuery};
 
 /// SessionEvent.event_type for a freshly-emitted HITL request. The event's
 /// `data` carries `action_type`, `request_id`, `tool_name`, `tool_call_id`,
@@ -159,9 +159,8 @@ pub async fn pending_actions(session: &dyn AgentSession) -> Vec<PendingAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_core::agent_session::{
-        EmitterKind, EventEmitter, InMemoryAgentSession, SessionEvent,
-    };
+    use alva_agent_core::agent_session::InMemoryAgentSession;
+    use alva_kernel_abi::agent_session::{EmitterKind, EventEmitter, SessionEvent};
 
     fn make_requires_action(request_id: &str, tool: &str, call_id: &str) -> SessionEvent {
         let mut event = SessionEvent::new_runtime(EVENT_REQUIRES_ACTION);
