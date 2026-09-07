@@ -15,8 +15,9 @@ use tracing::warn;
 use uuid::Uuid;
 
 use alva_engine_runtime::{
-    is_fatal_error, EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError,
-    RuntimeEvent, RuntimeRequest,
+    is_fatal_error, ConfigSurface, EngineDescriptor, EngineRuntime, InstallMetadata,
+    PermissionDecision, PermissionPlanDecl, PermissionRelation, ProviderProtocol,
+    RuntimeCapabilities, RuntimeError, RuntimeEvent, RuntimeRequest,
 };
 
 use crate::config::CodexAdapterConfig;
@@ -44,6 +45,41 @@ pub struct CodexAdapter {
 
 impl CodexAdapter {
     pub fn new(config: CodexAdapterConfig) -> Self {
+        Self::with_config(config)
+    }
+
+    /// Self-description (ticket 15 batch 3): what this engine can do and what
+    /// it needs, declared here so products stop switch-ing on the "codex" name.
+    pub fn descriptor() -> EngineDescriptor {
+        EngineDescriptor {
+            runtime: Arc::new(Self::with_config(CodexAdapterConfig::default())),
+            inspector: None,
+            permission_plans: vec![
+                PermissionPlanDecl {
+                    profile_id: "plan".into(),
+                    relation: PermissionRelation::Equivalent,
+                    summary: "codex exec plan approval policy".into(),
+                },
+                PermissionPlanDecl {
+                    profile_id: "workspace_write".into(),
+                    relation: PermissionRelation::Equivalent,
+                    summary: "codex exec sandbox write access".into(),
+                },
+            ],
+            config_surface: ConfigSurface {
+                supports_max_turns: false,
+                provider_protocol: ProviderProtocol::OpenAiResponses,
+                supports_fast_mode: true,
+                supports_custom_http_headers: false,
+            },
+            install_metadata: InstallMetadata {
+                required_binary: Some("codex".into()),
+                install_hint: Some("npm i -g openai-codex".into()),
+            },
+        }
+    }
+
+    fn with_config(config: CodexAdapterConfig) -> Self {
         Self {
             config,
             sessions: Arc::new(Mutex::new(HashMap::new())),

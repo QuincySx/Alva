@@ -110,11 +110,17 @@ async fn run() -> i32 {
             }
         }
     }
-    if engine == Engine::Codex && invocation.max_turns.is_some() {
-        eprintln!(
-            "alva-hub: Codex exec does not expose a compatible --max-turns control; omit the flag or select another engine"
-        );
-        return USAGE_EXIT;
+    // ticket 15 batch 3: the engine decides whether it honors --max-turns
+    // (its descriptor declares it); the CLI no longer answers for engines.
+    if invocation.max_turns.is_some() {
+        let descriptor = CodexAdapter::descriptor();
+        if !descriptor.config_surface.supports_max_turns {
+            eprintln!(
+                "alva-hub: engine '{}' does not expose a compatible --max-turns control; omit the flag or select another engine",
+                engine.id()
+            );
+            return USAGE_EXIT;
+        }
     }
 
     let hub = HubRuntime::new();
@@ -504,9 +510,10 @@ async fn run_repl(
                 eprintln!("alva-hub: engine is already {}", opts.engine_id);
                 continue;
             }
-            if target == Engine::Codex && opts.max_turns.is_some() {
+            if opts.max_turns.is_some() && !CodexAdapter::descriptor().config_surface.supports_max_turns {
                 eprintln!(
-                    "alva-hub: cannot switch to Codex while --max-turns is set; restart without that flag"
+                    "alva-hub: cannot switch to '{}' while --max-turns is set; restart without that flag",
+                    target.id()
                 );
                 last_exit = USAGE_EXIT;
                 continue;

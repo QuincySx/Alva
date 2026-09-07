@@ -13,8 +13,9 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
 
 use alva_engine_runtime::{
-    EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
-    RuntimeRequest,
+    ConfigSurface, EngineDescriptor, EngineRuntime, InstallMetadata, PermissionDecision,
+    PermissionPlanDecl, PermissionRelation, ProviderProtocol, RuntimeCapabilities, RuntimeError,
+    RuntimeEvent, RuntimeRequest,
 };
 
 use crate::mapping::EventMapper;
@@ -84,6 +85,41 @@ impl ClaudePrintAdapter {
         Self {
             config,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Self-description (ticket 15 batch 3): Claude light mode.
+    pub fn descriptor() -> EngineDescriptor {
+        EngineDescriptor {
+            runtime: Arc::new(ClaudePrintAdapter::new(ClaudePrintConfig::default())),
+            inspector: None,
+            permission_plans: vec![
+                PermissionPlanDecl {
+                    profile_id: "plan".into(),
+                    relation: PermissionRelation::Equivalent,
+                    summary: "claude -p plan? permission mode".into(),
+                },
+                PermissionPlanDecl {
+                    profile_id: "workspace_read".into(),
+                    relation: PermissionRelation::Equivalent,
+                    summary: "claude -p read-only policy".into(),
+                },
+                PermissionPlanDecl {
+                    profile_id: "workspace_write".into(),
+                    relation: PermissionRelation::Stricter,
+                    summary: "claude -p non-interactive mode (stricter than interactive write)".into(),
+                },
+            ],
+            config_surface: ConfigSurface {
+                supports_max_turns: true,
+                provider_protocol: ProviderProtocol::Anthropic,
+                supports_fast_mode: false,
+                supports_custom_http_headers: true,
+            },
+            install_metadata: InstallMetadata {
+                required_binary: Some("claude".into()),
+                install_hint: Some("native claude code install".into()),
+            },
         }
     }
 }

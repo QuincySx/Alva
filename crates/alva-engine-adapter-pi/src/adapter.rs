@@ -14,8 +14,9 @@ use tracing::warn;
 use uuid::Uuid;
 
 use alva_engine_runtime::{
-    is_fatal_error, EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError,
-    RuntimeEvent, RuntimeRequest,
+    is_fatal_error, ConfigSurface, EngineDescriptor, EngineRuntime, InstallMetadata,
+    PermissionDecision, PermissionPlanDecl, PermissionRelation, ProviderProtocol,
+    RuntimeCapabilities, RuntimeError, RuntimeEvent, RuntimeRequest,
 };
 
 use crate::config::PiAdapterConfig;
@@ -35,6 +36,39 @@ impl PiAdapter {
         Self {
             config,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Self-description (ticket 15 batch 3).
+    pub fn descriptor() -> EngineDescriptor {
+        EngineDescriptor {
+            runtime: Arc::new(PiAdapter::new(PiAdapterConfig::default())),
+            inspector: None,
+            // The adapter enforces read-only tool policy; it can satisfy a
+            // read-only request equivalently, and write requests only more
+            // strictly (never weaker).
+            permission_plans: vec![
+                PermissionPlanDecl {
+                    profile_id: "workspace_read".into(),
+                    relation: PermissionRelation::Equivalent,
+                    summary: "pi read-only tool policy".into(),
+                },
+                PermissionPlanDecl {
+                    profile_id: "workspace_write".into(),
+                    relation: PermissionRelation::Stricter,
+                    summary: "pi read-only tool policy (stricter than write)".into(),
+                },
+            ],
+            config_surface: ConfigSurface {
+                supports_max_turns: false,
+                provider_protocol: ProviderProtocol::Native,
+                supports_fast_mode: false,
+                supports_custom_http_headers: false,
+            },
+            install_metadata: InstallMetadata {
+                required_binary: Some("pi".into()),
+                install_hint: Some("npm i -g @earendil-works/pi-coding-agent".into()),
+            },
         }
     }
 }

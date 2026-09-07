@@ -248,7 +248,7 @@ pub type HubEventStream = Pin<Box<dyn Stream<Item = HubEvent> + Send>>;
 /// implementation details remain behind `dyn EngineRuntime`.
 #[derive(Clone, Default)]
 pub struct HubRuntime {
-    engines: Arc<RwLock<HashMap<EngineId, Arc<dyn EngineRuntime>>>>,
+    engines: Arc<RwLock<HashMap<EngineId, EngineDescriptor>>>,
     sessions: Arc<RwLock<HashMap<ProductSessionId, HubSession>>>,
     /// Live runs (ticket 13): per product session, the control-plane handle
     /// that can stop the run and reach its engine even after the registry
@@ -298,8 +298,19 @@ impl HubRuntime {
         if engines.contains_key(&id) {
             return Err(HubError::EngineAlreadyRegistered(id.to_string()));
         }
-        engines.insert(id, descriptor.runtime);
+        engines.insert(id, descriptor);
         Ok(())
+    }
+
+    /// The full self-description registered for an engine, so products can
+    /// decide permission/readiness/config questions without engine-name
+    /// literals (ticket 15 batch 3).
+    pub fn descriptor(&self, id: &EngineId) -> Option<EngineDescriptor> {
+        self.engines
+            .read()
+            .expect("Hub engine registry lock poisoned")
+            .get(id)
+            .cloned()
     }
 
     /// Register one product-visible engine.
@@ -979,7 +990,7 @@ impl HubRuntime {
             .read()
             .expect("Hub engine registry lock poisoned")
             .get(id)
-            .cloned()
+            .map(|descriptor| descriptor.runtime.clone())
             .ok_or_else(|| HubError::EngineNotFound(id.to_string()))
     }
 }
@@ -2008,6 +2019,53 @@ mod tests {
             "fifth engine must register at the type level"
         );
         assert!(queried.permission_plans.is_empty());
+    }
+
+    /// ticket 15 batch 3: a product reads back the registered descriptor and
+    /// decides by declaration (max_turns support, permission profile), never
+    /// by engine name.
+    #[test]
+    fn descriptor_is_queryable_and_decides_without_engine_names() {
+        use alva_engine_runtime::{
+            ConfigSurface, InstallMetadata, PermissionPlanDecl, PermissionRelation, ProviderProtocol,
+        };
+        let descriptor = EngineDescriptor {
+            runtime: Arc::new(NoResumeEngine {
+                requests: Mutex::new(Vec::new()),
+            }),
+            inspector: None,
+            permission_plans: vec![PermissionPlanDecl {
+                profile_id: "workspace_read".into(),
+                relation: PermissionRelation::Equivalent,
+                summary: "read-only sandbox".into(),
+            }],
+            config_surface: ConfigSurface {
+                supports_max_turns: false,
+                provider_protocol: ProviderProtocol::Native,
+                supports_fast_mode: false,
+                supports_custom_http_headers: false,
+            },
+            install_metadata: InstallMetadata {
+                required_binary: Some("gemini".into()),
+                install_hint: None,
+            },
+        };
+        let hub = HubRuntime::new();
+        hub.register_engine_descriptor("gemini", descriptor.clone())
+            .unwrap();
+
+        let stored = hub
+            .descriptor(&EngineId::from("gemini"))
+            .expect("registry must retain the full descriptor");
+        // The decision a CLI/product used to make by matching "codex"/"gemini":
+        // → does it honor --max-turns? → does it satisfy workspace_read?
+        assert!(!stored.config_surface.supports_max_turns);
+        assert!(stored.can_satisfy("workspace_read"));
+        assert!(!stored.can_satisfy("workspace_write"));
+        assert_eq!(
+            stored.install_metadata.required_binary.as_deref(),
+            Some("gemini")
+        );
     }
 
     /// Emits a post-Completed event — hard stream-contract violation.

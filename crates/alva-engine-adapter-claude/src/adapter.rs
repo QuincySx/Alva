@@ -14,8 +14,9 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, warn};
 
 use alva_engine_runtime::{
-    EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
-    RuntimeRequest,
+    ConfigSurface, EngineDescriptor, EngineRuntime, InstallMetadata, PermissionDecision,
+    PermissionPlanDecl, PermissionRelation, ProviderProtocol, RuntimeCapabilities, RuntimeError,
+    RuntimeEvent, RuntimeRequest,
 };
 
 use crate::bridge::ensure_bridge_script;
@@ -87,6 +88,36 @@ impl ClaudeAdapter {
             config,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             pending_responses: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Self-description (ticket 15 batch 3): full-mode Claude Agent SDK.
+    pub fn descriptor() -> EngineDescriptor {
+        EngineDescriptor {
+            runtime: Arc::new(ClaudeAdapter::new(ClaudeAdapterConfig::default())),
+            inspector: None,
+            permission_plans: vec![
+                PermissionPlanDecl {
+                    profile_id: "interactive".into(),
+                    relation: PermissionRelation::Equivalent,
+                    summary: "Claude Agent SDK canUseTool permission callbacks".into(),
+                },
+                PermissionPlanDecl {
+                    profile_id: "workspace_write".into(),
+                    relation: PermissionRelation::Equivalent,
+                    summary: "Claude Agent SDK permission mode enforcement".into(),
+                },
+            ],
+            config_surface: ConfigSurface {
+                supports_max_turns: true,
+                provider_protocol: ProviderProtocol::Anthropic,
+                supports_fast_mode: false,
+                supports_custom_http_headers: true,
+            },
+            install_metadata: InstallMetadata {
+                required_binary: Some("claude".into()),
+                install_hint: Some("native claude code install".into()),
+            },
         }
     }
 
