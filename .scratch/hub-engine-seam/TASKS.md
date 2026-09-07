@@ -41,7 +41,7 @@
 |---|---|---|
 | [13](./issues/13-model-the-run-not-the-engine.md) ✅ | 给「一次运行」建模，而不是给 engine 建模 | ~~Hub 内核没有能停下那一次运行的句柄；三份手抄影子表纪律已分叉~~ **DONE 2026-09-06**：hub-core RunHandle（批次 1–3）+ desktop 影子表收编（批次 4）：`active_engines` → `active_hubs` sink，Stop 走 `HubRuntime::cancel`，run 内 permission 路由用 run-scoped 生命周期表；gpui/server 影子表为剩余增量 |
 | [14](./issues/14-decide-switch-handoff-authority.md) ✅ | 拍板 switch / handoff 的权威层 | ~~一个用户动作两套实现，旗舰走的是另一套；内核那套已与 ADR-0002 矛盾~~ **DONE 2026-09-06**（ADR-0002 Authority 节：store/branch 层权威；hub-core 定位为瞬时 dispatcher；D-2 无 resume 引擎退化为 fresh；D-1 记为有意范围） |
-| [15](./issues/15-engine-descriptor-and-negotiation-uplift.md) 🔶 | EngineDescriptor + 协商模块上移 | ~~第五个引擎注册成功后被四道 match 拒绝~~ **批次 1–3 主体 DONE 2026-09-06**（descriptor + 四 adapter 声明 + hub-core 全量存储/查询 + hub-cli max_turns 去名字化）；剩 run seam 内 descriptor 可达性→ build/readiness 决定点（分层安全路径，已记录在工单） |
+| [15](./issues/15-engine-descriptor-and-negotiation-uplift.md) ✅ | EngineDescriptor + 协商模块上移 | ~~第五个引擎注册成功后被四道 match 拒绝~~ **DONE 2026-09-06**（descriptor + 四 adapter 声明 + hub-core 全量存储/查询 + hub-cli max_turns 去名字化 + engine_catalog 唯一规范源驱动 readiness/permissions 闸门；第五引擎的剩余整合步骤=登记 adapter 的 builder，属集成职责非名字判断） |
 | [16](./issues/16-stream-contract-conformance-harness.md) ✅ | 流契约 conformance harness + 违约处置动词 | ~~改 pi / claude-print 的映射导致违约，`cargo test --workspace` 全绿~~ **DONE 2026-09-06**（alva-engine-runtime 导出五剧本 harness；pi / claude-print 零断言缺口补齐；codex / alva / claude-full 接入） |
 
 ## 依赖关系

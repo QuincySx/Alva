@@ -2,7 +2,7 @@
 
 - 级别：P2
 - 影响：新增第五个引擎能成功注册进 Hub 内核，但在产品层会被四道写死引擎名的 `match` 依次拒绝，用户看到的是「unsupported Hub engine」；而且每一处这样的判断都被 Tauri 与 GPUI 两个前端各复制了一份，其中两份已经开始漂移。
-- 状态：🔶 批次 1–3 主体 DONE 2026-09-06；剩余为「run seam 内 descriptor 可达性」增量（见下）
+- 状态：DONE 2026-09-06（批次 1–3 + catalog 驱动 readiness/permissions 闸门）
 
 ## 批次 3 落地情况（2026-09-06）
 
@@ -12,8 +12,13 @@
 - hub-cli 的 `--max-turns` 拒绝从 `engine == Engine::Codex` 名字判断改为 `CodexAdapter::descriptor().config_surface.supports_max_turns`（两处：一次启动 + 会话内切换）。错误文案保留引擎名（用户可读），**决策出自引擎自声明**。
 - 新测试：`descriptor_is_queryable_and_decides_without_engine_names`（注册→查询→按声明决策）。
 
-**明确未动（不是遗漏，是分层约束）：**
-- `permissions.rs::enforcement_for` / `readiness.rs::quick_veto_for_target` / `build_engine` 四路 `match` 仍以引擎名写死。原因：这些模块依赖产品 store、`SystemProbe`、厂商强制类型（`ClaudePrintPermissionMode` / `CodexSandboxMode`），物理上移 hub-core 会违反 Rule 17（hub-core 只许依赖 alva-engine-runtime），且 enforcement 旋钮尚未 opaque。正确路径是让 run seam（`run_persisted_with_target` 已公布 `HubRuntime` sink）把已注册 descriptor 透给 build/readiness 决策点——这是批次 4 式的增量，非本批能安全收口的。
+**批次 3 收口（2026-09-06）：catalog 驱动决定点**
+- `engine_catalog.rs`：引擎 id → adapter 自声明 descriptor 的**唯一规范源**；readiness/permissions 都查它，不再各自抄引擎名字面量。
+- `quick_veto_for_target` `other` 臂：**声明过的引擎按自己的 `required_binary` 审查**（缺失→指出 binary 名），「not supported」现在只指「未登记进 catalog」。
+- `enforcement_for` 兜底：未声明→unsupported（保持）；声明但 profile 不满足→指名失败；声明且满足→返回 descriptor 派生的 `DeclaredByEngine` 计划（relation/summary 全出自引擎自己）。
+- `build_engine` 明确报「declared but no builder wired」——第五个引擎真正跑起来只剩**登记 adapter 的集成步骤**（本来就不是名字判断的职责）。
+- 测试：`declared_engine_is_vetted_by_its_binary_not_its_name` + catalog 单测。
+- 分层结论：物理上移 hub-core 仍不可行（那些模块 import 厂商类型/产品 store，违反 Rule 17）——以**规范 catalog + 声明驱动判定**替代，达到同一目的（第五引擎不再死于产品层名字开关）。
 
 ## 根因
 
