@@ -197,7 +197,12 @@ impl WasmAgent {
     /// sanity check for tests and demos that want to assert how much
     /// history a run accumulated without reaching into `state()`.
     pub async fn session_len(&self) -> usize {
-        self.state.session.messages().await.len()
+        self.state
+            .session
+            .messages()
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0)
     }
 }
 

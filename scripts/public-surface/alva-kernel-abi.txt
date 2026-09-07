@@ -85,7 +85,7 @@ implfn	Scheduling::fn serial_global pub fn serial_global() -> Self
 implfn	Scheduling::fn with_resource_keys pub fn with_resource_keys(mut self, keys: Vec<ResourceKey>) -> Self
 implfn	ScopeId::fn as_str pub fn as_str(&self) -> &str
 implfn	ScopeId::fn new pub fn new() -> Self
-implfn	ScopedSession::async fn append pub async fn append(&self, mut event: SessionEvent)
+implfn	ScopedSession::async fn append pub async fn append(&self, mut event: SessionEvent) -> Result<(), SessionError>
 implfn	ScopedSession::async fn count pub async fn count(&self, filter: &EventQuery) -> usize
 implfn	ScopedSession::async fn query pub async fn query(&self, filter: &EventQuery) -> Vec<EventMatch>
 implfn	ScopedSession::fn emitter pub fn emitter(&self) -> &EventEmitter
@@ -230,37 +230,15 @@ trait	token_estimation::TokenEstimator
 trait	tool::execution::ToolExecutionContext
 trait	tool::types::Tool
 trait	tool::types::ToolFs
-traitfn	agent_session::AgentSession::async fn append async fn append(&self, event: SessionEvent)
-traitfn	agent_session::AgentSession::async fn append_message async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>)
-traitfn	agent_session::AgentSession::async fn append_records async fn append_records( &self, _records: Vec<SessionRecord>, ) -> Result<AppendReceipt, SessionError>
-traitfn	agent_session::AgentSession::async fn clear async fn clear(&self) -> Result<(), SessionError>
-traitfn	agent_session::AgentSession::async fn close async fn close(&self) -> Result<(), SessionError>
-traitfn	agent_session::AgentSession::async fn compact_messages async fn compact_messages(&self, replacement: Vec<AgentMessage>)
-traitfn	agent_session::AgentSession::async fn count async fn count(&self, filter: &EventQuery) -> usize
-traitfn	agent_session::AgentSession::async fn create_child_session async fn create_child_session( &self, _parent_run_id: &str, _spawn_tool_call_id: &str, ) -> Result<Option<Arc<dyn AgentSession>>, SessionError>
-traitfn	agent_session::AgentSession::async fn flush async fn flush(&self) -> Result<(), SessionError>
-traitfn	agent_session::AgentSession::async fn load_snapshot async fn load_snapshot(&self) -> Option<Vec<u8>>
-traitfn	agent_session::AgentSession::async fn messages async fn messages(&self) -> Vec<AgentMessage>
-traitfn	agent_session::AgentSession::async fn messages_since async fn messages_since(&self, after_seq: u64) -> Vec<AgentMessage>
-traitfn	agent_session::AgentSession::async fn query async fn query(&self, filter: &EventQuery) -> Vec<EventMatch>
-traitfn	agent_session::AgentSession::async fn recent_messages async fn recent_messages(&self, n: usize) -> Vec<AgentMessage>
-traitfn	agent_session::AgentSession::async fn records async fn records(&self, from_seq: u64) -> Vec<SessionRecord>
-traitfn	agent_session::AgentSession::async fn restore async fn restore(&self) -> Result<(), SessionError>
-traitfn	agent_session::AgentSession::async fn rollback_after async fn rollback_after(&self, uuid: &str) -> usize
-traitfn	agent_session::AgentSession::async fn save_snapshot async fn save_snapshot(&self, data: &[u8])
-traitfn	agent_session::AgentSession::async fn subscribe_events async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream
-traitfn	agent_session::AgentSession::fn parent_session_id fn parent_session_id(&self) -> Option<&str>
-traitfn	agent_session::AgentSession::fn session_id fn session_id(&self) -> &str
-traitfn	agent_session::AgentSession::fn supports_atomic_records fn supports_atomic_records(&self) -> bool
 traitfn	agent_session::SessionEventListener::async fn on_event async fn on_event(&self, event: &SessionEvent)
 traitfn	agent_session::SessionEventListener::fn is_active fn is_active(&self) -> bool
 traitfn	analytics::AnalyticsSink::fn record fn record(&self, event: AnalyticsEvent)
-traitfn	conversation_log::ConversationLog::async fn append async fn append(&self, event: SessionEvent)
-traitfn	conversation_log::ConversationLog::async fn append_message async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>)
+traitfn	conversation_log::ConversationLog::async fn append async fn append(&self, event: SessionEvent) -> Result<(), SessionError>
+traitfn	conversation_log::ConversationLog::async fn append_message async fn append_message( &self, msg: AgentMessage, parent_uuid: Option<String>, ) -> Result<(), SessionError>
 traitfn	conversation_log::ConversationLog::async fn append_records async fn append_records( &self, records: Vec<SessionRecord>, ) -> Result<AppendReceipt, SessionError>
 traitfn	conversation_log::ConversationLog::async fn flush async fn flush(&self) -> Result<(), SessionError>
-traitfn	conversation_log::ConversationLog::async fn messages async fn messages(&self) -> Vec<AgentMessage>
-traitfn	conversation_log::ConversationLog::async fn recent_messages async fn recent_messages(&self, n: usize) -> Vec<AgentMessage>
+traitfn	conversation_log::ConversationLog::async fn messages async fn messages(&self) -> Result<Vec<AgentMessage>, SessionError>
+traitfn	conversation_log::ConversationLog::async fn recent_messages async fn recent_messages(&self, n: usize) -> Result<Vec<AgentMessage>, SessionError>
 traitfn	conversation_log::ConversationLog::fn session_id fn session_id(&self) -> &str
 traitfn	conversation_log::ConversationLog::fn supports_atomic_records fn supports_atomic_records(&self) -> bool
 traitfn	model::LanguageModel::async fn complete async fn complete( &self, messages: &[Message], tools: &[&dyn Tool], config: &ModelConfig, ) -> Result<CompletionResponse, AgentError>

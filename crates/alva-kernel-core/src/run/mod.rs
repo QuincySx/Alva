@@ -15,6 +15,7 @@ use crate::session_events::emit_runtime_event;
 use crate::state::{AgentConfig, AgentState};
 use alva_kernel_abi::agent_session::{ComponentDescriptor, EmitterKind};
 use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_abi::{
     AgentError, AgentMessage, CancellationToken, ContentBlock, Message, MessageRole, ToolCall,
     UsageMetadata,
@@ -167,7 +168,12 @@ where
     let event_tx = event_tx.into();
     state.extensions.insert(cancel.clone());
 
-    let agent_id = state.session.session_id().to_string();
+    // 内核循环只依赖对话记录（ConversationLog）：这里把 harness 递进来的
+    // 完整会话收窄成日志句柄，循环内所有读写都走这个更小的表面——查询、
+    // 回滚、快照、订阅、压缩在类型层面就进不了内核。
+    let log: std::sync::Arc<dyn ConversationLog> = state.session.clone();
+
+    let agent_id = log.session_id().to_string();
     let mut context_runtime = ContextRuntime::new(agent_id.clone());
 
     // Emit AgentStart + run_start up front, BEFORE any fallible startup step.
@@ -180,7 +186,7 @@ where
 
     // --- Session skeleton: run_start ---
     let run_start_uuid = emit_runtime_event(
-        &state.session,
+        &log,
         "run_start",
         None,
         Some(serde_json::json!({
@@ -188,7 +194,7 @@ where
             "max_iterations": config.max_iterations,
         })),
     )
-    .await;
+    .await?;
 
     // Fallible body: on the first error we stop running it but still fall
     // through to the finalizer. The `async` block scopes the borrows of
@@ -220,16 +226,18 @@ where
             });
         }
         emit_runtime_event(
-            &state.session,
+            &log,
             "component_registry",
             Some(run_start_uuid.clone()),
             Some(serde_json::json!({ "components": components })),
         )
-        .await;
+        .await?;
 
         // 2. Store input messages in session + collect context injections.
         for msg in input {
-            state.session.append_message(msg.clone(), None).await;
+            log.append_message(msg.clone(), None)
+                .await
+                .map_err(AgentError::from)?;
             config
                 .middleware
                 .run_input_committed(state, &msg)
@@ -241,6 +249,7 @@ where
         // 3. Main loop
         run_loop(
             state,
+            &log,
             config,
             &cancel,
             &event_tx,
@@ -266,20 +275,21 @@ where
 
     // --- Session skeleton: run_end ---
     emit_runtime_event(
-        &state.session,
+        &log,
         "run_end",
         Some(run_start_uuid.clone()),
         Some(serde_json::json!({
             "error": run_error,
         })),
     )
-    .await;
+    .await
+    .map_err(|e| tracing::warn!(error = %e, "run_end skeleton event failed"));
 
     // Durability flush at agent end (lifecycle contract point a): everything
     // appended this run — including run_end above — is persisted before the
     // caller observes completion. Preserve an earlier execution error, but a
     // flush failure must turn an otherwise-successful run into a failure.
-    if let Err(e) = state.session.flush().await {
+    if let Err(e) = log.flush().await {
         if result.is_ok() {
             result = Err(AgentError::Other(format!(
                 "session durability flush failed: {e}"
@@ -307,6 +317,7 @@ where
 /// - **Inner loop**: LLM calls + tool execution + steering injection.
 async fn run_loop(
     state: &AgentState,
+    log: &std::sync::Arc<dyn ConversationLog>,
     config: &AgentConfig,
     cancel: &CancellationToken,
     event_tx: &AgentEventSender,
@@ -343,7 +354,7 @@ async fn run_loop(
         if total_iterations.is_multiple_of(FLUSH_EVERY_N_ITERATIONS)
             || last_flush.elapsed() >= FLUSH_INTERVAL
         {
-            state.session.flush().await.map_err(|e| {
+            log.flush().await.map_err(|e| {
                 AgentError::Other(format!("periodic session durability flush failed: {e}"))
             })?;
             last_flush = web_time::Instant::now();
@@ -351,12 +362,12 @@ async fn run_loop(
 
         // Session skeleton: iteration boundary
         let iteration_start_uuid = emit_runtime_event(
-            &state.session,
+            &log,
             "iteration_start",
             Some(run_start_uuid.to_string()),
             Some(serde_json::json!({ "iteration": total_iterations })),
         )
-        .await;
+        .await?;
 
         // Emit TurnStart
         let _ = event_tx.send(AgentEvent::TurnStart).await;
@@ -364,9 +375,9 @@ async fn run_loop(
 
         // 3a. Get messages from session (optionally windowed)
         let session_messages = if config.context_window > 0 {
-            state.session.recent_messages(config.context_window).await
+            state.session.recent_messages(config.context_window).await?
         } else {
-            state.session.messages().await
+            state.session.messages().await?
         };
 
         let mut system_prompt_buf: Vec<String> = config.system_prompt.clone();
@@ -497,7 +508,7 @@ async fn run_loop(
             .as_ref()
             .is_some_and(|options| !options.is_empty());
         let llm_start_uuid = emit_runtime_event(
-            &state.session,
+            &log,
             "llm_call_start",
             Some(iteration_start_uuid.clone()),
             Some(serde_json::json!({
@@ -517,7 +528,7 @@ async fn run_loop(
                 "provider_options_applied": provider_options_applied,
             })),
         )
-        .await;
+        .await?;
         let llm_call_started_at = web_time::Instant::now();
 
         let actual_call = ActualLlmCall {
@@ -526,7 +537,7 @@ async fn run_loop(
             model_config: config.model_config.clone(),
             event_tx: event_tx.clone(),
             message_id,
-            session: state.session.clone(),
+            session: log.clone(),
             llm_call_id: llm_start_uuid.clone(),
             cancel: cancel.clone(),
         };
@@ -573,7 +584,7 @@ async fn run_loop(
             usage.cache_creation_input_tokens.is_some() || usage.cache_read_input_tokens.is_some()
         });
         emit_runtime_event(
-            &state.session,
+            &log,
             "llm_call_end",
             Some(llm_start_uuid.clone()),
             Some(serde_json::json!({
@@ -585,7 +596,7 @@ async fn run_loop(
                 "cache_outcome": cache_outcome(response.usage.as_ref()),
             })),
         )
-        .await;
+        .await?;
 
         // Analytics: emit a structured LlmCall event for telemetry sinks.
         // No-op if no AnalyticsSink is registered on the bus.
@@ -621,10 +632,8 @@ async fn run_loop(
 
         // 3g. Store response in session + fire ContextHooks::on_message
         let response_msg = AgentMessage::Standard(response.clone());
-        state
-            .session
-            .append_message(response_msg.clone(), Some(llm_start_uuid.clone()))
-            .await;
+        log.append_message(response_msg.clone(), Some(llm_start_uuid.clone()))
+            .await?;
         context_runtime.on_message(config, &response_msg).await;
 
         // 3h. Track token usage from this turn
@@ -669,18 +678,19 @@ async fn run_loop(
             let _ = event_tx.send(AgentEvent::TurnEnd).await;
             context_runtime.after_turn(config).await;
             emit_runtime_event(
-                &state.session,
+                &log,
                 "iteration_end",
                 Some(iteration_start_uuid.clone()),
                 None,
             )
-            .await;
+            .await?;
             break;
         }
 
         let committed_tools = crate::tool_batch::ToolBatchCoordinator::new()
             .execute_batch(
                 state,
+                &log,
                 config,
                 cancel.clone(),
                 &tool_calls,
@@ -706,12 +716,12 @@ async fn run_loop(
         // Any mid-run user interjection lands via an extension that
         // runs at `before_llm_call`, not here.
         emit_runtime_event(
-            &state.session,
+            &log,
             "iteration_end",
             Some(iteration_start_uuid.clone()),
             None,
         )
-        .await;
+        .await?;
     }
 
     // The loop ended with no more tool calls → agent run is done. Callers

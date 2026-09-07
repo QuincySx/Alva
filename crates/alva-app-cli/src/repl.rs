@@ -9,6 +9,8 @@ use alva_app_core::{AlvaPaths, BaseAgent, PermissionMode, SkillRegistryError};
 use alva_host_native::middleware::ApprovalRequest;
 use alva_kernel_abi::agent_session::EventQuery;
 use alva_kernel_abi::AgentSession;
+use alva_kernel_abi::ConversationLog;
+use alva_kernel_abi::SessionStore;
 use alva_llm_provider::ProviderConfig;
 use tokio::sync::mpsc;
 

@@ -19,27 +19,38 @@ use crate::session_record::{AppendReceipt, SessionRecord};
 ///
 /// 一个二十行的内存实现就能满足这个契约；远端/持久化后端同样可以实现它
 /// （内部的写队列与重试属于实现细节）。
+///
+/// ## 可失败
+///
+/// 除身份标识（`session_id`）外的每个方法都返回 `Result`。这是拆分契约时
+/// 修掉的合约谎言：旧的巨型契约承诺"关闭之后其它操作返回错误"，但大量
+/// 读写方法在类型层面根本没有返回错误的能力。对话记录的方法一律可失败，
+/// `close` / `clear` 之后的失败语义因此兑现得了。
 #[async_trait]
 pub trait ConversationLog: Send + Sync {
     /// Unique identifier for this session.
     fn session_id(&self) -> &str;
 
     /// All messages in append order.
-    async fn messages(&self) -> Vec<AgentMessage>;
+    async fn messages(&self) -> Result<Vec<AgentMessage>, SessionError>;
 
     /// The last N messages, in append order.
-    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage>;
+    async fn recent_messages(&self, n: usize) -> Result<Vec<AgentMessage>, SessionError>;
 
     /// Append a conversation message (user / assistant / tool result).
-    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>);
+    async fn append_message(
+        &self,
+        msg: AgentMessage,
+        parent_uuid: Option<String>,
+    ) -> Result<(), SessionError>;
 
     /// Append a raw session event (the kernel's run skeleton bookkeeping).
     /// The backend assigns `event.seq` atomically.
-    async fn append(&self, event: SessionEvent);
+    async fn append(&self, event: SessionEvent) -> Result<(), SessionError>;
 
     /// Commit one or more typed records as one visible state transition.
     /// Backends that cannot make the batch atomic reject the operation —
-    /// see [`crate::AgentSession::supports_atomic_records`].
+    /// see [`ConversationLog::supports_atomic_records`].
     async fn append_records(
         &self,
         records: Vec<SessionRecord>,
@@ -50,5 +61,10 @@ pub trait ConversationLog: Send + Sync {
 
     /// Durability sync point: after this returns, every append issued before
     /// the call must be durably persisted.
+    ///
+    /// 运行期保证（与实现一致，测试钉住）：内核在 (a) 每轮 run 结束时、
+    /// (b) 长运行期间周期性（默认每 10 次迭代或 30 秒，先到为准）调用
+    /// `flush`。优雅进程停机时的最后一次 flush 是 harness 的职责，
+    /// 不由内核承诺。
     async fn flush(&self) -> Result<(), SessionError>;
 }

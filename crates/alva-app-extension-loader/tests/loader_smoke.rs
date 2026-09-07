@@ -18,6 +18,7 @@ use std::sync::{Arc, RwLock};
 use alva_agent_core::extension::{Plugin, PluginHost, Registrar};
 use alva_agent_core::AgentBuilder;
 use alva_app_extension_loader::loader::SubprocessLoaderPlugin;
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_abi::{
     AgentError, AgentMessage, Message, MessageRole, MinimalExecutionContext, Phase, PhaseEffect,
     ToolCall, ToolOutput,
@@ -462,7 +463,8 @@ async fn plugin_blocks_dangerous_shell_command() {
     let session = Arc::new(InMemoryAgentSession::new());
     session
         .append_message(AgentMessage::Standard(Message::user("session hello")), None)
-        .await;
+        .await
+        .unwrap();
     let state = make_state(session);
 
     // --- on_agent_start: unsubscribed plugin → no error ---

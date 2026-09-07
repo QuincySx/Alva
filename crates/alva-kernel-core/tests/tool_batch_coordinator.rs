@@ -141,6 +141,12 @@ impl Tool for ConcurrencyProbeTool {
     }
 }
 
+fn log_handle(
+    state: &alva_kernel_core::state::AgentState,
+) -> std::sync::Arc<dyn alva_kernel_abi::ConversationLog> {
+    state.session.clone()
+}
+
 #[tokio::test]
 async fn conflict_free_safe_calls_overlap_but_commit_in_model_order() {
     let session: Arc<dyn AgentSession> = Arc::new(InMemoryAgentSession::new());
@@ -186,6 +192,7 @@ async fn conflict_free_safe_calls_overlap_but_commit_in_model_order() {
         Duration::from_secs(1),
         ToolBatchCoordinator::new().execute_batch(
             &state,
+            &log_handle(&state),
             &test_config(),
             CancellationToken::new(),
             &tool_calls,
@@ -271,6 +278,7 @@ async fn conflicting_safe_calls_remain_serial() {
     ToolBatchCoordinator::new()
         .execute_batch(
             &state,
+            &log_handle(&state),
             &config,
             CancellationToken::new(),
             &tool_calls,
@@ -313,6 +321,7 @@ async fn coordinator_commits_tool_results_in_model_order() {
     let committed = ToolBatchCoordinator::new()
         .execute_batch(
             &state,
+            &log_handle(&state),
             &config,
             cancel,
             &tool_calls,
@@ -434,6 +443,7 @@ async fn coordinator_commits_cancelled_results_for_remaining_declared_calls() {
     let committed = ToolBatchCoordinator::new()
         .execute_batch(
             &state,
+            &log_handle(&state),
             &config,
             cancel,
             &tool_calls,
@@ -522,6 +532,7 @@ async fn lock_contention_times_out_as_tool_error_instead_of_hanging() {
         std::time::Duration::from_secs(5),
         ToolBatchCoordinator::new().execute_batch(
             &state,
+            &log_handle(&state),
             &config,
             cancel,
             &tool_calls,
@@ -602,6 +613,7 @@ async fn middleware_abort_still_pairs_every_tool_call_with_a_result() {
     let result = ToolBatchCoordinator::new()
         .execute_batch(
             &state,
+            &log_handle(&state),
             &config,
             cancel,
             &tool_calls,

@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
 use alva_kernel_abi::agent_session::{AgentSession, EventQuery};
+use alva_kernel_abi::ConversationLog;
+use alva_kernel_abi::SessionStore;
 
 use super::json_file_session::JsonFileAgentSession;
 

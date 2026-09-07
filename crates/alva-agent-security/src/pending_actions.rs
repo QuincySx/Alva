@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_core::agent_session::{AgentSession, EventQuery};
 
 /// SessionEvent.event_type for a freshly-emitted HITL request. The event's
@@ -205,7 +206,7 @@ mod tests {
         let session = InMemoryAgentSession::new();
         let req = make_requires_action("req-1", "execute_shell", "call-1");
         let uuid = req.uuid.clone();
-        session.append(req).await;
+        session.append(req).await.unwrap();
 
         let pending = pending_actions(&session).await;
         assert_eq!(pending.len(), 1);
@@ -221,10 +222,11 @@ mod tests {
         let session = InMemoryAgentSession::new();
         let req = make_requires_action("req-1", "execute_shell", "call-1");
         let uuid = req.uuid.clone();
-        session.append(req).await;
+        session.append(req).await.unwrap();
         session
             .append(make_resolved(&uuid, "req-1", "allow_once"))
-            .await;
+            .await
+            .unwrap();
 
         assert!(pending_actions(&session).await.is_empty());
     }
@@ -235,14 +237,15 @@ mod tests {
 
         let req1 = make_requires_action("req-1", "execute_shell", "call-1");
         let uuid1 = req1.uuid.clone();
-        session.append(req1).await;
+        session.append(req1).await.unwrap();
 
         let req2 = make_requires_action("req-2", "file_edit", "call-2");
-        session.append(req2).await;
+        session.append(req2).await.unwrap();
 
         session
             .append(make_resolved(&uuid1, "req-1", "reject_once"))
-            .await;
+            .await
+            .unwrap();
 
         let pending = pending_actions(&session).await;
         assert_eq!(pending.len(), 1);
@@ -260,7 +263,8 @@ mod tests {
                     "execute_shell",
                     &format!("call-{i}"),
                 ))
-                .await;
+                .await
+                .unwrap();
         }
         let pending = pending_actions(&session).await;
         assert_eq!(pending.len(), 5);

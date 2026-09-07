@@ -222,7 +222,7 @@ async fn record_middleware_phase(
         "hook": hook,
         "calls": calls,
     }));
-    state.session.append(event).await;
+    let _ = state.session.append(event).await;
 }
 
 impl MiddlewareStack {

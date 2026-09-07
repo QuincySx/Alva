@@ -13,8 +13,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::base::message::AgentMessage;
-use crate::session_record::{AppendReceipt, SessionRecord};
+use crate::conversation_log::ConversationLog;
+use crate::session_store::SessionStore;
 
 // ===========================================================================
 // Errors
@@ -237,266 +237,17 @@ pub struct EventMatch {
 // AgentSession trait
 // ===========================================================================
 
-/// Unified session abstraction — the single source of truth for everything
-/// that happens during an agent's lifetime.
+/// 统一会话契约 —— [`ConversationLog`] 与 [`SessionStore`] 的组合。
 ///
-/// ## Invariants
+/// 这是 2026-09 内核边界重构（ticket 05/06）拆分后的收口形态：
+/// - [`ConversationLog`]：内核循环需要的最小面（读消息、追加、flush），
+///   方法一律可失败；
+/// - [`SessionStore`]：harness 与 UI 的超集需求（查询、回滚、快照、订阅、
+///   压缩、持久化、子会话派生）。
 ///
-/// 1. **Monotonic order.** Every event has a `seq: u64` assigned atomically
-///    at `append` time. `seq` is strictly increasing within a session; there
-///    are no duplicates and no gaps (except where `rollback_after` deliberately
-///    drops events).
-/// 2. **Single writer target.** Every piece of information worth recording is
-///    written to exactly one `AgentSession` instance for the session. Views
-///    are projections, never independent stores.
-/// 3. **Emitter identity.** Every event carries `emitter: EventEmitter`; the
-///    scoped session wrapper at each extension point injects this automatically
-///    so third-party code cannot fill it incorrectly.
-///
-/// ## Durability contract
-///
-/// `append` and `append_message` return `()`. This is deliberate — the
-/// implementation owns durability and error recovery entirely:
-///
-/// - **Transient failures** (network blips, disk pressure, broker
-///   reconnects, etc.) MUST be handled internally: buffer, retry, or
-///   dead-letter locally. Do NOT drop events silently.
-/// - **Permanent failures** (archived session, expired auth, quota exceeded,
-///   backend wedged beyond retry) MUST be surfaced on the next call to
-///   `flush` / `close`, carried in `SessionError::Other` or a more
-///   specific variant. Per-event result returns are intentionally not
-///   provided — hot-path callers cannot meaningfully handle each append's
-///   fate, and `flush` already exists as the sync point.
-/// - The runtime guarantees `flush` is invoked periodically (see Lifecycle
-///   contract below), so permanent failures surface within a bounded window.
-///
-/// In-memory backends may no-op everything; remote/persistent backends
-/// are expected to maintain an internal write queue with back-pressure
-/// and escalate unrecoverable errors at flush time.
-///
-/// ## Lifecycle contract
-///
-/// - **`restore()`** — called exactly once after construction, before any other
-///   call. Idempotent. The backend warms internal projections (e.g. message
-///   cache) from durable storage. For a fresh session, this is a no-op.
-///
-/// - **`flush()`** — called at three moments by the runtime: (a) `on_agent_end`,
-///   (b) periodically during long runs (default every 10 iterations or 30
-///   seconds), (c) once during graceful process shutdown. After `flush()`
-///   returns, every event appended before `flush()` started MUST be durably
-///   persisted.
-///
-/// - **`close()`** — called when the session is no longer going to be used.
-///   Implies `flush()` followed by resource release. Callers MUST stop writing
-///   after it returns. Read methods may continue serving an already-cached
-///   projection; because hot-path reads and `append` deliberately have no
-///   error return, backends surface any accidental post-close write at the
-///   next fallible lifecycle operation rather than pretending every method can
-///   return an error.
-///
-/// - **`clear()`** — called only on explicit user-initiated reset or in tests.
-///   Never called by the runtime during normal operation. Drops all events and
-///   snapshots for this session.
-#[async_trait]
-pub trait AgentSession: Send + Sync {
-    // --- Identity ---
-
-    /// Unique identifier for this session.
-    fn session_id(&self) -> &str;
-
-    /// Parent session id for sub-agents. `None` for root sessions.
-    fn parent_session_id(&self) -> Option<&str>;
-
-    /// Create an independently persisted child session and commit its causal
-    /// link before the child performs external work. Backends without a
-    /// repository return `None`; callers may use an isolated in-memory child.
-    async fn create_child_session(
-        &self,
-        _parent_run_id: &str,
-        _spawn_tool_call_id: &str,
-    ) -> Result<Option<Arc<dyn AgentSession>>, SessionError> {
-        Ok(None)
-    }
-
-    // --- Write ---
-
-    /// Append a raw event. The backend assigns `event.seq` atomically and
-    /// updates any internal projections (e.g. message cache).
-    ///
-    /// Returns `()` — see the "Durability contract" on the trait doc.
-    /// Transient failures are absorbed internally; permanent failures
-    /// surface on the next `flush` / `close`.
-    async fn append(&self, event: SessionEvent);
-
-    /// Append an `AgentMessage` as a user / assistant / tool_result event.
-    /// The backend translates the message into a `SessionEvent` with
-    /// `emitter = Runtime` and the given `parent_uuid` (or None for unparented
-    /// messages) and appends it.
-    ///
-    /// Same durability contract as `append`.
-    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>);
-
-    /// Commit one or more typed records as one visible state transition.
-    /// Persistent backends override this with a storage transaction; the
-    /// default deliberately rejects the operation rather than pretending a
-    /// sequence of individual appends is atomic.
-    async fn append_records(
-        &self,
-        _records: Vec<SessionRecord>,
-    ) -> Result<AppendReceipt, SessionError> {
-        Err(SessionError::Other(
-            "atomic typed record append is not implemented by this backend".to_string(),
-        ))
-    }
-
-    /// Whether [`append_records`](Self::append_records) provides one atomic
-    /// visible commit. The kernel tool coordinator requires this guarantee;
-    /// builders use the flag to reject an incompatible session before the
-    /// first external tool side effect occurs.
-    fn supports_atomic_records(&self) -> bool {
-        false
-    }
-
-    /// Read the canonical typed projection in total durable sequence order.
-    async fn records(&self, from_seq: u64) -> Vec<SessionRecord> {
-        self.query(&EventQuery::default())
-            .await
-            .into_iter()
-            .filter(|matched| matched.event.seq > from_seq)
-            .map(|matched| SessionRecord::from_event(matched.event))
-            .collect()
-    }
-
-    // --- Read: event-level ---
-
-    /// Query events matching the filter, ordered by `seq` ascending.
-    async fn query(&self, filter: &EventQuery) -> Vec<EventMatch>;
-
-    /// Count events matching the filter.
-    async fn count(&self, filter: &EventQuery) -> usize;
-
-    // --- Read: message-level (hot path for LLM input assembly) ---
-
-    /// All messages in append order, projected from events.
-    ///
-    /// **Must be served from an O(1) local projection.** This is called on
-    /// the hot path of `run_agent` (every iteration before the LLM request),
-    /// so implementations MUST NOT round-trip to remote storage on each
-    /// call. Remote backends should implement `SubscribableSession` and
-    /// keep a local mirror warm from that stream.
-    async fn messages(&self) -> Vec<AgentMessage>;
-
-    /// The last N messages, projected from events. Same cache requirement
-    /// as `messages`.
-    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage>;
-
-    /// Return messages whose source event has `seq > after_seq`, in append
-    /// order. Used by remote backends to incrementally sync a local mirror
-    /// without re-fetching the full history each turn.
-    ///
-    /// The default implementation scans the event log via `query` and
-    /// deserializes the `AgentMessage` out of each event's `data` field,
-    /// so it matches `messages()` in cost. Network-backed backends should
-    /// override this with an efficient single-roundtrip query (e.g. a
-    /// server-side filter on `seq`).
-    ///
-    /// Events without a serialized `AgentMessage` in `data` (progress,
-    /// skeleton, extension events) are skipped.
-    async fn messages_since(&self, after_seq: u64) -> Vec<AgentMessage> {
-        let matches = self.query(&EventQuery::default()).await;
-        matches
-            .into_iter()
-            .filter(|m| m.event.seq > after_seq)
-            .filter_map(|m| {
-                m.event
-                    .data
-                    .and_then(|d| serde_json::from_value::<AgentMessage>(d).ok())
-            })
-            .collect()
-    }
-
-    // --- Subscription ---
-
-    /// Subscribe to the session's event stream, returning a stream that
-    /// yields (in order):
-    ///
-    /// 1. All events currently in the log with `seq > from_seq`.
-    /// 2. All subsequently appended events, for as long as the stream is
-    ///    held — **if the backend supports live tailing**.
-    ///
-    /// The default implementation covers (1) only: a one-shot snapshot
-    /// of historical events that ends immediately after replay. Backends
-    /// that support broadcasting new events to subscribers
-    /// (e.g. `ListenableInMemorySession`, remote HTTP/SSE backends) MUST
-    /// override to provide both (1) and (2) with no gap or duplication at
-    /// the boundary.
-    ///
-    /// Typical uses:
-    /// - `from_seq = 0` — "give me everything". Remote backends use this
-    ///   at construction time to populate a local mirror; live-tail impls
-    ///   then keep it warm.
-    /// - `from_seq = last_seen` — resume after a reader disconnect.
-    ///
-    /// Dropping the returned stream unsubscribes. Cleanup of internal
-    /// listener state is allowed to be lazy.
-    async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream {
-        let matches = self.query(&EventQuery::default()).await;
-        let history: Vec<SessionEvent> = matches
-            .into_iter()
-            .filter(|m| m.event.seq > from_seq)
-            .map(|m| m.event)
-            .collect();
-        Box::pin(futures_util::stream::iter(history))
-    }
-
-    // --- Write correction ---
-
-    /// Drop all events with `seq` greater than the event identified by `uuid`.
-    /// Returns the number of events dropped.
-    async fn rollback_after(&self, uuid: &str) -> usize;
-
-    /// Store an opaque snapshot blob (used by `ContextStore` for L0..L3 state).
-    async fn save_snapshot(&self, data: &[u8]);
-
-    /// Load the most recent snapshot, if any.
-    async fn load_snapshot(&self) -> Option<Vec<u8>>;
-
-    // --- Lifecycle ---
-
-    async fn restore(&self) -> Result<(), SessionError>;
-
-    async fn flush(&self) -> Result<(), SessionError>;
-
-    async fn close(&self) -> Result<(), SessionError>;
-
-    async fn clear(&self) -> Result<(), SessionError>;
-
-    /// Replace the live conversation projection with `replacement` while
-    /// PRESERVING the append-only event log.
-    ///
-    /// This is what compaction uses instead of `clear()`. `clear()` wipes the
-    /// entire log — skeleton/causal events (run_start, llm_call_*, tool_use)
-    /// included — which destroys the Inspector view, eval replay, and audit
-    /// trail. `compact_messages` rewrites only the message projection the
-    /// agent loop re-reads each turn; the historical events stay.
-    ///
-    /// The caller appends a `compaction` marker event immediately BEFORE
-    /// calling this. That marker is the reconstruction reset point: a backend
-    /// that rebuilds its projection from the log (see
-    /// `InMemoryAgentSession::restore_events`) starts the message projection
-    /// fresh at the last `compaction` marker, so a reload reproduces exactly
-    /// `replacement` rather than the full pre-compaction history.
-    ///
-    /// The default implementation is the older destructive path (clear +
-    /// re-append) for backends that cannot separate projection from log; the
-    /// in-memory backends override it to keep the log intact.
-    async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
-        let _ = self.clear().await;
-        for msg in replacement {
-            self.append_message(msg, None).await;
-        }
-    }
-}
+/// 想跑通内核，实现 [`ConversationLog`] 就够；想给 Inspector / UI 提供完整
+/// 会话面，再实现 [`SessionStore`]。原来那个三十方法的巨物不再单独存在。
+pub trait AgentSession: ConversationLog + SessionStore {}
 
 // ===========================================================================
 // Session event stream
@@ -552,9 +303,9 @@ impl ScopedSession {
 
     /// Append an event. The `emitter` field of the event is overwritten with
     /// this wrapper's emitter; any value set by the caller is discarded.
-    pub async fn append(&self, mut event: SessionEvent) {
+    pub async fn append(&self, mut event: SessionEvent) -> Result<(), SessionError> {
         event.emitter = self.emitter.clone();
-        self.inner.append(event).await;
+        self.inner.append(event).await
     }
 
     /// Delegate query to the inner session.
@@ -591,118 +342,5 @@ pub trait SessionEventListener: Send + Sync {
     /// default for forwarders that live as long as their target).
     fn is_active(&self) -> bool {
         true
-    }
-}
-
-// ===========================================================================
-// Expand (ticket 05): ConversationLog / SessionStore — the contract split.
-// ===========================================================================
-//
-// The split is defined in CONTEXT.md: the kernel's entire requirement on
-// history is the ConversationLog (read messages, append); the SessionStore is
-// the harness/UI superset (query, rollback, snapshot, subscribe, compact,
-// persistence). This is the EXPAND half only: AgentSession still declares all
-// methods, every implementor is untouched, and these blanket impls let any
-// `T: AgentSession` already act as both narrower contracts. Ticket 06 turns
-// the supertrait relationship real and narrows the kernel loop.
-
-#[async_trait]
-impl<T: AgentSession + ?Sized> crate::conversation_log::ConversationLog for T {
-    fn session_id(&self) -> &str {
-        AgentSession::session_id(self)
-    }
-
-    async fn messages(&self) -> Vec<AgentMessage> {
-        AgentSession::messages(self).await
-    }
-
-    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
-        AgentSession::recent_messages(self, n).await
-    }
-
-    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
-        AgentSession::append_message(self, msg, parent_uuid).await
-    }
-
-    async fn append(&self, event: SessionEvent) {
-        AgentSession::append(self, event).await
-    }
-
-    async fn append_records(
-        &self,
-        records: Vec<crate::session_record::SessionRecord>,
-    ) -> Result<crate::session_record::AppendReceipt, SessionError> {
-        AgentSession::append_records(self, records).await
-    }
-
-    fn supports_atomic_records(&self) -> bool {
-        AgentSession::supports_atomic_records(self)
-    }
-
-    async fn flush(&self) -> Result<(), SessionError> {
-        AgentSession::flush(self).await
-    }
-}
-
-#[async_trait]
-impl<T: AgentSession + ?Sized> crate::session_store::SessionStore for T {
-    fn parent_session_id(&self) -> Option<&str> {
-        AgentSession::parent_session_id(self)
-    }
-
-    async fn create_child_session(
-        &self,
-        parent_run_id: &str,
-        spawn_tool_call_id: &str,
-    ) -> Result<Option<std::sync::Arc<dyn AgentSession>>, SessionError> {
-        AgentSession::create_child_session(self, parent_run_id, spawn_tool_call_id).await
-    }
-
-    async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
-        AgentSession::query(self, filter).await
-    }
-
-    async fn count(&self, filter: &EventQuery) -> usize {
-        AgentSession::count(self, filter).await
-    }
-
-    async fn records(&self, from_seq: u64) -> Vec<crate::session_record::SessionRecord> {
-        AgentSession::records(self, from_seq).await
-    }
-
-    async fn messages_since(&self, after_seq: u64) -> Vec<AgentMessage> {
-        AgentSession::messages_since(self, after_seq).await
-    }
-
-    async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream {
-        AgentSession::subscribe_events(self, from_seq).await
-    }
-
-    async fn rollback_after(&self, uuid: &str) -> usize {
-        AgentSession::rollback_after(self, uuid).await
-    }
-
-    async fn save_snapshot(&self, data: &[u8]) {
-        AgentSession::save_snapshot(self, data).await
-    }
-
-    async fn load_snapshot(&self) -> Option<Vec<u8>> {
-        AgentSession::load_snapshot(self).await
-    }
-
-    async fn restore(&self) -> Result<(), SessionError> {
-        AgentSession::restore(self).await
-    }
-
-    async fn close(&self) -> Result<(), SessionError> {
-        AgentSession::close(self).await
-    }
-
-    async fn clear(&self) -> Result<(), SessionError> {
-        AgentSession::clear(self).await
-    }
-
-    async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
-        AgentSession::compact_messages(self, replacement).await
     }
 }

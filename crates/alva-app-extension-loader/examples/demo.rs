@@ -17,8 +17,9 @@ use std::sync::{Arc, RwLock};
 
 use alva_agent_core::extension::{Plugin, PluginHost, Registrar};
 use alva_app_extension_loader::loader::SubprocessLoaderPlugin;
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_abi::{AgentMessage, Message, ToolCall};
-use alva_kernel_core::agent_session::{AgentSession, InMemoryAgentSession};
+use alva_kernel_core::agent_session::InMemoryAgentSession;
 use alva_kernel_core::{AgentState, Extensions, Middleware, MiddlewareError};
 use alva_test::mock_provider::MockLanguageModel;
 
@@ -268,7 +269,10 @@ async fn main() {
     // Minimal state.
     let session = Arc::new(InMemoryAgentSession::new());
     let user_message = AgentMessage::Standard(Message::user("list my files please"));
-    session.append_message(user_message.clone(), None).await;
+    session
+        .append_message(user_message.clone(), None)
+        .await
+        .unwrap();
     let state = AgentState {
         model: Arc::new(MockLanguageModel::new()),
         tools: vec![],

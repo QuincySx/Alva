@@ -15,6 +15,10 @@ pub enum AgentError {
     MaxIterations(u32),
     #[error("Configuration error: {0}")]
     ConfigError(String),
+    /// Session (conversation log / session store) failure — durability,
+    /// serialization, or a backend that can no longer serve reads/writes.
+    #[error("Session error: {0}")]
+    Session(#[from] crate::agent_session::SessionError),
     #[error("{0}")]
     Other(String),
 }

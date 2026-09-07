@@ -13,6 +13,8 @@ pub use alva_kernel_abi::agent_session::{
     ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionEventStream,
     SessionMessage,
 };
+use alva_kernel_abi::session_store::SessionStore;
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_abi::{AppendReceipt, SessionRecord, SessionRecordPayload};
 
 use std::collections::VecDeque;
@@ -203,16 +205,11 @@ impl InMemoryAgentSession {
 }
 
 #[async_trait]
-impl AgentSession for InMemoryAgentSession {
+impl ConversationLog for InMemoryAgentSession {
     fn session_id(&self) -> &str {
         &self.session_id
     }
-
-    fn parent_session_id(&self) -> Option<&str> {
-        self.parent_session_id.as_deref()
-    }
-
-    async fn append(&self, mut event: SessionEvent) {
+    async fn append(&self, mut event: SessionEvent) -> Result<(), SessionError> {
         // Seq assignment and push share ONE critical section: concurrent
         // appenders would otherwise grab seqs in one order and win the lock
         // in another, storing events out of seq order (e.g. a tool_result
@@ -227,9 +224,13 @@ impl AgentSession for InMemoryAgentSession {
         event.seq = self.seq_counter.fetch_add(1, Ordering::SeqCst);
         records.push(SessionRecord::from_event(event.clone()));
         events.push(event);
+        Ok(())
     }
-
-    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
+    async fn append_message(
+        &self,
+        msg: AgentMessage,
+        parent_uuid: Option<String>,
+    ) -> Result<(), SessionError> {
         // Classify for display, serialize for perfect round-trip.
         let (event_type, session_msg) = Self::classify_message(&msg);
         let mut event = SessionEvent::new_runtime(event_type);
@@ -248,8 +249,8 @@ impl AgentSession for InMemoryAgentSession {
         records.push(SessionRecord::from_event(event.clone()));
         events.push(event);
         messages.push_back(msg);
+        Ok(())
     }
-
     async fn append_records(
         &self,
         records: Vec<SessionRecord>,
@@ -282,9 +283,32 @@ impl AgentSession for InMemoryAgentSession {
             count: (last_seq - first_seq + 1) as usize,
         })
     }
-
     fn supports_atomic_records(&self) -> bool {
         true
+    }
+    async fn messages(&self) -> Result<Vec<AgentMessage>, SessionError> {
+        let msgs = self.messages.read().await;
+        Ok(msgs.iter().cloned().collect())
+    }
+    async fn recent_messages(&self, n: usize) -> Result<Vec<AgentMessage>, SessionError> {
+        let msgs = self.messages.read().await;
+        let len = msgs.len();
+        Ok(if n >= len {
+            msgs.iter().cloned().collect()
+        } else {
+            msgs.iter().skip(len - n).cloned().collect()
+        })
+    }
+    async fn flush(&self) -> Result<(), SessionError> {
+        // In-memory: nothing to persist.
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl SessionStore for InMemoryAgentSession {
+    fn parent_session_id(&self) -> Option<&str> {
+        self.parent_session_id.as_deref()
     }
 
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
@@ -321,12 +345,10 @@ impl AgentSession for InMemoryAgentSession {
 
         matches
     }
-
     async fn count(&self, filter: &EventQuery) -> usize {
         let events = self.events.read().await;
         events.iter().filter(|e| event_matches(e, filter)).count()
     }
-
     async fn records(&self, from_seq: u64) -> Vec<SessionRecord> {
         self.records
             .read()
@@ -336,22 +358,6 @@ impl AgentSession for InMemoryAgentSession {
             .cloned()
             .collect()
     }
-
-    async fn messages(&self) -> Vec<AgentMessage> {
-        let msgs = self.messages.read().await;
-        msgs.iter().cloned().collect()
-    }
-
-    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
-        let msgs = self.messages.read().await;
-        let len = msgs.len();
-        if n >= len {
-            msgs.iter().cloned().collect()
-        } else {
-            msgs.iter().skip(len - n).cloned().collect()
-        }
-    }
-
     async fn rollback_after(&self, uuid: &str) -> usize {
         let mut events = self.events.write().await;
         let mut records = self.records.write().await;
@@ -381,30 +387,20 @@ impl AgentSession for InMemoryAgentSession {
 
         removed
     }
-
     async fn save_snapshot(&self, data: &[u8]) {
         *self.snapshot.write().await = Some(data.to_vec());
     }
-
     async fn load_snapshot(&self) -> Option<Vec<u8>> {
         self.snapshot.read().await.clone()
     }
-
     async fn restore(&self) -> Result<(), SessionError> {
         // In-memory: nothing persisted, nothing to restore.
         Ok(())
     }
-
-    async fn flush(&self) -> Result<(), SessionError> {
-        // In-memory: nothing to persist.
-        Ok(())
-    }
-
     async fn close(&self) -> Result<(), SessionError> {
         // In-memory: nothing to release.
         Ok(())
     }
-
     async fn clear(&self) -> Result<(), SessionError> {
         let mut events = self.events.write().await;
         let mut records = self.records.write().await;
@@ -416,7 +412,6 @@ impl AgentSession for InMemoryAgentSession {
         self.seq_counter.store(1, Ordering::SeqCst);
         Ok(())
     }
-
     async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
         // Reset ONLY the live message projection; the event log (skeleton +
         // causal history) is left untouched. The `compaction` marker the
@@ -439,6 +434,8 @@ impl AgentSession for InMemoryAgentSession {
     }
 }
 
+impl AgentSession for InMemoryAgentSession {}
+
 // ===========================================================================
 // ListenableInMemorySession
 // ===========================================================================
@@ -450,6 +447,11 @@ impl AgentSession for InMemoryAgentSession {
 pub struct ListenableInMemorySession {
     inner: InMemoryAgentSession,
     listeners: RwLock<Vec<Arc<dyn SessionEventListener>>>,
+    /// Broadcast queue. Events are inserted while the appender still holds
+    /// the inner events lock (the same critical section that assigns `seq`),
+    /// so queue order == seq order; the drain below broadcasts FIFO, which
+    /// makes delivery order == seq order even under concurrent appends.
+    broadcast_queue: tokio::sync::Mutex<VecDeque<SessionEvent>>,
 }
 
 impl ListenableInMemorySession {
@@ -458,6 +460,7 @@ impl ListenableInMemorySession {
         Self {
             inner: InMemoryAgentSession::new(),
             listeners: RwLock::new(Vec::new()),
+            broadcast_queue: tokio::sync::Mutex::new(VecDeque::new()),
         }
     }
 
@@ -466,11 +469,17 @@ impl ListenableInMemorySession {
         Self {
             inner: InMemoryAgentSession::with_parent(parent_id),
             listeners: RwLock::new(Vec::new()),
+            broadcast_queue: tokio::sync::Mutex::new(VecDeque::new()),
         }
     }
 
     /// Register a listener. It will receive every event written after
     /// this call completes.
+    ///
+    /// 注册只拿 `listeners` 写锁的瞬间；回调在克隆出的句柄上执行，永不持有
+    /// 该锁——慢监听者不会卡住订阅与注销的簿记。生产路径的监听者是
+    /// [`subscribe_events`](Self::subscribe_events) 返回的流（内部走 mpsc
+    /// 信箱，`on_event` 只做一次无界 send），消费多慢都不阻塞追加。
     pub async fn subscribe(&self, listener: Arc<dyn SessionEventListener>) {
         self.listeners.write().await.push(listener);
     }
@@ -480,22 +489,32 @@ impl ListenableInMemorySession {
         self.inner.restore_events(events).await;
     }
 
-    /// Broadcast one event to every listener, then reap any that reported
-    /// themselves inactive. Listener handles are cloned under the read lock,
-    /// then arbitrary async callbacks run after the lock is released so a
-    /// slow listener cannot block subscribe/unsubscribe bookkeeping.
-    /// Broadcast also happens outside every inner-session lock.
-    async fn broadcast(&self, event: &SessionEvent) {
-        let mut any_dead = false;
-        let listeners = self.listeners.read().await.clone();
-        for listener in listeners {
-            listener.on_event(event).await;
-            if !listener.is_active() {
-                any_dead = true;
+    /// Broadcast everything queued so far, FIFO, then keep draining until the
+    /// queue is empty. Listener handles are cloned under the read lock and
+    /// called without it; the queue itself is only held while snapshotting a
+    /// batch, never across a callback.
+    async fn drain_broadcasts(&self) -> Result<(), SessionError> {
+        loop {
+            let batch = {
+                let mut queue = self.broadcast_queue.lock().await;
+                std::mem::take(&mut *queue)
+            };
+            if batch.is_empty() {
+                return Ok(());
             }
-        }
-        if any_dead {
-            self.listeners.write().await.retain(|l| l.is_active());
+            let listeners = self.listeners.read().await.clone();
+            let mut any_dead = false;
+            for event in &batch {
+                for listener in &listeners {
+                    listener.on_event(event).await;
+                    if !listener.is_active() {
+                        any_dead = true;
+                    }
+                }
+            }
+            if any_dead {
+                self.listeners.write().await.retain(|l| l.is_active());
+            }
         }
     }
 }
@@ -507,46 +526,46 @@ impl Default for ListenableInMemorySession {
 }
 
 #[async_trait]
-impl AgentSession for ListenableInMemorySession {
+impl ConversationLog for ListenableInMemorySession {
     fn session_id(&self) -> &str {
         self.inner.session_id()
     }
 
-    fn parent_session_id(&self) -> Option<&str> {
-        self.inner.parent_session_id()
-    }
-
-    async fn append(&self, event: SessionEvent) {
-        // Assign seq inside inner's events write lock (same critical section
-        // as the push — see InMemoryAgentSession::append for why), then
-        // broadcast OUTSIDE the lock: listeners run arbitrary async code and
-        // may read this very session, which would deadlock under the held
-        // write guard. We do NOT call self.inner.append() so that we have
-        // the post-seq-assign event in hand to broadcast.
-        let mut e = event;
+    async fn append(&self, mut event: SessionEvent) -> Result<(), SessionError> {
+        // The broadcast-queue lock is taken BEFORE the inner locks and the
+        // event is queued in the same hold that assigns its seq, so queue
+        // order == seq order no matter how appends interleave. The broadcast
+        // itself runs after the commit and outside every inner lock:
+        // listeners may read this very session, which would deadlock under a
+        // held write guard.
+        let mut queue = self.broadcast_queue.lock().await;
         {
             let mut events = self.inner.events.write().await;
             let mut records = self.inner.records.write().await;
-            e.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
-            records.push(SessionRecord::from_event(e.clone()));
-            events.push(e.clone());
+            event.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
+            records.push(SessionRecord::from_event(event.clone()));
+            events.push(event.clone());
         }
-
-        self.broadcast(&e).await;
+        queue.push_back(event);
+        drop(queue);
+        self.drain_broadcasts().await
     }
 
-    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
-        // Replicate InMemoryAgentSession::append_message logic so we can
-        // hold the fully-constructed event for broadcasting.
+    async fn append_message(
+        &self,
+        msg: AgentMessage,
+        parent_uuid: Option<String>,
+    ) -> Result<(), SessionError> {
+        // Replicate InMemoryAgentSession::append_message so the fully
+        // constructed event can be queued for broadcasting; seq assignment,
+        // both stores, and the queue insertion share one hold.
         let (event_type, session_msg) = InMemoryAgentSession::classify_message(&msg);
         let mut event = SessionEvent::new_runtime(event_type);
         event.message = session_msg;
         event.parent_uuid = parent_uuid;
         event.data = Some(serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null));
 
-        // One critical section for seq + both stores (lock order events →
-        // messages, same as InMemoryAgentSession::append_message); broadcast
-        // after release — listeners may read this session.
+        let mut queue = self.broadcast_queue.lock().await;
         {
             let mut events = self.inner.events.write().await;
             let mut records = self.inner.records.write().await;
@@ -556,8 +575,9 @@ impl AgentSession for ListenableInMemorySession {
             events.push(event.clone());
             messages.push_back(msg);
         }
-
-        self.broadcast(&event).await;
+        queue.push_back(event);
+        drop(queue);
+        self.drain_broadcasts().await
     }
 
     async fn append_records(
@@ -571,6 +591,7 @@ impl AgentSession for ListenableInMemorySession {
                 count: 0,
             });
         }
+        let mut queue = self.broadcast_queue.lock().await;
         let mut committed = Vec::with_capacity(records.len());
         let first_seq;
         let last_seq;
@@ -593,18 +614,39 @@ impl AgentSession for ListenableInMemorySession {
             }
             last_seq = self.inner.seq_counter.load(Ordering::SeqCst) - 1;
         }
-        for event in &committed {
-            self.broadcast(event).await;
+        for event in committed {
+            queue.push_back(event);
         }
+        drop(queue);
+        self.drain_broadcasts().await?;
         Ok(AppendReceipt {
             first_seq,
             last_seq,
-            count: committed.len(),
+            count: (last_seq - first_seq + 1) as usize,
         })
     }
 
     fn supports_atomic_records(&self) -> bool {
         true
+    }
+
+    async fn messages(&self) -> Result<Vec<AgentMessage>, SessionError> {
+        self.inner.messages().await
+    }
+
+    async fn recent_messages(&self, n: usize) -> Result<Vec<AgentMessage>, SessionError> {
+        self.inner.recent_messages(n).await
+    }
+
+    async fn flush(&self) -> Result<(), SessionError> {
+        self.inner.flush().await
+    }
+}
+
+#[async_trait]
+impl SessionStore for ListenableInMemorySession {
+    fn parent_session_id(&self) -> Option<&str> {
+        self.inner.parent_session_id()
     }
 
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
@@ -617,14 +659,6 @@ impl AgentSession for ListenableInMemorySession {
 
     async fn records(&self, from_seq: u64) -> Vec<SessionRecord> {
         self.inner.records(from_seq).await
-    }
-
-    async fn messages(&self) -> Vec<AgentMessage> {
-        self.inner.messages().await
-    }
-
-    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
-        self.inner.recent_messages(n).await
     }
 
     async fn rollback_after(&self, uuid: &str) -> usize {
@@ -643,10 +677,6 @@ impl AgentSession for ListenableInMemorySession {
         self.inner.restore().await
     }
 
-    async fn flush(&self) -> Result<(), SessionError> {
-        self.inner.flush().await
-    }
-
     async fn close(&self) -> Result<(), SessionError> {
         self.inner.close().await
     }
@@ -661,16 +691,18 @@ impl AgentSession for ListenableInMemorySession {
         // would skip the broadcast). The event log is preserved.
         self.inner.messages.write().await.clear();
         for msg in replacement {
-            self.append_message(msg, None).await;
+            let _ = self.append_message(msg, None).await;
         }
     }
 
-    /// Override: return a stream that yields historical events with
-    /// `seq > from_seq`, then follows live events appended thereafter.
+    /// Return a stream that yields historical events with `seq > from_seq`,
+    /// then follows live events appended thereafter.
     ///
     /// History snapshot and listener registration happen under the events
     /// write lock, so no event is dropped or duplicated across the
-    /// historical-to-live boundary.
+    /// historical-to-live boundary. The registered listener is a channel
+    /// mailbox: `on_event` is one unbounded send, so a slow consumer of the
+    /// returned stream never blocks appends or this registration.
     async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream {
         use futures_util::stream::{self, StreamExt};
 
@@ -700,6 +732,8 @@ impl AgentSession for ListenableInMemorySession {
         Box::pin(history_stream.chain(live_stream))
     }
 }
+
+impl AgentSession for ListenableInMemorySession {}
 
 // Listener that funnels received events into an mpsc channel. Used by
 // `ListenableInMemorySession::subscribe_events` to back the returned
@@ -915,7 +949,107 @@ mod tests {
             );
         }
         drop(events);
-        assert_eq!(s.messages().await.len(), 2000);
+        assert_eq!(s.messages().await.unwrap().len(), 2000);
+    }
+
+    /// Ticket 06 acceptance: concurrent appends must broadcast in seq order.
+    /// The queue insertion shares the seq-assignment critical section, so a
+    /// listener can never observe event 2 before event 1.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn listenable_broadcast_order_matches_seq_order() {
+        use std::sync::Arc;
+        use tokio::sync::mpsc::unbounded_channel;
+
+        let s = Arc::new(ListenableInMemorySession::new());
+        let (tx, mut rx) = unbounded_channel::<SessionEvent>();
+        struct ChannelSink(tokio::sync::mpsc::UnboundedSender<SessionEvent>);
+        #[async_trait]
+        impl SessionEventListener for ChannelSink {
+            async fn on_event(&self, event: &SessionEvent) {
+                let _ = self.0.send(event.clone());
+            }
+        }
+        s.subscribe(Arc::new(ChannelSink(tx))).await;
+
+        let mut handles = Vec::new();
+        for t in 0..8 {
+            let s = s.clone();
+            handles.push(tokio::spawn(async move {
+                for i in 0..100 {
+                    s.append_message(user_msg(&format!("{t}-{i}")), None)
+                        .await
+                        .unwrap();
+                }
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        let mut last_seq = 0u64;
+        for _ in 0..800 {
+            let event = rx.recv().await.expect("all 800 events must be broadcast");
+            assert!(
+                event.seq > last_seq,
+                "broadcast order diverged from seq order: {last_seq} then {}",
+                event.seq
+            );
+            last_seq = event.seq;
+        }
+    }
+
+    /// Ticket 06 acceptance: a slow consumer of a live-tail stream must not
+    /// block appends (the listener is a channel mailbox — on_event is one
+    /// unbounded send) nor the subscribe path.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn slow_stream_consumer_does_not_block_appends() {
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let s = Arc::new(ListenableInMemorySession::new());
+
+        // Subscriber with a deliberately slow consumer.
+        let mut stream = s.subscribe_events(0).await;
+        let consumer = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let mut seen = 0usize;
+            use futures_util::StreamExt;
+            while let Some(_event) = stream.next().await {
+                seen += 1;
+            }
+            seen
+        });
+
+        let start = web_time::Instant::now();
+        for i in 0..50 {
+            s.append_message(user_msg(&format!("m{i}")), None)
+                .await
+                .unwrap();
+        }
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "appends blocked on the slow consumer: {elapsed:?}"
+        );
+
+        // Subscribe while the slow consumer is still stalling must also be
+        // prompt (registration is atomic + brief, never waits on consumers).
+        let start = web_time::Instant::now();
+        let _second = s.subscribe_events(0).await;
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "subscribe blocked on the slow consumer: {elapsed:?}"
+        );
+
+        drop(_second);
+        drop(s);
+        let seen = consumer.await.unwrap();
+        assert!(
+            seen >= 50,
+            "slow consumer still received every event: {seen}"
+        );
     }
 
     #[tokio::test]
@@ -925,7 +1059,7 @@ mod tests {
         s.append_message(user_msg("world"), None).await;
 
         // Message cache has both
-        let msgs = s.messages().await;
+        let msgs = s.messages().await.unwrap();
         assert_eq!(msgs.len(), 2);
 
         // Events log has both as "user" events with correct seq
@@ -945,7 +1079,7 @@ mod tests {
                 .await;
         }
 
-        let recent = s.recent_messages(3).await;
+        let recent = s.recent_messages(3).await.unwrap();
         assert_eq!(recent.len(), 3);
 
         // Verify it's the last three (msg 7, 8, 9).
@@ -989,7 +1123,7 @@ mod tests {
     async fn recent_messages_larger_than_total_returns_all() {
         let s = InMemoryAgentSession::new();
         s.append_message(user_msg("one"), None).await;
-        assert_eq!(s.recent_messages(100).await.len(), 1);
+        assert_eq!(s.recent_messages(100).await.unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -1037,7 +1171,7 @@ mod tests {
 
         // Events log has two items; message cache has two items.
         assert_eq!(s.events.read().await.len(), 2);
-        assert_eq!(s.messages().await.len(), 2);
+        assert_eq!(s.messages().await.unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -1087,7 +1221,7 @@ mod tests {
         let captured_events: Vec<SessionEvent> =
             original.events.read().await.iter().cloned().collect();
         assert_eq!(captured_events.len(), 2);
-        assert_eq!(original.messages().await.len(), 2);
+        assert_eq!(original.messages().await.unwrap().len(), 2);
 
         // Fresh session — plain `append` would leave messages cache empty.
         let restored = InMemoryAgentSession::new();
@@ -1101,7 +1235,7 @@ mod tests {
         assert_eq!(replayed_events[1].seq, captured_events[1].seq);
         drop(replayed_events);
 
-        let replayed_msgs = restored.messages().await;
+        let replayed_msgs = restored.messages().await.unwrap();
         assert_eq!(replayed_msgs.len(), 2);
 
         // Next append must take a seq past the largest restored — no collisions.
@@ -1135,7 +1269,7 @@ mod tests {
 
         // 1. The live projection shrank to the compacted set.
         assert_eq!(
-            s.messages().await.len(),
+            s.messages().await.unwrap().len(),
             2,
             "compaction must shrink the live message projection"
         );
@@ -1166,7 +1300,7 @@ mod tests {
         let reloaded = InMemoryAgentSession::new();
         reloaded.restore_events(events).await;
         assert_eq!(
-            reloaded.messages().await.len(),
+            reloaded.messages().await.unwrap().len(),
             2,
             "reload must reproduce the compacted projection, not the full history"
         );
@@ -1180,7 +1314,7 @@ mod tests {
 
         s.clear().await.unwrap();
 
-        assert_eq!(s.messages().await.len(), 0);
+        assert_eq!(s.messages().await.unwrap().len(), 0);
         assert!(s.load_snapshot().await.is_none());
 
         // After clear, seq counter restarts at 1.

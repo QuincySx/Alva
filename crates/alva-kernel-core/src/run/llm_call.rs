@@ -12,6 +12,7 @@ use alva_kernel_abi::tool::execution::{
 };
 use alva_kernel_abi::tool::schema::ToolSchemaContext;
 use alva_kernel_abi::tool::{EffectDescription, Tool};
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message, MessageRole,
     ModelConfig, StreamEvent, StreamMessageAccumulator,
@@ -140,7 +141,7 @@ pub(crate) struct ActualLlmCall {
     pub(crate) model_config: ModelConfig,
     pub(crate) event_tx: AgentEventSender,
     pub(crate) message_id: String,
-    pub(crate) session: Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
+    pub(crate) session: Arc<dyn ConversationLog>,
     /// Causal parent for compact durable stream-observation events.
     pub(crate) llm_call_id: String,
     /// Peer handle on the run's cancellation token. Consumed inside the

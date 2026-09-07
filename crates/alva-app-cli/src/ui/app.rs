@@ -47,6 +47,8 @@ use ratatui::Terminal;
 use alva_app_core::{AgentEvent, AgentMessage, AlvaPaths, BaseAgent, PermissionDecision};
 use alva_host_native::middleware::ApprovalRequest;
 use alva_kernel_abi::agent_session::EventQuery;
+use alva_kernel_abi::ConversationLog;
+use alva_kernel_abi::SessionStore;
 use alva_kernel_abi::{AgentSession, MessageRole};
 use alva_llm_provider::{OpenAIChatProvider, ProviderConfig};
 use tokio::sync::mpsc;

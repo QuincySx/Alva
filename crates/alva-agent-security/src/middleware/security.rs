@@ -14,6 +14,7 @@ use crate::pending_actions::{
     ResolveStatus, EVENT_REQUIRES_ACTION, EVENT_REQUIRES_ACTION_RESOLVED,
 };
 use crate::{SandboxMode, SecurityDecision, SecurityGuard};
+use alva_kernel_abi::SessionStore;
 use alva_kernel_abi::{
     bus_cap, BusHandle, CancellationToken, EffectDescription, ToolCall, ToolExecutionContext,
     ToolFs,
@@ -53,7 +54,7 @@ async fn emit_requires_action(
         "arguments": tool_call.arguments,
     }));
     let uuid = event.uuid.clone();
-    session.append(event).await;
+    let _ = session.append(event).await;
     uuid
 }
 
@@ -72,7 +73,7 @@ async fn emit_requires_action_resolved(
         "request_id": request_id,
         "status": status.as_str(),
     }));
-    session.append(event).await;
+    let _ = session.append(event).await;
 }
 
 /// Sent through the approval channel when a tool needs human approval.

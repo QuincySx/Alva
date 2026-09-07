@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use alva_kernel_abi::agent_session::{EmitterKind, EventEmitter, ScopedSession};
 use alva_kernel_abi::{
-    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, ExecutionRecord,
-    LockMode, RecordValue, ResourceKey, Scheduling, SessionRecord,
+    AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, ConversationLog,
+    ExecutionRecord, LockMode, RecordValue, ResourceKey, Scheduling, SessionRecord,
 };
 use alva_kernel_abi::{Message, MessageRole, Tool, ToolCall, ToolOutput};
 use async_trait::async_trait;
@@ -45,9 +45,13 @@ impl ToolBatchCoordinator {
         Self
     }
 
+    /// `log` is the narrowed conversation-log handle — the batch coordinator
+    /// commits intents and outcomes through the ConversationLog seam, never
+    /// through the full session store.
     pub async fn execute_batch<E>(
         &self,
         state: &AgentState,
+        log: &std::sync::Arc<dyn ConversationLog>,
         config: &AgentConfig,
         cancel: CancellationToken,
         tool_calls: &[ToolCall],
@@ -66,7 +70,7 @@ impl ToolBatchCoordinator {
                 for tool_call in &tool_calls[cursor..] {
                     let committed_cancelled = self
                         .commit_cancelled_tool_call(
-                            state,
+                            log,
                             tool_call,
                             llm_call_uuid.clone(),
                             &event_tx,
@@ -81,9 +85,10 @@ impl ToolBatchCoordinator {
                 parallel_wave_len(state, config.workspace.as_deref(), &tool_calls[cursor..]);
             if wave_len < 2 {
                 let tool_call = &tool_calls[cursor];
-                let tool_use_uuid = commit_tool_intent(state, tool_call, &llm_call_uuid).await?;
+                let tool_use_uuid = commit_tool_intent(log, tool_call, &llm_call_uuid).await?;
                 let executed = execute_tool_call(
                     state,
+                    log,
                     config,
                     cancel.clone(),
                     PreparedToolCall {
@@ -99,7 +104,7 @@ impl ToolBatchCoordinator {
                     Ok(result) => {
                         committed.push(
                             commit_executed_tool_call(
-                                state,
+                                log,
                                 executed.prepared,
                                 result,
                                 executed.duration_ms,
@@ -111,10 +116,10 @@ impl ToolBatchCoordinator {
                     Err(agent_err) => {
                         let error_text =
                             format!("Tool call aborted before completion: {agent_err}");
-                        commit_failed_tool_call(state, executed.prepared, &error_text, &event_tx)
+                        commit_failed_tool_call(log, executed.prepared, &error_text, &event_tx)
                             .await?;
                         backfill_aborted_tool_results(
-                            state,
+                            log,
                             &tool_calls[cursor + 1..],
                             &llm_call_uuid,
                             &error_text,
@@ -129,7 +134,7 @@ impl ToolBatchCoordinator {
             }
 
             let wave_calls = &tool_calls[cursor..cursor + wave_len];
-            let tool_use_uuids = commit_tool_intents(state, wave_calls, &llm_call_uuid).await?;
+            let tool_use_uuids = commit_tool_intents(log, wave_calls, &llm_call_uuid).await?;
             let executions =
                 wave_calls
                     .iter()
@@ -137,6 +142,7 @@ impl ToolBatchCoordinator {
                     .map(|(tool_call, tool_use_uuid)| {
                         execute_tool_call(
                             state,
+                            log,
                             config,
                             cancel.clone(),
                             PreparedToolCall {
@@ -155,7 +161,7 @@ impl ToolBatchCoordinator {
                     Ok(result) => {
                         committed.push(
                             commit_executed_tool_call(
-                                state,
+                                log,
                                 execution.prepared,
                                 result,
                                 execution.duration_ms,
@@ -167,7 +173,7 @@ impl ToolBatchCoordinator {
                     Err(agent_err) => {
                         let error_text =
                             format!("Tool call aborted before completion: {agent_err}");
-                        commit_failed_tool_call(state, execution.prepared, &error_text, &event_tx)
+                        commit_failed_tool_call(log, execution.prepared, &error_text, &event_tx)
                             .await?;
                         if first_error.is_none() {
                             first_error = Some((agent_err, error_text));
@@ -180,7 +186,7 @@ impl ToolBatchCoordinator {
             if let Some((agent_err, error_text)) = first_error {
                 if cursor < tool_calls.len() {
                     backfill_aborted_tool_results(
-                        state,
+                        log,
                         &tool_calls[cursor..],
                         &llm_call_uuid,
                         &error_text,
@@ -197,12 +203,12 @@ impl ToolBatchCoordinator {
 
     async fn commit_cancelled_tool_call(
         &self,
-        state: &AgentState,
+        log: &std::sync::Arc<dyn ConversationLog>,
         tool_call: &ToolCall,
         llm_call_uuid: String,
         event_tx: &AgentEventSender,
     ) -> Result<CommittedToolCall, AgentError> {
-        let tool_use_uuid = commit_tool_intent(state, tool_call, &llm_call_uuid).await?;
+        let tool_use_uuid = commit_tool_intent(log, tool_call, &llm_call_uuid).await?;
 
         let _ = event_tx
             .send(AgentEvent::ToolExecutionStart {
@@ -224,7 +230,7 @@ impl ToolBatchCoordinator {
             timestamp: chrono::Utc::now().timestamp_millis(),
         };
         let tool_msg = AgentMessage::Standard(tool_message);
-        commit_tool_outcome(state, tool_call, &result, tool_msg.clone(), &tool_use_uuid).await?;
+        commit_tool_outcome(log, tool_call, &result, tool_msg.clone(), &tool_use_uuid).await?;
 
         let _ = event_tx
             .send(AgentEvent::ToolExecutionEnd {
@@ -328,7 +334,7 @@ fn resource_sets_conflict(left: &[ResourceKey], right: &[ResourceKey]) -> bool {
 }
 
 async fn commit_tool_intents(
-    state: &AgentState,
+    log: &std::sync::Arc<dyn ConversationLog>,
     tool_calls: &[ToolCall],
     llm_call_uuid: &str,
 ) -> Result<Vec<String>, AgentError> {
@@ -339,16 +345,15 @@ async fn commit_tool_intents(
         records.push(record);
         record_ids.push(record_id);
     }
-    state
-        .session
-        .append_records(records)
+    log.append_records(records)
         .await
-        .map_err(|error| AgentError::Other(format!("commit tool intents: {error}")))?;
+        .map_err(|error| AgentError::from(error))?;
     Ok(record_ids)
 }
 
 async fn execute_tool_call(
     state: &AgentState,
+    log: &std::sync::Arc<dyn ConversationLog>,
     config: &AgentConfig,
     cancel: CancellationToken,
     prepared: PreparedToolCall,
@@ -446,7 +451,7 @@ async fn execute_tool_call(
 }
 
 async fn commit_executed_tool_call(
-    state: &AgentState,
+    log: &std::sync::Arc<dyn ConversationLog>,
     prepared: PreparedToolCall,
     result: ToolOutput,
     duration_ms: u64,
@@ -455,7 +460,7 @@ async fn commit_executed_tool_call(
     let tool_message = tool_result_message(&prepared.tool_call, &result);
     let tool_msg = AgentMessage::Standard(tool_message);
     commit_tool_outcome(
-        state,
+        log,
         &prepared.tool_call,
         &result,
         tool_msg.clone(),
@@ -486,13 +491,13 @@ async fn commit_executed_tool_call(
 }
 
 async fn commit_failed_tool_call(
-    state: &AgentState,
+    log: &std::sync::Arc<dyn ConversationLog>,
     prepared: PreparedToolCall,
     error_text: &str,
     event_tx: &AgentEventSender,
 ) -> Result<(), AgentError> {
     append_error_tool_result(
-        state,
+        log,
         &prepared.tool_call,
         Some(prepared.tool_use_uuid),
         error_text,
@@ -517,16 +522,14 @@ fn tool_result_message(tool_call: &ToolCall, result: &ToolOutput) -> Message {
 }
 
 async fn commit_tool_intent(
-    state: &AgentState,
+    log: &std::sync::Arc<dyn ConversationLog>,
     tool_call: &ToolCall,
     llm_call_uuid: &str,
 ) -> Result<String, AgentError> {
     let (record, record_id) = tool_intent_record(tool_call, llm_call_uuid);
-    state
-        .session
-        .append_records(vec![record])
+    log.append_records(vec![record])
         .await
-        .map_err(|error| AgentError::Other(format!("commit tool intent: {error}")))?;
+        .map_err(|error| AgentError::from(error))?;
     Ok(record_id)
 }
 
@@ -548,7 +551,7 @@ fn tool_intent_record(tool_call: &ToolCall, llm_call_uuid: &str) -> (SessionReco
 }
 
 async fn commit_tool_outcome(
-    state: &AgentState,
+    log: &std::sync::Arc<dyn ConversationLog>,
     tool_call: &ToolCall,
     result: &ToolOutput,
     message: AgentMessage,
@@ -567,11 +570,9 @@ async fn commit_tool_outcome(
     );
     outcome.parent_record_id = Some(tool_use_uuid.to_string());
     let conversation = SessionRecord::conversation(message, Some(tool_use_uuid.to_string()));
-    state
-        .session
-        .append_records(vec![outcome, conversation])
+    log.append_records(vec![outcome, conversation])
         .await
-        .map_err(|error| AgentError::Other(format!("commit tool outcome: {error}")))?;
+        .map_err(|error| AgentError::from(error))?;
     Ok(())
 }
 
@@ -581,7 +582,7 @@ async fn commit_tool_outcome(
 /// tool_result — a provider re-sent such a history rejects it for having
 /// unmatched tool_use ids.
 async fn append_error_tool_result(
-    state: &AgentState,
+    log: &std::sync::Arc<dyn ConversationLog>,
     tool_call: &ToolCall,
     parent_uuid: Option<String>,
     error_text: &str,
@@ -602,9 +603,11 @@ async fn append_error_tool_result(
     };
     let message = AgentMessage::Standard(tool_message);
     if let Some(tool_use_uuid) = parent_uuid {
-        commit_tool_outcome(state, tool_call, &result, message, &tool_use_uuid).await?;
+        commit_tool_outcome(log, tool_call, &result, message, &tool_use_uuid).await?;
     } else {
-        state.session.append_message(message, None).await;
+        log.append_message(message, None)
+            .await
+            .map_err(AgentError::from)?;
     }
     let _ = event_tx
         .send(AgentEvent::ToolExecutionEnd {
@@ -620,16 +623,15 @@ async fn append_error_tool_result(
 /// the whole batch's tool_use blocks stay paired even though execution
 /// stopped early.
 async fn backfill_aborted_tool_results(
-    state: &AgentState,
+    log: &std::sync::Arc<dyn ConversationLog>,
     remaining: &[ToolCall],
     llm_call_uuid: &str,
     error_text: &str,
     event_tx: &AgentEventSender,
 ) -> Result<(), AgentError> {
     for tool_call in remaining {
-        let tool_use_uuid = commit_tool_intent(state, tool_call, llm_call_uuid).await?;
-        append_error_tool_result(state, tool_call, Some(tool_use_uuid), error_text, event_tx)
-            .await?;
+        let tool_use_uuid = commit_tool_intent(log, tool_call, llm_call_uuid).await?;
+        append_error_tool_result(log, tool_call, Some(tool_use_uuid), error_text, event_tx).await?;
     }
     Ok(())
 }

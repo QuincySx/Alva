@@ -12,6 +12,8 @@ use alva_engine_runtime::{
     InspectionStream, InspectionUpdate, RuntimeError,
 };
 use alva_kernel_abi::agent_session::SessionEventStream;
+use alva_kernel_abi::session_store::SessionStore;
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_abi::{
     AgentMessage, AgentSession, AppendReceipt, BlobReference, EventEmitter, EventMatch, EventQuery,
     ExecutionRecord, RecordValue, SessionError, SessionEvent, SessionRecord, SessionRecordPayload,
@@ -504,44 +506,11 @@ impl SqliteAgentSession {
 }
 
 #[async_trait]
-impl AgentSession for SqliteAgentSession {
+impl ConversationLog for SqliteAgentSession {
     fn session_id(&self) -> &str {
         &self.session_id
     }
-
-    fn parent_session_id(&self) -> Option<&str> {
-        self.parent_session_id.as_deref()
-    }
-
-    async fn create_child_session(
-        &self,
-        parent_run_id: &str,
-        spawn_tool_call_id: &str,
-    ) -> Result<Option<Arc<dyn AgentSession>>, SessionError> {
-        let child_session_id = uuid::Uuid::new_v4().to_string();
-        let repository = SessionRepository {
-            path: PathBuf::new(),
-            blob_dir: self.blob_dir.clone(),
-            connection: Arc::clone(&self.connection),
-            sessions: Arc::clone(&self.sessions),
-        };
-        let child = repository
-            .open_session(child_session_id.clone(), Some(self.session_id.clone()))
-            .await?;
-        let link = SessionRecord::execution(
-            "child_session_linked",
-            EventEmitter::runtime(),
-            ExecutionRecord::ChildSessionLinked {
-                child_session_id,
-                parent_run_id: parent_run_id.to_string(),
-                spawn_tool_call_id: spawn_tool_call_id.to_string(),
-            },
-        );
-        self.append_records(vec![link]).await?;
-        Ok(Some(child))
-    }
-
-    async fn append(&self, event: SessionEvent) {
+    async fn append(&self, event: SessionEvent) -> Result<(), SessionError> {
         let _guard = self.write_lock.lock().await;
         let uuid = event.uuid.clone();
         self.memory.append(event).await;
@@ -556,9 +525,13 @@ impl AgentSession for SqliteAgentSession {
                 tracing::error!(session_id = %self.session_id, %error, "persist native session event");
             }
         }
+        Ok(())
     }
-
-    async fn append_message(&self, message: AgentMessage, parent_uuid: Option<String>) {
+    async fn append_message(
+        &self,
+        message: AgentMessage,
+        parent_uuid: Option<String>,
+    ) -> Result<(), SessionError> {
         let _guard = self.write_lock.lock().await;
         self.memory.append_message(message, parent_uuid).await;
         if let Some(event) = self
@@ -581,8 +554,8 @@ impl AgentSession for SqliteAgentSession {
                 }
             }
         }
+        Ok(())
     }
-
     async fn append_records(
         &self,
         mut records: Vec<SessionRecord>,
@@ -643,19 +616,63 @@ impl AgentSession for SqliteAgentSession {
             count: records.len(),
         })
     }
-
     fn supports_atomic_records(&self) -> bool {
         true
     }
+    async fn messages(&self) -> Result<Vec<AgentMessage>, SessionError> {
+        self.memory.messages().await
+    }
+    async fn recent_messages(&self, count: usize) -> Result<Vec<AgentMessage>, SessionError> {
+        self.memory.recent_messages(count).await
+    }
+    async fn flush(&self) -> Result<(), SessionError> {
+        let _guard = self.write_lock.lock().await;
+        self.sync_memory_to_db().await?;
+        let connection = self.connection.lock().map_err(lock_error)?;
+        connection
+            .execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
+            .map_err(sql_error)
+    }
+}
 
+#[async_trait]
+impl SessionStore for SqliteAgentSession {
+    fn parent_session_id(&self) -> Option<&str> {
+        self.parent_session_id.as_deref()
+    }
+    async fn create_child_session(
+        &self,
+        parent_run_id: &str,
+        spawn_tool_call_id: &str,
+    ) -> Result<Option<Arc<dyn AgentSession>>, SessionError> {
+        let child_session_id = uuid::Uuid::new_v4().to_string();
+        let repository = SessionRepository {
+            path: PathBuf::new(),
+            blob_dir: self.blob_dir.clone(),
+            connection: Arc::clone(&self.connection),
+            sessions: Arc::clone(&self.sessions),
+        };
+        let child = repository
+            .open_session(child_session_id.clone(), Some(self.session_id.clone()))
+            .await?;
+        let link = SessionRecord::execution(
+            "child_session_linked",
+            EventEmitter::runtime(),
+            ExecutionRecord::ChildSessionLinked {
+                child_session_id,
+                parent_run_id: parent_run_id.to_string(),
+                spawn_tool_call_id: spawn_tool_call_id.to_string(),
+            },
+        );
+        self.append_records(vec![link]).await?;
+        Ok(Some(child))
+    }
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
         self.memory.query(filter).await
     }
-
     async fn count(&self, filter: &EventQuery) -> usize {
         self.memory.count(filter).await
     }
-
     async fn records(&self, from_seq: u64) -> Vec<SessionRecord> {
         self.persisted_records()
             .unwrap_or_default()
@@ -663,19 +680,9 @@ impl AgentSession for SqliteAgentSession {
             .filter(|record| record.seq > from_seq)
             .collect()
     }
-
-    async fn messages(&self) -> Vec<AgentMessage> {
-        self.memory.messages().await
-    }
-
-    async fn recent_messages(&self, count: usize) -> Vec<AgentMessage> {
-        self.memory.recent_messages(count).await
-    }
-
     async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream {
         self.memory.subscribe_events(from_seq).await
     }
-
     async fn rollback_after(&self, uuid: &str) -> usize {
         let _guard = self.write_lock.lock().await;
         let removed = self.memory.rollback_after(uuid).await;
@@ -702,7 +709,6 @@ impl AgentSession for SqliteAgentSession {
         }
         removed
     }
-
     async fn save_snapshot(&self, data: &[u8]) {
         self.memory.save_snapshot(data).await;
         match self.connection.lock() {
@@ -718,7 +724,6 @@ impl AgentSession for SqliteAgentSession {
             Err(_) => self.dirty.store(true, Ordering::Release),
         }
     }
-
     async fn load_snapshot(&self) -> Option<Vec<u8>> {
         self.connection.lock().ok().and_then(|connection| {
             connection
@@ -733,25 +738,13 @@ impl AgentSession for SqliteAgentSession {
                 .flatten()
         })
     }
-
     async fn restore(&self) -> Result<(), SessionError> {
         self.memory.restore_events(self.persisted_events()?).await;
         Ok(())
     }
-
-    async fn flush(&self) -> Result<(), SessionError> {
-        let _guard = self.write_lock.lock().await;
-        self.sync_memory_to_db().await?;
-        let connection = self.connection.lock().map_err(lock_error)?;
-        connection
-            .execute_batch("PRAGMA wal_checkpoint(PASSIVE);")
-            .map_err(sql_error)
-    }
-
     async fn close(&self) -> Result<(), SessionError> {
         self.flush().await
     }
-
     async fn clear(&self) -> Result<(), SessionError> {
         let _guard = self.write_lock.lock().await;
         let repository = SessionRepository {
@@ -763,7 +756,6 @@ impl AgentSession for SqliteAgentSession {
         repository.delete(&self.session_id)?;
         self.memory.clear().await
     }
-
     async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
         let _guard = self.write_lock.lock().await;
         let high_water = self
@@ -812,6 +804,8 @@ impl AgentSession for SqliteAgentSession {
         }
     }
 }
+
+impl AgentSession for SqliteAgentSession {}
 
 fn lock_error<T>(_: std::sync::PoisonError<T>) -> SessionError {
     SessionError::Other("native session store lock poisoned".to_string())
@@ -1209,7 +1203,7 @@ mod tests {
             }
             payload => panic!("expected conversation record, got {payload:?}"),
         }
-        let messages = session.messages().await;
+        let messages = session.messages().await.unwrap();
         assert_eq!(messages.len(), 1);
         let restored = match &messages[0] {
             alva_kernel_abi::AgentMessage::Standard(message) => message.text_content(),
@@ -1253,7 +1247,7 @@ mod tests {
 
         let repository = SessionRepository::open(&path).unwrap();
         let restored = repository.open_session("s1", None).await.unwrap();
-        let messages = restored.messages().await;
+        let messages = restored.messages().await.unwrap();
 
         assert_eq!(messages.len(), 1);
         let AgentMessage::Standard(message) = &messages[0] else {

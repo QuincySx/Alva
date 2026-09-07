@@ -28,7 +28,7 @@ use std::path::Path;
 
 use alva_kernel_abi::base::message::{AgentMessage, MessageRole, UsageMetadata};
 use alva_kernel_abi::model::{HeuristicTokenCounter, TokenCounter};
-use alva_kernel_abi::{AgentSession, ContentBlock};
+use alva_kernel_abi::{AgentSession, ContentBlock, ConversationLog};
 
 use crate::session::JsonFileSessionManager;
 
@@ -139,7 +139,7 @@ async fn run_analyze(session_id: Option<&str>) -> i32 {
     };
 
     let counter = HeuristicTokenCounter::new(200_000);
-    let messages = session.messages().await;
+    let messages = session.messages().await.unwrap_or_default();
     let analysis = analyze(&messages, &counter);
 
     render(&sid, &workspace, &analysis);
@@ -261,7 +261,7 @@ async fn estimate_thread_tokens(
     session: &dyn AgentSession,
     counter: &HeuristicTokenCounter,
 ) -> usize {
-    let msgs = session.messages().await;
+    let msgs = session.messages().await.unwrap_or_default();
     analyze(&msgs, counter).total_message_tokens()
 }
 

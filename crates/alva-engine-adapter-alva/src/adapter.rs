@@ -15,6 +15,7 @@ use alva_engine_runtime::{
     InspectionStream, InspectionUpdate, PermissionDecision, RuntimeCapabilities, RuntimeError,
     RuntimeEvent, RuntimeRequest,
 };
+use alva_kernel_abi::SessionStore;
 use alva_kernel_abi::{ExecutionRecord, SessionRecordPayload};
 use async_trait::async_trait;
 use futures_core::Stream;

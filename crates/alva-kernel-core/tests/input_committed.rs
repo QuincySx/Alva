@@ -76,7 +76,7 @@ impl Middleware for InputCommittedRecorder {
         message: &AgentMessage,
     ) -> Result<(), MiddlewareError> {
         assert_eq!(agent_message_text(message), "hello");
-        let messages = state.session.messages().await;
+        let messages = state.session.messages().await.unwrap_or_default();
         assert!(
             messages
                 .iter()

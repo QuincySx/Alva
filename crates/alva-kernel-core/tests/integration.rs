@@ -13,7 +13,9 @@ use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::{Message, MessageRole};
 use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel};
+use alva_kernel_abi::session_store::SessionStore;
 use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_abi::{
     AgentMessage, AppendReceipt, CancellationToken, ModelConfig, SessionRecord,
     ToolExecutionContext, ToolOutput,
@@ -128,7 +130,7 @@ async fn simple_echo_run() {
     .unwrap();
 
     // Session should have user + assistant
-    let messages = state.session.messages().await;
+    let messages = state.session.messages().await.unwrap();
     assert_eq!(messages.len(), 2);
 
     // First is user
@@ -219,7 +221,7 @@ async fn run_with_middleware() {
     .await;
     assert!(result.is_ok());
 
-    let messages = state.session.messages().await;
+    let messages = state.session.messages().await.unwrap();
     assert_eq!(messages.len(), 2);
 
     let hooks = state
@@ -326,7 +328,7 @@ async fn session_persists_across_check() {
     .unwrap();
 
     // After first run: user + assistant = 2 messages
-    assert_eq!(state.session.messages().await.len(), 2);
+    assert_eq!(state.session.messages().await.unwrap().len(), 2);
 
     // Second run (same state/session)
     let cancel2 = CancellationToken::new();
@@ -342,7 +344,7 @@ async fn session_persists_across_check() {
     .unwrap();
 
     // After second run: 2 (first run) + user + assistant = 4 messages
-    let messages = state.session.messages().await;
+    let messages = state.session.messages().await.unwrap();
     assert_eq!(messages.len(), 4);
 
     // Verify message roles in order
@@ -411,7 +413,7 @@ async fn no_follow_up_means_single_pass() {
     .unwrap();
 
     // Session should have exactly 2 messages: user + assistant
-    assert_eq!(state.session.messages().await.len(), 2);
+    assert_eq!(state.session.messages().await.unwrap().len(), 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -574,6 +576,7 @@ async fn claude_style_tool_call_deltas_merge_into_one_tool_use() {
         .session
         .messages()
         .await
+        .unwrap()
         .into_iter()
         .find_map(|message| match message {
             AgentMessage::Standard(message)
@@ -682,7 +685,7 @@ async fn malformed_tool_arguments_fail_fast() {
     }
 
     assert_eq!(
-        state.session.messages().await.len(),
+        state.session.messages().await.unwrap().len(),
         1,
         "malformed assistant response should not be appended to session"
     );
@@ -798,7 +801,7 @@ async fn stream_error_emits_message_error_event() {
         }
     }
 
-    assert_eq!(state.session.messages().await.len(), 1);
+    assert_eq!(state.session.messages().await.unwrap().len(), 1);
     assert_eq!(
         error_id, start_id,
         "MessageError should close the same message"
@@ -903,7 +906,7 @@ async fn after_llm_call_failure_emits_message_error_event() {
         "failed message should not emit MessageEnd"
     );
     assert_eq!(
-        state.session.messages().await.len(),
+        state.session.messages().await.unwrap().len(),
         1,
         "response should not be persisted when after_llm_call fails"
     );
@@ -1798,17 +1801,18 @@ struct FlushCountingSession {
 }
 
 #[async_trait]
-impl AgentSession for FlushCountingSession {
+impl ConversationLog for FlushCountingSession {
     fn session_id(&self) -> &str {
         self.inner.session_id()
     }
-    fn parent_session_id(&self) -> Option<&str> {
-        self.inner.parent_session_id()
-    }
-    async fn append(&self, event: SessionEvent) {
+    async fn append(&self, event: SessionEvent) -> Result<(), SessionError> {
         self.inner.append(event).await
     }
-    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
+    async fn append_message(
+        &self,
+        msg: AgentMessage,
+        parent_uuid: Option<String>,
+    ) -> Result<(), SessionError> {
         self.inner.append_message(msg, parent_uuid).await
     }
     async fn append_records(
@@ -1820,17 +1824,31 @@ impl AgentSession for FlushCountingSession {
     fn supports_atomic_records(&self) -> bool {
         true
     }
+    async fn messages(&self) -> Result<Vec<AgentMessage>, SessionError> {
+        self.inner.messages().await
+    }
+    async fn recent_messages(&self, n: usize) -> Result<Vec<AgentMessage>, SessionError> {
+        self.inner.recent_messages(n).await
+    }
+    async fn flush(&self) -> Result<(), SessionError> {
+        self.flushes.fetch_add(1, Ordering::SeqCst);
+        if let Some(message) = self.fail_with {
+            return Err(SessionError::Other(message.to_string()));
+        }
+        self.inner.flush().await
+    }
+}
+
+#[async_trait]
+impl SessionStore for FlushCountingSession {
+    fn parent_session_id(&self) -> Option<&str> {
+        self.inner.parent_session_id()
+    }
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
         self.inner.query(filter).await
     }
     async fn count(&self, filter: &EventQuery) -> usize {
         self.inner.count(filter).await
-    }
-    async fn messages(&self) -> Vec<AgentMessage> {
-        self.inner.messages().await
-    }
-    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
-        self.inner.recent_messages(n).await
     }
     async fn rollback_after(&self, uuid: &str) -> usize {
         self.inner.rollback_after(uuid).await
@@ -1844,20 +1862,18 @@ impl AgentSession for FlushCountingSession {
     async fn restore(&self) -> Result<(), SessionError> {
         self.inner.restore().await
     }
-    async fn flush(&self) -> Result<(), SessionError> {
-        self.flushes.fetch_add(1, Ordering::SeqCst);
-        if let Some(message) = self.fail_with {
-            return Err(SessionError::Other(message.to_string()));
-        }
-        self.inner.flush().await
-    }
     async fn close(&self) -> Result<(), SessionError> {
         self.inner.close().await
     }
     async fn clear(&self) -> Result<(), SessionError> {
         self.inner.clear().await
     }
+    async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
+        self.inner.compact_messages(replacement).await;
+    }
 }
+
+impl AgentSession for FlushCountingSession {}
 
 fn state_with_session(
     model: Arc<dyn LanguageModel>,

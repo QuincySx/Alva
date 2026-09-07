@@ -48,6 +48,8 @@ use std::io::{self, IsTerminal as _, Read as _};
 use alva_app_core::{AlvaPaths, PermissionMode};
 use alva_kernel_abi::agent_session::EventQuery;
 use alva_kernel_abi::AgentSession;
+use alva_kernel_abi::ConversationLog;
+use alva_kernel_abi::SessionStore;
 use alva_llm_provider::ProviderConfig;
 
 use session::JsonFileSessionManager;

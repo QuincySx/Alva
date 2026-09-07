@@ -195,7 +195,7 @@ impl BaseAgent {
     /// Get a snapshot of the current message history.
     pub async fn messages(&self) -> Vec<AgentMessage> {
         let st = self.inner.state().lock().await;
-        st.session.messages().await
+        st.session.messages().await.unwrap_or_default()
     }
 
     /// Clone the authoritative session handle for inspection/storage wiring.
@@ -222,7 +222,7 @@ impl BaseAgent {
             return false;
         }
         for msg in messages {
-            st.session.append_message(msg, None).await;
+            let _ = st.session.append_message(msg, None).await;
         }
         true
     }
@@ -624,8 +624,8 @@ mod tests {
             }
         }
 
-        let msgs_a = session_a.messages().await;
-        let msgs_b = session_b.messages().await;
+        let msgs_a = session_a.messages().await.unwrap_or_default();
+        let msgs_b = session_b.messages().await.unwrap_or_default();
         let text_a: Vec<String> = msgs_a
             .iter()
             .filter_map(|m| match m {

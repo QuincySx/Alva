@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::Mutex;
 
+use alva_kernel_abi::session_store::SessionStore;
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_abi::{AgentMessage, AppendReceipt, SessionRecord};
 use alva_kernel_core::agent_session::{
     AgentSession, EventMatch, EventQuery, InMemoryAgentSession, SessionError, SessionEvent,
@@ -149,27 +151,26 @@ impl JsonFileAgentSession {
 }
 
 #[async_trait]
-impl AgentSession for JsonFileAgentSession {
+impl ConversationLog for JsonFileAgentSession {
     fn session_id(&self) -> &str {
         self.inner.session_id()
     }
-
-    fn parent_session_id(&self) -> Option<&str> {
-        self.inner.parent_session_id()
-    }
-
-    async fn append(&self, event: SessionEvent) {
+    async fn append(&self, event: SessionEvent) -> Result<(), SessionError> {
         let _guard = self.write_lock.lock().await;
         self.inner.append(event).await;
         self.persist_locked().await;
+        Ok(())
     }
-
-    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
+    async fn append_message(
+        &self,
+        msg: AgentMessage,
+        parent_uuid: Option<String>,
+    ) -> Result<(), SessionError> {
         let _guard = self.write_lock.lock().await;
         self.inner.append_message(msg, parent_uuid).await;
         self.persist_locked().await;
+        Ok(())
     }
-
     async fn append_records(
         &self,
         records: Vec<SessionRecord>,
@@ -198,11 +199,26 @@ impl AgentSession for JsonFileAgentSession {
             }
         }
     }
-
     fn supports_atomic_records(&self) -> bool {
         true
     }
+    async fn messages(&self) -> Result<Vec<AgentMessage>, SessionError> {
+        self.inner.messages().await
+    }
+    async fn recent_messages(&self, n: usize) -> Result<Vec<AgentMessage>, SessionError> {
+        self.inner.recent_messages(n).await
+    }
+    async fn flush(&self) -> Result<(), SessionError> {
+        let _guard = self.write_lock.lock().await;
+        self.persist_inner_locked().await
+    }
+}
 
+#[async_trait]
+impl SessionStore for JsonFileAgentSession {
+    fn parent_session_id(&self) -> Option<&str> {
+        self.inner.parent_session_id()
+    }
     async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
         let _guard = self.write_lock.lock().await;
         // Non-destructive: keep the event log intact, then persist the
@@ -210,59 +226,37 @@ impl AgentSession for JsonFileAgentSession {
         self.inner.compact_messages(replacement).await;
         self.persist_locked().await;
     }
-
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
         self.inner.query(filter).await
     }
-
     async fn count(&self, filter: &EventQuery) -> usize {
         self.inner.count(filter).await
     }
-
     async fn records(&self, from_seq: u64) -> Vec<SessionRecord> {
         self.inner.records(from_seq).await
     }
-
-    async fn messages(&self) -> Vec<AgentMessage> {
-        self.inner.messages().await
-    }
-
-    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
-        self.inner.recent_messages(n).await
-    }
-
     async fn rollback_after(&self, uuid: &str) -> usize {
         let _guard = self.write_lock.lock().await;
         let dropped = self.inner.rollback_after(uuid).await;
         self.persist_locked().await;
         dropped
     }
-
     async fn save_snapshot(&self, data: &[u8]) {
         let _guard = self.write_lock.lock().await;
         self.inner.save_snapshot(data).await;
         self.persist_locked().await;
     }
-
     async fn load_snapshot(&self) -> Option<Vec<u8>> {
         self.inner.load_snapshot().await
     }
-
     async fn restore(&self) -> Result<(), SessionError> {
         let _guard = self.write_lock.lock().await;
         self.load_from_disk_locked().await
     }
-
-    async fn flush(&self) -> Result<(), SessionError> {
-        let _guard = self.write_lock.lock().await;
-        self.persist_inner_locked().await
-    }
-
     async fn close(&self) -> Result<(), SessionError> {
         let _guard = self.write_lock.lock().await;
         self.persist_inner_locked().await
     }
-
     async fn clear(&self) -> Result<(), SessionError> {
         let _guard = self.write_lock.lock().await;
         self.inner.clear().await?;
@@ -274,6 +268,8 @@ impl AgentSession for JsonFileAgentSession {
         Ok(())
     }
 }
+
+impl AgentSession for JsonFileAgentSession {}
 
 async fn atomic_write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
@@ -578,7 +574,7 @@ mod tests {
 
         assert!(error.to_string().contains("not a directory"));
         assert!(session.records(0).await.is_empty());
-        assert!(session.messages().await.is_empty());
+        assert!(session.messages().await.unwrap().is_empty());
     }
 
     #[tokio::test]

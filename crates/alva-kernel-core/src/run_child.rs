@@ -151,6 +151,7 @@ pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
             .session
             .messages()
             .await
+            .unwrap_or_default()
             .iter()
             .filter_map(|m| {
                 if let AgentMessage::Standard(msg) = m {

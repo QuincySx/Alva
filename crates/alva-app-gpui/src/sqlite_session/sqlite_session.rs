@@ -17,7 +17,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use rusqlite::{params, Connection};
 
+use alva_kernel_abi::session_store::SessionStore;
 use alva_kernel_abi::AgentMessage;
+use alva_kernel_abi::ConversationLog;
 use alva_kernel_core::agent_session::{
     AgentSession, EventEmitter, EventMatch, EventQuery, InMemoryAgentSession, SessionError,
     SessionEvent,
@@ -244,79 +246,63 @@ impl SqliteEvalSession {
 }
 
 #[async_trait]
-impl AgentSession for SqliteEvalSession {
+impl ConversationLog for SqliteEvalSession {
     fn session_id(&self) -> &str {
         self.inner.session_id()
     }
+    async fn append(&self, event: SessionEvent) -> Result<(), SessionError> {
+        self.inner.append(event).await;
+        Ok(())
+    }
+    async fn append_message(
+        &self,
+        msg: AgentMessage,
+        parent_uuid: Option<String>,
+    ) -> Result<(), SessionError> {
+        self.inner.append_message(msg, parent_uuid).await;
+        Ok(())
+    }
+    async fn messages(&self) -> Result<Vec<AgentMessage>, SessionError> {
+        self.inner.messages().await
+    }
+    async fn recent_messages(&self, n: usize) -> Result<Vec<AgentMessage>, SessionError> {
+        self.inner.recent_messages(n).await
+    }
+    async fn flush(&self) -> Result<(), SessionError> {
+        self.persist_to_db().await
+    }
+}
 
+#[async_trait]
+impl SessionStore for SqliteEvalSession {
     fn parent_session_id(&self) -> Option<&str> {
         self.inner.parent_session_id()
     }
-
-    // ----- Write (deferred: inner only, no DB until flush) -----
-
-    async fn append(&self, event: SessionEvent) {
-        self.inner.append(event).await;
-    }
-
-    async fn append_message(&self, msg: AgentMessage, parent_uuid: Option<String>) {
-        self.inner.append_message(msg, parent_uuid).await;
-    }
-
     async fn compact_messages(&self, replacement: Vec<AgentMessage>) {
         // Non-destructive: keep the event log (flushed to SQLite) intact.
         self.inner.compact_messages(replacement).await;
     }
-
-    // ----- Read (delegate to inner) -----
-
     async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
         self.inner.query(filter).await
     }
-
     async fn count(&self, filter: &EventQuery) -> usize {
         self.inner.count(filter).await
     }
-
-    async fn messages(&self) -> Vec<AgentMessage> {
-        self.inner.messages().await
-    }
-
-    async fn recent_messages(&self, n: usize) -> Vec<AgentMessage> {
-        self.inner.recent_messages(n).await
-    }
-
-    // ----- Write correction (deferred: inner only) -----
-
     async fn rollback_after(&self, uuid: &str) -> usize {
         self.inner.rollback_after(uuid).await
     }
-
     async fn save_snapshot(&self, data: &[u8]) {
         self.inner.save_snapshot(data).await;
     }
-
     async fn load_snapshot(&self) -> Option<Vec<u8>> {
         self.inner.load_snapshot().await
     }
-
-    // ----- Lifecycle -----
-
     async fn restore(&self) -> Result<(), SessionError> {
         self.load_from_db().await
     }
-
-    /// Bulk-persist all in-memory events to SQLite.
-    async fn flush(&self) -> Result<(), SessionError> {
-        self.persist_to_db().await
-    }
-
-    /// Flush then release (nothing extra to release since connection is shared).
     async fn close(&self) -> Result<(), SessionError> {
         self.persist_to_db().await
     }
-
-    /// Clear in-memory state and delete all DB rows for this session.
     async fn clear(&self) -> Result<(), SessionError> {
         self.inner.clear().await?;
 
@@ -338,6 +324,8 @@ impl AgentSession for SqliteEvalSession {
         Ok(())
     }
 }
+
+impl AgentSession for SqliteEvalSession {}
 
 #[cfg(test)]
 mod tests {

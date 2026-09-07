@@ -66,10 +66,9 @@ pub use agent_session::{
     AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery,
     ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionMessage,
 };
-pub use conversation_log::ConversationLog;
-pub use session_store::SessionStore;
 #[doc(inline)]
 pub use alva_macros::{bus_cap, bus_event};
+pub use conversation_log::ConversationLog;
 pub use provider::{CredentialSource, Provider, ProviderError, ProviderRegistry, StaticCredential};
 pub use scope::spawn::{
     OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication,
@@ -81,6 +80,7 @@ pub use session_record::{
     RecordCategory, RecordValue, SessionRecord, SessionRecordPayload,
     SESSION_RECORD_SCHEMA_VERSION,
 };
+pub use session_store::SessionStore;
 pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType};
 pub use token_estimation::{SimpleTokenEstimator, TokenEstimator};
 

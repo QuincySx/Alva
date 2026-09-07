@@ -54,6 +54,7 @@ impl AepPhaseHandler {
             .session
             .messages()
             .await
+            .unwrap_or_default()
             .into_iter()
             .filter_map(agent_message_to_message)
             .collect();
