@@ -31,7 +31,6 @@ enum	scope::spawn::communication::SpawnCommError
 enum	scope::types::ScopeError
 enum	tool::scheduler::ExecutionMode
 enum	tool::scheduler::LockMode
-enum	tool::types::ToolPermissionResult
 fn	provider::tests::assert_language_model_returns_valid_id fn assert_language_model_returns_valid_id(provider: &dyn Provider, model_id: &str)
 fn	provider::tests::assert_provider_conformance fn assert_provider_conformance(provider: &dyn Provider, known_model_id: &str)
 fn	provider::tests::assert_provider_id_non_empty fn assert_provider_id_non_empty(provider: &dyn Provider)
@@ -60,6 +59,7 @@ implfn	ContextSystem::fn handle pub fn handle(&self) -> &dyn ContextHandle
 implfn	ContextSystem::fn hooks pub fn hooks(&self) -> &dyn ContextHooks
 implfn	ContextSystem::fn new pub fn new(hooks: Arc<dyn ContextHooks>, handle: Arc<dyn ContextHandle>) -> Self
 implfn	ContextSystem::fn set_hooks pub fn set_hooks(&mut self, hooks: Arc<dyn ContextHooks>)
+implfn	EffectDescription::fn of pub fn of(summary: impl Into<String>) -> Self
 implfn	EventEmitter::fn runtime pub fn runtime() -> Self
 implfn	HeuristicTokenCounter::fn new pub fn new(context_window_size: usize) -> Self
 implfn	Injection::fn memory pub fn memory(facts: Vec<MemoryFact>) -> Self
@@ -204,6 +204,7 @@ struct	tool::guard::ToolGuard
 struct	tool::scheduler::ResourceKey
 struct	tool::scheduler::Scheduling
 struct	tool::schema::ToolSchemaContext
+struct	tool::types::EffectDescription
 struct	tool::types::ToolCall
 struct	tool::types::ToolFsDirEntry
 struct	tool::types::ToolFsExecResult
@@ -313,7 +314,7 @@ traitfn	tool::execution::ToolExecutionContext::fn tool_call_id fn tool_call_id(&
 traitfn	tool::execution::ToolExecutionContext::fn tool_fs fn tool_fs(&self) -> Option<&dyn ToolFs>
 traitfn	tool::execution::ToolExecutionContext::fn workspace fn workspace(&self) -> Option<&Path>
 traitfn	tool::types::Tool::async fn execute async fn execute( &self, input: serde_json::Value, ctx: &dyn super::execution::ToolExecutionContext, ) -> Result<super::execution::ToolOutput, AgentError>
-traitfn	tool::types::Tool::fn check_permissions fn check_permissions( &self, _input: &serde_json::Value, _ctx: &dyn super::execution::ToolExecutionContext, ) -> ToolPermissionResult
+traitfn	tool::types::Tool::fn describe_effect fn describe_effect(&self, _input: &serde_json::Value) -> EffectDescription
 traitfn	tool::types::Tool::fn description fn description(&self) -> &str
 traitfn	tool::types::Tool::fn is_read_only fn is_read_only(&self, _input: &serde_json::Value) -> bool
 traitfn	tool::types::Tool::fn name fn name(&self) -> &str
@@ -369,9 +370,9 @@ use	pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, T
 use	pub use token_estimation::{SimpleTokenEstimator, TokenEstimator}
 use	pub use tool::execution::{ MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput, }
 use	pub use tool::scheduler::{ normalize_path_string, ExecutionMode, LockMode, ResourceKey, Scheduling, }
-use	pub use tool::{ tool_definition, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, ToolSchemaContext, }
+use	pub use tool::{ tool_definition, EffectDescription, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolRegistry, ToolSchemaContext, }
 use	pub use traits::*
 use	pub use types::*
 use	pub use types::*
 use	pub use types::*
-use	pub use types::{ tool_definition, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolPermissionResult, ToolRegistry, }
+use	pub use types::{ tool_definition, EffectDescription, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolRegistry, }

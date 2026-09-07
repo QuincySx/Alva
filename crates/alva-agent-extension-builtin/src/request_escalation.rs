@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use alva_kernel_abi::{
-    AgentError, ProgressEvent, Scheduling, Tool, ToolContent, ToolExecutionContext,
-    ToolFsExecResult, ToolOutput, ToolPermissionResult,
+    AgentError, EffectDescription, ProgressEvent, Scheduling, Tool, ToolContent,
+    ToolExecutionContext, ToolFsExecResult, ToolOutput,
 };
 use async_trait::async_trait;
 use schemars::JsonSchema;
@@ -127,11 +127,11 @@ impl Tool for RequestEscalationTool {
         Scheduling::serial_global()
     }
 
-    fn check_permissions(
-        &self,
-        input: &serde_json::Value,
-        _ctx: &dyn ToolExecutionContext,
-    ) -> ToolPermissionResult {
+    /// Self-description only — the sentence is byte-identical to the
+    /// pre-refactor approval prompt, but whether it's ALLOWED, ASKED, or
+    /// DENIED is the harness's policy decision (SecurityGuard marks
+    /// `request_escalation` approval-required).
+    fn describe_effect(&self, input: &serde_json::Value) -> EffectDescription {
         let command = input
             .get("command")
             .and_then(serde_json::Value::as_str)
@@ -140,7 +140,7 @@ impl Tool for RequestEscalationTool {
             .get("cwd")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("<missing cwd>");
-        ToolPermissionResult::Ask(format!(
+        EffectDescription::of(format!(
             "Allow host-side command execution in '{cwd}': {command}"
         ))
     }
@@ -233,28 +233,23 @@ mod tests {
         }
     }
 
-    /// `request_escalation` is not on SecurityGuard's dangerous-tool name
-    /// list — this declaration is the *entire* reason a host command cannot run
-    /// unreviewed. The permission-mode goldens cover it through a full agent
-    /// turn, which means a regression here surfaces as several distant tests
-    /// going green for the wrong reason; pin the contract at its source.
+    /// The effect self-description is byte-identical to the pre-refactor
+    /// approval prompt. Whether the invocation is allowed, asked, or denied
+    /// is SecurityGuard's policy (request_escalation sits on the harness's
+    /// dangerous-tool list) — the tool cannot and must not decide.
     #[test]
-    fn escalation_always_declares_itself_ask_never_allow() {
+    fn escalation_describes_effect_without_judging() {
         let tool = RequestEscalationTool::new(Arc::new(NativeEscalationExecutor));
-        let ctx = TestContext {
-            cancel: CancellationToken::new(),
-        };
-        let decision = tool.check_permissions(
-            &serde_json::json!({"command": "cargo test", "cwd": "/tmp"}),
-            &ctx,
+        let effect =
+            tool.describe_effect(&serde_json::json!({"command": "cargo test", "cwd": "/tmp"}));
+        assert_eq!(
+            effect.summary,
+            "Allow host-side command execution in '/tmp': cargo test"
         );
-        match decision {
-            ToolPermissionResult::Ask(question) => {
-                assert!(question.contains("cargo test"), "{question}");
-                assert!(question.contains("/tmp"), "{question}");
-            }
-            other => panic!("escalation must always ask, got {other:?}"),
-        }
+        // No decision verb exists on the description: a tool structurally
+        // cannot deny itself.
+        let EffectDescription { summary } = effect;
+        assert!(!summary.is_empty());
     }
 
     struct RecordingExecutor {
@@ -319,9 +314,9 @@ mod tests {
         let ctx = TestContext {
             cancel: CancellationToken::new(),
         };
-        assert!(matches!(
-            tool.check_permissions(&json!({"command": "cargo test", "cwd": "."}), &ctx),
-            ToolPermissionResult::Ask(_)
-        ));
+        assert!(tool
+            .describe_effect(&json!({"command": "cargo test", "cwd": "."}))
+            .summary
+            .contains("cargo test"));
     }
 }

@@ -31,18 +31,28 @@ pub struct ToolCall {
 // Use tool::execution::ToolExecutionContext instead.
 
 // ---------------------------------------------------------------------------
-// ToolPermissionResult — permission check outcome
+// EffectDescription — what this invocation will do (no judgment)
 // ---------------------------------------------------------------------------
 
-/// Result of a tool permission check.
+/// 工具对"这份入参会让我干什么"的自述 —— **不含判断**。
+///
+/// "允不允许执行、要不要人工确认"是 harness 的工具策略层的决策动词；
+/// 同一个工具在不同安全档下答案不同，工具无权替产品拍板，更不能拒绝
+/// 自己。工具只负责描述：只有工具知道自己的入参长什么样，harness 为了
+/// 拼审批提示语不应该知道某个具体工具的字段。
 #[derive(Debug, Clone)]
-pub enum ToolPermissionResult {
-    /// Tool use is allowed.
-    Allow,
-    /// Tool use is denied with a reason.
-    Deny(String),
-    /// Tool use requires user confirmation with a question.
-    Ask(String),
+pub struct EffectDescription {
+    /// 一句话自述这份入参的效果。harness 需要审批提示语时可原样引用；
+    /// 默认实现回退到工具的 `description()`。
+    pub summary: String,
+}
+
+impl EffectDescription {
+    pub fn of(summary: impl Into<String>) -> Self {
+        Self {
+            summary: summary.into(),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -151,13 +161,12 @@ pub trait Tool: Send + Sync {
         false
     }
 
-    /// Check whether the tool should be allowed to run with the given input.
-    fn check_permissions(
-        &self,
-        _input: &serde_json::Value,
-        _ctx: &dyn super::execution::ToolExecutionContext,
-    ) -> ToolPermissionResult {
-        ToolPermissionResult::Allow
+    /// 自述这份入参会让我干什么 —— 不含判断。
+    ///
+    /// 决策（允许 / 拒绝 / 询问）住在 harness 的工具策略层；策略层需要
+    /// 审批提示语时引用这里的 `summary`。默认自述就是工具的 `description()`。
+    fn describe_effect(&self, _input: &serde_json::Value) -> EffectDescription {
+        EffectDescription::of(self.description())
     }
 }
 

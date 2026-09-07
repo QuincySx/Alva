@@ -125,10 +125,11 @@ async fn child_shell_call_executes_after_approval() {
     );
 }
 
-/// The newly-added host escalation surface is declared dangerous by the
-/// Tool::check_permissions contract rather than SecurityGuard's legacy name
-/// list. A child must still inherit the parent's middleware and surface the
-/// request through the same HITL channel before any host command can run.
+/// The host escalation surface is approval-required by the harness's tool
+/// policy (it sits on SecurityGuard's dangerous-tool list) — the tool itself
+/// only describes its effect. A child must still inherit the parent's
+/// middleware and surface the request through the same HITL channel before
+/// any host command can run.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn child_escalation_call_is_gated_and_reject_blocks_it() {
     let tmp = tempfile::tempdir().expect("tempdir");

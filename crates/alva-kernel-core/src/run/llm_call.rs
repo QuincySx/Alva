@@ -11,7 +11,7 @@ use alva_kernel_abi::tool::execution::{
     ToolExecutionContext as AbiToolExecutionContext, ToolOutput as AbiToolOutput,
 };
 use alva_kernel_abi::tool::schema::ToolSchemaContext;
-use alva_kernel_abi::tool::{Tool, ToolPermissionResult};
+use alva_kernel_abi::tool::{EffectDescription, Tool};
 use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, Message, MessageRole,
     ModelConfig, StreamEvent, StreamMessageAccumulator,
@@ -89,12 +89,8 @@ impl Tool for PrebakedSchemaTool {
         self.inner.is_read_only(input)
     }
 
-    fn check_permissions(
-        &self,
-        input: &serde_json::Value,
-        ctx: &dyn AbiToolExecutionContext,
-    ) -> ToolPermissionResult {
-        self.inner.check_permissions(input, ctx)
+    fn describe_effect(&self, input: &serde_json::Value) -> EffectDescription {
+        self.inner.describe_effect(input)
     }
 }
 

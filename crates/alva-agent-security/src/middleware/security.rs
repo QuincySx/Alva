@@ -15,8 +15,8 @@ use crate::pending_actions::{
 };
 use crate::{SandboxMode, SecurityDecision, SecurityGuard};
 use alva_kernel_abi::{
-    bus_cap, BusHandle, CancellationToken, ToolCall, ToolExecutionContext, ToolFs,
-    ToolPermissionResult,
+    bus_cap, BusHandle, CancellationToken, EffectDescription, ToolCall, ToolExecutionContext,
+    ToolFs,
 };
 use alva_kernel_core::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
 use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
@@ -214,24 +214,27 @@ impl Middleware for SecurityMiddleware {
             workspace: self.workspace.get().cloned(),
             bus: self.bus.get().cloned(),
         };
-        let tool_permission = state
+        // The tool self-describes what this invocation will do; the DECISION
+        // (allow / deny / ask) is the harness's tool policy below. A tool
+        // cannot deny itself — `EffectDescription` has no deny verb.
+        let effect = state
             .tools
             .iter()
             .find(|tool| tool.name() == tool_call.name)
-            .map(|tool| tool.check_permissions(&tool_call.arguments, &tool_context))
-            .unwrap_or(ToolPermissionResult::Allow);
+            .map(|tool| tool.describe_effect(&tool_call.arguments))
+            .unwrap_or_else(|| EffectDescription::of(String::new()));
 
-        // Phase 1: tool declaration + existing dangerous-tool / path check.
-        // ToolPermissionResult::Ask joins the exact same PermissionMode,
+        // Phase 1: harness tool policy + existing dangerous-tool / path check.
+        // A policy-gated tool joins the exact same PermissionMode,
         // BashClassifier, HITL notifier, and pending-action path as a tool in
         // SecurityGuard's configured dangerous set.
         let (decision, pending_rx) = {
             let mut guard = self.guard.lock().await;
-            let decision = guard.check_tool_call_with_permission(
+            let decision = guard.check_tool_call(
                 &tool_call.name,
                 &tool_call.arguments,
                 &tool_context,
-                tool_permission,
+                &effect,
             );
             let rx = if let SecurityDecision::NeedHumanApproval { ref request_id } = decision {
                 guard.take_pending_receiver(request_id)

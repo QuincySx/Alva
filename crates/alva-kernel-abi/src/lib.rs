@@ -43,8 +43,8 @@ pub use tool::scheduler::{
     normalize_path_string, ExecutionMode, LockMode, ResourceKey, Scheduling,
 };
 pub use tool::{
-    tool_definition, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult,
-    ToolPermissionResult, ToolRegistry, ToolSchemaContext,
+    tool_definition, EffectDescription, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry,
+    ToolFsExecResult, ToolRegistry, ToolSchemaContext,
 };
 
 // Re-export proc macros from alva-macros. A derive macro and a trait

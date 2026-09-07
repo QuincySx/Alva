@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use alva_kernel_abi::{bus_cap, ToolExecutionContext, ToolPermissionResult};
+use alva_kernel_abi::{bus_cap, EffectDescription, ToolExecutionContext};
 
 use crate::authorized_roots::AuthorizedRoots;
 use crate::cache::{CachedDecision, PermissionCache};
@@ -40,6 +40,10 @@ const DEFAULT_DANGEROUS_TOOLS: &[&str] = &[
     "file_edit",
     "browser_action",
     "browser_navigate",
+    // Host-side escalation is approval-required by policy (the harness's
+    // decision), not by the tool's own declaration — the tool merely
+    // describes what it will do via `describe_effect`.
+    "request_escalation",
 ];
 
 /// Default mapping of tools whose arguments contain a URL that needs SSRF
@@ -315,30 +319,22 @@ impl SecurityGuard {
     ///   7. Bash command classification (in auto mode)
     ///   8. HITL permission manager for configured or tool-declared dangerous tools
     ///   9. Return Allow / Deny / NeedHumanApproval
-    pub fn check_tool_call_with_permission(
+    pub fn check_tool_call(
         &mut self,
         tool_name: &str,
         args: &Value,
         _ctx: &dyn ToolExecutionContext,
-        tool_permission: ToolPermissionResult,
+        effect: &EffectDescription,
     ) -> SecurityDecision {
-        let tool_requires_approval = match tool_permission {
-            ToolPermissionResult::Allow => false,
-            ToolPermissionResult::Deny(reason) => {
-                return SecurityDecision::Deny {
-                    reason: format!("tool '{}' blocked: {}", tool_name, reason),
-                };
-            }
-            ToolPermissionResult::Ask(question) => {
-                tracing::debug!(
-                    tool = tool_name,
-                    question,
-                    "tool requested permission review"
-                );
-                true
-            }
-        };
-        let dangerous = tool_requires_approval || self.is_dangerous(tool_name);
+        // The tool's effect self-description carries no decision verb; the
+        // policy inputs are this guard's configured dangerous set, the
+        // permission mode, rules, and caches. A tool cannot deny or ask
+        // itself through its description — the summary is surfaced for the
+        // human approval prompt only.
+        if !effect.summary.is_empty() {
+            tracing::debug!(tool = tool_name, effect = %effect.summary, "tool effect description");
+        }
+        let dangerous = self.is_dangerous(tool_name);
         let current_mode = self.mode.get_mode();
 
         // 1. Permission mode enforcement
@@ -640,26 +636,20 @@ impl SecurityGuard {
 
 #[cfg(test)]
 mod tests {
-    /// Test-only shorthand for the pre-escalation call shape: no tool
-    /// declaration, so only the guard's own dangerous-tool list applies.
-    ///
-    /// This is deliberately not a public entry point. A tool's
-    /// `ToolPermissionResult` is the *only* thing marking `request_escalation`
-    /// dangerous — it is not on the guard's name list — so a general-purpose
-    /// `check_tool_call` that quietly substituted `Allow` would hand any future
-    /// caller a weaker check than the one the middleware runs.
+    /// Test-only shorthand: a bare effect description, so only the guard's
+    /// own dangerous-tool list applies.
     impl super::SecurityGuard {
-        fn check_tool_call_with_permission_for_test(
+        fn check_tool_call_for_test(
             &mut self,
             tool_name: &str,
             args: &serde_json::Value,
             ctx: &dyn alva_kernel_abi::ToolExecutionContext,
         ) -> super::SecurityDecision {
-            self.check_tool_call_with_permission(
+            self.check_tool_call(
                 tool_name,
                 args,
                 ctx,
-                alva_kernel_abi::ToolPermissionResult::Allow,
+                &alva_kernel_abi::EffectDescription::of(String::new()),
             )
         }
     }
@@ -696,14 +686,60 @@ mod tests {
     }
 
     #[test]
+    fn tool_cannot_deny_itself_through_its_effect_description() {
+        // The decision verbs (allow / deny / ask) live in harness policy.
+        // A tool whose self-description claims catastrophic intent gets the
+        // same treatment as any other non-policy-gated tool: allowed —
+        // because `EffectDescription` has no deny verb and this guard's
+        // policy does not gate `innocent_tool`.
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "path": "/projects/myapp/src/main.rs" });
+        let decision = guard.check_tool_call(
+            "innocent_tool",
+            &args,
+            &test_ctx(),
+            &alva_kernel_abi::EffectDescription::of("I will delete every file on this machine"),
+        );
+        assert!(
+            matches!(decision, SecurityDecision::Allow),
+            "an effect description must never become a deny decision"
+        );
+    }
+
+    #[test]
+    fn request_escalation_is_gated_by_harness_policy_not_tool_declaration() {
+        // The inverse half: `request_escalation` requires approval because
+        // the HARNESS lists it as dangerous — even with an empty effect
+        // description. Policy could unmark it (products may override any
+        // tool's judgment); the tool itself can never opt out.
+        let mut guard = SecurityGuard::new(
+            PathBuf::from("/projects/myapp"),
+            SandboxMode::RestrictiveOpen,
+        );
+        let args = json!({ "command": "ls", "cwd": "/projects/myapp" });
+        let decision = guard.check_tool_call(
+            "request_escalation",
+            &args,
+            &test_ctx(),
+            &alva_kernel_abi::EffectDescription::of(String::new()),
+        );
+        assert!(matches!(
+            decision,
+            SecurityDecision::NeedHumanApproval { .. }
+        ));
+    }
+
+    #[test]
     fn allows_safe_tool_in_workspace() {
         let mut guard = SecurityGuard::new(
             PathBuf::from("/projects/myapp"),
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "path": "/projects/myapp/src/main.rs" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("read_file", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("read_file", &args, &test_ctx());
         assert!(matches!(decision, SecurityDecision::Allow));
     }
 
@@ -714,8 +750,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "path": "/projects/myapp/.env" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("read_file", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("read_file", &args, &test_ctx());
         assert!(matches!(decision, SecurityDecision::Deny { .. }));
     }
 
@@ -726,8 +761,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "path": "/etc/passwd" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("read_file", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("read_file", &args, &test_ctx());
         assert!(matches!(decision, SecurityDecision::Deny { .. }));
     }
 
@@ -738,8 +772,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "command": "ls /projects/myapp" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("execute_shell", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("execute_shell", &args, &test_ctx());
         assert!(matches!(
             decision,
             SecurityDecision::NeedHumanApproval { .. }
@@ -754,8 +787,7 @@ mod tests {
         );
         // First call — needs approval
         let args = json!({ "command": "ls /projects/myapp" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("execute_shell", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("execute_shell", &args, &test_ctx());
         if let SecurityDecision::NeedHumanApproval { request_id } = decision {
             guard.resolve_permission(
                 &request_id,
@@ -764,8 +796,7 @@ mod tests {
             );
         }
         // Second call — should be auto-allowed
-        let decision2 =
-            guard.check_tool_call_with_permission_for_test("execute_shell", &args, &test_ctx());
+        let decision2 = guard.check_tool_call_for_test("execute_shell", &args, &test_ctx());
         assert!(matches!(decision2, SecurityDecision::Allow));
     }
 
@@ -776,8 +807,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "path": ".env" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("read_file", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("read_file", &args, &test_ctx());
         assert!(matches!(decision, SecurityDecision::Deny { .. }));
     }
 
@@ -788,11 +818,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let approved_args = json!({ "command": "ls /projects/myapp" });
-        let approved = guard.check_tool_call_with_permission_for_test(
-            "execute_shell",
-            &approved_args,
-            &test_ctx(),
-        );
+        let approved = guard.check_tool_call_for_test("execute_shell", &approved_args, &test_ctx());
         if let SecurityDecision::NeedHumanApproval { request_id } = approved {
             guard.resolve_permission(
                 &request_id,
@@ -804,11 +830,8 @@ mod tests {
         }
 
         let different_args = json!({ "command": "ls /projects/myapp/src" });
-        let decision = guard.check_tool_call_with_permission_for_test(
-            "execute_shell",
-            &different_args,
-            &test_ctx(),
-        );
+        let decision =
+            guard.check_tool_call_for_test("execute_shell", &different_args, &test_ctx());
         assert!(
             matches!(decision, SecurityDecision::NeedHumanApproval { .. }),
             "different arguments should require a fresh approval"
@@ -836,8 +859,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "command": "ls /" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("execute_shell", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("execute_shell", &args, &test_ctx());
         assert!(
             !matches!(&decision, SecurityDecision::Deny { reason } if reason.contains("outside")),
             "shell command `ls /` must not be denied by the root check: {decision:?}"
@@ -852,8 +874,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "file_path": "/etc/hosts" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("read_file", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("read_file", &args, &test_ctx());
         assert!(
             matches!(&decision, SecurityDecision::Deny { .. }),
             "explicit file_path outside workspace must still be denied"
@@ -873,8 +894,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "path": "/projects/myapp/src/lib.rs" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("read_file", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("read_file", &args, &test_ctx());
         assert!(matches!(decision, SecurityDecision::Allow));
     }
 
@@ -885,8 +905,7 @@ mod tests {
             SandboxMode::RestrictiveOpen,
         );
         let args = json!({ "command": "ls /projects/myapp" });
-        let decision =
-            guard.check_tool_call_with_permission_for_test("execute_shell", &args, &test_ctx());
+        let decision = guard.check_tool_call_for_test("execute_shell", &args, &test_ctx());
 
         let request_id = match decision {
             SecurityDecision::NeedHumanApproval { request_id } => request_id,

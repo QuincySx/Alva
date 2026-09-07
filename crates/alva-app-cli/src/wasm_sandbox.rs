@@ -16,8 +16,8 @@ use alva_app_core::{
     PermissionDecision, PermissionMode, SandboxMode, SecurityDecision, SecurityGuard,
 };
 use alva_kernel_abi::{
-    AgentError, CancellationToken, LanguageModel, ModelConfig, Tool, ToolExecutionContext,
-    ToolOutput, ToolPermissionResult,
+    AgentError, CancellationToken, EffectDescription, LanguageModel, ModelConfig, Tool,
+    ToolExecutionContext, ToolOutput,
 };
 use alva_llm_wire::{
     LlmProxyRequest, LlmProxyResponse, ToolDefinition, MAX_LLM_PROXY_RESPONSE_BYTES,
@@ -259,11 +259,14 @@ impl HostEscalationHandler {
                 .guard
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let decision = guard.check_tool_call_with_permission(
+            let decision = guard.check_tool_call(
                 "request_escalation",
                 &arguments,
                 &context,
-                ToolPermissionResult::Ask(format!(
+                // Same self-description the escalation tool itself emits;
+                // headless wasm escalation is then rejected once by policy
+                // below, exactly as the pre-refactor Ask path did.
+                &EffectDescription::of(format!(
                     "Allow host-side command execution in {host_cwd_text:?}: {}",
                     request.command
                 )),
