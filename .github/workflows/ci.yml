@@ -159,6 +159,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: ci-check-deps (layering rules + bus lint + wasm32 sets)
         run: ./scripts/ci-check-deps.sh
+      - name: public-surface gate (kernel-abi + agent-core snapshot)
+        run: ./scripts/public-surface.sh --check
 
   # ── Stage 3 — coverage (visibility only, after tests pass) ────────────
   coverage:

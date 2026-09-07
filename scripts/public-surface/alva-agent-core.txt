@@ -1,0 +1,101 @@
+implfn	Agent::async fn config pub async fn config(&self) -> tokio::sync::RwLockReadGuard<'_, AgentConfig>
+implfn	Agent::async fn run pub async fn run( &self, input: Vec<AgentMessage>, cancel: CancellationToken, ) -> Result<mpsc::UnboundedReceiver<AgentEvent>, AgentError>
+implfn	Agent::async fn run_bounded pub async fn run_bounded( &self, input: Vec<AgentMessage>, cancel: CancellationToken, capacity: usize, ) -> Result<mpsc::Receiver<AgentEvent>, AgentError>
+implfn	Agent::async fn set_allowed_tools pub async fn set_allowed_tools(&self, allowed: Option<Vec<String>>)
+implfn	Agent::async fn set_disable_tools pub async fn set_disable_tools(&self, disabled: bool)
+implfn	Agent::async fn set_extra_body pub async fn set_extra_body(&self, extra: Option<serde_json::Map<String, serde_json::Value>>)
+implfn	Agent::async fn set_reasoning_effort pub async fn set_reasoning_effort(&self, effort: Option<ReasoningEffort>)
+implfn	Agent::async fn set_turn_system_additions pub async fn set_turn_system_additions(&self, additions: Vec<String>)
+implfn	Agent::fn assembly_snapshot pub fn assembly_snapshot(&self) -> AgentAssemblySnapshot
+implfn	Agent::fn builder pub fn builder() -> crate::agent_builder::AgentBuilder
+implfn	Agent::fn bus pub fn bus(&self) -> &BusHandle
+implfn	Agent::fn host pub fn host(&self) -> &Arc<std::sync::RwLock<PluginHost>>
+implfn	Agent::fn state pub fn state(&self) -> &Mutex<AgentState>
+implfn	Agent::fn tools pub fn tools(&self) -> &[Arc<dyn Tool>]
+implfn	AgentBuilder::async fn build pub async fn build(self) -> Result<Agent, AgentError>
+implfn	AgentBuilder::fn context_window pub fn context_window(mut self, n: usize) -> Self
+implfn	AgentBuilder::fn max_iterations pub fn max_iterations(mut self, n: u32) -> Self
+implfn	AgentBuilder::fn middleware pub fn middleware(mut self, mw: Arc<dyn Middleware>) -> Self
+implfn	AgentBuilder::fn model pub fn model(mut self, m: Arc<dyn LanguageModel>) -> Self
+implfn	AgentBuilder::fn model_config pub fn model_config(mut self, cfg: ModelConfig) -> Self
+implfn	AgentBuilder::fn new pub fn new() -> Self
+implfn	AgentBuilder::fn plugin pub fn plugin(mut self, p: Box<dyn Plugin>) -> Self
+implfn	AgentBuilder::fn session pub fn session(mut self, s: Arc<dyn AgentSession>) -> Self
+implfn	AgentBuilder::fn system_prompt pub fn system_prompt(mut self, s: impl Into<String>) -> Self
+implfn	AgentBuilder::fn tool pub fn tool(mut self, t: Box<dyn Tool>) -> Self
+implfn	AgentBuilder::fn with_bus pub fn with_bus(mut self, bus: BusHandle) -> Self
+implfn	AgentBuilder::fn with_bus_writer pub fn with_bus_writer(mut self, bw: BusWriter) -> Self
+implfn	AgentBuilder::fn with_context_system pub fn with_context_system( mut self, cs: Arc<alva_kernel_abi::scope::context::ContextSystem>, ) -> Self
+implfn	AgentBuilder::fn with_context_token_budget pub fn with_context_token_budget(mut self, budget: usize) -> Self
+implfn	AgentBuilder::fn workspace pub fn workspace(mut self, p: impl Into<PathBuf>) -> Self
+implfn	MockToolFs::fn new pub fn new() -> Self
+implfn	MockToolFs::fn with_exec_response pub fn with_exec_response(self, result: ToolFsExecResult) -> Self
+implfn	MockToolFs::fn with_file pub fn with_file(self, path: &str, content: &[u8]) -> Self
+implfn	PhaseContribution::fn new pub fn new( name: impl Into<String>, phase: Phase, effect: PhaseEffect, order: PhaseOrder, ) -> Self
+implfn	PhaseHandlerMiddleware::fn new pub(crate) fn new(handler: Arc<dyn PhaseHandler>, contribution: PhaseContribution) -> Self
+implfn	PhaseOrder::fn priority pub fn priority(self) -> i32
+implfn	PluginHost::fn append_system_prompt pub fn append_system_prompt( &mut self, plugin_name: String, layer: alva_kernel_abi::scope::context::ContextLayer, text: String, )
+implfn	PluginHost::fn bind_agent pub fn bind_agent(&mut self, cancel: Arc<std::sync::Mutex<CancellationToken>>)
+implfn	PluginHost::fn commands pub fn commands(&self) -> &[RegisteredCommand]
+implfn	PluginHost::fn new pub fn new() -> Self
+implfn	PluginHost::fn register_command pub fn register_command(&mut self, cmd: RegisteredCommand)
+implfn	PluginHost::fn register_middleware pub fn register_middleware(&mut self, mw: Arc<dyn alva_kernel_core::middleware::Middleware>)
+implfn	PluginHost::fn register_phase_contribution pub fn register_phase_contribution( &mut self, plugin_name: String, contribution: PhaseContribution, )
+implfn	PluginHost::fn take_middlewares pub fn take_middlewares(&mut self) -> Vec<Arc<dyn alva_kernel_core::middleware::Middleware>>
+implfn	PluginHost::fn take_phase_contributions pub fn take_phase_contributions(&mut self) -> Vec<(String, PhaseContribution)>
+implfn	PluginHost::fn take_system_prompt_additions pub fn take_system_prompt_additions( &mut self, ) -> Vec<( String, alva_kernel_abi::scope::context::ContextLayer, String, )>
+implfn	Registrar::fn bus pub fn bus(&self) -> &BusHandle
+implfn	Registrar::fn bus_writer pub fn bus_writer(&self) -> &BusWriter
+implfn	Registrar::fn command pub fn command(&self, name: impl Into<String>, description: impl Into<String>)
+implfn	Registrar::fn contribution pub(crate) fn contribution(&self) -> PluginContribution
+implfn	Registrar::fn middleware pub fn middleware(&self, mw: Arc<dyn Middleware>)
+implfn	Registrar::fn new pub fn new( host: Arc<RwLock<PluginHost>>, plugin_name: String, bus: BusHandle, bus_writer: BusWriter, workspace: PathBuf, ) -> Self
+implfn	Registrar::fn phase pub fn phase(&self, contribution: PhaseContribution)
+implfn	Registrar::fn phase_handler pub fn phase_handler(&self, handler: Arc<dyn PhaseHandler>)
+implfn	Registrar::fn plugin_name pub fn plugin_name(&self) -> &str
+implfn	Registrar::fn provide pub fn provide<T: Send + Sync + ?Sized + 'static>(&self, value: Arc<T>)
+implfn	Registrar::fn system_prompt pub fn system_prompt(&self, layer: ContextLayer, text: impl Into<String>)
+implfn	Registrar::fn take_tools pub(crate) fn take_tools(&self) -> Vec<Box<dyn Tool>>
+implfn	Registrar::fn tool pub fn tool<T: Tool + 'static>(&self, t: T)
+implfn	Registrar::fn tools pub fn tools(&self, ts: Vec<Box<dyn Tool>>)
+implfn	Registrar::fn workspace pub fn workspace(&self) -> &Path
+mod	agent
+mod	agent_builder
+mod	extension
+mod	mock_fs
+struct	agent::Agent
+struct	agent::AgentAssemblySnapshot
+struct	agent::PluginAssemblySnapshot
+struct	agent_builder::AgentBuilder
+struct	extension::host::PluginHost
+struct	extension::host::RegisteredCommand
+struct	extension::phase::PhaseContribution
+struct	extension::registrar::LateContext
+struct	extension::registrar::Registrar
+struct	mock_fs::MockToolFs
+trait	extension::phase::PhaseHandler
+trait	extension::plugin::Plugin
+traitfn	extension::phase::PhaseHandler::async fn after_llm_call async fn after_llm_call( &self, _state: &AgentState, _response: &mut Message, ) -> Result<(), MiddlewareError>
+traitfn	extension::phase::PhaseHandler::async fn after_tool_call async fn after_tool_call( &self, _state: &AgentState, _tool_call: &ToolCall, _result: &mut ToolOutput, ) -> Result<(), MiddlewareError>
+traitfn	extension::phase::PhaseHandler::async fn before_llm_call async fn before_llm_call( &self, _state: &AgentState, _messages: &mut Vec<Message>, ) -> Result<(), MiddlewareError>
+traitfn	extension::phase::PhaseHandler::async fn before_tool_call async fn before_tool_call( &self, _state: &AgentState, _tool_call: &ToolCall, ) -> Result<(), MiddlewareError>
+traitfn	extension::phase::PhaseHandler::async fn input_committed async fn input_committed( &self, _state: &AgentState, _message: &AgentMessage, ) -> Result<(), MiddlewareError>
+traitfn	extension::phase::PhaseHandler::async fn run_end async fn run_end( &self, _state: &AgentState, _error: Option<&str>, ) -> Result<(), MiddlewareError>
+traitfn	extension::phase::PhaseHandler::async fn run_start async fn run_start(&self, _state: &AgentState) -> Result<(), MiddlewareError>
+traitfn	extension::phase::PhaseHandler::async fn wrap_tool_call async fn wrap_tool_call( &self, state: &AgentState, tool_call: &ToolCall, next: &dyn ToolCallFn, ) -> Result<ToolOutput, MiddlewareError>
+traitfn	extension::phase::PhaseHandler::fn contribution fn contribution(&self) -> PhaseContribution
+traitfn	extension::phase::PhaseHandler::fn handles_before_tool_call_as_wrap fn handles_before_tool_call_as_wrap(&self) -> bool
+traitfn	extension::plugin::Plugin::async fn finalize async fn finalize(&self, _cx: &LateContext) -> Vec<Arc<dyn Tool>>
+traitfn	extension::plugin::Plugin::async fn register async fn register(&self, _r: &Registrar)
+traitfn	extension::plugin::Plugin::async fn try_finalize async fn try_finalize(&self, cx: &LateContext) -> Result<Vec<Arc<dyn Tool>>, AgentError>
+traitfn	extension::plugin::Plugin::async fn try_register async fn try_register(&self, r: &Registrar) -> Result<(), AgentError>
+traitfn	extension::plugin::Plugin::fn description fn description(&self) -> &str
+traitfn	extension::plugin::Plugin::fn name fn name(&self) -> &str
+use	pub use agent::{Agent, AgentAssemblySnapshot, PluginAssemblySnapshot}
+use	pub use agent_builder::AgentBuilder
+use	pub use extension::{PluginHost, RegisteredCommand}
+use	pub use host::{PluginHost, RegisteredCommand}
+use	pub use mock_fs::MockToolFs
+use	pub use phase::{PhaseContribution, PhaseHandler, PhaseOrder}
+use	pub use plugin::Plugin
+use	pub use registrar::{LateContext, Registrar}
