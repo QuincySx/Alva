@@ -1,8 +1,8 @@
 // INPUT:  alva_kernel_abi context types (Injection, CompressAction, ContextHandle, …)
-// OUTPUT: pub fn apply_injections, pub async fn apply_compressions
+// OUTPUT: pub fn apply_injections, pub async fn apply_compressions, DefaultContextApply
 // POS:    Runtime helpers that apply context-hook results to system prompt /
-//         message state. Lives in kernel-core (L2) so the pure-contract L1 ABI
-//         crate does not own execution logic.
+//         message state. Ticket 10: 自 kernel-core 迁入上下文能力库——内核只在
+//         正确时机询问上下文系统，不负责替它执行结果。
 
 use alva_kernel_abi::base::content::ContentBlock;
 use alva_kernel_abi::base::message::{Message, MessageRole};
@@ -799,5 +799,35 @@ mod tests {
         )
         .await;
         assert_eq!(msgs.len(), before, "no-op actions must not mutate");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DefaultContextApply — the executor wired into ContextSystem
+// ---------------------------------------------------------------------------
+
+/// [`ContextApply`](alva_kernel_abi::scope::context::ContextApply) 的默认实现：
+/// 直接执行本模块的 `apply_injections` / `apply_compressions`。
+/// `default_context_system()` 会把它挂到 `ContextSystem` 上。
+pub struct DefaultContextApply;
+
+impl alva_kernel_abi::scope::context::ContextApply for DefaultContextApply {
+    fn apply_injections(
+        &self,
+        injections: Vec<alva_kernel_abi::scope::context::Injection>,
+        system_prompt: &mut Vec<String>,
+        messages: &mut Vec<alva_kernel_abi::AgentMessage>,
+    ) {
+        apply_injections(injections, system_prompt, messages);
+    }
+
+    fn apply_compressions<'a>(
+        &'a self,
+        actions: Vec<alva_kernel_abi::scope::context::CompressAction>,
+        messages: &'a mut Vec<alva_kernel_abi::AgentMessage>,
+        handle: &'a dyn alva_kernel_abi::scope::context::ContextHandle,
+        agent_id: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(apply_compressions(actions, messages, handle, agent_id))
     }
 }

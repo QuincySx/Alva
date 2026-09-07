@@ -21,7 +21,10 @@ pub fn default_context_system() -> ContextSystem {
     )));
     let handle: Arc<dyn ContextHandle> = Arc::new(crate::sdk_impl::ContextHandleImpl::new(store));
     let hooks: Arc<dyn ContextHooks> = Arc::new(crate::rules_plugin::RulesContextHooks::default());
+    // 注入/压缩的执行器挂在上下文系统上（ticket 10）：内核只问时机，落地
+    // 归上下文能力库。
     ContextSystem::new(hooks, handle)
+        .with_apply(Arc::new(crate::context_apply::DefaultContextApply))
 }
 
 #[cfg(test)]

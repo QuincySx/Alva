@@ -3,7 +3,6 @@
 // POS:    Crate root — declares modules and re-exports the public API for the agent engine.
 
 pub mod builtins;
-pub mod context_apply;
 pub mod context_runtime;
 pub mod event;
 pub mod middleware;
@@ -40,9 +39,6 @@ pub use runtime_context::RuntimeExecutionContext;
 // Re-exports — builtins
 pub use builtins::{DanglingToolCallMiddleware, LoopDetectionMiddleware};
 pub use context_runtime::ContextRuntime;
-
-// Re-exports — context apply helpers (runtime logic; contract types stay in abi).
-pub use context_apply::{apply_compressions, apply_injections};
 
 // Re-export AgentMessage from alva-kernel-abi
 pub use alva_kernel_abi::AgentMessage;

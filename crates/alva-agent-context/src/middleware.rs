@@ -868,4 +868,136 @@ mod tests {
                 > 0
         );
     }
+
+    /// Ticket 10 acceptance: compaction must NOT delete the append-only
+    /// event log. After a compaction fires, the Inspector can still query
+    /// the pre-compaction LLM and tool activity WITH their causal
+    /// parent links (tool_result -> tool_use -> llm_call) intact.
+    #[tokio::test]
+    async fn compaction_preserves_pre_compaction_llm_and_tool_events() {
+        use alva_kernel_abi::agent_session::{EventEmitter, EventQuery, SessionEvent};
+        use alva_kernel_abi::{ExecutionRecord, RecordValue, SessionRecord};
+
+        let bus = alva_kernel_abi::Bus::new();
+        let writer = bus.writer();
+        writer.provide::<dyn alva_kernel_abi::TokenCounter>(Arc::new(MockCounter(500)));
+        let handle = bus.handle();
+
+        let mw = CompactionMiddleware::new(CompactionConfig {
+            trigger_tokens: 200,
+            reserve_tokens: 0,
+            keep_recent_tokens: 250,
+        })
+        .with_bus(handle);
+
+        let mut state = make_state_with_summary_model();
+
+        // Seed the session with a pre-compaction causal chain:
+        // llm_call_start -> tool_use (intent) -> tool_result (outcome),
+        // linked via parent_uuid the way the kernel run loop writes them.
+        let session = state.session.clone();
+        let llm_call_uuid = {
+            let mut e = SessionEvent::new_runtime("llm_call_start");
+            e.data = Some(serde_json::json!({ "iteration": 1 }));
+            let uuid = e.uuid.clone();
+            session.append(e).await.unwrap();
+            uuid
+        };
+        let tool_use_uuid = {
+            let mut record = SessionRecord::execution(
+                "tool_use",
+                EventEmitter::runtime(),
+                ExecutionRecord::Intent {
+                    operation_id: "toolu_1".into(),
+                    operation: "read_file".into(),
+                    input: RecordValue::Inline {
+                        value: serde_json::json!({ "path": "/src/main.rs" }),
+                    },
+                },
+            );
+            record.parent_record_id = Some(llm_call_uuid.clone());
+            let record_id = record.record_id.clone();
+            session.append_records(vec![record]).await.unwrap();
+            record_id
+        };
+        {
+            let mut record = SessionRecord::execution(
+                "tool_outcome",
+                EventEmitter::runtime(),
+                ExecutionRecord::Outcome {
+                    operation_id: "toolu_1".into(),
+                    success: true,
+                    output: RecordValue::Inline {
+                        value: serde_json::json!({ "text": "fn main() {}" }),
+                    },
+                },
+            );
+            record.parent_record_id = Some(tool_use_uuid.clone());
+            session.append_records(vec![record]).await.unwrap();
+        }
+
+        // Enough long conversation messages to trigger compaction.
+        let long_text = "x".repeat(400);
+        let mut msgs = vec![
+            Message::system("sys"),
+            make_user_msg(&format!("aaa {}", long_text)),
+            make_assistant_msg(&format!("bbb {}", long_text)),
+            make_user_msg(&format!("ccc {}", long_text)),
+            make_assistant_msg(&format!("ddd {}", long_text)),
+            make_user_msg(&format!("eee {}", long_text)),
+            make_assistant_msg(&format!("fff {}", long_text)),
+        ];
+        let _ = mw.before_llm_call(&mut state, &mut msgs).await;
+        assert!(mw.compaction_count() > 0, "compaction must fire");
+
+        // Pre-compaction skeleton events must STILL be in the log.
+        let llm_events = session
+            .query(&EventQuery {
+                event_type: Some("llm_call_start".into()),
+                ..Default::default()
+            })
+            .await;
+        assert_eq!(
+            llm_events.len(),
+            1,
+            "the pre-compaction llm_call_start event must survive compaction"
+        );
+        assert_eq!(llm_events[0].event.uuid, llm_call_uuid);
+
+        // The typed projection must still carry the intent/outcome with the
+        // causal chain intact: outcome.parent == intent.id, intent.parent == llm_call.
+        let records = session.records(0).await;
+        let intent = records
+            .iter()
+            .find(|r| {
+                matches!(
+                    &r.payload,
+                    alva_kernel_abi::SessionRecordPayload::Execution(
+                        ExecutionRecord::Intent { operation_id, .. }
+                    ) if operation_id == "toolu_1"
+                )
+            })
+            .expect("tool_use intent must survive compaction");
+        let outcome = records
+            .iter()
+            .find(|r| {
+                matches!(
+                    &r.payload,
+                    alva_kernel_abi::SessionRecordPayload::Execution(
+                        ExecutionRecord::Outcome { operation_id, .. }
+                    ) if operation_id == "toolu_1"
+                )
+            })
+            .expect("tool_outcome must survive compaction");
+        assert_eq!(
+            outcome.parent_record_id.as_deref(),
+            Some(intent.record_id.as_str()),
+            "outcome must still point at its intent"
+        );
+        assert_eq!(
+            intent.parent_record_id.as_deref(),
+            Some(llm_call_uuid.as_str()),
+            "intent must still point at the llm call"
+        );
+    }
 }

@@ -1403,7 +1403,10 @@ async fn on_budget_exceeded_sliding_window_drops_old_messages() {
         fired: fired.clone(),
     });
     let handle: Arc<dyn ContextHandle> = Arc::new(NoopContextHandle);
-    let cs = Arc::new(ContextSystem::new(hooks, handle));
+    let cs = Arc::new(
+        ContextSystem::new(hooks, handle)
+            .with_apply(Arc::new(alva_agent_context::DefaultContextApply)),
+    );
 
     let session = Arc::new(InMemoryAgentSession::new());
     {

@@ -26,6 +26,7 @@ tokio-stream = { version = "0.1", default-features = false }
 web-time = "1"
 
 [dev-dependencies]
+alva-agent-context = { path = "../alva-agent-context" }
 alva-agent-core = { path = "../alva-agent-core" }
 alva-test = { path = "../alva-test" }
 futures = "0.3"

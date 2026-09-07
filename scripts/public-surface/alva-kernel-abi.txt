@@ -56,10 +56,12 @@ implfn	ContextMetadata::fn with_origin pub fn with_origin(mut self, origin: Entr
 implfn	ContextMetadata::fn with_priority pub fn with_priority(mut self, priority: Priority) -> Self
 implfn	ContextMetadata::fn with_tokens pub fn with_tokens(mut self, tokens: usize) -> Self
 implfn	ContextMetadata::fn with_turn pub fn with_turn(mut self, turn: usize) -> Self
+implfn	ContextSystem::fn apply pub fn apply(&self) -> Option<&dyn ContextApply>
 implfn	ContextSystem::fn handle pub fn handle(&self) -> &dyn ContextHandle
 implfn	ContextSystem::fn hooks pub fn hooks(&self) -> &dyn ContextHooks
 implfn	ContextSystem::fn new pub fn new(hooks: Arc<dyn ContextHooks>, handle: Arc<dyn ContextHandle>) -> Self
 implfn	ContextSystem::fn set_hooks pub fn set_hooks(&mut self, hooks: Arc<dyn ContextHooks>)
+implfn	ContextSystem::fn with_apply pub fn with_apply(mut self, apply: Arc<dyn ContextApply>) -> Self
 implfn	EffectDescription::fn of pub fn of(summary: impl Into<String>) -> Self
 implfn	EventEmitter::fn runtime pub fn runtime() -> Self
 implfn	HeuristicTokenCounter::fn new pub fn new(context_window_size: usize) -> Self
@@ -221,6 +223,7 @@ trait	model::TokenCounter
 trait	provider::credential::CredentialSource
 trait	provider::types::Provider
 trait	runtime::Sleeper
+trait	scope::context::system::ContextApply
 trait	scope::context::traits::ContextHandle
 trait	scope::context::traits::ContextHooks
 trait	scope::spawn::communication::OnChildComplete
@@ -252,6 +255,8 @@ traitfn	provider::credential::CredentialSource::async fn get_api_key async fn ge
 traitfn	provider::types::Provider::fn id fn id(&self) -> &str
 traitfn	provider::types::Provider::fn language_model fn language_model(&self, model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError>
 traitfn	runtime::Sleeper::async fn sleep async fn sleep(&self, duration: Duration)
+traitfn	scope::context::system::ContextApply::fn apply_compressions fn apply_compressions<'a>( &'a self, actions: Vec<super::CompressAction>, messages: &'a mut Vec<crate::AgentMessage>, handle: &'a dyn ContextHandle, agent_id: &'a str, ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>
+traitfn	scope::context::system::ContextApply::fn apply_injections fn apply_injections( &self, injections: Vec<super::Injection>, system_prompt: &mut Vec<String>, messages: &mut Vec<crate::AgentMessage>, )
 traitfn	scope::context::traits::ContextHandle::async fn summarize async fn summarize(&self, agent_id: &str, range: MessageRange, hints: &[String]) -> String
 traitfn	scope::context::traits::ContextHandle::fn budget fn budget(&self, agent_id: &str) -> BudgetInfo
 traitfn	scope::context::traits::ContextHandle::fn clear_all fn clear_all(&self, agent_id: &str)

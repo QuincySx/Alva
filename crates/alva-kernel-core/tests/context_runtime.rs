@@ -74,7 +74,13 @@ fn config_with_context() -> AgentConfig {
         context_window: 0,
         workspace: None,
         bus: None,
-        context_system: Some(Arc::new(ContextSystem::new(hooks, handle))),
+        // Ticket 10: execution lives in the context capability library —
+        // the fixture attaches the default executor, exactly like
+        // `default_context_system()` does in production.
+        context_system: Some(Arc::new(
+            ContextSystem::new(hooks, handle)
+                .with_apply(Arc::new(alva_agent_context::DefaultContextApply)),
+        )),
         context_token_budget: None,
     }
 }

@@ -6,7 +6,6 @@ use alva_kernel_abi::scope::context::{
 };
 use alva_kernel_abi::{AgentMessage, BusHandle};
 
-use crate::context_apply::{apply_compressions, apply_injections};
 use crate::state::AgentConfig;
 
 pub struct ContextRuntime {
@@ -86,11 +85,21 @@ impl ContextRuntime {
         let mut working_messages = session_messages;
 
         if !self.pending_injections.is_empty() {
-            apply_injections(
-                std::mem::take(&mut self.pending_injections),
-                system_prompt_buf,
-                &mut working_messages,
-            );
+            match cs_apply(config) {
+                Some(apply) => apply.apply_injections(
+                    std::mem::take(&mut self.pending_injections),
+                    system_prompt_buf,
+                    &mut working_messages,
+                ),
+                None => {
+                    // 上下文系统未挂执行器：内核不执行注入（ticket 10）。
+                    // 有自定义执行语义的第三方系统应把执行做在自己的钩子里。
+                    self.pending_injections.clear();
+                    tracing::debug!(
+                        "context system has no apply executor; dropping pending injections"
+                    );
+                }
+            }
         }
 
         if let Some(cs) = config.context_system.as_ref() {
@@ -156,13 +165,25 @@ impl ContextRuntime {
                     .hooks()
                     .on_budget_exceeded(cs.handle(), &self.agent_id, &snapshot)
                     .await;
-                apply_compressions(actions, &mut working_messages, cs.handle(), &self.agent_id)
-                    .await;
+                if let Some(apply) = cs_apply(config) {
+                    apply
+                        .apply_compressions(
+                            actions,
+                            &mut working_messages,
+                            cs.handle(),
+                            &self.agent_id,
+                        )
+                        .await;
+                }
             }
         }
 
         working_messages
     }
+}
+
+fn cs_apply(config: &AgentConfig) -> Option<&dyn alva_kernel_abi::scope::context::ContextApply> {
+    config.context_system.as_ref().and_then(|cs| cs.apply())
 }
 
 fn estimate_prompt_tokens(prompt: &[String], bus: Option<&BusHandle>) -> usize {

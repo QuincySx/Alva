@@ -23,6 +23,7 @@
 //! `ContextHooksChain`, `ContextHandleImpl`, and `ContextStore`.
 
 pub mod chain;
+pub mod context_apply;
 pub mod context_system;
 pub mod default_plugin;
 pub mod plugin;
@@ -45,6 +46,7 @@ pub(crate) mod util;
 pub use middleware::CompactionMiddleware;
 
 pub use chain::ContextHooksChain;
+pub use context_apply::{apply_compressions, apply_injections, DefaultContextApply};
 pub use context_system::{default_context_system, ContextSystem};
 pub use default_plugin::{DefaultContextHooks, DefaultHooksConfig, DefaultSummarizeFn};
 pub use plugin::{ContextError, ContextHooks};
