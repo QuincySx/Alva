@@ -199,8 +199,7 @@ impl EngineRuntime for PiAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_engine_runtime::{validate_event_stream, RuntimeError};
-    use std::time::Duration;
+    use alva_engine_runtime::validate_event_stream;
     use tokio_stream::StreamExt;
 
     fn pi_adapter(executable: std::path::PathBuf) -> PiAdapter {
