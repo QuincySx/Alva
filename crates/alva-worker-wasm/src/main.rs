@@ -405,7 +405,7 @@ async fn run_worker(
     // the finished turn — `try_recv`-style early stops would silently lose
     // the final message.
     let mut final_text = None;
-    use futures_util::StreamExt;
+    use futures::StreamExt;
     while let Some(event) = events.next().await {
         if let AgentEvent::MessageEnd {
             message: AgentMessage::Standard(message),

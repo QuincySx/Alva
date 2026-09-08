@@ -1,10 +1,9 @@
-// INPUT:  std::sync, std::time, alva_kernel_abi::{AnalyticsEvent, AnalyticsSink, BusHandle, ToolCall, ToolOutput}, alva_kernel_core::{middleware::{Middleware, MiddlewareContext, MiddlewareError}, state::AgentState}, async_trait
+// INPUT:  std::sync, std::time, alva_agent_abi::{AnalyticsEvent, AnalyticsSink, Phase, PhaseEffect}, alva_kernel_abi::{BusHandle, ToolCall, ToolOutput, Message}, alva_kernel_core::{middleware::{Middleware, LlmCallFn, MiddlewareContext, MiddlewareError}, state::AgentState}, async_trait
 // OUTPUT: AnalyticsPlugin, AnalyticsMiddleware
 // POS:    Telemetry pipeline. Extension publishes a JsonlSink on the bus and installs
-//         a middleware that emits ToolCallStart/ToolCallEnd events around every tool call.
-//         The trait + event types live in kernel-abi so kernel-core can also emit
-//         (e.g. LlmCall events from run.rs); this module is the storage + tool-level
-//         observation layer.
+//         a middleware that emits ToolCallStart/ToolCallEnd around every tool call
+//         and one LlmCall event per LLM turn (ticket 15: 自内核 run 循环迁来，
+//         与工具埋点同为中间件采集，采集字段逐字段一致).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -15,8 +14,9 @@ use async_trait::async_trait;
 
 use alva_agent_abi::{AnalyticsEvent, AnalyticsSink, Phase, PhaseEffect};
 use alva_agent_core::extension::{PhaseContribution, PhaseHandler, PhaseOrder};
+use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::{BusHandle, ToolCall, ToolContent, ToolOutput};
-use alva_kernel_core::middleware::{Middleware, MiddlewareContext, MiddlewareError};
+use alva_kernel_core::middleware::{LlmCallFn, Middleware, MiddlewareContext, MiddlewareError};
 use alva_kernel_core::state::AgentState;
 
 use crate::analytics::JsonlSink;
@@ -252,6 +252,45 @@ impl Middleware for AnalyticsMiddleware {
     ) -> Result<(), MiddlewareError> {
         self.record_after_tool_call(state, tool_call, result).await
     }
+
+    async fn wrap_llm_call(
+        &self,
+        state: &AgentState,
+        messages: Vec<Message>,
+        next: &dyn LlmCallFn,
+    ) -> Result<Message, MiddlewareError> {
+        // LLM 埋点（ticket 15 自内核迁来）：耗时从 wrap 入口计时，usage 取
+        // 自响应，字段与原先内核直发的 LlmCall 埋点逐字段一致。内核循环
+        // 出错路径不产埋点——本钩子在 next 出错时同样直接透传错误，不发
+        // 事件，行为一致。
+        let started = Instant::now();
+        let response = next.call(state, messages).await?;
+        if let Some(sink) = self.sink() {
+            let usage = response.usage.as_ref();
+            sink.record(AnalyticsEvent::LlmCall {
+                session_id: self.session_id(state),
+                provider: state.model.provider_id().to_string(),
+                model: state.model.model_id().to_string(),
+                input_tokens: usage.map(|u| u.input_tokens).unwrap_or(0),
+                output_tokens: usage.map(|u| u.output_tokens).unwrap_or(0),
+                cache_read: usage.and_then(|u| u.cache_read_input_tokens).unwrap_or(0),
+                cache_write: usage
+                    .and_then(|u| u.cache_creation_input_tokens)
+                    .unwrap_or(0),
+                cost_usd: 0.0,
+                latency_ms: started.elapsed().as_millis() as u64,
+                // The analytics ABI field is std::time::SystemTime, whose
+                // `now()` panics on wasm32. Take "now" from web_time and
+                // rebase it onto the std type — identical to the previous
+                // kernel-side emission.
+                ts: std::time::SystemTime::UNIX_EPOCH
+                    + web_time::SystemTime::now()
+                        .duration_since(web_time::SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default(),
+            });
+        }
+        Ok(response)
+    }
 }
 
 struct AnalyticsPhaseHandler {
@@ -421,5 +460,166 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert_eq!(joined, "first second");
+    }
+
+    /// Ticket 15 acceptance: one full turn must produce an `LlmCall` event
+    /// with every field identical to what the kernel loop used to emit
+    /// directly (session/provider/model/tokens/cache/cost/latency/ts) —
+    /// proving the move to the middleware hook lost no data.
+    #[tokio::test]
+    async fn llm_call_event_fields_match_the_previous_kernel_emission() {
+        use std::pin::Pin;
+        use std::sync::Arc as StdArc;
+
+        use alva_agent_core::agent_session::InMemoryAgentSession;
+        use alva_kernel_abi::base::stream::StreamEvent;
+        use alva_kernel_abi::model::LanguageModel;
+        use alva_kernel_abi::tool::Tool;
+        use alva_kernel_abi::ConversationLog;
+        use alva_kernel_abi::{
+            AgentError, AgentMessage, CompletionResponse, ModelConfig, UsageMetadata,
+        };
+        use alva_kernel_core::run::run_agent;
+        use alva_kernel_core::state::{AgentConfig, AgentState};
+        use async_trait::async_trait as at;
+        use futures::Stream;
+
+        struct RecordingSink(StdArc<Mutex<Vec<AnalyticsEvent>>>);
+        impl AnalyticsSink for RecordingSink {
+            fn record(&self, event: AnalyticsEvent) {
+                self.0.lock().unwrap().push(event);
+            }
+        }
+
+        /// Model whose complete() returns a message carrying full usage.
+        struct UsageModel;
+        #[at]
+        impl LanguageModel for UsageModel {
+            fn model_id(&self) -> &str {
+                "usage-model"
+            }
+            fn provider_id(&self) -> &str {
+                "test-provider"
+            }
+            async fn complete(
+                &self,
+                _messages: &[alva_kernel_abi::Message],
+                _tools: &[&dyn Tool],
+                _config: &ModelConfig,
+            ) -> Result<CompletionResponse, AgentError> {
+                let mut message = alva_kernel_abi::Message {
+                    id: "usage-msg".into(),
+                    role: alva_kernel_abi::MessageRole::Assistant,
+                    content: vec![alva_kernel_abi::ContentBlock::Text {
+                        text: "done".into(),
+                    }],
+                    tool_call_id: None,
+                    usage: None,
+                    timestamp: 0,
+                };
+                message.usage = Some(UsageMetadata {
+                    input_tokens: 100,
+                    output_tokens: 20,
+                    cache_creation_input_tokens: Some(3),
+                    cache_read_input_tokens: Some(7),
+                    total_tokens: 120,
+                });
+                Ok(CompletionResponse { message, raw: None })
+            }
+            fn stream(
+                &self,
+                _messages: &[alva_kernel_abi::Message],
+                _tools: &[&dyn Tool],
+                _config: &ModelConfig,
+            ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
+                // Empty stream → kernel falls back to complete(), exactly the
+                // path the old kernel emission could take.
+                Box::pin(tokio_stream::empty())
+            }
+        }
+
+        let events: StdArc<Mutex<Vec<AnalyticsEvent>>> = Default::default();
+        let mut stack = alva_kernel_core::middleware::MiddlewareStack::new();
+        stack.push(Arc::new(AnalyticsMiddleware::with_sink(Arc::new(
+            RecordingSink(events.clone()),
+        ))));
+
+        let session = StdArc::new(InMemoryAgentSession::new());
+        let state = AgentState {
+            model: StdArc::new(UsageModel),
+            tools: vec![],
+            session: session.clone(),
+            extensions: alva_kernel_core::shared::Extensions::new(),
+        };
+        let config = AgentConfig {
+            middleware: stack,
+            system_prompt: vec![],
+            max_iterations: 5,
+            model_config: ModelConfig::default(),
+            context_window: 0,
+            workspace: None,
+            bus: None,
+            context_system: None,
+            context_token_budget: None,
+        };
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        run_agent(
+            &state,
+            &config,
+            alva_kernel_abi::CancellationToken::new(),
+            vec![AgentMessage::Standard(alva_kernel_abi::Message::user("hi"))],
+            tx,
+        )
+        .await
+        .expect("run completes");
+        while rx.recv().await.is_some() {}
+
+        let guard = events.lock().unwrap();
+        let llm = guard
+            .iter()
+            .find_map(|event| match event {
+                AnalyticsEvent::LlmCall {
+                    session_id,
+                    provider,
+                    model,
+                    input_tokens,
+                    output_tokens,
+                    cache_read,
+                    cache_write,
+                    cost_usd,
+                    latency_ms,
+                    ts,
+                } => Some((
+                    session_id.clone(),
+                    provider.clone(),
+                    model.clone(),
+                    *input_tokens,
+                    *output_tokens,
+                    *cache_read,
+                    *cache_write,
+                    *cost_usd,
+                    *latency_ms,
+                    *ts,
+                )),
+                _ => None,
+            })
+            .expect("one LlmCall event per turn must reach the sink");
+
+        let (sess, provider, model, input, output, cache_read, cache_write, cost, latency, ts) =
+            llm;
+        assert_eq!(sess, session.session_id());
+        assert_eq!(provider, "test-provider");
+        assert_eq!(model, "usage-model");
+        assert_eq!(input, 100);
+        assert_eq!(output, 20);
+        assert_eq!(cache_read, 7);
+        assert_eq!(cache_write, 3);
+        assert_eq!(cost, 0.0, "cost stays 0.0 — the kernel never knew prices");
+        assert!(latency <= 30_000, "latency is a sane millisecond figure");
+        assert!(
+            ts > std::time::SystemTime::UNIX_EPOCH,
+            "timestamp is a real wall-clock instant"
+        );
     }
 }

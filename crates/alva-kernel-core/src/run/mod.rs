@@ -529,7 +529,6 @@ async fn run_loop(
             })),
         )
         .await?;
-        let llm_call_started_at = web_time::Instant::now();
 
         let actual_call = ActualLlmCall {
             model: state.model.clone(),
@@ -597,38 +596,6 @@ async fn run_loop(
             })),
         )
         .await?;
-
-        // Analytics: emit a structured LlmCall event for telemetry sinks.
-        // No-op if no AnalyticsSink is registered on the bus.
-        if let Some(sink) = config
-            .bus
-            .as_ref()
-            .and_then(|b| b.get::<dyn alva_kernel_abi::AnalyticsSink>())
-        {
-            let usage = response.usage.as_ref();
-            sink.record(alva_kernel_abi::AnalyticsEvent::LlmCall {
-                session_id: state.session.session_id().to_string(),
-                provider: state.model.provider_id().to_string(),
-                model: state.model.model_id().to_string(),
-                input_tokens: usage.map(|u| u.input_tokens).unwrap_or(0),
-                output_tokens: usage.map(|u| u.output_tokens).unwrap_or(0),
-                cache_read: usage.and_then(|u| u.cache_read_input_tokens).unwrap_or(0),
-                cache_write: usage
-                    .and_then(|u| u.cache_creation_input_tokens)
-                    .unwrap_or(0),
-                cost_usd: 0.0,
-                latency_ms: llm_call_started_at.elapsed().as_millis() as u64,
-                // The analytics ABI field is std::time::SystemTime, whose
-                // `now()` panics on wasm32. Take "now" from web_time and
-                // rebase it onto the std type — SystemTime ARITHMETIC is
-                // wasm-safe, only ::now() is not. On native web_time is a
-                // re-export of std, so this is byte-identical there.
-                ts: std::time::SystemTime::UNIX_EPOCH
-                    + web_time::SystemTime::now()
-                        .duration_since(web_time::SystemTime::UNIX_EPOCH)
-                        .unwrap_or_default(),
-            });
-        }
 
         // 3g. Store response in session + fire ContextHooks::on_message
         let response_msg = AgentMessage::Standard(response.clone());
