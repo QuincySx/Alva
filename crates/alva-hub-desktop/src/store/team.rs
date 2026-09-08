@@ -424,6 +424,8 @@ impl super::HubStore {
     /// than letting a later task jump it — that is what makes the ordering
     /// deterministic.
     pub fn claim_next_worker_task(&self, worker_id: &str) -> Result<TaskClaim, String> {
+        use super::orchestration::{ClaimDecision, ClaimInputs, HeadTask, RunningHolder};
+
         let now = now_unix_ms();
         let mut connection = self.lock()?;
         let transaction = connection
@@ -442,8 +444,6 @@ impl super::HubStore {
         let Some((task_id, claims_json, head_created_at, head_rowid)) = head else {
             return Ok(TaskClaim::Empty);
         };
-        // Hibernated and archived workers keep their queue but consume
-        // nothing: that is exactly what "released the runtime" means.
         let lifecycle: String = transaction
             .query_row(
                 "SELECT lifecycle FROM team_workers WHERE worker_id = ?1",
@@ -451,9 +451,6 @@ impl super::HubStore {
                 |row| row.get(0),
             )
             .map_err(|error| format!("query Hub worker lifecycle: {error}"))?;
-        if WorkerLifecycle::parse(&lifecycle)? != WorkerLifecycle::Active {
-            return Ok(TaskClaim::Dormant);
-        }
         let wanted: Vec<ResourceClaim> = serde_json::from_str(&claims_json)
             .map_err(|error| format!("decode Hub task claims: {error}"))?;
 
@@ -489,90 +486,97 @@ impl super::HubStore {
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|error| format!("decode Hub claim holders: {error}"))?;
         drop(holder_statement);
-        let mut blocked_by: Vec<BlockedResource> = Vec::new();
-        for (holder_task_id, holder_worker_id, holder_claims_json) in holders {
-            let held: Vec<ResourceClaim> = serde_json::from_str(&holder_claims_json)
-                .map_err(|error| format!("decode Hub holder claims: {error}"))?;
-            for conflict in crate::claims::conflicting_claims(&wanted, &held) {
-                blocked_by.push(BlockedResource {
-                    resource: conflict.describe(),
-                    holder_task_id: holder_task_id.clone(),
-                    holder_worker_id: holder_worker_id.clone(),
-                });
-            }
-        }
-        // Fairness: an older head-of-queue waiter in this workspace reserves
-        // its resources, so a stream of short conflicting tasks cannot starve
-        // it. Holders never wait, so the globally oldest waiter is always
-        // eventually grantable — reservations cannot deadlock.
-        if blocked_by.is_empty() {
-            let mut waiter_statement = transaction
-                .prepare(
-                    "SELECT wt.task_id, wt.worker_id, wt.claims_json FROM worker_tasks wt
-                           JOIN team_workers tw ON tw.worker_id = wt.worker_id
-                           JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
-                          WHERE wt.status = 'queued' AND hs.workspace = ?1
-                            AND wt.worker_id <> ?2
-                            AND (wt.created_at < ?3
-                                 OR (wt.created_at = ?3 AND wt.rowid < ?4))
-                            AND wt.task_id = (
-                              SELECT head.task_id FROM worker_tasks head
-                               WHERE head.worker_id = wt.worker_id AND head.status = 'queued'
-                               ORDER BY head.created_at ASC, head.rowid ASC LIMIT 1
-                            )",
-                )
-                .map_err(|error| format!("prepare Hub claim waiters: {error}"))?;
-            let waiters = waiter_statement
-                .query_map(
-                    params![workspace, worker_id, head_created_at, head_rowid],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                        ))
-                    },
-                )
-                .map_err(|error| format!("query Hub claim waiters: {error}"))?
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(|error| format!("decode Hub claim waiters: {error}"))?;
-            drop(waiter_statement);
-            for (waiter_task_id, waiter_worker_id, waiter_claims_json) in waiters {
-                let reserved: Vec<ResourceClaim> = serde_json::from_str(&waiter_claims_json)
-                    .map_err(|error| format!("decode Hub waiter claims: {error}"))?;
-                for conflict in crate::claims::conflicting_claims(&wanted, &reserved) {
-                    blocked_by.push(BlockedResource {
-                        resource: conflict.describe(),
-                        holder_task_id: waiter_task_id.clone(),
-                        holder_worker_id: waiter_worker_id.clone(),
-                    });
-                }
-            }
-        }
-        if !blocked_by.is_empty() {
-            return Ok(TaskClaim::Blocked {
+
+        // Fairness candidates: older head-of-queue waiters in this workspace.
+        let mut waiter_statement = transaction
+            .prepare(
+                "SELECT wt.task_id, wt.worker_id, wt.claims_json FROM worker_tasks wt
+                       JOIN team_workers tw ON tw.worker_id = wt.worker_id
+                       JOIN hub_sessions hs ON hs.product_session_id = tw.worker_session_id
+                      WHERE wt.status = 'queued' AND hs.workspace = ?1
+                        AND wt.worker_id <> ?2
+                        AND (wt.created_at < ?3
+                             OR (wt.created_at = ?3 AND wt.rowid < ?4))
+                        AND wt.task_id = (
+                          SELECT head.task_id FROM worker_tasks head
+                           WHERE head.worker_id = wt.worker_id AND head.status = 'queued'
+                           ORDER BY head.created_at ASC, head.rowid ASC LIMIT 1
+                        )",
+            )
+            .map_err(|error| format!("prepare Hub claim waiters: {error}"))?;
+        let waiters = waiter_statement
+            .query_map(
+                params![workspace, worker_id, head_created_at, head_rowid],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .map_err(|error| format!("query Hub claim waiters: {error}"))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| format!("decode Hub claim waiters: {error}"))?;
+        drop(waiter_statement);
+
+        // ── 决策（纯策略，见 orchestration::decide_claim）──────────────
+        let to_holder = |(task_id, worker_id, claims_json): (String, String, String)| {
+            Ok::<RunningHolder, String>(RunningHolder {
+                task_id,
+                worker_id,
+                claims: serde_json::from_str(&claims_json)
+                    .map_err(|error| format!("decode Hub holder claims: {error}"))?,
+            })
+        };
+        let holders = holders
+            .into_iter()
+            .map(to_holder)
+            .collect::<Result<Vec<_>, _>>()?;
+        let waiters = waiters
+            .into_iter()
+            .map(to_holder)
+            .collect::<Result<Vec<_>, _>>()?;
+        let inputs = ClaimInputs {
+            lifecycle: WorkerLifecycle::parse(&lifecycle)?,
+            head: Some(HeadTask {
+                task_id: task_id.clone(),
+            }),
+            wanted,
+            holders,
+            older_waiters: waiters,
+        };
+        // ── 记账：按决策落库 ────────────────────────────────────────────
+        match super::orchestration::decide_claim(&inputs) {
+            ClaimDecision::Empty => Ok(TaskClaim::Empty),
+            ClaimDecision::Dormant => Ok(TaskClaim::Dormant),
+            ClaimDecision::Blocked {
                 task_id,
                 blocked_by,
-            });
-        }
-
-        let changed = transaction
-            .execute(
-                "UPDATE worker_tasks SET status = ?2, started_at = ?3
-                      WHERE task_id = ?1 AND status = 'queued'",
-                params![task_id, STATUS_RUNNING, now],
-            )
-            .map_err(|error| format!("claim Hub worker task: {error}"))?;
-        transaction
-            .commit()
-            .map_err(|error| format!("commit Hub task claim: {error}"))?;
-        drop(connection);
-        if changed != 1 {
-            return Ok(TaskClaim::Empty);
-        }
-        match self.worker_task(&task_id)? {
-            Some(task) => Ok(TaskClaim::Claimed(Box::new(task))),
-            None => Ok(TaskClaim::Empty),
+            } => Ok(TaskClaim::Blocked {
+                task_id,
+                blocked_by,
+            }),
+            ClaimDecision::Grant { task_id } => {
+                let changed = transaction
+                    .execute(
+                        "UPDATE worker_tasks SET status = ?2, started_at = ?3
+                              WHERE task_id = ?1 AND status = 'queued'",
+                        params![task_id, STATUS_RUNNING, now],
+                    )
+                    .map_err(|error| format!("claim Hub worker task: {error}"))?;
+                transaction
+                    .commit()
+                    .map_err(|error| format!("commit Hub task claim: {error}"))?;
+                drop(connection);
+                if changed != 1 {
+                    return Ok(TaskClaim::Empty);
+                }
+                match self.worker_task(&task_id)? {
+                    Some(task) => Ok(TaskClaim::Claimed(Box::new(task))),
+                    None => Ok(TaskClaim::Empty),
+                }
+            }
         }
     }
 
