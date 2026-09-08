@@ -1,0 +1,10 @@
+[package]
+name = "alva-agent-abi"
+version = "0.1.0"
+edition = "2021"
+description = "Agent contract layer: Task / Scope / Spawn / Phase / Analytics — product concepts above the kernel, below the SDK assembly"
+
+[dependencies]
+alva-kernel-abi = { path = "../alva-kernel-abi" }
+
+[target.'cfg(target_family = "wasm")'.dependencies]

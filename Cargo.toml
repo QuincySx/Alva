@@ -6,6 +6,7 @@ members = [
     "crates/alva-macros",
     "crates/alva-bus-lint",
     "crates/alva-kernel-abi",
+    "crates/alva-agent-abi",
     "crates/alva-kernel-core",
     "crates/alva-agent-core",
     "crates/alva-agent-extension-builtin",
