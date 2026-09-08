@@ -70,9 +70,19 @@ impl EngineTarget {
                 "Provider API usage",
             ),
             other => {
-                return Err(format!(
-                    "unsupported Hub engine '{other}'; expected alva, claude, codex, or pi"
-                ));
+                // Ticket 17: a registered (fifth+) engine gets generic routing
+                // defaults; the registry is the authority on what exists.
+                if crate::engine_registry::blueprint(other).is_none() {
+                    return Err(format!(
+                        "unsupported Hub engine '{other}'; expected alva, claude, codex, or pi"
+                    ));
+                }
+                (
+                    "engine-default",
+                    other,
+                    "Registered engine account",
+                    "Provider API usage",
+                )
             }
         };
         Ok(Self {

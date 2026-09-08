@@ -1,20 +1,16 @@
-// INPUT:  EngineProbe facts (binary discovery, version, auth, stream evidence)
-// OUTPUT: structured EngineReadiness reports for the ALVA/Claude Code/Codex/Pi dashboard
+// INPUT:  crate::engine_registry (blueprints), EngineProbe facts (binary discovery, version, auth, stream evidence)
+// OUTPUT: structured EngineReadiness reports for the engine dashboard
 // POS:    Read-only Hub engine health classification; probes never mutate engine config.
+//         Ticket 17: the module carries ZERO engine names — every per-engine fact
+//         (probe, veto, spec) lives in the engine's registered blueprint.
 
 use std::path::{Path, PathBuf};
 
-use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
-use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
-use alva_engine_adapter_pi::{PiAdapter, PiAdapterConfig};
-use alva_engine_runtime::{EngineRuntime, RuntimeCapabilities};
 use serde::Serialize;
 
-use crate::store::HubStore;
+use crate::engine_registry;
 
-pub const HUB_ENGINE_IDS: [&str; 4] = ["alva", "claude", "codex", "pi"];
-
-fn is_executable_file(path: &Path) -> bool {
+pub fn is_executable_file(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }
@@ -48,6 +44,26 @@ pub enum StreamHealth {
     #[default]
     Untested,
     Failing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthKind {
+    /// Auth = a usable provider key / route (in-process engines).
+    ProviderKey,
+    /// Auth = the CLI's own login state (credential files, keychain).
+    CliLogin,
+}
+
+/// Per-engine readiness self-description (display name, minimum version,
+/// default remedy, and how "authenticated" is interpreted). Lives in the
+/// engine's registered blueprint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadinessSpec {
+    pub display_name: String,
+    pub minimum_version: String,
+    pub default_auth_remedy: String,
+    pub auth_kind: AuthKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -119,14 +135,30 @@ pub trait EngineProbe: Send + Sync {
 }
 
 pub fn probe_readiness(probe: &dyn EngineProbe) -> Vec<EngineReadiness> {
-    HUB_ENGINE_IDS
+    engine_registry::registered_engine_ids()
         .iter()
         .map(|engine_id| classify_engine(engine_id, probe.facts(engine_id)))
         .collect()
 }
 
 pub fn classify_engine(engine_id: &str, facts: EngineProbeFacts) -> EngineReadiness {
-    let spec = engine_spec(engine_id);
+    let Some(spec) = engine_registry::blueprint(engine_id).map(|b| b.readiness.clone()) else {
+        // Unregistered engines are not the dashboard's business.
+        return finish(
+            ReadinessSpec {
+                display_name: "Unknown engine".into(),
+                minimum_version: "0.0.0".into(),
+                default_auth_remedy: "This engine is not supported by Hub.".into(),
+                auth_kind: AuthKind::CliLogin,
+            },
+            engine_id,
+            facts,
+            ReadinessStatus::Missing,
+            vec![ReadinessReason::BinaryNotFound {
+                searched: Vec::new(),
+            }],
+        );
+    };
     let mut reasons = Vec::new();
 
     if facts.binary_path.is_none() {
@@ -152,10 +184,10 @@ pub fn classify_engine(engine_id: &str, facts: EngineProbeFacts) -> EngineReadin
         }
     };
     if let Some(found) = &version {
-        if !version_at_least(found, spec.minimum_version) {
+        if !version_at_least(found, &spec.minimum_version) {
             reasons.push(ReadinessReason::VersionIncompatible {
                 found: found.clone(),
-                minimum: spec.minimum_version.to_string(),
+                minimum: spec.minimum_version.clone(),
             });
             return finish(
                 spec,
@@ -183,8 +215,8 @@ pub fn classify_engine(engine_id: &str, facts: EngineProbeFacts) -> EngineReadin
         let remedy = facts
             .auth_remedy
             .clone()
-            .unwrap_or_else(|| spec.default_auth_remedy.to_string());
-        reasons.push(if matches!(engine_id, "alva" | "pi") {
+            .unwrap_or_else(|| spec.default_auth_remedy.clone());
+        reasons.push(if spec.auth_kind == AuthKind::ProviderKey {
             ReadinessReason::ProviderKeyMissing { remedy }
         } else {
             ReadinessReason::Unauthenticated { remedy }
@@ -211,43 +243,6 @@ pub fn classify_engine(engine_id: &str, facts: EngineProbeFacts) -> EngineReadin
     finish(spec, engine_id, facts, ReadinessStatus::Healthy, reasons)
 }
 
-struct EngineSpec {
-    display_name: &'static str,
-    minimum_version: &'static str,
-    default_auth_remedy: &'static str,
-}
-
-fn engine_spec(engine_id: &str) -> EngineSpec {
-    match engine_id {
-        "alva" => EngineSpec {
-            display_name: "Alva",
-            minimum_version: "0.1.0",
-            default_auth_remedy: "Configure a provider in Settings > Models and engines.",
-        },
-        "claude" => EngineSpec {
-            display_name: "Claude Code",
-            minimum_version: "1.0.0",
-            default_auth_remedy: "Run `claude` once in a terminal to sign in.",
-        },
-        "codex" => EngineSpec {
-            display_name: "Codex CLI",
-            minimum_version: "0.20.0",
-            default_auth_remedy: "Run `codex login` in a terminal to sign in.",
-        },
-        "pi" => EngineSpec {
-            display_name: "Pi",
-            minimum_version: "0.84.0",
-            default_auth_remedy:
-                "Configure a compatible provider in Settings > Models and engines.",
-        },
-        _ => EngineSpec {
-            display_name: "Unknown engine",
-            minimum_version: "0.0.0",
-            default_auth_remedy: "This engine is not supported by Hub.",
-        },
-    }
-}
-
 /// The engine-capability vocabulary — exactly the set `capability_labels` can
 /// produce.
 ///
@@ -263,12 +258,12 @@ pub const ENGINE_CAPABILITIES: [&str; 5] = [
     "cancel",
 ];
 
-/// Model-capability words that legitimately share the same field: the Alva/Pi
-/// provider assembly reads them back (`alva.rs`) to decide whether the model
-/// accepts images. They describe the **model**, not the engine.
+/// Model-capability words that legitimately share the same field: the
+/// provider assembly reads them back (engine wiring) to decide whether the
+/// model accepts images. They describe the **model**, not the engine.
 pub const MODEL_CAPABILITIES: [&str; 3] = ["images", "vision", "tools"];
 
-pub fn capability_labels(capabilities: &RuntimeCapabilities) -> Vec<String> {
+pub fn capability_labels(capabilities: &alva_engine_runtime::RuntimeCapabilities) -> Vec<String> {
     let mut labels = Vec::new();
     if capabilities.streaming {
         labels.push("streaming");
@@ -289,7 +284,7 @@ pub fn capability_labels(capabilities: &RuntimeCapabilities) -> Vec<String> {
 }
 
 fn finish(
-    spec: EngineSpec,
+    spec: ReadinessSpec,
     engine_id: &str,
     facts: EngineProbeFacts,
     status: ReadinessStatus,
@@ -301,11 +296,11 @@ fn finish(
     };
     EngineReadiness {
         engine_id: engine_id.to_string(),
-        display_name: spec.display_name.to_string(),
+        display_name: spec.display_name,
         status,
         binary_path: facts.binary_path,
         version,
-        minimum_version: spec.minimum_version.to_string(),
+        minimum_version: spec.minimum_version,
         capabilities: facts.capabilities,
         authenticated: facts.authenticated,
         stream_health: facts.stream_health,
@@ -313,7 +308,7 @@ fn finish(
     }
 }
 
-fn version_at_least(found: &str, minimum: &str) -> bool {
+pub fn version_at_least(found: &str, minimum: &str) -> bool {
     let parse = |raw: &str| -> Vec<u64> {
         raw.trim()
             .trim_start_matches(|character: char| !character.is_ascii_digit())
@@ -366,7 +361,7 @@ impl SystemProbe {
         let search_paths = std::env::var_os("PATH")
             .map(|paths| std::env::split_paths(&paths).collect())
             .unwrap_or_default();
-        let stream_outcomes = HUB_ENGINE_IDS
+        let stream_outcomes = engine_registry::registered_engine_ids()
             .iter()
             .map(|engine_id| {
                 let outcome = store
@@ -382,12 +377,6 @@ impl SystemProbe {
             home_dir: std::env::var_os("HOME").map(PathBuf::from),
             provider_authenticated: std::collections::HashMap::new(),
         }
-    }
-
-    pub fn with_alva_authenticated(mut self, authenticated: bool) -> Self {
-        self.provider_authenticated
-            .insert("alva".into(), authenticated);
-        self
     }
 
     pub fn with_provider_authenticated(
@@ -410,7 +399,7 @@ impl SystemProbe {
         self
     }
 
-    fn locate(&self, command: &str) -> Option<PathBuf> {
+    pub fn locate(&self, command: &str) -> Option<PathBuf> {
         let candidates: Vec<String> = if cfg!(windows) {
             vec![
                 format!("{command}.cmd"),
@@ -426,94 +415,46 @@ impl SystemProbe {
             .find(|candidate| is_executable_file(candidate))
     }
 
-    fn searched_locations(&self) -> Vec<String> {
+    pub fn searched_locations(&self) -> Vec<String> {
         self.search_paths
             .iter()
             .map(|directory| directory.display().to_string())
             .collect()
     }
 
-    fn stream_evidence(&self, engine_id: &str) -> (StreamHealth, Option<String>) {
+    pub(crate) fn stream_evidence(&self, engine_id: &str) -> (StreamHealth, Option<String>) {
         stream_health_from_outcome(self.stream_outcomes.get(engine_id).cloned().flatten())
     }
 
-    fn alva_facts(&self) -> EngineProbeFacts {
-        // The Alva engine runs in-process against the workspace provider
-        // config, so "auth" means a usable API key or custom auth headers.
-        let authenticated = self
-            .provider_authenticated
-            .get("alva")
-            .copied()
-            .unwrap_or_else(|| {
-                // Compatibility path for non-Hub callers and isolated readiness
-                // tests. Product commands always provide the catalog-backed
-                // override above.
-                let workspace = self.workspace.clone().unwrap_or_else(std::env::temp_dir);
-                alva_llm_provider::ProviderConfig::load(&workspace)
-                    .map(|config| !config.api_key.is_empty() || !config.custom_headers.is_empty())
-                    .unwrap_or(false)
-            });
-        let (stream_health, last_stream_failure) = self.stream_evidence("alva");
-        EngineProbeFacts {
-            binary_path: Some("built-in".to_string()),
-            searched_locations: Vec::new(),
-            version: Some(Ok(env!("CARGO_PKG_VERSION").to_string())),
-            // Mirrors AlvaAdapter::capabilities(); building the real adapter
-            // requires a configured provider, which an unauthenticated
-            // dashboard must still be able to report on.
-            capabilities: capability_labels(&RuntimeCapabilities {
-                streaming: true,
-                tool_control: true,
-                permission_callback: true,
-                resume: true,
-                cancel: true,
-            }),
-            authenticated: Some(authenticated),
-            auth_remedy: None,
-            stream_health,
-            last_stream_failure,
-        }
+    pub(crate) fn provider_authenticated_for(&self, engine_id: &str) -> Option<bool> {
+        self.provider_authenticated.get(engine_id).copied()
     }
 
-    fn cli_facts(&self, engine_id: &str) -> EngineProbeFacts {
-        let command = match engine_id {
-            "claude" => "claude",
-            "codex" => "codex",
-            "pi" => "pi",
-            _ => {
-                return EngineProbeFacts {
-                    searched_locations: self.searched_locations(),
-                    ..EngineProbeFacts::default()
-                }
-            }
-        };
+    pub(crate) fn workspace_path(&self) -> PathBuf {
+        self.workspace.clone().unwrap_or_else(std::env::temp_dir)
+    }
+
+    pub(crate) fn home_dir(&self) -> Option<&PathBuf> {
+        self.home_dir.as_ref()
+    }
+
+    /// Generic CLI facts given the engine-specific capability labels and its
+    /// own native-auth answer (both supplied by the engine's blueprint).
+    pub fn cli_facts(
+        &self,
+        engine_id: &str,
+        command: &str,
+        capabilities: Vec<String>,
+        native_authenticated: Option<bool>,
+    ) -> EngineProbeFacts {
         let Some(binary) = self.locate(command) else {
             return EngineProbeFacts {
                 searched_locations: self.searched_locations(),
                 ..EngineProbeFacts::default()
             };
         };
-        let (capabilities, native_authenticated) = match engine_id {
-            "claude" => (
-                capability_labels(
-                    &ClaudePrintAdapter::new(ClaudePrintConfig::default()).capabilities(),
-                ),
-                self.claude_authenticated(),
-            ),
-            "codex" => (
-                capability_labels(&CodexAdapter::new(CodexAdapterConfig::default()).capabilities()),
-                self.codex_authenticated(),
-            ),
-            "pi" => (
-                capability_labels(&PiAdapter::new(PiAdapterConfig::default()).capabilities()),
-                Some(false),
-            ),
-            _ => unreachable!(),
-        };
         let authenticated = self
-            .provider_authenticated
-            .get(engine_id)
-            .copied()
+            .provider_authenticated_for(engine_id)
             .map(Some)
             .unwrap_or(native_authenticated);
         let (stream_health, last_stream_failure) = self.stream_evidence(engine_id);
@@ -543,83 +484,58 @@ impl SystemProbe {
     /// Target-aware fast veto. API-backed CLI routes still require their
     /// runtime binary, but they do not require that CLI's private subscription
     /// login because the provider catalog supplies credentials for this run.
+    /// The veto rules live in the engine's blueprint — except the
+    /// "declared but unregistered binary" check, which is descriptor-driven.
     pub fn quick_veto_for_target(
         &self,
         engine_id: &str,
         uses_provider_api: bool,
     ) -> Option<String> {
-        match engine_id {
-            "alva" => {
-                if uses_provider_api {
-                    return None;
-                }
-                let facts = self.alva_facts();
-                (facts.authenticated == Some(false)).then(|| {
-                    "provider key missing — configure a provider in Settings > Models and engines."
-                        .to_string()
-                })
-            }
-            "claude" | "codex" | "pi" => {
-                if self.locate(engine_id).is_none() {
-                    return Some("engine binary not found".to_string());
-                }
-                if uses_provider_api {
-                    return None;
-                }
-                let authenticated = if engine_id == "claude" {
-                    self.claude_authenticated()
-                } else if engine_id == "codex" {
-                    self.codex_authenticated()
-                } else {
-                    Some(false)
-                };
-                (authenticated == Some(false)).then(|| {
-                    if engine_id == "pi" {
-                        "provider key missing — configure a compatible provider in Settings > Models and engines."
-                            .to_string()
-                    } else {
-                        format!("not signed in — run `{engine_id} login` in a terminal to sign in.")
-                    }
-                })
-            }
-            other => {
-                // A declared (fifth+) engine is vetted by its own descriptor,
-                // never rejected by name (ticket 15 batch 3): its declared
-                // binary must be present. Undeclared engines are genuinely
-                // unsupported — they must register into the catalog first.
-                let Some(descriptor) = crate::engine_descriptor(other) else {
-                    return Some(format!("engine '{other}' is not supported by Hub"));
-                };
-                veto_missing_declared_binary(&descriptor, |binary| self.locate(binary).is_some())
-            }
+        match engine_registry::blueprint(engine_id) {
+            Some(entry) => (entry.quick_veto)(self, uses_provider_api),
+            // Unregistered engines are genuinely unsupported — they must
+            // register a blueprint into the registry first.
+            None => Some(format!("engine '{engine_id}' is not supported by Hub")),
         }
     }
 
-    fn claude_authenticated(&self) -> Option<bool> {
-        // Claude Code may keep credentials in the macOS Keychain, so a missing
-        // file is "unknown", not "signed out".
+    /// Claude-CLI-style auth: a credential file in HOME, or an OAuth marker
+    /// inside the main config. A missing credential file is "unknown", not
+    /// "signed out" (the keychain may hold the credentials).
+    pub fn file_marker_auth(
+        &self,
+        credential_file: &str,
+        config_file: &str,
+        marker: &str,
+    ) -> Option<bool> {
         let home = self.home_dir.as_deref()?;
-        if home.join(".claude/.credentials.json").is_file() {
+        if home.join(credential_file).is_file() {
             return Some(true);
         }
-        let config = std::fs::read_to_string(home.join(".claude.json")).ok()?;
-        config.contains("oauthAccount").then_some(true)
+        let config = std::fs::read_to_string(home.join(config_file)).ok()?;
+        config.contains(marker).then_some(true)
     }
 
-    fn codex_authenticated(&self) -> Option<bool> {
+    /// Single-file auth: the engine is signed in iff the file exists.
+    pub fn file_auth(&self, path: &str) -> Option<bool> {
         let home = self.home_dir.as_deref()?;
-        Some(home.join(".codex/auth.json").is_file())
+        Some(home.join(path).is_file())
     }
 }
 
 impl EngineProbe for SystemProbe {
     fn facts(&self, engine_id: &str) -> EngineProbeFacts {
-        match engine_id {
-            "alva" => self.alva_facts(),
-            _ => self.cli_facts(engine_id),
+        match engine_registry::blueprint(engine_id) {
+            Some(entry) => (entry.probe)(self),
+            None => EngineProbeFacts {
+                searched_locations: self.searched_locations(),
+                ..EngineProbeFacts::default()
+            },
         }
     }
 }
+
+use crate::store::HubStore;
 
 /// `interrupted` attempts are what crash repair stamps when the user quits
 /// mid-run — a supported flow, not engine failure — so only `failed` marks the
@@ -640,8 +556,8 @@ pub fn stream_health_from_outcome(
 const CLI_VERSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Veto a **declared** engine whose required binary is missing. The decision
-/// is made from the descriptor's install metadata, never the engine name
-/// (ticket 15 batch 3). In-process engines (`required_binary: None`) pass.
+/// is made from the descriptor's install metadata, never the engine name.
+/// In-process engines (`required_binary: None`) pass.
 pub fn veto_missing_declared_binary(
     descriptor: &alva_engine_runtime::EngineDescriptor,
     binary_exists: impl Fn(&str) -> bool,
@@ -655,7 +571,7 @@ pub fn veto_missing_declared_binary(
     }
 }
 
-fn read_cli_version(binary: &Path) -> Result<String, String> {
+pub fn read_cli_version(binary: &Path) -> Result<String, String> {
     use std::process::Stdio;
 
     let mut child = std::process::Command::new(binary)
@@ -694,641 +610,5 @@ fn read_cli_version(binary: &Path) -> Result<String, String> {
         Err("empty --version output".to_string())
     } else {
         Ok(line)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    /// The veto in run.rs filters `required_capabilities` through
-    /// ENGINE_CAPABILITIES before comparing against what an engine reports. If
-    /// the two ever drift, a real engine capability would stop being checkable
-    /// (dropped from the filter) or a word an engine can never provide would be
-    /// treated as vetoable again — the bug this vocabulary split fixed.
-    #[test]
-    fn engine_vocabulary_matches_exactly_what_capability_labels_reports() {
-        let everything = RuntimeCapabilities {
-            streaming: true,
-            tool_control: true,
-            permission_callback: true,
-            resume: true,
-            cancel: true,
-        };
-        assert_eq!(
-            capability_labels(&everything),
-            ENGINE_CAPABILITIES.to_vec(),
-            "capability_labels and ENGINE_CAPABILITIES must stay in lockstep"
-        );
-    }
-
-    use std::collections::HashMap;
-    use std::sync::Arc;
-
-    use alva_engine_runtime::{
-        EngineRuntime, PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent,
-        RuntimeRequest,
-    };
-
-    use super::*;
-
-    struct FakeProbe {
-        facts: HashMap<&'static str, EngineProbeFacts>,
-    }
-
-    impl EngineProbe for FakeProbe {
-        fn facts(&self, engine_id: &str) -> EngineProbeFacts {
-            self.facts.get(engine_id).cloned().unwrap_or_default()
-        }
-    }
-
-    fn healthy_facts(binary: &str, version: &str) -> EngineProbeFacts {
-        EngineProbeFacts {
-            binary_path: Some(binary.to_string()),
-            searched_locations: vec!["PATH".to_string()],
-            version: Some(Ok(version.to_string())),
-            capabilities: vec!["streaming".to_string(), "cancel".to_string()],
-            authenticated: Some(true),
-            auth_remedy: None,
-            stream_health: StreamHealth::Ok,
-            last_stream_failure: None,
-        }
-    }
-
-    #[test]
-    fn dashboard_discovers_all_four_engines_without_manual_paths() {
-        let probe = FakeProbe {
-            facts: HashMap::new(),
-        };
-        let report = probe_readiness(&probe);
-        let ids: Vec<_> = report
-            .iter()
-            .map(|engine| engine.engine_id.as_str())
-            .collect();
-        assert_eq!(ids, vec!["alva", "claude", "codex", "pi"]);
-    }
-
-    #[test]
-    fn hub_catalog_override_is_the_alva_auth_authority() {
-        let available =
-            SystemProbe::new(None, Some(std::env::temp_dir())).with_alva_authenticated(true);
-        assert_eq!(available.facts("alva").authenticated, Some(true));
-        assert_eq!(available.quick_veto("alva"), None);
-
-        let unavailable =
-            SystemProbe::new(None, Some(std::env::temp_dir())).with_alva_authenticated(false);
-        assert_eq!(unavailable.facts("alva").authenticated, Some(false));
-        assert!(unavailable
-            .quick_veto("alva")
-            .is_some_and(|reason| reason.contains("Models and engines")));
-    }
-
-    /// Independent PATH lookup: the smoke test must not reuse SystemProbe's
-    /// own `locate` or it could agree with itself while both are wrong.
-    fn locate_on_path(command: &str) -> Option<std::path::PathBuf> {
-        std::env::var_os("PATH").and_then(|paths| {
-            std::env::split_paths(&paths)
-                .map(|directory| directory.join(command))
-                .find(|candidate| is_executable_file(candidate))
-        })
-    }
-
-    /// Real-machine smoke probe: exercises `SystemProbe` against the actual
-    /// environment (PATH, HOME, real CLI binaries). Unlike the FakeProbe
-    /// unit tests, this validates that binary discovery and version parsing
-    /// agree with reality and that the classification follows the documented
-    /// precedence. It passes on any machine: an installed engine is
-    /// cross-checked against its real `--version` output, and an absent one
-    /// must classify Missing. This closes the acceptance gap "the
-    /// classifier is pinned, the live environment is not" for the probe.
-    #[test]
-    fn system_probe_matches_the_real_machine() {
-        let probe = SystemProbe::new(None, None).with_alva_authenticated(false);
-        let report = probe_readiness(&probe);
-        assert_eq!(report.len(), HUB_ENGINE_IDS.len());
-
-        for entry in &report {
-            let spec = engine_spec(&entry.engine_id);
-            match entry.engine_id.as_str() {
-                "alva" => {
-                    // Built-in engine: never "missing", and with no provider
-                    // config in the temp workspace its auth (the provider
-                    // key) must classify as unauthenticated.
-                    assert!(entry.binary_path.is_some(), "alva is built-in");
-                    assert_eq!(
-                        entry.status,
-                        ReadinessStatus::Unauthenticated,
-                        "no provider config in the probe workspace: {:?}",
-                        entry.reasons
-                    );
-                }
-                id => {
-                    let located = locate_on_path(id);
-                    match (entry.binary_path.is_some(), located) {
-                        (false, None) => {
-                            assert_eq!(entry.status, ReadinessStatus::Missing);
-                        }
-                        (true, Some(path)) => {
-                            // Cross-check the version parser against the raw
-                            // CLI output: the probe must have run the same
-                            // binary it claims to have found.
-                            let raw = read_cli_version(&path).unwrap_or_else(|error| {
-                                panic!(
-                                    "real `{id} --version` failed for {}: {error}",
-                                    path.display()
-                                )
-                            });
-                            let Some(version) = &entry.version else {
-                                panic!("probe found {id} but reported no version");
-                            };
-                            assert_eq!(
-                                version, &raw,
-                                "probe version parser disagrees with the real `{id} --version`"
-                            );
-                            let minimum = spec.minimum_version;
-                            if version_at_least(version, minimum) {
-                                if entry.authenticated == Some(false) {
-                                    assert_eq!(
-                                        entry.status,
-                                        ReadinessStatus::Unauthenticated,
-                                        "{id}: signed-out must not look healthy"
-                                    );
-                                } else {
-                                    assert_eq!(
-                                        entry.status,
-                                        ReadinessStatus::Healthy,
-                                        "{id}: installed, readable, not signed out; reasons: {:?}",
-                                        entry.reasons
-                                    );
-                                }
-                            } else {
-                                assert_eq!(
-                                    entry.status,
-                                    ReadinessStatus::Incompatible,
-                                    "{id} v{version} is below the minimum {minimum}"
-                                );
-                            }
-                        }
-                        _ => panic!("probe and independent PATH lookup disagree about {id} "),
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn missing_binary_reports_structured_search_locations() {
-        let facts = EngineProbeFacts {
-            searched_locations: vec!["PATH".to_string(), "~/.local/bin".to_string()],
-            ..EngineProbeFacts::default()
-        };
-        let readiness = classify_engine("claude", facts);
-        assert_eq!(readiness.status, ReadinessStatus::Missing);
-        assert_eq!(
-            readiness.reasons,
-            vec![ReadinessReason::BinaryNotFound {
-                searched: vec!["PATH".to_string(), "~/.local/bin".to_string()],
-            }]
-        );
-        assert!(readiness.binary_path.is_none());
-    }
-
-    #[test]
-    fn incompatible_version_reports_found_and_minimum() {
-        let mut facts = healthy_facts("/usr/local/bin/claude", "0.2.9");
-        facts.version = Some(Ok("0.2.9".to_string()));
-        let readiness = classify_engine("claude", facts);
-        assert_eq!(readiness.status, ReadinessStatus::Incompatible);
-        assert_eq!(
-            readiness.reasons,
-            vec![ReadinessReason::VersionIncompatible {
-                found: "0.2.9".to_string(),
-                minimum: "1.0.0".to_string(),
-            }]
-        );
-        assert_eq!(readiness.version.as_deref(), Some("0.2.9"));
-    }
-
-    #[test]
-    fn unreadable_version_is_incompatible_with_structured_detail() {
-        let mut facts = healthy_facts("/usr/local/bin/codex", "0.30.0");
-        facts.version = Some(Err("exit status 2".to_string()));
-        let readiness = classify_engine("codex", facts);
-        assert_eq!(readiness.status, ReadinessStatus::Incompatible);
-        assert_eq!(
-            readiness.reasons,
-            vec![ReadinessReason::VersionUnreadable {
-                detail: "exit status 2".to_string(),
-            }]
-        );
-        assert!(readiness.version.is_none());
-    }
-
-    #[test]
-    fn unauthenticated_cli_engine_names_a_remedy_not_stderr() {
-        let mut facts = healthy_facts("/usr/local/bin/codex", "0.30.0");
-        facts.authenticated = Some(false);
-        facts.auth_remedy = None;
-        let readiness = classify_engine("codex", facts);
-        assert_eq!(readiness.status, ReadinessStatus::Unauthenticated);
-        assert_eq!(
-            readiness.reasons,
-            vec![ReadinessReason::Unauthenticated {
-                remedy: "Run `codex login` in a terminal to sign in.".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn alva_without_provider_key_reports_provider_key_missing() {
-        let mut facts = healthy_facts("built-in", "0.1.0");
-        facts.authenticated = Some(false);
-        let readiness = classify_engine("alva", facts);
-        assert_eq!(readiness.status, ReadinessStatus::Unauthenticated);
-        assert_eq!(
-            readiness.reasons,
-            vec![ReadinessReason::ProviderKeyMissing {
-                remedy: "Configure a provider in Settings > Models and engines.".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn healthy_engine_reports_version_capabilities_and_stream_health() {
-        let readiness = classify_engine("claude", healthy_facts("/usr/local/bin/claude", "1.2.3"));
-        assert_eq!(readiness.status, ReadinessStatus::Healthy);
-        assert!(readiness.reasons.is_empty());
-        assert_eq!(readiness.version.as_deref(), Some("1.2.3"));
-        assert_eq!(readiness.authenticated, Some(true));
-        assert_eq!(readiness.stream_health, StreamHealth::Ok);
-        assert!(readiness.capabilities.contains(&"streaming".to_string()));
-    }
-
-    #[test]
-    fn failing_stream_marks_engine_unhealthy_with_last_failure() {
-        let mut facts = healthy_facts("/usr/local/bin/claude", "1.2.3");
-        facts.stream_health = StreamHealth::Failing;
-        facts.last_stream_failure = Some("stream ended before Completed".to_string());
-        let readiness = classify_engine("claude", facts);
-        assert_eq!(readiness.status, ReadinessStatus::Unhealthy);
-        assert_eq!(
-            readiness.reasons,
-            vec![ReadinessReason::StreamFailing {
-                last_failure: "stream ended before Completed".to_string(),
-            }]
-        );
-    }
-
-    #[test]
-    fn version_comparison_tolerates_prefixes_and_depth() {
-        assert!(version_at_least("claude 1.0.0", "1.0.0"));
-        assert!(version_at_least("v2.1", "1.9.9"));
-        assert!(!version_at_least("0.9", "1.0.0"));
-        assert!(version_at_least("1.0", "1.0.0"));
-        assert!(!version_at_least("garbage", "1.0.0"));
-    }
-
-    #[test]
-    fn stream_health_maps_attempt_outcomes_to_structured_states() {
-        assert_eq!(
-            stream_health_from_outcome(None),
-            (StreamHealth::Untested, None)
-        );
-        assert_eq!(
-            stream_health_from_outcome(Some(("completed".to_string(), None))),
-            (StreamHealth::Ok, None)
-        );
-        assert_eq!(
-            stream_health_from_outcome(Some((
-                "failed".to_string(),
-                Some("stream ended early".to_string())
-            ))),
-            (
-                StreamHealth::Failing,
-                Some("stream ended early".to_string())
-            )
-        );
-        assert_eq!(
-            stream_health_from_outcome(Some(("failed".to_string(), None))),
-            (
-                StreamHealth::Failing,
-                Some("The last run ended without a result.".to_string())
-            )
-        );
-        // Quitting the app mid-run is a supported flow, not engine failure.
-        assert_eq!(
-            stream_health_from_outcome(Some(("interrupted".to_string(), None))),
-            (StreamHealth::Untested, None)
-        );
-    }
-
-    #[test]
-    fn readiness_json_shape_is_pinned_for_the_typescript_bridge() {
-        let readiness = classify_engine(
-            "claude",
-            EngineProbeFacts {
-                searched_locations: vec!["/usr/local/bin".to_string()],
-                ..EngineProbeFacts::default()
-            },
-        );
-        let json = serde_json::to_value(&readiness).unwrap();
-        assert_eq!(json["status"], "missing");
-        assert_eq!(json["stream_health"], "untested");
-        assert_eq!(json["binary_path"], serde_json::Value::Null);
-        assert_eq!(
-            json["reasons"][0],
-            serde_json::json!({
-                "code": "binary_not_found",
-                "searched": ["/usr/local/bin"],
-            })
-        );
-
-        let reason = ReadinessReason::VersionIncompatible {
-            found: "0.2.9".to_string(),
-            minimum: "1.0.0".to_string(),
-        };
-        assert_eq!(
-            serde_json::to_value(&reason).unwrap(),
-            serde_json::json!({
-                "code": "version_incompatible",
-                "found": "0.2.9",
-                "minimum": "1.0.0",
-            })
-        );
-    }
-
-    #[cfg(unix)]
-    mod system_probe {
-        use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-        use std::path::Path;
-
-        use super::*;
-
-        fn install_fake_cli(directory: &Path, name: &str, stdout: &str) {
-            let path = directory.join(name);
-            fs::write(&path, format!("#!/bin/sh\necho \"{stdout}\"\n")).unwrap();
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        }
-
-        fn probe(bin: &Path, home: &Path) -> SystemProbe {
-            SystemProbe::new(None, None)
-                .with_search_paths(vec![bin.to_path_buf()])
-                .with_home_dir(home.to_path_buf())
-        }
-
-        #[test]
-        fn discovers_installed_clis_and_reports_missing_ones_with_locations() {
-            let bin = tempfile::tempdir().unwrap();
-            let home = tempfile::tempdir().unwrap();
-            install_fake_cli(bin.path(), "claude", "2.0.14 (Claude Code)");
-            fs::create_dir_all(home.path().join(".claude")).unwrap();
-            fs::write(home.path().join(".claude/.credentials.json"), "{}").unwrap();
-
-            let report = probe_readiness(&probe(bin.path(), home.path()));
-            let claude = report
-                .iter()
-                .find(|engine| engine.engine_id == "claude")
-                .unwrap();
-            assert_eq!(claude.status, ReadinessStatus::Healthy);
-            assert_eq!(claude.version.as_deref(), Some("2.0.14 (Claude Code)"));
-            assert_eq!(claude.authenticated, Some(true));
-            assert!(claude.capabilities.contains(&"streaming".to_string()));
-
-            let codex = report
-                .iter()
-                .find(|engine| engine.engine_id == "codex")
-                .unwrap();
-            assert_eq!(codex.status, ReadinessStatus::Missing);
-            assert_eq!(
-                codex.reasons,
-                vec![ReadinessReason::BinaryNotFound {
-                    searched: vec![bin.path().display().to_string()],
-                }]
-            );
-        }
-
-        #[test]
-        fn skips_a_non_executable_path_candidate_for_a_later_working_cli() {
-            let blocked_bin = tempfile::tempdir().unwrap();
-            let working_bin = tempfile::tempdir().unwrap();
-            let home = tempfile::tempdir().unwrap();
-            install_fake_cli(blocked_bin.path(), "claude", "blocked");
-            fs::set_permissions(
-                blocked_bin.path().join("claude"),
-                fs::Permissions::from_mode(0o644),
-            )
-            .unwrap();
-            install_fake_cli(working_bin.path(), "claude", "2.0.14 (Claude Code)");
-
-            let facts = SystemProbe::new(None, None)
-                .with_search_paths(vec![
-                    blocked_bin.path().to_path_buf(),
-                    working_bin.path().to_path_buf(),
-                ])
-                .with_home_dir(home.path().to_path_buf())
-                .facts("claude");
-
-            assert_eq!(
-                facts.binary_path.as_deref(),
-                Some(working_bin.path().join("claude").to_str().unwrap())
-            );
-            assert_eq!(facts.version, Some(Ok("2.0.14 (Claude Code)".into())));
-        }
-
-        #[test]
-        fn outdated_cli_is_incompatible_and_missing_credentials_need_sign_in() {
-            let bin = tempfile::tempdir().unwrap();
-            let home = tempfile::tempdir().unwrap();
-            install_fake_cli(bin.path(), "codex", "codex-cli 0.4.0");
-
-            let old = probe(bin.path(), home.path()).facts("codex");
-            let readiness = classify_engine("codex", old);
-            assert_eq!(readiness.status, ReadinessStatus::Incompatible);
-
-            install_fake_cli(bin.path(), "codex", "codex-cli 0.44.0");
-            let unauthenticated = probe(bin.path(), home.path()).facts("codex");
-            let readiness = classify_engine("codex", unauthenticated);
-            assert_eq!(readiness.status, ReadinessStatus::Unauthenticated);
-            assert_eq!(
-                readiness.reasons,
-                vec![ReadinessReason::Unauthenticated {
-                    remedy: "Run `codex login` in a terminal to sign in.".to_string(),
-                }]
-            );
-
-            fs::create_dir_all(home.path().join(".codex")).unwrap();
-            fs::write(home.path().join(".codex/auth.json"), "{}").unwrap();
-            let healthy = probe(bin.path(), home.path()).facts("codex");
-            assert_eq!(
-                classify_engine("codex", healthy).status,
-                ReadinessStatus::Healthy
-            );
-        }
-
-        #[test]
-        fn quick_veto_flags_missing_and_signed_out_engines_without_subprocesses() {
-            let bin = tempfile::tempdir().unwrap();
-            let home = tempfile::tempdir().unwrap();
-
-            // codex missing entirely.
-            let empty = probe(bin.path(), home.path());
-            assert_eq!(
-                empty.quick_veto("codex").as_deref(),
-                Some("engine binary not found")
-            );
-
-            // codex installed but signed out.
-            install_fake_cli(bin.path(), "codex", "codex-cli 0.44.0");
-            let signed_out = probe(bin.path(), home.path());
-            assert!(signed_out
-                .quick_veto("codex")
-                .is_some_and(|veto| veto.contains("not signed in")));
-
-            // codex signed in.
-            fs::create_dir_all(home.path().join(".codex")).unwrap();
-            fs::write(home.path().join(".codex/auth.json"), "{}").unwrap();
-            assert_eq!(probe(bin.path(), home.path()).quick_veto("codex"), None);
-
-            // claude present with unknown auth (keychain) is not vetoed.
-            install_fake_cli(bin.path(), "claude", "2.0.14 (Claude Code)");
-            assert_eq!(probe(bin.path(), home.path()).quick_veto("claude"), None);
-
-            // A configured third-party provider replaces subscription auth,
-            // but never replaces the runtime binary itself.
-            assert_eq!(
-                probe(bin.path(), home.path())
-                    .quick_veto_for_target("pi", true)
-                    .as_deref(),
-                Some("engine binary not found")
-            );
-            install_fake_cli(bin.path(), "pi", "0.52.9");
-            assert_eq!(
-                probe(bin.path(), home.path()).quick_veto_for_target("pi", true),
-                None
-            );
-            assert!(probe(bin.path(), home.path())
-                .quick_veto("pi")
-                .is_some_and(|veto| veto.contains("provider key missing")));
-        }
-
-        #[test]
-        fn refreshing_readiness_never_writes_workspace_or_home_config() {
-            let bin = tempfile::tempdir().unwrap();
-            let home = tempfile::tempdir().unwrap();
-            let workspace = tempfile::tempdir().unwrap();
-            install_fake_cli(bin.path(), "claude", "2.0.14 (Claude Code)");
-            install_fake_cli(bin.path(), "codex", "codex-cli 0.44.0");
-
-            let list = |root: &Path| {
-                let mut entries: Vec<String> = walk(root);
-                entries.sort();
-                entries
-            };
-            fn walk(root: &Path) -> Vec<String> {
-                let mut entries = Vec::new();
-                if let Ok(children) = fs::read_dir(root) {
-                    for child in children.flatten() {
-                        entries.push(child.path().display().to_string());
-                        if child.path().is_dir() {
-                            entries.extend(walk(&child.path()));
-                        }
-                    }
-                }
-                entries
-            }
-            let before_home = list(home.path());
-            let before_workspace = list(workspace.path());
-
-            let probe = SystemProbe::new(None, Some(workspace.path().to_path_buf()))
-                .with_search_paths(vec![bin.path().to_path_buf()])
-                .with_home_dir(home.path().to_path_buf());
-            let _ = probe_readiness(&probe);
-
-            assert_eq!(list(home.path()), before_home);
-            assert_eq!(list(workspace.path()), before_workspace);
-        }
-    }
-
-    struct DummyEngine;
-
-    #[async_trait::async_trait]
-    impl EngineRuntime for DummyEngine {
-        fn execute(
-            &self,
-            _request: RuntimeRequest,
-        ) -> Result<
-            std::pin::Pin<Box<dyn futures_core::Stream<Item = RuntimeEvent> + Send>>,
-            RuntimeError,
-        > {
-            Ok(Box::pin(tokio_stream::iter(vec![])))
-        }
-        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
-            Ok(())
-        }
-        async fn respond_permission(
-            &self,
-            _session_id: &str,
-            _request_id: &str,
-            _decision: PermissionDecision,
-        ) -> Result<(), RuntimeError> {
-            Ok(())
-        }
-        fn capabilities(&self) -> RuntimeCapabilities {
-            RuntimeCapabilities {
-                streaming: false,
-                tool_control: false,
-                permission_callback: false,
-                resume: false,
-                cancel: false,
-            }
-        }
-    }
-
-    /// ticket 15 batch 3: a declared engine is vetted by ITS declared binary
-    /// (never rejected by id); the "not supported by Hub" gate only applies to
-    /// engines that never registered a descriptor.
-    #[test]
-    fn declared_engine_is_vetted_by_its_binary_not_its_name() {
-        use alva_engine_runtime::{
-            ConfigSurface, EngineDescriptor, InstallMetadata, ProviderProtocol,
-        };
-        let declared = EngineDescriptor {
-            runtime: Arc::new(DummyEngine),
-            inspector: None,
-            permission_plans: Vec::new(),
-            config_surface: ConfigSurface {
-                supports_max_turns: true,
-                provider_protocol: ProviderProtocol::Native,
-                supports_fast_mode: false,
-                supports_custom_http_headers: false,
-            },
-            install_metadata: InstallMetadata {
-                required_binary: Some("gemini-cli".into()),
-                install_hint: None,
-            },
-        };
-        // Binary present → no veto, even though "gemini" used to be rejected by name.
-        assert_eq!(
-            veto_missing_declared_binary(&declared, |b| b == "gemini-cli"),
-            None
-        );
-        // Binary missing → veto names the BINARY, not the engine.
-        let veto = veto_missing_declared_binary(&declared, |_| false).unwrap();
-        assert!(
-            veto.contains("gemini-cli"),
-            "veto must name the binary: {veto}"
-        );
-        assert!(
-            !veto.contains("unsupported"),
-            "declared engines are not 'unsupported': {veto}"
-        );
-        // In-process engine (no binary) passes.
-        let in_process = EngineDescriptor {
-            runtime: declared.runtime.clone(),
-            inspector: None,
-            permission_plans: Vec::new(),
-            config_surface: declared.config_surface.clone(),
-            install_metadata: InstallMetadata::default(),
-        };
-        assert_eq!(veto_missing_declared_binary(&in_process, |_| false), None);
     }
 }

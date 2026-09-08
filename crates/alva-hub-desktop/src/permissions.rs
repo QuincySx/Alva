@@ -91,106 +91,10 @@ pub fn enforcement_for(
     engine_id: &str,
     profile: PermissionProfile,
 ) -> Result<EnforcementPlan, String> {
-    match (engine_id, profile) {
-        ("alva", PermissionProfile::Interactive) => Ok(EnforcementPlan {
-            relation: EnforcementRelation::Equivalent,
-            enforcement: EngineEnforcement::InteractiveCallbacks,
-            summary: "risk-gated permission requests are routed to you for approval".into(),
-        }),
-        ("alva", PermissionProfile::WorkspaceWrite | PermissionProfile::Unrestricted) => {
-            Ok(EnforcementPlan {
-                relation: EnforcementRelation::Stricter,
-                enforcement: EngineEnforcement::InteractiveCallbacks,
-                summary: "alva still routes risk-gated requests to you instead of auto-allowing"
-                    .into(),
-            })
-        }
-        ("claude", PermissionProfile::Interactive) => Err(ineligible_reason(
-            "claude",
-            profile,
-            "the claude CLI runs non-interactively and cannot route permission \
-             approvals to you; its closest mappings auto-deny (dontAsk) or \
-             auto-allow (acceptEdits), which weakens or silently rewrites the profile",
-        )),
-        ("claude", PermissionProfile::WorkspaceWrite) => Ok(EnforcementPlan {
-            relation: EnforcementRelation::Stricter,
-            enforcement: EngineEnforcement::ClaudePrintMode(ClaudePrintPermissionMode::AcceptEdits),
-            summary: "acceptEdits auto-accepts only file edits; other side effects are denied"
-                .into(),
-        }),
-        ("claude", PermissionProfile::Unrestricted) => Ok(EnforcementPlan {
-            relation: EnforcementRelation::Equivalent,
-            enforcement: EngineEnforcement::ClaudePrintMode(
-                ClaudePrintPermissionMode::BypassPermissions,
-            ),
-            summary: "bypassPermissions auto-allows everything".into(),
-        }),
-        ("codex", PermissionProfile::Interactive) => Err(ineligible_reason(
-            "codex",
-            profile,
-            "the codex CLI runs with approval_policy=never and cannot route \
-             permission approvals to you; its sandbox either auto-allows \
-             workspace writes or silently denies them, which weakens or \
-             silently rewrites the profile",
-        )),
-        ("codex", PermissionProfile::WorkspaceWrite) => Ok(EnforcementPlan {
-            relation: EnforcementRelation::Equivalent,
-            enforcement: EngineEnforcement::CodexSandbox(CodexSandboxMode::WorkspaceWrite),
-            summary: "the workspace-write sandbox bounds side effects to the workspace".into(),
-        }),
-        ("codex", PermissionProfile::Unrestricted) => Ok(EnforcementPlan {
-            relation: EnforcementRelation::Equivalent,
-            enforcement: EngineEnforcement::CodexSandbox(CodexSandboxMode::DangerFullAccess),
-            summary: "danger-full-access auto-allows everything".into(),
-        }),
-        ("pi", PermissionProfile::Interactive) => Err(ineligible_reason(
-            "pi",
-            profile,
-            "Pi print mode does not expose interactive permission callbacks",
-        )),
-        ("pi", PermissionProfile::WorkspaceWrite) => Ok(EnforcementPlan {
-            relation: EnforcementRelation::Stricter,
-            enforcement: EngineEnforcement::PiReadOnly,
-            summary: "Pi is restricted to read, grep, find, and ls tools".into(),
-        }),
-        ("pi", PermissionProfile::Unrestricted) => Ok(EnforcementPlan {
-            relation: EnforcementRelation::Equivalent,
-            enforcement: EngineEnforcement::PiUnrestricted,
-            summary: "Pi runs its complete configured tool set".into(),
-        }),
-        (other, profile) => {
-            let profile_key = profile.as_str();
-            // A declared (fifth+) engine is judged by its own descriptor
-            // (ticket 15 batch 3): undeclared → unsupported; declared but not
-            // capable → named profile failure; declared and capable → the
-            // engine enforces its own plan (the product never twists vendor
-            // knobs it cannot see).
-            let Some(descriptor) = crate::engine_descriptor(other) else {
-                return Err(format!(
-                    "unsupported Hub engine '{other}'; expected alva, claude, codex, or pi"
-                ));
-            };
-            if !descriptor.can_satisfy(profile_key) {
-                return Err(format!(
-                    "engine '{other}' is declared in the catalog but cannot satisfy permission \
-                     profile '{profile_key}'"
-                ));
-            }
-            let plan = descriptor
-                .permission_plans
-                .iter()
-                .find(|plan| plan.profile_id == profile_key)
-                .expect("can_satisfy checked the same plan set");
-            Ok(EnforcementPlan {
-                relation: match plan.relation {
-                    PermissionRelation::Equivalent => EnforcementRelation::Equivalent,
-                    PermissionRelation::Stricter => EnforcementRelation::Stricter,
-                },
-                enforcement: EngineEnforcement::DeclaredByEngine,
-                summary: plan.summary.clone(),
-            })
-        }
-    }
+    // Ticket 17: the per-engine mapping lives in the engine's registered
+    // blueprint (engine_wiring); this module owns the profile vocabulary,
+    // the DTOs, and the router. The gate itself never names an engine.
+    crate::engine_registry::enforcement_for(engine_id, profile)
 }
 
 fn ineligible_reason(engine_id: &str, profile: PermissionProfile, detail: &str) -> String {
@@ -212,7 +116,7 @@ pub struct EngineEligibility {
 }
 
 pub fn permission_eligibility(profile: PermissionProfile) -> Vec<EngineEligibility> {
-    crate::readiness::HUB_ENGINE_IDS
+    crate::engine_registry::registered_engine_ids()
         .iter()
         .map(|engine_id| match enforcement_for(engine_id, profile) {
             Ok(plan) => EngineEligibility {

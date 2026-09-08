@@ -4,14 +4,15 @@
 
 mod alva;
 mod claims;
-mod engine_catalog;
+pub mod engine_registry;
+mod engine_wiring;
 mod failure;
 mod inspection;
-mod permissions;
+pub mod permissions;
 mod provider_diagnostics;
 mod provider_plane;
 mod providers;
-mod readiness;
+pub mod readiness;
 mod redact;
 mod repair;
 mod run;
@@ -21,7 +22,10 @@ mod worktree;
 
 pub use alva::{build_engine, build_engine_for_target, build_engine_for_target_with_inspector};
 pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
-pub use engine_catalog::{engine_can_satisfy, engine_descriptor};
+pub use engine_registry::{
+    blueprint, engine_registry_for_test_build, register as register_engine_blueprint,
+    registered_engine_ids, EngineBlueprint, EngineBuildArgs,
+};
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
 pub use inspection::{HubInspectionRecord, HubInspectionSnapshot, HubInspectorService};
 pub use permissions::{
@@ -39,9 +43,10 @@ pub use providers::{
     SaveProviderProfile,
 };
 pub use readiness::{
-    capability_labels, classify_engine, probe_readiness, stream_health_from_outcome, EngineProbe,
-    EngineProbeFacts, EngineReadiness, ReadinessReason, ReadinessStatus, StreamHealth, SystemProbe,
-    HUB_ENGINE_IDS,
+    capability_labels, classify_engine, is_executable_file, probe_readiness, read_cli_version,
+    stream_health_from_outcome, version_at_least, veto_missing_declared_binary, AuthKind,
+    EngineProbe, EngineProbeFacts, EngineReadiness, ReadinessReason, ReadinessSpec,
+    ReadinessStatus, StreamHealth, SystemProbe, ENGINE_CAPABILITIES, MODEL_CAPABILITIES,
 };
 pub use redact::{redact_handoff, redact_text};
 pub use repair::{
