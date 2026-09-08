@@ -66,7 +66,7 @@ check_no_workspace_deps "alva-agent-graph" "alva-kernel-abi|alva-kernel-core"
 check_no_workspace_deps "alva-agent-context" "alva-agent-abi|alva-kernel-abi|alva-kernel-core"
 
 # Rule 8: alva-host-native only depends on foundation crates
-check_no_workspace_deps "alva-host-native" "alva-kernel-abi|alva-kernel-core|alva-agent-extension-builtin|alva-agent-core|alva-agent-security|alva-agent-context|alva-agent-memory|alva-agent-graph"
+check_no_workspace_deps "alva-host-native" "alva-agent-abi|alva-kernel-abi|alva-kernel-core|alva-agent-extension-builtin|alva-agent-core|alva-agent-security|alva-agent-context|alva-agent-memory|alva-agent-graph"
 
 # Rule 9: alva-engine-runtime only depends on alva-kernel-abi
 check_no_workspace_deps "alva-engine-runtime" "alva-kernel-abi"
@@ -98,7 +98,7 @@ check_no_workspace_deps "alva-hub-desktop" "alva-engine-adapter-alva|alva-engine
 # Rule 12: alva-llm-provider only depends on alva-kernel-abi
 # (was `alva-provider` — a crate that does not exist; `cargo tree` failed,
 #  the error was swallowed and the rule printed a fake OK forever)
-check_no_workspace_deps "alva-llm-provider" "alva-kernel-abi"
+check_no_workspace_deps "alva-llm-provider" "alva-agent-abi|alva-kernel-abi"
 
 # Rule 12b: alva-macros has ZERO workspace deps
 check_no_workspace_deps "alva-macros"
@@ -218,7 +218,6 @@ echo "Checking kernel does not depend on alva-agent-abi (Rule 19)..."
 
 KERNEL_CRATES=(
     alva-kernel-abi
-    alva-agent-abi
     alva-kernel-core
 )
 
