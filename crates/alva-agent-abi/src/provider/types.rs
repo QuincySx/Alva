@@ -1,10 +1,10 @@
-// INPUT:  std::collections::HashMap, std::sync::Arc, thiserror, crate::LanguageModel
+// INPUT:  std::collections::HashMap, std::sync::Arc, thiserror, alva_kernel_abi::LanguageModel
 // OUTPUT: pub enum ProviderError, pub trait Provider, pub struct ProviderRegistry
 // POS:    Provider abstraction and registry for obtaining model instances by provider and model ID.
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::LanguageModel;
+use alva_kernel_abi::LanguageModel;
 
 // ---------------------------------------------------------------------------
 // ProviderError
@@ -103,7 +103,7 @@ pub trait Provider: Send + Sync {
 ///
 /// Supports lookup by provider ID and a convenience method for
 /// `provider_id:model_id` shorthand strings.
-#[crate::bus_cap]
+#[alva_macros::bus_cap]
 pub struct ProviderRegistry {
     providers: HashMap<String, Arc<dyn Provider>>,
 }

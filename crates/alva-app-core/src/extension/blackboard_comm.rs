@@ -1,4 +1,4 @@
-// INPUT:  std::sync::Arc, async_trait, alva_agent_context::scope::{BlackboardCommunication, BoardRegistry}, alva_kernel_abi::SpawnCommunicationRegistry, crate::extension::{Plugin, Registrar, LateContext}
+// INPUT:  std::sync::Arc, async_trait, alva_agent_context::scope::{BlackboardCommunication, BoardRegistry}, alva_agent_abi::SpawnCommunicationRegistry, crate::extension::{Plugin, Registrar, LateContext}
 // OUTPUT: BlackboardCommPlugin
 // POS:    Optional Plugin that registers a BlackboardCommunication into the SpawnCommunicationRegistry on the bus (in finalize/late phase) — opt-in wiring for sub-agent board sharing.
 
@@ -14,9 +14,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use alva_agent_abi::SpawnCommunicationRegistry;
 use alva_agent_context::scope::{BlackboardCommunication, BoardRegistry};
 use alva_kernel_abi::tool::Tool;
-use alva_kernel_abi::SpawnCommunicationRegistry;
 
 use crate::extension::{LateContext, Plugin, Registrar};
 

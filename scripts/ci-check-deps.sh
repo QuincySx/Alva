@@ -53,7 +53,7 @@ check_no_workspace_deps "alva-kernel-core" "alva-kernel-abi"
 
 # Rule 4: alva-agent-security depends on alva-kernel-abi + alva-kernel-core
 #         (core is needed because security owns SecurityMiddleware + PlanModeMiddleware)
-check_no_workspace_deps "alva-agent-security" "alva-kernel-abi|alva-kernel-core"
+check_no_workspace_deps "alva-agent-security" "alva-agent-abi|alva-kernel-abi|alva-kernel-core"
 
 # Rule 5: alva-agent-memory only depends on alva-kernel-abi
 check_no_workspace_deps "alva-agent-memory" "alva-kernel-abi"
@@ -63,7 +63,7 @@ check_no_workspace_deps "alva-agent-graph" "alva-kernel-abi|alva-kernel-core"
 
 # Rule 7b: alva-agent-context depends on alva-kernel-abi + alva-kernel-core
 #          (core is needed because context owns CompactionMiddleware)
-check_no_workspace_deps "alva-agent-context" "alva-kernel-abi|alva-kernel-core"
+check_no_workspace_deps "alva-agent-context" "alva-agent-abi|alva-kernel-abi|alva-kernel-core"
 
 # Rule 8: alva-host-native only depends on foundation crates
 check_no_workspace_deps "alva-host-native" "alva-kernel-abi|alva-kernel-core|alva-agent-extension-builtin|alva-agent-core|alva-agent-security|alva-agent-context|alva-agent-memory|alva-agent-graph"
@@ -80,13 +80,13 @@ check_no_workspace_deps "alva-engine-adapter-codex" "alva-kernel-abi|alva-engine
 # Rule 11: alva-engine-adapter-alva is the canonical app-level Alva adapter.
 # It may depend on the complete BaseAgent harness, but SDK crates must never
 # reverse-depend on it (enforced by Rule 17 below).
-check_no_workspace_deps "alva-engine-adapter-alva" "alva-app-core|alva-engine-runtime|alva-kernel-abi|alva-kernel-core"
+check_no_workspace_deps "alva-engine-adapter-alva" "alva-agent-abi|alva-agent-core|alva-app-core|alva-engine-runtime|alva-kernel-abi|alva-kernel-core"
 
 # Hub is a product layer above the neutral engine contract. It must never
 # reach into kernel/agent/app implementations directly; concrete adapters own
 # those dependencies.
 check_no_workspace_deps "alva-hub-core" "alva-engine-runtime"
-check_no_workspace_deps "alva-hub-cli" "alva-app-core|alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-runtime|alva-hub-core|alva-llm-provider"
+check_no_workspace_deps "alva-hub-cli" "alva-agent-abi|alva-app-core|alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-adapter-pi|alva-engine-runtime|alva-hub-core|alva-llm-provider"
 # alva-kernel-abi is allowed here for ONE reason: Hub's ResourceClaim path
 # normalization must agree byte-for-byte with the kernel tool lock's
 # `normalize_path_string`. Two copies of that would silently drift, and a
@@ -129,7 +129,7 @@ done
 # feature. (The old Rule 16 checked a facade crate `alva-app` that does not
 # exist; it printed a fake OK forever while the real tool-layer boundary
 # went unchecked.)
-check_no_workspace_deps "alva-agent-extension-builtin" "alva-kernel-abi|alva-agent-core|alva-agent-context|alva-agent-memory|alva-agent-security"
+check_no_workspace_deps "alva-agent-extension-builtin" "alva-agent-abi|alva-kernel-abi|alva-agent-core|alva-agent-context|alva-agent-memory|alva-agent-security"
 
 # Rule 17: Hard SDK boundary — no SDK crate (kernel / agent / protocol / engine /
 #          macros / llm-provider / environment) may (transitively) depend on any
@@ -205,6 +205,38 @@ for crate in "${NATIVE_PRODUCTS[@]}"; do
     fi
 done
 
+# Rule 19: The kernel must NOT depend on the agent contract layer
+# (alva-agent-abi) — not even transitively. The kernel is the minimal
+# mechanism for running one agent turn (loop, model calls, tool execution,
+# cancellation); Task / Scope / Spawn / Phase / Analytics describe what OUR
+# kind of agent product looks like, not how the loop turns. A third party
+# building a differently-shaped agent on the kernel must be able to ignore
+# that whole layer. After the kernel-boundary refactor this is what makes
+# "极其通用的内核" a CI-verifiable fact instead of a wish.
+echo ""
+echo "Checking kernel does not depend on alva-agent-abi (Rule 19)..."
+
+KERNEL_CRATES=(
+    alva-kernel-abi
+    alva-agent-abi
+    alva-kernel-core
+)
+
+for crate in "${KERNEL_CRATES[@]}"; do
+    bad=$(cargo tree -p "$crate" --prefix none -e normal --all-features 2>/dev/null \
+        | grep -E "^alva-agent-abi" \
+        || true)
+    if [ -n "$bad" ]; then
+        echo -e "${RED}VIOLATION: kernel crate $crate depends on alva-agent-abi:${NC}"
+        echo "$bad" | sed 's/^/    /'
+        echo "    Product concepts (Task/Scope/Spawn/Phase/Analytics) live in"
+        echo "    alva-agent-abi; the kernel must not know them."
+        VIOLATIONS=$((VIOLATIONS + 1))
+    else
+        echo -e "${GREEN}OK: $crate${NC}"
+    fi
+done
+
 echo ""
 if [ $VIOLATIONS -gt 0 ]; then
     echo -e "${RED}FAILED: $VIOLATIONS dependency violation(s) found${NC}"
@@ -227,6 +259,7 @@ WASM_CLEAN_CRATES=(
     alva-sandbox-abi
     alva-kernel-bus
     alva-kernel-abi
+    alva-agent-abi
     alva-kernel-core
     alva-agent-context
     alva-agent-core

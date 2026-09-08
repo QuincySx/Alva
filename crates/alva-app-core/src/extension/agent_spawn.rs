@@ -22,6 +22,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use alva_agent_abi::ProviderRegistry;
 use alva_agent_abi::{ChildScopeConfig, ScopeError};
 use alva_agent_abi::{
     OnChildComplete, SpawnCommContext, SpawnCommHandle, SpawnCommunicationRegistry, SpawnResult,
@@ -29,11 +30,11 @@ use alva_agent_abi::{
 use alva_agent_core::agent_session::ListenableInMemorySession;
 use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::base::error::AgentError;
-use alva_kernel_abi::context::{ContextHooks, ContextSystem};
 use alva_kernel_abi::model::LanguageModel;
+use alva_kernel_abi::scope::context::{ContextHooks, ContextSystem};
 use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
 use alva_kernel_abi::tool::Tool;
-use alva_kernel_abi::{EventEmitter, ExecutionRecord, ProviderRegistry, SessionRecord, Sleeper};
+use alva_kernel_abi::{EventEmitter, ExecutionRecord, SessionRecord, Sleeper};
 use alva_kernel_core::run_child::{run_child_agent, ChildAgentParams};
 
 use alva_agent_context::scope::SpawnScopeImpl;
@@ -917,7 +918,7 @@ mod tests {
         kind: String,
     }
     #[async_trait]
-    impl alva_kernel_abi::SpawnCommunication for DummyComm {
+    impl alva_agent_abi::SpawnCommunication for DummyComm {
         fn kind(&self) -> &str {
             &self.kind
         }
@@ -926,10 +927,10 @@ mod tests {
         }
         async fn attach(
             &self,
-            _ctx: &alva_kernel_abi::SpawnCommContext<'_>,
+            _ctx: &alva_agent_abi::SpawnCommContext<'_>,
             _config: serde_json::Value,
-        ) -> Result<alva_kernel_abi::SpawnCommHandle, alva_kernel_abi::SpawnCommError> {
-            Ok(alva_kernel_abi::SpawnCommHandle::empty())
+        ) -> Result<alva_agent_abi::SpawnCommHandle, alva_agent_abi::SpawnCommError> {
+            Ok(alva_agent_abi::SpawnCommHandle::empty())
         }
     }
 
@@ -937,7 +938,7 @@ mod tests {
     // implementation lives in app-core extension wiring; we only need
     // list/register/get semantics here.
     struct TestRegistry {
-        inner: std::sync::Mutex<Vec<Arc<dyn alva_kernel_abi::SpawnCommunication>>>,
+        inner: std::sync::Mutex<Vec<Arc<dyn alva_agent_abi::SpawnCommunication>>>,
     }
     impl TestRegistry {
         fn new() -> Self {
@@ -947,10 +948,10 @@ mod tests {
         }
     }
     impl SpawnCommunicationRegistry for TestRegistry {
-        fn register(&self, ch: Arc<dyn alva_kernel_abi::SpawnCommunication>) {
+        fn register(&self, ch: Arc<dyn alva_agent_abi::SpawnCommunication>) {
             self.inner.lock().unwrap().push(ch);
         }
-        fn get(&self, kind: &str) -> Option<Arc<dyn alva_kernel_abi::SpawnCommunication>> {
+        fn get(&self, kind: &str) -> Option<Arc<dyn alva_agent_abi::SpawnCommunication>> {
             self.inner
                 .lock()
                 .unwrap()
@@ -958,7 +959,7 @@ mod tests {
                 .find(|c| c.kind() == kind)
                 .cloned()
         }
-        fn list(&self) -> Vec<Arc<dyn alva_kernel_abi::SpawnCommunication>> {
+        fn list(&self) -> Vec<Arc<dyn alva_agent_abi::SpawnCommunication>> {
             self.inner.lock().unwrap().clone()
         }
     }

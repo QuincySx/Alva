@@ -419,7 +419,7 @@ mod analytics {
     use std::io::{BufRead, BufReader};
     use std::path::Path;
 
-    use alva_kernel_abi::AnalyticsEvent;
+    use alva_agent_abi::AnalyticsEvent;
 
     /// Aggregated view across all events in one analytics.jsonl file.
     #[derive(Debug, Default)]

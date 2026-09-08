@@ -29,9 +29,7 @@ pub use alva_agent_extension_builtin::register_builtin_tools;
 #[cfg(feature = "native")]
 pub use alva_agent_memory::MemoryService;
 pub use alva_agent_security::{SandboxMode, SecurityGuard};
-pub use alva_kernel_abi::{
-    LanguageModel, Provider, ProviderRegistry, Tool, ToolExecutionContext, ToolRegistry,
-};
+pub use alva_kernel_abi::{LanguageModel, Tool, ToolExecutionContext, ToolRegistry};
 pub use alva_kernel_core::{run_agent, AgentConfig, AgentEvent, AgentMessage, AgentState};
 pub use alva_kernel_core::{Middleware, MiddlewareStack};
 pub use middleware::SecurityMiddleware;

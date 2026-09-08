@@ -678,8 +678,8 @@ impl reedline::Prompt for ReplPrompt {
 /// Emit `AnalyticsEvent::SessionStart` if an `AnalyticsSink` is on the bus.
 /// No-op if the analytics extension wasn't installed.
 fn emit_session_start(agent: &BaseAgent, session_id: &str, workspace: &std::path::Path) {
-    if let Some(sink) = agent.bus().get::<dyn alva_kernel_abi::AnalyticsSink>() {
-        sink.record(alva_kernel_abi::AnalyticsEvent::SessionStart {
+    if let Some(sink) = agent.bus().get::<dyn alva_agent_abi::AnalyticsSink>() {
+        sink.record(alva_agent_abi::AnalyticsEvent::SessionStart {
             session_id: session_id.to_string(),
             workspace: workspace.to_path_buf(),
             ts: std::time::SystemTime::now(),
@@ -690,8 +690,8 @@ fn emit_session_start(agent: &BaseAgent, session_id: &str, workspace: &std::path
 /// Emit `AnalyticsEvent::SessionEnd`. Duration is wall-clock since
 /// `started_at` (captured at the matching `SessionStart`).
 fn emit_session_end(agent: &BaseAgent, session_id: &str, started_at: std::time::Instant) {
-    if let Some(sink) = agent.bus().get::<dyn alva_kernel_abi::AnalyticsSink>() {
-        sink.record(alva_kernel_abi::AnalyticsEvent::SessionEnd {
+    if let Some(sink) = agent.bus().get::<dyn alva_agent_abi::AnalyticsSink>() {
+        sink.record(alva_agent_abi::AnalyticsEvent::SessionEnd {
             session_id: session_id.to_string(),
             duration_ms: started_at.elapsed().as_millis() as u64,
             ts: std::time::SystemTime::now(),

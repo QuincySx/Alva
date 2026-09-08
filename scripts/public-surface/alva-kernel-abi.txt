@@ -17,7 +17,6 @@ const	constants::WEB_FETCH_CACHE_TTL_SECS const WEB_FETCH_CACHE_TTL_SECS: u64 = 
 const	session_record::SESSION_RECORD_SCHEMA_VERSION const SESSION_RECORD_SCHEMA_VERSION: u32 = 1
 enum	agent_session::SessionError
 enum	base::error::AgentError
-enum	provider::types::ProviderError
 enum	scope::context::error::ContextError
 enum	scope::context::types::CompressAction
 enum	scope::context::types::ContextLayer
@@ -27,16 +26,8 @@ enum	scope::context::types::InjectionContent
 enum	scope::context::types::MemoryCategory
 enum	scope::context::types::MessageSelector
 enum	scope::context::types::Priority
-enum	scope::spawn::communication::SpawnCommError
-enum	scope::types::ScopeError
 enum	tool::scheduler::ExecutionMode
 enum	tool::scheduler::LockMode
-fn	provider::tests::assert_language_model_returns_valid_id fn assert_language_model_returns_valid_id(provider: &dyn Provider, model_id: &str)
-fn	provider::tests::assert_provider_conformance fn assert_provider_conformance(provider: &dyn Provider, known_model_id: &str)
-fn	provider::tests::assert_provider_id_non_empty fn assert_provider_id_non_empty(provider: &dyn Provider)
-fn	provider::tests::assert_unknown_model_returns_error fn assert_unknown_model_returns_error(provider: &dyn Provider)
-fn	task::create_task_state fn create_task_state( task_type: TaskType, description: String, tool_use_id: Option<String>, output_file: PathBuf, ) -> TaskState
-fn	task::generate_task_id fn generate_task_id(task_type: &TaskType) -> String
 fn	tool::scheduler::normalize_path_string fn normalize_path_string(raw: &str) -> String
 fn	tool::scheduler::resolve_against_workspace fn resolve_against_workspace(key: &str, workspace: &std::path::Path) -> String
 fn	tool::schema::normalize_llm_tool_schema fn normalize_llm_tool_schema(schema: &mut Value)
@@ -46,10 +37,6 @@ implfn	CancellationToken::fn cancel pub fn cancel(&self)
 implfn	CancellationToken::fn child pub fn child(&self) -> Self
 implfn	CancellationToken::fn is_cancelled pub fn is_cancelled(&self) -> bool
 implfn	CancellationToken::fn new pub fn new() -> Self
-implfn	ChildScopeConfig::fn new pub fn new(role: impl Into<String>) -> Self
-implfn	ChildScopeConfig::fn with_max_iterations pub fn with_max_iterations(mut self, max: u32) -> Self
-implfn	ChildScopeConfig::fn with_system_prompt pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self
-implfn	ChildScopeConfig::fn with_timeout pub fn with_timeout(mut self, timeout: Duration) -> Self
 implfn	CompletionResponse::fn from_message pub fn from_message(message: Message) -> Self
 implfn	ContextMetadata::fn new pub fn new(layer: ContextLayer) -> Self
 implfn	ContextMetadata::fn with_origin pub fn with_origin(mut self, origin: EntryOrigin) -> Self
@@ -74,11 +61,6 @@ implfn	Injection::fn with_layer pub fn with_layer(mut self, layer: ContextLayer)
 implfn	Injection::fn with_priority pub fn with_priority(mut self, p: Priority) -> Self
 implfn	MinimalExecutionContext::fn new pub fn new() -> Self
 implfn	MinimalExecutionContext::fn with_cancel pub fn with_cancel(cancel: CancellationToken) -> Self
-implfn	ProviderRegistry::fn get pub fn get(&self, provider_id: &str) -> Option<&Arc<dyn Provider>>
-implfn	ProviderRegistry::fn language_model pub fn language_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn LanguageModel>, ProviderError>
-implfn	ProviderRegistry::fn new pub fn new() -> Self
-implfn	ProviderRegistry::fn provider_ids pub fn provider_ids(&self) -> Vec<&str>
-implfn	ProviderRegistry::fn register pub fn register(&mut self, provider: Arc<dyn Provider>)
 implfn	ResourceKey::fn read pub fn read(key: impl Into<String>) -> Self
 implfn	ResourceKey::fn write pub fn write(key: impl Into<String>) -> Self
 implfn	Scheduling::fn concurrency_safe pub fn concurrency_safe(mut self) -> Self
@@ -86,8 +68,6 @@ implfn	Scheduling::fn coordinator pub fn coordinator() -> Self
 implfn	Scheduling::fn manages_own_timeout pub fn manages_own_timeout(mut self) -> Self
 implfn	Scheduling::fn serial_global pub fn serial_global() -> Self
 implfn	Scheduling::fn with_resource_keys pub fn with_resource_keys(mut self, keys: Vec<ResourceKey>) -> Self
-implfn	ScopeId::fn as_str pub fn as_str(&self) -> &str
-implfn	ScopeId::fn new pub fn new() -> Self
 implfn	ScopedSession::async fn append pub async fn append(&self, mut event: SessionEvent) -> Result<(), SessionError>
 implfn	ScopedSession::async fn count pub async fn count(&self, filter: &EventQuery) -> usize
 implfn	ScopedSession::async fn query pub async fn query(&self, filter: &EventQuery) -> Vec<EventMatch>
@@ -106,12 +86,6 @@ implfn	SessionRecord::fn execution pub fn execution( type_name: impl Into<String
 implfn	SessionRecord::fn extension pub fn extension( namespace: impl Into<String>, type_name: impl Into<String>, schema_version: u32, emitter: EventEmitter, payload: serde_json::Value, ) -> Result<Self, String>
 implfn	SessionRecord::fn from_event pub fn from_event(event: SessionEvent) -> Self
 implfn	SessionRecord::fn into_event pub fn into_event(self) -> SessionEvent
-implfn	SpawnCommHandle::fn empty pub fn empty() -> Self
-implfn	SpawnCommHandle::fn with_hooks pub fn with_hooks(hooks: Vec<Arc<dyn ContextHooks>>) -> Self
-implfn	SpawnCommHandle::fn with_on_complete pub fn with_on_complete(mut self, cb: Arc<dyn OnChildComplete>) -> Self
-implfn	StaticCredential::fn new pub fn new(key: impl Into<String>) -> Self
-implfn	TaskStatus::fn is_terminal pub fn is_terminal(&self) -> bool
-implfn	TaskType::fn prefix pub fn prefix(&self) -> char
 implfn	ToolFsExecResult::fn success pub fn success(&self) -> bool
 implfn	ToolGuard::fn active_count pub fn active_count(&self) -> u32
 implfn	ToolGuard::fn max_concurrent pub fn max_concurrent(max: u32) -> Self
@@ -129,7 +103,6 @@ implfn	ToolRegistry::fn remove pub fn remove(&mut self, name: &str) -> Option<Ar
 implfn	ToolSchemaContext<'a>::fn empty pub fn empty() -> Self
 implfn	ToolSchemaContext<'a>::fn with_bus pub fn with_bus(bus: &'a BusHandle) -> Self
 mod	agent_session
-mod	analytics
 mod	base
 mod	base::cancel
 mod	base::content
@@ -138,20 +111,12 @@ mod	base::message
 mod	base::stream
 mod	constants
 mod	conversation_log
-mod	diagnostic
 mod	model
-mod	phase
-mod	provider
-mod	provider::credential
-mod	provider::tests
 mod	runtime
 mod	scope
 mod	scope::context
-mod	scope::spawn
 mod	session_record
 mod	session_store
-mod	task
-mod	token_estimation
 mod	tool
 mod	tool::content_payload
 mod	tool::execution
@@ -165,13 +130,9 @@ struct	agent_session::EventQuery
 struct	agent_session::ScopedSession
 struct	agent_session::SessionEvent
 struct	agent_session::SessionMessage
-struct	analytics::NoopAnalyticsSink
 struct	base::cancel::CancellationToken
-struct	diagnostic::Diagnostic
 struct	model::CompletionResponse
 struct	model::HeuristicTokenCounter
-struct	provider::credential::StaticCredential
-struct	provider::types::ProviderRegistry
 struct	runtime::NoopSleeper
 struct	runtime::TimeoutError
 struct	scope::context::noop::NoopContextHandle
@@ -189,19 +150,11 @@ struct	scope::context::types::MessageRange
 struct	scope::context::types::PromptSection
 struct	scope::context::types::RuntimeContext
 struct	scope::context::types::ToolPattern
-struct	scope::spawn::communication::SpawnCommContext
-struct	scope::spawn::communication::SpawnCommHandle
-struct	scope::spawn::communication::SpawnResult
-struct	scope::types::ChildScopeConfig
-struct	scope::types::ScopeId
-struct	scope::types::ScopeSnapshot
 struct	session_record::AppendReceipt
 struct	session_record::BlobReference
 struct	session_record::ConversationRecord
 struct	session_record::ExtensionRecord
 struct	session_record::SessionRecord
-struct	task::TaskState
-struct	token_estimation::SimpleTokenEstimator
 struct	tool::execution::MinimalExecutionContext
 struct	tool::guard::GuardError
 struct	tool::guard::GuardToken
@@ -216,27 +169,19 @@ struct	tool::types::ToolFsExecResult
 struct	tool::types::ToolRegistry
 trait	agent_session::AgentSession
 trait	agent_session::SessionEventListener
-trait	analytics::AnalyticsSink
 trait	conversation_log::ConversationLog
 trait	model::LanguageModel
 trait	model::TokenCounter
-trait	provider::credential::CredentialSource
-trait	provider::types::Provider
 trait	runtime::Sleeper
 trait	scope::context::system::ContextApply
 trait	scope::context::traits::ContextHandle
 trait	scope::context::traits::ContextHooks
-trait	scope::spawn::communication::OnChildComplete
-trait	scope::spawn::communication::SpawnCommunication
-trait	scope::spawn::communication::SpawnCommunicationRegistry
 trait	session_store::SessionStore
-trait	token_estimation::TokenEstimator
 trait	tool::execution::ToolExecutionContext
 trait	tool::types::Tool
 trait	tool::types::ToolFs
 traitfn	agent_session::SessionEventListener::async fn on_event async fn on_event(&self, event: &SessionEvent)
 traitfn	agent_session::SessionEventListener::fn is_active fn is_active(&self) -> bool
-traitfn	analytics::AnalyticsSink::fn record fn record(&self, event: AnalyticsEvent)
 traitfn	conversation_log::ConversationLog::async fn append async fn append(&self, event: SessionEvent) -> Result<(), SessionError>
 traitfn	conversation_log::ConversationLog::async fn append_message async fn append_message( &self, msg: AgentMessage, parent_uuid: Option<String>, ) -> Result<(), SessionError>
 traitfn	conversation_log::ConversationLog::async fn append_records async fn append_records( &self, records: Vec<SessionRecord>, ) -> Result<AppendReceipt, SessionError>
@@ -251,9 +196,6 @@ traitfn	model::LanguageModel::fn provider_id fn provider_id(&self) -> &str
 traitfn	model::LanguageModel::fn stream fn stream( &self, messages: &[Message], tools: &[&dyn Tool], config: &ModelConfig, ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>>
 traitfn	model::TokenCounter::fn context_window fn context_window(&self) -> usize
 traitfn	model::TokenCounter::fn count_tokens fn count_tokens(&self, text: &str) -> usize
-traitfn	provider::credential::CredentialSource::async fn get_api_key async fn get_api_key(&self) -> Result<String, ProviderError>
-traitfn	provider::types::Provider::fn id fn id(&self) -> &str
-traitfn	provider::types::Provider::fn language_model fn language_model(&self, model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError>
 traitfn	runtime::Sleeper::async fn sleep async fn sleep(&self, duration: Duration)
 traitfn	scope::context::system::ContextApply::fn apply_compressions fn apply_compressions<'a>( &'a self, actions: Vec<super::CompressAction>, messages: &'a mut Vec<crate::AgentMessage>, handle: &'a dyn ContextHandle, agent_id: &'a str, ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>
 traitfn	scope::context::system::ContextApply::fn apply_injections fn apply_injections( &self, injections: Vec<super::Injection>, system_prompt: &mut Vec<String>, messages: &mut Vec<crate::AgentMessage>, )
@@ -288,14 +230,6 @@ traitfn	scope::context::traits::ContextHooks::async fn ingest async fn ingest( &
 traitfn	scope::context::traits::ContextHooks::async fn on_budget_exceeded async fn on_budget_exceeded( &self, sdk: &dyn ContextHandle, agent_id: &str, snapshot: &ContextSnapshot, ) -> Vec<CompressAction>
 traitfn	scope::context::traits::ContextHooks::async fn on_message async fn on_message( &self, sdk: &dyn ContextHandle, agent_id: &str, message: &AgentMessage, ) -> Vec<Injection>
 traitfn	scope::context::traits::ContextHooks::fn name fn name(&self) -> &str
-traitfn	scope::spawn::communication::OnChildComplete::async fn call async fn call(&self, result: &SpawnResult)
-traitfn	scope::spawn::communication::SpawnCommunication::async fn attach async fn attach( &self, ctx: &SpawnCommContext<'_>, config: Value, ) -> Result<SpawnCommHandle, SpawnCommError>
-traitfn	scope::spawn::communication::SpawnCommunication::fn config_schema fn config_schema(&self) -> Value
-traitfn	scope::spawn::communication::SpawnCommunication::fn description fn description(&self) -> &str
-traitfn	scope::spawn::communication::SpawnCommunication::fn kind fn kind(&self) -> &str
-traitfn	scope::spawn::communication::SpawnCommunicationRegistry::fn get fn get(&self, kind: &str) -> Option<Arc<dyn SpawnCommunication>>
-traitfn	scope::spawn::communication::SpawnCommunicationRegistry::fn list fn list(&self) -> Vec<Arc<dyn SpawnCommunication>>
-traitfn	scope::spawn::communication::SpawnCommunicationRegistry::fn register fn register(&self, ch: Arc<dyn SpawnCommunication>)
 traitfn	session_store::SessionStore::async fn clear async fn clear(&self) -> Result<(), SessionError>
 traitfn	session_store::SessionStore::async fn close async fn close(&self) -> Result<(), SessionError>
 traitfn	session_store::SessionStore::async fn compact_messages async fn compact_messages(&self, replacement: Vec<AgentMessage>)
@@ -310,8 +244,6 @@ traitfn	session_store::SessionStore::async fn rollback_after async fn rollback_a
 traitfn	session_store::SessionStore::async fn save_snapshot async fn save_snapshot(&self, data: &[u8])
 traitfn	session_store::SessionStore::async fn subscribe_events async fn subscribe_events(&self, from_seq: u64) -> SessionEventStream
 traitfn	session_store::SessionStore::fn parent_session_id fn parent_session_id(&self) -> Option<&str>
-traitfn	token_estimation::TokenEstimator::fn estimate_message_tokens fn estimate_message_tokens(&self, messages: &[crate::Message]) -> usize
-traitfn	token_estimation::TokenEstimator::fn estimate_tokens fn estimate_tokens(&self, text: &str) -> usize
 traitfn	tool::execution::ToolExecutionContext::fn allow_dangerous fn allow_dangerous(&self) -> bool
 traitfn	tool::execution::ToolExecutionContext::fn as_any fn as_any(&self) -> &dyn Any
 traitfn	tool::execution::ToolExecutionContext::fn bus fn bus(&self) -> Option<&BusHandle>
@@ -348,43 +280,29 @@ use	pub use alva_llm_wire::tool_payload::*
 use	pub use alva_llm_wire::{message_from_events, StreamMessageAccumulator, StreamMessageError}
 use	pub use alva_macros::Tool
 use	pub use alva_macros::{bus_cap, bus_event}
-use	pub use analytics::{AnalyticsEvent, AnalyticsSink, NoopAnalyticsSink}
 use	pub use base::cancel::CancellationToken
 use	pub use base::content::ContentBlock
 use	pub use base::error::AgentError
 use	pub use base::message::{AgentMessage, Marker, Message, MessageRole, UsageMetadata}
 use	pub use base::stream::StreamEvent
-use	pub use communication::*
 use	pub use config::{ModelConfig, ReasoningEffort}
 use	pub use content_payload::{ProgressEvent, ToolContent, ToolOutput}
 use	pub use conversation_log::ConversationLog
-use	pub use credential::{CredentialSource, StaticCredential}
-use	pub use diagnostic::{Diagnostic, Severity}
 use	pub use error::*
 use	pub use events::*
 use	pub use model::{CompletionResponse, LanguageModel, ModelConfig, ReasoningEffort, TokenCounter}
 use	pub use noop::*
-use	pub use phase::{Phase, PhaseEffect}
-use	pub use provider::tests as provider_test
-use	pub use provider::{CredentialSource, Provider, ProviderError, ProviderRegistry, StaticCredential}
 use	pub use runtime::{timeout, NoopSleeper, Sleeper, TimeoutError}
 use	pub use scheduler::{normalize_path_string, ExecutionMode, LockMode, ResourceKey, Scheduling}
 use	pub use schema::{normalize_llm_tool_schema, ToolSchemaContext}
-use	pub use scope::context
 use	pub use scope::context::{ContextCompacted, MemoryExtracted, TokenBudgetExceeded}
-use	pub use scope::spawn::{ OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication, SpawnCommunicationRegistry, SpawnResult, }
-use	pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot}
 use	pub use session_record::{ AppendReceipt, BlobReference, ConversationRecord, ExecutionRecord, ExtensionRecord, RecordCategory, RecordValue, SessionRecord, SessionRecordPayload, SESSION_RECORD_SCHEMA_VERSION, }
 use	pub use session_store::SessionStore
 use	pub use super::content_payload::{ProgressEvent, ToolContent, ToolOutput}
 use	pub use system::*
-use	pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType}
-use	pub use token_estimation::{SimpleTokenEstimator, TokenEstimator}
 use	pub use tool::execution::{ MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput, }
-use	pub use tool::scheduler::{ normalize_path_string, ExecutionMode, LockMode, ResourceKey, Scheduling, }
+use	pub use tool::scheduler::{ normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey, Scheduling, }
 use	pub use tool::{ tool_definition, EffectDescription, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolRegistry, ToolSchemaContext, }
 use	pub use traits::*
-use	pub use types::*
-use	pub use types::*
 use	pub use types::*
 use	pub use types::{ tool_definition, EffectDescription, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolRegistry, }

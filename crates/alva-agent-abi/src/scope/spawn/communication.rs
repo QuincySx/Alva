@@ -26,8 +26,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::context::ContextHooks;
-use crate::BusHandle;
+use alva_kernel_abi::scope::context::ContextHooks;
+use alva_kernel_bus::BusHandle;
 
 // ---------------------------------------------------------------------------
 // SpawnCommContext
@@ -192,7 +192,7 @@ pub trait SpawnCommunication: Send + Sync {
 /// registry, other extensions (blackboard, etc.) mutate it in their own
 /// `configure` step. Constructor injection can't express that ordering
 /// cleanly; bus-backed late injection is exactly the right shape.
-#[crate::bus_cap]
+#[alva_macros::bus_cap]
 pub trait SpawnCommunicationRegistry: Send + Sync {
     /// Add a capability. Idempotency/overwrite policy is implementation-defined.
     fn register(&self, ch: Arc<dyn SpawnCommunication>);

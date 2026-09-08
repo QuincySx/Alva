@@ -1,4 +1,4 @@
-// INPUT:  std::sync::Arc, alva_kernel_abi::context::ContextSystem, crate implementations
+// INPUT:  std::sync::Arc, alva_kernel_abi::scope::context::ContextSystem, crate implementations
 // OUTPUT: re-exports ContextSystem, provides default_context_system()
 // POS:    Re-exports ContextSystem from alva_kernel_abi::context and provides a default constructor function.
 //! ContextSystem — re-exported from `alva_kernel_abi::context` with a default constructor.
@@ -6,9 +6,9 @@
 use std::sync::Arc;
 
 // Re-export the struct from alva_kernel_abi::context
-pub use alva_kernel_abi::context::ContextSystem;
+pub use alva_kernel_abi::scope::context::ContextSystem;
 
-use alva_kernel_abi::context::{ContextHandle, ContextHooks};
+use alva_kernel_abi::scope::context::{ContextHandle, ContextHooks};
 
 /// Create a default ContextSystem with RulesContextHooks + in-memory ContextStore.
 ///

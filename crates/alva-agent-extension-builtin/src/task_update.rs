@@ -23,15 +23,15 @@ enum TaskStatus {
     Deleted,
 }
 
-fn to_kernel_status(s: TaskStatus) -> alva_kernel_abi::TaskStatus {
+fn to_kernel_status(s: TaskStatus) -> alva_agent_abi::TaskStatus {
     match s {
-        TaskStatus::Pending => alva_kernel_abi::TaskStatus::Pending,
-        TaskStatus::InProgress => alva_kernel_abi::TaskStatus::Running,
-        TaskStatus::Completed => alva_kernel_abi::TaskStatus::Completed,
+        TaskStatus::Pending => alva_agent_abi::TaskStatus::Pending,
+        TaskStatus::InProgress => alva_agent_abi::TaskStatus::Running,
+        TaskStatus::Completed => alva_agent_abi::TaskStatus::Completed,
         // No `Deleted` in the kernel — fold into `Killed` so the audit
         // trail still shows the task as terminated rather than throwing
         // away the user's intent.
-        TaskStatus::Deleted => alva_kernel_abi::TaskStatus::Killed,
+        TaskStatus::Deleted => alva_agent_abi::TaskStatus::Killed,
     }
 }
 
@@ -251,7 +251,7 @@ mod tests {
 
         // Verify the service persisted the status mapping.
         let after = store.get(&id).await.unwrap();
-        assert_eq!(after.status, alva_kernel_abi::TaskStatus::Running);
+        assert_eq!(after.status, alva_agent_abi::TaskStatus::Running);
     }
 
     #[tokio::test]
@@ -279,7 +279,7 @@ mod tests {
             .expect("ok");
         assert!(!output.is_error);
         let after = store.get(&id).await.unwrap();
-        assert_eq!(after.status, alva_kernel_abi::TaskStatus::Killed);
+        assert_eq!(after.status, alva_agent_abi::TaskStatus::Killed);
     }
 
     #[tokio::test]

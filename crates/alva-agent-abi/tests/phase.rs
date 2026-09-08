@@ -1,4 +1,4 @@
-use alva_kernel_abi::{Phase, PhaseEffect};
+use alva_agent_abi::{Phase, PhaseEffect};
 
 #[test]
 fn phase_wire_names_are_stable() {

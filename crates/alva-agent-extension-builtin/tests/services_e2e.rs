@@ -108,12 +108,12 @@ async fn task_lifecycle_end_to_end() {
     )
     .await;
     let after_update = store.get(&id).await.unwrap();
-    assert_eq!(after_update.status, alva_kernel_abi::TaskStatus::Running);
+    assert_eq!(after_update.status, alva_agent_abi::TaskStatus::Running);
 
     // 5. stop → killed
     invoke(&TaskStopTool, json!({ "task_id": id.clone() }), &ctx).await;
     let after_stop = store.get(&id).await.unwrap();
-    assert_eq!(after_stop.status, alva_kernel_abi::TaskStatus::Killed);
+    assert_eq!(after_stop.status, alva_agent_abi::TaskStatus::Killed);
 
     // 6. list with running filter is now empty
     let list_running = invoke(&TaskListTool, json!({ "status": "running" }), &ctx).await;

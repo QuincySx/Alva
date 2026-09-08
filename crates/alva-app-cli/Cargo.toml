@@ -18,6 +18,7 @@ include_dir = "0.7"
 alva-kernel-core = { path = "../alva-kernel-core" }
 alva-host-native = { path = "../alva-host-native" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-agent-abi = { path = "../alva-agent-abi" }
 alva-llm-provider = { path = "../alva-llm-provider" }
 alva-llm-wire = { path = "../alva-llm-wire" }
 alva-sandbox-wasm = { path = "../alva-sandbox-wasm" }

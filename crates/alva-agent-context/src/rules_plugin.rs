@@ -68,7 +68,7 @@ mod tests {
     //! production-critical, but the whole thing is pure functions:
     //! no real LLM, no real storage.
     use super::*;
-    use alva_kernel_abi::context::{
+    use alva_kernel_abi::scope::context::{
         ContextLayer, ContextSnapshot, EntryOrigin, EntrySnapshot, NoopContextHandle,
     };
     use std::collections::HashMap;

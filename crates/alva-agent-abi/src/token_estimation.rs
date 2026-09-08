@@ -1,4 +1,4 @@
-// INPUT:  crate::Message
+// INPUT:  alva_kernel_abi::Message
 // OUTPUT: TokenEstimator (trait), SimpleTokenEstimator
 // POS:    Token counting abstractions — trait for pluggable estimators and a simple heuristic-based default.
 
@@ -11,7 +11,7 @@ pub trait TokenEstimator: Send + Sync {
     fn estimate_tokens(&self, text: &str) -> usize;
 
     /// Estimate the total tokens for a slice of messages.
-    fn estimate_message_tokens(&self, messages: &[crate::Message]) -> usize;
+    fn estimate_message_tokens(&self, messages: &[alva_kernel_abi::Message]) -> usize;
 }
 
 /// Simple estimator using a ~4 characters per token heuristic.
@@ -45,7 +45,7 @@ impl TokenEstimator for SimpleTokenEstimator {
         count.max(1) // At least 1 token for non-empty text
     }
 
-    fn estimate_message_tokens(&self, messages: &[crate::Message]) -> usize {
+    fn estimate_message_tokens(&self, messages: &[alva_kernel_abi::Message]) -> usize {
         messages
             .iter()
             .map(|m| {
@@ -110,8 +110,8 @@ mod tests {
     fn message_token_estimation() {
         let est = SimpleTokenEstimator;
         let messages = vec![
-            crate::Message::user("Hello, world!"), // 13 ASCII chars => ceil(13/4)=4 + 4 overhead = 8
-            crate::Message::system("Be helpful."), // 11 ASCII chars => ceil(11/4)=3 + 4 overhead = 7
+            alva_kernel_abi::Message::user("Hello, world!"), // 13 ASCII chars => ceil(13/4)=4 + 4 overhead = 8
+            alva_kernel_abi::Message::system("Be helpful."), // 11 ASCII chars => ceil(11/4)=3 + 4 overhead = 7
         ];
         let total = est.estimate_message_tokens(&messages);
         // 8 + 7 = 15

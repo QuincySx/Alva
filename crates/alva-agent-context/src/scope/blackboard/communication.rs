@@ -19,7 +19,7 @@ use alva_agent_abi::{
     OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication,
     SpawnResult,
 };
-use alva_kernel_abi::context::ContextHooks;
+use alva_kernel_abi::scope::context::ContextHooks;
 
 use super::{AgentProfile, Blackboard, BlackboardPlugin, BoardMessage, MessageKind};
 use crate::scope::BoardRegistry;

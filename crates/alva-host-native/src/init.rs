@@ -1,14 +1,15 @@
 // INPUT:  std::sync, alva_kernel_abi
 // OUTPUT: model
 // POS:    Resolves a "provider/model_id" spec string into a LanguageModel via ProviderRegistry.
-use alva_kernel_abi::{LanguageModel, ProviderError, ProviderRegistry};
+use alva_agent_abi::{ProviderError, ProviderRegistry};
+use alva_kernel_abi::LanguageModel;
 use std::sync::Arc;
 
 /// Parse a `provider/model_id` string and resolve from registry.
 ///
 /// # Examples
 /// ```rust,no_run
-/// # use alva_kernel_abi::ProviderRegistry;
+/// # use alva_agent_abi::ProviderRegistry;
 /// # let registry = ProviderRegistry::new();
 /// let llm = alva_host_native::model("anthropic/claude-sonnet-4-20250514", &registry);
 /// ```
@@ -37,7 +38,7 @@ mod tests {
     //! The error path returns ProviderError with the user-supplied
     //! spec in the message so users can copy-paste-diagnose.
     use super::*;
-    use alva_kernel_abi::Provider;
+    use alva_agent_abi::Provider;
 
     /// Minimal Provider that always errs — registry tests already
     /// pin success path coverage at L119. Here we just need register-

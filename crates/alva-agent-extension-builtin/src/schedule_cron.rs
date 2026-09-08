@@ -56,7 +56,7 @@ impl ScheduleCronTool {
         let recurring = params.recurring.unwrap_or(true);
         let schedule_id = format!(
             "sched-{}",
-            &alva_kernel_abi::generate_task_id(&alva_kernel_abi::TaskType::LocalWorkflow)[1..9]
+            &alva_agent_abi::generate_task_id(&alva_agent_abi::TaskType::LocalWorkflow)[1..9]
         );
 
         Ok(ToolOutput::text(format!(

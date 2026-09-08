@@ -6,7 +6,8 @@
 
 use std::sync::Arc;
 
-use alva_kernel_abi::{LanguageModel, Provider, ProviderError, ProviderRegistry};
+use alva_agent_abi::{Provider, ProviderError, ProviderRegistry};
+use alva_kernel_abi::LanguageModel;
 
 use crate::ProviderConfig;
 

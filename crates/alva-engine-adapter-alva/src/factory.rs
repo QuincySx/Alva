@@ -113,7 +113,7 @@ pub struct CatalogBaseAgentFactory {
     default_system_prompt: String,
     max_iterations: u32,
     /// Optional provider registry for sub-agent model routing.
-    provider_registry: Option<Arc<alva_kernel_abi::ProviderRegistry>>,
+    provider_registry: Option<Arc<alva_agent_abi::ProviderRegistry>>,
     /// Component on/off map (empty → catalog defaults).
     toggles: ComponentToggles,
     reasoning_effort: Option<alva_kernel_abi::ReasoningEffort>,
@@ -136,7 +136,7 @@ impl CatalogBaseAgentFactory {
         }
     }
 
-    pub fn with_provider_registry(mut self, reg: Arc<alva_kernel_abi::ProviderRegistry>) -> Self {
+    pub fn with_provider_registry(mut self, reg: Arc<alva_agent_abi::ProviderRegistry>) -> Self {
         self.provider_registry = Some(reg);
         self
     }

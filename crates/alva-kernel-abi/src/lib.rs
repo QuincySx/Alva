@@ -1,33 +1,21 @@
 // INPUT:  async_trait, serde, serde_json, thiserror, chrono, tokio_util, alva_kernel_bus
-// OUTPUT: CancellationToken, ContentBlock, AgentError, Message, LanguageModel, ModelConfig, TokenCounter, StreamEvent, StreamMessageAccumulator, Tool, ToolCall, ToolExecutionContext, ToolOutput, Bus, BusHandle, BusWriter, BusEvent, BusPlugin, PluginRegistrar, StateCell, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, SpawnCommunication, SpawnCommContext, SpawnCommHandle, SpawnCommError, SpawnCommunicationRegistry, OnChildComplete, SpawnResult, ...
-// POS:    Crate root — re-exports all shared types including bus coordination primitives, context bus events, and spawn-time communication plugin contract.
+// OUTPUT: CancellationToken, ContentBlock, AgentError, Message, LanguageModel, ModelConfig, TokenCounter, StreamEvent, StreamMessageAccumulator, Tool, ToolCall, ToolExecutionContext, ToolOutput, ConversationLog, SessionStore, SessionRecord, Bus, BusHandle, BusWriter, BusEvent, BusPlugin, PluginRegistrar, StateCell, TokenBudgetExceeded, ContextCompacted, MemoryExtracted, ...
+// POS:    内核契约层——循环怎么转的最小词汇：消息/工具/模型/取消/错误、
+//         对话记录与会话存储、调度与上下文装配。agent 产品概念
+//         （Task / Scope / Spawn / Phase / Analytics / Provider 注册表）在
+//         alva-agent-abi（ticket 16 收口后内核不再承载）。
 pub use alva_llm_wire::adapter;
 pub use alva_llm_wire::{message_from_events, StreamMessageAccumulator, StreamMessageError};
-pub mod analytics;
-pub mod base;
-pub mod diagnostic;
-// context is now at scope::context; re-export for backward compatibility
-pub use scope::context;
-pub mod constants;
-pub mod model;
-pub mod phase;
-pub mod task;
-pub mod token_estimation;
-pub mod tool;
-// backward-compatible re-exports for old module paths
-pub mod provider;
-// provider_test is now at provider::tests; re-export for backward compatibility
-pub use provider::tests as provider_test;
 pub mod agent_session;
+pub mod base;
+pub mod constants;
 pub mod conversation_log;
+pub mod model;
 pub mod runtime;
 pub mod scope;
 pub mod session_record;
 pub mod session_store;
-// tool_guard is now at tool::guard
-
-pub use analytics::{AnalyticsEvent, AnalyticsSink, NoopAnalyticsSink};
-pub use diagnostic::{Diagnostic, Severity};
+pub mod tool;
 
 pub use runtime::{timeout, NoopSleeper, Sleeper, TimeoutError};
 
@@ -37,12 +25,12 @@ pub use base::error::AgentError;
 pub use base::message::{AgentMessage, Marker, Message, MessageRole, UsageMetadata};
 pub use base::stream::StreamEvent;
 pub use model::{CompletionResponse, LanguageModel, ModelConfig, ReasoningEffort, TokenCounter};
-pub use phase::{Phase, PhaseEffect};
 pub use tool::execution::{
     MinimalExecutionContext, ProgressEvent, ToolContent, ToolExecutionContext, ToolOutput,
 };
 pub use tool::scheduler::{
-    normalize_path_string, ExecutionMode, LockMode, ResourceKey, Scheduling,
+    normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+    Scheduling,
 };
 pub use tool::{
     tool_definition, EffectDescription, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry,
@@ -69,20 +57,12 @@ pub use agent_session::{
 #[doc(inline)]
 pub use alva_macros::{bus_cap, bus_event};
 pub use conversation_log::ConversationLog;
-pub use provider::{CredentialSource, Provider, ProviderError, ProviderRegistry, StaticCredential};
-pub use scope::spawn::{
-    OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication,
-    SpawnCommunicationRegistry, SpawnResult,
-};
-pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
 pub use session_record::{
     AppendReceipt, BlobReference, ConversationRecord, ExecutionRecord, ExtensionRecord,
     RecordCategory, RecordValue, SessionRecord, SessionRecordPayload,
     SESSION_RECORD_SCHEMA_VERSION,
 };
 pub use session_store::SessionStore;
-pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType};
-pub use token_estimation::{SimpleTokenEstimator, TokenEstimator};
 
 // Bus — cross-layer coordination
 pub use alva_kernel_bus::{

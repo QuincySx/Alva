@@ -1,4 +1,4 @@
-// INPUT:  std::sync::Arc, async_trait, alva_kernel_abi::ProviderRegistry, crate::extension::{Plugin, Registrar}
+// INPUT:  std::sync::Arc, async_trait, alva_agent_abi::ProviderRegistry, crate::extension::{Plugin, Registrar}
 // OUTPUT: ProviderRegistryPlugin
 // POS:    Opt-in Plugin that provides an `Arc<ProviderRegistry>` onto the bus so `AgentSpawnTool` can resolve per-spawn `model: "provider/id"` specs. Without this plugin, the `model` field on `SpawnInput` must be left empty (child inherits the parent's model).
 
@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use alva_kernel_abi::ProviderRegistry;
+use alva_agent_abi::ProviderRegistry;
 
 use alva_agent_core::extension::{Plugin, Registrar};
 

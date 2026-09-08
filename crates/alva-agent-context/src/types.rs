@@ -3,7 +3,7 @@
 // POS:    Re-exports value types from alva_kernel_abi::context so that downstream code using alva_agent_context::types::* continues to work.
 //! Context management types — re-exported from `alva_kernel_abi::context`.
 
-pub use alva_kernel_abi::context::{
+pub use alva_kernel_abi::scope::context::{
     BudgetInfo, CompressAction, ContextEntry, ContextLayer, ContextMetadata, ContextSnapshot,
     EntryOrigin, EntrySnapshot, IngestAction, Injection, InjectionContent, LayerStats,
     MemoryCategory, MemoryFact, MessageRange, MessageSelector, Priority, PromptSection,

@@ -1,4 +1,4 @@
-// INPUT:  alva_kernel_abi::context::*, alva_kernel_abi::{AgentMessage, Message}, super::{Blackboard, AgentProfile, BoardMessage, MessageKind, TaskPhase}
+// INPUT:  alva_kernel_abi::scope::context::*, alva_kernel_abi::{AgentMessage, Message}, super::{Blackboard, AgentProfile, BoardMessage, MessageKind, TaskPhase}
 // OUTPUT: BlackboardPlugin
 // POS:    ContextHooks plugin that bridges a single agent to the shared blackboard.
 
@@ -13,7 +13,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use alva_kernel_abi::context::{
+use alva_kernel_abi::scope::context::{
     CompressAction, ContextEntry, ContextError, ContextHandle, ContextHooks, ContextLayer,
     ContextSnapshot, IngestAction, Injection,
 };
@@ -197,10 +197,10 @@ impl ContextHooks for BlackboardPlugin {
             let entry = ContextEntry {
                 id: format!("blackboard-{}", self.profile.id),
                 message: AgentMessage::Standard(Message::system(&board_context)),
-                metadata: alva_kernel_abi::context::ContextMetadata::new(
+                metadata: alva_kernel_abi::scope::context::ContextMetadata::new(
                     ContextLayer::RuntimeInject,
                 )
-                .with_priority(alva_kernel_abi::context::Priority::High),
+                .with_priority(alva_kernel_abi::scope::context::Priority::High),
             };
             entries.push(entry);
         }
@@ -274,7 +274,7 @@ impl ContextHooks for BlackboardPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::context::NoopContextHandle;
+    use alva_kernel_abi::scope::context::NoopContextHandle;
 
     fn test_board() -> Arc<Blackboard> {
         Arc::new(Blackboard::new())

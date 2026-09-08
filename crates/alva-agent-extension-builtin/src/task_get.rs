@@ -57,11 +57,11 @@ impl TaskGetTool {
 
 fn format_state(s: &TaskState) -> String {
     let status = match s.status {
-        alva_kernel_abi::TaskStatus::Pending => "pending",
-        alva_kernel_abi::TaskStatus::Running => "running",
-        alva_kernel_abi::TaskStatus::Completed => "completed",
-        alva_kernel_abi::TaskStatus::Failed => "failed",
-        alva_kernel_abi::TaskStatus::Killed => "killed",
+        alva_agent_abi::TaskStatus::Pending => "pending",
+        alva_agent_abi::TaskStatus::Running => "running",
+        alva_agent_abi::TaskStatus::Completed => "completed",
+        alva_agent_abi::TaskStatus::Failed => "failed",
+        alva_agent_abi::TaskStatus::Killed => "killed",
     };
     let mut out = format!(
         "Task {}\n  Status: {}\n  Description: {}\n  Started: {}",

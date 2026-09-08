@@ -7,7 +7,6 @@ description = "Security subsystem for the agent framework"
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
-alva-agent-core = { path = "../alva-agent-core" }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -35,6 +34,7 @@ libc = "0.2"
 landlock = "0.4"
 
 [dev-dependencies]
+alva-agent-core = { path = "../alva-agent-core" }
 futures-core = "0.3"
 tempfile = "3"
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }

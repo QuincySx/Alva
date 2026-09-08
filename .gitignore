@@ -20,3 +20,4 @@ alva-eval-runs.db
 
 # Ad-hoc test binaries left at repo root during development.
 /test_dyn_trait
+__pycache__/

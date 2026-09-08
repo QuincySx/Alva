@@ -44,7 +44,7 @@ impl EnterWorktreeTool {
         let wt_name = params.name.unwrap_or_else(|| {
             format!(
                 "wt-{}",
-                &alva_kernel_abi::generate_task_id(&alva_kernel_abi::TaskType::LocalAgent)[1..9]
+                &alva_agent_abi::generate_task_id(&alva_agent_abi::TaskType::LocalAgent)[1..9]
             )
         });
         let branch_name = format!("worktree/{}", wt_name);

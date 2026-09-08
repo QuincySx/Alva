@@ -19,6 +19,7 @@ SCANNER="$ROOT/scripts/public-surface.py"
 
 CRATES=(
     "alva-kernel-abi"
+    "alva-agent-abi"
     "alva-agent-core"
 )
 

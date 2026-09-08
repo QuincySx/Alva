@@ -1,15 +1,78 @@
+enum	provider::types::ProviderError
+enum	scope::spawn::communication::SpawnCommError
+enum	scope::types::ScopeError
+fn	provider::tests::assert_language_model_returns_valid_id fn assert_language_model_returns_valid_id(provider: &dyn Provider, model_id: &str)
+fn	provider::tests::assert_provider_conformance fn assert_provider_conformance(provider: &dyn Provider, known_model_id: &str)
+fn	provider::tests::assert_provider_id_non_empty fn assert_provider_id_non_empty(provider: &dyn Provider)
+fn	provider::tests::assert_unknown_model_returns_error fn assert_unknown_model_returns_error(provider: &dyn Provider)
+fn	task::create_task_state fn create_task_state( task_type: TaskType, description: String, tool_use_id: Option<String>, output_file: PathBuf, ) -> TaskState
+fn	task::generate_task_id fn generate_task_id(task_type: &TaskType) -> String
+implfn	ChildScopeConfig::fn new pub fn new(role: impl Into<String>) -> Self
+implfn	ChildScopeConfig::fn with_max_iterations pub fn with_max_iterations(mut self, max: u32) -> Self
+implfn	ChildScopeConfig::fn with_system_prompt pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self
+implfn	ChildScopeConfig::fn with_timeout pub fn with_timeout(mut self, timeout: Duration) -> Self
+implfn	ProviderRegistry::fn get pub fn get(&self, provider_id: &str) -> Option<&Arc<dyn Provider>>
+implfn	ProviderRegistry::fn language_model pub fn language_model( &self, provider_id: &str, model_id: &str, ) -> Result<Arc<dyn LanguageModel>, ProviderError>
+implfn	ProviderRegistry::fn new pub fn new() -> Self
+implfn	ProviderRegistry::fn provider_ids pub fn provider_ids(&self) -> Vec<&str>
+implfn	ProviderRegistry::fn register pub fn register(&mut self, provider: Arc<dyn Provider>)
+implfn	ScopeId::fn as_str pub fn as_str(&self) -> &str
+implfn	ScopeId::fn new pub fn new() -> Self
+implfn	SpawnCommHandle::fn empty pub fn empty() -> Self
+implfn	SpawnCommHandle::fn with_hooks pub fn with_hooks(hooks: Vec<Arc<dyn ContextHooks>>) -> Self
+implfn	SpawnCommHandle::fn with_on_complete pub fn with_on_complete(mut self, cb: Arc<dyn OnChildComplete>) -> Self
+implfn	StaticCredential::fn new pub fn new(key: impl Into<String>) -> Self
+implfn	TaskStatus::fn is_terminal pub fn is_terminal(&self) -> bool
+implfn	TaskType::fn prefix pub fn prefix(&self) -> char
 mod	analytics
 mod	phase
+mod	provider
+mod	provider::credential
+mod	provider::tests
 mod	scope
 mod	scope::spawn
 mod	task
-use	pub use alva_kernel_abi::analytics::*
-use	pub use alva_kernel_abi::phase::*
-use	pub use alva_kernel_abi::scope::spawn::*
-use	pub use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot}
-use	pub use alva_kernel_abi::task::*
+mod	token_estimation
+struct	analytics::NoopAnalyticsSink
+struct	provider::credential::StaticCredential
+struct	provider::types::ProviderRegistry
+struct	scope::spawn::communication::SpawnCommContext
+struct	scope::spawn::communication::SpawnCommHandle
+struct	scope::spawn::communication::SpawnResult
+struct	scope::types::ChildScopeConfig
+struct	scope::types::ScopeId
+struct	scope::types::ScopeSnapshot
+struct	task::TaskState
+struct	token_estimation::SimpleTokenEstimator
+trait	analytics::AnalyticsSink
+trait	provider::credential::CredentialSource
+trait	provider::types::Provider
+trait	scope::spawn::communication::OnChildComplete
+trait	scope::spawn::communication::SpawnCommunication
+trait	scope::spawn::communication::SpawnCommunicationRegistry
+trait	token_estimation::TokenEstimator
+traitfn	analytics::AnalyticsSink::fn record fn record(&self, event: AnalyticsEvent)
+traitfn	provider::credential::CredentialSource::async fn get_api_key async fn get_api_key(&self) -> Result<String, ProviderError>
+traitfn	provider::types::Provider::fn id fn id(&self) -> &str
+traitfn	provider::types::Provider::fn language_model fn language_model(&self, model_id: &str) -> Result<Arc<dyn LanguageModel>, ProviderError>
+traitfn	scope::spawn::communication::OnChildComplete::async fn call async fn call(&self, result: &SpawnResult)
+traitfn	scope::spawn::communication::SpawnCommunication::async fn attach async fn attach( &self, ctx: &SpawnCommContext<'_>, config: Value, ) -> Result<SpawnCommHandle, SpawnCommError>
+traitfn	scope::spawn::communication::SpawnCommunication::fn config_schema fn config_schema(&self) -> Value
+traitfn	scope::spawn::communication::SpawnCommunication::fn description fn description(&self) -> &str
+traitfn	scope::spawn::communication::SpawnCommunication::fn kind fn kind(&self) -> &str
+traitfn	scope::spawn::communication::SpawnCommunicationRegistry::fn get fn get(&self, kind: &str) -> Option<Arc<dyn SpawnCommunication>>
+traitfn	scope::spawn::communication::SpawnCommunicationRegistry::fn list fn list(&self) -> Vec<Arc<dyn SpawnCommunication>>
+traitfn	scope::spawn::communication::SpawnCommunicationRegistry::fn register fn register(&self, ch: Arc<dyn SpawnCommunication>)
+traitfn	token_estimation::TokenEstimator::fn estimate_message_tokens fn estimate_message_tokens(&self, messages: &[alva_kernel_abi::Message]) -> usize
+traitfn	token_estimation::TokenEstimator::fn estimate_tokens fn estimate_tokens(&self, text: &str) -> usize
 use	pub use analytics::{AnalyticsEvent, AnalyticsSink, NoopAnalyticsSink}
+use	pub use communication::*
+use	pub use credential::{CredentialSource, StaticCredential}
 use	pub use phase::{Phase, PhaseEffect}
+use	pub use provider::{CredentialSource, Provider, ProviderError, ProviderRegistry, StaticCredential}
 use	pub use scope::spawn::{ OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication, SpawnCommunicationRegistry, SpawnResult, }
 use	pub use scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot}
 use	pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, TaskType}
+use	pub use token_estimation::{SimpleTokenEstimator, TokenEstimator}
+use	pub use types::*
+use	pub use types::*

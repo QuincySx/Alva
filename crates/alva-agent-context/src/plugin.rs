@@ -3,4 +3,4 @@
 // POS:    Re-exports the ContextHooks trait and ContextError from alva_kernel_abi::context.
 //! ContextHooks trait — re-exported from `alva_kernel_abi::context`.
 
-pub use alva_kernel_abi::context::{ContextError, ContextHooks};
+pub use alva_kernel_abi::scope::context::{ContextError, ContextHooks};

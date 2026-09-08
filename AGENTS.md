@@ -58,6 +58,10 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 - **Rule 18**：原生产品入口 `alva-app-cli` / `alva-app-tauri` 不得（传递）依赖任何
   `alva-engine-*`。`EngineRuntime` 只服务 Hub 等多引擎产品；CLI/Tauri 继续直连
   `BaseAgent`，避免 multi-engine 合约变更同时打穿三端。
+- **Rule 19**：内核（`alva-kernel-abi` / `alva-kernel-core`）不得（传递）依赖
+  `alva-agent-abi`。任务、作用域、派生、阶段、埋点、provider 注册表是
+  "我们这一类 agent 产品"的概念，不是"循环怎么转"的机制——这条规则让
+  "极其通用的内核"成为 CI 可验证的事实（内核边界重构 ticket 16）。
 
 ---
 

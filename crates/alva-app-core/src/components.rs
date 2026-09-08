@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use alva_kernel_abi::ProviderRegistry;
+use alva_agent_abi::ProviderRegistry;
 
 use crate::base_agent::BaseAgentBuilder;
 use crate::settings::HooksSettings;

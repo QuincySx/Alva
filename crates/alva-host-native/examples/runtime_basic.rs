@@ -16,10 +16,11 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use alva_agent_abi::{Provider, ProviderError, ProviderRegistry};
 use alva_host_native::AgentRuntime;
 use alva_kernel_abi::{
     AgentError, AgentMessage, CancellationToken, CompletionResponse, LanguageModel, Message,
-    ModelConfig, Provider, ProviderError, ProviderRegistry, StreamEvent, Tool,
+    ModelConfig, StreamEvent, Tool,
 };
 use alva_kernel_core::middleware::{Middleware, MiddlewareError};
 use alva_kernel_core::run::run_agent;

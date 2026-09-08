@@ -82,7 +82,7 @@ pub enum AnalyticsEvent {
 /// returns `None` and the call site no-ops.
 /// **Why bus**: trait lives in `kernel-abi` so kernel-core can emit
 /// without compile-depending on app-core where the JSONL sink lives.
-#[crate::bus_cap]
+#[alva_macros::bus_cap]
 pub trait AnalyticsSink: Send + Sync {
     /// Record an event. MUST be non-blocking. Sinks that buffer/flush
     /// asynchronously should hand off and return immediately. Failures
