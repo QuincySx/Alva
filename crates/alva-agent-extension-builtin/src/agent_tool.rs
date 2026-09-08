@@ -3,9 +3,8 @@
 // POS:    Spawns and manages sub-agents, optionally running them in the background.
 //! agent_tool — spawn and manage sub-agents
 
-use alva_kernel_abi::{
-    create_task_state, AgentError, TaskType, Tool, ToolExecutionContext, ToolOutput,
-};
+use alva_agent_abi::{create_task_state, TaskType};
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;

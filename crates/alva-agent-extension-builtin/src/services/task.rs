@@ -16,7 +16,7 @@
 //! use alva_agent_extension_builtin::services::{
 //!     InMemoryTaskStore, TaskService, TaskUpdate,
 //! };
-//! use alva_kernel_abi::{create_task_state, TaskStatus, TaskType};
+//! use alva_agent_abi::{TaskStatus, TaskType, create_task_state};
 //! use std::path::PathBuf;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -62,7 +62,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use alva_kernel_abi::{TaskState, TaskStatus};
+use alva_agent_abi::{TaskState, TaskStatus};
 use async_trait::async_trait;
 
 /// Errors returned by `TaskService` mutations. Reads return `Option`
@@ -242,7 +242,7 @@ impl TaskService for InMemoryTaskStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::{create_task_state, TaskType};
+    use alva_agent_abi::{create_task_state, TaskType};
     use std::path::PathBuf;
 
     fn sample(desc: &str) -> TaskState {

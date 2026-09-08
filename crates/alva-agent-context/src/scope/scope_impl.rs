@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use alva_agent_abi::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
 use alva_kernel_abi::model::LanguageModel;
-use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError, ScopeId, ScopeSnapshot};
 use alva_kernel_abi::tool::Tool;
 
 /// Concrete SpawnScope implementation.

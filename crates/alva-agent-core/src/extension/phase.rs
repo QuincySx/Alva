@@ -7,7 +7,8 @@
 
 use std::sync::Arc;
 
-use alva_kernel_abi::{AgentMessage, Message, Phase, PhaseEffect, ToolCall, ToolOutput};
+use alva_agent_abi::{Phase, PhaseEffect};
+use alva_kernel_abi::{AgentMessage, Message, ToolCall, ToolOutput};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, ToolCallFn};
 use alva_kernel_core::state::AgentState;
 use async_trait::async_trait;

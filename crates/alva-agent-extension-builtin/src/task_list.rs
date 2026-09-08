@@ -3,7 +3,8 @@
 // POS:    Lists all tracked tasks with optional status filter.
 //! task_list — list tracked tasks
 
-use alva_kernel_abi::{AgentError, TaskStatus, Tool, ToolExecutionContext, ToolOutput};
+use alva_agent_abi::TaskStatus;
+use alva_kernel_abi::{AgentError, Tool, ToolExecutionContext, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -107,9 +108,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use alva_kernel_abi::{
-        create_task_state, Bus, BusHandle, CancellationToken, TaskType, Tool, ToolExecutionContext,
-    };
+    use alva_agent_abi::{create_task_state, TaskType};
+    use alva_kernel_abi::{Bus, BusHandle, CancellationToken, Tool, ToolExecutionContext};
     use serde_json::json;
 
     use crate::services::{InMemoryTaskStore, TaskService};

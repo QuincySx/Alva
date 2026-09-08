@@ -31,7 +31,7 @@ use super::registrar::{LateContext, Registrar};
 /// use alva_agent_core::extension::{
 ///     LateContext, PhaseContribution, PhaseHandler, PhaseOrder, Plugin, Registrar,
 /// };
-/// use alva_kernel_abi::{Phase, PhaseEffect};
+/// use alva_agent_abi::{Phase, PhaseEffect};
 /// use alva_kernel_abi::tool::Tool;
 /// use alva_kernel_abi::scope::context::ContextLayer;
 ///

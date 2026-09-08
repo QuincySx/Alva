@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use super::blackboard::Blackboard;
-use alva_kernel_abi::scope::ScopeId;
+use alva_agent_abi::ScopeId;
 
 /// Manages Blackboard instances scoped to SpawnScope IDs.
 ///

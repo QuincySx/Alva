@@ -6,6 +6,7 @@ description = "Built-in agent extensions: tool implementations and Extension wra
 
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-agent-abi = { path = "../alva-agent-abi" }
 alva-agent-core = { path = "../alva-agent-core" }
 alva-agent-memory = { path = "../alva-agent-memory" }
 alva-agent-security = { path = "../alva-agent-security" }

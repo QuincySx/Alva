@@ -15,11 +15,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use alva_kernel_abi::context::ContextHooks;
-use alva_kernel_abi::{
+use alva_agent_abi::{
     OnChildComplete, SpawnCommContext, SpawnCommError, SpawnCommHandle, SpawnCommunication,
     SpawnResult,
 };
+use alva_kernel_abi::context::ContextHooks;
 
 use super::{AgentProfile, Blackboard, BlackboardPlugin, BoardMessage, MessageKind};
 use crate::scope::BoardRegistry;

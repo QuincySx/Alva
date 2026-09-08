@@ -6,6 +6,7 @@ description = "Agent-layer core: Plugin assembly, Registrar, AgentBuilder, MockT
 
 [dependencies]
 alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-agent-abi = { path = "../alva-agent-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
 async-trait = "0.1"
 tracing = "0.1"
