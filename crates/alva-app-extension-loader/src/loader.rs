@@ -60,8 +60,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use alva_agent_abi::{Phase, PhaseEffect};
 use alva_agent_core::extension::{PhaseContribution, PhaseOrder, Plugin, Registrar};
-use alva_kernel_abi::{Phase, PhaseEffect};
 use async_trait::async_trait;
 
 use crate::aep_bridge::AepPhaseHandler;

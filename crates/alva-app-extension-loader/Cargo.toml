@@ -20,6 +20,7 @@ tempfile = "3"
 cap-std = "3.4"
 alva-agent-core = { path = "../alva-agent-core" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
+alva-agent-abi = { path = "../alva-agent-abi" }
 alva-kernel-core = { path = "../alva-kernel-core" }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]

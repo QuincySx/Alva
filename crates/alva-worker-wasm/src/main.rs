@@ -396,19 +396,17 @@ async fn run_worker(
     ));
     let agent = builder.build().await?;
 
-    let mut events = agent
-        .run(
-            vec![AgentMessage::Standard(Message::user(task))],
-            CancellationToken::new(),
-        )
-        .await?;
-    // Drain to channel close rather than to "nothing buffered right now":
-    // `run` sends every event before it returns (its sender is consumed by
-    // `run_agent`, so the channel is already closed here) — but `try_recv`
-    // would silently stop at the first gap if events ever start arriving while
-    // the loop is still running, losing the final message.
+    let mut events = std::pin::pin!(agent.run(
+        vec![AgentMessage::Standard(Message::user(task))],
+        CancellationToken::new(),
+    ));
+    // Drain the stream to completion. The run entry is lazily driven: each
+    // poll advances the loop, so draining to `None` consumes every event of
+    // the finished turn — `try_recv`-style early stops would silently lose
+    // the final message.
     let mut final_text = None;
-    while let Some(event) = events.recv().await {
+    use futures_util::StreamExt;
+    while let Some(event) = events.next().await {
         if let AgentEvent::MessageEnd {
             message: AgentMessage::Standard(message),
         } = event

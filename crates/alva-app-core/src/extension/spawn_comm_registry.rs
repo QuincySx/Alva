@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
-use alva_kernel_abi::{SpawnCommunication, SpawnCommunicationRegistry};
+use alva_agent_abi::{SpawnCommunication, SpawnCommunicationRegistry};
 
 use alva_agent_core::extension::{Plugin, Registrar};
 
@@ -108,7 +108,7 @@ impl Plugin for SpawnCommRegistryPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::{SpawnCommContext, SpawnCommError, SpawnCommHandle};
+    use alva_agent_abi::{SpawnCommContext, SpawnCommError, SpawnCommHandle};
     use async_trait::async_trait;
     use serde_json::Value;
 

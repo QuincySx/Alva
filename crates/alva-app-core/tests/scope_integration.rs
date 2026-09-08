@@ -6,6 +6,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use alva_agent_abi::{ChildScopeConfig, ScopeError};
 use alva_agent_context::scope::board_registry::BoardRegistry;
 use alva_agent_context::scope::BoardMessage;
 use alva_agent_context::scope::SpawnScopeImpl;
@@ -13,7 +14,6 @@ use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::base::stream::StreamEvent;
 use alva_kernel_abi::model::{CompletionResponse, LanguageModel, ModelConfig};
-use alva_kernel_abi::scope::{ChildScopeConfig, ScopeError};
 use alva_kernel_abi::tool::Tool;
 use async_trait::async_trait;
 use futures::Stream;

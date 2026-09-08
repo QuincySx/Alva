@@ -16,7 +16,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use alva_kernel_abi::{AnalyticsEvent, AnalyticsSink};
+use alva_agent_abi::{AnalyticsEvent, AnalyticsSink};
 
 /// Default rotation threshold — 100 MB.
 pub const DEFAULT_MAX_BYTES: u64 = 100 * 1024 * 1024;
