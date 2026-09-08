@@ -135,7 +135,7 @@ impl WasmAgent {
             alva_kernel_abi::base::message::Message::user(prompt.into()),
         )];
         DefaultAgentLoop
-            .drive(&self.state, &self.config, cancel, input, event_tx)
+            .drive(&self.state, &self.config, cancel, input, event_tx.into())
             .await
     }
 

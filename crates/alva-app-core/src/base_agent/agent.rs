@@ -93,7 +93,13 @@ impl BaseAgent {
             }
             let _ = started_tx.send(());
             if let Err(e) = DefaultAgentLoop
-                .drive(&st, &config, cancel, messages, event_tx)
+                .drive(
+                    &st,
+                    &config,
+                    cancel,
+                    messages,
+                    alva_kernel_core::event::AgentEventSender::from(event_tx),
+                )
                 .await
             {
                 tracing::error!(error = %e, "agent loop failed");
@@ -129,7 +135,13 @@ impl BaseAgent {
             }
             let _ = started_tx.send(());
             if let Err(error) = DefaultAgentLoop
-                .drive_bounded(&st, &config, cancel, messages, event_tx)
+                .drive(
+                    &st,
+                    &config,
+                    cancel,
+                    messages,
+                    alva_kernel_core::event::AgentEventSender::from(event_tx),
+                )
                 .await
             {
                 tracing::error!(%error, "agent loop failed");

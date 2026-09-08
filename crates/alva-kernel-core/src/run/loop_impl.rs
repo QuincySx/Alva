@@ -1,13 +1,19 @@
 // INPUT:  crate::run::run_agent, crate::state::{AgentState, AgentConfig}, crate::event::AgentEvent,
 //         alva_kernel_abi::{AgentError, AgentMessage, CancellationToken}
 // OUTPUT: pub trait AgentLoop, pub struct DefaultAgentLoop
-// POS:    Swappable loop seam with source-compatible unbounded drive and additive bounded backpressure drive.
+// POS:    The swappable loop seam — ONE drive signature taking the event
+//         transport (ADR-0007 revision, ticket 11). The old dual-signature
+//         shape (unbounded `drive` + bounded `drive_bounded` plus a default
+//         adapter forwarding the former into the latter) paid a compatibility
+//         tax for third-party implementors that never existed; the transport
+//         choice now lives in [`AgentEventSender`], so a single signature
+//         covers both the lossless-unbounded SDK path and the
+//         bounded-backpressure production path.
 
 use alva_kernel_abi::{AgentError, AgentMessage, CancellationToken};
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentEventSender};
 use crate::run::run_agent;
 use crate::state::{AgentConfig, AgentState};
 
@@ -15,45 +21,27 @@ use crate::state::{AgentConfig, AgentState};
 /// is [`run_agent`]. Any harness (Hub, a third-party driver, or a test) can
 /// `dyn AgentLoop` and substitute its own loop while the kernel defaults keep
 /// working unchanged.
+///
+/// 阶段级钩子（"决定下一步"、"决定怎么排这批工具"）被明确拒绝进入这个
+/// seam——那会把循环内部结构变成公开契约，才是真正锁死内核演化的做法。
+/// seam 保持"给你状态和配置，你还我事件流"这个粗粒度。
 #[async_trait]
 pub trait AgentLoop: Send + Sync {
     /// Drive one agent run: read context from `state`, call the model through
     /// `config`, execute tools, and stream every observable into `event_tx`.
+    ///
+    /// The transport carries the backpressure policy: [`AgentEventSender::Bounded`]
+    /// applies producer backpressure (lifecycle/message events wait for
+    /// capacity; only synchronous tool progress may drop), while
+    /// [`AgentEventSender::Unbounded`] keeps the lossless SDK semantics.
     async fn drive(
         &self,
         state: &AgentState,
         config: &AgentConfig,
         cancel: CancellationToken,
         input: Vec<AgentMessage>,
-        event_tx: mpsc::UnboundedSender<AgentEvent>,
+        event_tx: AgentEventSender,
     ) -> Result<(), AgentError>;
-
-    /// Drive one run into a bounded event stream.
-    ///
-    /// Existing third-party loop implementations remain source-compatible:
-    /// the default adapter forwards their legacy unbounded output into the
-    /// bounded channel. Implementations that can apply backpressure at the
-    /// producer should override this method; [`DefaultAgentLoop`] does so.
-    async fn drive_bounded(
-        &self,
-        state: &AgentState,
-        config: &AgentConfig,
-        cancel: CancellationToken,
-        input: Vec<AgentMessage>,
-        event_tx: mpsc::Sender<AgentEvent>,
-    ) -> Result<(), AgentError> {
-        let (legacy_tx, mut legacy_rx) = mpsc::unbounded_channel();
-        let drive = self.drive(state, config, cancel, input, legacy_tx);
-        let forward = async move {
-            while let Some(event) = legacy_rx.recv().await {
-                if event_tx.send(event).await.is_err() {
-                    break;
-                }
-            }
-        };
-        let (result, ()) = futures_util::future::join(drive, forward).await;
-        result
-    }
 }
 
 /// The stock loop: delegates `drive` straight to [`run_agent`].
@@ -68,18 +56,7 @@ impl AgentLoop for DefaultAgentLoop {
         config: &AgentConfig,
         cancel: CancellationToken,
         input: Vec<AgentMessage>,
-        event_tx: mpsc::UnboundedSender<AgentEvent>,
-    ) -> Result<(), AgentError> {
-        run_agent(state, config, cancel, input, event_tx).await
-    }
-
-    async fn drive_bounded(
-        &self,
-        state: &AgentState,
-        config: &AgentConfig,
-        cancel: CancellationToken,
-        input: Vec<AgentMessage>,
-        event_tx: mpsc::Sender<AgentEvent>,
+        event_tx: AgentEventSender,
     ) -> Result<(), AgentError> {
         run_agent(state, config, cancel, input, event_tx).await
     }

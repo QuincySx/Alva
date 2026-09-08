@@ -68,7 +68,7 @@ async fn _wasm_smoke_probe() -> Result<(), AgentError> {
             &config,
             cancel,
             vec![AgentMessage::Standard(Message::user("probe"))],
-            tx,
+            tx.into(),
         )
         .await
 }

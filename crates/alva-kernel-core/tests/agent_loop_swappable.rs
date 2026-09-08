@@ -26,10 +26,12 @@ impl AgentLoop for RecordingLoop {
         _config: &alva_kernel_core::AgentConfig,
         _cancel: CancellationToken,
         _input: Vec<AgentMessage>,
-        event_tx: mpsc::UnboundedSender<alva_kernel_core::AgentEvent>,
+        event_tx: alva_kernel_core::event::AgentEventSender,
     ) -> Result<(), AgentError> {
         self.drives.fetch_add(1, Ordering::SeqCst);
-        let _ = event_tx.send(alva_kernel_core::AgentEvent::AgentStart);
+        let _ = event_tx
+            .send(alva_kernel_core::AgentEvent::AgentStart)
+            .await;
         Ok(())
     }
 }
@@ -63,7 +65,7 @@ async fn second_loop_replaces_the_default_through_the_same_seam() {
             &minimal_config(),
             CancellationToken::new(),
             vec![],
-            tx,
+            tx.into(),
         )
         .await
         .expect("custom loop drives cleanly");

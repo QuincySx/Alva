@@ -2,7 +2,6 @@ const	tool_lock::DEFAULT_ACQUIRE_TIMEOUT const DEFAULT_ACQUIRE_TIMEOUT: Duration
 const	tool_lock::GLOBAL_SERIAL_KEY const GLOBAL_SERIAL_KEY: &str = " "
 enum	tool_lock::AcquireError
 implfn	Agent::async fn config pub async fn config(&self) -> tokio::sync::RwLockReadGuard<'_, AgentConfig>
-implfn	Agent::async fn run pub async fn run( &self, input: Vec<AgentMessage>, cancel: CancellationToken, ) -> Result<mpsc::UnboundedReceiver<AgentEvent>, AgentError>
 implfn	Agent::async fn run_bounded pub async fn run_bounded( &self, input: Vec<AgentMessage>, cancel: CancellationToken, capacity: usize, ) -> Result<mpsc::Receiver<AgentEvent>, AgentError>
 implfn	Agent::async fn set_allowed_tools pub async fn set_allowed_tools(&self, allowed: Option<Vec<String>>)
 implfn	Agent::async fn set_disable_tools pub async fn set_disable_tools(&self, disabled: bool)
@@ -13,6 +12,7 @@ implfn	Agent::fn assembly_snapshot pub fn assembly_snapshot(&self) -> AgentAssem
 implfn	Agent::fn builder pub fn builder() -> crate::agent_builder::AgentBuilder
 implfn	Agent::fn bus pub fn bus(&self) -> &BusHandle
 implfn	Agent::fn host pub fn host(&self) -> &Arc<std::sync::RwLock<PluginHost>>
+implfn	Agent::fn run pub fn run( &self, input: Vec<AgentMessage>, cancel: CancellationToken, ) -> impl futures_core::Stream<Item = AgentEvent>
 implfn	Agent::fn state pub fn state(&self) -> &Mutex<AgentState>
 implfn	Agent::fn tools pub fn tools(&self) -> &[Arc<dyn Tool>]
 implfn	AgentBuilder::async fn build pub async fn build(self) -> Result<Agent, AgentError>

@@ -70,28 +70,72 @@ pub struct Agent {
     pub(crate) assembly: AgentAssemblySnapshot,
 }
 
+/// State for the lazily-driven event stream returned by [`Agent::run`].
+struct RunStream {
+    drive: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
+    rx: mpsc::UnboundedReceiver<AgentEvent>,
+    /// Set once the drive future has completed. The unbounded channel never
+    /// blocks the producer, so the drive can finish while events are still
+    /// buffered — after that the drive must never be polled again.
+    drive_done: bool,
+}
+
+enum RunStep {
+    Event(AgentEvent),
+    /// The loop finished — drain the rest, then close.
+    DriveDone,
+    /// Receiver closed with nothing left.
+    Closed,
+}
+
+/// Advance one step: prefer a buffered event, otherwise race the next event
+/// against drive completion. Borrowed state stays inside this function.
+async fn run_step(stream: &mut RunStream) -> RunStep {
+    if let Ok(event) = stream.rx.try_recv() {
+        return RunStep::Event(event);
+    }
+    if stream.drive_done {
+        return RunStep::Closed;
+    }
+    let recv = std::pin::pin!(stream.rx.recv());
+    match futures_util::future::select(stream.drive.as_mut(), recv).await {
+        futures_util::future::Either::Left(_) => {
+            stream.drive_done = true;
+            RunStep::DriveDone
+        }
+        futures_util::future::Either::Right((Some(event), _)) => RunStep::Event(event),
+        futures_util::future::Either::Right((None, _)) => {
+            // Receiver closed ⇒ the producer (drive) is gone too.
+            stream.drive_done = true;
+            RunStep::Closed
+        }
+    }
+}
+
 impl Agent {
     /// Start building a new agent.
     pub fn builder() -> crate::agent_builder::AgentBuilder {
         crate::agent_builder::AgentBuilder::new()
     }
 
-    /// Run one conversation turn. Returns a channel that streams
-    /// `AgentEvent`s until the turn completes.
+    /// Run one conversation turn and stream `AgentEvent`s **as they happen**.
     ///
-    /// Native targets with an active Tokio runtime drive the loop in the
-    /// background and return immediately. Other executors, including wasm32,
-    /// have no portable spawn contract, so the loop is driven inline and the
-    /// returned channel is already closed after its buffered events. This
-    /// keeps the SDK executor-agnostic while preserving live streaming in the
-    /// native product harnesses.
+    /// The returned stream lazily drives the loop: each `next()` advances the
+    /// run until the next event is ready, so the caller observes MessageUpdate
+    /// deltas while the turn is still executing — on every executor, with or
+    /// without a Tokio runtime, no spawn involved. Dropping the stream stops
+    /// consuming; the loop then observes the closed channel and finishes.
     ///
-    /// `cancel` lets the caller interrupt the loop mid-turn.
-    pub async fn run(
+    /// The internal transport is unbounded: no event is ever dropped. Native
+    /// product harnesses that want producer backpressure use
+    /// [`Self::run_bounded`].
+    pub fn run(
         &self,
         input: Vec<AgentMessage>,
         cancel: CancellationToken,
-    ) -> Result<mpsc::UnboundedReceiver<AgentEvent>, AgentError> {
+    ) -> impl futures_core::Stream<Item = AgentEvent> {
+        use alva_kernel_core::event::AgentEventSender;
+
         let (tx, rx) = mpsc::unbounded_channel();
         let state = self.state.clone();
         let config = self.config.clone();
@@ -99,21 +143,40 @@ impl Agent {
             let state = state.lock().await;
             let config = config.read().await;
             if let Err(error) = DefaultAgentLoop
-                .drive(&state, &config, cancel, input, tx)
+                .drive(&state, &config, cancel, input, AgentEventSender::from(tx))
                 .await
             {
                 tracing::error!(%error, "agent loop failed");
             }
         };
-        #[cfg(not(target_family = "wasm"))]
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(drive);
-        } else {
-            drive.await;
-        }
-        #[cfg(target_family = "wasm")]
-        drive.await;
-        Ok(rx)
+
+        // Lazy interleaving: poll the drive future and the receive side
+        // together. Events surface the moment they are produced; a caller
+        // that stops polling simply stalls the loop (no buffering blowup —
+        // the channel is only a hop, and it grows only if the loop outruns
+        // the consumer, exactly like the old spawned unbounded path).
+        let drive = Box::pin(drive);
+        futures_util::stream::unfold(
+            RunStream {
+                drive,
+                rx,
+                drive_done: false,
+            },
+            |mut stream| async move {
+                loop {
+                    match run_step(&mut stream).await {
+                        RunStep::Event(event) => return Some((event, stream)),
+                        RunStep::DriveDone => loop {
+                            match stream.rx.recv().await {
+                                Some(event) => return Some((event, stream)),
+                                None => return None,
+                            }
+                        },
+                        RunStep::Closed => return None,
+                    }
+                }
+            },
+        )
     }
 
     /// Run one native conversation turn with a bounded event channel.
@@ -146,7 +209,13 @@ impl Agent {
             let state = state.lock().await;
             let config = config.read().await;
             if let Err(error) = DefaultAgentLoop
-                .drive_bounded(&state, &config, cancel, input, tx)
+                .drive(
+                    &state,
+                    &config,
+                    cancel,
+                    input,
+                    alva_kernel_core::event::AgentEventSender::from(tx),
+                )
                 .await
             {
                 tracing::error!(%error, "agent loop failed");
@@ -318,7 +387,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_returns_receiver_before_the_model_finishes() {
+    async fn run_returns_before_the_model_finishes() {
         let agent = Agent::builder()
             .model(Arc::new(PendingModel))
             .build()
@@ -326,30 +395,124 @@ mod tests {
             .expect("agent builds");
         let cancel = CancellationToken::new();
 
-        let mut events = tokio::time::timeout(
-            Duration::from_millis(100),
-            agent.run(
-                vec![AgentMessage::Standard(Message::user("hello"))],
-                cancel.clone(),
-            ),
-        )
-        .await
-        .expect("run must return before the pending stream completes")
-        .expect("run starts");
-
-        assert!(matches!(events.recv().await, Some(AgentEvent::AgentStart)));
+        let mut stream = std::pin::pin!(agent.run(
+            vec![AgentMessage::Standard(Message::user("hello"))],
+            cancel.clone(),
+        ));
+        use futures_util::StreamExt;
+        let first = tokio::time::timeout(Duration::from_millis(100), stream.next())
+            .await
+            .expect("run must produce its first event before the pending model completes")
+            .expect("stream open");
+        assert!(matches!(first, AgentEvent::AgentStart));
         cancel.cancel();
 
         let end = tokio::time::timeout(Duration::from_millis(100), async {
             loop {
-                if let Some(AgentEvent::AgentEnd { error }) = events.recv().await {
-                    break error;
+                let event = tokio::time::timeout(Duration::from_millis(100), stream.next()).await;
+                match event {
+                    Ok(Some(AgentEvent::AgentEnd { error })) => break error,
+                    Ok(Some(_)) => continue,
+                    Ok(None) => break None,
+                    Err(_) => break None,
                 }
             }
         })
         .await
         .expect("cancelled run must finish");
         assert!(end.is_some(), "cancellation must be visible in AgentEnd");
+    }
+
+    /// Ticket 11 acceptance: the SDK run entry produces events while the
+    /// turn is still executing. The gated model blocks inside its stream
+    /// until the consumer signals — possible only because `run` surfaces
+    /// events as they happen instead of buffering the whole turn.
+    #[tokio::test]
+    async fn run_streams_events_before_the_turn_finishes() {
+        struct GatedModel {
+            gate: Arc<tokio::sync::Semaphore>,
+        }
+        #[async_trait]
+        impl LanguageModel for GatedModel {
+            async fn complete(
+                &self,
+                _messages: &[Message],
+                _tools: &[&dyn Tool],
+                _config: &ModelConfig,
+            ) -> Result<CompletionResponse, AgentError> {
+                Err(AgentError::LlmError("unexpected fallback".into()))
+            }
+            fn stream(
+                &self,
+                _messages: &[Message],
+                _tools: &[&dyn Tool],
+                _config: &ModelConfig,
+            ) -> Pin<Box<dyn Stream<Item = StreamEvent> + Send>> {
+                let gate = self.gate.clone();
+                Box::pin(futures_util::stream::unfold(0u8, move |step| {
+                    let gate = gate.clone();
+                    async move {
+                        match step {
+                            0 => Some((StreamEvent::Start, 1u8)),
+                            1 => {
+                                // Semaphore permit — a release issued before
+                                // this acquire is never lost.
+                                let _permit = gate.acquire().await;
+                                Some((
+                                    StreamEvent::TextDelta {
+                                        text: "done".into(),
+                                    },
+                                    2u8,
+                                ))
+                            }
+                            2 => Some((StreamEvent::Done, 3u8)),
+                            _ => None,
+                        }
+                    }
+                }))
+            }
+            fn model_id(&self) -> &str {
+                "gated"
+            }
+        }
+
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let agent = Agent::builder()
+            .model(Arc::new(GatedModel { gate: gate.clone() }))
+            .build()
+            .await
+            .expect("agent builds");
+
+        let mut stream = std::pin::pin!(agent.run(
+            vec![AgentMessage::Standard(Message::user("hello"))],
+            CancellationToken::new(),
+        ));
+        use futures_util::StreamExt;
+
+        // The model is gated BEFORE its first delta; if run() buffered until
+        // the turn finished, this next() could never complete.
+        let first = tokio::time::timeout(Duration::from_millis(500), stream.next())
+            .await
+            .expect("events must flow while the model is gated")
+            .expect("stream open");
+        assert!(matches!(first, AgentEvent::AgentStart));
+
+        // Release the gate once we have seen MessageStart (also pre-gate),
+        // then let the turn finish.
+        let mut released = false;
+        loop {
+            let event = tokio::time::timeout(Duration::from_millis(500), stream.next())
+                .await
+                .expect("events must keep flowing")
+                .expect("stream open until AgentEnd");
+            if matches!(event, AgentEvent::MessageStart { .. }) && !released {
+                released = true;
+                gate.add_permits(1);
+            }
+            if matches!(event, AgentEvent::AgentEnd { .. }) {
+                break;
+            }
+        }
     }
 
     #[test]
@@ -360,16 +523,14 @@ mod tests {
                 .build()
                 .await
                 .expect("agent builds");
-            let mut events = agent
-                .run(
-                    vec![AgentMessage::Standard(Message::user("hello"))],
-                    CancellationToken::new(),
-                )
-                .await
-                .expect("run starts");
+            let mut events = std::pin::pin!(agent.run(
+                vec![AgentMessage::Standard(Message::user("hello"))],
+                CancellationToken::new(),
+            ));
+            use futures_util::StreamExt;
 
             let mut saw_end = false;
-            while let Some(event) = events.recv().await {
+            while let Some(event) = events.next().await {
                 if matches!(event, AgentEvent::AgentEnd { error: None }) {
                     saw_end = true;
                 }
