@@ -132,6 +132,35 @@ This round produces the accepted ADR. The next step is targeted research into
 the agent-loop interface (where it lives, its exact surface, and migration
 impact), not immediate implementation.
 
+## Revision (2026-09-09, kernel-boundary ticket 11): the seam keeps ONE coarse drive signature
+
+The loop seam landed as `AgentLoop` in `alva-kernel-core`. During the
+kernel-boundary refactor it briefly carried two drive signatures (an unbounded
+legacy `drive` plus a bounded `drive_bounded` with a default adapter forwarding
+the former into the latter) — a compatibility tax paid for third-party
+implementors that never existed. The seam is now **one** `drive` signature
+taking `AgentEventSender`, which carries the backpressure policy itself
+(bounded = producer backpressure with lossless lifecycle/tool-terminal events;
+unbounded = the lossless SDK path).
+
+### Why the seam stays coarse — and stage-level hooks stay rejected
+
+The seam remains "give me state and config, I return an event stream":
+
+- **Stage-level hooks** ("decide the next step", "order this tool batch",
+  "shape this LLM request") would turn the loop's internal structure into a
+  public contract. Every future refinement of the loop — better batching,
+  new suspension points, different iteration boundaries — would then be a
+  breaking ABI change. That is the one way to truly freeze kernel evolution.
+- The kernel's actual extension needs are served by finer-grained contracts
+  that are NOT the loop: `Middleware` (LLM/tool wrap hooks), `ContextHooks`
+  (context lifecycle), `Scheduling` (per-call concurrency), `Tool` itself.
+  These have real, multiple consumers; a stage-level loop hook has none.
+- **Rejected explicitly** (and re-rejected by the kernel-boundary refactor):
+  phase-level decision hooks, a "pluggable policy" trait for the loop, and
+  any split of `drive` back into per-stage signatures. A second real loop
+  implementation would be the trigger to revisit — not an imagined one.
+
 ## Consequences
 
 ### Positive
