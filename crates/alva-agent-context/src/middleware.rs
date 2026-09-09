@@ -9,8 +9,10 @@
 //! are always preserved verbatim.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use alva_kernel_abi::agent_session::AgentSession;
 use alva_kernel_abi::{BusHandle, CancellationToken, ContentBlock, Message, ModelConfig};
 use alva_kernel_core::middleware::{Middleware, MiddlewareError, MiddlewarePriority};
 use alva_kernel_core::state::AgentState;
@@ -50,6 +52,9 @@ pub struct CompactionMiddleware {
     config: CompactionConfig,
     compaction_count: AtomicUsize,
     bus: std::sync::OnceLock<BusHandle>,
+    /// R05: 压缩是 SessionStore 能力（append 骨架事件 + compact_messages），
+    /// 完整会话由装配层在 configure 时显式提供。
+    store_session: std::sync::OnceLock<Arc<dyn AgentSession>>,
 }
 
 impl CompactionMiddleware {
@@ -58,7 +63,14 @@ impl CompactionMiddleware {
             config,
             compaction_count: AtomicUsize::new(0),
             bus: std::sync::OnceLock::new(),
+            store_session: std::sync::OnceLock::new(),
         }
+    }
+
+    /// 测试/旁路装配：绕过 configure() 直接提供完整会话。
+    fn with_store_session(mut self, session: Arc<dyn AgentSession>) -> Self {
+        let _ = self.store_session.set(session);
+        self
     }
 
     /// Attach a bus handle for token counting and event emission.
@@ -194,6 +206,11 @@ impl Middleware for CompactionMiddleware {
     fn configure(&self, ctx: &alva_kernel_core::middleware::MiddlewareContext) {
         if let Some(bus) = &ctx.bus {
             let _ = self.bus.set(bus.clone());
+        }
+        // R05: 完整会话由装配层经 MiddlewareContext 显式提供；最小内核
+        // 消费者不提供，这类压缩中间件也不会被安装。
+        if let Some(session) = &ctx.store_session {
+            let _ = self.store_session.set(session.clone());
         }
     }
 
@@ -378,13 +395,22 @@ impl Middleware for CompactionMiddleware {
             "trigger_tokens": trigger_tokens,
             "summary_length": summary_text.len(),
         }));
-        state.session.append(compaction_event).await;
+        let store_session = self
+            .store_session
+            .get()
+            .expect("compaction middleware requires the assembly-provided session");
+        store_session
+            .append(compaction_event)
+            .await
+            .map_err(|error| {
+                MiddlewareError::Other(format!("append compaction marker: {error}"))
+            })?;
 
         let compacted_messages: Vec<alva_kernel_abi::AgentMessage> = compacted
             .iter()
             .map(|m| alva_kernel_abi::AgentMessage::Standard(m.clone()))
             .collect();
-        state.session.compact_messages(compacted_messages).await;
+        store_session.compact_messages(compacted_messages).await;
 
         // Emit ContextCompacted event for observability.
         if let Some(bus) = self.bus.get() {
@@ -627,19 +653,32 @@ mod tests {
     }
 
     fn make_state_with_summary_model() -> AgentState {
+        make_state_with_summary_model_and_full_session().0
+    }
+
+    fn make_state_with_summary_model_and_full_session() -> (
+        AgentState,
+        Arc<alva_agent_core::agent_session::InMemoryAgentSession>,
+    ) {
         use alva_agent_core::agent_session::InMemoryAgentSession;
+        use alva_kernel_abi::{ConversationLog, SessionStore};
         use alva_kernel_core::shared::Extensions;
 
-        AgentState {
-            model: Arc::new(SummaryModel),
-            tools: vec![],
-            session: Arc::new(InMemoryAgentSession::new()),
-            extensions: Extensions::new(),
-        }
+        let session = Arc::new(InMemoryAgentSession::new());
+        (
+            AgentState {
+                model: Arc::new(SummaryModel),
+                tools: vec![],
+                session: session.clone(), // coerces to ConversationLog (R05)
+                extensions: Extensions::new(),
+            },
+            session,
+        )
     }
 
     #[tokio::test]
     async fn before_llm_call_uses_bus_counter_not_heuristic() {
+        use alva_agent_core::agent_session::InMemoryAgentSession;
         // MockCounter returns 500 per message -> each msg = 500 + 4 = 504.
         // With 7 messages that's 3528 tokens > trigger 200.
         //
@@ -659,7 +698,8 @@ mod tests {
         })
         .with_bus(handle);
 
-        let mut state = make_state_with_summary_model();
+        let (mut state, store_session) = make_state_with_summary_model_and_full_session();
+        let mw = mw.with_store_session(store_session.clone());
         let long_text = "x".repeat(400); // ~100 heuristic tokens each
         let mut msgs = vec![
             Message::system("You are a helper."),
@@ -696,7 +736,8 @@ mod tests {
         })
         .with_bus(handle);
 
-        let mut state = make_state_with_summary_model();
+        let (mut state, store_session) = make_state_with_summary_model_and_full_session();
+        let mw = mw.with_store_session(store_session.clone());
         let mut msgs = vec![
             Message::system("sys"),
             make_user_msg("short"),
@@ -733,7 +774,8 @@ mod tests {
         })
         .with_bus(handle);
 
-        let mut state = make_state_with_summary_model();
+        let (mut state, store_session) = make_state_with_summary_model_and_full_session();
+        let mw = mw.with_store_session(store_session.clone());
         let long_text = "x".repeat(400);
         let mut msgs = vec![
             Message::system("sys"),
@@ -766,14 +808,14 @@ mod tests {
         // Subscribe BEFORE the middleware runs.
         let mut rx = handle.subscribe::<alva_kernel_abi::ContextCompacted>();
 
+        let (mut state, store_session) = make_state_with_summary_model_and_full_session();
         let mw = CompactionMiddleware::new(CompactionConfig {
             trigger_tokens: 200,
             reserve_tokens: 0,
             keep_recent_tokens: 250,
         })
-        .with_bus(handle);
-
-        let mut state = make_state_with_summary_model();
+        .with_bus(handle)
+        .with_store_session(store_session.clone());
         let long_text = "x".repeat(400);
         let mut msgs = vec![
             Message::system("sys"),
@@ -814,14 +856,14 @@ mod tests {
         writer.provide::<dyn alva_kernel_abi::TokenCounter>(Arc::new(MockCounter(500)));
         let handle = bus.handle();
 
+        let (mut state, store_session) = make_state_with_summary_model_and_full_session();
         let mw = CompactionMiddleware::new(CompactionConfig {
             trigger_tokens: 200,
             reserve_tokens: 0,
             keep_recent_tokens: 250,
         })
-        .with_bus(handle);
-
-        let mut state = make_state_with_summary_model();
+        .with_bus(handle)
+        .with_store_session(store_session.clone());
         let long_text = "x".repeat(400);
         let mut msgs = vec![
             Message::system("sys"),
@@ -838,8 +880,8 @@ mod tests {
 
         // Session log should contain exactly one `compaction` event with the
         // expected data shape.
-        let matches = state
-            .session
+        use alva_kernel_abi::SessionStore;
+        let matches = store_session
             .query(&EventQuery {
                 event_type: Some("compaction".into()),
                 ..Default::default()
@@ -876,26 +918,29 @@ mod tests {
     #[tokio::test]
     async fn compaction_preserves_pre_compaction_llm_and_tool_events() {
         use alva_kernel_abi::agent_session::{EventEmitter, EventQuery, SessionEvent};
-        use alva_kernel_abi::{ExecutionRecord, RecordValue, SessionRecord};
+        use alva_kernel_abi::{
+            ConversationLog, ExecutionRecord, RecordValue, SessionRecord, SessionStore,
+        };
 
         let bus = alva_kernel_abi::Bus::new();
         let writer = bus.writer();
         writer.provide::<dyn alva_kernel_abi::TokenCounter>(Arc::new(MockCounter(500)));
         let handle = bus.handle();
 
+        let (mut state, store_session) = make_state_with_summary_model_and_full_session();
+
         let mw = CompactionMiddleware::new(CompactionConfig {
             trigger_tokens: 200,
             reserve_tokens: 0,
             keep_recent_tokens: 250,
         })
-        .with_bus(handle);
-
-        let mut state = make_state_with_summary_model();
+        .with_bus(handle)
+        .with_store_session(store_session.clone());
 
         // Seed the session with a pre-compaction causal chain:
         // llm_call_start -> tool_use (intent) -> tool_result (outcome),
         // linked via parent_uuid the way the kernel run loop writes them.
-        let session = state.session.clone();
+        let session = store_session.clone();
         let llm_call_uuid = {
             let mut e = SessionEvent::new_runtime("llm_call_start");
             e.data = Some(serde_json::json!({ "iteration": 1 }));

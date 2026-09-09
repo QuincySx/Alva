@@ -552,7 +552,10 @@ impl AgentSpawnTool {
 
         // Retrieve the raw parent session so the repository can create one
         // independent child stream and commit the causal link first.
-        let parent_raw: Option<Arc<dyn AgentSession>> = ctx.session().map(|s| s.inner());
+        // R05: ctx.session() is now only the conversation log; creating a
+        // persistent child needs SessionStore — the assembly provides the
+        // full session via the execution context.
+        let parent_raw: Option<Arc<dyn AgentSession>> = ctx.store_session();
         let tool_call_id = ctx.tool_call_id().unwrap_or("").to_string();
         let parent_run_id = self.scope.id().to_string();
         let child_session: Arc<dyn AgentSession> = if let Some(ref parent) = parent_raw {

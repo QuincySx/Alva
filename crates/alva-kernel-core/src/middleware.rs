@@ -167,6 +167,9 @@ pub struct MiddlewareContext {
     /// do not wire a session (e.g. unit tests of middleware hooks in isolation).
     /// Middleware that emits events should call `ctx.session.as_ref()?.append(...)`.
     pub session: Option<alva_kernel_abi::agent_session::ScopedSession>,
+    /// R05: 完整会话（SessionStore 能力）由装配层显式提供——压缩/查询类
+    /// 中间件从这里取；最小内核消费者不提供，这类中间件也不会被安装。
+    pub store_session: Option<Arc<dyn alva_kernel_abi::agent_session::AgentSession>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +264,7 @@ impl MiddlewareStack {
             let layer_ctx = MiddlewareContext {
                 bus: ctx.bus.clone(),
                 workspace: ctx.workspace.clone(),
+                store_session: ctx.store_session.clone(),
                 session: ctx.session.as_ref().map(|session| {
                     alva_kernel_abi::agent_session::ScopedSession::new(
                         session.inner(),

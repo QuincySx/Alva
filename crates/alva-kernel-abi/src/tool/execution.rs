@@ -87,6 +87,12 @@ pub trait ToolExecutionContext: Send + Sync {
         None
     }
 
+    /// R05: full session (SessionStore capabilities) when the assembly
+    /// provided one. Minimal kernels/tools never see it.
+    fn store_session(&self) -> Option<std::sync::Arc<dyn crate::agent_session::AgentSession>> {
+        None
+    }
+
     /// Downcast support for application-specific extensions.
     fn as_any(&self) -> &dyn Any;
 }

@@ -40,7 +40,7 @@ fn security_emitter() -> EventEmitter {
 /// Returns the event uuid so the matching `requires_action_resolved` can
 /// link back via `parent_uuid`.
 async fn emit_requires_action(
-    session: &Arc<dyn AgentSession>,
+    session: &Arc<dyn alva_kernel_abi::ConversationLog>,
     request_id: &str,
     tool_call: &ToolCall,
 ) -> String {
@@ -61,7 +61,7 @@ async fn emit_requires_action(
 /// Append the matching `requires_action_resolved` event so the pair shows up
 /// as resolved to any subscriber and to `pending_actions()`.
 async fn emit_requires_action_resolved(
-    session: &Arc<dyn AgentSession>,
+    session: &Arc<dyn alva_kernel_abi::ConversationLog>,
     parent_uuid: &str,
     request_id: &str,
     status: ResolveStatus,

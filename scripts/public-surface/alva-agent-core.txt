@@ -11,6 +11,7 @@ implfn	Agent::async fn set_turn_system_additions pub async fn set_turn_system_ad
 implfn	Agent::fn assembly_snapshot pub fn assembly_snapshot(&self) -> AgentAssemblySnapshot
 implfn	Agent::fn builder pub fn builder() -> crate::agent_builder::AgentBuilder
 implfn	Agent::fn bus pub fn bus(&self) -> &BusHandle
+implfn	Agent::fn full_session pub fn full_session(&self) -> Arc<dyn alva_kernel_abi::agent_session::AgentSession>
 implfn	Agent::fn host pub fn host(&self) -> &Arc<std::sync::RwLock<PluginHost>>
 implfn	Agent::fn run pub fn run( &self, input: Vec<AgentMessage>, cancel: CancellationToken, ) -> impl futures_core::Stream<Item = AgentEvent>
 implfn	Agent::fn state pub fn state(&self) -> &Mutex<AgentState>

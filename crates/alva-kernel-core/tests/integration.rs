@@ -90,12 +90,22 @@ fn make_state() -> AgentState {
 }
 
 fn make_state_with_model(model: Arc<dyn LanguageModel>) -> AgentState {
-    AgentState {
-        model,
-        tools: vec![],
-        session: Arc::new(InMemoryAgentSession::new()),
-        extensions: alva_kernel_core::shared::Extensions::new(),
-    }
+    make_state_and_full_session_with_model(model).0
+}
+
+fn make_state_and_full_session_with_model(
+    model: Arc<dyn LanguageModel>,
+) -> (AgentState, Arc<InMemoryAgentSession>) {
+    let session = Arc::new(InMemoryAgentSession::new());
+    (
+        AgentState {
+            model,
+            tools: vec![],
+            session: session.clone(),
+            extensions: alva_kernel_core::shared::Extensions::new(),
+        },
+        session,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +114,7 @@ fn make_state_with_model(model: Arc<dyn LanguageModel>) -> AgentState {
 
 #[tokio::test]
 async fn simple_echo_run() {
-    let state = make_state();
+    let (state, full_session) = make_state_and_full_session_with_model(Arc::new(EchoModel));
     let config = AgentConfig {
         middleware: MiddlewareStack::new(),
         system_prompt: vec!["Echo bot.".to_string()],
@@ -161,15 +171,13 @@ async fn simple_echo_run() {
 
     // The live deltas above are also represented durably as one first-output
     // milestone plus one compact summary (never one SQLite row per token).
-    let first_output = state
-        .session
+    let first_output = full_session
         .query(&EventQuery {
             event_type: Some("llm_first_output".to_string()),
             ..EventQuery::default()
         })
         .await;
-    let summaries = state
-        .session
+    let summaries = full_session
         .query(&EventQuery {
             event_type: Some("llm_stream_summary".to_string()),
             ..EventQuery::default()
@@ -190,7 +198,7 @@ async fn simple_echo_run() {
 
 #[tokio::test]
 async fn run_with_middleware() {
-    let state = make_state();
+    let (state, full_session) = make_state_and_full_session_with_model(Arc::new(EchoModel));
 
     let mut mw_stack = MiddlewareStack::new();
     mw_stack.push_sorted(Arc::new(LoopDetectionMiddleware::new()));
@@ -224,8 +232,7 @@ async fn run_with_middleware() {
     let messages = state.session.messages().await.unwrap();
     assert_eq!(messages.len(), 2);
 
-    let hooks = state
-        .session
+    let hooks = full_session
         .query(&EventQuery {
             event_type: Some("middleware_hook_batch".to_string()),
             ..EventQuery::default()

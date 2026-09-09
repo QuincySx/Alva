@@ -272,14 +272,21 @@ pub type SessionEventStream = futures_util::stream::BoxStream<'static, SessionEv
 /// from overriding it.
 #[derive(Clone)]
 pub struct ScopedSession {
-    inner: Arc<dyn AgentSession>,
+    /// 扩展点的追加面是对话记录（R05）：emit-stamped append 只需要
+    /// ConversationLog；查询/计数属于 SessionStore，由装配层经
+    /// `MiddlewareContext::store_session` 显式提供给需要的中间件。
+    inner: Arc<dyn crate::conversation_log::ConversationLog>,
     emitter: EventEmitter,
 }
 
 impl ScopedSession {
     /// Create a new scoped wrapper. The emitter is baked in — it cannot be
-    /// changed after construction.
-    pub fn new(inner: Arc<dyn AgentSession>, emitter: EventEmitter) -> Self {
+    /// changed after construction. Accepts any conversation log (a full
+    /// `Arc<dyn AgentSession>` coerces).
+    pub fn new(
+        inner: Arc<dyn crate::conversation_log::ConversationLog>,
+        emitter: EventEmitter,
+    ) -> Self {
         Self { inner, emitter }
     }
 
@@ -294,10 +301,10 @@ impl ScopedSession {
         &self.emitter
     }
 
-    /// Return a clone of the wrapped AgentSession handle. Callers that
+    /// Return a clone of the wrapped conversation-log handle. Callers that
     /// bypass emitter stamping (e.g. to forward events with their original
     /// emitter intact) use this escape hatch.
-    pub fn inner(&self) -> Arc<dyn AgentSession> {
+    pub fn inner(&self) -> Arc<dyn crate::conversation_log::ConversationLog> {
         self.inner.clone()
     }
 
@@ -306,16 +313,6 @@ impl ScopedSession {
     pub async fn append(&self, mut event: SessionEvent) -> Result<(), SessionError> {
         event.emitter = self.emitter.clone();
         self.inner.append(event).await
-    }
-
-    /// Delegate query to the inner session.
-    pub async fn query(&self, filter: &EventQuery) -> Vec<EventMatch> {
-        self.inner.query(filter).await
-    }
-
-    /// Delegate count to the inner session.
-    pub async fn count(&self, filter: &EventQuery) -> usize {
-        self.inner.count(filter).await
     }
 }
 

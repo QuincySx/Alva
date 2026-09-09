@@ -61,6 +61,10 @@ pub struct AgentAssemblySnapshot {
 /// lock is held across the full `run_agent` call.
 pub struct Agent {
     pub(crate) state: Arc<Mutex<AgentState>>,
+    /// R05: state.session 只保留对话记录；完整会话（SessionStore 能力）由
+    /// 装配层在此另行持有，供 BaseAgent/session_handle 与需要查询、压缩、
+    /// 持久化的上层显式取用。最小内核消费者不经过本结构。
+    pub(crate) full_session: Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
     pub(crate) config: Arc<RwLock<AgentConfig>>,
     pub(crate) bus: BusHandle,
     pub(crate) host: Arc<std::sync::RwLock<PluginHost>>,
@@ -281,6 +285,12 @@ impl Agent {
     /// steering messages, reading capability registrations).
     pub fn bus(&self) -> &BusHandle {
         &self.bus
+    }
+
+    /// 完整会话句柄（SessionStore 能力）。state.session 只是对话记录；
+    /// 需要查询/回滚/压缩/持久化的上层从这里取。
+    pub fn full_session(&self) -> Arc<dyn alva_kernel_abi::agent_session::AgentSession> {
+        self.full_session.clone()
     }
 
     /// Access the runtime plugin host (middleware + command registry,

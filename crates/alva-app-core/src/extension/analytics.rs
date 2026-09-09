@@ -301,8 +301,11 @@ mod tests {
         assert!(mw.sink().is_none());
     }
 
+    /// R02: the plugin now registers ONE middleware covering tool telemetry
+    /// (before/after tool call) and the LLM hook (wrap_llm_call); the two
+    /// phase handlers were folded into it. Pin the new wiring shape.
     #[tokio::test]
-    async fn plugin_registers_tool_latency_as_phase_handler() {
+    async fn plugin_registers_analytics_middleware_without_phase_handlers() {
         let dir = tempfile::tempdir().expect("tempdir");
         let analytics_path = dir.path().join("analytics.jsonl");
         let model = Arc::new(alva_test::mock_provider::MockLanguageModel::new());
@@ -322,58 +325,27 @@ mod tests {
             .find(|plugin| plugin.name == "analytics")
             .expect("analytics plugin snapshot");
 
-        assert_eq!(
-            plugin.phase_contribution_names,
-            vec!["analytics-tool-start", "analytics-tool-end"]
+        assert!(
+            plugin.phase_contribution_names.is_empty(),
+            "tool telemetry moved into the plain middleware: {:?}",
+            plugin.phase_contribution_names
         );
         assert!(
             snapshot
                 .middleware_names
                 .iter()
-                .any(|name| name == "phase:analytics-tool-start"),
-            "start phase handler should compile into middleware during transition: {:?}",
+                .any(|name| name.ends_with("AnalyticsMiddleware")),
+            "analytics middleware must be installed: {:?}",
             snapshot.middleware_names
         );
         assert!(
-            snapshot
+            !snapshot
                 .middleware_names
                 .iter()
-                .any(|name| name == "phase:analytics-tool-end"),
-            "phase handler should compile into middleware during transition: {:?}",
+                .any(|name| name.starts_with("phase:analytics")),
+            "phase-handler adapters must be gone: {:?}",
             snapshot.middleware_names
         );
-        assert!(
-            !plugin
-                .middleware_names
-                .iter()
-                .any(|name| name == "analytics"),
-            "analytics should be registered semantically as a phase contribution"
-        );
-
-        let tool_call = ToolCall {
-            id: "call-1".to_string(),
-            name: "read_file".to_string(),
-            arguments: serde_json::json!({ "path": "README.md" }),
-        };
-        let mut result = ToolOutput::text("ok");
-        let config = agent.config().await;
-        let state = agent.state().lock().await;
-        config
-            .middleware
-            .run_before_tool_call(&state, &tool_call)
-            .await
-            .expect("before phase should run");
-        config
-            .middleware
-            .run_after_tool_call(&state, &tool_call, &mut result)
-            .await
-            .expect("after phase should run");
-        drop(state);
-
-        let jsonl = std::fs::read_to_string(&analytics_path).expect("analytics jsonl");
-        assert!(jsonl.contains("\"type\":\"tool_call_start\""));
-        assert!(jsonl.contains("\"type\":\"tool_call_end\""));
-        assert!(jsonl.contains("\"call_id\":\"call-1\""));
     }
 
     #[test]

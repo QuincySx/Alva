@@ -279,6 +279,7 @@ impl AgentBuilder {
         middleware_stack.configure_all(&MiddlewareContext {
             bus: Some(bus.clone()),
             workspace: self.workspace.clone(),
+            store_session: Some(session.clone()),
             session: Some(alva_kernel_abi::agent_session::ScopedSession::new(
                 session.clone(),
                 alva_kernel_abi::agent_session::EventEmitter::runtime(),
@@ -348,7 +349,7 @@ impl AgentBuilder {
         let state = AgentState {
             model,
             tools: tools_arc,
-            session,
+            session: session.clone(),
             extensions: Extensions::new(),
         };
 
@@ -376,6 +377,7 @@ impl AgentBuilder {
 
         Ok(Agent {
             state: Arc::new(Mutex::new(state)),
+            full_session: session.clone(),
             config: Arc::new(tokio::sync::RwLock::new(config)),
             bus,
             host,

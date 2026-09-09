@@ -29,6 +29,9 @@ pub struct RuntimeExecutionContext {
     tool_fs: Option<Arc<dyn ToolFs>>,
     bus: Option<BusHandle>,
     pub session: Option<ScopedSession>,
+    /// R05: 完整会话（SessionStore 能力）——装配层显式提供；需要 create_child
+    /// session / 查询 / 压缩的工具从这里取。最小消费者不设置。
+    pub store_session: Option<Arc<dyn alva_kernel_abi::agent_session::AgentSession>>,
 }
 
 impl RuntimeExecutionContext {
@@ -42,6 +45,7 @@ impl RuntimeExecutionContext {
         E: Into<AgentEventSender>,
     {
         Self {
+            store_session: None,
             cancel,
             tool_call_id,
             event_tx: event_tx.into(),
@@ -52,6 +56,20 @@ impl RuntimeExecutionContext {
             bus: None,
             session: None,
         }
+    }
+
+    /// R05: attach the assembly-provided full session (SessionStore 能力)。
+    pub fn with_store_session(
+        mut self,
+        session: Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
+    ) -> Self {
+        self.store_session = Some(session);
+        self
+    }
+
+    /// Full session handle, when the assembly provided one.
+    pub fn store_session(&self) -> Option<Arc<dyn alva_kernel_abi::agent_session::AgentSession>> {
+        self.store_session.clone()
     }
 
     pub fn with_session(mut self, session: ScopedSession) -> Self {
@@ -123,6 +141,12 @@ impl ToolExecutionContext for RuntimeExecutionContext {
 
     fn bus(&self) -> Option<&BusHandle> {
         self.bus.as_ref()
+    }
+
+    fn store_session(
+        &self,
+    ) -> Option<std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>> {
+        self.store_session.clone()
     }
 
     fn session(&self) -> Option<&alva_kernel_abi::agent_session::ScopedSession> {

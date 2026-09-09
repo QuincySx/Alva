@@ -22,10 +22,10 @@ pub struct AgentState {
     pub model: Arc<dyn LanguageModel>,
     /// Available tools the agent can invoke.
     pub tools: Vec<Arc<dyn Tool>>,
-    /// Session managing the unified event log (message history + runtime
-    /// skeleton events + component-emitted events). The single source of
-    /// truth for everything this agent does.
-    pub session: Arc<dyn AgentSession>,
+    /// 内核对历史的全部要求（R05）：只要对话记录。查询/回滚/快照/订阅/
+    /// 压缩等 SessionStore 能力由装配层经 MiddlewareContext.session 或
+    /// 扩展显式提供，内核入口不再强制它们。
+    pub session: Arc<dyn alva_kernel_abi::ConversationLog>,
     /// Type-safe key-value store for cross-middleware communication.
     pub extensions: Extensions,
 }
@@ -84,6 +84,7 @@ mod tests {
     use super::*;
     use crate::builtins::test_helpers::helpers::{make_state, StubModel};
     use alva_agent_core::agent_session::InMemoryAgentSession;
+    use alva_kernel_abi::ConversationLog;
     use alva_kernel_abi::ModelConfig;
 
     #[test]
@@ -124,7 +125,7 @@ mod tests {
         let state = AgentState {
             model: Arc::new(StubModel),
             tools: vec![],
-            session: Arc::new(InMemoryAgentSession::new()),
+            session: Arc::new(InMemoryAgentSession::new()) as Arc<dyn ConversationLog>,
             extensions: Extensions::new(),
         };
 

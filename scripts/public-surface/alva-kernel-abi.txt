@@ -69,11 +69,9 @@ implfn	Scheduling::fn manages_own_timeout pub fn manages_own_timeout(mut self) -
 implfn	Scheduling::fn serial_global pub fn serial_global() -> Self
 implfn	Scheduling::fn with_resource_keys pub fn with_resource_keys(mut self, keys: Vec<ResourceKey>) -> Self
 implfn	ScopedSession::async fn append pub async fn append(&self, mut event: SessionEvent) -> Result<(), SessionError>
-implfn	ScopedSession::async fn count pub async fn count(&self, filter: &EventQuery) -> usize
-implfn	ScopedSession::async fn query pub async fn query(&self, filter: &EventQuery) -> Vec<EventMatch>
 implfn	ScopedSession::fn emitter pub fn emitter(&self) -> &EventEmitter
-implfn	ScopedSession::fn inner pub fn inner(&self) -> Arc<dyn AgentSession>
-implfn	ScopedSession::fn new pub fn new(inner: Arc<dyn AgentSession>, emitter: EventEmitter) -> Self
+implfn	ScopedSession::fn inner pub fn inner(&self) -> Arc<dyn crate::conversation_log::ConversationLog>
+implfn	ScopedSession::fn new pub fn new( inner: Arc<dyn crate::conversation_log::ConversationLog>, emitter: EventEmitter, ) -> Self
 implfn	ScopedSession::fn session_id pub fn session_id(&self) -> &str
 implfn	SessionEvent::fn assistant_message pub fn assistant_message(content: serde_json::Value) -> Self
 implfn	SessionEvent::fn new_runtime pub fn new_runtime(event_type: impl Into<String>) -> Self
@@ -252,6 +250,7 @@ traitfn	tool::execution::ToolExecutionContext::fn get_config fn get_config(&self
 traitfn	tool::execution::ToolExecutionContext::fn report_progress fn report_progress(&self, _event: ProgressEvent)
 traitfn	tool::execution::ToolExecutionContext::fn session fn session(&self) -> Option<&crate::agent_session::ScopedSession>
 traitfn	tool::execution::ToolExecutionContext::fn session_id fn session_id(&self) -> &str
+traitfn	tool::execution::ToolExecutionContext::fn store_session fn store_session(&self) -> Option<std::sync::Arc<dyn crate::agent_session::AgentSession>>
 traitfn	tool::execution::ToolExecutionContext::fn tool_call_id fn tool_call_id(&self) -> Option<&str>
 traitfn	tool::execution::ToolExecutionContext::fn tool_fs fn tool_fs(&self) -> Option<&dyn ToolFs>
 traitfn	tool::execution::ToolExecutionContext::fn workspace fn workspace(&self) -> Option<&Path>
