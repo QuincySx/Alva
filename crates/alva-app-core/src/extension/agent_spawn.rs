@@ -647,6 +647,21 @@ impl AgentSpawnTool {
                 ),
             ));
         }
+        // Shared resource locks (ticket R01): the child inherits the same bus
+        // and therefore the same ToolLockRegistry as the parent — but without
+        // the lock middleware it would never ACQUIRE anything, so a
+        // SerialGlobal holder in the parent scope would not stop child tools.
+        // The middleware is the assembly-layer acquisition point (the kernel
+        // no longer takes locks itself); configure() wires it to the bus.
+        if let Some(bus) = ctx.bus() {
+            if bus.get::<alva_agent_core::ToolLockRegistry>().is_some() {
+                // The child stack never goes through AgentBuilder::build, so
+                // `configure()` would not fire — wire the bus explicitly.
+                child_middleware.push_sorted(Arc::new(
+                    alva_agent_core::ToolLockMiddleware::new().with_bus(bus.clone()),
+                ));
+            }
+        }
         // Run child agent using the shared helper, supplying the listenable session.
         let result = run_child_agent(ChildAgentParams {
             model: child_model,
