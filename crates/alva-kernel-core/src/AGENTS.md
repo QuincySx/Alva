@@ -34,6 +34,6 @@
 | 共享基础 | `shared.rs` | `Extensions`、`MiddlewareError`、`MiddlewarePriority` |
 | Tool Context | `runtime_context.rs` | `RuntimeExecutionContext` |
 | Tool 批调度 | `tool_batch.rs` | 无冲突并行 wave、模型顺序 durable commit、取消/失败结果补齐 |
-| Tool 资源锁 | `tool_lock.rs` | 跨 Agent 多读单写资源锁、全局串行锁与持锁诊断 |
-| 注入队列 | `pending_queue.rs` | `AgentLoopHook`、`PendingMessageQueue` |
+| 会话契约实现 | `agent_session.rs` 已迁出 | InMemory / Listenable 内存会话后端现居 `alva-agent-core/src/agent_session.rs`（R-ticket 09） |
+| 上下文执行 | `context_apply.rs` 已迁出 | 注入/压缩执行逻辑现居 `alva-agent-context/src/context_apply.rs`（R-ticket 10）；内核经 `ContextApply` 执行器 trait 间接使用 |
 | Builtin Middleware | `builtins/` | loop detection、dangling tool call、tool timeout |
