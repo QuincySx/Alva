@@ -424,7 +424,7 @@ impl super::HubStore {
     /// than letting a later task jump it — that is what makes the ordering
     /// deterministic.
     pub fn claim_next_worker_task(&self, worker_id: &str) -> Result<TaskClaim, String> {
-        use super::orchestration::{ClaimDecision, ClaimInputs, HeadTask, RunningHolder};
+        use super::orchestration::{ClaimDecision, ClaimInputs, HeadTask, TaskClaims};
 
         let now = now_unix_ms();
         let mut connection = self.lock()?;
@@ -521,8 +521,8 @@ impl super::HubStore {
         drop(waiter_statement);
 
         // ── 决策（纯策略，见 orchestration::decide_claim）──────────────
-        let to_holder = |(task_id, worker_id, claims_json): (String, String, String)| {
-            Ok::<RunningHolder, String>(RunningHolder {
+        let to_task_claims = |(task_id, worker_id, claims_json): (String, String, String)| {
+            Ok::<TaskClaims, String>(TaskClaims {
                 task_id,
                 worker_id,
                 claims: serde_json::from_str(&claims_json)
@@ -531,11 +531,11 @@ impl super::HubStore {
         };
         let holders = holders
             .into_iter()
-            .map(to_holder)
+            .map(to_task_claims)
             .collect::<Result<Vec<_>, _>>()?;
         let waiters = waiters
             .into_iter()
-            .map(to_holder)
+            .map(to_task_claims)
             .collect::<Result<Vec<_>, _>>()?;
         let inputs = ClaimInputs {
             lifecycle: WorkerLifecycle::parse(&lifecycle)?,

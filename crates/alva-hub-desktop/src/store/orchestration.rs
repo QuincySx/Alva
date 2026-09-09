@@ -19,11 +19,11 @@ pub struct ClaimInputs {
     pub wanted: Vec<crate::claims::ResourceClaim>,
     /// Everything currently RUNNING in the same workspace:
     /// (task_id, worker_id, held claims). Holders never wait.
-    pub holders: Vec<RunningHolder>,
+    pub holders: Vec<TaskClaims>,
     /// Other queued tasks in the same workspace whose head-of-queue is older
     /// than the candidate: (task_id, worker_id, claims). Their reservation
     /// prevents a stream of short conflicting tasks from starving them.
-    pub older_waiters: Vec<RunningHolder>,
+    pub older_waiters: Vec<TaskClaims>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,8 +31,10 @@ pub struct HeadTask {
     pub task_id: String,
 }
 
-/// (task_id, worker_id, claims) — a running holder or an older waiter.
-pub struct RunningHolder {
+/// (task_id, worker_id, claims) — 中性的共享数据三元组：同一结构既表达
+/// 当前正在运行的持有者（holders），也表达按 FIFO 预留资源的更老等待者
+/// （older_waiters）。是否"运行中"由所在集合决定，不由类型决定。
+pub struct TaskClaims {
     pub task_id: String,
     pub worker_id: String,
     pub claims: Vec<crate::claims::ResourceClaim>,
