@@ -452,6 +452,13 @@ pub struct ListenableInMemorySession {
     /// so queue order == seq order; the drain below broadcasts FIFO, which
     /// makes delivery order == seq order even under concurrent appends.
     broadcast_queue: tokio::sync::Mutex<VecDeque<SessionEvent>>,
+    /// Single-delivery guard (R03): only one drain delivers at a time. A
+    /// losing appender returns immediately — the active drainer's loop
+    /// re-checks the queue after its current batch, so nothing is lost and
+    /// every subscriber observes strictly seq-ordered delivery even when a
+    /// listener yields mid-callback. Appends never wait on this lock, so a
+    /// slow listener cannot block them.
+    delivery_lock: tokio::sync::Mutex<()>,
 }
 
 impl ListenableInMemorySession {
@@ -461,6 +468,7 @@ impl ListenableInMemorySession {
             inner: InMemoryAgentSession::new(),
             listeners: RwLock::new(Vec::new()),
             broadcast_queue: tokio::sync::Mutex::new(VecDeque::new()),
+            delivery_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -470,6 +478,7 @@ impl ListenableInMemorySession {
             inner: InMemoryAgentSession::with_parent(parent_id),
             listeners: RwLock::new(Vec::new()),
             broadcast_queue: tokio::sync::Mutex::new(VecDeque::new()),
+            delivery_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -489,11 +498,22 @@ impl ListenableInMemorySession {
         self.inner.restore_events(events).await;
     }
 
-    /// Broadcast everything queued so far, FIFO, then keep draining until the
-    /// queue is empty. Listener handles are cloned under the read lock and
-    /// called without it; the queue itself is only held while snapshotting a
-    /// batch, never across a callback.
+    /// Deliver everything queued so far, strictly FIFO — and strictly one
+    /// drainer at a time (R03): a batch released for delivery must complete
+    /// before a later batch starts, otherwise a listener that yields inside
+    /// its callback lets a concurrent append deliver a higher-seq event
+    /// first. A second appender that finds the delivery lock taken simply
+    /// returns: the active drainer's loop re-checks the queue after its
+    /// current batch, so the event is delivered in order and nothing is
+    /// lost. Listener handles are cloned under the read lock and called
+    /// without it; the queue lock is only held while snapshotting a batch,
+    /// never across a callback, so listeners that read/forward the session
+    /// cannot deadlock.
     async fn drain_broadcasts(&self) -> Result<(), SessionError> {
+        let Ok(_delivery_guard) = self.delivery_lock.try_lock() else {
+            // Another drain is mid-delivery; it will pick up our batch.
+            return Ok(());
+        };
         loop {
             let batch = {
                 let mut queue = self.broadcast_queue.lock().await;
