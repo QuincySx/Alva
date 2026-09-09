@@ -173,23 +173,3 @@ fn default_descriptor_enforcement(
         summary: plan.summary.clone(),
     })
 }
-
-/// Test/inspection convenience: run a blueprint's build entry with empty
-/// routing inputs. Production assembly goes through the run seam's build
-/// closure (see `alva::build_engine_for_target_with_repository`).
-pub fn engine_registry_for_test_build(
-    engine_id: &str,
-) -> Result<Arc<dyn alva_engine_runtime::EngineRuntime>, String> {
-    let entry = blueprint(engine_id).ok_or("engine not registered")?;
-    let target = crate::store::EngineTarget::for_engine(engine_id)?;
-    let plan = enforcement_for(engine_id, PermissionProfile::WorkspaceWrite)?;
-    let args = EngineBuildArgs {
-        target: &target,
-        provider_config: None,
-        plan: &plan,
-        workspace: &std::path::PathBuf::from(std::env::temp_dir()),
-        history_dir: &std::path::PathBuf::from(std::env::temp_dir()),
-        repository: None,
-    };
-    (entry.build)(&args)
-}

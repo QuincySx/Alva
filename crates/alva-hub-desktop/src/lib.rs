@@ -23,8 +23,8 @@ mod worktree;
 pub use alva::{build_engine, build_engine_for_target, build_engine_for_target_with_inspector};
 pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
 pub use engine_registry::{
-    blueprint, engine_registry_for_test_build, register as register_engine_blueprint,
-    registered_engine_ids, EngineBlueprint, EngineBuildArgs,
+    blueprint, register as register_engine_blueprint, registered_engine_ids, EngineBlueprint,
+    EngineBuildArgs,
 };
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
 pub use inspection::{HubInspectionRecord, HubInspectionSnapshot, HubInspectorService};
