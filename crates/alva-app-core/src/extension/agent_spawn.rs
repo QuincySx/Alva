@@ -659,9 +659,14 @@ impl AgentSpawnTool {
         if let Some(bus) = ctx.bus() {
             if bus.get::<alva_agent_core::ToolLockRegistry>().is_some() {
                 // The child stack never goes through AgentBuilder::build, so
-                // `configure()` would not fire — wire the bus explicitly.
+                // `configure()` would not fire — wire the bus AND the child
+                // workspace explicitly (R11). The workspace resolves relative
+                // resource keys identically to the parent, so `src/foo.rs`
+                // and `/workspace/src/foo.rs` contend on the SAME lock.
                 child_middleware.push_sorted(Arc::new(
-                    alva_agent_core::ToolLockMiddleware::new().with_bus(bus.clone()),
+                    alva_agent_core::ToolLockMiddleware::new()
+                        .with_bus(bus.clone())
+                        .with_workspace(ctx.workspace().map(|p| p.to_path_buf())),
                 ));
             }
         }

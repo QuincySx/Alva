@@ -868,6 +868,17 @@ impl ToolLockMiddleware {
         let _ = self.bus.set(bus);
         self
     }
+
+    /// R11: attach the workspace used to resolve relative resource keys —
+    /// child stacks bypass `configure()`, so the assembly hands the same
+    /// workspace the parent middleware would have received. Without it a
+    /// relative key (`src/foo.rs`) and its absolute form
+    /// (`/workspace/src/foo.rs`) resolve to DIFFERENT locks and parent/child
+    /// can write the same file concurrently.
+    pub fn with_workspace(self, workspace: Option<std::path::PathBuf>) -> Self {
+        let _ = self.workspace.set(workspace);
+        self
+    }
 }
 
 impl Default for ToolLockMiddleware {
