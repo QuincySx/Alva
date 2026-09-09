@@ -185,7 +185,11 @@ where
     let _ = event_tx.send(AgentEvent::AgentStart).await;
 
     // --- Session skeleton: run_start ---
-    let run_start_uuid = emit_runtime_event(
+    // 写入失败不再 `?` 直接返回（R04）：run_start 位于统一终止路径之外，
+    // 提前返回会让消费者只看到事件流关闭而无 AgentEnd。把错误存入 result，
+    // 落入与其它启动失败相同的收尾：AgentEnd(错误) / on_agent_end /
+    // dispose / 最终 flush；run_end 骨架事件不带伪造的父记录。
+    let run_start: Result<String, AgentError> = emit_runtime_event(
         &log,
         "run_start",
         None,
@@ -194,71 +198,90 @@ where
             "max_iterations": config.max_iterations,
         })),
     )
-    .await?;
+    .await
+    .map_err(AgentError::from);
 
     // Fallible body: on the first error we stop running it but still fall
     // through to the finalizer. The `async` block scopes the borrows of
     // `state` / `context_runtime` so they are free again for cleanup.
-    let mut result: Result<(), AgentError> = async {
-        // 1. Lifecycle: on_agent_start
-        config
-            .middleware
-            .run_on_agent_start(state)
+    // run_start 持久化失败时不进 body：不启动模型/工具，保留根因错误，
+    // 直接落入下方统一收尾。
+    let (run_start_uuid, startup_error): (Option<String>, Option<AgentError>) = match run_start {
+        Ok(uuid) => (Some(uuid), None),
+        Err(error) => (None, Some(error)),
+    };
+    let run_start_uuid_ref = run_start_uuid.clone();
+    let mut result: Result<(), AgentError> = match startup_error {
+        Some(error) => Err(error),
+        None => {
+            async {
+                // 1. Lifecycle: on_agent_start
+                config
+                    .middleware
+                    .run_on_agent_start(state)
+                    .await
+                    .map_err(MiddlewareError::into_agent_error)?;
+                context_runtime.bootstrap(config).await;
+
+                // --- Session skeleton: component_registry ---
+                // Collect descriptors for every tool and middleware in this run.
+                let mut components: Vec<ComponentDescriptor> = Vec::new();
+                for tool in &state.tools {
+                    components.push(ComponentDescriptor {
+                        kind: EmitterKind::Tool,
+                        id: tool.name().to_string(),
+                        name: tool.name().to_string(),
+                    });
+                }
+                for mw_name in config.middleware.names() {
+                    components.push(ComponentDescriptor {
+                        kind: EmitterKind::Middleware,
+                        id: mw_name.clone(),
+                        name: mw_name,
+                    });
+                }
+                emit_runtime_event(
+                    &log,
+                    "component_registry",
+                    Some(
+                        run_start_uuid
+                            .clone()
+                            .expect("run_start wrote when no startup error"),
+                    ),
+                    Some(serde_json::json!({ "components": components })),
+                )
+                .await?;
+
+                // 2. Store input messages in session + collect context injections.
+                for msg in input {
+                    log.append_message(msg.clone(), None)
+                        .await
+                        .map_err(AgentError::from)?;
+                    config
+                        .middleware
+                        .run_input_committed(state, &msg)
+                        .await
+                        .map_err(MiddlewareError::into_agent_error)?;
+                    context_runtime.on_message(config, &msg).await;
+                }
+
+                // 3. Main loop
+                run_loop(
+                    state,
+                    &log,
+                    config,
+                    &cancel,
+                    &event_tx,
+                    run_start_uuid
+                        .as_deref()
+                        .expect("run_start wrote when no startup error"),
+                    &mut context_runtime,
+                )
+                .await
+            }
             .await
-            .map_err(MiddlewareError::into_agent_error)?;
-        context_runtime.bootstrap(config).await;
-
-        // --- Session skeleton: component_registry ---
-        // Collect descriptors for every tool and middleware in this run.
-        let mut components: Vec<ComponentDescriptor> = Vec::new();
-        for tool in &state.tools {
-            components.push(ComponentDescriptor {
-                kind: EmitterKind::Tool,
-                id: tool.name().to_string(),
-                name: tool.name().to_string(),
-            });
         }
-        for mw_name in config.middleware.names() {
-            components.push(ComponentDescriptor {
-                kind: EmitterKind::Middleware,
-                id: mw_name.clone(),
-                name: mw_name,
-            });
-        }
-        emit_runtime_event(
-            &log,
-            "component_registry",
-            Some(run_start_uuid.clone()),
-            Some(serde_json::json!({ "components": components })),
-        )
-        .await?;
-
-        // 2. Store input messages in session + collect context injections.
-        for msg in input {
-            log.append_message(msg.clone(), None)
-                .await
-                .map_err(AgentError::from)?;
-            config
-                .middleware
-                .run_input_committed(state, &msg)
-                .await
-                .map_err(MiddlewareError::into_agent_error)?;
-            context_runtime.on_message(config, &msg).await;
-        }
-
-        // 3. Main loop
-        run_loop(
-            state,
-            &log,
-            config,
-            &cancel,
-            &event_tx,
-            &run_start_uuid,
-            &mut context_runtime,
-        )
-        .await
-    }
-    .await;
+    };
 
     let run_error: Option<String> = result.as_ref().err().map(|e| e.to_string());
 
@@ -274,10 +297,12 @@ where
     context_runtime.dispose(config).await;
 
     // --- Session skeleton: run_end ---
+    // run_start 没写入时没有可用的父记录——不伪造父子关系，run_end 以
+    // 根事件落账（仍可追溯：同一会话的 seq 顺序即真实顺序）。
     let _ = emit_runtime_event(
         &log,
         "run_end",
-        Some(run_start_uuid.clone()),
+        run_start_uuid_ref,
         Some(serde_json::json!({
             "error": run_error,
         })),
