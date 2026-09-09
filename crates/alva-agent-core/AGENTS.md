@@ -69,3 +69,8 @@ Re-exported from `src/lib.rs`:
 - Built-in tool implementations → `alva-agent-extension-builtin`.
 - `LocalToolFs` native adapter → `alva-agent-extension-builtin`.
 - `BaseAgent` and session wiring → still in `alva-app-core` (historical; planned for a later refactor).
+
+## 迁入模块（内核边界重构 R05/R08）
+
+- `src/agent_session.rs`：InMemoryAgentSession / ListenableInMemorySession 内存会话后端（自 kernel-core 迁入）。Listenable 的广播队列按 seq 序插入、投递经 delivery_lock 单投递者串行化（R03）——慢监听者不阻塞追加与订阅。
+- `src/tool_lock.rs`：跨 Agent 工具资源锁表 + `ToolLockMiddleware`（自 kernel-core 迁入）。经 bus 可选发现；子 agent 栈须显式挂中间件并接线 bus（configure 不触发的路径用 `with_bus`）。

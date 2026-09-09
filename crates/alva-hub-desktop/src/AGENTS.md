@@ -75,3 +75,9 @@
 | Engine repair | `repair.rs` | readiness→RepairAction 映射、一键安装 allowlist 执行器 |
 | SQLite store | `store/` | `db.rs` storage kernel；`mod.rs` 共享数据访问层与 `pub(crate)` 常量/helper；`branch.rs`/`handoff.rs`/`team.rs`/`turn.rs` 各持久化簇；`tests.rs` 全量测试。covering workspace kind、identity、模型选项、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
 | Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness/Inspector command 和 timestamp-preserving event bridge |
+
+## 引擎注册表与编排策略（R-tickets 17/18）
+
+- `engine_registry.rs` + `engine_wiring.rs`：引擎注册表是权限门、就绪分类与装配的唯一查询点。每个引擎一份 `EngineBlueprint`（descriptor、readiness spec、probe/veto/enforcement/build 闭包）；内建四引擎的名字只出现在 `engine_wiring.rs` 一个装配点。注册新引擎 = 注册新 blueprint，三模块零改动（R17）。
+- `store/orchestration.rs`：团队队列领取**策略**（生命周期门、冲突检测、FIFO 公平预留）为纯函数 `decide_claim`；`store/team.rs::claim_next_worker_task` 是记账层——读库、组装 `ClaimInputs`、按 `ClaimDecision` 落库（R18）。
+- `readiness.rs` / `permissions.rs` / `alva.rs`（装配）的引擎名字面量为零；permissions 的 `#[cfg(test)]` 断言内建映射时按名点名。

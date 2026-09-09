@@ -7,12 +7,11 @@
 ## 逻辑
 1. `run/` 实现主循环（`mod.rs`）+ LLM 调用准备与执行（`llm_call.rs`）+ 可替换接口（`loop_impl.rs`）。每轮从 `session` 读取上下文，经过 middleware，调用 model，解析 `ToolUse`，执行 tool，再把结果写回 `session`；LLM session 事件同时记录版本化 cache-base/tool-schema 指纹、provider usage outcome，以及每次响应至多一条 `llm_first_output` 与一条无正文的 `llm_stream_summary`，提供 TTFT/流耗时而不按 token 同步写盘。`mod.rs` 提供 `run_agent`；`loop_impl.rs` 提供 `AgentLoop` trait 与 `DefaultAgentLoop` 默认实现（`run_agent` 是其背后驱动）。
 2. `run_child.rs` 提供 child-agent 执行辅助逻辑，用于在受限上下文中运行子 agent 并回收结构化输出。
-3. `state.rs` 定义 `AgentState` 与 `AgentConfig`：state 放运行态能力，config 放 middleware、system prompt、workspace、bus 等稳定配置。
+3. `state.rs` 定义 `AgentState` 与 `AgentConfig`：state 放运行态能力，config 放 middleware、system prompt、workspace、bus 等稳定配置。`AgentState.session` 只是对话记录（`ConversationLog`，R05）——查询/回滚/快照/订阅/压缩由装配层显式提供，内核入口不强制。
 4. `middleware.rs` 和 `shared.rs` 组成 onion-style middleware 子系统，负责 hook 分发、优先级、错误传播与扩展存储；每层 hook 的名称/顺序/失败/inclusive duration 打包进每阶段一条 `middleware_hook_batch` canonical event，观测粒度不变，SQLite 写入量不随 middleware 数量线性放大。
 5. `runtime_context.rs` 为 tool 提供统一 `ToolExecutionContext` 实现，把 cancellation、workspace、progress event、bus 能力桥接到工具层。
 6. `tool_batch.rs` 根据 Tool 的 concurrency-safe、ExecutionMode 与 ResourceKey 声明生成无冲突并行 wave，并按模型顺序提交 durable intent/outcome。
-7. `tool_lock.rs` 通过 bus 共享跨 Agent 的多读单写资源锁，给并行 wave 和子 Agent 提供同一份冲突边界。
-8. `pending_queue.rs` 定义 `AgentLoopHook` 与 `PendingMessageQueue`，供外部在 tool 执行后插入 steering/follow-up。
+7. `tool_lock.rs` 已迁移至 `alva-agent-core`（R-tickets 08）：跨 Agent 资源锁是装配层机制，内核只保留调度词汇（`Scheduling`/`ResourceKey`）与波次调度；取锁经装配层 `ToolLockMiddleware` 完成。
 9. `builtins/` 放内核默认 middleware：`DanglingToolCallMiddleware`、`LoopDetectionMiddleware`、`ToolTimeoutMiddleware`。
 
 ## 约束
