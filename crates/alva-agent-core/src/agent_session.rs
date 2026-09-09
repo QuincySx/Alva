@@ -444,9 +444,34 @@ impl AgentSession for InMemoryAgentSession {}
 ///
 /// Lives in the same module as `InMemoryAgentSession` so it can access
 /// its private fields directly for the combined seq-assign + notify pattern.
+/// 注册项：监听者 + 投递游标（R12）。游标记录该监听者已收到的最大 seq，
+/// 使注册晚于提交的事件只经**实时**路径送达一次、注册早于提交的历史只经
+/// **回放**路径送达一次——历史/实时交接由 `last_delivered` 与游标共同界定，
+/// 恰好一次、不重不漏。
+pub struct RegisteredListener {
+    listener: Arc<dyn SessionEventListener>,
+    /// 下一个期望投递的 seq。投递由 delivery_lock 串行化，游标只需 Mutex。
+    cursor: std::sync::Mutex<u64>,
+}
+
+impl RegisteredListener {
+    fn wants(&self, seq: u64) -> bool {
+        seq >= *self
+            .cursor
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+    fn advance_to(&self, seq: u64) {
+        *self
+            .cursor
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = seq + 1;
+    }
+}
+
 pub struct ListenableInMemorySession {
     inner: InMemoryAgentSession,
-    listeners: RwLock<Vec<Arc<dyn SessionEventListener>>>,
+    listeners: RwLock<Vec<Arc<RegisteredListener>>>,
     /// Broadcast queue. Events are inserted while the appender still holds
     /// the inner events lock (the same critical section that assigns `seq`),
     /// so queue order == seq order; the drain below broadcasts FIFO, which
@@ -459,6 +484,9 @@ pub struct ListenableInMemorySession {
     /// listener yields mid-callback. Appends never wait on this lock, so a
     /// slow listener cannot block them.
     delivery_lock: tokio::sync::Mutex<()>,
+    /// R12: 已提交的最大 seq。新订阅者的游标 = committed + 1：历史回放
+    /// 覆盖所有已提交事件，实时投递经游标跳过（恰好一次）。
+    last_committed: std::sync::Mutex<u64>,
 }
 
 impl ListenableInMemorySession {
@@ -469,6 +497,7 @@ impl ListenableInMemorySession {
             listeners: RwLock::new(Vec::new()),
             broadcast_queue: tokio::sync::Mutex::new(VecDeque::new()),
             delivery_lock: tokio::sync::Mutex::new(()),
+            last_committed: std::sync::Mutex::new(0),
         }
     }
 
@@ -479,6 +508,7 @@ impl ListenableInMemorySession {
             listeners: RwLock::new(Vec::new()),
             broadcast_queue: tokio::sync::Mutex::new(VecDeque::new()),
             delivery_lock: tokio::sync::Mutex::new(()),
+            last_committed: std::sync::Mutex::new(0),
         }
     }
 
@@ -490,7 +520,18 @@ impl ListenableInMemorySession {
     /// [`subscribe_events`](Self::subscribe_events) 返回的流（内部走 mpsc
     /// 信箱，`on_event` 只做一次无界 send），消费多慢都不阻塞追加。
     pub async fn subscribe(&self, listener: Arc<dyn SessionEventListener>) {
-        self.listeners.write().await.push(listener);
+        let cursor = *self
+            .last_committed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            + 1;
+        self.listeners
+            .write()
+            .await
+            .push(Arc::new(RegisteredListener {
+                listener,
+                cursor: std::sync::Mutex::new(cursor),
+            }));
     }
 
     /// Restore a durable snapshot before exposing the session to a runtime.
@@ -522,18 +563,28 @@ impl ListenableInMemorySession {
             if batch.is_empty() {
                 return Ok(());
             }
+            // R12: 每个监听者带游标——提交早于注册的事件经历史回放恰好
+            // 一次；提交晚于注册的事件经实时路径恰好一次。逐事件游标门控
+            // 允许订阅者在批次中途注册而不重不漏。
             let listeners = self.listeners.read().await.clone();
             let mut any_dead = false;
             for event in &batch {
-                for listener in &listeners {
-                    listener.on_event(event).await;
-                    if !listener.is_active() {
+                for registered in &listeners {
+                    if !registered.wants(event.seq) {
+                        continue;
+                    }
+                    registered.listener.on_event(event).await;
+                    registered.advance_to(event.seq);
+                    if !registered.listener.is_active() {
                         any_dead = true;
                     }
                 }
             }
             if any_dead {
-                self.listeners.write().await.retain(|l| l.is_active());
+                self.listeners
+                    .write()
+                    .await
+                    .retain(|l| l.listener.is_active());
             }
         }
     }
@@ -565,6 +616,10 @@ impl ConversationLog for ListenableInMemorySession {
             event.seq = self.inner.seq_counter.fetch_add(1, Ordering::SeqCst);
             records.push(SessionRecord::from_event(event.clone()));
             events.push(event.clone());
+            *self
+                .last_committed
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = event.seq;
         }
         queue.push_back(event);
         drop(queue);
@@ -594,6 +649,10 @@ impl ConversationLog for ListenableInMemorySession {
             records.push(SessionRecord::from_event(event.clone()));
             events.push(event.clone());
             messages.push_back(msg);
+            *self
+                .last_committed
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = event.seq;
         }
         queue.push_back(event);
         drop(queue);
@@ -633,6 +692,12 @@ impl ConversationLog for ListenableInMemorySession {
                 committed.push(event);
             }
             last_seq = self.inner.seq_counter.load(Ordering::SeqCst) - 1;
+            if let Some(last) = committed.last() {
+                *self
+                    .last_committed
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = last.seq;
+            }
         }
         for event in committed {
             queue.push_back(event);
@@ -735,13 +800,22 @@ impl SessionStore for ListenableInMemorySession {
         // Events with seq <= the snapshot high-water are in (1); events
         // after are in (2). No dup, no loss.
         let events_guard = self.inner.events.write().await;
+        let last_committed = *self
+            .last_committed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // R12: 历史回放覆盖**全部已提交**事件（> from_seq）；本监听者游标
+        // = committed + 1，实时投递经游标跳过已回放部分——无遗漏无重复。
         let history: Vec<SessionEvent> = events_guard
             .iter()
             .filter(|e| e.seq > from_seq)
             .cloned()
             .collect();
 
-        let listener: Arc<dyn SessionEventListener> = Arc::new(ChannelListener { tx });
+        let listener: Arc<RegisteredListener> = Arc::new(RegisteredListener {
+            listener: Arc::new(ChannelListener { tx }),
+            cursor: std::sync::Mutex::new(last_committed + 1),
+        });
         self.listeners.write().await.push(listener);
         drop(events_guard);
 

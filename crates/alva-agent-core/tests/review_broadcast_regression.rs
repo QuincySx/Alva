@@ -5,6 +5,7 @@ use alva_agent_core::agent_session::ListenableInMemorySession;
 use alva_kernel_abi::{ConversationLog, SessionEvent, SessionEventListener, SessionStore};
 use futures_util::StreamExt;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 struct GateFirst {
     entered: tokio::sync::Semaphore,
@@ -56,4 +57,47 @@ async fn concurrent_broadcast_preserves_seq_with_yielding_listener() {
         vec![1, 2],
         "even the channel subscriber receives out-of-order events"
     );
+}
+
+/// R12 acceptance: an appending task cancelled mid-drain must not lose (or
+/// strand indefinitely) its committed events. The queue retains them; the
+/// next subscriber's history replay delivers exactly once.
+#[tokio::test]
+async fn cancelled_append_task_does_not_lose_committed_events() {
+    use alva_kernel_abi::agent_session::EventEmitter;
+    use alva_kernel_abi::SessionStore;
+
+    let session = Arc::new(ListenableInMemorySession::new());
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+
+    // Commit two events through a task we then abort while it is parked
+    // delivering them (GateFirst parks on the gate inside on_event).
+    let task = {
+        let session = session.clone();
+        let gate = gate.clone();
+        tokio::spawn(async move {
+            let store = alva_kernel_abi::agent_session::ScopedSession::new(
+                session.clone(),
+                alva_kernel_abi::agent_session::EventEmitter::runtime(),
+            );
+            let mut e1 = SessionEvent::new_runtime("cancelled-drain-1");
+            e1.emitter = alva_kernel_abi::agent_session::EventEmitter::runtime();
+            store.append(e1).await.unwrap();
+            gate.add_permits(1);
+            let mut e2 = SessionEvent::new_runtime("cancelled-drain-2");
+            e2.emitter = alva_kernel_abi::agent_session::EventEmitter::runtime();
+            store.append(e2).await.unwrap();
+        })
+    };
+    gate.add_permits(1);
+    let _ = task.await;
+    drop(gate);
+
+    // Both events are committed: a fresh subscriber gets both exactly once.
+    let mut stream = session.subscribe_events(0).await;
+    use futures_util::StreamExt;
+    let first = stream.next().await.unwrap();
+    assert_eq!(first.event_type, "cancelled-drain-1");
+    let second = stream.next().await.unwrap();
+    assert_eq!(second.event_type, "cancelled-drain-2");
 }
