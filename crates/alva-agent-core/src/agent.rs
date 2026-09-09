@@ -61,10 +61,11 @@ pub struct AgentAssemblySnapshot {
 /// lock is held across the full `run_agent` call.
 pub struct Agent {
     pub(crate) state: Arc<Mutex<AgentState>>,
-    /// R05: state.session 只保留对话记录；完整会话（SessionStore 能力）由
-    /// 装配层在此另行持有，供 BaseAgent/session_handle 与需要查询、压缩、
-    /// 持久化的上层显式取用。最小内核消费者不经过本结构。
-    pub(crate) full_session: Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
+    /// R05/R09-R10: state.session 只保留对话记录；完整会话（SessionStore
+    /// 能力）经 `StoreSessionCell` 共享——swap_session 原地更新 cell，所有
+    /// 持有者（压缩中间件、工具上下文、session_handle）读取时总是拿到
+    /// 当前会话。最小内核消费者不经过本结构。
+    pub(crate) full_session: alva_kernel_abi::agent_session::StoreSessionCell,
     pub(crate) config: Arc<RwLock<AgentConfig>>,
     pub(crate) bus: BusHandle,
     pub(crate) host: Arc<std::sync::RwLock<PluginHost>>,
@@ -287,9 +288,9 @@ impl Agent {
         &self.bus
     }
 
-    /// 完整会话句柄（SessionStore 能力）。state.session 只是对话记录；
-    /// 需要查询/回滚/压缩/持久化的上层从这里取。
-    pub fn full_session(&self) -> Arc<dyn alva_kernel_abi::agent_session::AgentSession> {
+    /// 完整会话 cell（SessionStore 能力，总是当前会话）。需要查询/回滚/
+    /// 压缩/持久化的上层从 cell 读取。
+    pub fn full_session(&self) -> alva_kernel_abi::agent_session::StoreSessionCell {
         self.full_session.clone()
     }
 

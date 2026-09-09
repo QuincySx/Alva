@@ -249,6 +249,35 @@ pub struct EventMatch {
 /// 会话面，再实现 [`SessionStore`]。原来那个三十方法的巨物不再单独存在。
 pub trait AgentSession: ConversationLog + SessionStore {}
 
+/// R05/R09: 完整会话（SessionStore 能力）的**当前**句柄。装配层在构建时创建
+/// 并注入 `state.extensions` 与 MiddlewareContext；`swap_session` 等会话切换
+/// 通过 [`set`](Self::set) 原地更新，所有持有者（压缩中间件、工具上下文的
+/// create_child_session、session_handle）读取时总是拿到当前会话。
+#[derive(Clone)]
+pub struct StoreSessionCell(Arc<std::sync::RwLock<Arc<dyn AgentSession>>>);
+
+impl StoreSessionCell {
+    pub fn new(session: Arc<dyn AgentSession>) -> Self {
+        Self(Arc::new(std::sync::RwLock::new(session)))
+    }
+
+    /// 当前完整会话。
+    pub fn get(&self) -> Arc<dyn AgentSession> {
+        self.0
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// 切换当前完整会话（R10：swap_session 必须经此更新）。
+    pub fn set(&self, session: Arc<dyn AgentSession>) {
+        *self
+            .0
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = session;
+    }
+}
+
 // ===========================================================================
 // Session event stream
 // ===========================================================================

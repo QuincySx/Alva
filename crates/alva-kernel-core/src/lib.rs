@@ -18,6 +18,7 @@ pub mod tool_batch;
 pub use shared::{Extensions, MiddlewareError, MiddlewarePriority};
 
 // Re-exports — state
+pub use alva_kernel_abi::StoreSessionCell;
 pub use state::{AgentConfig, AgentState};
 
 // Re-exports — middleware

@@ -93,6 +93,12 @@ pub trait ToolExecutionContext: Send + Sync {
         None
     }
 
+    /// R09/R10: the shared cell itself — nested spawn forwards it so child
+    /// extensions always track the current session.
+    fn store_session_cell(&self) -> Option<std::sync::Arc<crate::agent_session::StoreSessionCell>> {
+        None
+    }
+
     /// Downcast support for application-specific extensions.
     fn as_any(&self) -> &dyn Any;
 }

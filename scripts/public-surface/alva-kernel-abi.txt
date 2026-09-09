@@ -84,6 +84,9 @@ implfn	SessionRecord::fn execution pub fn execution( type_name: impl Into<String
 implfn	SessionRecord::fn extension pub fn extension( namespace: impl Into<String>, type_name: impl Into<String>, schema_version: u32, emitter: EventEmitter, payload: serde_json::Value, ) -> Result<Self, String>
 implfn	SessionRecord::fn from_event pub fn from_event(event: SessionEvent) -> Self
 implfn	SessionRecord::fn into_event pub fn into_event(self) -> SessionEvent
+implfn	StoreSessionCell::fn get pub fn get(&self) -> Arc<dyn AgentSession>
+implfn	StoreSessionCell::fn new pub fn new(session: Arc<dyn AgentSession>) -> Self
+implfn	StoreSessionCell::fn set pub fn set(&self, session: Arc<dyn AgentSession>)
 implfn	ToolFsExecResult::fn success pub fn success(&self) -> bool
 implfn	ToolGuard::fn active_count pub fn active_count(&self) -> u32
 implfn	ToolGuard::fn max_concurrent pub fn max_concurrent(max: u32) -> Self
@@ -128,6 +131,7 @@ struct	agent_session::EventQuery
 struct	agent_session::ScopedSession
 struct	agent_session::SessionEvent
 struct	agent_session::SessionMessage
+struct	agent_session::StoreSessionCell
 struct	base::cancel::CancellationToken
 struct	model::CompletionResponse
 struct	model::HeuristicTokenCounter
@@ -251,6 +255,7 @@ traitfn	tool::execution::ToolExecutionContext::fn report_progress fn report_prog
 traitfn	tool::execution::ToolExecutionContext::fn session fn session(&self) -> Option<&crate::agent_session::ScopedSession>
 traitfn	tool::execution::ToolExecutionContext::fn session_id fn session_id(&self) -> &str
 traitfn	tool::execution::ToolExecutionContext::fn store_session fn store_session(&self) -> Option<std::sync::Arc<dyn crate::agent_session::AgentSession>>
+traitfn	tool::execution::ToolExecutionContext::fn store_session_cell fn store_session_cell(&self) -> Option<std::sync::Arc<crate::agent_session::StoreSessionCell>>
 traitfn	tool::execution::ToolExecutionContext::fn tool_call_id fn tool_call_id(&self) -> Option<&str>
 traitfn	tool::execution::ToolExecutionContext::fn tool_fs fn tool_fs(&self) -> Option<&dyn ToolFs>
 traitfn	tool::execution::ToolExecutionContext::fn workspace fn workspace(&self) -> Option<&Path>
@@ -267,7 +272,7 @@ traitfn	tool::types::ToolFs::async fn list_dir async fn list_dir(&self, path: &s
 traitfn	tool::types::ToolFs::async fn read_file async fn read_file(&self, path: &str) -> Result<Vec<u8>, AgentError>
 traitfn	tool::types::ToolFs::async fn write_file async fn write_file(&self, path: &str, content: &[u8]) -> Result<(), AgentError>
 type	agent_session::SessionEventStream type SessionEventStream = futures_util::stream::BoxStream<'static, SessionEvent>
-use	pub use agent_session::{ AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery, ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionMessage, }
+use	pub use agent_session::{ AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery, ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionMessage, StoreSessionCell, }
 use	pub use alva_kernel_bus::{ Bus, BusEvent, BusHandle, BusPlugin, BusWriter, PluginRegistrar, StateCell, }
 use	pub use alva_llm_wire::adapter
 use	pub use alva_llm_wire::config::*

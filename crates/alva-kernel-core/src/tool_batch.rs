@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use alva_kernel_abi::agent_session::{EmitterKind, EventEmitter, ScopedSession};
+use alva_kernel_abi::StoreSessionCell;
 use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, ConversationLog,
     ExecutionRecord, LockMode, RecordValue, ResourceKey, Scheduling, SessionRecord,
@@ -644,6 +645,11 @@ impl ToolCallFn for ActualToolCall {
             self.session_id.clone(),
         )
         .with_session(scoped_session);
+        // R09: 持久化子会话能力——装配层注入的完整会话（若存在）随工具
+        // 上下文下发，agent_spawn 的 create_child_session 才能触及父仓库。
+        if let Some(store) = state.extensions.get::<StoreSessionCell>() {
+            ctx = ctx.with_store_session(store);
+        }
         if let Some(ref ws) = self.workspace {
             ctx = ctx.with_workspace(ws.clone());
         }

@@ -697,6 +697,7 @@ impl AgentSpawnTool {
             session: child_session,
             context_system,
             middleware: child_middleware,
+            store_session: ctx.store_session_cell(),
         })
         .await;
 

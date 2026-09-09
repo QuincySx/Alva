@@ -12,6 +12,7 @@ use alva_kernel_abi::agent_session::ScopedSession;
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::tool::execution::{ProgressEvent, ToolExecutionContext};
 use alva_kernel_abi::BusHandle;
+use alva_kernel_abi::StoreSessionCell;
 use alva_kernel_abi::ToolFs;
 
 /// Concrete `ToolExecutionContext` used by the agent run loop.
@@ -29,9 +30,10 @@ pub struct RuntimeExecutionContext {
     tool_fs: Option<Arc<dyn ToolFs>>,
     bus: Option<BusHandle>,
     pub session: Option<ScopedSession>,
-    /// R05: 完整会话（SessionStore 能力）——装配层显式提供；需要 create_child
-    /// session / 查询 / 压缩的工具从这里取。最小消费者不设置。
-    pub store_session: Option<Arc<dyn alva_kernel_abi::agent_session::AgentSession>>,
+    /// R05/R09/R10: 完整会话（SessionStore 能力）——装配层经共享 cell 显式
+    /// 提供；需要 create_child session / 查询 / 压缩的工具从这里取，且总是
+    /// 拿到**当前**会话（swap 原地更新 cell）。最小消费者不设置。
+    pub store_session: Option<Arc<StoreSessionCell>>,
 }
 
 impl RuntimeExecutionContext {
@@ -58,17 +60,19 @@ impl RuntimeExecutionContext {
         }
     }
 
-    /// R05: attach the assembly-provided full session (SessionStore 能力)。
-    pub fn with_store_session(
-        mut self,
-        session: Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
-    ) -> Self {
-        self.store_session = Some(session);
+    /// R05/R09: attach the shared full-session cell (SessionStore 能力)。
+    pub fn with_store_session(mut self, cell: Arc<StoreSessionCell>) -> Self {
+        self.store_session = Some(cell);
         self
     }
 
-    /// Full session handle, when the assembly provided one.
+    /// 当前完整会话——cell 读取时解析，swap 后即为最新。
     pub fn store_session(&self) -> Option<Arc<dyn alva_kernel_abi::agent_session::AgentSession>> {
+        self.store_session.as_ref().map(|cell| cell.get())
+    }
+
+    /// 共享 cell 本体——嵌套 spawn 原样传给 child extensions。
+    pub fn store_session_cell(&self) -> Option<Arc<StoreSessionCell>> {
         self.store_session.clone()
     }
 
@@ -146,7 +150,7 @@ impl ToolExecutionContext for RuntimeExecutionContext {
     fn store_session(
         &self,
     ) -> Option<std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>> {
-        self.store_session.clone()
+        self.store_session.as_ref().map(|cell| cell.get())
     }
 
     fn session(&self) -> Option<&alva_kernel_abi::agent_session::ScopedSession> {

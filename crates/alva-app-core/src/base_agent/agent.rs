@@ -35,11 +35,10 @@ pub struct BaseAgent {
     /// Inner SDK-level agent. Holds the assembled state, config, bus, and
     /// extension host. The harness fields below live alongside it.
     pub(super) inner: Arc<Agent>,
-    /// R05: 完整会话（SessionStore 能力）由装配层保留——state.session 只是
-    /// 对话记录；clear/restore/flush/swap 等存储动词经此句柄完成。Mutex 因
-    /// swap_session 需要在 &self 下替换句柄。
-    pub(super) full_session:
-        std::sync::Mutex<Arc<dyn alva_kernel_abi::agent_session::AgentSession>>,
+    /// R05/R09/R10: 完整会话经共享 cell 持有——state.session 只是对话记录；
+    /// clear/restore/flush/swap 等存储动词与压缩中间件、工具上下文全部读取
+    /// 同一 cell，swap_session 原地更新后所有消费方立即看到当前会话。
+    pub(super) full_session: alva_kernel_abi::agent_session::StoreSessionCell,
     /// Holds the CancellationToken for the currently running prompt() call.
     /// Uses std::sync::Mutex (not tokio) because it is only held briefly.
     /// Wrapped in Arc so the PluginHost can also hold a reference for shutdown().
@@ -219,22 +218,19 @@ impl BaseAgent {
     /// The handle owns its own synchronization and remains valid after this
     /// short state-lock scope ends.
     pub async fn session_handle(&self) -> Arc<dyn alva_kernel_abi::agent_session::AgentSession> {
-        self.full_session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+        self.full_session.get()
     }
 
     /// Clear the current session's message history, starting fresh.
     pub async fn new_session(&self) -> bool {
-        self.current_full_session().clear().await.is_ok()
+        self.full_session.get().clear().await.is_ok()
     }
 
     /// Restore message history (e.g., when resuming a session).
     ///
     /// Clears any existing messages first, then appends the restored history.
     pub async fn restore_messages(&self, messages: Vec<AgentMessage>) -> bool {
-        let full = self.current_full_session();
+        let full = self.full_session.get();
         if let Err(error) = full.clear().await {
             tracing::error!(%error, "failed to clear session before restoring messages");
             return false;
@@ -256,10 +252,11 @@ impl BaseAgent {
         &self,
         new_session: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
     ) -> bool {
-        // R05: state.session 只是对话记录（共享同一内核），换会话是装配层
-        // 动作：flush 旧会话 → 替换 full_session 句柄。内核对话记录继续
-        // 指向新会话（AgentSession 组合了 ConversationLog，向上转换即可）。
-        let full = self.current_full_session();
+        // R05/R10: 换会话是装配层动作——flush 旧会话，内核对话记录指向新
+        // 会话（AgentSession 组合 ConversationLog，向上转换即可），共享 cell
+        // 原地更新：压缩中间件、工具上下文、session_handle 全部立即指向
+        // 当前会话，无需多处同步。
+        let full = self.full_session.get();
         if let Err(error) = full.flush().await {
             tracing::error!(%error, "refusing to swap away from a session that failed to flush");
             return false;
@@ -268,18 +265,8 @@ impl BaseAgent {
             let mut st = self.inner.state().lock().await;
             st.session = new_session.clone();
         }
-        *self
-            .full_session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = new_session;
+        self.full_session.set(new_session.clone());
         true
-    }
-
-    fn current_full_session(&self) -> Arc<dyn alva_kernel_abi::agent_session::AgentSession> {
-        self.full_session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
     }
 
     /// Build a fresh [`ToolRegistry`] snapshot from the currently-registered

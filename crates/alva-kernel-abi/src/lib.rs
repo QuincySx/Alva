@@ -53,6 +53,7 @@ pub use alva_macros::Tool;
 pub use agent_session::{
     AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery,
     ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionMessage,
+    StoreSessionCell,
 };
 #[doc(inline)]
 pub use alva_macros::{bus_cap, bus_event};

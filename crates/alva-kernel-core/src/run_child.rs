@@ -13,6 +13,7 @@ use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::scope::context::ContextSystem;
 use alva_kernel_abi::tool::Tool;
+use alva_kernel_abi::StoreSessionCell;
 use alva_kernel_abi::{AgentMessage, BusHandle, ModelConfig, NoopSleeper, Sleeper};
 
 use crate::event::AgentEvent;
@@ -64,6 +65,10 @@ pub struct ChildAgentParams {
     /// so callers spawning children that hold dangerous tools must pass a
     /// stack that enforces the same policy as the parent loop.
     pub middleware: MiddlewareStack,
+    /// R09/R10: 父侧的"当前完整会话" cell（可选）。传入时注入 child
+    /// state.extensions，使嵌套 spawn 工具仍能经 `create_child_session`
+    /// 创建持久化子会话，且 swap 后拿到的是新会话；最小内核消费者不设置。
+    pub store_session: Option<Arc<StoreSessionCell>>,
 }
 
 /// Output from a completed child agent run.
@@ -81,11 +86,15 @@ pub struct ChildAgentOutput {
 /// This encapsulates the common pattern shared by all sub-agent tools:
 /// build state → run_agent → collect output from events → fallback to session.
 pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
+    let mut extensions = Extensions::new();
+    if let Some(cell) = params.store_session {
+        extensions.insert(cell);
+    }
     let state = AgentState {
         model: params.model,
         tools: params.tools,
         session: params.session,
-        extensions: Extensions::new(),
+        extensions,
     };
 
     let config = AgentConfig {

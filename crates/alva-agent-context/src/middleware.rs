@@ -52,9 +52,9 @@ pub struct CompactionMiddleware {
     config: CompactionConfig,
     compaction_count: AtomicUsize,
     bus: std::sync::OnceLock<BusHandle>,
-    /// R05: 压缩是 SessionStore 能力（append 骨架事件 + compact_messages），
-    /// 完整会话由装配层在 configure 时显式提供。
-    store_session: std::sync::OnceLock<Arc<dyn AgentSession>>,
+    /// R05/R10: 压缩是 SessionStore 能力。持有共享 cell 而非快照——
+    /// swap_session 原地更新 cell，压缩总是写入**当前**会话。
+    store_session: std::sync::OnceLock<Arc<alva_kernel_abi::agent_session::StoreSessionCell>>,
 }
 
 impl CompactionMiddleware {
@@ -67,8 +67,11 @@ impl CompactionMiddleware {
         }
     }
 
-    /// 测试/旁路装配：绕过 configure() 直接提供完整会话。
-    fn with_store_session(mut self, session: Arc<dyn AgentSession>) -> Self {
+    /// 测试/旁路装配：绕过 configure() 直接提供完整会话 cell。
+    fn with_store_session(
+        mut self,
+        session: Arc<alva_kernel_abi::agent_session::StoreSessionCell>,
+    ) -> Self {
         let _ = self.store_session.set(session);
         self
     }
@@ -207,8 +210,7 @@ impl Middleware for CompactionMiddleware {
         if let Some(bus) = &ctx.bus {
             let _ = self.bus.set(bus.clone());
         }
-        // R05: 完整会话由装配层经 MiddlewareContext 显式提供；最小内核
-        // 消费者不提供，这类压缩中间件也不会被安装。
+        // R05/R10: 持有共享 cell；每次压缩读取当前会话。
         if let Some(session) = &ctx.store_session {
             let _ = self.store_session.set(session.clone());
         }
@@ -398,7 +400,8 @@ impl Middleware for CompactionMiddleware {
         let store_session = self
             .store_session
             .get()
-            .expect("compaction middleware requires the assembly-provided session");
+            .expect("compaction middleware requires the assembly-provided session")
+            .get();
         store_session
             .append(compaction_event)
             .await
@@ -699,7 +702,9 @@ mod tests {
         .with_bus(handle);
 
         let (mut state, store_session) = make_state_with_summary_model_and_full_session();
-        let mw = mw.with_store_session(store_session.clone());
+        let mw = mw.with_store_session(Arc::new(
+            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+        ));
         let long_text = "x".repeat(400); // ~100 heuristic tokens each
         let mut msgs = vec![
             Message::system("You are a helper."),
@@ -737,7 +742,9 @@ mod tests {
         .with_bus(handle);
 
         let (mut state, store_session) = make_state_with_summary_model_and_full_session();
-        let mw = mw.with_store_session(store_session.clone());
+        let mw = mw.with_store_session(Arc::new(
+            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+        ));
         let mut msgs = vec![
             Message::system("sys"),
             make_user_msg("short"),
@@ -775,7 +782,9 @@ mod tests {
         .with_bus(handle);
 
         let (mut state, store_session) = make_state_with_summary_model_and_full_session();
-        let mw = mw.with_store_session(store_session.clone());
+        let mw = mw.with_store_session(Arc::new(
+            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+        ));
         let long_text = "x".repeat(400);
         let mut msgs = vec![
             Message::system("sys"),
@@ -815,7 +824,9 @@ mod tests {
             keep_recent_tokens: 250,
         })
         .with_bus(handle)
-        .with_store_session(store_session.clone());
+        .with_store_session(Arc::new(
+            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+        ));
         let long_text = "x".repeat(400);
         let mut msgs = vec![
             Message::system("sys"),
@@ -863,7 +874,9 @@ mod tests {
             keep_recent_tokens: 250,
         })
         .with_bus(handle)
-        .with_store_session(store_session.clone());
+        .with_store_session(Arc::new(
+            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+        ));
         let long_text = "x".repeat(400);
         let mut msgs = vec![
             Message::system("sys"),
@@ -935,7 +948,9 @@ mod tests {
             keep_recent_tokens: 250,
         })
         .with_bus(handle)
-        .with_store_session(store_session.clone());
+        .with_store_session(Arc::new(
+            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+        ));
 
         // Seed the session with a pre-compaction causal chain:
         // llm_call_start -> tool_use (intent) -> tool_result (outcome),

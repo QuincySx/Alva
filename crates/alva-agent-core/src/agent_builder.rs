@@ -274,12 +274,16 @@ impl AgentBuilder {
         let session: Arc<dyn AgentSession> = self
             .session
             .unwrap_or_else(|| Arc::new(InMemoryAgentSession::new()));
+        // R09/R10: 单一"当前完整会话" cell——扩展注入、中间件 configure、
+        // Agent/BaseAgent 句柄与 swap_session 全部共享这一份。
+        let store_session_cell =
+            alva_kernel_abi::agent_session::StoreSessionCell::new(session.clone());
 
         // 7. Configure middleware that needs shared infrastructure.
         middleware_stack.configure_all(&MiddlewareContext {
             bus: Some(bus.clone()),
             workspace: self.workspace.clone(),
-            store_session: Some(session.clone()),
+            store_session: Some(Arc::new(store_session_cell.clone())),
             session: Some(alva_kernel_abi::agent_session::ScopedSession::new(
                 session.clone(),
                 alva_kernel_abi::agent_session::EventEmitter::runtime(),
@@ -346,11 +350,13 @@ impl AgentBuilder {
         );
 
         // 10. AgentState
+        let mut extensions = Extensions::new();
+        extensions.insert(store_session_cell.clone());
         let state = AgentState {
             model,
             tools: tools_arc,
-            session: session.clone(),
-            extensions: Extensions::new(),
+            session,
+            extensions,
         };
 
         // 11. AgentConfig
@@ -377,7 +383,7 @@ impl AgentBuilder {
 
         Ok(Agent {
             state: Arc::new(Mutex::new(state)),
-            full_session: session.clone(),
+            full_session: store_session_cell.clone(),
             config: Arc::new(tokio::sync::RwLock::new(config)),
             bus,
             host,

@@ -291,11 +291,11 @@ impl BaseAgentBuilder {
         }
 
         // 9. Return BaseAgent wrapping the inner Agent.
-        // R05: retain the full session for SessionStore-capable harness verbs.
+        // R05/R10: retain the current-session cell for SessionStore-capable verbs.
         let full_session = inner.full_session();
         Ok(BaseAgent {
             inner: Arc::new(inner),
-            full_session: std::sync::Mutex::new(full_session),
+            full_session: full_session,
             current_cancel,
             bus_writer,
         })
