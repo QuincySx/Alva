@@ -76,6 +76,7 @@ implfn	ToolLockGuards::fn held_writes pub fn held_writes(&self) -> usize
 implfn	ToolLockGuards::fn is_global pub fn is_global(&self) -> bool
 implfn	ToolLockMiddleware::fn new pub fn new() -> Self
 implfn	ToolLockMiddleware::fn with_bus pub fn with_bus(self, bus: alva_kernel_abi::BusHandle) -> Self
+implfn	ToolLockMiddleware::fn with_workspace pub fn with_workspace(self, workspace: Option<std::path::PathBuf>) -> Self
 implfn	ToolLockRegistry::async fn acquire pub async fn acquire(&self, keys: &[ResourceKey], mode: ExecutionMode) -> ToolLockGuards
 implfn	ToolLockRegistry::async fn acquire_bounded pub async fn acquire_bounded( &self, keys: &[ResourceKey], mode: ExecutionMode, workspace: Option<&std::path::Path>, ) -> Result<ToolLockGuards, AcquireError>
 implfn	ToolLockRegistry::async fn acquire_with_holder pub async fn acquire_with_holder( &self, keys: &[ResourceKey], mode: ExecutionMode, holder: Option<String>, ) -> ToolLockGuards
@@ -98,6 +99,7 @@ struct	agent::PluginAssemblySnapshot
 struct	agent_builder::AgentBuilder
 struct	agent_session::InMemoryAgentSession
 struct	agent_session::ListenableInMemorySession
+struct	agent_session::RegisteredListener
 struct	extension::host::PluginHost
 struct	extension::host::RegisteredCommand
 struct	extension::phase::PhaseContribution
