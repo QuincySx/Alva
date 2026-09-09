@@ -1,4 +1,4 @@
-// INPUT:  std::sync, std::time, alva_agent_abi::{AnalyticsEvent, AnalyticsSink, Phase, PhaseEffect}, alva_kernel_abi::{BusHandle, ToolCall, ToolOutput, Message}, alva_kernel_core::{middleware::{Middleware, LlmCallFn, MiddlewareContext, MiddlewareError}, state::AgentState}, async_trait
+// INPUT:  std::sync, std::time, alva_agent_abi::{AnalyticsEvent, AnalyticsSink}, alva_kernel_abi::{BusHandle, ToolCall, ToolContent, ToolOutput, Message}, alva_kernel_core::{middleware::{Middleware, LlmCallFn, MiddlewareContext, MiddlewareError}, state::AgentState}, async_trait
 // OUTPUT: AnalyticsPlugin, AnalyticsMiddleware
 // POS:    Telemetry pipeline. Extension publishes a JsonlSink on the bus and installs
 //         a middleware that emits ToolCallStart/ToolCallEnd around every tool call
@@ -12,8 +12,7 @@ use std::time::{Instant, SystemTime};
 
 use async_trait::async_trait;
 
-use alva_agent_abi::{AnalyticsEvent, AnalyticsSink, Phase, PhaseEffect};
-use alva_agent_core::extension::{PhaseContribution, PhaseHandler, PhaseOrder};
+use alva_agent_abi::{AnalyticsEvent, AnalyticsSink};
 use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::{BusHandle, ToolCall, ToolContent, ToolOutput};
 use alva_kernel_core::middleware::{LlmCallFn, Middleware, MiddlewareContext, MiddlewareError};
@@ -75,25 +74,15 @@ impl Plugin for AnalyticsPlugin {
                 let recorder_sink: Arc<dyn AnalyticsSink> = arc.clone();
                 r.provide::<dyn AnalyticsSink>(arc.clone());
                 let _ = self.sink.set(arc);
+                // 同一份 middleware 覆盖工具埋点（before/after tool call）
+                // 与 LLM 埋点（wrap_llm_call，ticket 15 迁入）。以原始
+                // middleware 注册——此前只经 PhaseHandler 编译 before/after
+                // 阶段，wrap 钩子从未被调用，生产插件一轮 LLM 后埋点为空
+                //（R02）。单一注册点也保证工具事件不因双份注册而重复。
+                // （AnalyticsPhaseHandler 与两份 phase_handler 注册已删除：
+                //  它们只是把同一 recorder 的同名钩子再包一层。）
                 let recorder = Arc::new(AnalyticsMiddleware::with_sink(recorder_sink));
-                r.phase_handler(Arc::new(AnalyticsPhaseHandler::new(
-                    PhaseContribution::new(
-                        "analytics-tool-start",
-                        Phase::BeforeToolCall,
-                        PhaseEffect::Observe,
-                        PhaseOrder::Telemetry,
-                    ),
-                    recorder.clone(),
-                )));
-                r.phase_handler(Arc::new(AnalyticsPhaseHandler::new(
-                    PhaseContribution::new(
-                        "analytics-tool-end",
-                        Phase::AfterToolCall,
-                        PhaseEffect::Observe,
-                        PhaseOrder::Telemetry,
-                    ),
-                    recorder,
-                )));
+                r.middleware(recorder);
             }
             Err(e) => {
                 tracing::warn!(error = %e, path = %path.display(), "analytics sink open failed");
@@ -290,48 +279,6 @@ impl Middleware for AnalyticsMiddleware {
             });
         }
         Ok(response)
-    }
-}
-
-struct AnalyticsPhaseHandler {
-    contribution: PhaseContribution,
-    recorder: Arc<AnalyticsMiddleware>,
-}
-
-impl AnalyticsPhaseHandler {
-    fn new(contribution: PhaseContribution, recorder: Arc<AnalyticsMiddleware>) -> Self {
-        Self {
-            contribution,
-            recorder,
-        }
-    }
-}
-
-#[async_trait]
-impl PhaseHandler for AnalyticsPhaseHandler {
-    fn contribution(&self) -> PhaseContribution {
-        self.contribution.clone()
-    }
-
-    async fn before_tool_call(
-        &self,
-        state: &AgentState,
-        tool_call: &ToolCall,
-    ) -> Result<(), MiddlewareError> {
-        self.recorder
-            .record_before_tool_call(state, tool_call)
-            .await
-    }
-
-    async fn after_tool_call(
-        &self,
-        state: &AgentState,
-        tool_call: &ToolCall,
-        result: &mut ToolOutput,
-    ) -> Result<(), MiddlewareError> {
-        self.recorder
-            .record_after_tool_call(state, tool_call, result)
-            .await
     }
 }
 
