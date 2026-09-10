@@ -469,46 +469,50 @@ impl RegisteredListener {
     }
 }
 
+/// 广播共享状态：队列、监听者、投递锁与已提交水位。driver 持 Weak 引用，
+/// 会话全部弃置后自然退出（R16：交付生命周期与单个追加者解耦）。
+struct BroadcastCore {
+    listeners: RwLock<Vec<Arc<RegisteredListener>>>,
+    broadcast_queue: tokio::sync::Mutex<VecDeque<SessionEvent>>,
+    delivery_lock: tokio::sync::Mutex<()>,
+    last_committed: std::sync::Mutex<u64>,
+    delivery_notify: Arc<tokio::sync::Notify>,
+    driver_started: std::sync::atomic::AtomicBool,
+}
+
+impl BroadcastCore {
+    fn new() -> Self {
+        Self {
+            listeners: RwLock::new(Vec::new()),
+            broadcast_queue: tokio::sync::Mutex::new(VecDeque::new()),
+            delivery_lock: tokio::sync::Mutex::new(()),
+            last_committed: std::sync::Mutex::new(0),
+            delivery_notify: Arc::new(tokio::sync::Notify::new()),
+            driver_started: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+}
+
 pub struct ListenableInMemorySession {
     inner: InMemoryAgentSession,
-    listeners: RwLock<Vec<Arc<RegisteredListener>>>,
-    /// Broadcast queue. Events are inserted while the appender still holds
-    /// the inner events lock (the same critical section that assigns `seq`),
-    /// so queue order == seq order; the drain below broadcasts FIFO, which
-    /// makes delivery order == seq order even under concurrent appends.
-    broadcast_queue: tokio::sync::Mutex<VecDeque<SessionEvent>>,
-    /// Single-delivery guard (R03): only one drain delivers at a time. A
-    /// losing appender returns immediately — the active drainer's loop
-    /// re-checks the queue after its current batch, so nothing is lost and
-    /// every subscriber observes strictly seq-ordered delivery even when a
-    /// listener yields mid-callback. Appends never wait on this lock, so a
-    /// slow listener cannot block them.
-    delivery_lock: tokio::sync::Mutex<()>,
-    /// R12: 已提交的最大 seq。新订阅者的游标 = committed + 1：历史回放
-    /// 覆盖所有已提交事件，实时投递经游标跳过（恰好一次）。
-    last_committed: std::sync::Mutex<u64>,
+    broadcast: Arc<BroadcastCore>,
 }
 
 impl ListenableInMemorySession {
     /// Create a fresh root listenable session.
     pub fn new() -> Self {
-        Self {
-            inner: InMemoryAgentSession::new(),
-            listeners: RwLock::new(Vec::new()),
-            broadcast_queue: tokio::sync::Mutex::new(VecDeque::new()),
-            delivery_lock: tokio::sync::Mutex::new(()),
-            last_committed: std::sync::Mutex::new(0),
-        }
+        Self::from_parts(InMemoryAgentSession::new())
     }
 
     /// Create a child listenable session linked to a parent session id.
     pub fn with_parent(parent_id: impl Into<String>) -> Self {
+        Self::from_parts(InMemoryAgentSession::with_parent(parent_id))
+    }
+
+    fn from_parts(inner: InMemoryAgentSession) -> Self {
         Self {
-            inner: InMemoryAgentSession::with_parent(parent_id),
-            listeners: RwLock::new(Vec::new()),
-            broadcast_queue: tokio::sync::Mutex::new(VecDeque::new()),
-            delivery_lock: tokio::sync::Mutex::new(()),
-            last_committed: std::sync::Mutex::new(0),
+            inner,
+            broadcast: Arc::new(BroadcastCore::new()),
         }
     }
 
@@ -521,11 +525,13 @@ impl ListenableInMemorySession {
     /// 信箱，`on_event` 只做一次无界 send），消费多慢都不阻塞追加。
     pub async fn subscribe(&self, listener: Arc<dyn SessionEventListener>) {
         let cursor = *self
+            .broadcast
             .last_committed
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             + 1;
-        self.listeners
+        self.broadcast
+            .listeners
             .write()
             .await
             .push(Arc::new(RegisteredListener {
@@ -551,13 +557,13 @@ impl ListenableInMemorySession {
     /// never across a callback, so listeners that read/forward the session
     /// cannot deadlock.
     async fn drain_broadcasts(&self) -> Result<(), SessionError> {
-        let Ok(_delivery_guard) = self.delivery_lock.try_lock() else {
+        let Ok(_delivery_guard) = self.broadcast.delivery_lock.try_lock() else {
             // Another drain is mid-delivery; it will pick up our batch.
             return Ok(());
         };
         loop {
             let batch = {
-                let mut queue = self.broadcast_queue.lock().await;
+                let mut queue = self.broadcast.broadcast_queue.lock().await;
                 std::mem::take(&mut *queue)
             };
             if batch.is_empty() {
@@ -566,7 +572,7 @@ impl ListenableInMemorySession {
             // R12: 每个监听者带游标——提交早于注册的事件经历史回放恰好
             // 一次；提交晚于注册的事件经实时路径恰好一次。逐事件游标门控
             // 允许订阅者在批次中途注册而不重不漏。
-            let listeners = self.listeners.read().await.clone();
+            let listeners = self.broadcast.listeners.read().await.clone();
             let mut any_dead = false;
             for event in &batch {
                 for registered in &listeners {
@@ -581,11 +587,91 @@ impl ListenableInMemorySession {
                 }
             }
             if any_dead {
-                self.listeners
+                self.broadcast
+                    .listeners
                     .write()
                     .await
                     .retain(|l| l.listener.is_active());
             }
+        }
+    }
+}
+
+impl ListenableInMemorySession {
+    /// R16 (native): 确保本会话的投递 driver 已启动。driver 持会话 Weak，
+    /// 队列清空且会话被弃置后退出。交付与单个追加者解耦——追加只提交并入
+    /// 队 + 唤醒；慢监听者只阻塞 driver，不阻塞任何追加者或订阅者。
+    #[cfg(not(target_family = "wasm"))]
+    fn ensure_driver(&self) {
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return; // 无运行时（wasm/同步上下文）：追加者内联驱动兜底
+        };
+        if self
+            .broadcast
+            .driver_started
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            return;
+        }
+        let weak = Arc::downgrade(&self.broadcast);
+        handle.spawn(async move {
+            loop {
+                let Some(core) = weak.upgrade() else { break };
+                let has_events = !core.broadcast_queue.lock().await.is_empty();
+                if has_events {
+                    if let Err(error) = drain_core(&weak).await {
+                        tracing::warn!(%error, "session broadcast delivery failed");
+                    }
+                    continue;
+                }
+                // 队列空：克隆 Notify 后放 core 强引用再挂起等待（克隆的
+                // Arc 不借用 core，避免自引用）。唤醒前双检避免丢事件。
+                let notify = Arc::clone(&core.delivery_notify);
+                let has_events = !core.broadcast_queue.lock().await.is_empty();
+                drop(core);
+                if has_events {
+                    continue;
+                }
+                notify.notified().await;
+            }
+        });
+    }
+}
+
+/// R16: 队列 → 监听者的投递循环（driver 专用）。只在成功交付后移除：
+/// driver 被取消不丢已入队事件，仅延迟到下一次 drain。
+async fn drain_core(weak: &std::sync::Weak<BroadcastCore>) -> Result<(), SessionError> {
+    let Some(core) = weak.upgrade() else {
+        return Ok(());
+    };
+    let _guard = core.delivery_lock.lock().await;
+    loop {
+        let batch = {
+            let mut queue = core.broadcast_queue.lock().await;
+            std::mem::take(&mut *queue)
+        };
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let listeners = core.listeners.read().await.clone();
+        let mut any_dead = false;
+        for event in &batch {
+            for registered in &listeners {
+                if !registered.wants(event.seq) {
+                    continue;
+                }
+                registered.listener.on_event(event).await;
+                registered.advance_to(event.seq);
+                if !registered.listener.is_active() {
+                    any_dead = true;
+                }
+            }
+        }
+        if any_dead {
+            core.listeners
+                .write()
+                .await
+                .retain(|l| l.listener.is_active());
         }
     }
 }
@@ -609,7 +695,7 @@ impl ConversationLog for ListenableInMemorySession {
         // itself runs after the commit and outside every inner lock:
         // listeners may read this very session, which would deadlock under a
         // held write guard.
-        let mut queue = self.broadcast_queue.lock().await;
+        let mut queue = self.broadcast.broadcast_queue.lock().await;
         {
             let mut events = self.inner.events.write().await;
             let mut records = self.inner.records.write().await;
@@ -617,12 +703,21 @@ impl ConversationLog for ListenableInMemorySession {
             records.push(SessionRecord::from_event(event.clone()));
             events.push(event.clone());
             *self
+                .broadcast
                 .last_committed
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = event.seq;
         }
         queue.push_back(event);
         drop(queue);
+
+        // R16: 投递与追加者解耦——native 上由独立 driver 任务推进（首个
+        // 追加即返回，慢监听者只阻塞 driver）；wasm 无 spawn 合约，由追加
+        // 者内联驱动（单线程协作式，语义如文档）。
+        #[cfg(not(target_family = "wasm"))]
+        {
+            self.ensure_driver();
+        }
         self.drain_broadcasts().await
     }
 
@@ -640,7 +735,7 @@ impl ConversationLog for ListenableInMemorySession {
         event.parent_uuid = parent_uuid;
         event.data = Some(serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null));
 
-        let mut queue = self.broadcast_queue.lock().await;
+        let mut queue = self.broadcast.broadcast_queue.lock().await;
         {
             let mut events = self.inner.events.write().await;
             let mut records = self.inner.records.write().await;
@@ -650,12 +745,18 @@ impl ConversationLog for ListenableInMemorySession {
             events.push(event.clone());
             messages.push_back(msg);
             *self
+                .broadcast
                 .last_committed
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = event.seq;
         }
         queue.push_back(event);
         drop(queue);
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            self.ensure_driver();
+        }
         self.drain_broadcasts().await
     }
 
@@ -670,7 +771,7 @@ impl ConversationLog for ListenableInMemorySession {
                 count: 0,
             });
         }
-        let mut queue = self.broadcast_queue.lock().await;
+        let mut queue = self.broadcast.broadcast_queue.lock().await;
         let mut committed = Vec::with_capacity(records.len());
         let first_seq;
         let last_seq;
@@ -694,6 +795,7 @@ impl ConversationLog for ListenableInMemorySession {
             last_seq = self.inner.seq_counter.load(Ordering::SeqCst) - 1;
             if let Some(last) = committed.last() {
                 *self
+                    .broadcast
                     .last_committed
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner()) = last.seq;
@@ -703,6 +805,19 @@ impl ConversationLog for ListenableInMemorySession {
             queue.push_back(event);
         }
         drop(queue);
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            use tokio::runtime::Handle;
+            if let Ok(handle) = Handle::try_current() {
+                self.ensure_driver();
+                return Ok(AppendReceipt {
+                    first_seq,
+                    last_seq,
+                    count: (last_seq - first_seq + 1) as usize,
+                });
+            }
+        }
         self.drain_broadcasts().await?;
         Ok(AppendReceipt {
             first_seq,
@@ -767,6 +882,24 @@ impl SessionStore for ListenableInMemorySession {
     }
 
     async fn clear(&self) -> Result<(), SessionError> {
+        // R17: clear 会重置 seq 计数——广播侧同步归零：未投递的旧事件随
+        // 会话清空作废、last_committed 归零、全部游标回到 1，否则清空后
+        // 新建的订阅会跳过新提交的事件。
+        {
+            let mut queue = self.broadcast.broadcast_queue.lock().await;
+            queue.clear();
+        }
+        *self
+            .broadcast
+            .last_committed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = 0;
+        for registered in self.broadcast.listeners.read().await.iter() {
+            *registered
+                .cursor
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = 1;
+        }
         self.inner.clear().await
     }
 
@@ -801,6 +934,7 @@ impl SessionStore for ListenableInMemorySession {
         // after are in (2). No dup, no loss.
         let events_guard = self.inner.events.write().await;
         let last_committed = *self
+            .broadcast
             .last_committed
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -816,7 +950,7 @@ impl SessionStore for ListenableInMemorySession {
             listener: Arc::new(ChannelListener { tx }),
             cursor: std::sync::Mutex::new(last_committed + 1),
         });
-        self.listeners.write().await.push(listener);
+        self.broadcast.listeners.write().await.push(listener);
         drop(events_guard);
 
         let history_stream = stream::iter(history);
@@ -1628,7 +1762,7 @@ mod tests {
         {
             let _stream = session.subscribe_events(0).await;
             assert_eq!(
-                session.listeners.read().await.len(),
+                session.broadcast.listeners.read().await.len(),
                 1,
                 "subscribe_events registers one listener"
             );
@@ -1639,7 +1773,7 @@ mod tests {
             .await;
 
         assert_eq!(
-            session.listeners.read().await.len(),
+            session.broadcast.listeners.read().await.len(),
             0,
             "the dead subscription's listener must be reaped, not leaked"
         );
@@ -1662,7 +1796,7 @@ mod tests {
             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
             .await;
         assert_eq!(
-            session.listeners.read().await.len(),
+            session.broadcast.listeners.read().await.len(),
             1,
             "a live listener must survive the dead-listener sweep"
         );
