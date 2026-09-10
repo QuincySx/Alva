@@ -29,15 +29,15 @@
 .ui-button--medium { height: var(--control-md); padding: 0 12px; }
 .ui-button--large { height: var(--control-lg); padding: 0 16px; }
 .ui-button--icon { width: var(--control-md); height: var(--control-md); padding: 0; }
-.ui-button[data-density="compact"]:not(.ui-button--icon) { height: var(--control-height-compact); }
+.ui-button[data-density="compact"]:not(.ui-button--icon) { height: var(--control-sm); }
 .ui-button--primary { background: var(--color-accent); color: var(--color-accent-foreground); }
-.ui-button--primary:hover { background: #fff; }
+.ui-button--primary:hover { background: var(--color-accent-hover); }
 .ui-button--secondary { background: var(--color-surface-raised); border-color: var(--color-border); }
 .ui-button--secondary:hover,
 .ui-button--ghost:hover { background: var(--color-surface-hover); }
 .ui-button--ghost { background: transparent; color: var(--color-text-muted); }
 .ui-button--danger { background: var(--color-danger-bg); color: var(--color-danger); }
-.ui-button--danger:hover { background: rgba(239, 119, 119, 0.2); }
+.ui-button--danger:hover { background: var(--color-danger-bg-hover); }
 .ui-button:focus-visible,
 .ui-input:focus-visible,
 .ui-textarea:focus-visible,
@@ -354,7 +354,7 @@
 .ui-nav-group__body,
 .ui-nav-list { display: grid; gap: 2px; min-height: 0; }
 .ui-nav-list { overflow: auto; }
-.ui-nav-item { display: flex; width: 100%; min-height: 38px; align-items: center; gap: 9px; border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--color-text-muted); text-align: left; cursor: pointer; transition: background var(--duration-color) var(--ease-out), color var(--duration-color) var(--ease-out); }
+.ui-nav-item { display: flex; width: 100%; min-height: var(--control-md); align-items: center; gap: 9px; border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--color-text-muted); text-align: left; cursor: pointer; transition: background var(--duration-color) var(--ease-out), color var(--duration-color) var(--ease-out); }
 .ui-nav-item:hover { background: var(--color-surface-hover); color: var(--color-text); }
 .ui-nav-item--active { background: var(--color-surface-active); color: var(--color-text); }
 .ui-nav-item:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }

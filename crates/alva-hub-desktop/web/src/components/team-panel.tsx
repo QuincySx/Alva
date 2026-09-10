@@ -102,7 +102,7 @@ export function TeamPanel({
             }))}
             value={workerEngine}
           />
-          <Button className="secondary-button" loading={busy} onClick={onCreate}>
+          <Button loading={busy} onClick={onCreate}>
             {busy ? t("team.creating") : t("team.create")}
           </Button>
         </>
@@ -209,7 +209,7 @@ export function TeamPanel({
           />
           <TextArea aria-label={t("team.taskScope")} className="team-scope" placeholder={t("team.taskPlaceholder")} value={scope} onChange={(event) => onScopeChange(event.target.value)} />
           <TextField aria-label={t("team.resourceClaims")} className="team-claims" placeholder={t("team.claimsPlaceholder")} value={claims} onChange={(event) => onClaimsChange(event.target.value)} />
-          <Button className="secondary-button" disabled={!scope.trim()} loading={busy} onClick={onDispatch}>
+          <Button disabled={!scope.trim()} loading={busy} onClick={onDispatch}>
             {busy ? t("team.queueing") : t("team.queue")}
           </Button>
           <div className="team-worker-controls">

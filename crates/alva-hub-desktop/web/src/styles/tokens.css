@@ -35,6 +35,7 @@
   --color-text-muted: #a5a7ad;
   --color-text-subtle: #777a82;
   --color-accent: #e7e7ea;
+  --color-accent-hover: #ffffff;
   --color-accent-foreground: #17181b;
   --color-focus: #8f91ff;
   --color-code-bg: #0c0d0f;
@@ -52,6 +53,7 @@
   --color-warning-border: rgba(231, 185, 96, 0.32);
   --color-danger: #ef7777;
   --color-danger-bg: rgba(239, 119, 119, 0.1);
+  --color-danger-bg-hover: rgba(239, 119, 119, 0.2);
   --color-danger-border: rgba(239, 119, 119, 0.32);
 
   /* ── Typography roles ────────────────────────────────────
@@ -114,8 +116,6 @@
   --motion-fast: var(--duration-color);
   --motion-normal: var(--duration-popover);
 
-  --control-height-default: 36px;
-  --control-height-compact: 30px;
   --overlay-width-compact: 320px;
   --overlay-width-default: 420px;
   --overlay-width-wide: 720px;
