@@ -38,12 +38,15 @@ test("03 Inspector drills into Agent and LLM pages then backs out", async ({ pag
   const llm = inspector.locator(".ui-list-row").filter({ hasText: /LLM call|LLM 调用/ });
   await llm.getByRole("button", { name: /Open|打开/ }).click();
   await expect(inspector).toContainText(/Messages sent|发送给模型的消息/);
-  await expect(page).toHaveScreenshot("03-inspector-llm-detail.png", { fullPage: true });
 
+  // R23: interaction assertions run before the screenshot so a pixel drift
+  // can never abort the drill-down/back-out verification.
   await inspector.getByRole("button", { name: /Back|返回/ }).click();
   await expect(inspector).toContainText(/LLM call|LLM 调用/);
   await inspector.getByRole("button", { name: /Back|返回/ }).click();
   await expect(inspector).toContainText(/Child Agent demo-nat|子 Agent demo-nat/);
+
+  await expect(page).toHaveScreenshot("03-inspector-llm-detail.png", { fullPage: true });
 });
 
 test("03 right workbench add-tab menu", async ({ page }) => {
