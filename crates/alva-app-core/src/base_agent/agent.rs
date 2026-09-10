@@ -252,20 +252,19 @@ impl BaseAgent {
         &self,
         new_session: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
     ) -> bool {
-        // R05/R10: 换会话是装配层动作——flush 旧会话，内核对话记录指向新
-        // 会话（AgentSession 组合 ConversationLog，向上转换即可），共享 cell
-        // 原地更新：压缩中间件、工具上下文、session_handle 全部立即指向
-        // 当前会话，无需多处同步。
+        // R05/R10/R15: 换会话是装配层动作，且必须是**原子**切换。整个交换
+        // （flush 旧会话 → 日志与 store cell 同时指向新会话）在 state 锁内
+        // 完成——turn 启动/运行同样持有该锁，因此任何观察者要么看到完全
+        // 旧、要么完全新的（日志, store) 组合，不存在半切换窗口；并发
+        // swap 也被该锁串行化，最终状态与完成顺序一致。
+        let mut st = self.inner.state().lock().await;
         let full = self.full_session.get();
         if let Err(error) = full.flush().await {
             tracing::error!(%error, "refusing to swap away from a session that failed to flush");
             return false;
         }
-        {
-            let mut st = self.inner.state().lock().await;
-            st.session = new_session.clone();
-        }
-        self.full_session.set(new_session.clone());
+        st.session = new_session.clone();
+        self.full_session.set(new_session);
         true
     }
 
@@ -511,6 +510,150 @@ mod tests {
             .build(model)
             .await
             .expect("build should succeed")
+    }
+
+    /// R15 acceptance: concurrent swaps leave log and store pointing at the
+    /// SAME session — the state lock serializes swap against turn start and
+    /// against the other swap. Also: flush failure keeps the old session.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_swaps_keep_log_and_store_on_the_same_session() {
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("ok")));
+        let agent = build_test_agent(model).await;
+
+        let session_b: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession> = Arc::new(
+            alva_agent_core::agent_session::InMemoryAgentSession::with_id("session-b".into()),
+        );
+        let session_c: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession> =
+            std::sync::Arc::new(
+                alva_agent_core::agent_session::InMemoryAgentSession::with_id("session-c".into()),
+            );
+
+        // Two concurrent swaps; whichever completes last, log and cell must
+        // agree on the same session id.
+        let a = agent.swap_session(session_b.clone());
+        let b = agent.swap_session(session_c.clone());
+        let (ra, rb) = tokio::join!(a, b);
+        assert!(ra && rb);
+
+        let handle_id = agent.session_handle().await.session_id().to_string();
+        let st = agent.inner.state().lock().await;
+        let log_id = st.session.session_id().to_string();
+        drop(st);
+        assert_eq!(
+            handle_id, log_id,
+            "log and store capability must be the same session after concurrent swaps"
+        );
+        assert!(
+            handle_id == "session-b" || handle_id == "session-c",
+            "final session must be one of the swapped targets: {handle_id}"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_flush_keeps_the_current_session() {
+        use alva_agent_core::agent_session::InMemoryAgentSession;
+        use alva_kernel_abi::{
+            ConversationLog, EventMatch, EventQuery, SessionError, SessionStore,
+        };
+
+        struct FailingFlushSession(InMemoryAgentSession);
+
+        #[async_trait::async_trait]
+        impl ConversationLog for FailingFlushSession {
+            fn session_id(&self) -> &str {
+                self.0.session_id()
+            }
+            async fn messages(&self) -> Result<Vec<alva_kernel_abi::AgentMessage>, SessionError> {
+                self.0.messages().await
+            }
+            async fn recent_messages(
+                &self,
+                n: usize,
+            ) -> Result<Vec<alva_kernel_abi::AgentMessage>, SessionError> {
+                self.0.recent_messages(n).await
+            }
+            async fn append_message(
+                &self,
+                m: AgentMessage,
+                p: Option<String>,
+            ) -> Result<(), SessionError> {
+                self.0.append_message(m, p).await
+            }
+            async fn append(&self, _: alva_kernel_abi::SessionEvent) -> Result<(), SessionError> {
+                Ok(())
+            }
+            async fn append_records(
+                &self,
+                r: Vec<alva_kernel_abi::SessionRecord>,
+            ) -> Result<alva_kernel_abi::AppendReceipt, SessionError> {
+                self.0.append_records(r).await
+            }
+            fn supports_atomic_records(&self) -> bool {
+                true
+            }
+            async fn flush(&self) -> Result<(), SessionError> {
+                Err(SessionError::Other("injected flush failure".into()))
+            }
+        }
+        #[async_trait::async_trait]
+        impl SessionStore for FailingFlushSession {
+            fn parent_session_id(&self) -> Option<&str> {
+                None
+            }
+            async fn query(&self, q: &EventQuery) -> Vec<alva_kernel_abi::EventMatch> {
+                self.0.query(q).await
+            }
+            async fn count(&self, q: &EventQuery) -> usize {
+                self.0.count(q).await
+            }
+            async fn rollback_after(&self, u: &str) -> usize {
+                self.0.rollback_after(u).await
+            }
+            async fn save_snapshot(&self, d: &[u8]) {
+                self.0.save_snapshot(d).await
+            }
+            async fn load_snapshot(&self) -> Option<Vec<u8>> {
+                self.0.load_snapshot().await
+            }
+            async fn restore(&self) -> Result<(), SessionError> {
+                Ok(())
+            }
+            async fn close(&self) -> Result<(), SessionError> {
+                Ok(())
+            }
+            async fn clear(&self) -> Result<(), SessionError> {
+                self.0.clear().await
+            }
+            async fn compact_messages(&self, m: Vec<AgentMessage>) {
+                self.0.compact_messages(m).await
+            }
+        }
+        impl alva_kernel_abi::agent_session::AgentSession for FailingFlushSession {}
+
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("ok")));
+        let agent = build_test_agent(model).await;
+
+        let ok_session: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession> =
+            Arc::new(InMemoryAgentSession::with_id("ok-base".into()));
+        let failing: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession> = Arc::new(
+            FailingFlushSession(InMemoryAgentSession::with_id("doomed".into())),
+        );
+
+        // 先切到 flush-fail 会话（swap INTO 成功：flush 的是旧会话），
+        // 再切走——flush 失败必须拒绝切换并保留当前会话。
+        assert!(
+            agent.swap_session(failing).await,
+            "swap into failing session"
+        );
+        assert!(
+            !agent.swap_session(ok_session).await,
+            "flush failure must refuse the swap"
+        );
+        assert_eq!(
+            agent.session_handle().await.session_id(),
+            "doomed",
+            "current session unchanged after refused swap"
+        );
     }
 
     #[tokio::test]
