@@ -181,7 +181,7 @@ export function InspectorTool({ detail, events }: { detail: HubSessionDetail | n
   return (
     <div className="hub-inspector-tool">
       <EngineInspectorPanel detail={detail} />
-      <PanelSection description={t("tool.inspectorDescription")} heading={t("workbench.inspector")} meta={detail ? t("common.turnCount", { count: detail.turns.length }) : t("tool.noSession")}>
+      <Disclosure defaultOpen={false} description={t("workbench.productAttemptsDescription")} title={t("workbench.productAttempts")} meta={detail ? t("common.turnCount", { count: detail.turns.length }) : t("tool.noSession")}>
         {detail?.turns.map((turn) => (
           <Disclosure key={turn.turn_id} title={turn.prompt} description={`${localize(turn.status)} · ${t("common.attemptCount", { count: turn.attempts.length })}`}>
             <div className="hub-inspector-records">
@@ -209,14 +209,14 @@ export function InspectorTool({ detail, events }: { detail: HubSessionDetail | n
                         {effect.tool_input ? (
                           <div>
                             <small>tool_input:</small>
-                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: 11 }}>{expandedJson[effect.tool_call_id + ":in"] ? effect.tool_input : effect.tool_input.slice(0, 240) + (effect.tool_input.length > 240 ? "…" : "")}</pre>
+                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: "var(--font-size-micro)" }}>{expandedJson[effect.tool_call_id + ":in"] ? effect.tool_input : effect.tool_input.slice(0, 240) + (effect.tool_input.length > 240 ? "…" : "")}</pre>
                             {effect.tool_input.length > 240 ? <Button size="small" variant="ghost" onClick={() => setExpandedJson((m) => ({ ...m, [effect.tool_call_id + ":in"]: !m[effect.tool_call_id + ":in"] }))}>{expandedJson[effect.tool_call_id + ":in"] ? "Collapse" : "Expand"}</Button> : null}
                           </div>
                         ) : null}
                         {effect.tool_output ? (
                           <div>
                             <small>tool_output:</small>
-                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: 11 }}>{expandedJson[effect.tool_call_id + ":out"] ? effect.tool_output : effect.tool_output.slice(0, 240) + (effect.tool_output.length > 240 ? "…" : "")}</pre>
+                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: "var(--font-size-micro)" }}>{expandedJson[effect.tool_call_id + ":out"] ? effect.tool_output : effect.tool_output.slice(0, 240) + (effect.tool_output.length > 240 ? "…" : "")}</pre>
                             {effect.tool_output.length > 240 ? <Button size="small" variant="ghost" onClick={() => setExpandedJson((m) => ({ ...m, [effect.tool_call_id + ":out"]: !m[effect.tool_call_id + ":out"] }))}>{expandedJson[effect.tool_call_id + ":out"] ? "Collapse" : "Expand"}</Button> : null}
                           </div>
                         ) : null}
@@ -229,7 +229,7 @@ export function InspectorTool({ detail, events }: { detail: HubSessionDetail | n
             </div>
           </Disclosure>
         )) ?? <EmptyState title={t("tool.inspectSession")} />}
-      </PanelSection>
+      </Disclosure>
       {detail?.handoffs.length ? (
         <PanelSection heading="Handoff envelope" meta={`${detail.handoffs.length}`} description="Full cross-engine envelope: transcript, memory, skills, MCP.">
           {detail.handoffs.map((h) => (

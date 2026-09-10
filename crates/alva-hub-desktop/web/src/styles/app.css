@@ -71,6 +71,23 @@ input {
   overflow: hidden;
   flex-direction: column;
   min-width: 0;
+  position: relative;
+}
+
+/* UI06: Details rail — opens as a right-docked overlay with its own scroll
+ * so long chats keep their reading position when details open or close. */
+.hub-details-rail {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: var(--layer-workbench);
+  display: flex;
+  overflow-y: auto;
+  width: min(420px, 100%);
+  flex-direction: column;
+  gap: var(--space-4);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: var(--space-4);
 }
 
 .topbar {

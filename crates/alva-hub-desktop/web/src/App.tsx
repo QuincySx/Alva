@@ -1714,17 +1714,6 @@ export default function App() {
                 onSwitchBack={(source) => void switchBack(source)}
               />
             ) : null}
-
-            {detailsOpen && sessionDetail ? (
-              <SessionDetails
-                describeReason={(reason) => describeReadinessReason(reason, locale)}
-                detail={sessionDetail}
-                memorySaving={memorySaving}
-                onAddMemory={(entry) => void addMemory(entry)}
-                readiness={readiness}
-                readinessLabel={readinessBadge}
-              />
-            ) : null}
             </>
             )}
           </ScrollRegion>
@@ -1867,6 +1856,20 @@ export default function App() {
           />
           </DockRegion>
         </ContentFrame>
+        {/* UI06: Details 打开即见——作为右侧固定 rail 覆盖显示，聊天滚动
+            位置不受打开/关闭影响，长会话无需滚到末尾。 */}
+        {detailsOpen && sessionDetail ? (
+          <aside aria-label={t("topbar.details")} className="hub-details-rail">
+            <SessionDetails
+              describeReason={(reason) => describeReadinessReason(reason, locale)}
+              detail={sessionDetail}
+              memorySaving={memorySaving}
+              onAddMemory={(entry) => void addMemory(entry)}
+              readiness={readiness}
+              readinessLabel={readinessBadge}
+            />
+          </aside>
+        ) : null}
           </>
         ) : activePage === "automations" ? (
           <AutomationsPage />
