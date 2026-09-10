@@ -1,0 +1,260 @@
+
+> alva-hub-desktop-web@0.1.0 test:visual
+> playwright test --update-snapshots=none
+
+
+Running 12 tests using 1 worker
+
+(node:68721) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/12] tests/visual.spec.ts:12:1 › 01 chat shell
+  1) tests/visual.spec.ts:12:1 › 01 chat shell ─────────────────────────────────────────────────────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      509 pixels (ratio 0.01 of all image pixels) are different.
+
+      Snapshot: 01-chat-shell.png
+
+    Call log:
+      - Expect "toHaveScreenshot(01-chat-shell.png)" with timeout 5000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 509 pixels (ratio 0.01 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 509 pixels (ratio 0.01 of all image pixels) are different.
+
+
+      13 |   await page.goto("/?demo=1&session=ps-demo-1");
+      14 |   await settle(page);
+    > 15 |   await expect(page).toHaveScreenshot("01-chat-shell.png", { fullPage: true });
+         |                      ^
+      16 | });
+      17 |
+      18 | test("02 new conversation", async ({ page }) => {
+        at /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-desktop/web/tests/visual.spec.ts:15:22
+
+    attachment #1: 01-chat-shell (image/png) ───────────────────────────────────────────────────────
+    Expected: tests/visual.spec.ts-snapshots/01-chat-shell-darwin.png
+    Received: test-results/visual-01-chat-shell/01-chat-shell-actual.png
+    Diff:     test-results/visual-01-chat-shell/01-chat-shell-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/visual-01-chat-shell/error-context.md
+
+
+(node:74401) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[2/12] tests/visual.spec.ts:18:1 › 02 new conversation
+[3/12] tests/visual.spec.ts:24:1 › 03 right workbench
+  2) tests/visual.spec.ts:24:1 › 03 right workbench ────────────────────────────────────────────────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      411 pixels (ratio 0.01 of all image pixels) are different.
+
+      Snapshot: 03-right-workbench.png
+
+    Call log:
+      - Expect "toHaveScreenshot(03-right-workbench.png)" with timeout 5000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 411 pixels (ratio 0.01 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 411 pixels (ratio 0.01 of all image pixels) are different.
+
+
+      25 |   await page.goto("/?demo=1&session=ps-demo-1&workbench=1&tool=inspector");
+      26 |   await settle(page);
+    > 27 |   await expect(page).toHaveScreenshot("03-right-workbench.png", { fullPage: true });
+         |                      ^
+      28 | });
+      29 |
+      30 | test("03 Inspector drills into Agent and LLM pages then backs out", async ({ page }) => {
+        at /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-desktop/web/tests/visual.spec.ts:27:22
+
+    attachment #1: 03-right-workbench (image/png) ──────────────────────────────────────────────────
+    Expected: tests/visual.spec.ts-snapshots/03-right-workbench-darwin.png
+    Received: test-results/visual-03-right-workbench/03-right-workbench-actual.png
+    Diff:     test-results/visual-03-right-workbench/03-right-workbench-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/visual-03-right-workbench/error-context.md
+
+
+(node:75201) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[4/12] tests/visual.spec.ts:30:1 › 03 Inspector drills into Agent and LLM pages then backs out
+  3) tests/visual.spec.ts:30:1 › 03 Inspector drills into Agent and LLM pages then backs out ───────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      411 pixels (ratio 0.01 of all image pixels) are different.
+
+      Snapshot: 03-inspector-llm-detail.png
+
+    Call log:
+      - Expect "toHaveScreenshot(03-inspector-llm-detail.png)" with timeout 5000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 411 pixels (ratio 0.01 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 411 pixels (ratio 0.01 of all image pixels) are different.
+
+
+      39 |   await llm.getByRole("button", { name: /Open|打开/ }).click();
+      40 |   await expect(inspector).toContainText(/Messages sent|发送给模型的消息/);
+    > 41 |   await expect(page).toHaveScreenshot("03-inspector-llm-detail.png", { fullPage: true });
+         |                      ^
+      42 |
+      43 |   await inspector.getByRole("button", { name: /Back|返回/ }).click();
+      44 |   await expect(inspector).toContainText(/LLM call|LLM 调用/);
+        at /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-desktop/web/tests/visual.spec.ts:41:22
+
+    attachment #1: 03-inspector-llm-detail (image/png) ─────────────────────────────────────────────
+    Expected: tests/visual.spec.ts-snapshots/03-inspector-llm-detail-darwin.png
+    Received: test-results/visual-03-Inspector-drills-fbe14-nd-LLM-pages-then-backs-out/03-inspector-llm-detail-actual.png
+    Diff:     test-results/visual-03-Inspector-drills-fbe14-nd-LLM-pages-then-backs-out/03-inspector-llm-detail-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/visual-03-Inspector-drills-fbe14-nd-LLM-pages-then-backs-out/error-context.md
+
+
+(node:75520) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[5/12] tests/visual.spec.ts:49:1 › 03 right workbench add-tab menu
+  4) tests/visual.spec.ts:49:1 › 03 right workbench add-tab menu ───────────────────────────────────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      411 pixels (ratio 0.01 of all image pixels) are different.
+
+      Snapshot: 03-right-workbench-add-tab.png
+
+    Call log:
+      - Expect "toHaveScreenshot(03-right-workbench-add-tab.png)" with timeout 5000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 411 pixels (ratio 0.01 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 411 pixels (ratio 0.01 of all image pixels) are different.
+
+
+      51 |   await page.getByRole("button", { name: /Add workbench tab|添加工作台标签页/ }).click();
+      52 |   await settle(page);
+    > 53 |   await expect(page).toHaveScreenshot("03-right-workbench-add-tab.png", { fullPage: true });
+         |                      ^
+      54 | });
+      55 |
+      56 | test("03 right workbench manages dynamic tabs and width", async ({ page }) => {
+        at /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-desktop/web/tests/visual.spec.ts:53:22
+
+    attachment #1: 03-right-workbench-add-tab (image/png) ──────────────────────────────────────────
+    Expected: tests/visual.spec.ts-snapshots/03-right-workbench-add-tab-darwin.png
+    Received: test-results/visual-03-right-workbench-add-tab-menu/03-right-workbench-add-tab-actual.png
+    Diff:     test-results/visual-03-right-workbench-add-tab-menu/03-right-workbench-add-tab-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/visual-03-right-workbench-add-tab-menu/error-context.md
+
+
+(node:75839) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[6/12] tests/visual.spec.ts:56:1 › 03 right workbench manages dynamic tabs and width
+[7/12] tests/visual.spec.ts:71:1 › 03 right workbench becomes a narrow overlay
+[8/12] tests/visual.spec.ts:78:1 › 04 automation
+[9/12] tests/visual.spec.ts:85:1 › 05 plugins and skills
+[10/12] tests/visual.spec.ts:91:1 › 06 settings
+[11/12] tests/visual.spec.ts:97:1 › 07 context menus
+[12/12] tests/visual.spec.ts:104:1 › model picker stays anchored to composer
+  5) tests/visual.spec.ts:104:1 › model picker stays anchored to composer ──────────────────────────
+
+    Error: expect(page).toHaveScreenshot(expected) failed
+
+      509 pixels (ratio 0.01 of all image pixels) are different.
+
+      Snapshot: 08-model-picker.png
+
+    Call log:
+      - Expect "toHaveScreenshot(08-model-picker.png)" with timeout 5000ms
+        - verifying given screenshot expectation
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - 509 pixels (ratio 0.01 of all image pixels) are different.
+      - waiting 100ms before taking screenshot
+      - taking page screenshot
+        - disabled all CSS animations
+      - waiting for fonts to load...
+      - fonts loaded
+      - captured a stable screenshot
+      - 509 pixels (ratio 0.01 of all image pixels) are different.
+
+
+      106 |   await page.getByRole("button", { name: /Model and engine|模型与引擎/ }).click();
+      107 |   await settle(page);
+    > 108 |   await expect(page).toHaveScreenshot("08-model-picker.png", { fullPage: true });
+          |                      ^
+      109 | });
+      110 |
+        at /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-desktop/web/tests/visual.spec.ts:108:22
+
+    attachment #1: 08-model-picker (image/png) ─────────────────────────────────────────────────────
+    Expected: tests/visual.spec.ts-snapshots/08-model-picker-darwin.png
+    Received: test-results/visual-model-picker-stays-anchored-to-composer/08-model-picker-actual.png
+    Diff:     test-results/visual-model-picker-stays-anchored-to-composer/08-model-picker-diff.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/visual-model-picker-stays-anchored-to-composer/error-context.md
+
+
+  5 failed
+    tests/visual.spec.ts:12:1 › 01 chat shell ──────────────────────────────────────────────────────
+    tests/visual.spec.ts:24:1 › 03 right workbench ─────────────────────────────────────────────────
+    tests/visual.spec.ts:30:1 › 03 Inspector drills into Agent and LLM pages then backs out ────────
+    tests/visual.spec.ts:49:1 › 03 right workbench add-tab menu ────────────────────────────────────
+    tests/visual.spec.ts:104:1 › model picker stays anchored to composer ───────────────────────────
+  7 passed (43.0s)

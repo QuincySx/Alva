@@ -1,0 +1,5 @@
+   Compiling tokio v1.52.3
+   Compiling chrono v0.4.44
+   Compiling alva-kernel-bus v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-bus)
+   Compiling tokio-stream v0.1.18
+   Compiling alva-llm-wire v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-llm-wire)

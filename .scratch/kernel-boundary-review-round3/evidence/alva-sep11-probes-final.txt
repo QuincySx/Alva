@@ -1,0 +1,39 @@
+
+running 4 tests
+test dynamic_tool_context_preserves_store_cell ... FAILED
+test cancelled_appender_preserves_existing_live_subscription ... FAILED
+test subscription_after_clear_receives_new_live_event ... FAILED
+test first_append_finishes_while_listener_is_blocked ... FAILED
+
+failures:
+
+---- dynamic_tool_context_preserves_store_cell stdout ----
+
+thread 'dynamic_tool_context_preserves_store_cell' (44577382) panicked at crates/alva-agent-core/tests/review_round3_probes.rs:39:5:
+agent_spawn uses dyn ToolExecutionContext and must receive the configured cell
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- cancelled_appender_preserves_existing_live_subscription stdout ----
+
+thread 'cancelled_appender_preserves_existing_live_subscription' (44577381) panicked at crates/alva-agent-core/tests/review_round3_probes.rs:82:10:
+already subscribed consumer permanently lost the committed event after append cancellation: Elapsed(())
+
+---- subscription_after_clear_receives_new_live_event stdout ----
+
+thread 'subscription_after_clear_receives_new_live_event' (44577384) panicked at crates/alva-agent-core/tests/review_round3_probes.rs:49:10:
+new subscriber after clear lost the next committed event: Elapsed(())
+
+---- first_append_finishes_while_listener_is_blocked stdout ----
+
+thread 'first_append_finishes_while_listener_is_blocked' (44577383) panicked at crates/alva-agent-core/tests/review_round3_probes.rs:65:5:
+the first append remains blocked on the arbitrary listener callback
+
+
+failures:
+    cancelled_appender_preserves_existing_live_subscription
+    dynamic_tool_context_preserves_store_cell
+    first_append_finishes_while_listener_is_blocked
+    subscription_after_clear_receives_new_live_event
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+

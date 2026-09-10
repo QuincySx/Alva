@@ -1,0 +1,55 @@
+App=alva-hub-desktop (pid 79194)
+Window: "ALVA Hub", App: alva-hub-desktop.
+
+0 standard window ALVA Hub
+	1 scroll area
+		2 HTML content ALVA Hub
+			3 container
+				4 container
+					5 text A
+					6 heading ALVA Hub
+					7 text 一个项目，协同所有引擎。
+				8 container 主导航
+					9 button 新建会话
+					10 button 自动化
+					11 button 插件
+					12 button 搜索
+					13 button 设置
+				14 text field (settable) 搜索会话, Placeholder: 搜索会话…
+				15 container, Text: 会话 1
+				16 button 你好 session-41369c18-84c9-48b0-81a5-945dd26ae379 alva · 已完成 · 2026-09-03
+			17 container
+				18 container
+					19 text 新对话
+					20 text 选择一个项目以开始
+					21 button 打开工作台
+					22 button (disabled) 详情
+					23 text 就绪
+				24 container 选择新会话的工作方式
+					25 container
+						26 heading 选择新会话的工作方式
+						27 text 优先连接已有项目，也可以使用专属目录开始独立会话。
+					28 heading 项目
+					29 text 推荐
+					30 text 选择已有 Workspace。项目文件可以共享，但每个会话的历史和分支彼此隔离。
+					31 button 选择项目
+					32 heading 独立会话
+					33 text Hub 自动创建专属目录。文件和会话状态都与其他会话完全隔离。
+					34 button 创建独立会话
+				35 container
+					36 text entry area (settable) 消息, Placeholder: 让 alva 检查、修改或解释这个项目…
+						37 text 让 alva 检查、修改或解释这个项目…
+					38 container
+						39 button 添加上下文
+						40 combo box (settable) 权限配置, Value: 允许写入工作区
+						41 pop up button 模型与引擎
+						42 button (disabled) 使用 alva 运行
+				43 text 请先选择工作区
+				44 text ·
+				45 text 允许写入工作区
+	46 close button
+	47 full screen button, Secondary Actions: zoom the window
+	48 minimize button
+	49 text ALVA Hub
+
+The focused UI element is 2 HTML content ALVA Hub.

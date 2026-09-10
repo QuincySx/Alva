@@ -1,0 +1,385 @@
+App=alva-hub-desktop (pid 79194)
+Window: "ALVA Hub", App: alva-hub-desktop.
+
+0 standard window ALVA Hub
+	1 scroll area
+		2 HTML content ALVA Hub
+			3 container
+				4 container
+					5 text A
+					6 heading ALVA Hub
+					7 text 一个项目，协同所有引擎。
+				8 container 主导航
+					9 button 新建会话
+					10 button 自动化
+					11 button 插件
+					12 button 搜索
+					13 button 设置
+				14 text field (settable) 搜索会话, Placeholder: 搜索会话…
+				15 container, Text: 会话 2
+				16 button 你好 session-810a73ff-bebd-4f31-b9ad-85e016c03748 alva · 已完成 · 1 分钟前
+				17 button 你好 session-41369c18-84c9-48b0-81a5-945dd26ae379 alva · 已完成 · 2026-09-03
+			18 container
+				19 container
+					20 text 你好
+					21 text session-810a73ff-bebd-4f31-b9ad-85e016c03748
+					22 button 详情
+					23 text 已完成
+				24 container, Text: 你 用户消息 你好 alva 助手消息 你好！👋  我是你的编程助手，可以帮你处理各种软件工程任务。比如：  - 📝 **编写和修改代码** — 实现功能、修复 bug、重构 - 🔍 **阅读和理解代...
+				25 container
+					26 text entry area (settable) 消息, Placeholder: 让 alva 检查、修改或解释这个项目…
+						27 text 让 alva 检查、修改或解释这个项目…
+					28 container
+						29 button 添加上下文
+						30 combo box (disabled, settable) 权限配置, Value: 允许写入工作区
+						31 container
+							32 checkbox (settable) 共享对话记录, Value: 0
+							33 text 共享对话记录
+						34 pop up button 模型与引擎
+						35 button (disabled) 使用 alva 运行
+				36 text 独立会话 · session-810a73ff-bebd-4f31-b9ad-85e016c03748
+				37 text ·
+				38 text Alva
+				39 text ·
+				40 text deepseek-v4-flash
+			41 splitter 调整工作台宽度, Value: 440
+			42 container
+				43 tab group 工作台面板
+					44 tab Agent, Value: 0
+					45 button 关闭工作台 · Agent
+					46 tab (selected) 检查器, Value: 1
+					47 button 关闭工作台 · 检查器
+					48 pop up button 添加工作台标签页
+					49 button 在独立窗口打开
+					50 button 关闭工作台
+				51 container 检查器
+					52 container 原生 Agent 检查器
+						53 container
+							54 button (disabled) 返回
+							55 text b6598a06
+							56 button 刷新
+						57 container, Text: ALVA · 原生 Agent 检查器 b6598a06-e17c-4ca0-883f-a7df850e0f40 · 分支 1128972a 17 条记录 历史
+						58 text 总耗时
+						59 container, Text: 1680 ms
+						60 text 输入 / 输出 token
+						61 container, Text: 6589 / 125
+						62 text 轮次
+						63 text 1
+						64 text 子 Agent
+						65 text 0
+						66 container, Text: Middleware 调用 36
+						67 text checkpoint
+						68 text on_agent_start · ok
+						69 text 0ms
+						70 button 打开
+						71 text security
+						72 text on_agent_start · ok
+						73 text 0ms
+						74 button 打开
+						75 text builtins_dangling_tool_call
+						76 text on_agent_start · ok
+						77 text 0ms
+						78 button 打开
+						79 text plan_mode
+						80 text on_agent_start · ok
+						81 text 0ms
+						82 button 打开
+						83 text phase:hooks-session-start
+						84 text on_agent_start · ok
+						85 text 0ms
+						86 button 打开
+						87 text phase:hooks-session-end
+						88 text on_agent_start · ok
+						89 text 0ms
+						90 button 打开
+						91 text phase:hooks-pre-tool-use
+						92 text on_agent_start · ok
+						93 text 0ms
+						94 button 打开
+						95 text phase:hooks-post-tool-use
+						96 text on_agent_start · ok
+						97 text 0ms
+						98 button 打开
+						99 text builtins_loop_detection
+						100 text on_agent_start · ok
+						101 text 0ms
+						102 button 打开
+						103 text builtins_tool_timeout
+						104 text on_agent_start · ok
+						105 text 0ms
+						106 button 打开
+						107 text tool_lock
+						108 text on_agent_start · ok
+						109 text 0ms
+						110 button 打开
+						111 text compaction
+						112 text on_agent_start · ok
+						113 text 0ms
+						114 button 打开
+						115 text checkpoint
+						116 text input_committed · ok
+						117 text 0ms
+						118 button 打开
+						119 text security
+						120 text input_committed · ok
+						121 text 0ms
+						122 button 打开
+						123 text builtins_dangling_tool_call
+						124 text input_committed · ok
+						125 text 0ms
+						126 button 打开
+						127 text plan_mode
+						128 text input_committed · ok
+						129 text 0ms
+						130 button 打开
+						131 text phase:hooks-session-start
+						132 text input_committed · ok
+						133 text 0ms
+						134 button 打开
+						135 text phase:hooks-session-end
+						136 text input_committed · ok
+						137 text 0ms
+						138 button 打开
+						139 text phase:hooks-pre-tool-use
+						140 text input_committed · ok
+						141 text 0ms
+						142 button 打开
+						143 text phase:hooks-post-tool-use
+						144 text input_committed · ok
+						145 text 0ms
+						146 button 打开
+						147 text builtins_loop_detection
+						148 text input_committed · ok
+						149 text 0ms
+						150 button 打开
+						151 text builtins_tool_timeout
+						152 text input_committed · ok
+						153 text 0ms
+						154 button 打开
+						155 text tool_lock
+						156 text input_committed · ok
+						157 text 0ms
+						158 button 打开
+						159 text compaction
+						160 text input_committed · ok
+						161 text 0ms
+						162 button 打开
+						163 text compaction
+						164 text on_agent_end · ok
+						165 text 0ms
+						166 button 打开
+						167 text tool_lock
+						168 text on_agent_end · ok
+						169 text 0ms
+						170 button 打开
+						171 text builtins_tool_timeout
+						172 text on_agent_end · ok
+						173 text 0ms
+						174 button 打开
+						175 text builtins_loop_detection
+						176 text on_agent_end · ok
+						177 text 0ms
+						178 button 打开
+						179 text phase:hooks-post-tool-use
+						180 text on_agent_end · ok
+						181 text 0ms
+						182 button 打开
+						183 text phase:hooks-pre-tool-use
+						184 text on_agent_end · ok
+						185 text 0ms
+						186 button 打开
+						187 text phase:hooks-session-end
+						188 text on_agent_end · ok
+						189 text 0ms
+						190 button 打开
+						191 text phase:hooks-session-start
+						192 text on_agent_end · ok
+						193 text 0ms
+						194 button 打开
+						195 text plan_mode
+						196 text on_agent_end · ok
+						197 text 0ms
+						198 button 打开
+						199 text builtins_dangling_tool_call
+						200 text on_agent_end · ok
+						201 text 0ms
+						202 button 打开
+						203 text security
+						204 text on_agent_end · ok
+						205 text 0ms
+						206 button 打开
+						207 text checkpoint
+						208 text on_agent_end · ok
+						209 text 0ms
+						210 button 打开
+						211 container, Text: 轮次 1
+						212 button (expanded) 轮次 1 1670ms · end_turn 0
+						213 text LLM 调用
+						214 text 6589/125 输入 / 输出 token
+						215 text 1662ms
+						216 button 打开
+						217 text checkpoint
+						218 text before_llm_call
+						219 text 0ms
+						220 button 打开
+						221 text security
+						222 text before_llm_call
+						223 text 0ms
+						224 button 打开
+						225 text builtins_dangling_tool_call
+						226 text before_llm_call
+						227 text 0ms
+						228 button 打开
+						229 text plan_mode
+						230 text before_llm_call
+						231 text 0ms
+						232 button 打开
+						233 text phase:hooks-session-start
+						234 text before_llm_call
+						235 text 0ms
+						236 button 打开
+						237 text phase:hooks-session-end
+						238 text before_llm_call
+						239 text 0ms
+						240 button 打开
+						241 text phase:hooks-pre-tool-use
+						242 text before_llm_call
+						243 text 0ms
+						244 button 打开
+						245 text phase:hooks-post-tool-use
+						246 text before_llm_call
+						247 text 0ms
+						248 button 打开
+						249 text builtins_loop_detection
+						250 text before_llm_call
+						251 text 0ms
+						252 button 打开
+						253 text builtins_tool_timeout
+						254 text before_llm_call
+						255 text 0ms
+						256 button 打开
+						257 text tool_lock
+						258 text before_llm_call
+						259 text 0ms
+						260 button 打开
+						261 text compaction
+						262 text before_llm_call
+						263 text 0ms
+						264 button 打开
+						265 text compaction
+						266 text wrap_llm_call
+						267 text 1657ms
+						268 button 打开
+						269 text tool_lock
+						270 text wrap_llm_call
+						271 text 1657ms
+						272 button 打开
+						273 text builtins_tool_timeout
+						274 text wrap_llm_call
+						275 text 1657ms
+						276 button 打开
+						277 text builtins_loop_detection
+						278 text wrap_llm_call
+						279 text 1657ms
+						280 button 打开
+						281 text phase:hooks-post-tool-use
+						282 text wrap_llm_call
+						283 text 1657ms
+						284 button 打开
+						285 text phase:hooks-pre-tool-use
+						286 text wrap_llm_call
+						287 text 1657ms
+						288 button 打开
+						289 text phase:hooks-session-end
+						290 text wrap_llm_call
+						291 text 1657ms
+						292 button 打开
+						293 text phase:hooks-session-start
+						294 text wrap_llm_call
+						295 text 1657ms
+						296 button 打开
+						297 text plan_mode
+						298 text wrap_llm_call
+						299 text 1657ms
+						300 button 打开
+						301 text builtins_dangling_tool_call
+						302 text wrap_llm_call
+						303 text 1657ms
+						304 button 打开
+						305 text security
+						306 text wrap_llm_call
+						307 text 1657ms
+						308 button 打开
+						309 text checkpoint
+						310 text wrap_llm_call
+						311 text 1657ms
+						312 button 打开
+						313 text compaction
+						314 text after_llm_call
+						315 text 0ms
+						316 button 打开
+						317 text tool_lock
+						318 text after_llm_call
+						319 text 0ms
+						320 button 打开
+						321 text builtins_tool_timeout
+						322 text after_llm_call
+						323 text 0ms
+						324 button 打开
+						325 text builtins_loop_detection
+						326 text after_llm_call
+						327 text 0ms
+						328 button 打开
+						329 text phase:hooks-post-tool-use
+						330 text after_llm_call
+						331 text 0ms
+						332 button 打开
+						333 text phase:hooks-pre-tool-use
+						334 text after_llm_call
+						335 text 0ms
+						336 button 打开
+						337 text phase:hooks-session-end
+						338 text after_llm_call
+						339 text 0ms
+						340 button 打开
+						341 text phase:hooks-session-start
+						342 text after_llm_call
+						343 text 0ms
+						344 button 打开
+						345 text plan_mode
+						346 text after_llm_call
+						347 text 0ms
+						348 button 打开
+						349 text builtins_dangling_tool_call
+						350 text after_llm_call
+						351 text 0ms
+						352 button 打开
+						353 text security
+						354 text after_llm_call
+						355 text 0ms
+						356 button 打开
+						357 text checkpoint
+						358 text after_llm_call
+						359 text 0ms
+						360 button 打开
+						361 button 原始持久化记录 17
+					362 container, Text: 检查器 执行记录按轮次与尝试分组。Agent 关系位于 Agent 标签页。 1 个轮次
+					363 button (expanded) 你好 已完成 · 1 次尝试
+					364 button (expanded) alva · 已完成 1128972a-5251-44c8-91e3-03bba579b576 0 个 token
+					365 container, Text: In: 0 Out: Turns: 1 Dur: ms
+					366 text No tool calls in this attempt.
+					367 container, Text: Branches Engine branches with resource/worktree identity. 1
+					368 text alva/deepseek-v4-flash · active
+					369 text shared:anthropic · 1128972a
+					370 text session b6598a06
+					371 container, Text: 实时事件摘要 2
+					372 text alva · 用户消息
+					373 text 你好
+					374 text alva · 助手消息
+					375 text 你好！👋 我是你的编程助手，可以帮你处理各种软件工程任务。比如： - 📝 **编写和修改代码** — 实现功能、修复 bug、重构 - 🔍 **阅读和理解代码** — 分析项目结构、解释逻辑 - 🧪 **运行和测试** — 执行命令、调试问题 - 🎬 **视频/动画制作** — 使用 HyperFrames 创建视频、动画、动效 - 🔎 **搜索资料** — 联网查找文档和解决方案 请告诉我你想做什么，我会帮你完成。😊
+	376 close button
+	377 full screen button, Secondary Actions: zoom the window
+	378 minimize button
+	379 text ALVA Hub
+
+No UI element is currently focused.

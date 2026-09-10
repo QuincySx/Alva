@@ -1,0 +1,38 @@
+App=alva-hub-desktop (pid 79194)
+Window: "ALVA Hub", App: alva-hub-desktop.
+
+0 standard window ALVA Hub
+	1 scroll area
+		2 HTML content ALVA Hub
+			3 container
+				4 container
+					5 text A
+					6 heading ALVA Hub
+					7 text 一个项目，协同所有引擎。
+				8 container 主导航
+					9 button 新建会话
+					10 button 自动化
+					11 button 插件
+					12 button 搜索
+					13 button 设置
+				14 text field (settable) 搜索会话, Placeholder: 搜索会话…
+				15 container, Text: 会话 1
+				16 button 你好 session-41369c18-84c9-48b0-81a5-945dd26ae379 alva · 已完成 · 2026-09-03
+			17 container
+				18 container
+					19 heading 自动化
+					20 text 已配置 0 个
+					21 text 让 Agent 按计划运行提示词，无需另外搭建工作流。
+					22 pop up button 新建自动化
+				23 text 还没有自动化
+				24 text 可从下方选择模板或从头创建。确认表单前不会运行任何内容。
+				25 heading 从模板开始
+				26 button 夜间自修复测试 运行测试，在独立工作树中修复失败，并报告验证结果。 每天 · 02:00
+				27 button 拉取请求守门员 审查新变更，并报告正确性、安全性与可维护性风险。 工作日 · 09:00
+				28 button 领域雷达 收集生态中的重要变化，并总结其对本项目的影响。 每周一
+	29 close button
+	30 full screen button, Secondary Actions: zoom the window
+	31 minimize button
+	32 text ALVA Hub
+
+The focused UI element is 2 HTML content ALVA Hub.

@@ -1,0 +1,902 @@
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/alva-kernel-core/src/run_child.rs:89:9
+   |
+89 |     let mut extensions = Extensions::new();
+   |         ----^^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-kernel-core` (lib) generated 3 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 3 suggestions)
+warning: unused import: `normalize_path_string`
+  --> crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:353:13
+    |
+353 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-agent-core` to apply 2 suggestions)
+warning: unused import: `Mutex`
+  --> crates/alva-agent-context/src/middleware.rs:12:22
+   |
+12 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+  --> crates/alva-agent-context/src/middleware.rs:15:5
+   |
+15 | use alva_kernel_abi::agent_session::AgentSession;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/alva-agent-context/src/middleware.rs:72:9
+   |
+72 |         mut self,
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_store_session` is never used
+  --> crates/alva-agent-context/src/middleware.rs:71:8
+   |
+60 | impl CompactionMiddleware {
+   | ------------------------- method in this implementation
+...
+71 |     fn with_store_session(
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-context` (lib) generated 4 warnings (run `cargo fix --lib -p alva-agent-context` to apply 3 suggestions)
+warning: unused import: `alva_kernel_abi::ConversationLog`
+  --> crates/alva-agent-security/src/pending_actions.rs:17:5
+   |
+17 | use alva_kernel_abi::ConversationLog;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::SessionStore`
+  --> crates/alva-agent-security/src/middleware/security.rs:18:5
+   |
+18 | use alva_kernel_abi::SessionStore;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `AgentSession`
+  --> crates/alva-agent-security/src/middleware/security.rs:17:38
+   |
+17 | use alva_kernel_abi::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
+   |                                      ^^^^^^^^^^^^
+
+warning: `alva-agent-security` (lib) generated 3 warnings (run `cargo fix --lib -p alva-agent-security` to apply 1 suggestion)
+warning: unused `Result` that must be used
+   --> crates/alva-app-core/src/extension/pending.rs:194:13
+    |
+194 | /             state
+195 | |                 .session
+196 | |                 .append_message(AgentMessage::Standard(Message::user(&m.text)), None)
+197 | |                 .await;
+    | |______________________^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+194 |             let _ = state
+    |             +++++++
+
+warning: unused import: `ToolOutput`
+  --> crates/alva-kernel-core/tests/minimal_log_consumer.rs:21:35
+   |
+21 | use alva_kernel_abi::tool::{Tool, ToolOutput};
+   |                                   ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::tool::execution::ToolExecutionContext`
+  --> crates/alva-kernel-core/tests/minimal_log_consumer.rs:20:5
+   |
+20 | use alva_kernel_abi::tool::execution::ToolExecutionContext;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused implementer of `Future` that must be used
+   --> crates/alva-kernel-core/tests/tool_batch_coordinator.rs:607:5
+    |
+607 | /     assert_no_dangling_calls_with(|| {
+608 | |         let mut stack = MiddlewareStack::new();
+609 | |         stack.push(Arc::new(FailBeforeFirstMiddleware));
+610 | |         stack
+611 | |     });
+    | |______^
+    |
+    = note: futures do nothing unless you `.await` or poll them
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused implementer of `Future` that must be used
+   --> crates/alva-kernel-core/tests/tool_batch_coordinator.rs:616:5
+    |
+616 | /     assert_no_dangling_calls_with(|| {
+617 | |         let mut stack = MiddlewareStack::new();
+618 | |         stack.push(Arc::new(FailWrapFirstMiddleware));
+619 | |         stack
+620 | |     });
+    | |______^
+    |
+    = note: futures do nothing unless you `.await` or poll them
+
+warning: unused `Result` that must be used
+    --> crates/alva-kernel-core/tests/integration.rs:1422:13
+     |
+1422 | /             s.append_message(
+1423 | |                 AgentMessage::Standard(Message::user(format!(
+1424 | |                     "msg-{}-with-some-padding-text-to-pump-up-the-token-estimate",
+1425 | |                     i
+...    |
+1429 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+     = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+     |
+1422 |             let _ = s.append_message(
+     |             +++++++
+
+warning: unused imports: `ConversationLog` and `SessionStore`
+   --> crates/alva-agent-context/src/middleware.rs:667:31
+    |
+667 |         use alva_kernel_abi::{ConversationLog, SessionStore};
+    |                               ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: unused import: `alva_agent_core::agent_session::InMemoryAgentSession`
+   --> crates/alva-agent-context/src/middleware.rs:684:13
+    |
+684 |         use alva_agent_core::agent_session::InMemoryAgentSession;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `make_state_with_summary_model` is never used
+   --> crates/alva-agent-context/src/middleware.rs:658:8
+    |
+658 |     fn make_state_with_summary_model() -> AgentState {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-app-core` (lib) generated 1 warning
+warning: `alva-kernel-core` (test "minimal_log_consumer") generated 2 warnings (run `cargo fix --test "minimal_log_consumer" -p alva-kernel-core` to apply 1 suggestion)
+warning: `alva-kernel-core` (test "tool_batch_coordinator") generated 2 warnings
+warning: `alva-kernel-core` (lib test) generated 3 warnings (3 duplicates)
+warning: `alva-kernel-core` (test "integration") generated 1 warning
+warning: `alva-agent-context` (lib test) generated 6 warnings (3 duplicates) (run `cargo fix --lib -p alva-agent-context --tests` to apply 2 suggestions)
+   Compiling alva-agent-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core)
+warning: unused import: `Middleware`
+  --> crates/alva-agent-core/tests/tool_lock_middleware.rs:19:36
+   |
+19 | use alva_kernel_core::middleware::{Middleware, MiddlewareStack};
+   |                                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::time::Duration`
+ --> crates/alva-agent-core/tests/review_broadcast_regression.rs:8:5
+  |
+8 | use std::time::Duration;
+  |     ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::EventEmitter`
+  --> crates/alva-agent-core/tests/review_broadcast_regression.rs:67:9
+   |
+67 |     use alva_kernel_abi::agent_session::EventEmitter;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused `Result` that must be used
+   --> crates/alva-agent-core/src/agent_session.rs:965:9
+    |
+965 |         s.append(e1).await;
+    |         ^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+965 |         let _ = s.append(e1).await;
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/alva-agent-core/src/agent_session.rs:966:9
+    |
+966 |         s.append(e2).await;
+    |         ^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+966 |         let _ = s.append(e2).await;
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/alva-agent-core/src/agent_session.rs:967:9
+    |
+967 |         s.append(e3).await;
+    |         ^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+967 |         let _ = s.append(e3).await;
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/alva-agent-core/src/agent_session.rs:993:21
+    |
+993 |                     s.append(e).await;
+    |                     ^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+993 |                     let _ = s.append(e).await;
+    |                     +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1028:21
+     |
+1028 |                     s.append_message(user_msg(&format!("{t}-{i}")), None).await;
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1028 |                     let _ = s.append_message(user_msg(&format!("{t}-{i}")), None).await;
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1152:9
+     |
+1152 |         s.append_message(user_msg("hello"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1152 |         let _ = s.append_message(user_msg("hello"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1153:9
+     |
+1153 |         s.append_message(user_msg("world"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1153 |         let _ = s.append_message(user_msg("world"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1172:13
+     |
+1172 | /             s.append_message(user_msg(&format!("msg {}", i)), None)
+1173 | |                 .await;
+     | |______________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1172 |             let _ = s.append_message(user_msg(&format!("msg {}", i)), None)
+     |             +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1190:9
+     |
+1190 |         s.append_message(user_msg("one"), None).await; // seq 1
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1190 |         let _ = s.append_message(user_msg("one"), None).await; // seq 1
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1191:9
+     |
+1191 |         s.append_message(user_msg("two"), None).await; // seq 2
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1191 |         let _ = s.append_message(user_msg("two"), None).await; // seq 2
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1192:9
+     |
+1192 |         s.append_message(user_msg("three"), None).await; // seq 3
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1192 |         let _ = s.append_message(user_msg("three"), None).await; // seq 3
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1204:9
+     |
+1204 |         s.append_message(user_msg("m1"), None).await; // seq 1 (message)
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1204 |         let _ = s.append_message(user_msg("m1"), None).await; // seq 1 (message)
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1205:9
+     |
+1205 | /         s.append(SessionEvent::progress(serde_json::json!({"p": 1})))
+1206 | |             .await; // seq 2 (no data-backed message)
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1205 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"p": 1})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1207:9
+     |
+1207 |         s.append_message(user_msg("m2"), None).await; // seq 3 (message)
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1207 |         let _ = s.append_message(user_msg("m2"), None).await; // seq 3 (message)
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1219:9
+     |
+1219 |         s.append_message(user_msg("one"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1219 |         let _ = s.append_message(user_msg("one"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1226:9
+     |
+1226 | /         s.append(SessionEvent::user_message(serde_json::json!("hi")))
+1227 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1226 |         let _ = s.append(SessionEvent::user_message(serde_json::json!("hi")))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1228:9
+     |
+1228 | /         s.append(SessionEvent::progress(serde_json::json!({"ok": true})))
+1229 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1228 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"ok": true})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1230:9
+     |
+1230 | /         s.append(SessionEvent::progress(serde_json::json!({"ok": false})))
+1231 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1230 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"ok": false})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1255:9
+     |
+1255 |         s.append_message(user_msg("one"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1255 |         let _ = s.append_message(user_msg("one"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1256:9
+     |
+1256 |         s.append_message(user_msg("two"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1256 |         let _ = s.append_message(user_msg("two"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1257:9
+     |
+1257 |         s.append_message(user_msg("three"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1257 |         let _ = s.append_message(user_msg("three"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1299:9
+     |
+1299 |         original.append_message(user_msg("hi"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1299 |         let _ = original.append_message(user_msg("hi"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1300:9
+     |
+1300 | /         original
+1301 | |             .append_message(
+1302 | |                 AgentMessage::Standard(Message {
+1303 | |                     id: "m2".into(),
+...    |
+1314 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1300 |         let _ = original
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1336:9
+     |
+1336 | /         restored
+1337 | |             .append(SessionEvent::progress(
+1338 | |                 serde_json::json!({"after": "restore"}),
+1339 | |             ))
+1340 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1336 |         let _ = restored
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1352:9
+     |
+1352 |         s.append(SessionEvent::new_runtime("run_start")).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1352 |         let _ = s.append(SessionEvent::new_runtime("run_start")).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1353:9
+     |
+1353 |         s.append_message(user_msg("msg1"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1353 |         let _ = s.append_message(user_msg("msg1"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1354:9
+     |
+1354 |         s.append_message(user_msg("reply1"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1354 |         let _ = s.append_message(user_msg("reply1"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1355:9
+     |
+1355 |         s.append(SessionEvent::new_runtime("tool_use")).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1355 |         let _ = s.append(SessionEvent::new_runtime("tool_use")).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1356:9
+     |
+1356 |         s.append_message(user_msg("msg2"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1356 |         let _ = s.append_message(user_msg("msg2"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1360:9
+     |
+1360 |         s.append(SessionEvent::new_runtime("compaction")).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1360 |         let _ = s.append(SessionEvent::new_runtime("compaction")).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1406:9
+     |
+1406 |         s.append_message(user_msg("one"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1406 |         let _ = s.append_message(user_msg("one"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1415:9
+     |
+1415 | /         s.append(SessionEvent::progress(
+1416 | |             serde_json::json!({"after": "clear"}),
+1417 | |         ))
+1418 | |         .await;
+     | |______________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1415 |         let _ = s.append(SessionEvent::progress(
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1441:9
+     |
+1441 |         scoped.append(e).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1441 |         let _ = scoped.append(e).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1483:9
+     |
+1483 |         session.append(e).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1483 |         let _ = session.append(e).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1497:9
+     |
+1497 |         session.append_message(user_msg("hello"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1497 |         let _ = session.append_message(user_msg("hello"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1520:9
+     |
+1520 | /         session
+1521 | |             .append(SessionEvent::progress(serde_json::json!({"x": 1})))
+1522 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1520 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1535:9
+     |
+1535 | /         s.append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1536 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1535 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"n": 1})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1537:9
+     |
+1537 | /         s.append(SessionEvent::progress(serde_json::json!({"n": 2})))
+1538 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1537 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"n": 2})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1558:9
+     |
+1558 | /         session
+1559 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1560 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1558 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1561:9
+     |
+1561 | /         session
+1562 | |             .append(SessionEvent::progress(serde_json::json!({"n": 2})))
+1563 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1561 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1574:9
+     |
+1574 | /         session
+1575 | |             .append(SessionEvent::progress(serde_json::json!({"n": 3})))
+1576 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1574 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1586:9
+     |
+1586 | /         session
+1587 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1588 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1586 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1589:9
+     |
+1589 | /         session
+1590 | |             .append(SessionEvent::progress(serde_json::json!({"n": 2})))
+1591 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1589 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1592:9
+     |
+1592 | /         session
+1593 | |             .append(SessionEvent::progress(serde_json::json!({"n": 3})))
+1594 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1592 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1613:9
+     |
+1613 | /         session
+1614 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1615 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1613 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1637:9
+     |
+1637 | /         session
+1638 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1639 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1637 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1661:9
+     |
+1661 | /         session
+1662 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1663 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1661 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1681:17
+     |
+1681 |                 self.target.append(event.clone()).await;
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1681 |                 let _ = self.target.append(event.clone()).await;
+     |                 +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1696:9
+     |
+1696 | /         child
+1697 | |             .append(SessionEvent::progress(serde_json::json!({"from": "child"})))
+1698 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1696 |         let _ = child
+     |         +++++++
+
+warning: `alva-agent-core` (test "tool_lock_middleware") generated 1 warning
+warning: `alva-agent-core` (test "review_broadcast_regression") generated 2 warnings (run `cargo fix --test "review_broadcast_regression" -p alva-agent-core` to apply 2 suggestions)
+warning: `alva-agent-core` (lib test) generated 50 warnings (1 duplicate)
+warning: unused imports: `AgentMessage`, `CancellationToken`, `LockMode`, and `Message`
+  --> crates/alva-app-core/tests/child_lock_workspace_tests.rs:20:17
+   |
+20 |     AgentError, AgentMessage, CancellationToken, ExecutionMode, LockMode, Message, ResourceKey,
+   |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^                 ^^^^^^^^  ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `assertions::collect_events`
+  --> crates/alva-app-core/tests/child_lock_workspace_tests.rs:25:5
+   |
+25 |     assertions::collect_events,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `alva-app-core` (test "child_lock_workspace_tests") generated 2 warnings (run `cargo fix --test "child_lock_workspace_tests" -p alva-app-core` to apply 2 suggestions)
+warning: `alva-app-core` (lib test) generated 1 warning (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 41s
+  Executable unittests src/lib.rs (target/debug/deps/alva_agent_context-22574e062121cef7)
+  Executable unittests src/lib.rs (target/debug/deps/alva_agent_core-65de3f66e30e2837)
+  Executable tests/agent_builder.rs (target/debug/deps/agent_builder-57652145179646c6)
+  Executable tests/review_broadcast_regression.rs (target/debug/deps/review_broadcast_regression-8e94247e8a1a41c1)
+  Executable tests/review_round3_probes.rs (target/debug/deps/review_round3_probes-31621e6519bfb155)
+  Executable tests/review_subscription_probe.rs (target/debug/deps/review_subscription_probe-dd3ec56b3b992edc)
+  Executable tests/tool_lock_middleware.rs (target/debug/deps/tool_lock_middleware-4e71741905981a90)
+  Executable unittests src/lib.rs (target/debug/deps/alva_app_core-63e710b102450c34)
+  Executable tests/agent_capabilities.rs (target/debug/deps/agent_capabilities-02868da381b74d4d)
+  Executable tests/base_agent_overrides.rs (target/debug/deps/base_agent_overrides-6f22a4c097ac4e8c)
+  Executable tests/child_lock_workspace_tests.rs (target/debug/deps/child_lock_workspace_tests-5b04c19a1be7a4f9)
+  Executable tests/e2e_agent_test.rs (target/debug/deps/e2e_agent_test-23298540ee4f9d19)
+  Executable tests/e2e_http_test.rs (target/debug/deps/e2e_http_test-71992ea65c1674c7)
+  Executable tests/e2e_tool_coverage.rs (target/debug/deps/e2e_tool_coverage-2273f1802891347d)
+  Executable tests/escalation_permission_modes.rs (target/debug/deps/escalation_permission_modes-9a4af800def4be34)
+  Executable tests/eval_agent_tools.rs (target/debug/deps/eval_agent_tools-afb338f4742e2fc3)
+  Executable tests/review_wiring_regressions.rs (target/debug/deps/review_wiring_regressions-e55ecb82427adf43)
+  Executable tests/scope_integration.rs (target/debug/deps/scope_integration-39014e1e0476f82e)
+  Executable tests/skill_system_test.rs (target/debug/deps/skill_system_test-6b056092f645d37c)
+  Executable tests/subagent_security_gate.rs (target/debug/deps/subagent_security_gate-89180fd127a1734c)
+  Executable unittests src/lib.rs (target/debug/deps/alva_kernel_core-a2e8ea356b3bbb53)
+  Executable tests/agent_loop_swappable.rs (target/debug/deps/agent_loop_swappable-1efbfe2b94e1c4d1)
+  Executable tests/context_runtime.rs (target/debug/deps/context_runtime-c5ba7727f9ef3cfc)
+  Executable tests/input_committed.rs (target/debug/deps/input_committed-dae9d2d9e3c4f107)
+  Executable tests/integration.rs (target/debug/deps/integration-b27f38dbd60c9405)
+  Executable tests/middleware_order.rs (target/debug/deps/middleware_order-924635d62d3968cc)
+  Executable tests/minimal_log_consumer.rs (target/debug/deps/minimal_log_consumer-9b2a09d15ee879b4)
+  Executable tests/session_skeleton.rs (target/debug/deps/session_skeleton-19de3d8505fdaec0)
+  Executable tests/tool_batch_coordinator.rs (target/debug/deps/tool_batch_coordinator-477879c16667e26a)

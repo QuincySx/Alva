@@ -1,0 +1,18 @@
+
+> alva-hub-desktop-web@0.1.0 build
+> tsc -b && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 1869 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.44 kB │ gzip:   0.29 kB
+dist/assets/index-DN9_ytjF.css   67.78 kB │ gzip:  11.25 kB
+dist/assets/index-B2zy9qpz.js   511.75 kB │ gzip: 154.59 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 33.88s
