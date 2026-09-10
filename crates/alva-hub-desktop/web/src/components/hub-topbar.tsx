@@ -16,6 +16,8 @@ export interface HubTopbarProps {
   title: string;
   workbenchOpen: boolean;
   workspace: string;
+  /** UI08: friendly identity label (never a raw session UUID). */
+  workspaceLabel?: string;
 }
 
 export function HubTopbar({
@@ -28,14 +30,17 @@ export function HubTopbar({
   title,
   workbenchOpen,
   workspace,
+  workspaceLabel,
 }: HubTopbarProps) {
   const { t } = useI18n();
   return (
     <header className="topbar">
       <div className="topbar__title">
         <strong>{title}</strong>
-        <small>
-          {workspace ? workspace.split("/").at(-1) : t("workspace.chooseToBegin")}
+        <small title={workspace || undefined}>
+          {workspace
+            ? workspaceLabel ?? workspace.split("/").at(-1)
+            : t("workspace.chooseToBegin")}
         </small>
       </div>
       <div className="topbar__actions">

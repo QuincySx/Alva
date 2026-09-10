@@ -1663,6 +1663,11 @@ export default function App() {
           title={sessionDetail?.turns.at(-1)?.prompt ?? t("conversation.new")}
           workbenchOpen={workbenchOpen}
           workspace={workspace}
+          workspaceLabel={
+            workspace && workspaceKind === "session"
+              ? t("nav.independentSession")
+              : undefined
+          }
         />
 
         <ContentFrame className="hub-session-frame">
@@ -1834,9 +1839,12 @@ export default function App() {
           placeholder={t("composer.placeholder", { engine: pendingEngine ?? engine })}
           status={
             <>
-              <span>
+              {/* UI07/UI08: 独立会话不常驻展示 UUID 目录名，完整路径放 tooltip。 */}
+              <span title={workspace ?? undefined}>
                 {workspace && workspaceKind
-                  ? `${t(workspaceKind === "session" ? "workspace.kindSession" : "workspace.kindProject")} · ${displayWorkspace(workspace)}`
+                  ? workspaceKind === "session"
+                    ? t("workspace.kindSession")
+                    : `${t("workspace.kindProject")} · ${displayWorkspace(workspace)}`
                   : t("workspace.selectFirst")}
               </span>
               {selectedModelRoute ? (

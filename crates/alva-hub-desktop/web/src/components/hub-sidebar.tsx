@@ -123,7 +123,11 @@ export function HubSidebar({
                 <ContextMenuTrigger asChild>
                   <NavItem
                     active={activePage === "conversation" && activeSessionId === session.product_session_id}
-                    description={session.workspace.split("/").at(-1)}
+                    // UI08: independent sessions use a friendly label; the
+                    // raw directory stays available via title/context menu.
+                    description={session.workspace_kind === "session"
+                      ? t("nav.independentSession")
+                      : session.workspace.split("/").at(-1)}
                     label={session.last_prompt ?? t("nav.untitledSession")}
                     meta={`${session.engine_id} · ${localize(session.status)} · ${formatUpdatedAt(session.updated_at)}`}
                     onClick={() => onOpenSession(session)}

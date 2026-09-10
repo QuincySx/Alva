@@ -397,7 +397,10 @@ describe("App integration", () => {
 
     await user.click(await screen.findByRole("button", { name: "Create independent session" }));
     expect(bridge.fns.createSessionWorkspace).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText("Independent session · alva-session-1")).toBeInTheDocument();
+    // UI07/UI08: independent sessions surface a friendly label; the raw
+    // session directory stays out of the persistent composer footer.
+    expect((await screen.findAllByText("Independent session")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/alva-session-1/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "New session" }));
     expect(await screen.findByText("How would you like to start?")).toBeInTheDocument();
