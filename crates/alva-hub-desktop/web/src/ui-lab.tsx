@@ -43,6 +43,36 @@ const routes: HubModelRoute[] = [
   { engineId: "codex", engineLabel: "Codex", modelId: "gpt", modelLabel: "GPT Codex", providerId: "subscription", accountSource: "Codex subscription", billingRoute: "Subscription", description: "OpenAI coding route.", reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], reasoningEffort: "high", supportsFastMode: true, fastMode: false, disabled: true, disabledReason: "Sign in to Codex before selecting this model." },
 ];
 
+type TokenRow = { role: string; token: string; sample?: string };
+
+const typeTokenRows: TokenRow[] = [
+  { role: "Page title", token: "--font-size-page-title · 700", sample: "20px" },
+  { role: "Title", token: "--font-size-title · 700", sample: "18px" },
+  { role: "Section title", token: "--font-size-section-title · 650", sample: "15px" },
+  { role: "Body", token: "--font-size-body · 400", sample: "14px" },
+  { role: "Body small", token: "--font-size-body-sm · 400", sample: "13px" },
+  { role: "Caption", token: "--font-size-caption · 400", sample: "12px" },
+  { role: "Micro / auxiliary", token: "--font-size-micro · subtle", sample: "11px" },
+  { role: "Overline", token: "--font-size-overline · caps 650", sample: "10px" },
+];
+
+const surfaceTokenRows: TokenRow[] = [
+  { role: "Canvas", token: "--color-canvas" },
+  { role: "Sidebar", token: "--color-sidebar" },
+  { role: "Panel", token: "--color-surface" },
+  { role: "Raised", token: "--color-surface-raised" },
+  { role: "Sunken inset", token: "--color-surface-sunken" },
+  { role: "Hover", token: "--color-surface-hover" },
+  { role: "Border", token: "--color-border / strong" },
+];
+
+const statusTokenRows: TokenRow[] = [
+  { role: "Success", token: "--color-success / -bg / -border" },
+  { role: "Warning", token: "--color-warning / -bg / -border" },
+  { role: "Danger", token: "--color-danger / -bg / -border" },
+  { role: "Focus", token: "--color-focus" },
+];
+
 export default function UiLab() {
   const [selected, setSelected] = useState(routes[0]);
   return (
@@ -52,9 +82,53 @@ export default function UiLab() {
         <TabsRoot className="ui-lab__tabs" defaultValue="controls">
           <TabsList aria-label="UI Lab sections">
             <TabsTrigger value="controls">Controls</TabsTrigger>
+            <TabsTrigger value="tokens">Tokens</TabsTrigger>
             <TabsTrigger value="surfaces">Surfaces</TabsTrigger>
             <TabsTrigger value="model">Model picker</TabsTrigger>
           </TabsList>
+          <TabsContent value="tokens">
+            <section className="ui-lab__section">
+              <h2>Typography roles</h2>
+              <div className="ui-token-table">
+                {typeTokenRows.map((row) => (
+                  <div className="ui-token-table__row" key={row.role}>
+                    <span className="ui-token-table__sample" style={{ fontSize: `var(${row.token.split(" ")[0]})` }}>
+                      {row.role} — 你好 world
+                    </span>
+                    <code>{row.token}</code>
+                  </div>
+                ))}
+              </div>
+            </section>
+            <section className="ui-lab__section">
+              <h2>Surface roles</h2>
+              <div className="ui-token-table">
+                {surfaceTokenRows.map((row) => (
+                  <div className="ui-token-table__row" key={row.role}>
+                    <span className="ui-token-table__swatch" style={{ background: `var(${row.token.split(" ")[0]})` }} />
+                    <span className="ui-token-table__sample">{row.role}</span>
+                    <code>{row.token}</code>
+                  </div>
+                ))}
+              </div>
+            </section>
+            <section className="ui-lab__section">
+              <h2>Status roles</h2>
+              <div className="ui-token-table">
+                {statusTokenRows.map((row) => (
+                  <div className="ui-token-table__row" key={row.role}>
+                    <span className="ui-token-table__sample">{row.role}</span>
+                    <code>{row.token}</code>
+                  </div>
+                ))}
+                <div className="ui-token-table__row ui-token-table__row--status">
+                  <Badge tone="success">Success badge</Badge>
+                  <Badge tone="warning">Warning badge</Badge>
+                  <Badge tone="danger">Danger badge</Badge>
+                </div>
+              </div>
+            </section>
+          </TabsContent>
           <TabsContent value="controls">
             <section className="ui-lab__section">
               <h2>Actions and fields</h2>
