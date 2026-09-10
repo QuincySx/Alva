@@ -29,6 +29,7 @@ import {
   EmptyState,
   FieldFrame,
   NavItem,
+  Notice,
   PageHeader,
   ScrollRegion,
   SelectField,
@@ -357,13 +358,13 @@ export function SettingsPage({
             key={candidate}
             label={
               candidate === "general"
-                ? (locale === "zh-CN" ? "⚙ 通用设置" : "General")
+                ? (locale === "zh-CN" ? "通用设置" : "General")
                 : candidate === "models"
-                  ? (locale === "zh-CN" ? "🤖 模型供应商" : "Models")
+                  ? (locale === "zh-CN" ? "模型供应商" : "Models")
                   : candidate === "tools"
-                    ? (locale === "zh-CN" ? "🛠 内置工具与 MCP" : "Tools & MCP")
+                    ? (locale === "zh-CN" ? "内置工具与 MCP" : "Tools & MCP")
                     : candidate === "remote"
-                      ? (locale === "zh-CN" ? "🌐 远程 SSH 连接" : "Remote SSH")
+                      ? (locale === "zh-CN" ? "远程 SSH 连接" : "Remote SSH")
                       : candidate === "im"
                         ? (locale === "zh-CN" ? "💬 IM 机器人" : "IM Gateways")
                         : candidate === "keybindings"
@@ -371,10 +372,10 @@ export function SettingsPage({
                           : candidate === "usage"
                             ? (locale === "zh-CN" ? "💳 用量与计费" : "Usage & Quota")
                             : candidate === "permissions"
-                              ? (locale === "zh-CN" ? "🔒 权限与安全" : "Permissions")
+                              ? (locale === "zh-CN" ? "权限与安全" : "Permissions")
                               : candidate === "experiments"
                                 ? (locale === "zh-CN" ? "🧪 实验性功能" : "Experiments")
-                                : (locale === "zh-CN" ? "ℹ️ 关于与更新" : "About & Help")
+                                : (locale === "zh-CN" ? "关于与更新" : "About & Help")
             }
             onClick={() => setSection(candidate)}
           />
@@ -431,22 +432,21 @@ export function SettingsPage({
             {/* Account Profile Card */}
             <div className="hub-profile-card">
               <div className="hub-profile-card__left">
-                <div className="hub-profile-avatar">W</div>
+                <div className="hub-profile-avatar">{profileName.trim().charAt(0).toUpperCase() || "A"}</div>
                 <div className="hub-profile-details">
                   <h4>{profileName}</h4>
-                  <p>{profileEmail} · Pro 开发者账号</p>
+                  <p>{profileEmail}{locale === "zh-CN" ? " · 本地资料，未接入账号系统" : " · local profile, no account system"}</p>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <Badge tone="accent">Pro 会员</Badge>
                 <DialogRoot open={profileOpen} onOpenChange={setProfileOpen}>
                   <DialogTrigger asChild>
                     <Button size="small" variant="ghost">
-                      {locale === "zh-CN" ? "✏️ 编辑资料" : "Edit Profile"}
+                      {locale === "zh-CN" ? "编辑资料" : "Edit Profile"}
                     </Button>
                   </DialogTrigger>
                   <DialogContent
-                    title={locale === "zh-CN" ? "✏️ 编辑个人资料" : "Edit Profile"}
+                    title={locale === "zh-CN" ? "编辑个人资料" : "Edit Profile"}
                     description={locale === "zh-CN" ? "更新本地显示的账户名与联系邮箱" : "Update local user profile details"}
                   >
                     <div className="hub-form-stack" style={{ marginTop: "12px" }}>
@@ -482,21 +482,21 @@ export function SettingsPage({
                       variant={themeMode === "light" ? "primary" : "ghost"}
                       onClick={() => setThemeMode("light")}
                     >
-                      ☀️ {locale === "zh-CN" ? "浅色" : "Light"}
+                      {locale === "zh-CN" ? "浅色" : "Light"}
                     </Button>
                     <Button
                       size="small"
                       variant={themeMode === "dark" ? "primary" : "ghost"}
                       onClick={() => setThemeMode("dark")}
                     >
-                      🌙 {locale === "zh-CN" ? "深色" : "Dark"}
+                      {locale === "zh-CN" ? "深色" : "Dark"}
                     </Button>
                     <Button
                       size="small"
                       variant={themeMode === "system" ? "primary" : "ghost"}
                       onClick={() => setThemeMode("system")}
                     >
-                      💻 {locale === "zh-CN" ? "跟随系统" : "System"}
+                      {locale === "zh-CN" ? "跟随系统" : "System"}
                     </Button>
                   </div>
                 }
@@ -602,15 +602,16 @@ export function SettingsPage({
               heading={locale === "zh-CN" ? "外部 MCP 服务器 (Model Context Protocol)" : "MCP Servers"}
               description={locale === "zh-CN" ? "连接外部标准 MCP 协议服务，按需扩展专业工具" : "Connect external MCP servers"}
             >
+              <Notice description={locale === "zh-CN" ? "以下为界面样例数据，尚未接入真实后端；添加/编辑暂不生效。" : "The entries below are interface samples not yet wired to a backend; adding or editing has no effect."} heading={locale === "zh-CN" ? "示例数据" : "Sample data"} role="status" tone="warning" />
               <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
                 <DialogRoot open={addMcpOpen} onOpenChange={setAddMcpOpen}>
                   <DialogTrigger asChild>
                     <Button leadingIcon={<Plus size={14} />}>
-                      {locale === "zh-CN" ? "＋ 添加 MCP 服务器" : "Add MCP Server"}
+                      {locale === "zh-CN" ? "添加 MCP 服务器" : "Add MCP Server"}
                     </Button>
                   </DialogTrigger>
                   <DialogContent
-                    title={locale === "zh-CN" ? "🛠 添加 MCP 服务器" : "Add MCP Server"}
+                    title={locale === "zh-CN" ? "添加 MCP 服务器" : "Add MCP Server"}
                     description={locale === "zh-CN" ? "配置标准 MCP 协议端点或 stdio 子进程命令" : "Configure MCP SSE endpoint or stdio command"}
                   >
                     <div className="hub-form-stack" style={{ marginTop: "12px" }}>
@@ -651,7 +652,7 @@ export function SettingsPage({
                             setAddMcpOpen(false);
                           }}
                         >
-                          {locale === "zh-CN" ? "✓ 确认注册" : "Register Server"}
+                          {locale === "zh-CN" ? "确认注册" : "Register Server"}
                         </Button>
                       </div>
                     </div>
@@ -686,15 +687,16 @@ export function SettingsPage({
             heading={locale === "zh-CN" ? "远程 SSH 主机列表" : "SSH Remote Hosts"}
             description={locale === "zh-CN" ? "配置云端服务器与集群，支持 Agent 在远程环境执行沙箱命令" : "Manage remote execution targets"}
           >
+            <Notice description={locale === "zh-CN" ? "以下为界面样例数据，尚未接入真实后端；添加/编辑暂不生效。" : "The entries below are interface samples not yet wired to a backend; adding or editing has no effect."} heading={locale === "zh-CN" ? "示例数据" : "Sample data"} role="status" tone="warning" />
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
               <DialogRoot open={addSshOpen} onOpenChange={setAddSshOpen}>
                 <DialogTrigger asChild>
                   <Button leadingIcon={<Plus size={14} />}>
-                    {locale === "zh-CN" ? "＋ 添加 SSH 主机" : "Add SSH Host"}
+                    {locale === "zh-CN" ? "添加 SSH 主机" : "Add SSH Host"}
                   </Button>
                 </DialogTrigger>
                 <DialogContent
-                  title={locale === "zh-CN" ? "🌐 添加远程 SSH 主机" : "Add SSH Host"}
+                  title={locale === "zh-CN" ? "添加远程 SSH 主机" : "Add SSH Host"}
                   description={locale === "zh-CN" ? "配置远程机器 IP、登录用户名及 SSH 密钥连接" : "Configure remote host details"}
                 >
                   <div className="hub-form-stack" style={{ marginTop: "12px" }}>
@@ -729,7 +731,7 @@ export function SettingsPage({
                           setAddSshOpen(false);
                         }}
                       >
-                        {locale === "zh-CN" ? "✓ 确认添加" : "Add Host"}
+                        {locale === "zh-CN" ? "确认添加" : "Add Host"}
                       </Button>
                     </div>
                   </div>
