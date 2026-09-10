@@ -1668,39 +1668,28 @@ export default function App() {
         <ContentFrame className="hub-session-frame">
           <ScrollRegion className="hub-session-scroll">
             {!workspace && activeSessionId === null ? (
-              <>
-                <WorkspaceGate
-                  busy={busy || workspaceCreating}
-                  onChooseProject={() => void selectWorkspace()}
-                  onCreateSession={() => void createIndependentSession()}
-                />
-                {timeline.length > 0 ? (
-                  <HubTimeline
-                    activeSessionId={activeSessionId}
-                    answeredPermissions={answeredPermissions}
-                    attemptIsLive={attemptIsLive}
-                    events={timeline}
-                    onAnswerPermission={(productSessionId, requestId, allow) =>
-                      void answerPermission(productSessionId, requestId, allow)
-                    }
-                    onStop={() => void stopActiveAttempt()}
-                    onSwitchBack={(source) => void switchBack(source)}
-                  />
-                ) : null}
-              </>
+              <WorkspaceGate
+                busy={busy || workspaceCreating}
+                onChooseProject={() => void selectWorkspace()}
+                onCreateSession={() => void createIndependentSession()}
+              />
             ) : (
-            <HubTimeline
-              activeSessionId={activeSessionId}
-              answeredPermissions={answeredPermissions}
-              attemptIsLive={attemptIsLive}
-              events={timeline}
-              onAnswerPermission={(productSessionId, requestId, allow) =>
-                void answerPermission(productSessionId, requestId, allow)
-              }
-              onStop={() => void stopActiveAttempt()}
-              onSwitchBack={(source) => void switchBack(source)}
-            />
-            )}
+            <>
+            {/* UI01/UI04: 主聊天保持阅读优先——执行时间线仅在运行中或存在
+                待审批时就地显示；完成后的执行细节归属 Inspector 工作台。 */}
+            {timeline.length > 0 && (attemptIsLive || approvalGroups.some((g) => g.members.length > 0)) ? (
+              <HubTimeline
+                activeSessionId={activeSessionId}
+                answeredPermissions={answeredPermissions}
+                attemptIsLive={attemptIsLive}
+                events={timeline}
+                onAnswerPermission={(productSessionId, requestId, allow) =>
+                  void answerPermission(productSessionId, requestId, allow)
+                }
+                onStop={() => void stopActiveAttempt()}
+                onSwitchBack={(source) => void switchBack(source)}
+              />
+            ) : null}
 
             {detailsOpen && sessionDetail ? (
               <SessionDetails
@@ -1712,6 +1701,8 @@ export default function App() {
                 readinessLabel={readinessBadge}
               />
             ) : null}
+            </>
+            )}
           </ScrollRegion>
 
           <DockRegion className="hub-session-dock">

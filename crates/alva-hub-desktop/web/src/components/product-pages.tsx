@@ -28,7 +28,6 @@ import {
   DialogTrigger,
   EmptyState,
   FieldFrame,
-  ListRow,
   NavItem,
   PageHeader,
   ScrollRegion,
@@ -40,7 +39,6 @@ import {
   TabsList,
   TabsRoot,
   TabsTrigger,
-  TextArea,
   TextField,
 } from "../ui";
 import type {
@@ -50,7 +48,7 @@ import type {
   ProviderProfile,
   SaveProviderProfile,
 } from "../bridge";
-import { useI18n, type LanguagePreference, type Translate } from "../i18n";
+import { useI18n, type LanguagePreference } from "../i18n";
 import { ProviderSettings } from "./provider-settings";
 
 export type HubPage = "conversation" | "automations" | "extensions" | "settings" | "search";
@@ -63,160 +61,62 @@ interface AutomationItem {
   enabled: boolean;
 }
 
-/// Best-effort human description of a standard 5-field cron expression
-/// (`min hour day-of-month month day-of-week`). Unknown shapes return the
-/// raw expression unchanged rather than guessing wrong.
-function describeCron(expr: string, t: Translate): string {
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return t("automation.cronInvalid");
-  const [minute, hour] = parts;
-  if (minute === "*" && hour === "*") return t("automation.cronEveryMinute");
-  if (minute === "0" && hour === "*") return t("automation.cronEveryHour");
-  if (minute === "0" && /^\d+$/.test(hour)) return t("automation.cronDailyAt", { hour });
-  return t("automation.cronCustom");
-}
 
 export function AutomationsPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  // R20: 自动化调度后端尚未开放——为避免假成功，创建/启用入口禁用，
+  // 模板仅作预览；页面诚实说明当前状态。
   const automationTemplates = [
     ["nightly", t("automation.templateNightly"), t("automation.daily"), t("automation.templateNightlyPrompt")],
     ["review", t("automation.templateReview"), t("automation.weekdays"), t("automation.templateReviewPrompt")],
     ["radar", t("automation.templateRadar"), t("automation.weekly"), t("automation.templateRadarPrompt")],
   ] as const;
-  const [automations, setAutomations] = useState<AutomationItem[]>([]);
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [schedule, setSchedule] = useState("daily");
-  const [cron, setCron] = useState("0 9 * * *");
-  const [prompt, setPrompt] = useState("");
-
-  function useTemplate(template: (typeof automationTemplates)[number]) {
-    setTitle(template[1]);
-    setPrompt(template[3]);
-    setOpen(true);
-    // A template's daily/weekdays/weekly schedule is a selectable preset, not
-    // a cron expression; the custom cron field stays independent.
-    if (template[0] === "review") setSchedule("weekdays");
-    else if (template[0] === "radar") setSchedule("weekly");
-    else setSchedule("daily");
-  }
-
-  function effectiveSchedule(): string {
-    // A custom cron overrides the passive preset; otherwise the preset label
-    // doubles as the stored schedule.
-    return schedule === "cron" ? `cron:${cron}` : schedule;
-  }
-
-  function createAutomation() {
-    const normalizedTitle = title.trim();
-    const normalizedPrompt = prompt.trim();
-    if (!normalizedTitle || !normalizedPrompt) return;
-    if (schedule === "cron" && !cron.trim()) return;
-    setAutomations((current) => [
-      ...current,
-      {
-        id: `${Date.now()}-${normalizedTitle}`,
-        title: normalizedTitle,
-        schedule: effectiveSchedule(),
-        prompt: normalizedPrompt,
-        enabled: true,
-      },
-    ]);
-    setOpen(false);
-    setTitle("");
-    setPrompt("");
-    setSchedule("daily");
-    setCron("0 9 * * *");
-  }
+  const [automations] = useState<AutomationItem[]>([]);
 
   return (
     <ScrollRegion className="hub-product-page">
       <PageHeader
         actions={
-          <DialogRoot open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button leadingIcon={<Plus aria-hidden="true" size={15} />} variant="primary">
-                {t("automation.new")}
-              </Button>
-            </DialogTrigger>
-            <DialogContent
-              description={t("automation.dialogDescription")}
-              size="wide"
-              title={t("automation.create")}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Badge tone="warning">
+              {locale === "zh-CN" ? "调度尚未开放" : "Scheduling not yet available"}
+            </Badge>
+            <Button
+              disabled
+              aria-label={locale === "zh-CN" ? "自动化功能尚未开放" : "Automations not yet available"}
+              leadingIcon={<Plus aria-hidden="true" size={15} />}
+              variant="primary"
             >
-              <div className="hub-form-stack">
-                <FieldFrame label={t("automation.title")}>
-                  <TextField aria-label={t("automation.titleAria")} value={title} onChange={(event) => setTitle(event.target.value)} />
-                </FieldFrame>
-                <FieldFrame label={t("automation.schedule")}>
-                  <SelectField
-                    ariaLabel={t("automation.scheduleAria")}
-                    onValueChange={setSchedule}
-                    options={[
-                      { value: "daily", label: t("automation.daily") },
-                      { value: "weekdays", label: t("automation.weekdays") },
-                      { value: "weekly", label: t("automation.weekly") },
-                      { value: "cron", label: t("automation.cron") },
-                    ]}
-                    value={schedule}
-                  />
-                </FieldFrame>
-                {schedule === "cron" ? (
-                  <FieldFrame label={t("automation.cronExpression")} description={describeCron(cron, t)}>
-                    <TextField aria-label={t("automation.cronExpressionAria")} value={cron} onChange={(event) => setCron(event.target.value)} placeholder="0 9 * * *" />
-                  </FieldFrame>
-                ) : null}
-                <FieldFrame label={t("automation.prompt")}>
-                  <TextArea aria-label={t("automation.promptAria")} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
-                </FieldFrame>
-                <div className="hub-dialog-actions">
-                  <Button onClick={() => setOpen(false)} variant="ghost">{t("common.cancel")}</Button>
-                  <Button disabled={!title.trim() || !prompt.trim()} onClick={createAutomation} variant="primary">{t("common.create")}</Button>
-                </div>
-              </div>
-            </DialogContent>
-          </DialogRoot>
+              {t("automation.new")}
+            </Button>
+          </div>
         }
         description={t("automation.description")}
-        meta={t("automation.configured", { count: automations.length })}
+        meta={
+          automations.length > 0
+            ? t("automation.configured", { count: automations.length })
+            : locale === "zh-CN"
+              ? "尚未开放：调度后端仍在开发中"
+              : "Not yet available: scheduling backend is under development"
+        }
         title={t("nav.automations")}
       />
-      {automations.length === 0 ? (
-        <EmptyState
-          icon={<Workflow aria-hidden="true" size={18} />}
-          title={t("automation.empty")}
-          description={t("automation.emptyDescription")}
-        />
-      ) : (
-        <div className="hub-product-list">
-          {automations.map((automation) => (
-            <ListRow
-              actions={
-                <Switch
-                  checked={automation.enabled}
-                  label={t("automation.enable", { title: automation.title })}
-                  onCheckedChange={(checked) =>
-                    setAutomations((current) =>
-                      current.map((candidate) =>
-                        candidate.id === automation.id
-                          ? { ...candidate, enabled: checked === true }
-                          : candidate,
-                      ),
-                    )
-                  }
-                />
-              }
-              description={automation.prompt}
-              heading={automation.title}
-              key={automation.id}
-              leading={<CalendarClock aria-hidden="true" size={17} />}
-              meta={automation.schedule.startsWith("cron:") ? t("automation.cronLabel", { expr: automation.schedule.slice(5) }) : automation.schedule === "daily" ? t("automation.daily") : automation.schedule === "weekdays" ? t("automation.weekdays") : t("automation.weekly")}
-            />
-          ))}
-        </div>
-      )}
+      <EmptyState
+        icon={<Workflow aria-hidden="true" size={18} />}
+        title={locale === "zh-CN" ? "自动化尚未开放" : "Automations not yet available"}
+        description={
+          locale === "zh-CN"
+            ? "定时调度后端仍在开发中；下方模板仅供预览，创建入口已禁用。"
+            : "The scheduling backend is still in development; templates below are previews and creation is disabled."
+        }
+      />
       <section className="hub-product-section">
-        <h3>{t("automation.templates")}</h3>
+        <h3>
+          {t("automation.templates")}{" "}
+          <Badge tone="warning">
+            {locale === "zh-CN" ? "预览（暂不可用）" : "Preview (unavailable)"}
+          </Badge>
+        </h3>
         <CardGrid>
           {automationTemplates.map((template) => (
             <StatusListItem
@@ -225,7 +125,6 @@ export function AutomationsPage() {
               heading={template[1]}
               key={template[0]}
               leading={<CalendarClock aria-hidden="true" size={18} />}
-              onClick={() => useTemplate(template)}
               trailing={template[2]}
             />
           ))}
@@ -236,16 +135,18 @@ export function AutomationsPage() {
 }
 
 export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  // R22: 生产目录只反映真实 registry——当前没有任何已安装扩展；样例一律
+  // installed: false，安装/注册入口禁用并说明。
   const extensions = [
-    { id: "github", name: "GitHub", description: t("extension.githubDescription"), icon: GitBranch, installed: true, kind: "plugin" },
-    { id: "maker", name: "TapTap Maker", description: t("extension.makerDescription"), icon: Sparkles, installed: true, kind: "plugin" },
-    { id: "review", name: t("extension.review"), description: t("extension.reviewDescription"), icon: Check, installed: true, kind: "skill" },
+    { id: "github", name: "GitHub", description: t("extension.githubDescription"), icon: GitBranch, installed: false, kind: "plugin" },
+    { id: "maker", name: "TapTap Maker", description: t("extension.makerDescription"), icon: Sparkles, installed: false, kind: "plugin" },
+    { id: "review", name: t("extension.review"), description: t("extension.reviewDescription"), icon: Check, installed: false, kind: "skill" },
     { id: "design", name: t("extension.design"), description: t("extension.designDescription"), icon: Blocks, installed: false, kind: "skill" },
   ] as const;
   const [tab, setTab] = useState("plugin");
   const [query, setQuery] = useState("");
-  const [installed, setInstalled] = useState<Set<string>>(
+  const [installed] = useState<Set<string>>(
     () => new Set(extensions.filter((extension) => extension.installed).map((extension) => extension.id)),
   );
   const [selectedExtension, setSelectedExtension] = useState<(typeof extensions)[number] | null>(null);
@@ -266,7 +167,11 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
               <Button leadingIcon={<Plus aria-hidden="true" size={15} />}>{t("extension.add")}</Button>
             </DialogTrigger>
             <DialogContent
-              description={t("extension.addDescription")}
+              description={
+                locale === "zh-CN"
+                  ? "扩展注册后端尚未开放：此处暂不能登记新扩展。"
+                  : "Extension registration backend is not yet available; nothing can be registered here yet."
+              }
               title={t("extension.add")}
             >
               <div className="hub-form-stack">
@@ -280,14 +185,7 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
                 </FieldFrame>
                 <div className="hub-dialog-actions">
                   <Button onClick={() => setAddOpen(false)} variant="ghost">{t("common.cancel")}</Button>
-                  <Button
-                    disabled={!extensionName.trim()}
-                    onClick={() => {
-                      setExtensionName("");
-                      setAddOpen(false);
-                    }}
-                    variant="primary"
-                  >
+                  <Button disabled variant="primary">
                     {t("extension.register")}
                   </Button>
                 </div>
@@ -330,9 +228,19 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
                     <Button onClick={onStartChat} size="small" variant="ghost">{t("extension.useInChat")}</Button>
                   ) : (
                     <Button
+                      aria-label={
+                        locale === "zh-CN"
+                          ? "安装尚未支持：需要扩展注册表后端"
+                          : "Install is not supported yet: requires an extension registry backend"
+                      }
+                      disabled
                       leadingIcon={<Download aria-hidden="true" size={14} />}
-                      onClick={() => setInstalled((current) => new Set(current).add(extension.id))}
                       size="small"
+                      title={
+                        locale === "zh-CN"
+                          ? "安装需要扩展注册表后端（尚未开放）"
+                          : "Install requires an extension registry backend (not yet available)"
+                      }
                     >
                       {t("extension.install")}
                     </Button>
@@ -405,7 +313,9 @@ export function SettingsPage({
   const [workerLimit, setWorkerLimit] = useState("4");
   const [resourceTier, setResourceTier] = useState("balanced");
   const [gitSnapshot, setGitSnapshot] = useState(true);
-  const [permissionMode, setPermissionMode] = useState<"ask" | "plan" | "accept_edits">("ask");
+  // R21: 只保留真实存在的权限档（Ask / Auto Edits）；"只读计划" 无等价
+  // PermissionProfile，为避免假成功已移除。持久化接线开发中。
+  const [permissionMode, setPermissionMode] = useState<"ask" | "accept_edits">("ask");
 
   // Profile Edit Dialog
   const [profileOpen, setProfileOpen] = useState(false);
@@ -881,19 +791,27 @@ export function SettingsPage({
             description={locale === "zh-CN" ? "设定 Agent 访问本地文件与执行 Shell 时的安全拦截级别" : "Configure HITL permission modes"}
           >
             <SettingsRow
-              heading={locale === "zh-CN" ? "默认审批模式" : "Default Permission Mode"}
-              description={locale === "zh-CN" ? "Plan (只出计划不执行) / Ask (逐项询问) / Auto (自动执行代码修改)" : "Default approval mode"}
+              heading={locale === "zh-CN" ? "默认审批模式（仅影响新会话）" : "Default Permission Mode (new sessions only)"}
+              description={
+                locale === "zh-CN"
+                  ? "仅支持 Ask / Auto Edits 两档；'只读计划' 无等价权限档，为避免假成功已移除。持久化接线开发中，当前为组件内默认值。"
+                  : "Only Ask / Auto Edits are supported; 'Plan Only' has no equivalent profile and was removed. Persistence wiring is in progress."
+              }
               control={
-                <SelectField
-                  ariaLabel="Permission Mode"
-                  value={permissionMode}
-                  onValueChange={(v) => setPermissionMode(v as typeof permissionMode)}
-                  options={[
-                    { value: "ask", label: locale === "zh-CN" ? "逐项询问 (Ask - 推荐安全)" : "Ask (Recommended)" },
-                    { value: "plan", label: locale === "zh-CN" ? "只读计划 (Plan Only)" : "Plan Only" },
-                    { value: "accept_edits", label: locale === "zh-CN" ? "自动代码编辑 (Auto Edits)" : "Auto Accept Edits" },
-                  ]}
-                />
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Badge tone="warning">
+                    {locale === "zh-CN" ? "持久化开发中" : "Persistence in progress"}
+                  </Badge>
+                  <SelectField
+                    ariaLabel="Permission Mode"
+                    value={permissionMode}
+                    onValueChange={(v) => setPermissionMode(v as typeof permissionMode)}
+                    options={[
+                      { value: "ask", label: locale === "zh-CN" ? "逐项询问 (Ask - 推荐)" : "Ask (Recommended)" },
+                      { value: "accept_edits", label: locale === "zh-CN" ? "自动代码编辑 (Auto Edits)" : "Auto Accept Edits" },
+                    ]}
+                  />
+                </div>
               }
             />
             <SettingsRow
