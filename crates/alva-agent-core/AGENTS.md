@@ -73,4 +73,5 @@ Re-exported from `src/lib.rs`:
 ## 迁入模块（内核边界重构 R05/R08）
 
 - `src/agent_session.rs`：InMemoryAgentSession / ListenableInMemorySession 内存会话后端（自 kernel-core 迁入）。Listenable 的广播队列按 seq 序插入、投递经 delivery_lock 单投递者串行化（R03）——慢监听者不阻塞追加与订阅。
-- `src/tool_lock.rs`：跨 Agent 工具资源锁表 + `ToolLockMiddleware`（自 kernel-core 迁入）。经 bus 可选发现；子 agent 栈须显式挂中间件并接线 bus（configure 不触发的路径用 `with_bus`）。
+- `src/tool_lock.rs`：跨 Agent 工具资源锁表 + `ToolLockMiddleware`（自 kernel-core 迁入）。经 bus 可选发现；子 agent 栈须显式挂中间件并接线 bus 与 workspace（configure 不触发的路径用 `with_bus`/`with_workspace`，R11）。
+- 会话切换（R10/R15）：`swap_session` 在 state 锁内原子完成 flush → 日志/SharedCell 更新；压缩中间件、工具上下文、session_handle 读取同一 cell，总是指向当前会话。

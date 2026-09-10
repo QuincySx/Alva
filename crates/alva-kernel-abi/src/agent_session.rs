@@ -1,12 +1,14 @@
 // INPUT:  async_trait, serde, serde_json, uuid, chrono, futures_util, std,
 //         crate::AgentMessage
-// OUTPUT: AgentSession trait, SessionEvent, SessionMessage, EventEmitter,
-//         EmitterKind, ComponentDescriptor, ScopedSession, SessionError,
-//         EventQuery, EventMatch, SessionEventListener, SessionEventStream,
-//         atomic typed-record capability via AppendReceipt/SessionRecord
-// POS:    Unified session CONTRACT -- traits + value types only. The concrete
-//         in-memory backends (InMemoryAgentSession / ListenableInMemorySession)
-//         moved to alva-kernel-core (L2); this crate keeps the pure contract.
+// OUTPUT: AgentSession (= ConversationLog + SessionStore) trait, StoreSessionCell
+//         (shared "current full session" handle), PersistentSessions capability
+//         bridge (R18), SessionEvent, SessionMessage, EventEmitter, EmitterKind,
+//         ComponentDescriptor, ScopedSession, SessionError, EventQuery, EventMatch,
+//         SessionEventListener, SessionEventStream, typed-record capability via
+//         AppendReceipt/SessionRecord
+// POS:    Unified session CONTRACT — ConversationLog（内核入口要求）+ SessionStore
+//         （harness/UI 超集）组合；具体内存后端在 alva-agent-core。StoreSessionCell
+//         供装配层经 PersistentSessions 桥暴露"当前会话"，swap 原地更新。
 
 use std::sync::Arc;
 
