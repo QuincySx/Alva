@@ -2,7 +2,7 @@
 // OUTPUT: Compact Cindy-style chat header with details and workbench actions
 // POS:    Central-column chrome between App state and the conversation timeline
 
-import { PanelRight } from "lucide-react";
+import { Menu, PanelRight } from "lucide-react";
 import { useI18n } from "../i18n";
 import { Button, IconButton } from "../ui";
 
@@ -18,6 +18,8 @@ export interface HubTopbarProps {
   workspace: string;
   /** UI08: friendly identity label (never a raw session UUID). */
   workspaceLabel?: string;
+  /** UI10: narrow-viewport sidebar sheet toggle (rendered <760px only). */
+  onToggleSidebar?: () => void;
 }
 
 export function HubTopbar({
@@ -31,6 +33,7 @@ export function HubTopbar({
   workbenchOpen,
   workspace,
   workspaceLabel,
+  onToggleSidebar,
 }: HubTopbarProps) {
   const { t } = useI18n();
   return (
@@ -44,6 +47,15 @@ export function HubTopbar({
         </small>
       </div>
       <div className="topbar__actions">
+        {onToggleSidebar ? (
+          <IconButton
+            className="hub-topbar__menu"
+            icon={<Menu aria-hidden="true" size={16} />}
+            label={t("nav.primary")}
+            onClick={onToggleSidebar}
+            variant="ghost"
+          />
+        ) : null}
         {!workbenchOpen ? (
           <IconButton
             icon={<PanelRight aria-hidden="true" size={16} />}

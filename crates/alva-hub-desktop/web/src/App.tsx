@@ -567,6 +567,18 @@ export default function App() {
   const [sessionQuery, setSessionQuery] = useState("");
   const [workbenchOpen, setWorkbenchOpen] = useState(() => isSidebarWindow() || queryValue("workbench") === "1");
   const sidebarWindow = isSidebarWindow();
+  // UI10: <760px the sidebar becomes an off-canvas sheet with its own toggle.
+  const [narrowSidebarOpen, setNarrowSidebarOpen] = useState(false);
+  useEffect(() => {
+    if (!narrowSidebarOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if ((event.target as Element | null)?.closest?.("[role=dialog]")) return;
+      setNarrowSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [narrowSidebarOpen]);
   const [activeWorkbenchTool, setActiveWorkbenchTool] = useState<WorkbenchTool>(initialWorkbenchTool);
   const [openWorkbenchTools, setOpenWorkbenchTools] = useState<WorkbenchTool[]>(() => [initialWorkbenchTool()]);
   const [activePage, setActivePage] = useState<HubPage>(initialPage);
@@ -1485,20 +1497,33 @@ export default function App() {
       onWorkbenchDismiss={() => setWorkbenchOpen(false)}
       sidebar={
         sidebarWindow ? null : (
+        <>
         <HubSidebar
           activePage={activePage}
           activeSessionId={activeSessionId}
           busy={busy}
           formatUpdatedAt={(updatedAt) => formatRelativeTime(updatedAt, Date.now(), locale)}
-          onNewSession={startNewSession}
+          narrowOpen={narrowSidebarOpen}
+          onNewSession={() => { startNewSession(); setNarrowSidebarOpen(false); }}
           onNavigate={setActivePage}
-          onOpenSession={(session) => void openSession(session)}
+          onNarrowNavigate={() => setNarrowSidebarOpen(false)}
+          onOpenSession={(session) => { void openSession(session); setNarrowSidebarOpen(false); }}
           onSessionQueryChange={setSessionQuery}
           sessionError={sessionError ? localize(sessionError) : null}
           sessionQuery={sessionQuery}
           sessions={filteredSessions}
           totalSessionCount={sessions.length}
         />
+        <button
+          aria-hidden={!narrowSidebarOpen}
+          aria-label={locale === "zh-CN" ? "关闭导航" : "Close navigation"}
+          className="ui-sidebar-scrim"
+          data-state={narrowSidebarOpen ? "open" : "closed"}
+          onClick={() => setNarrowSidebarOpen(false)}
+          tabIndex={narrowSidebarOpen ? 0 : -1}
+          type="button"
+        />
+        </>
         )
       }
       workbench={
@@ -1668,6 +1693,7 @@ export default function App() {
               ? t("nav.independentSession")
               : undefined
           }
+          onToggleSidebar={() => setNarrowSidebarOpen((open) => !open)}
         />
 
         <ContentFrame className="hub-session-frame">

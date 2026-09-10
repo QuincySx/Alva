@@ -47,10 +47,16 @@ export function HubSidebar({
   totalSessionCount,
   activePage,
   onNavigate,
-}: HubSidebarProps) {
+  narrowOpen,
+  onNarrowNavigate,
+}: HubSidebarProps & { narrowOpen?: boolean; onNarrowNavigate?: () => void }) {
   const { localize, t } = useI18n();
+  const navigateAndClose = (page: HubPage) => {
+    onNavigate(page);
+    onNarrowNavigate?.();
+  };
   return (
-    <Sidebar className="hub-sidebar">
+    <Sidebar className="hub-sidebar" data-sidebar-open={narrowOpen ? "true" : "false"}>
       <header className="hub-sidebar__brand">
         <div className="brand-mark">A</div>
         <div>
@@ -70,25 +76,25 @@ export function HubSidebar({
           active={activePage === "automations"}
           icon={<Workflow aria-hidden="true" size={17} />}
           label={t("nav.automations")}
-          onClick={() => onNavigate("automations")}
+          onClick={() => navigateAndClose("automations")}
         />
         <NavItem
           active={activePage === "extensions"}
           icon={<Blocks aria-hidden="true" size={17} />}
           label={t("nav.plugins")}
-          onClick={() => onNavigate("extensions")}
+          onClick={() => navigateAndClose("extensions")}
         />
         <NavItem
           active={activePage === "search"}
           icon={<Search aria-hidden="true" size={17} />}
           label={t("nav.search")}
-          onClick={() => onNavigate("search")}
+          onClick={() => navigateAndClose("search")}
         />
         <NavItem
           active={activePage === "settings"}
           icon={<Settings aria-hidden="true" size={17} />}
           label={t("nav.settings")}
-          onClick={() => onNavigate("settings")}
+          onClick={() => navigateAndClose("settings")}
         />
       </nav>
       <div className="hub-sidebar__search">
