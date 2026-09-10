@@ -9,6 +9,20 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use crate::agent_session::{AgentSession, InMemoryAgentSession};
+
+/// R18: 装配层对 `PersistentSessions` 的实现——包装共享 cell。内核工具
+/// 执行路径只查询此 trait 对象，不识别具体 cell 类型或 spawn 存储语义。
+struct CellBackedSessions(alva_kernel_abi::agent_session::StoreSessionCell);
+
+impl alva_kernel_abi::PersistentSessions for CellBackedSessions {
+    fn store_session(&self) -> Option<Arc<dyn AgentSession>> {
+        Some(self.0.get())
+    }
+
+    fn store_session_cell(&self) -> Option<Arc<alva_kernel_abi::agent_session::StoreSessionCell>> {
+        Some(Arc::new(self.0.clone()))
+    }
+}
 use alva_kernel_abi::{
     AgentError, Bus, BusHandle, BusWriter, LanguageModel, ModelConfig, Tool, ToolRegistry,
 };
@@ -351,7 +365,11 @@ impl AgentBuilder {
 
         // 10. AgentState
         let mut extensions = Extensions::new();
-        extensions.insert(store_session_cell.clone());
+        // R18: 窄能力桥——内核只见 `dyn PersistentSessions`，具体 cell 与
+        // spawn 存储语义留在装配层。
+        let persistent: Arc<dyn alva_kernel_abi::PersistentSessions> =
+            Arc::new(CellBackedSessions(store_session_cell.clone()));
+        extensions.insert(persistent);
         let state = AgentState {
             model,
             tools: tools_arc,

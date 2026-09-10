@@ -370,3 +370,19 @@ pub trait SessionEventListener: Send + Sync {
         true
     }
 }
+
+/// R18: 窄能力桥——装配层实现本 trait 并注入扩展；内核工具执行路径只认识
+/// 此抽象，不识别具体 `StoreSessionCell`、仓库或 spawn 存储语义。返回的
+/// cell 供嵌套 spawn 原样转发，保证子链始终跟随当前会话。
+#[async_trait::async_trait]
+pub trait PersistentSessions: Send + Sync {
+    /// 当前完整会话（SessionStore 能力）；最小装配不提供。
+    fn store_session(&self) -> Option<Arc<dyn AgentSession>> {
+        None
+    }
+
+    /// 共享 cell 本体——嵌套 spawn 原样传给 child extensions。
+    fn store_session_cell(&self) -> Option<Arc<StoreSessionCell>> {
+        None
+    }
+}

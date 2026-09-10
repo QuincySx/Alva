@@ -170,6 +170,7 @@ struct	tool::types::ToolFsDirEntry
 struct	tool::types::ToolFsExecResult
 struct	tool::types::ToolRegistry
 trait	agent_session::AgentSession
+trait	agent_session::PersistentSessions
 trait	agent_session::SessionEventListener
 trait	conversation_log::ConversationLog
 trait	model::LanguageModel
@@ -182,6 +183,8 @@ trait	session_store::SessionStore
 trait	tool::execution::ToolExecutionContext
 trait	tool::types::Tool
 trait	tool::types::ToolFs
+traitfn	agent_session::PersistentSessions::fn store_session fn store_session(&self) -> Option<Arc<dyn AgentSession>>
+traitfn	agent_session::PersistentSessions::fn store_session_cell fn store_session_cell(&self) -> Option<Arc<StoreSessionCell>>
 traitfn	agent_session::SessionEventListener::async fn on_event async fn on_event(&self, event: &SessionEvent)
 traitfn	agent_session::SessionEventListener::fn is_active fn is_active(&self) -> bool
 traitfn	conversation_log::ConversationLog::async fn append async fn append(&self, event: SessionEvent) -> Result<(), SessionError>
@@ -272,7 +275,7 @@ traitfn	tool::types::ToolFs::async fn list_dir async fn list_dir(&self, path: &s
 traitfn	tool::types::ToolFs::async fn read_file async fn read_file(&self, path: &str) -> Result<Vec<u8>, AgentError>
 traitfn	tool::types::ToolFs::async fn write_file async fn write_file(&self, path: &str, content: &[u8]) -> Result<(), AgentError>
 type	agent_session::SessionEventStream type SessionEventStream = futures_util::stream::BoxStream<'static, SessionEvent>
-use	pub use agent_session::{ AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery, ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionMessage, StoreSessionCell, }
+use	pub use agent_session::{ AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery, PersistentSessions, ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionMessage, StoreSessionCell, }
 use	pub use alva_kernel_bus::{ Bus, BusEvent, BusHandle, BusPlugin, BusWriter, PluginRegistrar, StateCell, }
 use	pub use alva_llm_wire::adapter
 use	pub use alva_llm_wire::config::*
