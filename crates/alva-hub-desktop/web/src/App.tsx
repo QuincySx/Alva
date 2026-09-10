@@ -1668,16 +1668,40 @@ export default function App() {
         <ContentFrame className="hub-session-frame">
           <ScrollRegion className="hub-session-scroll">
             {!workspace && activeSessionId === null ? (
-              <WorkspaceGate
-                busy={busy || workspaceCreating}
-                onChooseProject={() => void selectWorkspace()}
-                onCreateSession={() => void createIndependentSession()}
-              />
+              <>
+                <WorkspaceGate
+                  busy={busy || workspaceCreating}
+                  onChooseProject={() => void selectWorkspace()}
+                  onCreateSession={() => void createIndependentSession()}
+                />
+                {/* R17: 失败通知经时间线可见，即便尚未选择工作区。 */}
+                {timeline.length > 0 ? (
+                  <HubTimeline
+                    activeSessionId={activeSessionId}
+                    answeredPermissions={answeredPermissions}
+                    attemptIsLive={attemptIsLive}
+                    events={timeline}
+                    onAnswerPermission={(productSessionId, requestId, allow) =>
+                      void answerPermission(productSessionId, requestId, allow)
+                    }
+                    onStop={() => void stopActiveAttempt()}
+                    onSwitchBack={(source) => void switchBack(source)}
+                  />
+                ) : null}
+              </>
             ) : (
             <>
-            {/* UI01/UI04: 主聊天保持阅读优先——执行时间线仅在运行中或存在
-                待审批时就地显示；完成后的执行细节归属 Inspector 工作台。 */}
-            {timeline.length > 0 && (attemptIsLive || approvalGroups.some((g) => g.members.length > 0)) ? (
+            {/* UI01/UI04: 主聊天保持阅读优先——执行时间线仅在运行中、存在
+                待审批或尚未落定结果时就地显示；已完成的执行细节归属
+                Inspector 工作台。 */}
+            {timeline.length > 0 &&
+            (attemptIsLive ||
+              approvalGroups.some((g) => g.members.length > 0) ||
+              latest?.status === "failed"
+              ? true
+              : !["completed", "failed", "interrupted", "exhausted", "cancelled"].includes(
+                    latest?.status ?? "",
+                  )) ? (
               <HubTimeline
                 activeSessionId={activeSessionId}
                 answeredPermissions={answeredPermissions}
