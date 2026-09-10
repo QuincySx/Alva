@@ -153,6 +153,12 @@ impl ToolExecutionContext for RuntimeExecutionContext {
         self.store_session.as_ref().map(|cell| cell.get())
     }
 
+    fn store_session_cell(
+        &self,
+    ) -> Option<std::sync::Arc<alva_kernel_abi::agent_session::StoreSessionCell>> {
+        self.store_session.clone()
+    }
+
     fn session(&self) -> Option<&alva_kernel_abi::agent_session::ScopedSession> {
         self.session.as_ref()
     }

@@ -699,10 +699,14 @@ impl AgentSpawnTool {
             // wall-clock budget actually fires; None would fall back to
             // NoopSleeper and let a runaway child run unbounded.
             sleeper: self.sleeper.clone(),
-            session: child_session,
+            session: child_session.clone(),
             context_system,
             middleware: child_middleware,
-            store_session: ctx.store_session_cell(),
+            // R14 gap 3: child 持有**自己的** cell（包 child_session）——
+            // 孙会话因果链接落到直接父 child，而不是根父会话。
+            store_session: Some(Arc::new(
+                alva_kernel_abi::agent_session::StoreSessionCell::new(child_session),
+            )),
         })
         .await;
 
