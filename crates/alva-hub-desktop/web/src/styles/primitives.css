@@ -283,6 +283,7 @@
 .ui-list-row__copy { display: grid; min-width: 0; flex: 1; gap: 4px; }
 .ui-list-row__copy strong { overflow: hidden; color: var(--color-text); font-size: var(--font-size-body-sm); text-overflow: ellipsis; white-space: nowrap; }
 .ui-list-row__copy small,
+.ui-list-row__status { display: flex; flex: none; align-items: center; }
 .ui-list-row__meta { color: var(--color-text-subtle); font-size: var(--font-size-micro); line-height: var(--leading-ui); }
 .ui-list-row__actions { display: flex; flex: none; align-items: center; gap: 6px; }
 .ui-settings-group { display: grid; gap: 10px; }

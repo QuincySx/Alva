@@ -280,6 +280,7 @@ export interface ListRowProps extends React.HTMLAttributes<HTMLDivElement> {
   heading: React.ReactNode;
   description?: React.ReactNode;
   meta?: React.ReactNode;
+  status?: React.ReactNode;
   actions?: React.ReactNode;
 }
 
@@ -288,6 +289,7 @@ export function ListRow({
   heading,
   description,
   meta,
+  status,
   actions,
   className,
   ...props
@@ -299,6 +301,7 @@ export function ListRow({
         <strong>{heading}</strong>
         {description ? <small>{description}</small> : null}
       </div>
+      {status ? <div className="ui-list-row__status">{status}</div> : null}
       {meta ? <div className="ui-list-row__meta">{meta}</div> : null}
       {actions ? <div className="ui-list-row__actions">{actions}</div> : null}
     </div>

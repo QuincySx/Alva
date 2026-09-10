@@ -39,7 +39,8 @@ type InspectorLoader = (
 type DetailPage =
   | { kind: "llm"; turnIndex: number }
   | { kind: "tool"; turnIndex: number; toolIndex: number }
-  | { kind: "hook"; hook: InspectorHookRecord; title: string };
+  | { kind: "hook"; hook: InspectorHookRecord; title: string }
+  | { kind: "turnHooks"; turnIndex: number };
 
 export interface EngineInspectorPanelProps {
   detail: HubSessionDetail | null;
@@ -72,6 +73,15 @@ function inspectionRoot(detail: HubSessionDetail | null): string | null {
     ?.engine_session_id ?? null;
 }
 
+function hookFailures(hooks: InspectorHookRecord[]): number {
+  return hooks.filter((hook) => hook.error !== null || hook.outcome === "error").length;
+}
+
+function tokensOrUnknown(input: number, output: number): string {
+  return input === 0 && output === 0 ? "—" : `${input}/${output}`;
+}
+
+/** Middleware defaults to a collapsed count so successful hooks never bury LLM/Tool steps. */
 function HookRows({
   hooks,
   onOpen,
@@ -81,8 +91,14 @@ function HookRows({
 }) {
   const { t } = useI18n();
   if (hooks.length === 0) return null;
+  const failures = hookFailures(hooks);
   return (
-    <PanelSection heading={t("inspector.middleware")} meta={`${hooks.length}`}>
+    <Disclosure
+      defaultOpen={false}
+      description={t("inspector.inclusiveHint")}
+      meta={failures > 0 ? `${hooks.length} · ${failures} ✕` : `${hooks.length}`}
+      title={t("inspector.middleware")}
+    >
       {hooks.map((hook, index) => (
         <ListRow
           actions={(
@@ -94,9 +110,34 @@ function HookRows({
           heading={hook.middleware_name}
           key={`${hook.middleware_name}-${hook.hook}-${index}`}
           meta={`${hook.duration_ms}ms`}
+          leading={<Timer aria-hidden="true" size={15} />}
         />
       ))}
-    </PanelSection>
+    </Disclosure>
+  );
+}
+
+/** Full per-step hook chain; lives on the step's second-level page, not the overview. */
+function HookChain({ hooks }: { hooks: InspectorHookRecord[] }) {
+  const { t } = useI18n();
+  if (hooks.length === 0) return null;
+  return (
+    <Disclosure
+      defaultOpen={false}
+      description={t("inspector.inclusiveHint")}
+      meta={`${hookFailures(hooks) > 0 ? `${hookFailures(hooks)} ✕ · ` : ""}${hooks.length}`}
+      title={t("inspector.middleware")}
+    >
+      {hooks.map((hook, index) => (
+        <ListRow
+          description={`${hook.hook} · ${hook.outcome}`}
+          heading={hook.middleware_name}
+          key={`${hook.middleware_name}-${hook.hook}-${index}`}
+          meta={`${hook.duration_ms}ms`}
+          leading={<Timer aria-hidden="true" size={15} />}
+        />
+      ))}
+    </Disclosure>
   );
 }
 
@@ -123,6 +164,7 @@ function LlmDetail({ llm }: { llm: InspectorLlmCallRecord }) {
       <Disclosure title={t("inspector.response")}>
         <pre className="hub-engine-inspector__json">{pretty(llm.response)}</pre>
       </Disclosure>
+      <HookChain hooks={llm.middleware_hooks} />
       {llm.error_message ? (
         <Notice heading={t("inspector.failure")} description={llm.error_message} tone="danger" />
       ) : null}
@@ -149,6 +191,7 @@ function ToolDetail({ tool }: { tool: InspectorToolCallRecord }) {
       <Disclosure title={t("inspector.result")}>
         <pre className="hub-engine-inspector__json">{pretty(tool.result)}</pre>
       </Disclosure>
+      <HookChain hooks={tool.middleware_hooks} />
     </div>
   );
 }
@@ -288,6 +331,9 @@ export function EngineInspectorPanel({
   const tool = selection?.kind === "tool"
     ? current.run.turns[selection.turnIndex]?.tool_calls[selection.toolIndex]
     : null;
+  const turnHooks = selection?.kind === "turnHooks"
+    ? current.run.turns[selection.turnIndex]?.llm_call.middleware_hooks
+    : null;
   const navigationDepth = path.length + (selection ? 1 : 0);
 
   return (
@@ -331,6 +377,9 @@ export function EngineInspectorPanel({
       {selection?.kind === "llm" && llm ? <LlmDetail llm={llm} /> : null}
       {selection?.kind === "tool" && tool ? <ToolDetail tool={tool} /> : null}
       {selection?.kind === "hook" ? <HookDetail hook={selection.hook} title={selection.title} /> : null}
+      {selection?.kind === "turnHooks" && turnHooks ? (
+        <HookChain hooks={turnHooks} />
+      ) : null}
 
       {!selection ? (
         <div className="hub-engine-inspector__session">
@@ -342,7 +391,7 @@ export function EngineInspectorPanel({
           >
             <div className="hub-engine-inspector__metrics">
               <span><small>{t("inspector.duration")}</small><strong>{current.run.total_duration_ms}ms</strong></span>
-              <span><small>{t("inspector.tokens")}</small><strong>{current.run.total_input_tokens}/{current.run.total_output_tokens}</strong></span>
+              <span><small>{t("inspector.tokens")}</small><strong>{tokensOrUnknown(current.run.total_input_tokens, current.run.total_output_tokens)}</strong></span>
               <span><small>{t("inspector.turns")}</small><strong>{current.run.turns.length}</strong></span>
               <span><small>{t("inspector.children")}</small><strong>{current.children.length}</strong></span>
             </div>
@@ -382,8 +431,14 @@ export function EngineInspectorPanel({
                   actions={<Button onClick={() => setSelection({ kind: "llm", turnIndex })} size="small" variant="ghost">{t("common.open")}</Button>}
                   description={`${turn.llm_call.input_tokens}/${turn.llm_call.output_tokens} ${t("inspector.tokens")}`}
                   heading={t("inspector.llmCall")}
+                  key={`${turn.turn_number}-llm`}
                   leading={<BrainCircuit aria-hidden="true" size={15} />}
                   meta={`${turn.llm_call.duration_ms}ms`}
+                  status={turn.llm_call.error_message
+                    ? <Badge tone="danger">{t("inspector.failed")}</Badge>
+                    : turn.llm_call.stop_reason === "cancelled"
+                      ? <Badge tone="warning">{t("inspector.cancelled")}</Badge>
+                      : null}
                 />
                 {turn.tool_calls.map((toolCall, toolIndex) => (
                   <ListRow
@@ -393,18 +448,21 @@ export function EngineInspectorPanel({
                     key={toolCall.tool_call.id}
                     leading={<Wrench aria-hidden="true" size={15} />}
                     meta={`${toolCall.duration_ms}ms`}
+                    status={toolCall.is_error ? <Badge tone="danger">{t("inspector.failed")}</Badge> : null}
                   />
                 ))}
-                {turn.llm_call.middleware_hooks.map((hook, hookIndex) => (
+                {turn.llm_call.middleware_hooks.length > 0 ? (
                   <ListRow
-                    actions={<Button onClick={() => setSelection({ kind: "hook", hook, title: hook.middleware_name })} size="small" variant="ghost">{t("common.open")}</Button>}
-                    description={hook.hook}
-                    heading={hook.middleware_name}
-                    key={`${hook.middleware_name}-${hook.hook}-${hookIndex}`}
+                    actions={<Button onClick={() => setSelection({ kind: "turnHooks", turnIndex })} size="small" variant="ghost">{t("common.open")}</Button>}
+                    description={t("inspector.inclusiveHint")}
+                    heading={t("inspector.turnHooks", { count: turn.llm_call.middleware_hooks.length })}
+                    key={`${turn.turn_number}-hooks`}
                     leading={<Timer aria-hidden="true" size={15} />}
-                    meta={`${hook.duration_ms}ms`}
+                    meta={hookFailures(turn.llm_call.middleware_hooks) > 0
+                      ? `${turn.llm_call.middleware_hooks.length} · ${hookFailures(turn.llm_call.middleware_hooks)} ✕`
+                      : `${turn.llm_call.middleware_hooks.length}`}
                   />
-                ))}
+                ) : null}
               </Disclosure>
             ))}
           </PanelSection>
