@@ -24,7 +24,10 @@ R10 明确要求“避免与运行中的 turn 产生半切换状态”。共享 
 
 ## 执行记录
 
-- Commit：待填写
-- 实际验证命令及结果：待填写
+- Commit：ec46648
+- 内容：swap_session 原子化：ConversationLog 与当前存储能力经 StoreSessionCell 一次切换，
+不再出现日志已切、store 未切的中间态。
+- 验证（2026-09-12 复跑）：`cargo +1.98.1 test --offline -p alva-agent-core -p alva-app-core -p alva-kernel-core -p alva-kernel-abi` 32 个测试目标全部 ok，655 passed / 0 failed；`scripts/ci-check-deps.sh` 通过（Rule 17/18/19 边界完好）。
+- 实际验证命令及结果：`cargo +1.98.1 test --offline -p alva-agent-core -p alva-app-core -p alva-kernel-core -p alva-kernel-abi` → 32 个测试目标 ok，655 passed / 0 failed（2026-09-12 复跑）；`scripts/ci-check-deps.sh` exit 0。
 
 遵守根/目录 AGENTS.md 与 FRACTAL-DOCS.md；Hub UI 修改前读取 UI glossary/wireframes/motion。只修本卡范围，不覆盖他人修改。行为问题先复现再修复，独立提交并同步公开快照；未运行的测试不得写为通过。本次 review 只建卡，不实施修复。

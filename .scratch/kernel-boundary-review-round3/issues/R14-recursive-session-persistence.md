@@ -28,7 +28,10 @@ R09 验收要求递归子会话持久化，并在 Inspector 中保留真实父�
 
 ## 执行记录
 
-- Commit：待填写
-- 实际验证命令及结果：待填写
+- Commit：83052d3
+- 内容：递归子会话持久化到直接父仓库：RuntimeExecutionContext 补 store_session_cell 覆写、
+SubAgentPlugin 派生链传递父 StoreSessionCell、会话记录沿父链写入。
+- 验证（2026-09-12 复跑）：`cargo +1.98.1 test --offline -p alva-agent-core -p alva-app-core -p alva-kernel-core -p alva-kernel-abi` 32 个测试目标全部 ok，655 passed / 0 failed；`scripts/ci-check-deps.sh` 通过（Rule 17/18/19 边界完好）。
+- 实际验证命令及结果：`cargo +1.98.1 test --offline -p alva-agent-core -p alva-app-core -p alva-kernel-core -p alva-kernel-abi` → 32 个测试目标 ok，655 passed / 0 failed（2026-09-12 复跑）；`scripts/ci-check-deps.sh` exit 0。
 
 遵守根/目录 AGENTS.md 与 FRACTAL-DOCS.md；Hub UI 修改前读取 UI glossary/wireframes/motion。只修本卡范围，不覆盖他人修改。行为问题先复现再修复，独立提交并同步公开快照；未运行的测试不得写为通过。本次 review 只建卡，不实施修复。

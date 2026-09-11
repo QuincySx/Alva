@@ -26,7 +26,7 @@
 
 ## 执行记录
 
-- 设计/实现 commit：待填写
-- 验证命令、真实场景及结果：待填写
+- 设计/实现 commit：ed02c57 + cf18940
+- 验证命令、真实场景及结果：`npx vitest run` 70/70、`npm run build`、`npx playwright test` 12/12（2026-09-12 复跑）；时间线仅运行中/待审批/未落定时显示，完成态细节归 Inspector（01-chat-shell 基线已按新设计重建）。
 
 只在 alva-hub-desktop 的 Tauri/React UI 上实施，不改旧 alva-app-tauri。遵守根/目录 AGENTS.md、FRACTAL-DOCS.md 及 UI glossary/wireframes/motion；与用户最新要求冲突的旧描述按 UI01 更新。每个逻辑改动独立提交，不为过截图直接放宽阈值，不把demo视图冒充真实产品。此轮只review与建卡，未执行本卡实现。

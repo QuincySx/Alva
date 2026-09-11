@@ -26,7 +26,10 @@ product-pages.tsx:408 的 permissionMode 仅组件 useState，:889–890 只调�
 
 ## 执行记录
 
-- Commit：待填写
-- 实际验证命令及结果：待填写
+- Commit：ed02c57 + cf18940
+- 内容：权限设置真实化：移除无等价 PermissionProfile 的"只读计划"假选项，
+保留 Ask/Auto Edits 并标注仅影响新会话/持久化开发中。
+- 验证（2026-09-12 复跑）：`npx vitest run` 70/70 通过（含 R20 自动化、R21 权限设置相关组件测试）；`npm run build` 通过；`npx playwright test` 12/12 通过（04-automation / 05-plugins-skills / 06-settings 基线按诚实化后界面重建）。
+- 实际验证命令及结果：`npx vitest run` 70/70 通过（含自动化/权限/插件组件测试）、`npm run build` 通过、`npx playwright test` 12/12 通过（04-automation/05-plugins-skills/06-settings 基线按诚实化界面重建，2026-09-12 复跑）。
 
 遵守根/目录 AGENTS.md 与 FRACTAL-DOCS.md；Hub UI 修改前读取 UI glossary/wireframes/motion。只修本卡范围，不覆盖他人修改。行为问题先复现再修复，独立提交并同步公开快照；未运行的测试不得写为通过。本次 review 只建卡，不实施修复。
