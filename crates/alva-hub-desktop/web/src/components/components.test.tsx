@@ -14,6 +14,7 @@ import { EngineInspectorPanel } from "./engine-inspector";
 import { HubTimeline } from "./hub-timeline";
 import { ModelPicker, type HubModelRoute } from "./model-picker";
 import { ProviderSettings } from "./provider-settings";
+import { SettingsPage } from "./product-pages";
 
 const routes: HubModelRoute[] = [
   {
@@ -665,5 +666,94 @@ describe("Hub domain components", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stop current run" }));
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  // ── R31: truthfulness of permission and execution-protection settings ────
+
+  function renderSettings(sectionLabel: string) {
+    render(
+      <I18nProvider>
+        <SettingsPage
+          defaultTarget={null}
+          onDiscoverProviderModels={vi.fn()}
+          onSaveProvider={vi.fn()}
+          onSetDefaultProvider={vi.fn()}
+          onTestProviderRoute={vi.fn()}
+          providers={[]}
+          providersLoading={false}
+          routes={[]}
+        />
+      </I18nProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(sectionLabel, "i") }));
+  }
+
+  it("permission mode control is disabled and never pretends to persist (R31)", () => {
+    renderSettings("Permissions");
+    const modeSelect = screen.getByRole("combobox", { name: "Permission Mode" });
+    expect(modeSelect).toBeDisabled();
+    // The row states the real source of truth instead of a success badge.
+    expect(screen.getByText(/chosen per session in the composer/i)).toBeInTheDocument();
+    // No "persistence in progress" badge that still renders an active select.
+    expect(screen.queryByText(/Persistence in progress/i)).not.toBeInTheDocument();
+  });
+
+  it("sensitive-path protection reports as built-in, not as an enforced toggle (R31)", () => {
+    renderSettings("Permissions");
+    expect(screen.getByText("Built-in")).toBeInTheDocument();
+    expect(screen.queryByText(/Protected/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/严格保护中/i)).not.toBeInTheDocument();
+  });
+
+  it("worker concurrency, resource tier and git snapshot are disabled (R31)", () => {
+    renderSettings("General");
+    expect(screen.getByRole("combobox", { name: "Worker Limit" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Resource Tier" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Git Auto Snapshot" })).toBeDisabled();
+    expect(screen.getAllByText(/does not affect new sessions/i).length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ── R32: production settings/extensions carry no fake state ──────────────
+
+  it("appearance options that do nothing are disabled (R32)", () => {
+    renderSettings("General");
+    expect(screen.getByRole("button", { name: "Light" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "System" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Use compact density" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Reduce motion" })).toBeDisabled();
+    expect(screen.getByText(/operating system/i)).toBeInTheDocument();
+  });
+
+  it("tools section disables fake toggles and shows MCP as not wired (R32)", () => {
+    renderSettings("Tools");
+    expect(screen.getByRole("switch", { name: "File IO" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Shell" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Browser" })).toBeDisabled();
+    // No sample MCP rows, no add-server affordance.
+    expect(screen.queryByText(/Chrome DevTools MCP/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add MCP Server/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/not connected to a backend/i).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("remote SSH page shows an honest not-implemented state (R32)", () => {
+    renderSettings("Remote");
+    expect(screen.queryByText(/aliyun-prod/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add SSH Host/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/not implemented in this build/i).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("usage page reports not-collected instead of invented numbers (R32)", () => {
+    renderSettings("Usage");
+    expect(screen.queryByText("1,420,500")).not.toBeInTheDocument();
+    expect(screen.queryByText("$14.28")).not.toBeInTheDocument();
+    expect(screen.queryByText(/GPT-5.6-Sol/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/not collected in this build/i).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("about page has no invented version or up-to-date claim (R32)", () => {
+    renderSettings("About");
+    expect(screen.queryByText(/v0\.1\.45/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Already up to date/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Check/i })).not.toBeInTheDocument();
   });
 });

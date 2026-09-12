@@ -323,26 +323,7 @@ export function SettingsPage({
   const [profileName, setProfileName] = useState("Wang (CN)");
   const [profileEmail, setProfileEmail] = useState("wang@alva.local");
 
-  // Remote SSH Hosts state
-  const [sshHosts, setSshHosts] = useState([
-    { id: "aliyun-prod", name: "阿里云生产集群 (aliyun-prod)", host: "10.0.12.88", user: "deploy", port: 22, status: "connected" },
-    { id: "gpu-dev", name: "本地 GPU 算力机 (rtx4090-dev)", host: "192.168.1.120", user: "dev", port: 22, status: "idle" },
-  ]);
-  const [addSshOpen, setAddSshOpen] = useState(false);
-  const [newSshName, setNewSshName] = useState("");
-  const [newSshHost, setNewSshHost] = useState("");
-  const [newSshUser, setNewSshUser] = useState("root");
-
-  // MCP Servers local state
-  const [mcpServers, setMcpServers] = useState([
-    { id: "chrome-devtools", name: "Chrome DevTools MCP", transport: "SSE", endpoint: "http://127.0.0.1:9222/sse", enabled: true },
-    { id: "postgres-inspector", name: "PostgreSQL Studio", transport: "stdio", endpoint: "npx @modelcontextprotocol/server-postgres", enabled: false },
-  ]);
-  const [addMcpOpen, setAddMcpOpen] = useState(false);
-  const [newMcpName, setNewMcpName] = useState("");
-  const [newMcpUrl, setNewMcpUrl] = useState("");
-
-  // Tools toggles
+  // Tools toggles — R31/R32: 不可用的假开关保持禁用展示（值不再被消费）。
   const [toolFileIo, setToolFileIo] = useState(true);
   const [toolShell, setToolShell] = useState(true);
   const [toolWeb, setToolWeb] = useState(true);
@@ -470,14 +451,16 @@ export function SettingsPage({
               </div>
             </div>
 
-            {/* Appearance Settings */}
+            {/* Appearance Settings — R32: 浅色/系统主题、全局密度、减弱动效
+                开关都没有真实实现；诚实禁用并说明真实行为。 */}
             <SettingsGroup heading={t("settings.appearance")} description={t("settings.appearanceDescription")}>
               <SettingsRow
-                heading={t("settings.theme")}
-                description={locale === "zh-CN" ? "选择界面的视觉主题基线" : "Select UI color theme"}
+                heading={t("settings.themeTitle")}
+                description={t("settings.themeDescription")}
                 control={
                   <div style={{ display: "flex", gap: "6px" }}>
                     <Button
+                      disabled
                       size="small"
                       variant={themeMode === "light" ? "primary" : "ghost"}
                       onClick={() => setThemeMode("light")}
@@ -492,6 +475,7 @@ export function SettingsPage({
                       {locale === "zh-CN" ? "深色" : "Dark"}
                     </Button>
                     <Button
+                      disabled
                       size="small"
                       variant={themeMode === "system" ? "primary" : "ghost"}
                       onClick={() => setThemeMode("system")}
@@ -501,8 +485,8 @@ export function SettingsPage({
                   </div>
                 }
               />
-              <SettingsRow heading={t("settings.density")} description={t("settings.densityDescription")} control={<Switch checked={compact} label={t("settings.useCompact")} onCheckedChange={(checked) => setCompact(checked === true)} />} />
-              <SettingsRow heading={t("settings.reduceMotion")} description={t("settings.reduceMotionDescription")} control={<Switch checked={reducedMotion} label={t("settings.reduceMotion")} onCheckedChange={(checked) => setReducedMotion(checked === true)} />} />
+              <SettingsRow heading={t("settings.density")} description={t("settings.densityDescriptionTruthful")} control={<Switch checked={compact} disabled label={t("settings.useCompact")} onCheckedChange={(checked) => setCompact(checked === true)} />} />
+              <SettingsRow heading={t("settings.reduceMotion")} description={t("settings.reduceMotionDescriptionTruthful")} control={<Switch checked={reducedMotion} disabled label={t("settings.reduceMotion")} onCheckedChange={(checked) => setReducedMotion(checked === true)} />} />
             </SettingsGroup>
 
             {/* Language Settings */}
@@ -510,17 +494,20 @@ export function SettingsPage({
               <SettingsRow heading={t("settings.language")} description={t("settings.languageDescription")} control={<SelectField ariaLabel={t("settings.language")} onValueChange={(value) => setPreference(value as LanguagePreference)} options={[{ value: "zh-CN", label: t("settings.chinese") }, { value: "en-US", label: t("settings.english") }, { value: "system", label: t("settings.systemLanguage") }]} value={preference} />} />
             </SettingsGroup>
 
-            {/* Cindy Orca Orchestration & Worker Concurrency */}
+            {/* Cindy Orca Orchestration & Worker Concurrency — R31: 这些
+                开关没有连接任何引擎，真实 Worker 并发来自各引擎的
+                TeamRun；诚实禁用而不是假装生效。 */}
             <SettingsGroup
-              heading={locale === "zh-CN" ? "Agent 协同与执行策略 (Orca Coordination)" : "Orca Agent Coordination"}
-              description={locale === "zh-CN" ? "配置 Lead Agent 派发子任务的并发上限与 Git 保存点" : "Configure subagent worker limits and Git checkpointing"}
+              heading={t("settings.workerControlsTitle")}
+              description={t("settings.workerControlsDescription")}
             >
               <SettingsRow
                 heading={locale === "zh-CN" ? "子 Worker 最大并发数" : "Max Worker Concurrency"}
-                description={locale === "zh-CN" ? "限制同时运行的后台 Worker 数量以防资源过载" : "Upper limit for parallel subagents"}
+                description={t("settings.truthfulNotWired")}
                 control={
                   <SelectField
                     ariaLabel="Worker Limit"
+                    disabled
                     value={workerLimit}
                     onValueChange={setWorkerLimit}
                     options={[
@@ -533,10 +520,11 @@ export function SettingsPage({
               />
               <SettingsRow
                 heading={locale === "zh-CN" ? "Agent 资源消耗档位" : "Resource Mode"}
-                description={locale === "zh-CN" ? "控制后台子任务分配的 CPU/内存资源优先级" : "Resource priority tier"}
+                description={t("settings.truthfulNotWired")}
                 control={
                   <SelectField
                     ariaLabel="Resource Tier"
+                    disabled
                     value={resourceTier}
                     onValueChange={setResourceTier}
                     options={[
@@ -549,8 +537,8 @@ export function SettingsPage({
               />
               <SettingsRow
                 heading={locale === "zh-CN" ? "自动 Git 安全保存点" : "Git Auto Checkpoint"}
-                description={locale === "zh-CN" ? "在执行危险批量代码编辑前自动创建 stash/commit 快照" : "Create safety commit before dangerous edits"}
-                control={<Switch checked={gitSnapshot} label="Git Auto Snapshot" onCheckedChange={(c) => setGitSnapshot(c === true)} />}
+                description={t("settings.truthfulNotWired")}
+                control={<Switch checked={gitSnapshot} disabled label="Git Auto Snapshot" onCheckedChange={(c) => setGitSnapshot(c === true)} />}
               />
             </SettingsGroup>
           </>
@@ -569,191 +557,61 @@ export function SettingsPage({
           <>
             <SettingsGroup
               heading={locale === "zh-CN" ? "内置核心能力工具" : "Built-in Tool Primitives"}
-              description={locale === "zh-CN" ? "控制 Agent 在会话中可直接调用的基础原子能力" : "Toggle built-in verbs for agents"}
+              description={t("settings.toolTogglesDescription")}
             >
               <SettingsRow
                 heading={locale === "zh-CN" ? "文件系统读写 (File I/O & Search)" : "File System"}
-                description={locale === "zh-CN" ? "允许 Agent 查看、检索与编辑项目工作区文件" : "Read/write workspace files"}
-                control={<Switch checked={toolFileIo} label="File IO" onCheckedChange={(c) => setToolFileIo(c === true)} />}
+                description={t("settings.truthfulNotWired")}
+                control={<Switch checked={toolFileIo} disabled label="File IO" onCheckedChange={(c) => setToolFileIo(c === true)} />}
               />
               <SettingsRow
                 heading={locale === "zh-CN" ? "终端 Shell 执行 (Terminal & Shell)" : "Terminal / Shell"}
-                description={locale === "zh-CN" ? "允许 Agent 在受控沙箱或本地执行构建与测试命令" : "Execute shell commands"}
-                control={<Switch checked={toolShell} label="Shell" onCheckedChange={(c) => setToolShell(c === true)} />}
+                description={t("settings.truthfulNotWired")}
+                control={<Switch checked={toolShell} disabled label="Shell" onCheckedChange={(c) => setToolShell(c === true)} />}
               />
               <SettingsRow
                 heading={locale === "zh-CN" ? "互联网搜索与抓取 (Web Search & Fetch)" : "Web Search"}
-                description={locale === "zh-CN" ? "支持 Agent 查询实时在线文档与公开网页" : "Search and read URL contents"}
-                control={<Switch checked={toolWeb} label="Web" onCheckedChange={(c) => setToolWeb(c === true)} />}
+                description={t("settings.truthfulNotWired")}
+                control={<Switch checked={toolWeb} disabled label="Web" onCheckedChange={(c) => setToolWeb(c === true)} />}
               />
               <SettingsRow
                 heading={locale === "zh-CN" ? "沙箱浏览器自动化 (Chrome CDP)" : "Browser CDP"}
-                description={locale === "zh-CN" ? "支持 Agent 启动无头浏览器进行页面审查与测试" : "Headless browser automation"}
-                control={<Switch checked={toolBrowser} label="Browser" onCheckedChange={(c) => setToolBrowser(c === true)} />}
+                description={t("settings.truthfulNotWired")}
+                control={<Switch checked={toolBrowser} disabled label="Browser" onCheckedChange={(c) => setToolBrowser(c === true)} />}
               />
               <SettingsRow
                 heading={locale === "zh-CN" ? "Git 与 Worktree 隔离分支" : "Git & Worktree"}
-                description={locale === "zh-CN" ? "支持 Worker 在独立 Git Worktree 分支中安全试错" : "Isolated branch execution"}
-                control={<Switch checked={toolGit} label="Git" onCheckedChange={(c) => setToolGit(c === true)} />}
+                description={t("settings.truthfulNotWired")}
+                control={<Switch checked={toolGit} disabled label="Git" onCheckedChange={(c) => setToolGit(c === true)} />}
               />
             </SettingsGroup>
 
+            {/* R32: MCP 管理未接后端——诚实呈现未接入状态，不再展示可增删
+                的样例列表（样例归属 UI Lab demo）。 */}
             <SettingsGroup
               heading={locale === "zh-CN" ? "外部 MCP 服务器 (Model Context Protocol)" : "MCP Servers"}
-              description={locale === "zh-CN" ? "连接外部标准 MCP 协议服务，按需扩展专业工具" : "Connect external MCP servers"}
+              description={t("settings.mcpNotWired")}
             >
-              <Notice description={locale === "zh-CN" ? "以下为界面样例数据，尚未接入真实后端；添加/编辑暂不生效。" : "The entries below are interface samples not yet wired to a backend; adding or editing has no effect."} heading={locale === "zh-CN" ? "示例数据" : "Sample data"} role="status" tone="warning" />
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
-                <DialogRoot open={addMcpOpen} onOpenChange={setAddMcpOpen}>
-                  <DialogTrigger asChild>
-                    <Button leadingIcon={<Plus size={14} />}>
-                      {locale === "zh-CN" ? "添加 MCP 服务器" : "Add MCP Server"}
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent
-                    title={locale === "zh-CN" ? "添加 MCP 服务器" : "Add MCP Server"}
-                    description={locale === "zh-CN" ? "配置标准 MCP 协议端点或 stdio 子进程命令" : "Configure MCP SSE endpoint or stdio command"}
-                  >
-                    <div className="hub-form-stack" style={{ marginTop: "12px" }}>
-                      <FieldFrame label={locale === "zh-CN" ? "服务名称" : "Server Name"}>
-                        <TextField
-                          placeholder="e.g. My PostgreSQL MCP"
-                          value={newMcpName}
-                          onChange={(e) => setNewMcpName(e.target.value)}
-                        />
-                      </FieldFrame>
-                      <FieldFrame label={locale === "zh-CN" ? "服务端点 / 启动命令" : "Endpoint / Command"}>
-                        <TextField
-                          placeholder="http://127.0.0.1:8080/sse or npx ..."
-                          value={newMcpUrl}
-                          onChange={(e) => setNewMcpUrl(e.target.value)}
-                        />
-                      </FieldFrame>
-                      <div className="hub-dialog-actions" style={{ marginTop: "16px" }}>
-                        <Button variant="ghost" onClick={() => setAddMcpOpen(false)}>
-                          {t("common.cancel")}
-                        </Button>
-                        <Button
-                          variant="primary"
-                          disabled={!newMcpName.trim() || !newMcpUrl.trim()}
-                          onClick={() => {
-                            setMcpServers((curr) => [
-                              ...curr,
-                              {
-                                id: `mcp-${Date.now()}`,
-                                name: newMcpName.trim(),
-                                transport: newMcpUrl.startsWith("http") ? "SSE" : "stdio",
-                                endpoint: newMcpUrl.trim(),
-                                enabled: true,
-                              },
-                            ]);
-                            setNewMcpName("");
-                            setNewMcpUrl("");
-                            setAddMcpOpen(false);
-                          }}
-                        >
-                          {locale === "zh-CN" ? "确认注册" : "Register Server"}
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </DialogRoot>
-              </div>
-
-              {mcpServers.map((srv) => (
-                <SettingsRow
-                  key={srv.id}
-                  heading={srv.name}
-                  description={`${srv.transport.toUpperCase()} · ${srv.endpoint}`}
-                  control={
-                    <Switch
-                      checked={srv.enabled}
-                      label={srv.name}
-                      onCheckedChange={(checked) =>
-                        setMcpServers((curr) =>
-                          curr.map((item) =>
-                            item.id === srv.id ? { ...item, enabled: checked === true } : item,
-                          ),
-                        )
-                      }
-                    />
-                  }
-                />
-              ))}
+              <Notice
+                description={t("settings.mcpNotWired")}
+                heading={t("settings.notWiredTitle")}
+                role="status"
+                tone="neutral"
+              />
             </SettingsGroup>
           </>
         ) : section === "remote" ? (
           <SettingsGroup
             heading={locale === "zh-CN" ? "远程 SSH 主机列表" : "SSH Remote Hosts"}
-            description={locale === "zh-CN" ? "配置云端服务器与集群，支持 Agent 在远程环境执行沙箱命令" : "Manage remote execution targets"}
+            description={t("settings.sshNotWired")}
           >
-            <Notice description={locale === "zh-CN" ? "以下为界面样例数据，尚未接入真实后端；添加/编辑暂不生效。" : "The entries below are interface samples not yet wired to a backend; adding or editing has no effect."} heading={locale === "zh-CN" ? "示例数据" : "Sample data"} role="status" tone="warning" />
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
-              <DialogRoot open={addSshOpen} onOpenChange={setAddSshOpen}>
-                <DialogTrigger asChild>
-                  <Button leadingIcon={<Plus size={14} />}>
-                    {locale === "zh-CN" ? "添加 SSH 主机" : "Add SSH Host"}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent
-                  title={locale === "zh-CN" ? "添加远程 SSH 主机" : "Add SSH Host"}
-                  description={locale === "zh-CN" ? "配置远程机器 IP、登录用户名及 SSH 密钥连接" : "Configure remote host details"}
-                >
-                  <div className="hub-form-stack" style={{ marginTop: "12px" }}>
-                    <FieldFrame label={locale === "zh-CN" ? "主机别名" : "Host Name"}>
-                      <TextField placeholder="e.g. GPU Server 4090" value={newSshName} onChange={(e) => setNewSshName(e.target.value)} />
-                    </FieldFrame>
-                    <FieldFrame label={locale === "zh-CN" ? "IP 地址 / 域名" : "IP Address / Hostname"}>
-                      <TextField placeholder="192.168.1.100" value={newSshHost} onChange={(e) => setNewSshHost(e.target.value)} />
-                    </FieldFrame>
-                    <FieldFrame label={locale === "zh-CN" ? "登录用户名" : "User"}>
-                      <TextField placeholder="root / ubuntu" value={newSshUser} onChange={(e) => setNewSshUser(e.target.value)} />
-                    </FieldFrame>
-                    <div className="hub-dialog-actions" style={{ marginTop: "16px" }}>
-                      <Button variant="ghost" onClick={() => setAddSshOpen(false)}>{t("common.cancel")}</Button>
-                      <Button
-                        variant="primary"
-                        disabled={!newSshName.trim() || !newSshHost.trim()}
-                        onClick={() => {
-                          setSshHosts((curr) => [
-                            ...curr,
-                            {
-                              id: `ssh-${Date.now()}`,
-                              name: newSshName.trim(),
-                              host: newSshHost.trim(),
-                              user: newSshUser.trim() || "root",
-                              port: 22,
-                              status: "idle",
-                            },
-                          ]);
-                          setNewSshName("");
-                          setNewSshHost("");
-                          setAddSshOpen(false);
-                        }}
-                      >
-                        {locale === "zh-CN" ? "确认添加" : "Add Host"}
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </DialogRoot>
-            </div>
-
-            {sshHosts.map((h) => (
-              <SettingsRow
-                key={h.id}
-                heading={h.name}
-                description={`${h.user}@${h.host}:${h.port} · SSH 密钥免密登录`}
-                control={
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <Badge tone={h.status === "connected" ? "success" : "neutral"}>
-                      {h.status === "connected" ? (locale === "zh-CN" ? "已连接" : "Connected") : (locale === "zh-CN" ? "就绪" : "Ready")}
-                    </Badge>
-                    <Button size="small" variant="ghost">{locale === "zh-CN" ? "测试连通" : "Test"}</Button>
-                  </div>
-                }
-              />
-            ))}
+            {/* R32: SSH 执行未实现——诚实空态，移除假主机样例与添加对话框。 */}
+            <Notice
+              description={t("settings.sshNotWired")}
+              heading={t("settings.notWiredTitle")}
+              role="status"
+              tone="neutral"
+            />
           </SettingsGroup>
         ) : section === "im" ? (
           <SettingsGroup
@@ -794,64 +652,52 @@ export function SettingsPage({
           >
             <SettingsRow
               heading={locale === "zh-CN" ? "默认审批模式（仅影响新会话）" : "Default Permission Mode (new sessions only)"}
-              description={
-                locale === "zh-CN"
-                  ? "仅支持 Ask / Auto Edits 两档；'只读计划' 无等价权限档，为避免假成功已移除。持久化接线开发中，当前为组件内默认值。"
-                  : "Only Ask / Auto Edits are supported; 'Plan Only' has no equivalent profile and was removed. Persistence wiring is in progress."
-              }
+              description={t("settings.permissionSource")}
               control={
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Badge tone="warning">
-                    {locale === "zh-CN" ? "持久化开发中" : "Persistence in progress"}
-                  </Badge>
-                  <SelectField
-                    ariaLabel="Permission Mode"
-                    value={permissionMode}
-                    onValueChange={(v) => setPermissionMode(v as typeof permissionMode)}
-                    options={[
-                      { value: "ask", label: locale === "zh-CN" ? "逐项询问 (Ask - 推荐)" : "Ask (Recommended)" },
-                      { value: "accept_edits", label: locale === "zh-CN" ? "自动代码编辑 (Auto Edits)" : "Auto Accept Edits" },
-                    ]}
-                  />
-                </div>
+                <SelectField
+                  ariaLabel="Permission Mode"
+                  disabled
+                  value={permissionMode}
+                  onValueChange={(v) => setPermissionMode(v as typeof permissionMode)}
+                  options={[
+                    { value: "ask", label: locale === "zh-CN" ? "逐项询问 (Ask - 推荐)" : "Ask (Recommended)" },
+                    { value: "accept_edits", label: locale === "zh-CN" ? "自动代码编辑 (Auto Edits)" : "Auto Accept Edits" },
+                  ]}
+                />
               }
             />
             <SettingsRow
-              heading={locale === "zh-CN" ? "敏感路径保护过滤" : "Sensitive Path Filtering"}
-              description={locale === "zh-CN" ? "禁止 Agent 读取或写入 .env、私钥、id_rsa 及密码凭据文件" : "Block access to keys and credentials"}
-              control={<Badge tone="success">{locale === "zh-CN" ? "严格保护中 (ON)" : "Protected"}</Badge>}
+              heading={t("settings.sensitivePathTitle")}
+              description={t("settings.sensitivePathDescription")}
+              control={<Badge tone="neutral">{t("settings.sensitivePathBadge")}</Badge>}
             />
           </SettingsGroup>
         ) : section === "usage" ? (
-          <>
-            <div className="hub-metric-grid" style={{ marginBottom: "20px" }}>
-              <div>
-                <small>{locale === "zh-CN" ? "本月总 Token 消耗" : "Total Tokens (Month)"}</small>
-                <strong>1,420,500</strong>
-              </div>
-              <div>
-                <small>{locale === "zh-CN" ? "预估 API 总支出" : "Estimated Cost"}</small>
-                <strong style={{ color: "var(--color-success, #10b981)" }}>$14.28</strong>
-              </div>
-            </div>
-            <SettingsGroup
-              heading={locale === "zh-CN" ? "大模型消耗明细" : "Model Usage Breakdown"}
-              description={locale === "zh-CN" ? "按厂商与模型统计调用次数与 Token 占比" : "Usage per provider and model"}
-            >
-              <SettingsRow heading="Codex · GPT-5.6-Sol" description="920,000 tokens · 64.8%" control={<Badge tone="accent">65%</Badge>} />
-              <SettingsRow heading="Anthropic · Claude 3.7 Sonnet" description="350,000 tokens · 24.6%" control={<Badge>25%</Badge>} />
-              <SettingsRow heading="SiliconFlow · DeepSeek-R1" description="150,500 tokens · 10.6%" control={<Badge>10%</Badge>} />
-            </SettingsGroup>
-          </>
+          // R32: 用量统计未收集——诚实呈现未接入，不虚构 token/成本/占比。
+          <SettingsGroup
+            heading={locale === "zh-CN" ? "用量与计费" : "Usage & Billing"}
+            description={t("settings.usageNotWired")}
+          >
+            <Notice
+              description={t("settings.usageNotWired")}
+              heading={t("settings.notWiredTitle")}
+              role="status"
+              tone="neutral"
+            />
+          </SettingsGroup>
         ) : section === "experiments" ? (
           <SettingsGroup heading={t("settings.developerSurfaces")} description={t("settings.developerDescription")}>
             <SettingsRow heading={t("settings.agentInspector")} description={t("settings.agentInspectorDescription")} control={<Switch checked={inspector} label={t("settings.showInspector")} onCheckedChange={(checked) => setInspector(checked === true)} />} />
             <SettingsRow heading={t("settings.uiLab")} description={t("settings.uiLabDescription")} control={<Badge>{t("settings.developmentOnly")}</Badge>} />
           </SettingsGroup>
         ) : (
+          // R32: 版本/更新未接 IPC——不虚构版本号与“已是最新”结论。
           <SettingsGroup heading={locale === "zh-CN" ? "系统状态与关于" : "System & About"} description={t("settings.description")}>
-            <SettingsRow heading="ALVA Hub Desktop Core" description="v0.1.45 (Stable Release · Architecture V1)" control={<Badge tone="success">v0.1.45</Badge>} />
-            <SettingsRow heading={locale === "zh-CN" ? "检查软件更新" : "Check for Updates"} description={locale === "zh-CN" ? "当前已是最新版本" : "Already up to date"} control={<Button size="small" variant="ghost">{locale === "zh-CN" ? "检查更新" : "Check"}</Button>} />
+            <SettingsRow
+              heading="ALVA Hub Desktop Core"
+              description={t("settings.versionNotWired")}
+              control={<Badge tone="neutral">{t("settings.notWiredTitle")}</Badge>}
+            />
           </SettingsGroup>
         )}
       </ScrollRegion>
