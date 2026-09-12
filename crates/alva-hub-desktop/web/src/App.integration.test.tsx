@@ -375,6 +375,9 @@ describe("App integration", () => {
     bridge.fns.testModelRoute.mockResolvedValue({ models: [], ok: true, latency_ms: 1, message: "Inference succeeded for the selected model." });
     bridge.fns.getEngineReadiness.mockResolvedValue(HEALTHY_ENGINES);
     bridge.fns.getPermissionEligibility.mockResolvedValue([]);
+    // clearAllMocks does not reset implementations — pin the shared default
+    // so file order can't leak a populated group set into unrelated tests.
+    bridge.fns.getPermissionGroups.mockResolvedValue([]);
   });
 
   it("renders the empty surface before any session or event", async () => {
@@ -1595,5 +1598,231 @@ describe("App integration", () => {
       await screen.findByText("No sessions match that search."),
     ).toBeInTheDocument();
     expect(screen.getByText("0/2")).toBeInTheDocument();
+  });
+
+  // ── R29/R30: chat-first transcript survives terminal events ──────────────
+
+  function completedDetailFixture(): HubSessionDetail {
+    const detail = detailFixture();
+    detail.session.status = "completed";
+    detail.session.last_result = "REVIEW_REPLY_MUST_STAY_VISIBLE";
+    detail.timeline_events = [];
+    detail.turns = [{
+      turn_id: "review-turn",
+      prompt: "Review greeting",
+      status: "completed",
+      result: "REVIEW_REPLY_MUST_STAY_VISIBLE",
+      error: null,
+      created_at: 100,
+      completed_at: 110,
+      attempts: [],
+    }];
+    return detail;
+  }
+
+  function emitLive(event: Record<string, unknown>) {
+    act(() => {
+      bridge.listeners.forEach((callback) => callback(event));
+    });
+  }
+
+  it("keeps user question and answer visible after a live completed event (R29)", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [{
+      product_session_id: "ps-1",
+      workspace: "/tmp/proj",
+      last_prompt: "Review greeting",
+      engine_id: "claude",
+      status: "completed",
+    }];
+    bridge.state.detail = completedDetailFixture();
+    render(<App />);
+    await user.click(await screen.findByText("Review greeting"));
+    await waitFor(() => expect(bridge.fns.getHubSession).toHaveBeenCalled());
+    expect(await screen.findAllByText("REVIEW_REPLY_MUST_STAY_VISIBLE").then((nodes) => nodes.length >= 1)).toBe(true);
+    expect((await screen.findAllByText("Review greeting")).length).toBeGreaterThanOrEqual(1);
+
+    // The same window sees the live terminal event — the transcript must not
+    // unmount. This exact scenario regressed in round 3 (whole-timeline hide).
+    emitLive({
+      product_session_id: "ps-1",
+      engine_id: "claude",
+      status: "completed",
+      message: "REVIEW_REPLY_MUST_STAY_VISIBLE",
+      item_id: "review-turn:assistant",
+    });
+    expect((await screen.findAllByText("REVIEW_REPLY_MUST_STAY_VISIBLE")).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText("Review greeting")).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it.each([
+    ["cancelled", "Stop acknowledged."],
+    ["interrupted", "Runtime exited."],
+    ["exhausted", "All engines failed."],
+    ["failed", "Engine blew up."],
+  ])("keeps already-produced text visible after a live %s event (R29)", async (status, message) => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [{
+      product_session_id: "ps-1",
+      workspace: "/tmp/proj",
+      last_prompt: "Review greeting",
+      engine_id: "claude",
+      status: "running",
+    }];
+    const detail = detailFixture();
+    detail.session.status = "running";
+    detail.turns = [{
+      turn_id: "live-turn",
+      prompt: "Review greeting",
+      status: "running",
+      result: "PARTIAL_REPLY_BEFORE_TERMINAL",
+      error: null,
+      created_at: 100,
+      completed_at: null,
+      attempts: [],
+    }];
+    bridge.state.detail = detail;
+    render(<App />);
+    await user.click(await screen.findByText("Review greeting"));
+    await waitFor(() => expect(bridge.fns.getHubSession).toHaveBeenCalled());
+    expect((await screen.findAllByText("PARTIAL_REPLY_BEFORE_TERMINAL")).length).toBeGreaterThanOrEqual(1);
+
+    emitLive({
+      product_session_id: "ps-1",
+      engine_id: "claude",
+      status,
+      message,
+      item_id: "live-turn:assistant",
+    });
+    expect((await screen.findAllByText("PARTIAL_REPLY_BEFORE_TERMINAL")).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText("Review greeting")).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("reopening a completed session keeps the transcript readable (R29 control case)", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [{
+      product_session_id: "ps-1",
+      workspace: "/tmp/proj",
+      last_prompt: "Review greeting",
+      engine_id: "claude",
+      status: "completed",
+    }];
+    bridge.state.detail = completedDetailFixture();
+    render(<App />);
+    await user.click(await screen.findByText("Review greeting"));
+    expect(await screen.findByText("REVIEW_REPLY_MUST_STAY_VISIBLE")).toBeInTheDocument();
+    // The execution view hides for a plain completed turn — no lane overview,
+    // no tool rows — but the prose stays.
+    expect(screen.queryByText(/Execution Details/)).not.toBeInTheDocument();
+  });
+
+  it("renders assistant markdown with copyable code blocks in the transcript (R30)", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [{
+      product_session_id: "ps-1",
+      workspace: "/tmp/proj",
+      last_prompt: "Show a snippet",
+      engine_id: "claude",
+      status: "completed",
+    }];
+    const detail = completedDetailFixture();
+    detail.turns[0].prompt = "Show a snippet";
+    detail.turns[0].result = [
+      "Here is the plan:",
+      "",
+      "1. Read the file",
+      "2. **Apply** the fix",
+      "",
+      "```rust",
+      "fn main() {",
+      "    println!(\"hello\");",
+      "}",
+      "```",
+    ].join("\n");
+    bridge.state.detail = detail;
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<App />);
+    await user.click(await screen.findByText("Show a snippet"));
+    await waitFor(() => expect(bridge.fns.getHubSession).toHaveBeenCalled());
+    // Structured markdown rendered (ordered list + bold)…
+    expect(await screen.findByText("Read the file")).toBeInTheDocument();
+    expect(screen.getByText("Apply")).toBeInTheDocument();
+    // …code block with its language header and copy control…
+    expect(screen.getByText("rust")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
+    // …copy lands the exact code on the clipboard.
+    await user.click(screen.getByRole("button", { name: "Copy code block" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+      "fn main() {\n    println!(\"hello\");\n}",
+    ));
+  });
+
+  it("keeps the running-state execution view out of the transcript lane (R30)", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [{
+      product_session_id: "ps-1",
+      workspace: "/tmp/proj",
+      last_prompt: "Run the build",
+      engine_id: "claude",
+      status: "running",
+    }];
+    const detail = detailFixture();
+    detail.session.status = "running";
+    detail.timeline_events = [];
+    detail.turns = [{
+      turn_id: "build-turn",
+      prompt: "Run the build",
+      status: "running",
+      result: null,
+      error: null,
+      created_at: 100,
+      completed_at: null,
+      attempts: [{
+        attempt_id: "a-1",
+        turn_id: "build-turn",
+        branch_id: "b-claude",
+        engine_id: "claude",
+        status: "running",
+        failure_reason: null,
+        usage: null,
+        side_effects: [{
+          tool_call_id: "tc-1",
+          tool_name: "execute_shell",
+          succeeded: null,
+          duration_ms: null,
+          path: null,
+        }],
+        started_at: 101,
+        completed_at: null,
+      }],
+    }];
+    bridge.state.detail = detail;
+    render(<App />);
+    await user.click(await screen.findByText("Run the build"));
+    await waitFor(() => expect(bridge.fns.getHubSession).toHaveBeenCalled());
+    // While running, tool rows are visible with the transcript…
+    expect((await screen.findAllByText(/execute_shell/)).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByText("Run the build")).length).toBeGreaterThanOrEqual(1);
+    // …and when the run completes cleanly, the execution rows step aside.
+    const finished = completedDetailFixture();
+    finished.turns[0].prompt = "Run the build";
+    finished.turns[0].result = "BUILD_OK_TEXT";
+    bridge.state.detail = finished;
+    emitLive({
+      product_session_id: "ps-1",
+      engine_id: "claude",
+      status: "completed",
+      message: "BUILD_OK_TEXT",
+      item_id: "build-turn:assistant",
+    });
+    await waitFor(() => expect(bridge.fns.getHubSession).toHaveBeenCalledTimes(2));
+    expect((await screen.findAllByText("BUILD_OK_TEXT")).length).toBeGreaterThanOrEqual(1);
+    await waitFor(() => {
+      expect(screen.queryAllByText(/execute_shell/)).toHaveLength(0);
+    });
   });
 });

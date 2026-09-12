@@ -158,7 +158,7 @@ describe("Hub domain components", () => {
     expect(await screen.findByText(/Child Agent demo-nat/i)).toBeInTheDocument();
   });
 
-  it("renders a shared-clock execution overview above timed events", () => {
+  it("renders execution events without chat messages or a three-lane overview (R30)", () => {
     render(
       <I18nProvider>
         <HubTimeline
@@ -198,10 +198,14 @@ describe("Hub domain components", () => {
       </I18nProvider>,
     );
 
+    // The execution view keeps the tool row with its shared-clock duration…
+    expect(screen.getAllByText(/read_file/).length).toBeGreaterThanOrEqual(1);
+    // …but the main chat no longer owns a three-lane execution overview…
     expect(
-      screen.getByRole("img", { name: /Agent execution timeline overview|Agent 执行时间线概览/ }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Tools|工具/)).toBeInTheDocument();
+      screen.queryByRole("img", { name: /Agent execution timeline overview|Agent 执行时间线概览/ }),
+    ).not.toBeInTheDocument();
+    // …and chat prose renders in ChatTranscript, not here.
+    expect(screen.queryByText("Inspect the project")).not.toBeInTheDocument();
   });
 
   it("filters and selects a model route from the anchored picker", async () => {

@@ -28,6 +28,7 @@ import { EngineReadinessPanel } from "./components/engine-readiness-panel";
 import { FallbackPolicyPanel } from "./components/fallback-policy-panel";
 import { ModelPicker, type HubModelRoute } from "./components/model-picker";
 import { HubSidebar } from "./components/hub-sidebar";
+import { ChatTranscript } from "./components/chat-transcript";
 import {
   HubTimeline,
   type HubTimelineEvent,
@@ -468,8 +469,17 @@ export function mergeLiveTimeline(
   current: HubTimelineEvent[],
   event: HubTimelineEvent,
 ): HubTimelineEvent[] {
-  const observed = {
+  // R29: live events arrive without `role`; derive it from the status so the
+  // transcript keeps owning the item after a terminal merge flips the status
+  // away from assistant_message/user_message.
+  const derivedRole: HubTimelineEvent["role"] = event.status === "user_message"
+    ? "user"
+    : event.status === "assistant_message"
+      ? "assistant"
+      : undefined;
+  const observed: HubTimelineEvent = {
     ...event,
+    role: event.role ?? derivedRole,
     started_at: event.started_at ?? event.created_at,
   };
   if (!event.item_id) return [...current, observed];
@@ -481,18 +491,26 @@ export function mergeLiveTimeline(
   if (index < 0) return [...current, observed];
   const next = [...current];
   const previous = current[index];
+  // R29: a terminal event merging into the assistant's message item carries a
+  // status caption, NOT prose — it must never replace text the user was
+  // already reading. Status drives the visuals; the body keeps whatever was
+  // there (streamed or restored history).
   next[index] = event.status === "assistant_message"
     ? {
         ...previous,
         ...event,
+        role: previous.role ?? derivedRole,
         started_at: previous.started_at ?? previous.created_at ?? event.created_at,
         message: `${previous.message ?? ""}${event.message ?? ""}`,
       }
     : {
         ...previous,
         ...event,
+        role: previous.role ?? derivedRole,
         started_at: previous.started_at ?? previous.created_at ?? event.created_at,
-        message: event.message ?? previous.message,
+        // Empty-string bodies (a running turn with no output yet) are absent
+        // too — the terminal caption fills them in; real prose always wins.
+        message: previous.message || event.message || null,
       };
   return next;
 }
@@ -1697,7 +1715,7 @@ export default function App() {
         />
 
         <ContentFrame className="hub-session-frame">
-          <ScrollRegion className="hub-session-scroll">
+          <ScrollRegion className="hub-session-scroll" data-chat-scroll-region="">
             {!workspace && activeSessionId === null ? (
               <>
                 <WorkspaceGate
@@ -1722,17 +1740,23 @@ export default function App() {
               </>
             ) : (
             <>
-            {/* UI01/UI04: 主聊天保持阅读优先——执行时间线仅在运行中、存在
-                待审批或尚未落定结果时就地显示；已完成的执行细节归属
-                Inspector 工作台。 */}
-            {timeline.length > 0 &&
-            (attemptIsLive ||
+            {/* R29/R30: 消息阅读流常驻——用户问题与回答从流式到终态始终可读，
+                不按运行状态卸载；Markdown/代码复制/滚动跟随由 ChatTranscript
+                承担。 */}
+            <ChatTranscript
+              events={timeline}
+              streaming={attemptIsLive}
+            />
+            {/* 执行/控制视图只在确有未落定内容时渲染：运行中、待审批、或
+                失败/中断/回退等需要动作与原因的事件；完成的执行细节（含
+                终态后残留的 running 工具标记）归 Inspector。 */}
+            {(attemptIsLive ||
               approvalGroups.some((g) => g.members.length > 0) ||
-              latest?.status === "failed"
-              ? true
-              : !["completed", "failed", "interrupted", "exhausted", "cancelled"].includes(
-                    latest?.status ?? "",
-                  )) ? (
+              timeline.some((event) =>
+                ["failed", "interrupted", "exhausted", "permission_required", "fallback", "queued"].includes(
+                  event.status,
+                ),
+              )) ? (
               <HubTimeline
                 activeSessionId={activeSessionId}
                 answeredPermissions={answeredPermissions}

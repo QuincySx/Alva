@@ -565,6 +565,12 @@ const en = {
   "team.autonomous": "Autonomous run (no per-request approval)",
   "team.showArchived": "Show archived",
   "conversation.new": "New conversation",
+  "chat.transcriptLabel": "Conversation messages",
+  "chat.copy": "Copy",
+  "chat.copyCode": "Copy code block",
+  "chat.copied": "Copied",
+  "chat.jumpToLatest": "Jump to latest",
+  "chat.executionInInspector": "Execution details moved to the Inspector workbench",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1125,6 +1131,12 @@ const zh: Record<MessageKey, string> = {
   "team.autonomous": "自主运行（无需逐次批准）",
   "team.showArchived": "显示已归档项",
   "conversation.new": "新对话",
+  "chat.transcriptLabel": "对话消息",
+  "chat.copy": "复制",
+  "chat.copyCode": "复制代码块",
+  "chat.copied": "已复制",
+  "chat.jumpToLatest": "跳到最新",
+  "chat.executionInInspector": "执行详情已移至 Inspector 工作台",
 };
 
 type Params = Record<string, string | number>;

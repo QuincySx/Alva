@@ -1,14 +1,15 @@
-// INPUT:  Projected Hub events, permission decisions, and fallback actions
-// OUTPUT: Three-lane execution overview plus continuous conversation axis, expandable tools, and handoff envelopes
-// POS:    Central business view between the topbar and composer
+// INPUT:  Projected Hub events (execution/control), permission decisions, fallback actions
+// OUTPUT: ExecutionDiagnotics — running-state execution timeline (no chat
+//         messages, no three-lane overview in the main chat)
+// POS:    R30: the main chat is a reading flow (chat-transcript). This view
+//         renders ONLY while an attempt is live or unresolved (approvals /
+//         failures); completed execution detail belongs to the Inspector.
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
-  Bot,
   ChevronDown,
   ChevronRight,
   ShieldAlert,
-  User,
   Wrench,
 } from "lucide-react";
 import type { EngineTarget, HandoffPackage, TimelineEvent } from "../bridge";
@@ -27,96 +28,9 @@ export type HubTimelineEvent = TimelineEvent & {
   };
 };
 
-type TimelineLane = "input" | "agent" | "tools";
-
-function laneFor(entry: HubTimelineEvent): TimelineLane {
-  if (entry.activity) return "tools";
-  if (entry.status === "user_message" || entry.status === "permission_required") {
-    return "input";
-  }
-  return "agent";
-}
-
 function compactDuration(durationMs: number): string {
   if (durationMs < 1_000) return `${Math.max(0, Math.round(durationMs))}ms`;
   return `${(durationMs / 1_000).toFixed(durationMs < 10_000 ? 1 : 0)}s`;
-}
-
-function TimelineOverview({ events }: { events: HubTimelineEvent[] }) {
-  const { locale } = useI18n();
-  const projection = useMemo(() => {
-    const timed = events.flatMap((entry, index) => {
-      if (typeof entry.created_at !== "number" || !Number.isFinite(entry.created_at)) {
-        return [];
-      }
-      const duration = entry.activity?.duration_ms ?? null;
-      const observedStart = entry.started_at ?? entry.created_at;
-      const start = duration !== null
-        ? Math.min(observedStart, entry.created_at - Math.max(0, duration))
-        : observedStart;
-      const end = duration !== null
-        ? Math.max(entry.created_at, start + duration)
-        : Math.max(entry.created_at, start);
-      return [{ entry, index, lane: laneFor(entry), start, end }];
-    });
-    if (timed.length < 2) return null;
-    const origin = Math.min(...timed.map((item) => item.start));
-    const finish = Math.max(...timed.map((item) => item.end));
-    const span = Math.max(1, finish - origin);
-    return { timed, origin, span };
-  }, [events]);
-
-  if (!projection) return null;
-  const labels: Record<TimelineLane, string> = locale === "zh-CN"
-    ? { input: "输入", agent: "Agent", tools: "工具" }
-    : { input: "Input", agent: "Agent", tools: "Tools" };
-  const lanes: TimelineLane[] = ["input", "agent", "tools"];
-
-  return (
-    <div
-      aria-label={locale === "zh-CN" ? "Agent 执行时间线概览" : "Agent execution timeline overview"}
-      className="timeline-overview"
-      role="img"
-    >
-      <div className="timeline-overview__header">
-        <strong>{locale === "zh-CN" ? "执行时间线" : "Execution timeline"}</strong>
-        <span>{compactDuration(projection.span)}</span>
-      </div>
-      <div className="timeline-overview__axis" aria-hidden="true">
-        <span>0</span>
-        <span>{compactDuration(projection.span / 2)}</span>
-        <span>{compactDuration(projection.span)}</span>
-      </div>
-      {lanes.map((lane) => (
-        <div className="timeline-overview__lane" key={lane}>
-          <span>{labels[lane]}</span>
-          <div className="timeline-overview__track">
-            {projection.timed
-              .filter((item) => item.lane === lane)
-              .map((item) => {
-                const left = ((item.start - projection.origin) / projection.span) * 100;
-                const width = Math.max(
-                  ((item.end - item.start) / projection.span) * 100,
-                  0.65,
-                );
-                const clampedLeft = Math.min(Math.max(left, 0), 99.35);
-                return (
-                  <i
-                    className={`timeline-overview__mark timeline-overview__mark--${lane}`}
-                    key={`${item.entry.item_id ?? item.entry.status}-${item.index}`}
-                    style={{
-                      left: `${clampedLeft}%`,
-                      width: `${Math.min(width, 100 - clampedLeft)}%`,
-                    }}
-                    title={`${item.entry.engine_id} · ${item.entry.message ?? item.entry.status} · +${compactDuration(item.start - projection.origin)}`}
-                  />
-                );
-              })}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 export interface HubTimelineProps {
@@ -131,6 +45,17 @@ export interface HubTimelineProps {
   ) => void;
   onStop: () => void;
   onSwitchBack: (target: EngineTarget) => void;
+}
+
+/** Execution/control events only — chat messages render in ChatTranscript. */
+function isExecutionEntry(entry: HubTimelineEvent): boolean {
+  if (entry.role === "user") return false;
+  // Assistant prose lives in the transcript; assistant-coded FAILURES /
+  // interrupts stay here so their actions and reasons remain reachable.
+  if (entry.role === "assistant") {
+    return entry.status !== "assistant_message";
+  }
+  return true;
 }
 
 export function HubTimeline({
@@ -157,60 +82,41 @@ export function HubTimeline({
     setOpenActivities((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const execution = events.filter(isExecutionEntry);
+  if (execution.length === 0) return null;
+
   return (
-    <section className="timeline" aria-live="polite">
-      {events.length === 0 ? (
-        <div className="empty-state">
-          <span className="empty-icon">↗</span>
-          <h2>{t("timeline.empty")}</h2>
-          <p>{t("timeline.emptyDescription")}</p>
-        </div>
-      ) : (
-        <>
-          <TimelineOverview events={events} />
-          {events.map((entry, index) => {
-          const isUser = entry.role === "user";
+    <section aria-label={t("chat.executionInInspector")} aria-live="polite" className="timeline">
+      {execution.map((entry, index) => {
           const actKey = `${entry.product_session_id}-${index}-act`;
           const isActOpen = Boolean(openActivities[actKey]);
 
           return (
             <article
-              className={`timeline-card timeline-${entry.status}${
-                entry.role ? ` timeline-role-${entry.role}` : ""
-              }`}
+              className={`timeline-card timeline-${entry.status}`}
               key={`${entry.product_session_id}-${index}`}
             >
-              {/* Message Header */}
+              {/* Execution Header */}
               <div className="timeline-meta">
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                  {isUser ? (
-                    <User size={14} aria-hidden="true" />
-                  ) : (
-                    <Bot size={14} aria-hidden="true" />
-                  )}
-                  {isUser ? t("timeline.you") : entry.engine_id || "ALVA Agent"}
-                </span>
+                <strong>{entry.engine_id || "ALVA"}</strong>
                 <span>{localize(entry.status)}</span>
               </div>
 
-              {/* Message Body */}
-              <p>
-                {entry.message ? (
-                  entry.role ? (
-                    localize(entry.message)
-                  ) : (
-                    localizeSystemText(
-                      locale,
-                      entry.message,
-                      t("system.diagnosticUnavailable"),
-                    )
-                  )
-                ) : entry.status === "running" ? (
-                  t("timeline.executing")
-                ) : (
-                  t("timeline.finished")
-                )}
-              </p>
+              {/* Reason / progress line — assistant prose renders in the
+                  transcript; here we only surface non-prose captions. */}
+              {entry.role === "assistant" ? null : (
+                <p>
+                  {entry.message
+                    ? localizeSystemText(
+                        locale,
+                        entry.message,
+                        t("system.diagnosticUnavailable"),
+                      )
+                    : entry.status === "running"
+                      ? t("timeline.executing")
+                      : t("timeline.finished")}
+                </p>
+              )}
 
               {/* Expandable Compact Activity Row (Tool Call) */}
               {entry.activity ? (
@@ -236,7 +142,7 @@ export function HubTimeline({
                     </span>
                     {entry.activity.duration_ms !== null ? (
                       <small className="timeline-activity-duration">
-                        {entry.activity.duration_ms}ms
+                        {compactDuration(entry.activity.duration_ms)}
                       </small>
                     ) : null}
                   </div>
@@ -459,8 +365,6 @@ export function HubTimeline({
             </article>
           );
           })}
-        </>
-      )}
     </section>
   );
 }
