@@ -18,7 +18,9 @@ pub mod tool_batch;
 pub use shared::{Extensions, MiddlewareError, MiddlewarePriority};
 
 // Re-exports — state
-pub use alva_kernel_abi::{PersistentSessions, StoreSessionCell};
+// R27: kernel-core 不再识别具体存储 cell——`StoreSessionCell` 由
+// `alva_kernel_abi` 提供，仅供装配层与能力库使用。
+pub use alva_kernel_abi::PersistentSessions;
 pub use state::{AgentConfig, AgentState};
 
 // Re-exports — middleware

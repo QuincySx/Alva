@@ -52,9 +52,10 @@ pub struct CompactionMiddleware {
     config: CompactionConfig,
     compaction_count: AtomicUsize,
     bus: std::sync::OnceLock<BusHandle>,
-    /// R05/R10: 压缩是 SessionStore 能力。持有共享 cell 而非快照——
-    /// swap_session 原地更新 cell，压缩总是写入**当前**会话。
-    store_session: std::sync::OnceLock<Arc<alva_kernel_abi::agent_session::StoreSessionCell>>,
+    /// R05/R10/R18/R27: 压缩是 SessionStore 能力。持有装配层提供的
+    /// `dyn PersistentSessions` 窄能力而非快照——swap_session 原地生效，
+    /// 压缩总是写入**当前**会话；内核与中间件都不识别具体存储 cell。
+    store_session: std::sync::OnceLock<Arc<dyn alva_kernel_abi::PersistentSessions>>,
 }
 
 impl CompactionMiddleware {
@@ -67,12 +68,12 @@ impl CompactionMiddleware {
         }
     }
 
-    /// 测试/旁路装配：绕过 configure() 直接提供完整会话 cell。
+    /// 测试/旁路装配：绕过 configure() 直接提供持久会话窄能力。
     fn with_store_session(
         mut self,
-        session: Arc<alva_kernel_abi::agent_session::StoreSessionCell>,
+        sessions: Arc<dyn alva_kernel_abi::PersistentSessions>,
     ) -> Self {
-        let _ = self.store_session.set(session);
+        let _ = self.store_session.set(sessions);
         self
     }
 
@@ -400,8 +401,8 @@ impl Middleware for CompactionMiddleware {
         let store_session = self
             .store_session
             .get()
-            .expect("compaction middleware requires the assembly-provided session")
-            .get();
+            .and_then(|sessions| sessions.store_session())
+            .expect("compaction middleware requires the assembly-provided session");
         store_session
             .append(compaction_event)
             .await
@@ -703,7 +704,9 @@ mod tests {
 
         let (mut state, store_session) = make_state_with_summary_model_and_full_session();
         let mw = mw.with_store_session(Arc::new(
-            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            alva_agent_core::agent_session::CellBackedSessions::new(Arc::new(
+                alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            )),
         ));
         let long_text = "x".repeat(400); // ~100 heuristic tokens each
         let mut msgs = vec![
@@ -743,7 +746,9 @@ mod tests {
 
         let (mut state, store_session) = make_state_with_summary_model_and_full_session();
         let mw = mw.with_store_session(Arc::new(
-            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            alva_agent_core::agent_session::CellBackedSessions::new(Arc::new(
+                alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            )),
         ));
         let mut msgs = vec![
             Message::system("sys"),
@@ -783,7 +788,9 @@ mod tests {
 
         let (mut state, store_session) = make_state_with_summary_model_and_full_session();
         let mw = mw.with_store_session(Arc::new(
-            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            alva_agent_core::agent_session::CellBackedSessions::new(Arc::new(
+                alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            )),
         ));
         let long_text = "x".repeat(400);
         let mut msgs = vec![
@@ -825,7 +832,9 @@ mod tests {
         })
         .with_bus(handle)
         .with_store_session(Arc::new(
-            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            alva_agent_core::agent_session::CellBackedSessions::new(Arc::new(
+                alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            )),
         ));
         let long_text = "x".repeat(400);
         let mut msgs = vec![
@@ -875,7 +884,9 @@ mod tests {
         })
         .with_bus(handle)
         .with_store_session(Arc::new(
-            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            alva_agent_core::agent_session::CellBackedSessions::new(Arc::new(
+                alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            )),
         ));
         let long_text = "x".repeat(400);
         let mut msgs = vec![
@@ -949,7 +960,9 @@ mod tests {
         })
         .with_bus(handle)
         .with_store_session(Arc::new(
-            alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            alva_agent_core::agent_session::CellBackedSessions::new(Arc::new(
+                alva_kernel_abi::agent_session::StoreSessionCell::new(store_session.clone()),
+            )),
         ));
 
         // Seed the session with a pre-compaction causal chain:

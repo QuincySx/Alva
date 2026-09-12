@@ -3,8 +3,7 @@
 // POS:    Executes conflict-free tool waves concurrently while committing intents and outcomes in model order.
 use std::sync::Arc;
 
-use alva_kernel_abi::agent_session::{EmitterKind, EventEmitter, ScopedSession};
-use alva_kernel_abi::StoreSessionCell;
+use alva_kernel_abi::agent_session::{EmitterKind, EventEmitter, PersistentSessions, ScopedSession};
 use alva_kernel_abi::{
     AgentError, AgentMessage, BusHandle, CancellationToken, ContentBlock, ConversationLog,
     ExecutionRecord, LockMode, RecordValue, ResourceKey, Scheduling, SessionRecord,
@@ -645,10 +644,12 @@ impl ToolCallFn for ActualToolCall {
             self.session_id.clone(),
         )
         .with_session(scoped_session);
-        // R09: 持久化子会话能力——装配层注入的完整会话（若存在）随工具
-        // 上下文下发，agent_spawn 的 create_child_session 才能触及父仓库。
-        if let Some(store) = state.extensions.get::<StoreSessionCell>() {
-            ctx = ctx.with_store_session(store);
+        // R09/R24: 持久化子会话能力——装配层（AgentBuilder / run_child 装配）
+        // 以 `Arc<dyn PersistentSessions>` 注册的窄能力随工具上下文下发，
+        // agent_spawn 的 create_child_session 才能触及父仓库。读写两侧必须
+        // 使用同一 typed key。
+        if let Some(sessions) = state.extensions.get::<Arc<dyn PersistentSessions>>() {
+            ctx = ctx.with_persistent_sessions((*sessions).clone());
         }
         if let Some(ref ws) = self.workspace {
             ctx = ctx.with_workspace(ws.clone());

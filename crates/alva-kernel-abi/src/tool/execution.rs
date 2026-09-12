@@ -88,14 +88,10 @@ pub trait ToolExecutionContext: Send + Sync {
     }
 
     /// R05: full session (SessionStore capabilities) when the assembly
-    /// provided one. Minimal kernels/tools never see it.
+    /// provided one. Minimal kernels/tools never see it. Resolves the
+    /// CURRENT session on every call, so an assembly-level
+    /// `swap_session` between two tool calls is always observed.
     fn store_session(&self) -> Option<std::sync::Arc<dyn crate::agent_session::AgentSession>> {
-        None
-    }
-
-    /// R09/R10: the shared cell itself — nested spawn forwards it so child
-    /// extensions always track the current session.
-    fn store_session_cell(&self) -> Option<std::sync::Arc<crate::agent_session::StoreSessionCell>> {
         None
     }
 

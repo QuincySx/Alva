@@ -8,21 +8,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use crate::agent_session::{AgentSession, InMemoryAgentSession};
+use crate::agent_session::{AgentSession, CellBackedSessions, InMemoryAgentSession};
 
-/// R18: 装配层对 `PersistentSessions` 的实现——包装共享 cell。内核工具
-/// 执行路径只查询此 trait 对象，不识别具体 cell 类型或 spawn 存储语义。
-struct CellBackedSessions(alva_kernel_abi::agent_session::StoreSessionCell);
-
-impl alva_kernel_abi::PersistentSessions for CellBackedSessions {
-    fn store_session(&self) -> Option<Arc<dyn AgentSession>> {
-        Some(self.0.get())
-    }
-
-    fn store_session_cell(&self) -> Option<Arc<alva_kernel_abi::agent_session::StoreSessionCell>> {
-        Some(Arc::new(self.0.clone()))
-    }
-}
 use alva_kernel_abi::{
     AgentError, Bus, BusHandle, BusWriter, LanguageModel, ModelConfig, Tool, ToolRegistry,
 };
@@ -291,13 +278,17 @@ impl AgentBuilder {
         // R09/R10: 单一"当前完整会话" cell——扩展注入、中间件 configure、
         // Agent/BaseAgent 句柄与 swap_session 全部共享这一份。
         let store_session_cell =
-            alva_kernel_abi::agent_session::StoreSessionCell::new(session.clone());
+            Arc::new(alva_kernel_abi::agent_session::StoreSessionCell::new(session.clone()));
+        // R18/R24/R27: 同一份窄能力桥同时进中间件 configure 与 extensions，
+        // 读写两侧 typed key 一致（tool_batch 查 `Arc<dyn PersistentSessions>`）。
+        let persistent_sessions: std::sync::Arc<dyn alva_kernel_abi::PersistentSessions> =
+            Arc::new(CellBackedSessions::new(store_session_cell.clone()));
 
         // 7. Configure middleware that needs shared infrastructure.
         middleware_stack.configure_all(&MiddlewareContext {
             bus: Some(bus.clone()),
             workspace: self.workspace.clone(),
-            store_session: Some(Arc::new(store_session_cell.clone())),
+            store_session: Some(persistent_sessions.clone()),
             session: Some(alva_kernel_abi::agent_session::ScopedSession::new(
                 session.clone(),
                 alva_kernel_abi::agent_session::EventEmitter::runtime(),
@@ -365,11 +356,9 @@ impl AgentBuilder {
 
         // 10. AgentState
         let mut extensions = Extensions::new();
-        // R18: 窄能力桥——内核只见 `dyn PersistentSessions`，具体 cell 与
-        // spawn 存储语义留在装配层。
-        let persistent: Arc<dyn alva_kernel_abi::PersistentSessions> =
-            Arc::new(CellBackedSessions(store_session_cell.clone()));
-        extensions.insert(persistent);
+        // R18/R24: 内核只见 `dyn PersistentSessions` 窄能力；与 tool_batch
+        // 读取的 typed key 一致，真实工具批次才能拿到完整会话。
+        extensions.insert(persistent_sessions);
         let state = AgentState {
             model,
             tools: tools_arc,
@@ -401,7 +390,8 @@ impl AgentBuilder {
 
         Ok(Agent {
             state: Arc::new(Mutex::new(state)),
-            full_session: store_session_cell.clone(),
+            // Clone shares the same inner handle as the Arc'd cell above.
+            full_session: (*store_session_cell).clone(),
             config: Arc::new(tokio::sync::RwLock::new(config)),
             bus,
             host,

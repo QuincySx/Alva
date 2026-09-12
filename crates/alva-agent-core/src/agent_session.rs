@@ -1,6 +1,7 @@
 // INPUT:  async_trait, serde_json, uuid, futures_util, tokio, std,
 //         alva_kernel_abi (AgentSession contract + AgentMessage)
-// OUTPUT: InMemoryAgentSession, ListenableInMemorySession -- concrete in-memory
+// OUTPUT: InMemoryAgentSession, ListenableInMemorySession, CellBackedSessions
+//         (assembly PersistentSessions adapter) -- concrete in-memory
 //         AgentSession backends. The contract is re-exported for one-path use.
 // POS:    Concrete AgentSession implementations. The contract (AgentSession /
 //         SessionEvent / EventQuery / ... traits + value types) lives in
@@ -11,7 +12,7 @@
 pub use alva_kernel_abi::agent_session::{
     AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery,
     ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionEventStream,
-    SessionMessage,
+    SessionMessage, StoreSessionCell,
 };
 use alva_kernel_abi::session_store::SessionStore;
 use alva_kernel_abi::ConversationLog;
@@ -25,6 +26,37 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 
 use alva_kernel_abi::base::message::AgentMessage;
+
+// ===========================================================================
+// CellBackedSessions — assembly-layer PersistentSessions adapter (R18/R27)
+// ===========================================================================
+
+/// 装配层对 [`alva_kernel_abi::PersistentSessions`] 的标准实现：包装共享
+/// [`StoreSessionCell`]，每次调用解析**当前**会话（swap 原地生效）。
+///
+/// 内核工具执行路径只查询 `dyn PersistentSessions` 窄能力，不识别具体
+/// cell——本类型是根装配（`AgentBuilder`）与 spawn 装配（app-core
+/// `agent_spawn`）共同的桥接点。
+pub struct CellBackedSessions(Arc<StoreSessionCell>);
+
+impl CellBackedSessions {
+    /// 包装一个已有共享 cell（根装配：extensions、中间件、句柄共用一份）。
+    pub fn new(cell: Arc<StoreSessionCell>) -> Self {
+        Self(cell)
+    }
+
+    /// 为给定会话创建**专属** cell 并包装（spawn 装配：每个 child 持有
+    /// 自己的仓库身份，不共享父/根 cell）。
+    pub fn wrapping(session: Arc<dyn AgentSession>) -> Self {
+        Self(Arc::new(StoreSessionCell::new(session)))
+    }
+}
+
+impl alva_kernel_abi::PersistentSessions for CellBackedSessions {
+    fn store_session(&self) -> Option<Arc<dyn AgentSession>> {
+        Some(self.0.get())
+    }
+}
 
 // ===========================================================================
 // InMemoryAgentSession

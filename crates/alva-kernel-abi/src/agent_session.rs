@@ -251,10 +251,13 @@ pub struct EventMatch {
 /// 会话面，再实现 [`SessionStore`]。原来那个三十方法的巨物不再单独存在。
 pub trait AgentSession: ConversationLog + SessionStore {}
 
-/// R05/R09: 完整会话（SessionStore 能力）的**当前**句柄。装配层在构建时创建
-/// 并注入 `state.extensions` 与 MiddlewareContext；`swap_session` 等会话切换
-/// 通过 [`set`](Self::set) 原地更新，所有持有者（压缩中间件、工具上下文的
-/// create_child_session、session_handle）读取时总是拿到当前会话。
+/// R05/R09/R10: 完整会话（SessionStore 能力）的**当前**句柄。装配层在构建时创建
+/// 并持有；`swap_session` 等会话切换通过 [`set`](Self::set) 原地更新，所有持有者
+/// （压缩中间件、装配层句柄）读取时总是拿到当前会话。
+///
+/// R18/R27：这是**装配层词汇**，只被上层（agent-core 装配、能力库中间件）触碰。
+/// 内核循环与工具执行路径唯一认识的会话能力是 [`PersistentSessions`]；它们通过
+/// 装配层实现动态解析当前会话，从不识别本类型。
 #[derive(Clone)]
 pub struct StoreSessionCell(Arc<std::sync::RwLock<Arc<dyn AgentSession>>>);
 
@@ -373,18 +376,13 @@ pub trait SessionEventListener: Send + Sync {
     }
 }
 
-/// R18: 窄能力桥——装配层实现本 trait 并注入扩展；内核工具执行路径只认识
-/// 此抽象，不识别具体 `StoreSessionCell`、仓库或 spawn 存储语义。返回的
-/// cell 供嵌套 spawn 原样转发，保证子链始终跟随当前会话。
+/// R18/R27: 窄能力桥——装配层实现本 trait 并注入扩展；内核工具执行路径只认识
+/// 此抽象，不识别具体 cell、仓库或 spawn 存储语义。`store_session` 在每次调用
+/// 时解析**当前**会话（swap 安全）；最小装配不提供（返回 `None`）。
 #[async_trait::async_trait]
 pub trait PersistentSessions: Send + Sync {
     /// 当前完整会话（SessionStore 能力）；最小装配不提供。
     fn store_session(&self) -> Option<Arc<dyn AgentSession>> {
-        None
-    }
-
-    /// 共享 cell 本体——嵌套 spawn 原样传给 child extensions。
-    fn store_session_cell(&self) -> Option<Arc<StoreSessionCell>> {
         None
     }
 }

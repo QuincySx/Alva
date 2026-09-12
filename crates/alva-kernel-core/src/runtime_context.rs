@@ -8,11 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::event::{AgentEvent, AgentEventSender};
-use alva_kernel_abi::agent_session::ScopedSession;
+use alva_kernel_abi::agent_session::{AgentSession, PersistentSessions, ScopedSession};
 use alva_kernel_abi::base::cancel::CancellationToken;
 use alva_kernel_abi::tool::execution::{ProgressEvent, ToolExecutionContext};
 use alva_kernel_abi::BusHandle;
-use alva_kernel_abi::StoreSessionCell;
 use alva_kernel_abi::ToolFs;
 
 /// Concrete `ToolExecutionContext` used by the agent run loop.
@@ -30,10 +29,11 @@ pub struct RuntimeExecutionContext {
     tool_fs: Option<Arc<dyn ToolFs>>,
     bus: Option<BusHandle>,
     pub session: Option<ScopedSession>,
-    /// R05/R09/R10: 完整会话（SessionStore 能力）——装配层经共享 cell 显式
-    /// 提供；需要 create_child session / 查询 / 压缩的工具从这里取，且总是
-    /// 拿到**当前**会话（swap 原地更新 cell）。最小消费者不设置。
-    pub store_session: Option<Arc<StoreSessionCell>>,
+    /// R05/R18/R27: 持久会话窄能力——装配层经 extensions 注入；内核只认识
+    /// `dyn PersistentSessions`，不识别具体 cell / 仓库 / spawn 存储语义。
+    /// 需要完整会话（SessionStore 能力）的工具在每次调用时动态解析**当前**
+    /// 会话（swap 原地生效）。最小消费者不设置。
+    pub persistent_sessions: Option<Arc<dyn PersistentSessions>>,
 }
 
 impl RuntimeExecutionContext {
@@ -47,7 +47,7 @@ impl RuntimeExecutionContext {
         E: Into<AgentEventSender>,
     {
         Self {
-            store_session: None,
+            persistent_sessions: None,
             cancel,
             tool_call_id,
             event_tx: event_tx.into(),
@@ -60,20 +60,19 @@ impl RuntimeExecutionContext {
         }
     }
 
-    /// R05/R09: attach the shared full-session cell (SessionStore 能力)。
-    pub fn with_store_session(mut self, cell: Arc<StoreSessionCell>) -> Self {
-        self.store_session = Some(cell);
+    /// R05/R18/R27: attach the assembly-provided persistent-sessions
+    /// capability (SessionStore 能力的窄桥)。
+    pub fn with_persistent_sessions(
+        mut self,
+        sessions: Arc<dyn PersistentSessions>,
+    ) -> Self {
+        self.persistent_sessions = Some(sessions);
         self
     }
 
-    /// 当前完整会话——cell 读取时解析，swap 后即为最新。
-    pub fn store_session(&self) -> Option<Arc<dyn alva_kernel_abi::agent_session::AgentSession>> {
-        self.store_session.as_ref().map(|cell| cell.get())
-    }
-
-    /// 共享 cell 本体——嵌套 spawn 原样传给 child extensions。
-    pub fn store_session_cell(&self) -> Option<Arc<StoreSessionCell>> {
-        self.store_session.clone()
+    /// 当前完整会话——经窄能力解析，swap 后即为最新。
+    pub fn store_session(&self) -> Option<Arc<dyn AgentSession>> {
+        self.persistent_sessions.as_ref()?.store_session()
     }
 
     pub fn with_session(mut self, session: ScopedSession) -> Self {
@@ -150,13 +149,9 @@ impl ToolExecutionContext for RuntimeExecutionContext {
     fn store_session(
         &self,
     ) -> Option<std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>> {
-        self.store_session.as_ref().map(|cell| cell.get())
-    }
-
-    fn store_session_cell(
-        &self,
-    ) -> Option<std::sync::Arc<alva_kernel_abi::agent_session::StoreSessionCell>> {
-        self.store_session.clone()
+        // Inherent `store_session` shadows this trait method; resolve the
+        // capability directly so the delegation is unambiguous.
+        self.persistent_sessions.as_ref()?.store_session()
     }
 
     fn session(&self) -> Option<&alva_kernel_abi::agent_session::ScopedSession> {

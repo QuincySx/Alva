@@ -184,7 +184,6 @@ trait	tool::execution::ToolExecutionContext
 trait	tool::types::Tool
 trait	tool::types::ToolFs
 traitfn	agent_session::PersistentSessions::fn store_session fn store_session(&self) -> Option<Arc<dyn AgentSession>>
-traitfn	agent_session::PersistentSessions::fn store_session_cell fn store_session_cell(&self) -> Option<Arc<StoreSessionCell>>
 traitfn	agent_session::SessionEventListener::async fn on_event async fn on_event(&self, event: &SessionEvent)
 traitfn	agent_session::SessionEventListener::fn is_active fn is_active(&self) -> bool
 traitfn	conversation_log::ConversationLog::async fn append async fn append(&self, event: SessionEvent) -> Result<(), SessionError>
@@ -258,7 +257,6 @@ traitfn	tool::execution::ToolExecutionContext::fn report_progress fn report_prog
 traitfn	tool::execution::ToolExecutionContext::fn session fn session(&self) -> Option<&crate::agent_session::ScopedSession>
 traitfn	tool::execution::ToolExecutionContext::fn session_id fn session_id(&self) -> &str
 traitfn	tool::execution::ToolExecutionContext::fn store_session fn store_session(&self) -> Option<std::sync::Arc<dyn crate::agent_session::AgentSession>>
-traitfn	tool::execution::ToolExecutionContext::fn store_session_cell fn store_session_cell(&self) -> Option<std::sync::Arc<crate::agent_session::StoreSessionCell>>
 traitfn	tool::execution::ToolExecutionContext::fn tool_call_id fn tool_call_id(&self) -> Option<&str>
 traitfn	tool::execution::ToolExecutionContext::fn tool_fs fn tool_fs(&self) -> Option<&dyn ToolFs>
 traitfn	tool::execution::ToolExecutionContext::fn workspace fn workspace(&self) -> Option<&Path>

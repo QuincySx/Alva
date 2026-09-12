@@ -702,10 +702,11 @@ impl AgentSpawnTool {
             session: child_session.clone(),
             context_system,
             middleware: child_middleware,
-            // R14 gap 3: child 持有**自己的** cell（包 child_session）——
-            // 孙会话因果链接落到直接父 child，而不是根父会话。
-            store_session: Some(Arc::new(
-                alva_kernel_abi::agent_session::StoreSessionCell::new(child_session),
+            // R14 gap 3 / R18 / R27: child 持有**自己的**窄能力（包专属
+            // cell，cell 内是 child_session）——孙会话因果链接落到直接父
+            // child，而不是根父会话。内核只认识 `dyn PersistentSessions`。
+            persistent_sessions: Some(Arc::new(
+                alva_agent_core::agent_session::CellBackedSessions::wrapping(child_session),
             )),
         })
         .await;

@@ -32,6 +32,8 @@ implfn	AgentBuilder::fn with_bus_writer pub fn with_bus_writer(mut self, bw: Bus
 implfn	AgentBuilder::fn with_context_system pub fn with_context_system( mut self, cs: Arc<alva_kernel_abi::scope::context::ContextSystem>, ) -> Self
 implfn	AgentBuilder::fn with_context_token_budget pub fn with_context_token_budget(mut self, budget: usize) -> Self
 implfn	AgentBuilder::fn workspace pub fn workspace(mut self, p: impl Into<PathBuf>) -> Self
+implfn	CellBackedSessions::fn new pub fn new(cell: Arc<StoreSessionCell>) -> Self
+implfn	CellBackedSessions::fn wrapping pub fn wrapping(session: Arc<dyn AgentSession>) -> Self
 implfn	InMemoryAgentSession::async fn restore_events pub async fn restore_events(&self, events: Vec<SessionEvent>)
 implfn	InMemoryAgentSession::fn new pub fn new() -> Self
 implfn	InMemoryAgentSession::fn with_id pub fn with_id(session_id: String) -> Self
@@ -97,6 +99,7 @@ struct	agent::Agent
 struct	agent::AgentAssemblySnapshot
 struct	agent::PluginAssemblySnapshot
 struct	agent_builder::AgentBuilder
+struct	agent_session::CellBackedSessions
 struct	agent_session::InMemoryAgentSession
 struct	agent_session::ListenableInMemorySession
 struct	agent_session::RegisteredListener
@@ -130,7 +133,7 @@ traitfn	extension::plugin::Plugin::fn description fn description(&self) -> &str
 traitfn	extension::plugin::Plugin::fn name fn name(&self) -> &str
 use	pub use agent::{Agent, AgentAssemblySnapshot, PluginAssemblySnapshot}
 use	pub use agent_builder::AgentBuilder
-use	pub use alva_kernel_abi::agent_session::{ AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery, ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionEventStream, SessionMessage, }
+use	pub use alva_kernel_abi::agent_session::{ AgentSession, ComponentDescriptor, EmitterKind, EventEmitter, EventMatch, EventQuery, ScopedSession, SessionError, SessionEvent, SessionEventListener, SessionEventStream, SessionMessage, StoreSessionCell, }
 use	pub use extension::{PluginHost, RegisteredCommand}
 use	pub use host::{PluginHost, RegisteredCommand}
 use	pub use mock_fs::MockToolFs

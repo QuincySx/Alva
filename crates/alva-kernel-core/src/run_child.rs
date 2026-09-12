@@ -13,7 +13,6 @@ use alva_kernel_abi::base::message::Message;
 use alva_kernel_abi::model::LanguageModel;
 use alva_kernel_abi::scope::context::ContextSystem;
 use alva_kernel_abi::tool::Tool;
-use alva_kernel_abi::StoreSessionCell;
 use alva_kernel_abi::{AgentMessage, BusHandle, ModelConfig, NoopSleeper, Sleeper};
 
 use crate::event::AgentEvent;
@@ -65,27 +64,12 @@ pub struct ChildAgentParams {
     /// so callers spawning children that hold dangerous tools must pass a
     /// stack that enforces the same policy as the parent loop.
     pub middleware: MiddlewareStack,
-    /// R14: **child 自己**的完整会话 cell（可选）——每个运行中的 child
-    /// 持有自己的仓库身份，不共享指向父/根会话的可变 cell。传入时注入
-    /// child state.extensions 的窄能力桥，使嵌套 spawn 仍能
-    /// `create_child_session`；最小内核消费者不设置。
-    pub store_session: Option<Arc<StoreSessionCell>>,
-}
-
-/// R14: kernel-core 侧 cell → PersistentSessions 适配器。与装配层
-/// CellBackedSessions 等价；供 run_child_agent 在 child extensions 注入。
-struct CellSessionsBridge(Arc<StoreSessionCell>);
-
-impl alva_kernel_abi::PersistentSessions for CellSessionsBridge {
-    fn store_session(&self) -> Option<Arc<dyn alva_kernel_abi::agent_session::AgentSession>> {
-        Some(self.0.get())
-    }
-
-    fn store_session_cell(
-        &self,
-    ) -> Option<std::sync::Arc<alva_kernel_abi::agent_session::StoreSessionCell>> {
-        Some(self.0.clone())
-    }
+    /// R14/R18/R27: **child 自己**的持久会话窄能力（可选）——每个运行中的
+    /// child 持有自己的仓库身份，不共享指向父/根会话的能力。装配层
+    /// （如 `alva_agent_core::CellBackedSessions`）包装 child 专属 cell 后
+    /// 传入，注入 child state.extensions；嵌套 spawn 仍能
+    /// `create_child_session`。最小内核消费者不设置。
+    pub persistent_sessions: Option<Arc<dyn alva_kernel_abi::PersistentSessions>>,
 }
 
 /// Output from a completed child agent run.
@@ -103,13 +87,11 @@ pub struct ChildAgentOutput {
 /// This encapsulates the common pattern shared by all sub-agent tools:
 /// build state → run_agent → collect output from events → fallback to session.
 pub async fn run_child_agent(params: ChildAgentParams) -> ChildAgentOutput {
-    let mut extensions = Extensions::new();
-    if let Some(cell) = params.store_session {
-        // R14 gap 2: extensions 键与 tool_batch 查询一致——插窄能力桥
-        // trait 对象，而不是裸 cell（typed key 不匹配会静默失去能力）。
-        let bridge: Arc<dyn alva_kernel_abi::PersistentSessions> =
-            Arc::new(CellSessionsBridge(cell));
-        extensions.insert(bridge);
+    let extensions = Extensions::new();
+    if let Some(sessions) = params.persistent_sessions {
+        // R24: extensions 键与 tool_batch 查询一致——装配层提供的窄能力
+        // trait 对象原样注册（typed key 不匹配会静默失去能力）。
+        extensions.insert(sessions);
     }
     let state = AgentState {
         model: params.model,

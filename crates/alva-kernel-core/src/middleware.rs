@@ -5,7 +5,6 @@
 use std::sync::{Arc, Mutex};
 
 use alva_kernel_abi::agent_session::SessionEvent;
-use alva_kernel_abi::StoreSessionCell;
 use alva_kernel_abi::{AgentError, AgentMessage, Message, ToolCall, ToolOutput};
 use async_trait::async_trait;
 
@@ -168,10 +167,10 @@ pub struct MiddlewareContext {
     /// do not wire a session (e.g. unit tests of middleware hooks in isolation).
     /// Middleware that emits events should call `ctx.session.as_ref()?.append(...)`.
     pub session: Option<alva_kernel_abi::agent_session::ScopedSession>,
-    /// R05/R10: 完整会话（SessionStore 能力）由装配层经共享 cell 提供——
-    /// 中间件读取时总是拿到**当前**会话（swap_session 原地更新 cell）；
-    /// 最小内核消费者不提供，这类中间件也不会被安装。
-    pub store_session: Option<Arc<StoreSessionCell>>,
+    /// R05/R10/R18/R27: 持久会话窄能力由装配层提供——中间件每次使用时
+    /// 动态解析**当前**会话（swap_session 原地生效）；最小内核消费者不提
+    /// 供，这类中间件也不会被安装。内核不识别具体存储 cell。
+    pub store_session: Option<Arc<dyn alva_kernel_abi::PersistentSessions>>,
 }
 
 // ---------------------------------------------------------------------------
