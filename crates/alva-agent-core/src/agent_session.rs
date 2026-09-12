@@ -653,6 +653,16 @@ impl ListenableInMemorySession {
     pub async fn restore_events(&self, events: Vec<SessionEvent>) {
         self.inner.restore_events(events).await;
     }
+
+    /// R24: 从持久层恢复 typed record 投影。`restore_events` 的事件重建会把
+    /// records 降级为通用 `ExecutionRecord::Event` 形态；仓储后端在
+    /// append_records 后刷新内存镜像时必须用本方法恢复 typed 记录，否则
+    /// 下一次 flush/dirty-sync 会把持久层里 `ChildSessionLinked` 等 typed
+    /// payload 整体覆写为通用形态，Inspector 因果链随之中断。
+    pub async fn restore_typed_records(&self, records: Vec<SessionRecord>) {
+        let mut stored = self.inner.records.write().await;
+        *stored = records;
+    }
 }
 
 impl ListenableInMemorySession {

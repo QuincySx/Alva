@@ -557,7 +557,8 @@ mod tests {
     use alva_app_core::EngineError;
     use alva_engine_runtime::{validate_event_stream, EngineRuntime, RuntimeEvent, RuntimeRequest};
     use alva_kernel_abi::AgentSession as _;
-    use alva_test::fixtures::make_assistant_message;
+    use alva_kernel_abi::{ExecutionRecord, SessionRecordPayload, SessionStore as _};
+    use alva_test::fixtures::{make_assistant_message, tool_use_message};
     use alva_test::mock_provider::MockLanguageModel;
     use async_trait::async_trait;
     use serde_json::json;
@@ -900,6 +901,166 @@ mod tests {
 
         assert!(!repository.contains(&parent_id).unwrap());
         assert!(!repository.contains(&child_id).unwrap());
+    }
+
+    /// ChildSessionLinked records in a session's durable log, in seq order.
+    async fn child_links<S: alva_kernel_abi::SessionStore + ?Sized>(
+        session: &std::sync::Arc<S>,
+    ) -> Vec<String> {
+        session
+            .records(0)
+            .await
+            .iter()
+            .filter_map(|record| {
+                if let SessionRecordPayload::Execution(ExecutionRecord::ChildSessionLinked {
+                    child_session_id,
+                    ..
+                }) = &record.payload
+                {
+                    Some(child_session_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// R24: the REAL assembly chain — AgentBuilder → model `agent` tool call
+    /// through the tool batch → `dyn ToolExecutionContext::store_session()` →
+    /// agent_spawn → run_child — persists nested sub-agents level by level.
+    ///
+    /// Before the R24/R27 wiring fix the tool batch registered a different
+    /// typed key than it read, `store_session()` returned `None`, and every
+    /// child silently fell back to a non-persistent in-memory session. This
+    /// test fails under that wiring: the repository reopens empty.
+    ///
+    /// Restart semantics: a NEW `SessionRepository` instance over the same
+    /// file plays the Inspector — every level must be reachable purely from
+    /// durable state, with the causal link committed to the DIRECT parent
+    /// (R14 gap 3: grandchild links land in the child's log, not the root's).
+    #[tokio::test]
+    async fn nested_agent_spawns_persist_independent_sessions_with_causal_links() {
+        let dir = std::env::temp_dir().join(format!(
+            "alva-adapter-nested-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let repository_path = dir.join("records.db");
+
+        let model = Arc::new(
+            MockLanguageModel::new()
+                // 1. parent: spawn a worker (no tools — pure delegation).
+                .with_response(tool_use_message(
+                    "spawn-root",
+                    "agent",
+                    json!({"task": "delegate one level down", "role": "worker"}),
+                ))
+                // 2. child (same mock queue): spawn a grandworker.
+                .with_response(tool_use_message(
+                    "spawn-child",
+                    "agent",
+                    json!({"task": "do the leaf work", "role": "grandworker"}),
+                ))
+                // 3. grandchild final answer.
+                .with_response(make_assistant_message("grand done"))
+                // 4. child final answer after its child returned.
+                .with_response(make_assistant_message("child done"))
+                // 5. parent final answer.
+                .with_response(make_assistant_message("parent done")),
+        );
+        // Catalog factory = the product tool set (CLI/Tauri parity). The
+        // minimal DefaultBaseAgentFactory has no `agent` tool, and this test
+        // exists to prove the REAL spawn chain.
+        let factory = crate::factory::CatalogBaseAgentFactory::new(model.clone(), dir.clone());
+        let adapter = AlvaAdapter::new(Arc::new(factory))
+            .with_session_repository(SessionRepository::open(&repository_path).unwrap());
+
+        let events: Vec<_> = adapter
+            .execute(RuntimeRequest::new("spawn nested workers"))
+            .unwrap()
+            .collect()
+            .await;
+        let root_id = match events.first() {
+            Some(RuntimeEvent::SessionStarted { session_id, .. }) => session_id.clone(),
+            other => panic!("expected SessionStarted, got {other:?}"),
+        };
+        assert!(
+            matches!(events.last(), Some(RuntimeEvent::Completed { .. })),
+            "run should complete, got tail {:?}",
+            events.last()
+        );
+        drop(adapter);
+
+        // "Restart": reopen the repository in a brand-new instance.
+        let repository = SessionRepository::open(&repository_path).unwrap();
+
+        // Level 1 — root: exactly one causal link, to its direct child.
+        let root = repository.open_session(root_id.clone(), None).await.unwrap();
+        let root_links = child_links(&root).await;
+        assert_eq!(
+            root_links.len(),
+            1,
+            "root must carry exactly one child link (found {})",
+            root_links.len()
+        );
+        let child_id = root_links[0].clone();
+
+        // Level 2 — child: independent identity, direct-parent link to root,
+        // and ITS log (not the root's) links the grandchild.
+        let child = repository
+            .open_session(child_id.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(child.parent_session_id(), Some(root_id.as_str()));
+        let child_links = child_links(&child).await;
+        assert_eq!(
+            child_links.len(),
+            1,
+            "grandchild link belongs to the direct parent (child), not the root"
+        );
+        let grandchild_id = child_links[0].clone();
+
+        // Level 3 — grandchild: own identity under the child, own durable
+        // conversation with its final answer.
+        let grandchild = repository
+            .open_session(grandchild_id.clone(), None)
+            .await
+            .unwrap();
+        assert_eq!(grandchild.parent_session_id(), Some(child_id.as_str()));
+        let grandchild_text = grandchild
+            .records(0)
+            .await
+            .iter()
+            .filter(|record| record.type_name == "assistant")
+            .filter_map(|record| match &record.payload {
+                SessionRecordPayload::Conversation(conversation) => conversation
+                    .agent_message
+                    .as_ref()
+                    .map(|msg| match msg {
+                        alva_kernel_abi::AgentMessage::Standard(m) => m.text_content(),
+                        _ => String::new(),
+                    }),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            grandchild_text.contains("grand done"),
+            "grandchild durable conversation missing its answer: {grandchild_text:?}"
+        );
+
+        // The whole chain ran on the real model queue: parent spawn → child
+        // spawn → grandchild answer → child answer → parent answer.
+        assert_eq!(
+            model.calls().len(),
+            5,
+            "expected the full 5-call root→grandchild chain"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A factory that blocks inside `build()` until released, so a test can

@@ -609,6 +609,11 @@ impl ConversationLog for SqliteAgentSession {
         };
         let all = self.persisted_events()?;
         self.memory.restore_events(all).await;
+        // R24: 事件重建会把内存的 typed record 投影降级为通用 Event 形态；
+        // 用持久层的 typed 记录恢复，否则下一次 flush / dirty-sync 重写 DB
+        // 时丢失 ChildSessionLinked 等 typed payload（Inspector 因果链）。
+        let typed = self.persisted_records()?;
+        self.memory.restore_typed_records(typed).await;
         self.broadcast_records(&committed).await;
         Ok(AppendReceipt {
             first_seq,
@@ -1051,7 +1056,63 @@ fn text_blocks(value: &serde_json::Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::{EventEmitter, ExecutionRecord};
+    use alva_kernel_abi::{EventEmitter, ExecutionRecord, SessionRecordPayload};
+
+    /// R24: typed `ChildSessionLinked` payloads must survive the
+    /// append_records → plain event append → flush → reopen round trip.
+    ///
+    /// flush() rewrites the whole table from the in-memory mirror; the
+    /// post-commit refresh used to rebuild that mirror from EVENTS, which
+    /// degrades typed records to generic `ExecutionRecord::Event` — every
+    /// causal link then vanished from the durable projection at turn end and
+    /// the recursive Inspector traversal broke after restart.
+    #[tokio::test]
+    async fn typed_child_links_survive_flush_and_repository_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("records.db");
+        let repository = SessionRepository::open(&path).unwrap();
+        let root = repository.open_session("root", None).await.unwrap();
+        let child = root
+            .create_child_session("run-1", "spawn-1")
+            .await
+            .unwrap()
+            .unwrap();
+        let child_id = child.session_id().to_string();
+
+        // The same sequence a real run performs: typed batch commits during
+        // tool execution, skeleton events during the loop, flush at turn end.
+        root.append(alva_kernel_abi::SessionEvent::new_runtime("iteration_start"))
+            .await
+            .unwrap();
+        root.flush().await.unwrap();
+        drop(root);
+        drop(repository);
+
+        let reopened = SessionRepository::open(&path).unwrap();
+        let root = reopened.open_session("root", None).await.unwrap();
+        let links: Vec<String> = root
+            .records(0)
+            .await
+            .iter()
+            .filter_map(|record| {
+                if let SessionRecordPayload::Execution(ExecutionRecord::ChildSessionLinked {
+                    child_session_id,
+                    ..
+                }) = &record.payload
+                {
+                    Some(child_session_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(
+            links,
+            vec![child_id.clone()],
+            "typed causal link degraded to a generic event by flush"
+        );
+        assert!(reopened.contains(&child_id).unwrap());
+    }
 
     #[tokio::test]
     async fn atomic_records_survive_repository_reopen() {

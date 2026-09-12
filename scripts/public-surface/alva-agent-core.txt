@@ -39,6 +39,7 @@ implfn	InMemoryAgentSession::fn new pub fn new() -> Self
 implfn	InMemoryAgentSession::fn with_id pub fn with_id(session_id: String) -> Self
 implfn	InMemoryAgentSession::fn with_parent pub fn with_parent(parent_session_id: impl Into<String>) -> Self
 implfn	ListenableInMemorySession::async fn restore_events pub async fn restore_events(&self, events: Vec<SessionEvent>)
+implfn	ListenableInMemorySession::async fn restore_typed_records pub async fn restore_typed_records(&self, records: Vec<SessionRecord>)
 implfn	ListenableInMemorySession::async fn subscribe pub async fn subscribe(&self, listener: Arc<dyn SessionEventListener>)
 implfn	ListenableInMemorySession::fn new pub fn new() -> Self
 implfn	ListenableInMemorySession::fn with_parent pub fn with_parent(parent_id: impl Into<String>) -> Self

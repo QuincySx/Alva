@@ -64,6 +64,35 @@ async fn build_minimal_agent_no_plugins() {
     assert!(!agent.bus().has::<u32>());
 }
 
+/// R24: the assembly must register the persistent-session capability under
+/// the exact typed key the kernel tool batch reads. A previous round
+/// registered `Arc<dyn PersistentSessions>` while the kernel looked up
+/// `StoreSessionCell` — the keys never matched, real tool batches silently
+/// lost the session capability, and every `agent` spawn fell back to a
+/// non-persistent in-memory child.
+#[tokio::test]
+async fn builder_registers_the_persistent_sessions_key_the_tool_batch_reads() {
+    let agent = AgentBuilder::new()
+        .model(Arc::new(DummyModel))
+        .build()
+        .await
+        .expect("build should succeed");
+
+    let state = agent.state().lock().await;
+    let capability = state
+        .extensions
+        .get::<Arc<dyn alva_kernel_abi::PersistentSessions>>()
+        .expect("tool batch reads Arc<dyn PersistentSessions>; the builder must register it");
+    // The capability must resolve the CURRENT session — this is what
+    // agent_spawn's create_child_session goes through.
+    assert!(capability.store_session().is_some());
+    assert_eq!(
+        capability.store_session().unwrap().session_id(),
+        state.session.session_id(),
+        "capability must resolve the session the agent was built with"
+    );
+}
+
 #[tokio::test]
 async fn builder_requires_model() {
     let result = AgentBuilder::new()

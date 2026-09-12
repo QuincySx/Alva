@@ -738,6 +738,168 @@ mod tests {
         );
     }
 
+    /// R24: DETERMINISTIC swap/turn gate (no sleep-based racing). The model's
+    /// first stream parks until released, so the turn is provably in-flight
+    /// inside the run loop when we probe the swap. While the turn owns
+    /// AgentState the swap must block; after the turn unwinds the swap lands
+    /// and the next turn runs on the new session. The started turn's records
+    /// stay in session A — its identity is preserved, not stolen.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn deterministic_swap_gate_blocks_until_turn_releases_state() {
+        use alva_agent_core::agent_session::InMemoryAgentSession;
+        use std::time::Duration;
+
+        // Simple gated model: first stream() call signals `entered`, then
+        // parks forever; later calls answer immediately.
+        struct GateModel {
+            entered: std::sync::Arc<tokio::sync::Semaphore>,
+            release: std::sync::Arc<tokio::sync::Semaphore>,
+            calls: std::sync::atomic::AtomicUsize,
+        }
+        impl GateModel {
+            fn new() -> (Arc<Self>, Arc<tokio::sync::Semaphore>, Arc<tokio::sync::Semaphore>) {
+                let entered = Arc::new(tokio::sync::Semaphore::new(0));
+                let release = Arc::new(tokio::sync::Semaphore::new(0));
+                (
+                    Arc::new(Self {
+                        entered: entered.clone(),
+                        release: release.clone(),
+                        calls: std::sync::atomic::AtomicUsize::new(0),
+                    }),
+                    entered,
+                    release,
+                )
+            }
+        }
+        #[async_trait]
+        impl alva_kernel_abi::LanguageModel for GateModel {
+            async fn complete(
+                &self,
+                _messages: &[Message],
+                _tools: &[&dyn alva_kernel_abi::Tool],
+                _config: &alva_kernel_abi::ModelConfig,
+            ) -> Result<alva_kernel_abi::CompletionResponse, alva_kernel_abi::AgentError> {
+                Err(alva_kernel_abi::AgentError::LlmError("stream only".into()))
+            }
+            fn stream(
+                &self,
+                _messages: &[Message],
+                _tools: &[&dyn alva_kernel_abi::Tool],
+                _config: &alva_kernel_abi::ModelConfig,
+            ) -> Pin<Box<dyn Stream<Item = alva_kernel_abi::StreamEvent> + Send>> {
+                if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    self.entered.add_permits(1);
+                    let release = self.release.clone();
+                    Box::pin(futures::stream::once(async move {
+                        // Park inside the stream until the test releases the
+                        // gate; then end the turn without text.
+                        let _ = release.acquire().await;
+                        alva_kernel_abi::StreamEvent::Done
+                    }))
+                } else {
+                    Box::pin(tokio_stream::iter([
+                        alva_kernel_abi::StreamEvent::Start,
+                        alva_kernel_abi::StreamEvent::TextDelta {
+                            text: "turn-b done".into(),
+                        },
+                        alva_kernel_abi::StreamEvent::Done,
+                    ]))
+                }
+            }
+            fn model_id(&self) -> &str {
+                "gated-swap-model"
+            }
+        }
+
+        let (model, entered, release) = GateModel::new();
+        let agent = Arc::new(build_test_agent(model).await);
+
+        let session_a = Arc::new(InMemoryAgentSession::with_id("gate-a".into()))
+            as Arc<dyn alva_kernel_abi::agent_session::AgentSession>;
+        let session_b = Arc::new(InMemoryAgentSession::with_id("gate-b".into()))
+            as Arc<dyn alva_kernel_abi::agent_session::AgentSession>;
+        agent.swap_session(session_a.clone()).await;
+        let mut rx_a = agent.prompt_text("turn-a").await;
+
+        // Deterministic "turn in flight": the model's first stream call has
+        // entered and is parked. prompt_text already returned — the turn owns
+        // AgentState for as long as the stream is pending.
+        entered.acquire().await.unwrap().forget();
+
+        // A swap now must BLOCK — probe with a bounded timeout, no sleeps.
+        let agent_for_swap = agent.clone();
+        let session_b_for_swap = session_b.clone();
+        let mut swap =
+            tokio::spawn(async move { agent_for_swap.swap_session(session_b_for_swap).await });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut swap)
+                .await
+                .is_err(),
+            "swap must block while the in-flight turn holds AgentState"
+        );
+
+        // Release the turn: it unwinds (AgentEnd), then the blocked swap
+        // lands on session B.
+        release.add_permits(1);
+        while let Some(event) = rx_a.recv().await {
+            if matches!(event, AgentEvent::AgentEnd { .. }) {
+                break;
+            }
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while agent.session_handle().await.session_id() != "gate-b" {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .is_ok(),
+            "swap must complete once the turn releases the state lock"
+        );
+        swap.abort();
+
+        // The started turn's identity is preserved: its user message lives in
+        // session A, and B is untouched.
+        let text_a = session_text(&session_a).await;
+        assert!(
+            text_a.contains("turn-a"),
+            "session A must keep the started turn's user message, got {text_a:?}"
+        );
+        assert!(
+            !text_a.contains("turn-b"),
+            "session A must not see the next turn, got {text_a:?}"
+        );
+
+        // Next turn runs on B end-to-end.
+        let mut rx_b = agent.prompt_text("turn-b").await;
+        while let Some(event) = rx_b.recv().await {
+            if matches!(event, AgentEvent::AgentEnd { .. }) {
+                break;
+            }
+        }
+        let text_b = session_text(&session_b).await;
+        assert!(
+            text_b.contains("turn-b") && text_b.contains("turn-b done"),
+            "session B must hold the second turn's exchange, got {text_b:?}"
+        );
+    }
+
+    async fn session_text(
+        session: &Arc<dyn alva_kernel_abi::agent_session::AgentSession>,
+    ) -> String {
+        session
+            .messages()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|m| match m {
+                AgentMessage::Standard(msg) => Some(msg.text_content()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     /// Regression: concurrent `swap_session` after `prompt` returns must not
     /// move an already-started turn onto a different session. Before the
     /// spawn→lock handshake, the second swap could win the state lock first.
