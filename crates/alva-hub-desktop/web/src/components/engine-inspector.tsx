@@ -45,6 +45,10 @@ type DetailPage =
 export interface EngineInspectorPanelProps {
   detail: HubSessionDetail | null;
   loadInspection?: InspectorLoader;
+  /** R33: external focus request — open this native session (e.g. a product
+   *  attempt selected elsewhere in the Workbench). Cleared once consumed. */
+  focusSession?: string | null;
+  onFocusConsumed?: () => void;
 }
 
 function shortId(value: string): string {
@@ -87,7 +91,7 @@ function HookRows({
   onOpen,
 }: {
   hooks: InspectorHookRecord[];
-  onOpen: (hook: InspectorHookRecord) => void;
+  onOpen: (hook: InspectorHookRecord, originKey: string) => void;
 }) {
   const { t } = useI18n();
   if (hooks.length === 0) return null;
@@ -102,7 +106,12 @@ function HookRows({
       {hooks.map((hook, index) => (
         <ListRow
           actions={(
-            <Button onClick={() => onOpen(hook)} size="small" variant="ghost">
+            <Button
+              data-inspector-origin={`mw:${index}`}
+              onClick={() => onOpen(hook, `mw:${index}`)}
+              size="small"
+              variant="ghost"
+            >
               {t("common.open")}
             </Button>
           )}
@@ -212,6 +221,8 @@ function HookDetail({ hook, title }: { hook: InspectorHookRecord; title: string 
 export function EngineInspectorPanel({
   detail,
   loadInspection = getHubInspection,
+  focusSession = null,
+  onFocusConsumed,
 }: EngineInspectorPanelProps) {
   const { t } = useI18n();
   const productSessionId = detail?.session.product_session_id ?? null;
@@ -222,6 +233,15 @@ export function EngineInspectorPanel({
   const [selection, setSelection] = useState<DetailPage | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // R33: per-level scroll memory — leaving a level stores its scrollTop, Back
+  // restores it, so a deep drill-down never dumps the user at the top.
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const scrollMemory = useRef<Record<string, number>>({});
+  // R33: LIFO stack of data-inspector-origin keys. The list that opened a
+  // level unmounts while a detail page is shown, so Back re-queries the
+  // re-rendered control by key instead of holding a detached DOM node.
+  const focusOriginStack = useRef<string[]>([]);
+  const navigationKey = `${path.join(">")}#${selection ? selection.kind : ""}`;
 
   activeProductRef.current = productSessionId;
   const currentSessionId = path.at(-1) ?? null;
@@ -255,6 +275,7 @@ export function EngineInspectorPanel({
     setSnapshots({});
     setSelection(null);
     setError(null);
+    focusOriginStack.current = [];
     if (!productSessionId || !rootNativeSessionId) return;
     let cancelled = false;
     setLoading(true);
@@ -283,19 +304,94 @@ export function EngineInspectorPanel({
     return () => window.clearInterval(timer);
   }, [current?.live, current?.native_session_id, fetchSnapshot]);
 
-  const goBack = () => {
-    if (selection) {
+  // R33: remember the scroll position of the level we are leaving, and
+  // restore the level we re-enter (0 for fresh levels).
+  const previousNavigation = useRef(navigationKey);
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (scroller && previousNavigation.current !== navigationKey) {
+      scrollMemory.current[previousNavigation.current] = scroller.scrollTop;
+    }
+    previousNavigation.current = navigationKey;
+    if (scroller) scroller.scrollTop = scrollMemory.current[navigationKey] ?? 0;
+  }, [navigationKey]);
+
+  // R33: an external focus request (product attempt selection) opens the
+  // requested native session. If it is already on the stack the path is
+  // truncated to that level, so "locate" always lands on the focused session.
+  useEffect(() => {
+    if (!focusSession || !productSessionId) return;
+    const locate = (currentPath: string[]) => {
+      const index = currentPath.indexOf(focusSession);
+      return index >= 0 ? currentPath.slice(0, index + 1) : [...currentPath, focusSession];
+    };
+    if (snapshots[focusSession]) {
+      focusOriginStack.current = [];
       setSelection(null);
+      setPath(locate);
+      onFocusConsumed?.();
       return;
     }
-    if (path.length > 1) setPath((currentPath) => currentPath.slice(0, -1));
+    let cancelled = false;
+    setLoading(true);
+    void loadInspection(productSessionId, focusSession)
+      .then((snapshot) => {
+        if (cancelled || activeProductRef.current !== productSessionId) return;
+        setSnapshots((known) => ({ ...known, [snapshot.native_session_id]: snapshot }));
+        focusOriginStack.current = [];
+        setSelection(null);
+        setPath(locate);
+        onFocusConsumed?.();
+      })
+      .catch((reason) => {
+        if (!cancelled && activeProductRef.current === productSessionId) {
+          setError(reason instanceof Error ? reason.message : String(reason));
+          // Surface the failure once; the parent clears the request so a live
+          // polling loop cannot re-trigger the same failed load every second.
+          onFocusConsumed?.();
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // onFocusConsumed is a parent callback consumed inline; excluding it from
+    // deps keeps the effect from re-firing on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusSession, productSessionId, snapshots, loadInspection]);
+
+  const goBack = () => {
+    if (!selection && path.length <= 1) return;
+    // R33: restore focus after the previous level re-renders; the scroll
+    // effect restores its position in the same commit cycle.
+    const originKey = focusOriginStack.current.pop() ?? null;
+    if (selection) {
+      setSelection(null);
+    } else {
+      setPath((currentPath) => currentPath.slice(0, -1));
+    }
+    if (originKey) {
+      requestAnimationFrame(() => {
+        scrollerRef.current
+          ?.querySelector<HTMLElement>(`[data-inspector-origin="${originKey}"]`)
+          ?.focus();
+      });
+    }
   };
 
-  const openChild = async (nativeSessionId: string) => {
+  const openChild = async (nativeSessionId: string, originKey: string) => {
+    focusOriginStack.current = [...focusOriginStack.current, originKey];
     const snapshot = await fetchSnapshot(nativeSessionId, true);
     if (!snapshot) return;
     setSelection(null);
     setPath((currentPath) => [...currentPath, snapshot.native_session_id]);
+  };
+
+  const openDetail = (page: DetailPage, originKey: string) => {
+    focusOriginStack.current = [...focusOriginStack.current, originKey];
+    setSelection(page);
   };
 
   if (!detail) {
@@ -335,6 +431,16 @@ export function EngineInspectorPanel({
     ? current.run.turns[selection.turnIndex]?.llm_call.middleware_hooks
     : null;
   const navigationDepth = path.length + (selection ? 1 : 0);
+  // R33: friendly identity breadcrumbs — engine + role instead of raw
+  // truncated session ids; the short id stays as a secondary hint.
+  const breadcrumb = path.map((sessionId, index) => {
+    const snapshot = snapshots[sessionId];
+    const engine = snapshot?.engine_id ?? "?";
+    const label = index === 0
+      ? `${engine} · ${t("inspector.rootSession")}`
+      : `${engine} · ${t("inspector.childSession")}`;
+    return index === 0 ? label : `${label} (${shortId(sessionId)})`;
+  }).join(" / ");
 
   return (
     <section
@@ -360,7 +466,7 @@ export function EngineInspectorPanel({
           >
             {t("common.back")}
           </Button>
-          <span>{path.map(shortId).join(" / ")}{selection ? " / …" : ""}</span>
+          <span>{breadcrumb}{selection ? " / …" : ""}</span>
         </div>
         <Button
           aria-label={t("common.refresh")}
@@ -374,6 +480,7 @@ export function EngineInspectorPanel({
         </Button>
       </header>
 
+      <div className="hub-engine-inspector__body" ref={scrollerRef}>
       {selection?.kind === "llm" && llm ? <LlmDetail llm={llm} /> : null}
       {selection?.kind === "tool" && tool ? <ToolDetail tool={tool} /> : null}
       {selection?.kind === "hook" ? <HookDetail hook={selection.hook} title={selection.title} /> : null}
@@ -401,7 +508,16 @@ export function EngineInspectorPanel({
             <PanelSection heading={t("inspector.children")} meta={`${current.children.length}`}>
               {current.children.map((child) => (
                 <ListRow
-                  actions={<Button onClick={() => void openChild(child.child_session_id)} size="small" variant="ghost">{t("common.open")}</Button>}
+                  actions={(
+                    <Button
+                      data-inspector-origin={`child:${child.child_session_id}`}
+                      onClick={() => void openChild(child.child_session_id, `child:${child.child_session_id}`)}
+                      size="small"
+                      variant="ghost"
+                    >
+                      {t("common.open")}
+                    </Button>
+                  )}
                   description={`${t("inspector.spawnCall")} ${child.spawn_tool_call_id}`}
                   heading={`${t("inspector.childAgent")} ${shortId(child.child_session_id)}`}
                   key={child.child_session_id}
@@ -413,7 +529,7 @@ export function EngineInspectorPanel({
 
           <HookRows
             hooks={current.run.middleware_hooks}
-            onOpen={(hook) => setSelection({ kind: "hook", hook, title: hook.middleware_name })}
+            onOpen={(hook, originKey) => openDetail({ kind: "hook", hook, title: hook.middleware_name }, originKey)}
           />
 
           <PanelSection heading={t("inspector.turns")} meta={`${current.run.turns.length}`}>
@@ -428,7 +544,16 @@ export function EngineInspectorPanel({
                 title={`${t("inspector.turn")} ${turn.turn_number}`}
               >
                 <ListRow
-                  actions={<Button onClick={() => setSelection({ kind: "llm", turnIndex })} size="small" variant="ghost">{t("common.open")}</Button>}
+                  actions={(
+                    <Button
+                      data-inspector-origin={`llm:${turnIndex}`}
+                      onClick={() => openDetail({ kind: "llm", turnIndex }, `llm:${turnIndex}`)}
+                      size="small"
+                      variant="ghost"
+                    >
+                      {t("common.open")}
+                    </Button>
+                  )}
                   description={`${turn.llm_call.input_tokens}/${turn.llm_call.output_tokens} ${t("inspector.tokens")}`}
                   heading={t("inspector.llmCall")}
                   key={`${turn.turn_number}-llm`}
@@ -442,7 +567,16 @@ export function EngineInspectorPanel({
                 />
                 {turn.tool_calls.map((toolCall, toolIndex) => (
                   <ListRow
-                    actions={<Button onClick={() => setSelection({ kind: "tool", turnIndex, toolIndex })} size="small" variant="ghost">{t("common.open")}</Button>}
+                    actions={(
+                      <Button
+                        data-inspector-origin={`tool:${turnIndex}:${toolIndex}`}
+                        onClick={() => openDetail({ kind: "tool", turnIndex, toolIndex }, `tool:${turnIndex}:${toolIndex}`)}
+                        size="small"
+                        variant="ghost"
+                      >
+                        {t("common.open")}
+                      </Button>
+                    )}
                     description={toolCall.tool_call.id}
                     heading={toolCall.tool_call.name}
                     key={toolCall.tool_call.id}
@@ -453,7 +587,16 @@ export function EngineInspectorPanel({
                 ))}
                 {turn.llm_call.middleware_hooks.length > 0 ? (
                   <ListRow
-                    actions={<Button onClick={() => setSelection({ kind: "turnHooks", turnIndex })} size="small" variant="ghost">{t("common.open")}</Button>}
+                    actions={(
+                      <Button
+                        data-inspector-origin={`hooks:${turnIndex}`}
+                        onClick={() => openDetail({ kind: "turnHooks", turnIndex }, `hooks:${turnIndex}`)}
+                        size="small"
+                        variant="ghost"
+                      >
+                        {t("common.open")}
+                      </Button>
+                    )}
                     description={t("inspector.inclusiveHint")}
                     heading={t("inspector.turnHooks", { count: turn.llm_call.middleware_hooks.length })}
                     key={`${turn.turn_number}-hooks`}
@@ -483,6 +626,7 @@ export function EngineInspectorPanel({
           </Disclosure>
         </div>
       ) : null}
+      </div>
     </section>
   );
 }

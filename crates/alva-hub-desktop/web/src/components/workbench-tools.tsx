@@ -14,9 +14,9 @@ import {
   Play,
   TerminalSquare,
 } from "lucide-react";
-import type { HubSessionDetail, TeamRunDetail, WorkerTask } from "../bridge";
+import type { HubSessionDetail, StoredAttempt, TeamRunDetail, WorkerTask } from "../bridge";
 import type { HubTimelineEvent } from "./hub-timeline";
-import { EngineInspectorPanel } from "./engine-inspector";
+import { EngineInspectorPanel, type EngineInspectorPanelProps } from "./engine-inspector";
 import { localizeSystemText, useI18n } from "../i18n";
 import {
   Badge,
@@ -24,6 +24,7 @@ import {
   Disclosure,
   EmptyState,
   ListRow,
+  Notice,
   PanelSection,
   TextField,
 } from "../ui";
@@ -175,12 +176,38 @@ export function AgentTool({ run, onFocus }: { run: TeamRunDetail | null; onFocus
   );
 }
 
-export function InspectorTool({ detail, events }: { detail: HubSessionDetail | null; events: HubTimelineEvent[] }) {
+export function InspectorTool({ detail, events, loadInspection }: { detail: HubSessionDetail | null; events: HubTimelineEvent[]; loadInspection?: EngineInspectorPanelProps["loadInspection"] }) {
   const { locale, localize, t } = useI18n();
   const [expandedJson, setExpandedJson] = useState<Record<string, boolean>>({});
+  // R33: selecting a product attempt locates its native session in the
+  // Inspector above; engines without native records surface an explicit
+  // unavailable state instead of a silent no-op.
+  const [focusSession, setFocusSession] = useState<string | null>(null);
+  const [unavailableEngine, setUnavailableEngine] = useState<string | null>(null);
+  const locateAttempt = (attempt: StoredAttempt) => {
+    const branch = detail?.branches.find((candidate) => candidate.branch_id === attempt.branch_id) ?? null;
+    if (branch?.engine_id === "alva" && branch.engine_session_id) {
+      setUnavailableEngine(null);
+      setFocusSession(branch.engine_session_id);
+    } else {
+      setUnavailableEngine(branch?.engine_id ?? attempt.engine_id);
+    }
+  };
   return (
     <div className="hub-inspector-tool">
-      <EngineInspectorPanel detail={detail} />
+      <EngineInspectorPanel
+        detail={detail}
+        loadInspection={loadInspection}
+        focusSession={focusSession}
+        onFocusConsumed={() => setFocusSession(null)}
+      />
+      {unavailableEngine ? (
+        <Notice
+          description={t("workbench.attemptNativeUnavailable", { engine: unavailableEngine })}
+          heading={t("workbench.locateInInspector")}
+          tone="warning"
+        />
+      ) : null}
       <Disclosure defaultOpen={false} description={t("workbench.productAttemptsDescription")} title={t("workbench.productAttempts")} meta={detail ? t("common.turnCount", { count: detail.turns.length }) : t("tool.noSession")}>
         {detail?.turns.map((turn) => (
           <Disclosure key={turn.turn_id} title={turn.prompt} description={`${localize(turn.status)} · ${t("common.attemptCount", { count: turn.attempts.length })}`}>
@@ -191,6 +218,11 @@ export function InspectorTool({ detail, events }: { detail: HubSessionDetail | n
                   title={`${attempt.engine_id} · ${localize(attempt.status)}`}
                   description={attempt.failure_reason ? localizeSystemText(locale, attempt.failure_reason, t("system.operationFailed")) : attempt.branch_id}
                   meta={attempt.usage ? t("common.tokenCount", { count: attempt.usage.input_tokens + attempt.usage.output_tokens }) : t("tool.noUsage")}
+                  actions={
+                    <Button onClick={() => locateAttempt(attempt)} size="small" variant="ghost">
+                      {t("workbench.locateInInspector")}
+                    </Button>
+                  }
                 >
                   {attempt.usage ? (
                     <div className="hub-inspector-usage">

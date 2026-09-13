@@ -15,6 +15,7 @@ import { HubTimeline } from "./hub-timeline";
 import { ModelPicker, type HubModelRoute } from "./model-picker";
 import { ProviderSettings } from "./provider-settings";
 import { SettingsPage } from "./product-pages";
+import { InspectorTool } from "./workbench-tools";
 
 const routes: HubModelRoute[] = [
   {
@@ -154,9 +155,137 @@ describe("Hub domain components", () => {
     await user.click(within(childRow as HTMLElement).getByRole("button", { name: "Open" }));
 
     await waitFor(() => expect(loadInspection).toHaveBeenLastCalledWith("ps-demo-1", "demo-native-child"));
-    expect(screen.getByText(/native-a \/ demo-nat/i)).toBeInTheDocument();
+    // R33: breadcrumbs use friendly identity (engine + role); the short id is
+    // a secondary hint instead of the primary label.
+    expect(screen.getByText(/Root session \/ alva · Child session \(demo-nat/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(await screen.findByText(/Child Agent demo-nat/i)).toBeInTheDocument();
+  });
+
+  it("restores scroll position and focus through repeated Back steps (R33)", async () => {
+    window.localStorage.setItem("alva-hub.language", "en-US");
+    const user = userEvent.setup();
+    const loadInspection = vi.fn(async (_productSessionId: string, nativeSessionId?: string | null) =>
+      demoInspection(nativeSessionId ?? undefined));
+    render(
+      <I18nProvider>
+        <UIProvider>
+          <EngineInspectorPanel detail={demoDetail()} loadInspection={loadInspection} />
+        </UIProvider>
+      </I18nProvider>,
+    );
+
+    const body = () => document.querySelector(".hub-engine-inspector__body") as HTMLElement;
+    const originButton = (key: string) =>
+      document.querySelector(`[data-inspector-origin="${key}"]`) as HTMLButtonElement;
+
+    await screen.findByText(/Child Agent demo-nat/i);
+    body().scrollTop = 120;
+
+    // Root → child: the fresh level starts at the top…
+    await user.click(originButton("child:demo-native-child"));
+    await waitFor(() => expect(loadInspection).toHaveBeenLastCalledWith("ps-demo-1", "demo-native-child"));
+    expect(screen.getByText(/Child session/i)).toBeInTheDocument();
+
+    // …and opening a detail from a scrolled level is visible immediately.
+    body().scrollTop = 300;
+    await user.click(originButton("llm:0"));
+    expect(await screen.findByText("Messages sent")).toBeInTheDocument();
+    expect(body().scrollTop).toBe(0);
+
+    // Back #1: the child level's scroll and the LLM row control come back.
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(body().scrollTop).toBe(300));
+    await waitFor(() => expect(document.activeElement).toBe(originButton("llm:0")));
+
+    // Back #2: the root level's scroll and the child row control come back.
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByText(/Child Agent demo-nat/i);
+    await waitFor(() => expect(body().scrollTop).toBe(120));
+    await waitFor(() => expect(document.activeElement).toBe(originButton("child:demo-native-child")));
+  });
+
+  it("product attempt selection drives the Inspector and unsupported engines say so (R33)", async () => {
+    window.localStorage.setItem("alva-hub.language", "en-US");
+    const user = userEvent.setup();
+    const loadInspection = vi.fn(async (_productSessionId: string, nativeSessionId?: string | null) =>
+      demoInspection(nativeSessionId ?? undefined));
+    render(
+      <I18nProvider>
+        <UIProvider>
+          <InspectorTool detail={demoDetail()} events={[]} loadInspection={loadInspection} />
+        </UIProvider>
+      </I18nProvider>,
+    );
+
+    await screen.findByText(/Child Agent demo-nat/i);
+
+    // Drill deep first: the ALVA attempt must pull the Inspector back to its
+    // native session from any depth.
+    await user.click(document.querySelector(`[data-inspector-origin="child:demo-native-child"]`) as HTMLButtonElement);
+    await waitFor(() => expect(loadInspection).toHaveBeenLastCalledWith("ps-demo-1", "demo-native-child"));
+
+    await user.click(screen.getAllByText("Product attempts")[0]);
+    await user.click(await screen.findByText("将脱敏测试迁移到新表结构"));
+    const claudeAttempt = await screen.findByText(/claude · /i);
+    const claudeRow = claudeAttempt.closest(".ui-disclosure");
+    expect(claudeRow).not.toBeNull();
+    await user.click(within(claudeRow as HTMLElement).getByRole("button", { name: "Locate in Inspector" }));
+    // Explicit unavailable state; no bogus native lookup is attempted.
+    expect(loadInspection).not.toHaveBeenCalledWith("ps-demo-1", "native-claude-1");
+    expect(await screen.findByText(/claude attempts do not expose native Agent records/i)).toBeInTheDocument();
+
+    // The attempt title ("alva · Failed") also matches the panel heading
+    // ("ALVA · Native Agent Inspector") — scope to the disclosure row.
+    const alvaAttempt = screen.getAllByText(/^alva · /i).find((el) => el.closest(".ui-disclosure"));
+    expect(alvaAttempt).toBeTruthy();
+    const alvaRow = (alvaAttempt as HTMLElement).closest(".ui-disclosure");
+    await user.click(within(alvaRow as HTMLElement).getByRole("button", { name: "Locate in Inspector" }));
+    // "Locate" truncates the stack to the focused session — the Inspector
+    // lands on the root level, and the unavailable notice clears.
+    expect(await screen.findByText(/^alva · Root session$/)).toBeInTheDocument();
+    expect(screen.queryByText(/claude attempts do not expose native Agent records/i)).toBeNull();
+  });
+
+  it("renders failures, unknown usage and long hook chains with middleware collapsed (R33)", async () => {
+    window.localStorage.setItem("alva-hub.language", "en-US");
+    const user = userEvent.setup();
+    const snapshot = demoInspection();
+    snapshot.run.total_input_tokens = 0;
+    snapshot.run.total_output_tokens = 0;
+    snapshot.run.turns[0].llm_call.error_message = "provider 500";
+    snapshot.run.turns[0].llm_call.middleware_hooks = Array.from({ length: 9 }, (_, index) => ({
+      middleware_name: `mw-${index}`,
+      hook: "wrap_llm_call",
+      duration_ms: 10 + index,
+      outcome: "success",
+      error: null,
+      tool_call_id: null,
+    }));
+    snapshot.run.middleware_hooks = snapshot.run.turns[0].llm_call.middleware_hooks;
+    const loadInspection = vi.fn(async () => snapshot);
+    render(
+      <I18nProvider>
+        <UIProvider>
+          <EngineInspectorPanel detail={demoDetail()} loadInspection={loadInspection} />
+        </UIProvider>
+      </I18nProvider>,
+    );
+
+    await screen.findByText(/Child Agent demo-nat/i);
+    // Zero/zero usage renders as unknown, never as a fake number.
+    expect(screen.getByText("—")).toBeInTheDocument();
+    // The failed LLM call keeps its danger badge on the overview.
+    expect(screen.getAllByText("Failed").length).toBeGreaterThanOrEqual(1);
+    // Middleware stays collapsed by default even with a long hook chain…
+    expect(document.querySelector(`[data-inspector-origin="mw:0"]`)).toBeNull();
+    await user.click(screen.getByText("Middleware calls"));
+    // …and every hook of the long chain is reachable once expanded.
+    expect(document.querySelector(`[data-inspector-origin="mw:8"]`)).not.toBeNull();
+
+    // The child-agent path stays navigable from a sparse snapshot.
+    await user.click(document.querySelector(`[data-inspector-origin="child:demo-native-child"]`) as HTMLButtonElement);
+    expect(await screen.findByText(/Root session \/ alva · Child session/i)).toBeInTheDocument();
   });
 
   it("renders execution events without chat messages or a three-lane overview (R30)", () => {

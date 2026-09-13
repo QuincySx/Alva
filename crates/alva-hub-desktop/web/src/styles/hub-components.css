@@ -255,8 +255,14 @@
 .hub-search-result .ui-status-item__copy small { color: var(--color-text-subtle); }
 .hub-inspector-tool { display: grid; gap: 12px; }
 .hub-inspector-records { display: grid; gap: 6px; padding: 8px; }
+/* R33: the Inspector is its own region with one scroll owner — the body.
+ * Every navigation level (session / child / LLM / Tool / hooks) restores its
+ * own scrollTop inside that single scroller, so opening a detail is visible
+ * immediately and product attempts below keep the outer page scroll. */
+.hub-inspector-tool .hub-engine-inspector { grid-template-rows: auto minmax(0, 1fr); max-height: min(72vh, 640px); }
 .hub-engine-inspector { display: grid; gap: 10px; min-width: 0; }
 .hub-engine-inspector__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border); }
+.hub-engine-inspector__body { min-height: 0; overflow-y: auto; }
 .hub-engine-inspector__navigation { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .hub-engine-inspector__navigation > span { overflow: hidden; color: var(--color-text-subtle); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-size-micro); text-overflow: ellipsis; white-space: nowrap; }
 .hub-engine-inspector__session,
