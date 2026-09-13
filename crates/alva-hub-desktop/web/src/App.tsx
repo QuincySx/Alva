@@ -641,6 +641,19 @@ export default function App() {
   // Only events carrying the explicit new-run correlation token may claim
   // the first live product id. Background workers never receive this token.
   const pendingNewRunTokenRef = useRef<string | null>(null);
+  // R34: the composer input is the keyboard home of the conversation page.
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const previousWorkspaceRef = useRef(workspace);
+
+  // R34: after a workspace is chosen — gate project/independent pick or a
+  // session opened from the sidebar — focus returns to the input so a
+  // keyboard-only flow can continue with typing instead of tab hunting.
+  useEffect(() => {
+    if (workspace && previousWorkspaceRef.current !== workspace) {
+      composerInputRef.current?.focus();
+    }
+    previousWorkspaceRef.current = workspace;
+  }, [workspace]);
 
   useEffect(() => {
     let active = true;
@@ -1884,6 +1897,7 @@ export default function App() {
             ) : null
           }
           onChange={setPrompt}
+          inputRef={composerInputRef}
           onStop={() => void stopActiveAttempt()}
           onSubmit={submit}
           placeholder={t("composer.placeholder", { engine: pendingEngine ?? engine })}

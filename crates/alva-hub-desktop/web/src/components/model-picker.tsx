@@ -94,9 +94,12 @@ export function ModelPicker({
     providerId: selectedProviderId,
   });
   const selected = routes.find((route) => routeKey(route) === selectedKey);
+  // R34: a search query spans every engine tab — one unified model search.
+  // Without a query the catalog stays scoped to the active engine tab.
+  const searching = query.trim().length > 0;
   const visibleRoutes = routes.filter((route) => {
-    if (route.engineId !== engineId) return false;
-    const haystack = `${route.modelLabel} ${route.modelId} ${route.providerId}`.toLowerCase();
+    if (!searching && route.engineId !== engineId) return false;
+    const haystack = `${route.modelLabel} ${route.modelId} ${route.providerId} ${route.engineLabel}`.toLowerCase();
     return haystack.includes(query.trim().toLowerCase());
   });
   const availableRoutes = visibleRoutes.filter((route) => !route.disabled);
@@ -200,7 +203,9 @@ export function ModelPicker({
           description={
             route.disabled
               ? localize(route.disabledReason) || t("modelPicker.unavailableSession")
-              : route.providerId
+              : searching
+                ? `${route.engineLabel} · ${route.providerId}`
+                : route.providerId
           }
           leading={<Bot aria-hidden="true" size={17} />}
           onClick={() => {
@@ -267,25 +272,29 @@ export function ModelPicker({
         } as CSSProperties}
       >
         <section className="hub-model-picker__catalog">
-          <TabsRoot
-            onValueChange={(nextEngineId) => {
-              setEngineId(nextEngineId);
-              setInspection(null);
-            }}
-            value={engineId}
-          >
-            <TabsList aria-label={t("modelPicker.runtime")} className="hub-model-picker__engines">
-              {engines.map(([candidateId, label]) => (
-                <TabsTrigger
-                  className="hub-model-picker__engine"
-                  key={candidateId}
-                  value={candidateId}
-                >
-                  {label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </TabsRoot>
+          {searching ? (
+            <small className="hub-model-picker__scope">{t("modelPicker.searchAll")}</small>
+          ) : (
+            <TabsRoot
+              onValueChange={(nextEngineId) => {
+                setEngineId(nextEngineId);
+                setInspection(null);
+              }}
+              value={engineId}
+            >
+              <TabsList aria-label={t("modelPicker.runtime")} className="hub-model-picker__engines">
+                {engines.map(([candidateId, label]) => (
+                  <TabsTrigger
+                    className="hub-model-picker__engine"
+                    key={candidateId}
+                    value={candidateId}
+                  >
+                    {label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </TabsRoot>
+          )}
           <label className="hub-model-picker__search">
             <Search aria-hidden="true" size={17} />
             <TextField

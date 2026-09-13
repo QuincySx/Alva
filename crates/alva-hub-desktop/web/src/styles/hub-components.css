@@ -99,6 +99,8 @@
 .hub-model-picker__engine.ui-tabs__trigger[data-state="active"] { background: var(--color-surface-active); color: var(--color-text); }
 .hub-model-picker__search { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; border: 1px solid var(--color-border); border-radius: 18px; padding: 0 12px; background: var(--color-surface); color: var(--color-text-subtle); }
 .hub-model-picker__search .ui-input { min-height: var(--control-md); border: 0; padding: 0; background: transparent; box-shadow: none; }
+/* R34: while a query spans every engine tab, a quiet line states the scope. */
+.hub-model-picker__scope { display: block; padding: 0 2px 10px; border-bottom: 1px solid var(--color-border); color: var(--color-text-subtle); font-size: var(--font-size-caption); }
 .hub-model-picker__list { min-height: 0; flex: 1; overflow: auto; padding: 2px 0; }
 .hub-model-picker__route-anchor { width: 100%; }
 .hub-model-picker__route { min-height: 58px; }

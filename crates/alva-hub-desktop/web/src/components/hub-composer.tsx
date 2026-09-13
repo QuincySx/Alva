@@ -2,7 +2,7 @@
 // OUTPUT: Chat-first composer card with stable keyboard and running behavior
 // POS:    Canonical Hub conversation input shared by every engine runtime
 
-import type { FormEvent, KeyboardEvent, ReactNode } from "react";
+import type { FormEvent, KeyboardEvent, ReactNode, Ref } from "react";
 import { ArrowUp, Plus, Square } from "lucide-react";
 import { useI18n } from "../i18n";
 import { IconButton, TextArea } from "../ui";
@@ -21,6 +21,9 @@ export interface HubComposerProps {
   modelPicker?: ReactNode;
   status?: ReactNode;
   onAttach?: () => void;
+  /** R34: lets the page return keyboard focus to the input after a
+   *  workspace/session is chosen instead of leaving it on a nav control. */
+  inputRef?: Ref<HTMLTextAreaElement>;
 }
 
 export function HubComposer({
@@ -37,6 +40,7 @@ export function HubComposer({
   modelPicker,
   status,
   onAttach,
+  inputRef,
 }: HubComposerProps) {
   const { t } = useI18n();
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -55,6 +59,7 @@ export function HubComposer({
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
+          ref={inputRef}
           value={value}
         />
         <footer className="hub-composer__footer">

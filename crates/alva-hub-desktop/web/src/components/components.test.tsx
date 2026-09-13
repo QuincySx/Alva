@@ -5,12 +5,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { EngineTarget, ModelRoute, ProviderDiagnosticResult, ProviderProfile, TimelineEvent } from "../bridge";
+import type { EngineTarget, HubSessionSummary, ModelRoute, ProviderDiagnosticResult, ProviderProfile, TimelineEvent } from "../bridge";
 import { I18nProvider } from "../i18n";
 import { demoDetail, demoInspection } from "../demo-data";
 import { UIProvider } from "../ui";
 import { HubComposer } from "./hub-composer";
 import { EngineInspectorPanel } from "./engine-inspector";
+import { HubSidebar } from "./hub-sidebar";
 import { HubTimeline } from "./hub-timeline";
 import { ModelPicker, type HubModelRoute } from "./model-picker";
 import { ProviderSettings } from "./provider-settings";
@@ -288,6 +289,80 @@ describe("Hub domain components", () => {
     expect(await screen.findByText(/Root session \/ alva · Child session/i)).toBeInTheDocument();
   });
 
+  it("distinguishes same-name sessions and keeps search states truthful (R34)", () => {
+    window.localStorage.setItem("alva-hub.language", "en-US");
+    const summary = (overrides: Partial<HubSessionSummary>): HubSessionSummary => ({
+      product_session_id: "ps-x",
+      workspace: "/managed/aaaa-bbbb-cccc",
+      workspace_kind: "session",
+      active_branch_id: "b",
+      engine_id: "alva",
+      model_id: "workspace-config",
+      provider_id: "workspace-config",
+      engine_session_id: null,
+      status: "completed",
+      updated_at: 0,
+      last_prompt: "Same prompt text",
+      last_result: null,
+      permission_profile: "workspace_write",
+      include_full_transcript: false,
+      ...overrides,
+    });
+    const sessions = [
+      summary({ product_session_id: "ps-1", updated_at: Date.parse("2026-09-10T08:00:00Z") }),
+      summary({
+        product_session_id: "ps-2",
+        updated_at: Date.parse("2026-09-11T09:30:00Z"),
+        workspace_kind: "project",
+        workspace: "/code/alva-agent",
+      }),
+    ];
+    const sidebarProps = (overrides: Partial<Parameters<typeof HubSidebar>[0]> = {}) => ({
+      activePage: "conversation" as const,
+      activeSessionId: "ps-1",
+      busy: false,
+      formatUpdatedAt: (updatedAt: number) => new Date(updatedAt).toISOString().slice(0, 10),
+      onNewSession: () => {},
+      onOpenSession: () => {},
+      onSessionQueryChange: () => {},
+      sessionError: null,
+      sessionQuery: "",
+      sessions,
+      totalSessionCount: 2,
+      onNavigate: () => {},
+      ...overrides,
+    });
+    const { rerender } = render(
+      <I18nProvider>
+        <HubSidebar {...sidebarProps()} />
+      </I18nProvider>,
+    );
+
+    // Identical prompt labels stay distinguishable through real auxiliary
+    // identity: project dir vs the independent-session label, and timestamps.
+    expect(screen.getAllByText("Same prompt text")).toHaveLength(2);
+    expect(screen.getByText("Independent session")).toBeInTheDocument();
+    expect(screen.getByText("alva-agent")).toBeInTheDocument();
+    expect(screen.getByText(/2026-09-10/)).toBeInTheDocument();
+    expect(screen.getByText(/2026-09-11/)).toBeInTheDocument();
+
+    // No-match search state (the sidebar renders the list App already filtered)…
+    rerender(
+      <I18nProvider>
+        <HubSidebar {...sidebarProps({ sessionQuery: "zzz", sessions: [] })} />
+      </I18nProvider>,
+    );
+    expect(screen.getByText("No sessions match that search.")).toBeInTheDocument();
+
+    // …and the failure state names the real error instead of an empty list.
+    rerender(
+      <I18nProvider>
+        <HubSidebar {...sidebarProps({ sessionError: "store unavailable" })} />
+      </I18nProvider>,
+    );
+    expect(screen.getByText("store unavailable")).toBeInTheDocument();
+  });
+
   it("renders execution events without chat messages or a three-lane overview (R30)", () => {
     render(
       <I18nProvider>
@@ -359,6 +434,38 @@ describe("Hub domain components", () => {
     await user.type(screen.getByLabelText("Search models"), "GPT-5");
     await user.click(screen.getByRole("button", { name: /GPT-5 Codex/ }));
 
+    expect(onSelect).toHaveBeenCalledWith(routes[1]);
+  });
+
+  it("unified model search spans engine tabs and stays keyboard-selectable (R34)", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <UIProvider>
+        <ModelPicker
+          onOptionsChange={vi.fn()}
+          onSelect={onSelect}
+          routes={routes}
+          selectedEngineId="alva"
+          selectedModelId="workspace-config"
+          selectedProviderId="workspace-config"
+        />
+      </UIProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Model and engine" }));
+    // Scoped to the active tab, the Codex model is not listed…
+    expect(screen.queryByText(/codex-cli/)).toBeNull();
+    // …but a query searches every runtime, and rows name their engine.
+    await user.type(screen.getByLabelText("Search models"), "gpt-5");
+    expect(screen.getByText("Searching every runtime.")).toBeInTheDocument();
+    const codexRow = screen.getByRole("button", { name: /GPT-5 Codex/ });
+    expect(within(codexRow).getByText(/Codex · codex-cli/)).toBeInTheDocument();
+
+    // Keyboard-only: tabbing out of the search lands on the first result.
+    await user.tab();
+    expect(document.activeElement).toBe(codexRow);
+    await user.keyboard("{Enter}");
     expect(onSelect).toHaveBeenCalledWith(routes[1]);
   });
 

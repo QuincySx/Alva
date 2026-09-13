@@ -411,6 +411,26 @@ describe("App integration", () => {
     expect(bridge.fns.createSessionWorkspace).toHaveBeenCalledTimes(1);
   });
 
+  it("returns keyboard focus to the composer input once a workspace is chosen (R34)", async () => {
+    const user = userEvent.setup();
+    bridge.fns.chooseWorkspace.mockResolvedValue("/tmp/proj-focus");
+    bridge.state.detail = {
+      ...detailFixture(),
+      session: {
+        ...detailFixture().session,
+        product_session_id: "ps-focus",
+      },
+    };
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Select project" }));
+    const composer = await screen.findByLabelText("Message");
+    await waitFor(() => expect(composer).toHaveFocus());
+    // Keyboard-only continuation: typing works without re-focusing anything.
+    await user.keyboard("straight to typing");
+    expect(screen.getByLabelText("Message")).toHaveValue("straight to typing");
+  });
+
   it("opens a running session and renders the fallback card with live controls", async () => {
     const user = userEvent.setup();
     bridge.state.sessions = [
