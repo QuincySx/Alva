@@ -289,9 +289,51 @@ export function demoDetail(): HubSessionDetail {
                 duration_ms: 210,
                 path: "src/redact.rs",
               },
+              {
+                // R36: a long tool output exercises reading-lane wrapping and
+                // the Inspector expansion matrix.
+                tool_call_id: "tc-1-log",
+                tool_name: "bash",
+                succeeded: true,
+                duration_ms: 1840,
+                path: null,
+                tool_input: "{\"command\":\"cargo test --workspace\"}",
+                tool_output: "running 412 tests\ntest redaction::tests::merges_luhn_variants ... ok\ntest redaction::tests::table_driven_iban ... ok\ntest redaction::tests::keep_paths_intact ... ok\ntest handoff::tests::redacts_transcript_bundles ... ok\ntest hub::tests::shared_clock_projection ... ok\n...\ntest result: ok. 412 passed; 0 failed; 18 ignored; finish in 6.41s",
+              },
             ],
             started_at: 1724999000000,
             completed_at: 1724999100000,
+          },
+        ],
+      },
+      {
+        // R36: a minimal greeting turn gives the small-usage/small-talk
+        // visual state (short prompt, zero tool calls, tiny usage).
+        turn_id: "turn-demo-3",
+        prompt: "你好",
+        result: "你好！需要我查看这个项目的哪一部分？",
+        error: null,
+        status: "completed",
+        created_at: 1724999400000,
+        completed_at: 1724999411000,
+        attempts: [
+          {
+            attempt_id: "att-demo-4",
+            turn_id: "turn-demo-3",
+            branch_id: "b-claude",
+            engine_id: "claude",
+            status: "completed",
+            failure_reason: null,
+            usage: {
+              input_tokens: 42,
+              output_tokens: 17,
+              total_cost_usd: 0.0001,
+              duration_ms: 900,
+              num_turns: 1,
+            },
+            side_effects: [],
+            started_at: 1724999400000,
+            completed_at: 1724999411000,
           },
         ],
       },

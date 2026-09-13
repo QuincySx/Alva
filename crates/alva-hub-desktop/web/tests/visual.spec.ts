@@ -7,6 +7,21 @@ import { expect, test, type Page } from "@playwright/test";
 async function settle(page: Page) {
   await page.locator("body").waitFor({ state: "visible" });
   await page.evaluate(() => document.fonts.ready);
+  // ChatTranscript auto-follows to the bottom right after the demo session
+  // loads; pin the scroll region to the top afterwards so screenshots are
+  // deterministic no matter when the async load settles.
+  const region = page.locator("[data-chat-scroll-region]").first();
+  try {
+    await region.waitFor({ state: "attached", timeout: 5_000 });
+    await page.waitForTimeout(250);
+    await region.evaluate((el) => {
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event("scroll"));
+    });
+    await page.waitForTimeout(100);
+  } catch {
+    /* pages without a chat region (gate, settings) are settled already */
+  }
 }
 
 test("01 chat shell", async ({ page }) => {
@@ -33,7 +48,8 @@ test("03 Inspector drills into Agent and LLM pages then backs out", async ({ pag
   const inspector = page.getByRole("region", { name: /Native Agent Inspector|原生 Agent 检查器/ });
   const child = inspector.locator(".ui-list-row").filter({ hasText: /Child Agent demo-nat|子 Agent demo-nat/ });
   await child.getByRole("button", { name: /Open|打开/ }).click();
-  await expect(inspector).toContainText("native-a / demo-nat");
+  // R33: friendly identity breadcrumb (engine + role, short id secondary).
+  await expect(inspector).toContainText(/Child session \(demo-nat|子会话 \(demo-nat/);
 
   const llm = inspector.locator(".ui-list-row").filter({ hasText: /LLM call|LLM 调用/ });
   await llm.getByRole("button", { name: /Open|打开/ }).click();
@@ -46,7 +62,18 @@ test("03 Inspector drills into Agent and LLM pages then backs out", async ({ pag
   await inspector.getByRole("button", { name: /Back|返回/ }).click();
   await expect(inspector).toContainText(/Child Agent demo-nat|子 Agent demo-nat/);
 
+  // R36: re-enter the LLM detail and assert its unique content BEFORE the
+  // screenshot — the baseline must show the detail page, not the root the
+  // back-out ends on.
+  await llm.getByRole("button", { name: /Open|打开/ }).click();
+  await expect(inspector).toContainText(/Messages sent|发送给模型的消息/);
+  await expect(inspector).toContainText(/First output|首个输出/);
+  await expect(inspector).toContainText(/Model response|模型响应/);
   await expect(page).toHaveScreenshot("03-inspector-llm-detail.png", { fullPage: true });
+
+  // Leave the panel back at the child level for the next assertion round.
+  await inspector.getByRole("button", { name: /Back|返回/ }).click();
+  await expect(inspector).toContainText(/LLM call|LLM 调用/);
 });
 
 test("03 right workbench add-tab menu", async ({ page }) => {
