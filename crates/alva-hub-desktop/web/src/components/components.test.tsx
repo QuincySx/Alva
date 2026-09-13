@@ -926,7 +926,8 @@ describe("Hub domain components", () => {
 
   it("permission mode control is disabled and never pretends to persist (R31)", () => {
     renderSettings("Permissions");
-    const modeSelect = screen.getByRole("combobox", { name: "Permission Mode" });
+    // R37: the accessible name comes from the typed key, same as the heading.
+    const modeSelect = screen.getByRole("combobox", { name: /Default Permission Mode/ });
     expect(modeSelect).toBeDisabled();
     // The row states the real source of truth instead of a success badge.
     expect(screen.getByText(/chosen per session in the composer/i)).toBeInTheDocument();
@@ -943,9 +944,10 @@ describe("Hub domain components", () => {
 
   it("worker concurrency, resource tier and git snapshot are disabled (R31)", () => {
     renderSettings("General");
-    expect(screen.getByRole("combobox", { name: "Worker Limit" })).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Resource Tier" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Git Auto Snapshot" })).toBeDisabled();
+    // R37: accessible names follow the typed row headings.
+    expect(screen.getByRole("combobox", { name: "Max Worker Concurrency" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Resource Mode" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Git Auto Checkpoint" })).toBeDisabled();
     expect(screen.getAllByText(/does not affect new sessions/i).length).toBeGreaterThanOrEqual(1);
   });
 
@@ -962,9 +964,10 @@ describe("Hub domain components", () => {
 
   it("tools section disables fake toggles and shows MCP as not wired (R32)", () => {
     renderSettings("Tools");
-    expect(screen.getByRole("switch", { name: "File IO" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Shell" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Browser" })).toBeDisabled();
+    // R37: switch labels follow the typed row headings.
+    expect(screen.getByRole("switch", { name: "File System" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Terminal / Shell" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Browser CDP" })).toBeDisabled();
     // No sample MCP rows, no add-server affordance.
     expect(screen.queryByText(/Chrome DevTools MCP/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add MCP Server/i })).not.toBeInTheDocument();

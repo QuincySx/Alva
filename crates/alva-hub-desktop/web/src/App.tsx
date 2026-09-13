@@ -1547,7 +1547,7 @@ export default function App() {
         />
         <button
           aria-hidden={!narrowSidebarOpen}
-          aria-label={locale === "zh-CN" ? "关闭导航" : "Close navigation"}
+          aria-label={t("nav.closeNavigation")}
           className="ui-sidebar-scrim"
           data-state={narrowSidebarOpen ? "open" : "closed"}
           onClick={() => setNarrowSidebarOpen(false)}

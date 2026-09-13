@@ -64,7 +64,7 @@ interface AutomationItem {
 
 
 export function AutomationsPage() {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   // R20: 自动化调度后端尚未开放——为避免假成功，创建/启用入口禁用，
   // 模板仅作预览；页面诚实说明当前状态。
   const automationTemplates = [
@@ -80,11 +80,11 @@ export function AutomationsPage() {
         actions={
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Badge tone="warning">
-              {locale === "zh-CN" ? "调度尚未开放" : "Scheduling not yet available"}
+              {t("pages.automations.schedulingUnavailable")}
             </Badge>
             <Button
               disabled
-              aria-label={locale === "zh-CN" ? "自动化功能尚未开放" : "Automations not yet available"}
+              aria-label={t("pages.automations.notYetAria")}
               leadingIcon={<Plus aria-hidden="true" size={15} />}
               variant="primary"
             >
@@ -96,26 +96,20 @@ export function AutomationsPage() {
         meta={
           automations.length > 0
             ? t("automation.configured", { count: automations.length })
-            : locale === "zh-CN"
-              ? "尚未开放：调度后端仍在开发中"
-              : "Not yet available: scheduling backend is under development"
+            : t("pages.automations.notYetMeta")
         }
         title={t("nav.automations")}
       />
       <EmptyState
         icon={<Workflow aria-hidden="true" size={18} />}
-        title={locale === "zh-CN" ? "自动化尚未开放" : "Automations not yet available"}
-        description={
-          locale === "zh-CN"
-            ? "定时调度后端仍在开发中；下方模板仅供预览，创建入口已禁用。"
-            : "The scheduling backend is still in development; templates below are previews and creation is disabled."
-        }
+        title={t("pages.automations.notYetTitle")}
+        description={t("pages.automations.notYetDescription")}
       />
       <section className="hub-product-section">
         <h3>
           {t("automation.templates")}{" "}
           <Badge tone="warning">
-            {locale === "zh-CN" ? "预览（暂不可用）" : "Preview (unavailable)"}
+            {t("pages.automations.previewUnavailable")}
           </Badge>
         </h3>
         <CardGrid>
@@ -136,7 +130,7 @@ export function AutomationsPage() {
 }
 
 export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   // R22: 生产目录只反映真实 registry——当前没有任何已安装扩展；样例一律
   // installed: false，安装/注册入口禁用并说明。
   const extensions = [
@@ -168,11 +162,7 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
               <Button leadingIcon={<Plus aria-hidden="true" size={15} />}>{t("extension.add")}</Button>
             </DialogTrigger>
             <DialogContent
-              description={
-                locale === "zh-CN"
-                  ? "扩展注册后端尚未开放：此处暂不能登记新扩展。"
-                  : "Extension registration backend is not yet available; nothing can be registered here yet."
-              }
+              description={t("pages.extensions.registerUnavailable")}
               title={t("extension.add")}
             >
               <div className="hub-form-stack">
@@ -229,19 +219,11 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
                     <Button onClick={onStartChat} size="small" variant="ghost">{t("extension.useInChat")}</Button>
                   ) : (
                     <Button
-                      aria-label={
-                        locale === "zh-CN"
-                          ? "安装尚未支持：需要扩展注册表后端"
-                          : "Install is not supported yet: requires an extension registry backend"
-                      }
+                      aria-label={t("pages.extensions.installUnsupportedAria")}
                       disabled
                       leadingIcon={<Download aria-hidden="true" size={14} />}
                       size="small"
-                      title={
-                        locale === "zh-CN"
-                          ? "安装需要扩展注册表后端（尚未开放）"
-                          : "Install requires an extension registry backend (not yet available)"
-                      }
+                      title={t("pages.extensions.installUnsupportedTitle")}
                     >
                       {t("extension.install")}
                     </Button>
@@ -305,7 +287,7 @@ export function SettingsPage({
   onTestProviderRoute: (target: EngineTarget) => Promise<ProviderDiagnosticResult>;
   routes: ModelRoute[];
 }) {
-  const { locale, preference, setPreference, t } = useI18n();
+  const { preference, setPreference, t } = useI18n();
   const [section, setSection] = useState<(typeof settingsSections)[number]>("general");
   const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">("dark");
   const [compact, setCompact] = useState(false);
@@ -330,6 +312,21 @@ export function SettingsPage({
   const [toolBrowser, setToolBrowser] = useState(true);
   const [toolGit, setToolGit] = useState(true);
 
+  // R37: per-section copy comes from the typed dictionary — no inline locale
+  // branches in this domain component.
+  const sectionCopy: Record<(typeof settingsSections)[number], { nav: string; title: string; description: string }> = {
+    general: { nav: t("pages.settings.navGeneral"), title: t("pages.settings.generalTitle"), description: t("pages.settings.generalDescription") },
+    models: { nav: t("pages.settings.navModels"), title: t("pages.settings.modelsTitle"), description: t("pages.settings.modelsDescription") },
+    tools: { nav: t("pages.settings.navTools"), title: t("pages.settings.toolsTitle"), description: t("pages.settings.toolsDescription") },
+    remote: { nav: t("pages.settings.navRemote"), title: t("pages.settings.remoteTitle"), description: t("pages.settings.remoteDescription") },
+    im: { nav: t("pages.settings.navIm"), title: t("pages.settings.imTitle"), description: t("pages.settings.imDescription") },
+    keybindings: { nav: t("pages.settings.navKeybindings"), title: t("pages.settings.keybindingsTitle"), description: t("pages.settings.keybindingsDescription") },
+    usage: { nav: t("pages.settings.navUsage"), title: t("pages.settings.usageTitle"), description: t("pages.settings.usageDescription") },
+    permissions: { nav: t("pages.settings.navPermissions"), title: t("pages.settings.permissionsTitle"), description: t("pages.settings.permissionsDescription") },
+    experiments: { nav: t("pages.settings.navExperiments"), title: t("pages.settings.experimentsTitle"), description: t("pages.settings.experimentsDescription") },
+    help: { nav: t("pages.settings.navHelp"), title: t("pages.settings.helpTitle"), description: t("pages.settings.helpDescription") },
+  };
+
   return (
     <div className="hub-settings-frame">
       <nav aria-label={t("settings.sections")} className="hub-settings-nav">
@@ -337,75 +334,15 @@ export function SettingsPage({
           <NavItem
             active={section === candidate}
             key={candidate}
-            label={
-              candidate === "general"
-                ? (locale === "zh-CN" ? "通用设置" : "General")
-                : candidate === "models"
-                  ? (locale === "zh-CN" ? "模型供应商" : "Models")
-                  : candidate === "tools"
-                    ? (locale === "zh-CN" ? "内置工具与 MCP" : "Tools & MCP")
-                    : candidate === "remote"
-                      ? (locale === "zh-CN" ? "远程 SSH 连接" : "Remote SSH")
-                      : candidate === "im"
-                        ? (locale === "zh-CN" ? "💬 IM 机器人" : "IM Gateways")
-                        : candidate === "keybindings"
-                          ? (locale === "zh-CN" ? "⌨️ 键盘快捷键" : "Keybindings")
-                          : candidate === "usage"
-                            ? (locale === "zh-CN" ? "💳 用量与计费" : "Usage & Quota")
-                            : candidate === "permissions"
-                              ? (locale === "zh-CN" ? "权限与安全" : "Permissions")
-                              : candidate === "experiments"
-                                ? (locale === "zh-CN" ? "🧪 实验性功能" : "Experiments")
-                                : (locale === "zh-CN" ? "关于与更新" : "About & Help")
-            }
+            label={sectionCopy[candidate].nav}
             onClick={() => setSection(candidate)}
           />
         ))}
       </nav>
       <ScrollRegion className="hub-product-page hub-settings-page">
         <PageHeader
-          description={
-            section === "general"
-              ? (locale === "zh-CN" ? "管理账户资料、界面外观与 Worker 协作策略" : "Manage account profile, appearance, and worker coordination")
-              : section === "models"
-                ? (locale === "zh-CN" ? "配置外部大模型供应商连接、API 密钥与默认路由" : "Configure external provider credentials and default routes")
-                : section === "tools"
-                  ? (locale === "zh-CN" ? "管理内置 Agent 工具箱与外部 MCP (Model Context Protocol) 服务" : "Manage built-in tools and MCP servers")
-                  : section === "remote"
-                    ? (locale === "zh-CN" ? "配置远程主机 SSH 免密登录与端侧执行沙箱" : "Manage remote SSH host connections and remote execution")
-                    : section === "im"
-                      ? (locale === "zh-CN" ? "配置微信、企业微信与飞书等即时通讯机器人连接" : "Configure instant messaging bots and webhook bridges")
-                      : section === "keybindings"
-                        ? (locale === "zh-CN" ? "查看与管理常用键盘快捷键" : "Inspect keyboard shortcuts and navigation hotkeys")
-                        : section === "usage"
-                          ? (locale === "zh-CN" ? "查看会话 Token 消耗、API 成本与用量统计" : "Inspect token usage, billing, and run statistics")
-                          : section === "permissions"
-                            ? (locale === "zh-CN" ? "管理 Agent 执行权限策略与敏感文件访问控制" : "Manage agent execution permissions and path filters")
-                            : section === "experiments"
-                              ? (locale === "zh-CN" ? "探索面向开发者和架构师的实验室功能" : "Explore developer diagnostics and experimental features")
-                              : (locale === "zh-CN" ? "版本信息、更新检查与系统诊断报告" : "System version, update checks, and diagnostics")
-          }
-          title={
-            section === "general"
-              ? (locale === "zh-CN" ? "通用设置" : "General Settings")
-              : section === "models"
-                ? (locale === "zh-CN" ? "模型供应商与连接" : "Model Providers")
-                : section === "tools"
-                  ? (locale === "zh-CN" ? "内置工具与 MCP" : "Tools & MCP")
-                  : section === "remote"
-                    ? (locale === "zh-CN" ? "远程 SSH 主机" : "Remote SSH Connections")
-                    : section === "im"
-                      ? (locale === "zh-CN" ? "IM 机器人网关" : "IM Bot Bridges")
-                      : section === "keybindings"
-                        ? (locale === "zh-CN" ? "键盘快捷键" : "Keyboard Shortcuts")
-                        : section === "usage"
-                          ? (locale === "zh-CN" ? "用量与计费" : "Usage & Billing")
-                          : section === "permissions"
-                            ? (locale === "zh-CN" ? "权限与安全" : "Permissions & Security")
-                            : section === "experiments"
-                              ? (locale === "zh-CN" ? "实验功能" : "Experiments")
-                              : (locale === "zh-CN" ? "关于 ALVA Hub" : "About ALVA Hub")
-          }
+          description={sectionCopy[section].description}
+          title={sectionCopy[section].title}
         />
 
         {section === "general" ? (
@@ -416,25 +353,25 @@ export function SettingsPage({
                 <div className="hub-profile-avatar">{profileName.trim().charAt(0).toUpperCase() || "A"}</div>
                 <div className="hub-profile-details">
                   <h4>{profileName}</h4>
-                  <p>{profileEmail}{locale === "zh-CN" ? " · 本地资料，未接入账号系统" : " · local profile, no account system"}</p>
+                  <p>{profileEmail}{t("pages.settings.localProfileSuffix")}</p>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <DialogRoot open={profileOpen} onOpenChange={setProfileOpen}>
                   <DialogTrigger asChild>
                     <Button size="small" variant="ghost">
-                      {locale === "zh-CN" ? "编辑资料" : "Edit Profile"}
+                      {t("pages.settings.editProfile")}
                     </Button>
                   </DialogTrigger>
                   <DialogContent
-                    title={locale === "zh-CN" ? "编辑个人资料" : "Edit Profile"}
-                    description={locale === "zh-CN" ? "更新本地显示的账户名与联系邮箱" : "Update local user profile details"}
+                    title={t("pages.settings.editProfileTitle")}
+                    description={t("pages.settings.editProfileDescription")}
                   >
                     <div className="hub-form-stack" style={{ marginTop: "12px" }}>
-                      <FieldFrame label={locale === "zh-CN" ? "显示名称" : "Display Name"}>
+                      <FieldFrame label={t("pages.settings.displayName")}>
                         <TextField value={profileName} onChange={(e) => setProfileName(e.target.value)} />
                       </FieldFrame>
-                      <FieldFrame label={locale === "zh-CN" ? "邮箱地址" : "Email Address"}>
+                      <FieldFrame label={t("pages.settings.emailAddress")}>
                         <TextField value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} />
                       </FieldFrame>
                       <div className="hub-dialog-actions" style={{ marginTop: "16px" }}>
@@ -442,7 +379,7 @@ export function SettingsPage({
                           {t("common.cancel")}
                         </Button>
                         <Button variant="primary" onClick={() => setProfileOpen(false)}>
-                          {locale === "zh-CN" ? "保存" : "Save"}
+                          {t("common.save")}
                         </Button>
                       </div>
                     </div>
@@ -465,14 +402,14 @@ export function SettingsPage({
                       variant={themeMode === "light" ? "primary" : "ghost"}
                       onClick={() => setThemeMode("light")}
                     >
-                      {locale === "zh-CN" ? "浅色" : "Light"}
+                      {t("pages.settings.themeLight")}
                     </Button>
                     <Button
                       size="small"
                       variant={themeMode === "dark" ? "primary" : "ghost"}
                       onClick={() => setThemeMode("dark")}
                     >
-                      {locale === "zh-CN" ? "深色" : "Dark"}
+                      {t("pages.settings.themeDark")}
                     </Button>
                     <Button
                       disabled
@@ -480,7 +417,7 @@ export function SettingsPage({
                       variant={themeMode === "system" ? "primary" : "ghost"}
                       onClick={() => setThemeMode("system")}
                     >
-                      {locale === "zh-CN" ? "跟随系统" : "System"}
+                      {t("pages.settings.themeSystem")}
                     </Button>
                   </div>
                 }
@@ -502,43 +439,43 @@ export function SettingsPage({
               description={t("settings.workerControlsDescription")}
             >
               <SettingsRow
-                heading={locale === "zh-CN" ? "子 Worker 最大并发数" : "Max Worker Concurrency"}
+                heading={t("pages.settings.workerConcurrency")}
                 description={t("settings.truthfulNotWired")}
                 control={
                   <SelectField
-                    ariaLabel="Worker Limit"
+                    ariaLabel={t("pages.settings.workerConcurrency")}
                     disabled
                     value={workerLimit}
                     onValueChange={setWorkerLimit}
                     options={[
-                      { value: "2", label: locale === "zh-CN" ? "2 个 Worker (节能)" : "2 Workers" },
-                      { value: "4", label: locale === "zh-CN" ? "4 个 Worker (标准推荐)" : "4 Workers (Standard)" },
-                      { value: "8", label: locale === "zh-CN" ? "8 个 Worker (高性能)" : "8 Workers (High)" },
+                      { value: "2", label: t("pages.settings.workersEco") },
+                      { value: "4", label: t("pages.settings.workersStandard") },
+                      { value: "8", label: t("pages.settings.workersHigh") },
                     ]}
                   />
                 }
               />
               <SettingsRow
-                heading={locale === "zh-CN" ? "Agent 资源消耗档位" : "Resource Mode"}
+                heading={t("pages.settings.resourceMode")}
                 description={t("settings.truthfulNotWired")}
                 control={
                   <SelectField
-                    ariaLabel="Resource Tier"
+                    ariaLabel={t("pages.settings.resourceMode")}
                     disabled
                     value={resourceTier}
                     onValueChange={setResourceTier}
                     options={[
-                      { value: "eco", label: locale === "zh-CN" ? "节能模式 (Low Power)" : "Eco" },
-                      { value: "balanced", label: locale === "zh-CN" ? "标准平衡 (Balanced)" : "Balanced" },
-                      { value: "turbo", label: locale === "zh-CN" ? "极速高负荷 (Turbo)" : "Turbo" },
+                      { value: "eco", label: t("pages.settings.resourceEco") },
+                      { value: "balanced", label: t("pages.settings.resourceBalanced") },
+                      { value: "turbo", label: t("pages.settings.resourceTurbo") },
                     ]}
                   />
                 }
               />
               <SettingsRow
-                heading={locale === "zh-CN" ? "自动 Git 安全保存点" : "Git Auto Checkpoint"}
+                heading={t("pages.settings.gitCheckpoint")}
                 description={t("settings.truthfulNotWired")}
-                control={<Switch checked={gitSnapshot} disabled label="Git Auto Snapshot" onCheckedChange={(c) => setGitSnapshot(c === true)} />}
+                control={<Switch checked={gitSnapshot} disabled label={t("pages.settings.gitCheckpoint")} onCheckedChange={(c) => setGitSnapshot(c === true)} />}
               />
             </SettingsGroup>
           </>
@@ -556,40 +493,40 @@ export function SettingsPage({
         ) : section === "tools" ? (
           <>
             <SettingsGroup
-              heading={locale === "zh-CN" ? "内置核心能力工具" : "Built-in Tool Primitives"}
+              heading={t("pages.settings.toolsGroup")}
               description={t("settings.toolTogglesDescription")}
             >
               <SettingsRow
-                heading={locale === "zh-CN" ? "文件系统读写 (File I/O & Search)" : "File System"}
+                heading={t("pages.settings.toolFile")}
                 description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolFileIo} disabled label="File IO" onCheckedChange={(c) => setToolFileIo(c === true)} />}
+                control={<Switch checked={toolFileIo} disabled label={t("pages.settings.toolFile")} onCheckedChange={(c) => setToolFileIo(c === true)} />}
               />
               <SettingsRow
-                heading={locale === "zh-CN" ? "终端 Shell 执行 (Terminal & Shell)" : "Terminal / Shell"}
+                heading={t("pages.settings.toolShell")}
                 description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolShell} disabled label="Shell" onCheckedChange={(c) => setToolShell(c === true)} />}
+                control={<Switch checked={toolShell} disabled label={t("pages.settings.toolShell")} onCheckedChange={(c) => setToolShell(c === true)} />}
               />
               <SettingsRow
-                heading={locale === "zh-CN" ? "互联网搜索与抓取 (Web Search & Fetch)" : "Web Search"}
+                heading={t("pages.settings.toolWeb")}
                 description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolWeb} disabled label="Web" onCheckedChange={(c) => setToolWeb(c === true)} />}
+                control={<Switch checked={toolWeb} disabled label={t("pages.settings.toolWeb")} onCheckedChange={(c) => setToolWeb(c === true)} />}
               />
               <SettingsRow
-                heading={locale === "zh-CN" ? "沙箱浏览器自动化 (Chrome CDP)" : "Browser CDP"}
+                heading={t("pages.settings.toolBrowser")}
                 description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolBrowser} disabled label="Browser" onCheckedChange={(c) => setToolBrowser(c === true)} />}
+                control={<Switch checked={toolBrowser} disabled label={t("pages.settings.toolBrowser")} onCheckedChange={(c) => setToolBrowser(c === true)} />}
               />
               <SettingsRow
-                heading={locale === "zh-CN" ? "Git 与 Worktree 隔离分支" : "Git & Worktree"}
+                heading={t("pages.settings.toolGit")}
                 description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolGit} disabled label="Git" onCheckedChange={(c) => setToolGit(c === true)} />}
+                control={<Switch checked={toolGit} disabled label={t("pages.settings.toolGit")} onCheckedChange={(c) => setToolGit(c === true)} />}
               />
             </SettingsGroup>
 
             {/* R32: MCP 管理未接后端——诚实呈现未接入状态，不再展示可增删
                 的样例列表（样例归属 UI Lab demo）。 */}
             <SettingsGroup
-              heading={locale === "zh-CN" ? "外部 MCP 服务器 (Model Context Protocol)" : "MCP Servers"}
+              heading={t("pages.settings.mcpGroup")}
               description={t("settings.mcpNotWired")}
             >
               <Notice
@@ -602,7 +539,7 @@ export function SettingsPage({
           </>
         ) : section === "remote" ? (
           <SettingsGroup
-            heading={locale === "zh-CN" ? "远程 SSH 主机列表" : "SSH Remote Hosts"}
+            heading={t("pages.settings.remoteTitle")}
             description={t("settings.sshNotWired")}
           >
             {/* R32: SSH 执行未实现——诚实空态，移除假主机样例与添加对话框。 */}
@@ -615,53 +552,53 @@ export function SettingsPage({
           </SettingsGroup>
         ) : section === "im" ? (
           <SettingsGroup
-            heading={locale === "zh-CN" ? "即时通讯机器人网关" : "IM Bot Bridges"}
-            description={locale === "zh-CN" ? "将 Alva Agent 挂接到团队即时通讯群组，支持 @机器人 触发任务" : "Connect agents to team chat channels"}
+            heading={t("pages.settings.imGroupHeading")}
+            description={t("pages.settings.imGroupDescription")}
           >
             <SettingsRow
-              heading={locale === "zh-CN" ? "企业微信机器人 (WeCom Bot)" : "WeCom Bot"}
+              heading={t("pages.settings.imWeCom")}
               description="Webhook: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
-              control={<Badge tone="neutral">{locale === "zh-CN" ? "未配置" : "Inactive"}</Badge>}
+              control={<Badge tone="neutral">{t("pages.settings.inactive")}</Badge>}
             />
             <SettingsRow
-              heading={locale === "zh-CN" ? "飞书自定义机器人 (Feishu Bot)" : "Feishu Bot"}
+              heading={t("pages.settings.imFeishu")}
               description="Open Platform AppID: cli_a1b2c3d4..."
-              control={<Badge tone="neutral">{locale === "zh-CN" ? "未配置" : "Inactive"}</Badge>}
+              control={<Badge tone="neutral">{t("pages.settings.inactive")}</Badge>}
             />
             <SettingsRow
-              heading={locale === "zh-CN" ? "钉钉群机器人 (DingTalk Bot)" : "DingTalk Bot"}
+              heading={t("pages.settings.imDingTalk")}
               description="Webhook Gateway Endpoint"
-              control={<Badge tone="neutral">{locale === "zh-CN" ? "未配置" : "Inactive"}</Badge>}
+              control={<Badge tone="neutral">{t("pages.settings.inactive")}</Badge>}
             />
           </SettingsGroup>
         ) : section === "keybindings" ? (
           <SettingsGroup
-            heading={locale === "zh-CN" ? "系统常用键盘快捷键" : "Keyboard Shortcuts"}
-            description={locale === "zh-CN" ? "掌握高效快捷键以加速代码协作与会话流转" : "Hub navigation and action hotkeys"}
+            heading={t("pages.settings.kbGroup")}
+            description={t("pages.settings.kbGroupDescription")}
           >
-            <SettingsRow heading={locale === "zh-CN" ? "全局快速搜索" : "Global Search"} description="随时呼出全局命令面板与会话检索" control={<Badge tone="accent">⌘ K</Badge>} />
-            <SettingsRow heading={locale === "zh-CN" ? "新建会话" : "New Session"} description="快速开始一个新的空白独立或项目会话" control={<Badge>⌘ N</Badge>} />
-            <SettingsRow heading={locale === "zh-CN" ? "切换工作台面板" : "Toggle Workbench"} description="展开或折叠右侧多标签工作台" control={<Badge>⌘ B</Badge>} />
-            <SettingsRow heading={locale === "zh-CN" ? "发送指令 / 提交" : "Send Prompt"} description="在输入框中向 Agent 提交当前指令" control={<Badge tone="accent">Enter / ⌘ ↵</Badge>} />
-            <SettingsRow heading={locale === "zh-CN" ? "停止当前运行" : "Stop Execution"} description="中断当前正在执行的 Agent 循环或子任务" control={<Badge tone="danger">Esc</Badge>} />
+            <SettingsRow heading={t("pages.settings.kbSearch")} description={t("pages.settings.kbSearchDescription")} control={<Badge tone="accent">⌘ K</Badge>} />
+            <SettingsRow heading={t("pages.settings.kbNewSession")} description={t("pages.settings.kbNewSessionDescription")} control={<Badge>⌘ N</Badge>} />
+            <SettingsRow heading={t("pages.settings.kbWorkbench")} description={t("pages.settings.kbWorkbenchDescription")} control={<Badge>⌘ B</Badge>} />
+            <SettingsRow heading={t("pages.settings.kbSend")} description={t("pages.settings.kbSendDescription")} control={<Badge tone="accent">Enter / ⌘ ↵</Badge>} />
+            <SettingsRow heading={t("pages.settings.kbStop")} description={t("pages.settings.kbStopDescription")} control={<Badge tone="danger">Esc</Badge>} />
           </SettingsGroup>
         ) : section === "permissions" ? (
           <SettingsGroup
-            heading={locale === "zh-CN" ? "默认执行权限与安全控制" : "Security & Permissions"}
-            description={locale === "zh-CN" ? "设定 Agent 访问本地文件与执行 Shell 时的安全拦截级别" : "Configure HITL permission modes"}
+            heading={t("pages.settings.permGroup")}
+            description={t("pages.settings.permGroupDescription")}
           >
             <SettingsRow
-              heading={locale === "zh-CN" ? "默认审批模式（仅影响新会话）" : "Default Permission Mode (new sessions only)"}
+              heading={t("pages.settings.permModeTitle")}
               description={t("settings.permissionSource")}
               control={
                 <SelectField
-                  ariaLabel="Permission Mode"
+                  ariaLabel={t("pages.settings.permModeTitle")}
                   disabled
                   value={permissionMode}
                   onValueChange={(v) => setPermissionMode(v as typeof permissionMode)}
                   options={[
-                    { value: "ask", label: locale === "zh-CN" ? "逐项询问 (Ask - 推荐)" : "Ask (Recommended)" },
-                    { value: "accept_edits", label: locale === "zh-CN" ? "自动代码编辑 (Auto Edits)" : "Auto Accept Edits" },
+                    { value: "ask", label: t("pages.settings.permAsk") },
+                    { value: "accept_edits", label: t("pages.settings.permAutoEdits") },
                   ]}
                 />
               }
@@ -675,7 +612,7 @@ export function SettingsPage({
         ) : section === "usage" ? (
           // R32: 用量统计未收集——诚实呈现未接入，不虚构 token/成本/占比。
           <SettingsGroup
-            heading={locale === "zh-CN" ? "用量与计费" : "Usage & Billing"}
+            heading={t("pages.settings.usageTitle")}
             description={t("settings.usageNotWired")}
           >
             <Notice
@@ -692,7 +629,7 @@ export function SettingsPage({
           </SettingsGroup>
         ) : (
           // R32: 版本/更新未接 IPC——不虚构版本号与“已是最新”结论。
-          <SettingsGroup heading={locale === "zh-CN" ? "系统状态与关于" : "System & About"} description={t("settings.description")}>
+          <SettingsGroup heading={t("pages.settings.aboutGroup")} description={t("settings.description")}>
             <SettingsRow
               heading="ALVA Hub Desktop Core"
               description={t("settings.versionNotWired")}

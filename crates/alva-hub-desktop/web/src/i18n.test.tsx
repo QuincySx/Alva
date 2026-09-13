@@ -5,6 +5,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { I18nProvider, localizeProductText, useI18n } from "./i18n";
+// R37 guard: read the component source through Vite's ?raw import.
+import productPagesSource from "./components/product-pages.tsx?raw";
 
 function Probe() {
   const { locale, setPreference, t } = useI18n();
@@ -41,5 +43,9 @@ describe("I18nProvider", () => {
     expect(localizeProductText("zh-CN", "Workspace provider account")).toBe("工作区供应商账号");
     expect(localizeProductText("zh-CN", "claude-sonnet-4-5")).toBe("claude-sonnet-4-5");
     expect(localizeProductText("en-US", "running")).toBe("running");
+  });
+
+  it("keeps reworked domain components on typed keys, not inline locale branches (R37)", () => {
+    expect(productPagesSource).not.toMatch(/locale === ["']zh-CN["']/);
   });
 });
