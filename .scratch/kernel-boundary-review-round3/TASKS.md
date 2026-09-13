@@ -1,5 +1,7 @@
 # 第三轮 Review：当前唯一执行清单
 
+> **2026-09-12 复审：下表 done 为原执行者声明，不代表验收全部通过。当前返工入口已转到 [第四轮 TASKS](../kernel-boundary-review-round4/TASKS.md)，逐卡结论见 [第四轮 REVIEW](../kernel-boundary-review-round4/REVIEW.md)。请勿继续按旧表关闭或重复执行。**
+
 > 2026-09-11；仅执行 **R14–R23 + UI01–UI10，共 20 张新卡**。旧 01–19、R01–R08、R09–R13 仅作历史来源，未完成行为转入本轮。
 > 复审 diff：`134b8b3...f9d0e57`，并实测当前 Hub 前端/桌面流程。当前 HEAD 改变后先复核，不重复修已解决问题。
 

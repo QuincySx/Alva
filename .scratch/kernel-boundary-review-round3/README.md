@@ -1,6 +1,6 @@
 # 第三轮 Review 与 Hub UI 重整交接
 
-**当前唯一执行清单：[R14–R23 + UI01–UI10，共20张](./TASKS.md)。**
+**本轮执行记录已归档；当前唯一返工清单为 [第四轮 R24–R37](../kernel-boundary-review-round4/TASKS.md)。原20卡完成声明的复审见 [第四轮 REVIEW](../kernel-boundary-review-round4/REVIEW.md)。**
 
 本轮用户要求只 review、跑测试、启动 Hub 检查并建卡，修复交给其他执行者。未修改生产代码，未提交或推送。
 

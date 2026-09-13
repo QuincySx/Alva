@@ -72,6 +72,6 @@ Re-exported from `src/lib.rs`:
 
 ## 迁入模块（内核边界重构 R05/R08）
 
-- `src/agent_session.rs`：InMemoryAgentSession / ListenableInMemorySession 内存会话后端（自 kernel-core 迁入）。Listenable 的广播队列按 seq 序插入、投递经 delivery_lock 单投递者串行化（R03）——慢监听者不阻塞追加与订阅。
+- `src/agent_session.rs`：InMemoryAgentSession / ListenableInMemorySession 内存会话后端（自 kernel-core 迁入）。R25/R26 重写投递路径：`BroadcastCore` 是唯一投递实现——追加者 commit→notify 段无 await 点，专属 driver task 负责唤醒与投递（typed append 也会唤醒空闲 driver）；真实 abort（`JoinError::is_cancelled`）后已提交事件仍可达既有实时订阅；`clear`/`restore`/`rollback` 在队列锁内递增代际并重置游标，clear 不取 delivery_lock（回调内重入不死锁），旧代际游标无法污染新代际序号。同模块的 `CellBackedSessions`（R27）把 kernel-abi 的具体 `StoreSessionCell` 包装成 `Arc<dyn PersistentSessions>` 能力——装配层经它向内核下发"当前会话"，内核只见 dyn trait。
 - `src/tool_lock.rs`：跨 Agent 工具资源锁表 + `ToolLockMiddleware`（自 kernel-core 迁入）。经 bus 可选发现；子 agent 栈须显式挂中间件并接线 bus 与 workspace（configure 不触发的路径用 `with_bus`/`with_workspace`，R11）。
 - 会话切换（R10/R15）：`swap_session` 在 state 锁内原子完成 flush → 日志/SharedCell 更新；压缩中间件、工具上下文、session_handle 读取同一 cell，总是指向当前会话。

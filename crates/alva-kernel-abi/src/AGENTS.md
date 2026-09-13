@@ -27,14 +27,18 @@ Message ←── ContentBlock (text / tool_use / tool_result / image)
 ## 业务域清单
 | 名称 | 文件 | 职责 |
 |------|------|------|
-| 消息 | `message.rs` | Message、MessageRole、UsageMetadata |
-| 内容块 | `content.rs` | ContentBlock 枚举（text / tool_use / tool_result / image） |
-| 工具 | `tool.rs` | Tool trait、ToolCall、ToolResult、ToolContext trait、ToolDefinition、ToolRegistry |
-| 模型 | `model.rs` | LanguageModel trait、ModelConfig |
-| 提供商 | `provider.rs` | Provider trait、ProviderError |
-| 流事件 | `stream.rs` | StreamEvent（LLM 流式输出事件） |
-| 取消令牌 | `cancel.rs` | CancellationToken（协作式取消） |
-| 错误 | `error.rs` | AgentError 统一错误枚举 |
-| Spawn Comm | `scope/spawn/communication.rs` | SpawnCommunication trait + SpawnCommContext + SpawnCommHandle + OnChildComplete + SpawnResult + SpawnCommunicationRegistry —— sub-agent 通信能力的插件契约 |
+| 消息 | `base/message.rs` | Message、MessageRole、UsageMetadata |
+| 内容块 | `base/content.rs` | ContentBlock 枚举（text / tool_use / tool_result / image） |
+| 工具 | `tool/` | Tool trait、ToolCall、ToolResult、ToolContext trait、ToolDefinition、ToolRegistry；`scheduler.rs` 持有 Scheduling 调度描述符类型，`schema.rs` 提供依赖运行时状态的 JSON Schema 覆写 |
+| 模型 | `model/` | LanguageModel trait；`config.rs` 持有 ModelConfig |
+| 流事件 | `base/stream.rs` | StreamEvent（LLM 流式输出事件） |
+| 取消令牌 | `base/cancel.rs` | CancellationToken（协作式取消） |
+| 错误 | `base/error.rs` | AgentError 统一错误枚举 |
+| 会话契约 | `agent_session.rs` | AgentSession、ScopedSession、事件查询/订阅与 atomic typed-record capability 声明；`PersistentSessions` 是内核循环与工具路径唯一认识的会话能力（以 `Arc<dyn PersistentSessions>` 注册/下发）；`StoreSessionCell` 是装配层包装具体 typed store 的 cell，内核代码不识别它 |
+| 会话存储契约 | `session_store.rs` | SessionStore —— harness/UI 超集需求：查询、计数、回滚、快照、订阅、压缩、持久化、子会话派生 |
+| 对话记录契约 | `conversation_log.rs` | ConversationLog —— 内核对"历史"的全部要求（读/追加消息）；SessionStore 是其 harness 超集 |
 | Durable records | `session_record.rs` | 版本化 SessionRecord、typed built-in/extension payload、blob 引用与 append receipt |
-| 会话契约 | `agent_session.rs` | AgentSession、ScopedSession、事件查询/订阅与 atomic typed-record capability 声明 |
+| 上下文生命周期 | `scope/context/` | ContextHooks 七钩子、ContextHandle、ContextSystem 与 ContextApply 执行器契约 |
+| Spawn Comm | `scope/spawn/communication.rs` | SpawnCommunication trait + SpawnCommContext + SpawnCommHandle + OnChildComplete + SpawnResult + SpawnCommunicationRegistry —— sub-agent 通信能力的插件契约 |
+| Runtime 原语 | `runtime.rs` | Sleeper + timeout（内核不依赖 tokio::time） |
+| 常量 | `constants.rs` | 工具上限、agent 配置等共享常量 |

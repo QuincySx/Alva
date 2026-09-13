@@ -1,0 +1,110 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling alva-kernel-abi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-abi)
+   Compiling alva-kernel-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-core)
+   Compiling alva-agent-abi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-abi)
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/alva-kernel-core/src/run_child.rs:106:9
+    |
+106 |     let mut extensions = Extensions::new();
+    |         ----^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling alva-agent-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core)
+warning: unused import: `normalize_path_string`
+  --> crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:367:13
+    |
+367 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `handle`
+   --> crates/alva-agent-core/src/agent_session.rs:812:23
+    |
+812 |             if let Ok(handle) = Handle::try_current() {
+    |                       ^^^^^^ help: if this is intentional, prefix it with an underscore: `_handle`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-kernel-core` (lib) generated 3 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 3 suggestions)
+warning: `alva-agent-core` (lib) generated 3 warnings (run `cargo fix --lib -p alva-agent-core` to apply 3 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 03s
+     Running tests/review_round4_probes.rs (target/debug/deps/review_round4_probes-3adf2dd01b45b1e0)
+
+running 7 tests
+test dynamic_tool_context_preserves_store_cell ... ok
+test subscription_after_clear_receives_new_live_event ... ok
+test assembly_exposes_the_key_consumed_by_tool_batch ... FAILED
+test first_append_finishes_while_listener_is_blocked ... FAILED
+test cancelled_appender_preserves_existing_live_subscription ... FAILED
+test typed_append_wakes_idle_driver ... FAILED
+test clear_during_delivery_does_not_skip_new_generation ... FAILED
+
+failures:
+
+---- assembly_exposes_the_key_consumed_by_tool_batch stdout ----
+
+thread 'assembly_exposes_the_key_consumed_by_tool_batch' (67060272) panicked at crates/alva-agent-core/tests/review_round4_probes.rs:30:5:
+tool_batch reads a different typed key than the builder registers
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- first_append_finishes_while_listener_is_blocked stdout ----
+
+thread 'first_append_finishes_while_listener_is_blocked' (67060276) panicked at crates/alva-agent-core/tests/review_round4_probes.rs:125:5:
+the first append remains blocked on the arbitrary listener callback
+
+---- cancelled_appender_preserves_existing_live_subscription stdout ----
+
+thread 'cancelled_appender_preserves_existing_live_subscription' (67060273) panicked at crates/alva-agent-core/tests/review_round4_probes.rs:147:10:
+already subscribed consumer permanently lost the committed event after append cancellation: Elapsed(())
+
+---- typed_append_wakes_idle_driver stdout ----
+
+thread 'typed_append_wakes_idle_driver' (67060278) panicked at crates/alva-agent-core/tests/review_round4_probes.rs:62:10:
+typed record committed but idle driver never woke: Elapsed(())
+
+---- clear_during_delivery_does_not_skip_new_generation stdout ----
+
+thread 'clear_during_delivery_does_not_skip_new_generation' (67060274) panicked at crates/alva-agent-core/tests/review_round4_probes.rs:87:5:
+old in-flight delivery advances reset cursor and skips new seq 1
+
+
+failures:
+    assembly_exposes_the_key_consumed_by_tool_batch
+    cancelled_appender_preserves_existing_live_subscription
+    clear_during_delivery_does_not_skip_new_generation
+    first_append_finishes_while_listener_is_blocked
+    typed_append_wakes_idle_driver
+
+test result: FAILED. 2 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+error: test failed, to rerun pass `-p alva-agent-core --test review_round4_probes`
