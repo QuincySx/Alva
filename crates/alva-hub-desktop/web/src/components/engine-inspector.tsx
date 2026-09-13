@@ -241,6 +241,9 @@ export function EngineInspectorPanel({
   // level unmounts while a detail page is shown, so Back re-queries the
   // re-rendered control by key instead of holding a detached DOM node.
   const focusOriginStack = useRef<string[]>([]);
+  // R35: the section itself is focusable; drill-downs move focus here so
+  // the Esc-to-go-back handler keeps working in a keyboard-only flow.
+  const sectionRef = useRef<HTMLElement | null>(null);
   const navigationKey = `${path.join(">")}#${selection ? selection.kind : ""}`;
 
   activeProductRef.current = productSessionId;
@@ -387,11 +390,13 @@ export function EngineInspectorPanel({
     if (!snapshot) return;
     setSelection(null);
     setPath((currentPath) => [...currentPath, snapshot.native_session_id]);
+    requestAnimationFrame(() => sectionRef.current?.focus());
   };
 
   const openDetail = (page: DetailPage, originKey: string) => {
     focusOriginStack.current = [...focusOriginStack.current, originKey];
     setSelection(page);
+    requestAnimationFrame(() => sectionRef.current?.focus());
   };
 
   if (!detail) {
@@ -452,6 +457,7 @@ export function EngineInspectorPanel({
           goBack();
         }
       }}
+      ref={sectionRef}
       tabIndex={-1}
     >
       <header className="hub-engine-inspector__header">

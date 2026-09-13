@@ -593,6 +593,10 @@ export default function App() {
       if (event.key !== "Escape") return;
       if ((event.target as Element | null)?.closest?.("[role=dialog]")) return;
       setNarrowSidebarOpen(false);
+      // R35: hand focus back to the toggle so the keyboard loop stays closed.
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLButtonElement>(".hub-topbar__menu")?.focus();
+      });
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -1550,7 +1554,10 @@ export default function App() {
           aria-label={t("nav.closeNavigation")}
           className="ui-sidebar-scrim"
           data-state={narrowSidebarOpen ? "open" : "closed"}
-          onClick={() => setNarrowSidebarOpen(false)}
+          onClick={() => {
+            setNarrowSidebarOpen(false);
+            document.querySelector<HTMLButtonElement>(".hub-topbar__menu")?.focus();
+          }}
           tabIndex={narrowSidebarOpen ? 0 : -1}
           type="button"
         />
@@ -1613,7 +1620,7 @@ export default function App() {
                     variant="ghost"
                   />
                 ) : null}
-                <IconButton icon={<PanelRight aria-hidden="true" size={15} />} label={t("workbench.close")} onClick={() => setWorkbenchOpen(false)} variant="ghost" />
+                <IconButton icon={<PanelRight aria-hidden="true" size={15} />} label={t("workbench.close")} onClick={() => { setWorkbenchOpen(false); requestAnimationFrame(() => { document.querySelector<HTMLButtonElement>(".hub-topbar__workbench")?.focus(); }); }} variant="ghost" />
               </div>
             </TabsList>
             {openWorkbenchTools.includes("files") ? <TabsContent className="hub-workbench__content" forceMount value="files"><WorkbenchPage><FilesTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}

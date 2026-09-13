@@ -58,6 +58,7 @@ export function HubTopbar({
         ) : null}
         {!workbenchOpen ? (
           <IconButton
+            className="hub-topbar__workbench"
             icon={<PanelRight aria-hidden="true" size={16} />}
             label={t("topbar.openWorkbench")}
             onClick={onToggleWorkbench}
