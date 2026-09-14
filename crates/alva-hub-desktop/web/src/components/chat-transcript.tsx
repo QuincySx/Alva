@@ -34,17 +34,12 @@ function isMessageEntry(entry: HubTimelineEvent): boolean {
 
 // ---------------------------------------------------------------------------
 // Safe Markdown — deliberately no third-party renderer. The assistant text is
-// untrusted model output; we render a restricted block/inline subset after
-// HTML-escaping everything, so injected markup can never reach the DOM.
+// untrusted model output; we render a restricted block/inline subset where
+// every piece of source text becomes a React text child. React escapes text
+// children by construction, so injected markup can never reach the DOM —
+// without double-escaping (R41): pre-escaping with escapeHtml used to surface
+// literal "&lt;"/"&amp;" entities for prose like `a < b && c > d`.
 // ---------------------------------------------------------------------------
-
-function escapeHtml(text: string): string {
-  return text
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
 
 /** Render fenced-code + heading + list + paragraph structure to nodes. */
 function renderMarkdown(text: string): ReactNode[] {
@@ -54,9 +49,10 @@ function renderMarkdown(text: string): ReactNode[] {
   let key = 0;
 
   const inline = (raw: string): ReactNode => {
-    // Inline code, then bold — over the ESCAPED source so tags stay inert.
+    // Inline code, then bold — matched on the RAW source; emitted strings are
+    // React text children and stay inert (R41).
     const parts: ReactNode[] = [];
-    let rest = escapeHtml(raw);
+    let rest = raw;
     let inlineKey = 0;
     const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)/g;
     let cursor = 0;
