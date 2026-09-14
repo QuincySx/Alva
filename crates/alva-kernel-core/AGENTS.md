@@ -9,11 +9,10 @@
 - `state.rs` 将可变运行态 `AgentState` 与不可变配置 `AgentConfig` 分离，降低借用冲突并把消息历史外置到 `session`。
 - `middleware.rs` 和 `shared.rs` 提供 async middleware stack、priority、error 和 type-safe `Extensions`；每层 hook 的 identity/order/inclusive duration/结果按 stack phase 打包为一条 `middleware_hook_batch` 进入 canonical session，避免逐 middleware SQLite 写放大；`input_committed` 在输入消息写入 session 后触发，是 `Phase::InputCommitted` 的真实执行点。
 - `context_runtime.rs` 提供 `ContextRuntime`，集中处理 ContextHooks 的 pending injection、assemble、budget compression、after_turn 与 dispose。
-- `context_apply.rs` 提供 `apply_injections` / `apply_compressions`——把 context-hook 返回值落到 system prompt 桶与 message 列表（从 `alva-kernel-abi` 迁出的 runtime helper）。
 - `event.rs` 提供 `AgentEventSender`：保留 unbounded SDK 兼容路径，bounded 路径让 lifecycle/message/tool terminal 事件对生产消费者施加真实背压；同步 progress 更新满载时 best-effort 丢弃。
 - `run/mod.rs` 的 `llm_call_start` 记录版本化 cache-base/tool-schema 指纹，`llm_call_end` 把 provider usage 归类为 hit/write/miss/unreported；指纹只做通用审计，provider 专有 cache-control 仍归 provider adapter。
 - `tool_batch.rs` 提供 `ToolBatchCoordinator`，集中处理一批模型声明的 tool call：显式 concurrency-safe 且资源无冲突的调用组成并行 wave；未知、冲突、全局串行和 coordinator 调用形成顺序屏障；intent/outcome 始终按模型顺序提交。
-- `tool_lock.rs` 提供 `ToolLockRegistry` / `ToolLockGuards`——跨 agent 共享的工具资源锁运行时（类型在 abi，实现在 core）。
+- （R46 更正：`context_apply` 与 `tool_lock` 已不在本 crate——`tool_lock` 在 `alva-agent-core`，context hook 返回值落位由 `context_runtime.rs` 协调。）
 - `runtime_context.rs` 为 tool 执行构造 `RuntimeExecutionContext`，把 progress、workspace、bus 等能力桥接给 tool。
 - `builtins/` 放 kernel 级默认 middleware，如 loop detection、dangling tool call、tool timeout。
 
