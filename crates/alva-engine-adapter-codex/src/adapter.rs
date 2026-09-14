@@ -131,6 +131,8 @@ impl EngineRuntime for CodexAdapter {
             let mut native_session = provisional_id.clone();
             let mut retry_tracker = RecoverableRetryTracker::new();
             let mut escalated = false;
+            let mut terminal_forwarded = false;
+            let mut error_forwarded = false;
             // Stream contract R2: after a non-recoverable Error only Completed may
             // follow, so stop reading as soon as one is forwarded.
             let mut fatal_seen = false;
@@ -145,6 +147,7 @@ impl EngineRuntime for CodexAdapter {
                             message: "Codex session cancelled".into(),
                             recoverable: false,
                         });
+                        error_forwarded = true;
                         break;
                     }
                     line = process.next_line() => {
@@ -166,6 +169,9 @@ impl EngineRuntime for CodexAdapter {
                                     retry_tracker.reset();
                                 }
                                 for runtime_event in mapper.map(event) {
+                                    if matches!(runtime_event, RuntimeEvent::Completed { .. }) {
+                                        terminal_forwarded = true;
+                                    }
                                     if let RuntimeEvent::SessionStarted { session_id, .. } =
                                         &runtime_event
                                     {
@@ -199,11 +205,15 @@ impl EngineRuntime for CodexAdapter {
                                                 message: fatal_msg,
                                                 recoverable: false,
                                             });
+                                            error_forwarded = true;
                                             break;
                                         }
                                     }
 
                                     let fatal = is_fatal_error(&runtime_event);
+                                    if fatal {
+                                        error_forwarded = true;
+                                    }
                                     let _ = event_tx.send(runtime_event);
                                     if fatal {
                                         fatal_seen = true;
@@ -220,6 +230,7 @@ impl EngineRuntime for CodexAdapter {
                                     message: error.to_string(),
                                     recoverable: false,
                                 });
+                                error_forwarded = true;
                                 break;
                             }
                         }
@@ -237,8 +248,18 @@ impl EngineRuntime for CodexAdapter {
                 .session_id()
                 .unwrap_or(native_session.as_str())
                 .to_string();
+            // R52 (ticket 16 contract): a stream that ends without the
+            // engine's own terminal event is an outage, not a success — it
+            // must surface a fatal Error before the synthesized Completed,
+            // and never carry stale text as a result.
+            if !terminal_forwarded && !error_forwarded && !escalated {
+                let _ = event_tx.send(RuntimeEvent::Error {
+                    message: "codex exited without a terminal event".into(),
+                    recoverable: false,
+                });
+            }
             // Fatal path: never put a success answer on Completed (stream soft rule).
-            let result = if mapper.failed() || escalated {
+            let result = if mapper.failed() || escalated || !terminal_forwarded {
                 None
             } else {
                 mapper.last_agent_text().map(str::to_string)
@@ -480,6 +501,62 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"t
                 Scenario::EofWithoutResult,
             )
             .await;
+        }
+
+        // R52: the remaining three scenarios run against the same fake-codex
+        // execute() boundary instead of reusing unrelated one-off assertions.
+        #[tokio::test]
+        async fn spawn_failure_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let adapter = CodexAdapter::new(CodexAdapterConfig {
+                codex_path: fixture.path().join("no-such-codex").to_string_lossy().into_owned(),
+                default_cwd: Some(fixture.path().to_path_buf()),
+                ..Default::default()
+            });
+            assert_conforms(&adapter, RuntimeRequest::new("hi"), Scenario::SpawnFailure).await;
+        }
+
+        #[tokio::test]
+        async fn killed_mid_run_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-codex");
+            write_fake_codex(
+                &executable,
+                r#"#!/bin/sh
+printf '%s
+' '{"type":"thread.started","thread_id":"codex-thread-1"}'
+kill -9 $$
+"#,
+            );
+            let adapter = CodexAdapter::new(CodexAdapterConfig {
+                codex_path: executable.to_string_lossy().into_owned(),
+                default_cwd: Some(fixture.path().to_path_buf()),
+                ..Default::default()
+            });
+            assert_conforms(&adapter, RuntimeRequest::new("hi"), Scenario::KilledMidRun).await;
+        }
+
+        #[tokio::test]
+        async fn output_after_fatal_conforms() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-codex");
+            write_fake_codex(
+                &executable,
+                r#"#!/bin/sh
+printf '%s
+' '{"type":"thread.started","thread_id":"codex-thread-1"}'
+printf '%s
+' '{"type":"turn.failed","error":{"message":"usage limit reached"}}'
+printf '%s
+' '{"type":"item.completed","item":{"type":"agent_message","text":"must not be forwarded"}}'
+"#,
+            );
+            let adapter = CodexAdapter::new(CodexAdapterConfig {
+                codex_path: executable.to_string_lossy().into_owned(),
+                default_cwd: Some(fixture.path().to_path_buf()),
+                ..Default::default()
+            });
+            assert_conforms(&adapter, RuntimeRequest::new("hi"), Scenario::OutputAfterFatal).await;
         }
     }
 }

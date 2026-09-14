@@ -106,6 +106,16 @@ pub fn assert_conforms_events(events: &[RuntimeEvent], scenario: Scenario) {
                 ),
                 "KilledMidRun must end with Completed{{result:None}}: {events:#?}"
             );
+            // R52: a killed run must surface the kill as a fatal error — a
+            // bare Completed{None} without Error is a contract violation, not
+            // a conforming sample.
+            assert!(
+                events.iter().any(|event| matches!(
+                    event,
+                    RuntimeEvent::Error { recoverable: false, .. }
+                )),
+                "KilledMidRun must surface a fatal Error before the terminal: {events:#?}"
+            );
             // Adapting tools closed is Hub's synthesis job (ticket 12); the
             // adapter's contract duty ends at a terminal non-success pair.
         }
@@ -117,8 +127,26 @@ pub fn assert_conforms_events(events: &[RuntimeEvent], scenario: Scenario) {
                 ),
                 "EofWithoutResult must end with Completed{{result:None}}: {events:#?}"
             );
+            // R52: same as KilledMidRun — the missing result must be reported
+            // as a fatal Error, never a silently bare Completed{None}.
+            assert!(
+                events.iter().any(|event| matches!(
+                    event,
+                    RuntimeEvent::Error { recoverable: false, .. }
+                )),
+                "EofWithoutResult must surface a fatal Error before the terminal: {events:#?}"
+            );
         }
         Scenario::OutputAfterFatal => {
+            // R52: the scenario is vacuous without a fatal — a sample without
+            // one must be rejected, not silently pass.
+            assert!(
+                events.iter().any(|event| matches!(
+                    event,
+                    RuntimeEvent::Error { recoverable: false, .. }
+                )),
+                "OutputAfterFatal sample must contain a fatal Error: {events:#?}"
+            );
             if let Some(index) = events.iter().position(|event| {
                 matches!(
                     event,
@@ -136,5 +164,64 @@ pub fn assert_conforms_events(events: &[RuntimeEvent], scenario: Scenario) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod mutation {
+    //! R52: red-green proofs that the harness REJECTS deliberately malformed
+    //! samples — a scenario that cannot fail would be decoration, not a gate.
+
+    use super::{assert_conforms_events, Scenario};
+    use crate::RuntimeEvent;
+
+    fn started() -> RuntimeEvent {
+        RuntimeEvent::SessionStarted {
+            session_id: "mutation".into(),
+            model: None,
+            tools: vec![],
+        }
+    }
+
+    fn completed_none() -> RuntimeEvent {
+        RuntimeEvent::Completed {
+            session_id: "mutation".into(),
+            result: None,
+            usage: None,
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "must surface a fatal Error")]
+    fn eof_without_fatal_is_rejected() {
+        assert_conforms_events(&[started(), completed_none()], Scenario::EofWithoutResult);
+    }
+
+    #[test]
+    #[should_panic(expected = "must surface a fatal Error")]
+    fn killed_without_fatal_is_rejected() {
+        assert_conforms_events(&[started(), completed_none()], Scenario::KilledMidRun);
+    }
+
+    #[test]
+    #[should_panic(expected = "must end with Completed{result:None}")]
+    fn eof_with_a_success_result_is_rejected() {
+        let success = RuntimeEvent::Completed {
+            session_id: "mutation".into(),
+            result: Some("finished".into()),
+            usage: None,
+        };
+        assert_conforms_events(&[started(), success], Scenario::EofWithoutResult);
+    }
+
+    #[test]
+    #[should_panic(expected = "OutputAfterFatal sample must contain a fatal Error")]
+    fn output_after_fatal_without_fatal_is_rejected() {
+        let success = RuntimeEvent::Completed {
+            session_id: "mutation".into(),
+            result: Some("finished".into()),
+            usage: None,
+        };
+        assert_conforms_events(&[started(), success], Scenario::OutputAfterFatal);
     }
 }

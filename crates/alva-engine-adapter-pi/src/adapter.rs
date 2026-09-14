@@ -115,6 +115,12 @@ impl EngineRuntime for PiAdapter {
             // Stream contract R2: after a non-recoverable Error only Completed may
             // follow, so stop reading as soon as one is forwarded.
             let mut fatal_seen = false;
+            // R52: distinguish a clean engine terminal from a bare EOF — a
+            // stream that ends without the engine's own Completed is an
+            // outage and must surface a fatal Error before the synthesized
+            // terminal pair.
+            let mut terminal_forwarded = false;
+            let mut error_forwarded = false;
             loop {
                 tokio::select! {
                     _ = kill_rx.recv() => {
@@ -125,6 +131,7 @@ impl EngineRuntime for PiAdapter {
                             message: "Pi session cancelled".into(),
                             recoverable: false,
                         });
+                        error_forwarded = true;
                         break;
                     }
                     line = process.next_line() => {
@@ -142,6 +149,9 @@ impl EngineRuntime for PiAdapter {
                                     }
                                 };
                                 for runtime_event in mapper.map(event) {
+                                    if matches!(runtime_event, RuntimeEvent::Completed { .. }) {
+                                        terminal_forwarded = true;
+                                    }
                                     if let RuntimeEvent::SessionStarted { session_id, .. } = &runtime_event {
                                         if session_id != &native_session {
                                             let mut map = sessions.lock().await;
@@ -152,6 +162,9 @@ impl EngineRuntime for PiAdapter {
                                         }
                                     }
                                     let fatal = is_fatal_error(&runtime_event);
+                                    if fatal {
+                                        error_forwarded = true;
+                                    }
                                     let _ = event_tx.send(runtime_event);
                                     if fatal {
                                         fatal_seen = true;
@@ -168,6 +181,7 @@ impl EngineRuntime for PiAdapter {
                                     message: error.to_string(),
                                     recoverable: false,
                                 });
+                                error_forwarded = true;
                                 break;
                             }
                         }
@@ -178,7 +192,13 @@ impl EngineRuntime for PiAdapter {
                 .session_id()
                 .unwrap_or(native_session.as_str())
                 .to_string();
-            let result = if mapper.failed() {
+            if !terminal_forwarded && !error_forwarded && !fatal_seen {
+                let _ = event_tx.send(RuntimeEvent::Error {
+                    message: "pi exited without a terminal event".into(),
+                    recoverable: false,
+                });
+            }
+            let result = if mapper.failed() || !terminal_forwarded {
                 None
             } else {
                 mapper.last_agent_text().map(str::to_string)
