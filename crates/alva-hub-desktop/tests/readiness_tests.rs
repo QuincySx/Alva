@@ -719,31 +719,24 @@ fn a_newly_registered_engine_is_readied_negotiated_and_built() {
         alva_hub_desktop::enforcement_for(ID, alva_hub_desktop::PermissionProfile::WorkspaceWrite);
     assert_eq!(negotiated.unwrap().enforcement, plan.enforcement);
 
-    // 3. Construction through the registry's build entry.
-    let built = test_build(ID);
-    assert!(built.is_ok(), "the registered engine must be constructible");
-    assert_eq!(BUILDS.load(Ordering::SeqCst), 1);
-}
-
-/// Local replica of the production build invocation with test-default
-/// routing inputs (workspace-write plan, no provider route, temp dirs) —
-/// keeps the production registry free of test-only entry points.
-fn test_build(engine_id: &str) -> Result<Arc<dyn EngineRuntime>, String> {
-    use alva_hub_desktop::{enforcement_for, EngineBuildArgs};
-    let entry = blueprint(engine_id).ok_or("engine not registered")?;
-    let target = alva_hub_desktop::EngineTarget::for_engine(engine_id)?;
-    let plan = enforcement_for(
-        engine_id,
-        alva_hub_desktop::PermissionProfile::WorkspaceWrite,
-    )?;
+    // 3. Construction through the PUBLIC production entry (R61): the same
+    // build_engine_for_target the products call. The test must not replicate
+    // production decisions (negotiation, blueprint lookup, arg assembly) —
+    // doing so would protect a copy, not the real path.
     let tmp = tempfile::tempdir().expect("tempdir");
-    let args = EngineBuildArgs {
-        target: &target,
-        provider_config: None,
-        plan: &plan,
-        workspace: tmp.path(),
-        history_dir: tmp.path(),
-        repository: None,
-    };
-    (entry.build)(&args)
+    let target = alva_hub_desktop::EngineTarget::for_engine(ID)
+        .expect("a registered engine resolves a default target");
+    let built = alva_hub_desktop::build_engine_for_target(
+        &target,
+        None,
+        alva_hub_desktop::PermissionProfile::WorkspaceWrite,
+        tmp.path(),
+        tmp.path(),
+    );
+    assert!(built.is_ok(), "the registered engine must be constructible through build_engine_for_target: {:?}", built.err());
+    assert_eq!(
+        BUILDS.load(Ordering::SeqCst),
+        1,
+        "the production entry must route through the registered blueprint's build"
+    );
 }
