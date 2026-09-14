@@ -42,6 +42,14 @@ ITEM_KIND_RE = re.compile(
 )
 
 FN_NAME_RE = re.compile(r"fn\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+# R56: item names may be preceded by `async` / `unsafe` / `const` qualifiers —
+# `pub async fn save(..)` used to fall through unnamed and vanish from the
+# snapshot entirely.
+QUALIFIED_NAME_RE = re.compile(
+    r"(?:(?:async|unsafe|const)\s+)*(?:struct|enum|union|fn|const|static|type)\s+"
+    r"([A-Za-z_][A-Za-z0-9_]*)"
+)
 IMPL_RE = re.compile(
     r"^impl\b[^{]*?(?:\s([A-Za-z_][A-Za-z0-9_:]*)\s+for\s+)?" r"\s*([A-Za-z_][A-Za-z0-9_]*)"
 )
@@ -231,6 +239,80 @@ def emit_fn_record(records, kind_tag, path, header_txt):
     records.append((kind_tag, f"{path} {sig}"))
 
 
+FIELD_NAME_RE = re.compile(r"pub(?:\([^)]*\))?\s+(?:const\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:")
+VARIANT_NAME_RE = re.compile(r"^[\s]*([A-Za-z_][A-Za-z0-9_]*)")
+ASSOC_TYPE_RE = re.compile(r"^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def scan_pub_fields(body: str, type_path: str, records: list) -> None:
+    """R56: record public named fields of a public struct/union. Fields are
+    comma-separated (not brace/semicolon terminated), so split on top-level
+    commas and match each part."""
+    for part in split_top_level_commas(body):
+        part = part.strip()
+        if not part:
+            continue
+        m = FIELD_NAME_RE.match(part)
+        if m and not re.match(r"pub\(", part):
+            records.append(("field", f"{type_path}::{m.group(1)} {normalize(part)}"))
+
+
+def split_top_level_commas(body: str) -> list:
+    """Split a brace/bracket/angle-balanced body on top-level commas."""
+    parts = []
+    depth = 0
+    current = []
+    for ch in body:
+        if ch in "([{<":
+            depth += 1
+        elif ch in ")]}>":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
+def scan_enum_variants(body: str, enum_path: str, records: list) -> None:
+    """R56: record every variant name of a public enum (variants inherit the
+    enum's visibility)."""
+    for part in split_top_level_commas(body):
+        m = VARIANT_NAME_RE.match(part.strip())
+        if m:
+            name = m.group(1)
+            if name in ("const", "static", "unsafe", "async"):
+                continue
+            records.append(("variant", f"{enum_path}::{name}"))
+
+
+def scan_assoc_types(body: str, trait_path: str, records: list) -> None:
+    """R56: record associated types of a public trait (`type Item;`)."""
+    i = 0
+    n = len(body)
+    while i < n:
+        i = skip_attributes(body, i)
+        while i < n and body[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        header_start = i
+        kind, hdr_end = find_header_end(body, i)
+        if kind is None:
+            break
+        header = body[header_start:hdr_end]
+        m = ASSOC_TYPE_RE.match(header)
+        if m:
+            records.append(("assoc", f"{trait_path}::{m.group(1)}"))
+        if kind == "{":
+            i = find_block_end(body, hdr_end)
+        else:
+            i = hdr_end + 1
+
+
 def scan_scope(src: str, prefix: str, public: bool, records: list) -> None:
     """Walk one brace scope, emitting records for public items."""
     i = 0
@@ -307,11 +389,16 @@ def scan_scope(src: str, prefix: str, public: bool, records: list) -> None:
             name_m = re.match(r"trait\s+([A-Za-z_][A-Za-z0-9_]*)", rest)
             name = name_m.group(1) if name_m else "?"
             if item_public:
-                records.append(("trait", prefix + name))
+                # R56: record the full header so supertrait changes
+                # (`trait Foo: Send`) surface, not just the trait name.
+                records.append(("trait", f"{prefix + name} {normalize(rest)}"))
             if kind == "{":
                 block_end = find_block_end(src, hdr_end)
-                scan_members(src[hdr_end + 1:block_end - 1], prefix + name,
-                             item_public, records, "traitfn")
+                body = src[hdr_end + 1:block_end - 1]
+                scan_members(body, prefix + name, item_public, records, "traitfn")
+                # R56: associated types on public traits are contract too —
+                # they rarely carry `pub`, so visibility rules don't apply.
+                scan_assoc_types(body, prefix + name, records)
                 i = block_end
             else:
                 i = hdr_end + 1
@@ -327,9 +414,7 @@ def scan_scope(src: str, prefix: str, public: bool, records: list) -> None:
             continue
 
         # struct / enum / union / fn / const / static / type
-        name_m = re.match(
-            r"(?:struct|enum|union|fn|const|static|type)\s+([A-Za-z_][A-Za-z0-9_]*)", rest
-        )
+        name_m = QUALIFIED_NAME_RE.match(rest)
         if not name_m:
             if kind == "{":
                 i = find_block_end(src, hdr_end)
@@ -341,9 +426,22 @@ def scan_scope(src: str, prefix: str, public: bool, records: list) -> None:
         if item_public:
             if kw in ("struct", "enum", "union"):
                 records.append((kw, path))
+            elif kw == "trait":
+                # R56: the header carries the supertrait list; record it so a
+                # changed `trait Foo: Bar` boundary shows in the diff.
+                records.append((kw, f"{path} {normalize(rest)}"))
             else:
                 records.append((kw, f"{path} {normalize(rest)}"))
         if kind == "{":
+            body = src[hdr_end + 1:find_block_end(src, hdr_end) - 1]
+            if item_public and kw == "struct":
+                # R56: `pub` named fields are public contract; a field becoming
+                # private (or its type changing) must surface.
+                scan_pub_fields(body, path, records)
+            if item_public and kw == "enum":
+                # R56: enum variants inherit enum visibility; added/removed
+                # variants change every consumer's match.
+                scan_enum_variants(body, path, records)
             i = find_block_end(src, hdr_end)
         else:
             i = hdr_end + 1

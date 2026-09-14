@@ -1,6 +1,33 @@
 const	tool_lock::DEFAULT_ACQUIRE_TIMEOUT const DEFAULT_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(300)
 const	tool_lock::GLOBAL_SERIAL_KEY const GLOBAL_SERIAL_KEY: &str = " "
 enum	tool_lock::AcquireError
+field	agent::AgentAssemblySnapshot::middleware_names pub middleware_names: Vec<String>
+field	agent::AgentAssemblySnapshot::plugin_names pub plugin_names: Vec<String>
+field	agent::AgentAssemblySnapshot::plugins pub plugins: Vec<PluginAssemblySnapshot>
+field	agent::PluginAssemblySnapshot::command_names pub command_names: Vec<String>
+field	agent::PluginAssemblySnapshot::description pub description: String
+field	agent::PluginAssemblySnapshot::finalized_tool_names pub finalized_tool_names: Vec<String>
+field	agent::PluginAssemblySnapshot::middleware_names pub middleware_names: Vec<String>
+field	agent::PluginAssemblySnapshot::name pub name: String
+field	agent::PluginAssemblySnapshot::registered_tool_names pub registered_tool_names: Vec<String>
+field	agent::PluginAssemblySnapshot::system_prompt_fragments pub system_prompt_fragments: usize
+field	extension::host::RegisteredCommand::description pub description: String
+field	extension::host::RegisteredCommand::name pub name: String
+field	extension::host::RegisteredCommand::source_plugin pub source_plugin: String
+field	extension::phase::PhaseContribution::effect pub effect: PhaseEffect
+field	extension::phase::PhaseContribution::name pub name: String
+field	extension::phase::PhaseContribution::order pub order: PhaseOrder
+field	extension::phase::PhaseContribution::phase pub phase: Phase
+field	extension::registrar::LateContext::bus pub bus: BusHandle
+field	extension::registrar::LateContext::bus_writer pub bus_writer: BusWriter
+field	extension::registrar::LateContext::max_iterations pub max_iterations: u32
+field	extension::registrar::LateContext::model pub model: Arc<dyn LanguageModel>
+field	extension::registrar::LateContext::tools pub tools: Vec<Arc<dyn Tool>>
+field	extension::registrar::LateContext::workspace pub workspace: PathBuf
+field	tool_lock::LockSnapshot::age pub age: Duration
+field	tool_lock::LockSnapshot::holder pub holder: Option<String>
+field	tool_lock::LockSnapshot::key pub key: String
+field	tool_lock::LockSnapshot::mode pub mode: LockMode
 implfn	Agent::async fn config pub async fn config(&self) -> tokio::sync::RwLockReadGuard<'_, AgentConfig>
 implfn	Agent::async fn run_bounded pub async fn run_bounded( &self, input: Vec<AgentMessage>, cancel: CancellationToken, capacity: usize, ) -> Result<mpsc::Receiver<AgentEvent>, AgentError>
 implfn	Agent::async fn set_allowed_tools pub async fn set_allowed_tools(&self, allowed: Option<Vec<String>>)
@@ -114,8 +141,8 @@ struct	tool_lock::LockSnapshot
 struct	tool_lock::ToolLockGuards
 struct	tool_lock::ToolLockMiddleware
 struct	tool_lock::ToolLockRegistry
-trait	extension::phase::PhaseHandler
-trait	extension::plugin::Plugin
+trait	extension::phase::PhaseHandler trait PhaseHandler: Send + Sync
+trait	extension::plugin::Plugin trait Plugin: Send + Sync
 traitfn	extension::phase::PhaseHandler::async fn after_llm_call async fn after_llm_call( &self, _state: &AgentState, _response: &mut Message, ) -> Result<(), MiddlewareError>
 traitfn	extension::phase::PhaseHandler::async fn after_tool_call async fn after_tool_call( &self, _state: &AgentState, _tool_call: &ToolCall, _result: &mut ToolOutput, ) -> Result<(), MiddlewareError>
 traitfn	extension::phase::PhaseHandler::async fn before_llm_call async fn before_llm_call( &self, _state: &AgentState, _messages: &mut Vec<Message>, ) -> Result<(), MiddlewareError>
@@ -142,3 +169,4 @@ use	pub use phase::{PhaseContribution, PhaseHandler, PhaseOrder}
 use	pub use plugin::Plugin
 use	pub use registrar::{LateContext, Registrar}
 use	pub use tool_lock::{ AcquireError, LockSnapshot, ToolLockGuards, ToolLockMiddleware, ToolLockRegistry, DEFAULT_ACQUIRE_TIMEOUT, GLOBAL_SERIAL_KEY, }
+variant	tool_lock::AcquireError::Timeout

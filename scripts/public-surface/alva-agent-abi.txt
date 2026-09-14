@@ -1,6 +1,38 @@
 enum	provider::types::ProviderError
 enum	scope::spawn::communication::SpawnCommError
 enum	scope::types::ScopeError
+field	scope::spawn::communication::SpawnCommContext::bus pub bus: Option<&'a BusHandle>
+field	scope::spawn::communication::SpawnCommContext::child_scope_id pub child_scope_id: &'a str
+field	scope::spawn::communication::SpawnCommContext::child_session_id pub child_session_id: &'a str
+field	scope::spawn::communication::SpawnCommContext::parent_scope_id pub parent_scope_id: &'a str
+field	scope::spawn::communication::SpawnCommContext::parent_session_id pub parent_session_id: &'a str
+field	scope::spawn::communication::SpawnCommContext::role pub role: &'a str
+field	scope::spawn::communication::SpawnCommHandle::hooks pub hooks: Vec<Arc<dyn ContextHooks>>
+field	scope::spawn::communication::SpawnCommHandle::on_complete pub on_complete: Option<Arc<dyn OnChildComplete>>
+field	scope::spawn::communication::SpawnResult::error pub error: Option<String>
+field	scope::spawn::communication::SpawnResult::is_error pub is_error: bool
+field	scope::spawn::communication::SpawnResult::text pub text: String
+field	scope::types::ChildScopeConfig::max_iterations pub max_iterations: Option<u32>
+field	scope::types::ChildScopeConfig::role pub role: String
+field	scope::types::ChildScopeConfig::system_prompt pub system_prompt: String
+field	scope::types::ScopeSnapshot::children_count pub children_count: usize
+field	scope::types::ScopeSnapshot::completed pub completed: bool
+field	scope::types::ScopeSnapshot::depth pub depth: u32
+field	scope::types::ScopeSnapshot::id pub id: String
+field	scope::types::ScopeSnapshot::parent_id pub parent_id: Option<String>
+field	scope::types::ScopeSnapshot::role pub role: String
+field	scope::types::ScopeSnapshot::session_id pub session_id: String
+field	task::TaskState::description pub description: String
+field	task::TaskState::end_time pub end_time: Option<u64>
+field	task::TaskState::id pub id: String
+field	task::TaskState::notified pub notified: bool
+field	task::TaskState::output_file pub output_file: PathBuf
+field	task::TaskState::output_offset pub output_offset: usize
+field	task::TaskState::start_time pub start_time: u64
+field	task::TaskState::status pub status: TaskStatus
+field	task::TaskState::task_type pub task_type: TaskType
+field	task::TaskState::tool_use_id pub tool_use_id: Option<String>
+field	task::TaskState::total_paused_ms pub total_paused_ms: Option<u64>
 fn	provider::tests::assert_language_model_returns_valid_id fn assert_language_model_returns_valid_id(provider: &dyn Provider, model_id: &str)
 fn	provider::tests::assert_provider_conformance fn assert_provider_conformance(provider: &dyn Provider, known_model_id: &str)
 fn	provider::tests::assert_provider_id_non_empty fn assert_provider_id_non_empty(provider: &dyn Provider)
@@ -44,13 +76,13 @@ struct	scope::types::ScopeId
 struct	scope::types::ScopeSnapshot
 struct	task::TaskState
 struct	token_estimation::SimpleTokenEstimator
-trait	analytics::AnalyticsSink
-trait	provider::credential::CredentialSource
-trait	provider::types::Provider
-trait	scope::spawn::communication::OnChildComplete
-trait	scope::spawn::communication::SpawnCommunication
-trait	scope::spawn::communication::SpawnCommunicationRegistry
-trait	token_estimation::TokenEstimator
+trait	analytics::AnalyticsSink trait AnalyticsSink: Send + Sync
+trait	provider::credential::CredentialSource trait CredentialSource: Send + Sync
+trait	provider::types::Provider trait Provider: Send + Sync
+trait	scope::spawn::communication::OnChildComplete trait OnChildComplete: Send + Sync
+trait	scope::spawn::communication::SpawnCommunication trait SpawnCommunication: Send + Sync
+trait	scope::spawn::communication::SpawnCommunicationRegistry trait SpawnCommunicationRegistry: Send + Sync
+trait	token_estimation::TokenEstimator trait TokenEstimator: Send + Sync
 traitfn	analytics::AnalyticsSink::fn record fn record(&self, event: AnalyticsEvent)
 traitfn	provider::credential::CredentialSource::async fn get_api_key async fn get_api_key(&self) -> Result<String, ProviderError>
 traitfn	provider::types::Provider::fn id fn id(&self) -> &str
@@ -76,3 +108,5 @@ use	pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, T
 use	pub use token_estimation::{SimpleTokenEstimator, TokenEstimator}
 use	pub use types::*
 use	pub use types::*
+variant	scope::spawn::communication::SpawnCommError::AttachFailed
+variant	scope::spawn::communication::SpawnCommError::InvalidConfig

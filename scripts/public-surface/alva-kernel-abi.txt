@@ -28,6 +28,139 @@ enum	scope::context::types::MessageSelector
 enum	scope::context::types::Priority
 enum	tool::scheduler::ExecutionMode
 enum	tool::scheduler::LockMode
+field	agent_session::ComponentDescriptor::id pub id: String
+field	agent_session::ComponentDescriptor::kind pub kind: EmitterKind
+field	agent_session::ComponentDescriptor::name pub name: String
+field	agent_session::EventEmitter::id pub id: String
+field	agent_session::EventEmitter::instance pub instance: Option<String>
+field	agent_session::EventEmitter::kind pub kind: EmitterKind
+field	agent_session::EventMatch::event pub event: SessionEvent
+field	agent_session::EventMatch::preview pub preview: String
+field	agent_session::EventQuery::after_uuid pub after_uuid: Option<String>
+field	agent_session::EventQuery::event_type pub event_type: Option<String>
+field	agent_session::EventQuery::last_n pub last_n: Option<usize>
+field	agent_session::EventQuery::limit pub limit: usize
+field	agent_session::EventQuery::role pub role: Option<String>
+field	agent_session::EventQuery::text_contains pub text_contains: Option<String>
+field	agent_session::SessionEvent::data pub data: Option<serde_json::Value>
+field	agent_session::SessionEvent::emitter pub emitter: EventEmitter
+field	agent_session::SessionEvent::message pub message: Option<SessionMessage>
+field	agent_session::SessionEvent::parent_uuid pub parent_uuid: Option<String>
+field	agent_session::SessionEvent::seq pub seq: u64
+field	agent_session::SessionEvent::timestamp pub timestamp: i64
+field	agent_session::SessionEvent::uuid pub uuid: String
+field	agent_session::SessionMessage::content pub content: serde_json::Value
+field	agent_session::SessionMessage::role pub role: String
+field	model::CompletionResponse::message pub message: Message
+field	model::CompletionResponse::raw pub raw: Option<serde_json::Value>
+field	model::HeuristicTokenCounter::context_window_size pub context_window_size: usize
+field	scope::context::types::BudgetInfo::budget_tokens pub budget_tokens: usize
+field	scope::context::types::BudgetInfo::model_window pub model_window: usize
+field	scope::context::types::BudgetInfo::remaining_tokens pub remaining_tokens: usize
+field	scope::context::types::BudgetInfo::usage_ratio pub usage_ratio: f32
+field	scope::context::types::BudgetInfo::used_tokens pub used_tokens: usize
+field	scope::context::types::ContextEntry::id pub id: String
+field	scope::context::types::ContextEntry::message pub message: AgentMessage
+field	scope::context::types::ContextEntry::metadata pub metadata: ContextMetadata
+field	scope::context::types::ContextMetadata::compacted pub compacted: bool
+field	scope::context::types::ContextMetadata::created_at pub created_at: i64
+field	scope::context::types::ContextMetadata::created_at_turn pub created_at_turn: Option<usize>
+field	scope::context::types::ContextMetadata::estimated_tokens pub estimated_tokens: usize
+field	scope::context::types::ContextMetadata::externalized_path pub externalized_path: Option<String>
+field	scope::context::types::ContextMetadata::last_referenced_at pub last_referenced_at: Option<i64>
+field	scope::context::types::ContextMetadata::layer pub layer: ContextLayer
+field	scope::context::types::ContextMetadata::origin pub origin: EntryOrigin
+field	scope::context::types::ContextMetadata::priority pub priority: Priority
+field	scope::context::types::ContextMetadata::replacement_summary pub replacement_summary: Option<String>
+field	scope::context::types::ContextMetadata::source_agent pub source_agent: Option<String>
+field	scope::context::types::ContextSnapshot::budget_tokens pub budget_tokens: usize
+field	scope::context::types::ContextSnapshot::entries pub entries: Vec<EntrySnapshot>
+field	scope::context::types::ContextSnapshot::layer_breakdown pub layer_breakdown: HashMap<ContextLayer, LayerStats>
+field	scope::context::types::ContextSnapshot::model_window pub model_window: usize
+field	scope::context::types::ContextSnapshot::recent_tool_patterns pub recent_tool_patterns: Vec<ToolPattern>
+field	scope::context::types::ContextSnapshot::total_tokens pub total_tokens: usize
+field	scope::context::types::ContextSnapshot::usage_ratio pub usage_ratio: f32
+field	scope::context::types::EntrySnapshot::age_turns pub age_turns: usize
+field	scope::context::types::EntrySnapshot::estimated_tokens pub estimated_tokens: usize
+field	scope::context::types::EntrySnapshot::id pub id: String
+field	scope::context::types::EntrySnapshot::last_referenced_turns pub last_referenced_turns: Option<usize>
+field	scope::context::types::EntrySnapshot::layer pub layer: ContextLayer
+field	scope::context::types::EntrySnapshot::origin pub origin: EntryOrigin
+field	scope::context::types::EntrySnapshot::preview pub preview: String
+field	scope::context::types::EntrySnapshot::priority pub priority: Priority
+field	scope::context::types::Injection::content pub content: InjectionContent
+field	scope::context::types::Injection::layer pub layer: ContextLayer
+field	scope::context::types::Injection::priority pub priority: Option<Priority>
+field	scope::context::types::LayerStats::entry_count pub entry_count: usize
+field	scope::context::types::LayerStats::percentage pub percentage: f32
+field	scope::context::types::LayerStats::token_count pub token_count: usize
+field	scope::context::types::MemoryFact::access_count pub access_count: u32
+field	scope::context::types::MemoryFact::category pub category: MemoryCategory
+field	scope::context::types::MemoryFact::confidence pub confidence: f32
+field	scope::context::types::MemoryFact::created_at pub created_at: i64
+field	scope::context::types::MemoryFact::fingerprint pub fingerprint: String
+field	scope::context::types::MemoryFact::id pub id: String
+field	scope::context::types::MemoryFact::last_accessed_at pub last_accessed_at: i64
+field	scope::context::types::MemoryFact::source_session pub source_session: String
+field	scope::context::types::MemoryFact::text pub text: String
+field	scope::context::types::MessageRange::from pub from: MessageSelector
+field	scope::context::types::MessageRange::to pub to: MessageSelector
+field	scope::context::types::PromptSection::content pub content: String
+field	scope::context::types::PromptSection::id pub id: String
+field	scope::context::types::PromptSection::priority pub priority: Priority
+field	scope::context::types::RuntimeContext::channel_info pub channel_info: Option<String>
+field	scope::context::types::RuntimeContext::custom pub custom: HashMap<String, serde_json::Value>
+field	scope::context::types::RuntimeContext::session_metadata pub session_metadata: HashMap<String, String>
+field	scope::context::types::RuntimeContext::timestamp pub timestamp: String
+field	scope::context::types::RuntimeContext::user_preferences pub user_preferences: HashMap<String, String>
+field	scope::context::types::ToolPattern::avg_result_tokens pub avg_result_tokens: usize
+field	scope::context::types::ToolPattern::call_count pub call_count: usize
+field	scope::context::types::ToolPattern::tool_name pub tool_name: String
+field	scope::context::types::ToolPattern::total_result_tokens pub total_result_tokens: usize
+field	session_record::AppendReceipt::count pub count: usize
+field	session_record::AppendReceipt::first_seq pub first_seq: u64
+field	session_record::AppendReceipt::last_seq pub last_seq: u64
+field	session_record::BlobReference::media_type pub media_type: String
+field	session_record::BlobReference::preview pub preview: String
+field	session_record::BlobReference::sha256 pub sha256: String
+field	session_record::BlobReference::size_bytes pub size_bytes: u64
+field	session_record::ConversationRecord::agent_message pub agent_message: Option<AgentMessage>
+field	session_record::ConversationRecord::content pub content: RecordValue
+field	session_record::ConversationRecord::parent_entry_id pub parent_entry_id: Option<String>
+field	session_record::ConversationRecord::role pub role: String
+field	session_record::ExtensionRecord::namespace pub namespace: String
+field	session_record::ExtensionRecord::payload pub payload: serde_json::Value
+field	session_record::SessionRecord::category pub category: RecordCategory
+field	session_record::SessionRecord::emitter pub emitter: EventEmitter
+field	session_record::SessionRecord::parent_record_id pub parent_record_id: Option<String>
+field	session_record::SessionRecord::payload pub payload: SessionRecordPayload
+field	session_record::SessionRecord::record_id pub record_id: String
+field	session_record::SessionRecord::schema_version pub schema_version: u32
+field	session_record::SessionRecord::seq pub seq: u64
+field	session_record::SessionRecord::timestamp pub timestamp: i64
+field	session_record::SessionRecord::type_name pub type_name: String
+field	tool::guard::GuardError::current pub current: u32
+field	tool::guard::GuardError::max pub max: u32
+field	tool::guard::GuardError::message pub message: String
+field	tool::guard::GuardError::tool_name pub tool_name: String
+field	tool::scheduler::ResourceKey::key pub key: String
+field	tool::scheduler::ResourceKey::mode pub mode: LockMode
+field	tool::scheduler::Scheduling::concurrency_safe pub concurrency_safe: bool
+field	tool::scheduler::Scheduling::execution_mode pub execution_mode: ExecutionMode
+field	tool::scheduler::Scheduling::manages_own_timeout pub manages_own_timeout: bool
+field	tool::scheduler::Scheduling::resource_keys pub resource_keys: Vec<ResourceKey>
+field	tool::schema::ToolSchemaContext::bus pub bus: Option<&'a BusHandle>
+field	tool::types::EffectDescription::summary pub summary: String
+field	tool::types::ToolCall::arguments pub arguments: serde_json::Value
+field	tool::types::ToolCall::id pub id: String
+field	tool::types::ToolCall::name pub name: String
+field	tool::types::ToolFsDirEntry::is_dir pub is_dir: bool
+field	tool::types::ToolFsDirEntry::name pub name: String
+field	tool::types::ToolFsDirEntry::size pub size: u64
+field	tool::types::ToolFsExecResult::exit_code pub exit_code: i32
+field	tool::types::ToolFsExecResult::stderr pub stderr: String
+field	tool::types::ToolFsExecResult::stdout pub stdout: String
+fn	runtime::timeout async fn timeout<T, F>( sleeper: &dyn Sleeper, duration: Duration, fut: F, ) -> Result<T, TimeoutError> where F: Future<Output = T>,
 fn	tool::scheduler::normalize_path_string fn normalize_path_string(raw: &str) -> String
 fn	tool::scheduler::resolve_against_workspace fn resolve_against_workspace(key: &str, workspace: &std::path::Path) -> String
 fn	tool::schema::normalize_llm_tool_schema fn normalize_llm_tool_schema(schema: &mut Value)
@@ -169,20 +302,20 @@ struct	tool::types::ToolCall
 struct	tool::types::ToolFsDirEntry
 struct	tool::types::ToolFsExecResult
 struct	tool::types::ToolRegistry
-trait	agent_session::AgentSession
-trait	agent_session::PersistentSessions
-trait	agent_session::SessionEventListener
-trait	conversation_log::ConversationLog
-trait	model::LanguageModel
-trait	model::TokenCounter
-trait	runtime::Sleeper
-trait	scope::context::system::ContextApply
-trait	scope::context::traits::ContextHandle
-trait	scope::context::traits::ContextHooks
-trait	session_store::SessionStore
-trait	tool::execution::ToolExecutionContext
-trait	tool::types::Tool
-trait	tool::types::ToolFs
+trait	agent_session::AgentSession trait AgentSession: ConversationLog + SessionStore
+trait	agent_session::PersistentSessions trait PersistentSessions: Send + Sync
+trait	agent_session::SessionEventListener trait SessionEventListener: Send + Sync
+trait	conversation_log::ConversationLog trait ConversationLog: Send + Sync
+trait	model::LanguageModel trait LanguageModel: Send + Sync
+trait	model::TokenCounter trait TokenCounter: Send + Sync
+trait	runtime::Sleeper trait Sleeper: Send + Sync
+trait	scope::context::system::ContextApply trait ContextApply: Send + Sync
+trait	scope::context::traits::ContextHandle trait ContextHandle: Send + Sync
+trait	scope::context::traits::ContextHooks trait ContextHooks: Send + Sync
+trait	session_store::SessionStore trait SessionStore: Send + Sync
+trait	tool::execution::ToolExecutionContext trait ToolExecutionContext: Send + Sync
+trait	tool::types::Tool trait Tool: Send + Sync
+trait	tool::types::ToolFs trait ToolFs: Send + Sync
 traitfn	agent_session::PersistentSessions::fn store_session fn store_session(&self) -> Option<Arc<dyn AgentSession>>
 traitfn	agent_session::SessionEventListener::async fn on_event async fn on_event(&self, event: &SessionEvent)
 traitfn	agent_session::SessionEventListener::fn is_active fn is_active(&self) -> bool
@@ -311,3 +444,43 @@ use	pub use tool::{ tool_definition, EffectDescription, Tool, ToolCall, ToolDefi
 use	pub use traits::*
 use	pub use types::*
 use	pub use types::{ tool_definition, EffectDescription, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolRegistry, }
+variant	scope::context::types::CompressAction::Externalize
+variant	scope::context::types::CompressAction::RemoveByPriority
+variant	scope::context::types::CompressAction::ReplaceToolResult
+variant	scope::context::types::CompressAction::SlidingWindow
+variant	scope::context::types::CompressAction::Summarize
+variant	scope::context::types::ContextLayer::AlwaysPresent
+variant	scope::context::types::ContextLayer::Memory
+variant	scope::context::types::ContextLayer::OnDemand
+variant	scope::context::types::ContextLayer::RuntimeInject
+variant	scope::context::types::EntryOrigin::Model
+variant	scope::context::types::EntryOrigin::Plugin
+variant	scope::context::types::EntryOrigin::SubAgent
+variant	scope::context::types::EntryOrigin::System
+variant	scope::context::types::EntryOrigin::Tool
+variant	scope::context::types::EntryOrigin::User
+variant	scope::context::types::IngestAction::Keep
+variant	scope::context::types::IngestAction::Modify
+variant	scope::context::types::IngestAction::Skip
+variant	scope::context::types::InjectionContent::Memory
+variant	scope::context::types::InjectionContent::Message
+variant	scope::context::types::InjectionContent::RuntimeContext
+variant	scope::context::types::InjectionContent::Skill
+variant	scope::context::types::InjectionContent::SystemPrompt
+variant	scope::context::types::MemoryCategory::Constraint
+variant	scope::context::types::MemoryCategory::ProjectContext
+variant	scope::context::types::MemoryCategory::TaskPattern
+variant	scope::context::types::MemoryCategory::UserPreference
+variant	scope::context::types::MemoryCategory::UserProfile
+variant	scope::context::types::MessageSelector::ById
+variant	scope::context::types::MessageSelector::ByIndex
+variant	scope::context::types::MessageSelector::FromStart
+variant	scope::context::types::MessageSelector::ToEnd
+variant	scope::context::types::Priority::Critical
+variant	scope::context::types::Priority::Disposable
+variant	scope::context::types::Priority::High
+variant	scope::context::types::Priority::Low
+variant	tool::scheduler::ExecutionMode::Coordinator
+variant	tool::scheduler::ExecutionMode::SerialGlobal
+variant	tool::scheduler::LockMode::Read
+variant	tool::scheduler::LockMode::Write
