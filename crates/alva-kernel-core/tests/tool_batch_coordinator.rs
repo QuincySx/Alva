@@ -528,7 +528,10 @@ impl Middleware for FailWrapFirstMiddleware {
     }
 }
 
-async fn assert_no_dangling_calls_with<F>(make_stack: F)
+/// R60: runs the coordinator to completion and returns the number of paired
+/// `tool_result` events recorded, so each test body makes an observable
+/// assertion of its own (the helper actually ran and actually asserted).
+async fn assert_no_dangling_calls_with<F>(make_stack: F) -> usize
 where
     F: FnOnce() -> MiddlewareStack,
 {
@@ -600,24 +603,37 @@ where
         tool_result_ids.contains(&"toolu_second".to_string()),
         "remaining call must be backfilled; got {tool_result_ids:?}"
     );
+    tool_result_ids.len()
 }
 
 #[tokio::test]
 async fn before_phase_middleware_error_leaves_no_dangling_calls() {
-    assert_no_dangling_calls_with(|| {
+    // R60: the helper future is awaited — its assertions really execute — and
+    // the returned pairing count is asserted in the test body itself.
+    let paired = assert_no_dangling_calls_with(|| {
         let mut stack = MiddlewareStack::new();
         stack.push(Arc::new(FailBeforeFirstMiddleware));
         stack
-    });
+    })
+    .await;
+    assert_eq!(
+        paired, 2,
+        "both tool calls must carry results after a before-phase failure"
+    );
 }
 
 #[tokio::test]
 async fn wrap_phase_middleware_error_leaves_no_dangling_calls() {
-    assert_no_dangling_calls_with(|| {
+    let paired = assert_no_dangling_calls_with(|| {
         let mut stack = MiddlewareStack::new();
         stack.push(Arc::new(FailWrapFirstMiddleware));
         stack
-    });
+    })
+    .await;
+    assert_eq!(
+        paired, 2,
+        "both tool calls must carry results after a wrap-phase failure"
+    );
 }
 
 /// Fails `after_tool_call` for the tool named "first" with a non-Blocked
