@@ -300,11 +300,6 @@ export function SettingsPage({
   // PermissionProfile，为避免假成功已移除。持久化接线开发中。
   const [permissionMode, setPermissionMode] = useState<"ask" | "accept_edits">("ask");
 
-  // Profile Edit Dialog
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [profileName, setProfileName] = useState("Wang (CN)");
-  const [profileEmail, setProfileEmail] = useState("wang@alva.local");
-
   // Tools toggles — R31/R32: 不可用的假开关保持禁用展示（值不再被消费）。
   const [toolFileIo, setToolFileIo] = useState(true);
   const [toolShell, setToolShell] = useState(true);
@@ -347,44 +342,21 @@ export function SettingsPage({
 
         {section === "general" ? (
           <>
-            {/* Account Profile Card */}
+            {/* R44: no sample identity, no fake Save/Cancel. Profile
+                persistence is not wired up, so the entry is disabled and the
+                card carries no invented user. */}
             <div className="hub-profile-card">
               <div className="hub-profile-card__left">
-                <div className="hub-profile-avatar">{profileName.trim().charAt(0).toUpperCase() || "A"}</div>
+                <div className="hub-profile-avatar">·</div>
                 <div className="hub-profile-details">
-                  <h4>{profileName}</h4>
-                  <p>{profileEmail}{t("pages.settings.localProfileSuffix")}</p>
+                  <h4>{t("pages.settings.profileLocalTitle")}</h4>
+                  <p>{t("pages.settings.profileNotWired")}</p>
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <DialogRoot open={profileOpen} onOpenChange={setProfileOpen}>
-                  <DialogTrigger asChild>
-                    <Button size="small" variant="ghost">
-                      {t("pages.settings.editProfile")}
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent
-                    title={t("pages.settings.editProfileTitle")}
-                    description={t("pages.settings.editProfileDescription")}
-                  >
-                    <div className="hub-form-stack" style={{ marginTop: "12px" }}>
-                      <FieldFrame label={t("pages.settings.displayName")}>
-                        <TextField value={profileName} onChange={(e) => setProfileName(e.target.value)} />
-                      </FieldFrame>
-                      <FieldFrame label={t("pages.settings.emailAddress")}>
-                        <TextField value={profileEmail} onChange={(e) => setProfileEmail(e.target.value)} />
-                      </FieldFrame>
-                      <div className="hub-dialog-actions" style={{ marginTop: "16px" }}>
-                        <Button variant="ghost" onClick={() => setProfileOpen(false)}>
-                          {t("common.cancel")}
-                        </Button>
-                        <Button variant="primary" onClick={() => setProfileOpen(false)}>
-                          {t("common.save")}
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </DialogRoot>
+                <Button disabled size="small" variant="ghost">
+                  {t("pages.settings.editProfile")}
+                </Button>
               </div>
             </div>
 
@@ -645,7 +617,42 @@ export function SettingsPage({
 export function SearchPage({ sessions, onOpenSession, onNavigate, onOpenWorkbench }: { sessions: Array<{ id: string; title: string; description: string }>; onOpenSession: (id: string) => void; onNavigate: (page: HubPage) => void; onOpenWorkbench: (tool: "inspector" | "usage") => void }) {
   const [query, setQuery] = useState("");
   const { t } = useI18n();
-  const results = useMemo(() => sessions.filter((session) => `${session.title} ${session.description}`.toLowerCase().includes(query.trim().toLowerCase())), [query, sessions]);
+  const { locale } = useI18n();
+  // R59: the search scope now matches the claim. Actions are first-class
+  // indexed entries — matching one navigates for real — and an empty result
+  // set says so instead of rendering a blank section.
+  const actions = useMemo(() => [
+    {
+      id: "action:settings",
+      title: t("search.openSettings"),
+      description: t("search.openSettingsDescription"),
+      icon: <Settings2 aria-hidden="true" size={17} />,
+      run: () => onNavigate("settings"),
+    },
+    {
+      id: "action:inspector",
+      title: t("search.inspectSession"),
+      description: t("search.inspectSessionDescription"),
+      icon: <FlaskConical aria-hidden="true" size={17} />,
+      run: () => onOpenWorkbench("inspector"),
+    },
+    {
+      id: "action:usage",
+      title: t("search.reviewUsage"),
+      description: t("search.reviewUsageDescription"),
+      icon: <Gauge aria-hidden="true" size={17} />,
+      run: () => onOpenWorkbench("usage"),
+    },
+  ], [locale, onNavigate, onOpenWorkbench, t]);
+  const needle = query.trim().toLowerCase();
+  const sessionResults = useMemo(
+    () => sessions.filter((session) => `${session.title} ${session.description}`.toLowerCase().includes(needle)),
+    [needle, sessions],
+  );
+  const actionResults = useMemo(
+    () => actions.filter((action) => `${action.title} ${action.description}`.toLowerCase().includes(needle)),
+    [actions, needle],
+  );
   return (
     <ScrollRegion className="hub-product-page hub-search-page">
       <PageHeader description={t("search.description")} title={t("nav.search")} />
@@ -657,20 +664,31 @@ export function SearchPage({ sessions, onOpenSession, onNavigate, onOpenWorkbenc
       <section className="hub-product-section">
         <h3>{query ? t("search.results") : t("search.quickActions")}</h3>
         <div className="hub-product-list">
-          {query ? results.map((session) => (
-            <StatusListItem
-              className="hub-search-result"
-              description={session.description}
-              heading={session.title}
-              key={session.id}
-              leading={<Bot aria-hidden="true" size={17} />}
-              onClick={() => onOpenSession(session.id)}
-            />
-          )) : (
+          {!query ? (
             <>
-              <StatusListItem heading={t("search.openSettings")} description={t("search.openSettingsDescription")} leading={<Settings2 aria-hidden="true" size={17} />} onClick={() => onNavigate("settings")} trailing={<Command aria-hidden="true" size={14} />} />
-              <StatusListItem heading={t("search.inspectSession")} description={t("search.inspectSessionDescription")} leading={<FlaskConical aria-hidden="true" size={17} />} onClick={() => onOpenWorkbench("inspector")} />
-              <StatusListItem heading={t("search.reviewUsage")} description={t("search.reviewUsageDescription")} leading={<Gauge aria-hidden="true" size={17} />} onClick={() => onOpenWorkbench("usage")} />
+              {actions.map((action) => (
+                <StatusListItem heading={action.title} description={action.description} key={action.id} leading={action.icon} onClick={action.run} trailing={<Command aria-hidden="true" size={14} />} />
+              ))}
+            </>
+          ) : sessionResults.length === 0 && actionResults.length === 0 ? (
+            <EmptyState title={t("search.noResults")} description={t("search.noResultsDescription")} />
+          ) : (
+            <>
+              {sessionResults.length > 0 ? <h4 className="hub-search-group">{t("search.sectionSessions")}</h4> : null}
+              {sessionResults.map((session) => (
+                <StatusListItem
+                  className="hub-search-result"
+                  description={session.description}
+                  heading={session.title}
+                  key={session.id}
+                  leading={<Bot aria-hidden="true" size={17} />}
+                  onClick={() => onOpenSession(session.id)}
+                />
+              ))}
+              {actionResults.length > 0 ? <h4 className="hub-search-group">{t("search.sectionActions")}</h4> : null}
+              {actionResults.map((action) => (
+                <StatusListItem heading={action.title} description={action.description} key={action.id} leading={action.icon} onClick={action.run} trailing={<Command aria-hidden="true" size={14} />} />
+              ))}
             </>
           )}
         </div>

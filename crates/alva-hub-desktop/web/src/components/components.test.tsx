@@ -937,7 +937,10 @@ describe("Hub domain components", () => {
 
   it("sensitive-path protection reports as built-in, not as an enforced toggle (R31)", () => {
     renderSettings("Permissions");
-    expect(screen.getByText("Built-in")).toBeInTheDocument();
+    // R43: the badge scopes the capability to ALVA instead of claiming every
+    // engine assembly ships the filter.
+    expect(screen.getByText("ALVA only")).toBeInTheDocument();
+    expect(screen.queryByText(/Built-in/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Protected/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/严格保护中/i)).not.toBeInTheDocument();
   });
