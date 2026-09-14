@@ -277,6 +277,81 @@ describe("mergeLiveTimeline", () => {
       },
     ]);
   });
+
+  // R40: execution events merge with the newest body — a failed ToolEnd must
+  // replace the "running" caption from the ToolStart with the same item id.
+  it("shows the failed body after a tool start merges with its failed end", () => {
+    const started: HubTimelineEvent = {
+      status: "activity_started",
+      engine_id: "alva",
+      product_session_id: "ps-1",
+      message: "read running",
+      created_at: 100,
+      item_id: "tool-1",
+    };
+    const failed: HubTimelineEvent = {
+      status: "activity_completed",
+      engine_id: "alva",
+      product_session_id: "ps-1",
+      message: "read failed",
+      created_at: 101,
+      item_id: "tool-1",
+    };
+
+    const merged = mergeLiveTimeline([started], failed);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].status).toBe("activity_completed");
+    expect(merged[0].message).toBe("read failed");
+  });
+
+  // R40: an exhaustion card merging over its fallback card (same attempt id)
+  // shows the final reason, not the superseded fallback text.
+  it("shows the exhaustion reason over the fallback text for the same item", () => {
+    const fallback: HubTimelineEvent = {
+      status: "fallback",
+      engine_id: "alva",
+      product_session_id: "ps-1",
+      message: "falling back to the next engine",
+      created_at: 100,
+      item_id: "attempt-1",
+    };
+    const exhausted: HubTimelineEvent = {
+      status: "exhausted",
+      engine_id: "alva",
+      product_session_id: "ps-1",
+      message: "every authorized target failed: alva",
+      created_at: 101,
+      item_id: "attempt-1",
+    };
+
+    const merged = mergeLiveTimeline([fallback], exhausted);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].status).toBe("exhausted");
+    expect(merged[0].message).toBe("every authorized target failed: alva");
+  });
+
+  // R40: control events that arrive without a body clear the stale caption
+  // instead of keeping an outdated one.
+  it("does not keep the stale running caption when the end event has no body", () => {
+    const started: HubTimelineEvent = {
+      status: "activity_started",
+      engine_id: "alva",
+      product_session_id: "ps-1",
+      message: "read running",
+      created_at: 100,
+      item_id: "tool-2",
+    };
+    const ended: HubTimelineEvent = {
+      status: "activity_completed",
+      engine_id: "alva",
+      product_session_id: "ps-1",
+      message: null,
+      created_at: 101,
+      item_id: "tool-2",
+    };
+
+    expect(mergeLiveTimeline([started], ended)[0].message).toBeNull();
+  });
 });
 
 describe("formatRelativeTime", () => {

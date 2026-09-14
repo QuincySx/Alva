@@ -495,23 +495,28 @@ export function mergeLiveTimeline(
   // status caption, NOT prose — it must never replace text the user was
   // already reading. Status drives the visuals; the body keeps whatever was
   // there (streamed or restored history).
-  next[index] = event.status === "assistant_message"
-    ? {
-        ...previous,
-        ...event,
-        role: previous.role ?? derivedRole,
-        started_at: previous.started_at ?? previous.created_at ?? event.created_at,
-        message: `${previous.message ?? ""}${event.message ?? ""}`,
-      }
-    : {
-        ...previous,
-        ...event,
-        role: previous.role ?? derivedRole,
-        started_at: previous.started_at ?? previous.created_at ?? event.created_at,
-        // Empty-string bodies (a running turn with no output yet) are absent
-        // too — the terminal caption fills them in; real prose always wins.
-        message: previous.message || event.message || null,
-      };
+  // R40: that body preservation is limited to real message items — decided
+  // by the ITEM's role, not by the incoming status. Execution and control
+  // items (tool activities, fallback/exhaustion cards) merge with the
+  // NEWEST body: after a ToolEnd the card must read "failed"/"completed",
+  // not the stale "running" caption from its start event, and an exhaustion
+  // card must show the final reason rather than the fallback text.
+  const messageItem = previous.role === "user" || previous.role === "assistant";
+  const base = {
+    ...previous,
+    ...event,
+    role: previous.role ?? derivedRole,
+    started_at: previous.started_at ?? previous.created_at ?? event.created_at,
+  };
+  if (messageItem) {
+    next[index] = event.status === "assistant_message"
+      ? { ...base, message: `${previous.message ?? ""}${event.message ?? ""}` }
+      : { ...base, message: previous.message || event.message || null };
+  } else {
+    // The newest state's body wins wholesale; when the newest event carries
+    // no body the card shows none instead of a stale caption.
+    next[index] = { ...base, message: event.message ?? null };
+  }
   return next;
 }
 
@@ -839,6 +844,15 @@ export default function App() {
   // A Stop control must be offered exactly when something can be stopped.
   const attemptIsLive =
     activeSessionId !== null && cancellableSessionId === activeSessionId;
+
+  // R42: the chat column carries no execution swim lane. Tool activity rows
+  // (events with an `activity` payload) live in the Inspector's execution
+  // overview, where each summary locates its persisted record; the main
+  // column keeps messages, approvals, and terminal action cards.
+  const chatColumnEvents = useMemo(
+    () => timeline.filter((event) => !event.activity),
+    [timeline],
+  );
 
   const latest = timeline.at(-1);
   const statusLabel = useMemo(
@@ -1769,7 +1783,8 @@ export default function App() {
             />
             {/* 执行/控制视图只在确有未落定内容时渲染：运行中、待审批、或
                 失败/中断/回退等需要动作与原因的事件；完成的执行细节（含
-                终态后残留的 running 工具标记）归 Inspector。 */}
+                终态后残留的 running 工具标记）归 Inspector。 R42: 工具活动
+                行不再进入主聊天列——它们在 Inspector 的执行概览中。 */}
             {(attemptIsLive ||
               approvalGroups.some((g) => g.members.length > 0) ||
               timeline.some((event) =>
@@ -1781,7 +1796,7 @@ export default function App() {
                 activeSessionId={activeSessionId}
                 answeredPermissions={answeredPermissions}
                 attemptIsLive={attemptIsLive}
-                events={timeline}
+                events={chatColumnEvents}
                 onAnswerPermission={(productSessionId, requestId, allow) =>
                   void answerPermission(productSessionId, requestId, allow)
                 }
