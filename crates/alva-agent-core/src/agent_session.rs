@@ -527,9 +527,9 @@ struct BroadcastEntry {
     event: SessionEvent,
 }
 
-/// 广播共享状态：队列、监听者、投递锁与已提交水位（R25/R26）。
-/// driver 持 Weak 引用，会话全部弃置后自然退出；追加者只提交入队 + 唤醒，
-/// 从不执行投递（native），因此追加者的取消/阻塞不影响已提交事件的送达。
+/// 广播共享状态：队列、监听者、投递锁与已提交水位（R25/R26/R38/R39）。
+/// 追加者只提交入队 + 唤醒，从不执行投递（native），因此追加者的取消/阻塞
+/// 不影响已提交事件的送达。driver 持强引用运行，由弃置关闭标志（R39）退出。
 struct BroadcastCore {
     listeners: RwLock<Vec<Arc<RegisteredListener>>>,
     broadcast_queue: tokio::sync::Mutex<VecDeque<BroadcastEntry>>,
@@ -540,6 +540,34 @@ struct BroadcastCore {
     generation: std::sync::atomic::AtomicU64,
     delivery_notify: Arc<tokio::sync::Notify>,
     driver_started: std::sync::atomic::AtomicBool,
+    /// R39: 弃置关闭标志。最后一个会话句柄 Drop 时置位并唤醒 driver。
+    /// 置位后不再可能有新写入——任何在途 append 都持有一个会话句柄，
+    /// 句柄归零才触发 Drop，因此队列内容在置位后冻结，driver 的最终
+    /// 一轮投递取尽全部已提交事件后确认退出。
+    closed: std::sync::atomic::AtomicBool,
+    /// R39: driver 退出信号。driver 任务退出前置位，供弃置方/测试确认
+    /// 空闲任务确被回收，而非依赖外层 append 任务推断。
+    driver_exited: std::sync::atomic::AtomicBool,
+}
+
+// R38: 线程局部投递重入标志。inline 投递路径（无 Tokio runtime / wasm
+// 单线程）中，监听者回调在 `delivery_lock` 持有期间执行；回调内同步追加
+// 同一会话（含回调内 `block_on`，它仍在本线程上 poll）会再次进入
+// `deliver_pending`——此时事件已入队，外层循环会继续取批投递，重入方
+// 直接返回；若再等待 `delivery_lock` 就是等待自己的回调，构成死锁。
+// 投递期间的回调都在单次 poll 内同步执行，线程局部标志足以覆盖全部
+// 重入形态；跨线程派生的追加不等待自己，正常排队即可。
+thread_local! {
+    static DELIVERY_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// 以 Drop 恢复线程局部标志，投递循环 panic/提前返回都不会留下假阳性。
+struct DeliveryActiveGuard;
+
+impl Drop for DeliveryActiveGuard {
+    fn drop(&mut self) {
+        DELIVERY_ACTIVE.with(|active| active.set(false));
+    }
 }
 
 impl BroadcastCore {
@@ -552,6 +580,8 @@ impl BroadcastCore {
             generation: std::sync::atomic::AtomicU64::new(0),
             delivery_notify: Arc::new(tokio::sync::Notify::new()),
             driver_started: std::sync::atomic::AtomicBool::new(false),
+            closed: std::sync::atomic::AtomicBool::new(false),
+            driver_exited: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -559,8 +589,17 @@ impl BroadcastCore {
     /// 内联兜底共用本方法。持有 `delivery_lock` 期间按 FIFO 逐批出队，
     /// 逐事件经游标门控投给监听者快照（回调在 listeners 读锁之外执行，
     /// 回调内读写会话不会死锁）；死亡监听者在每批后回收。
+    ///
+    /// R38: 重入保护——回调内追加同一会话时本方法被再次进入，此时事件
+    /// 已在队列中，外层循环的空批检查会继续取到并按 FIFO 投递（恰好
+    /// 一次），重入方直接返回而不等待自己持有的 `delivery_lock`。
     async fn deliver_pending(&self) {
-        let _guard = self.delivery_lock.lock().await;
+        if DELIVERY_ACTIVE.with(|active| active.get()) {
+            return;
+        }
+        let _delivery_guard = self.delivery_lock.lock().await;
+        let _active = DeliveryActiveGuard;
+        DELIVERY_ACTIVE.with(|active| active.set(true));
         loop {
             let batch = {
                 let mut queue = self.broadcast_queue.lock().await;
@@ -684,9 +723,14 @@ impl ListenableInMemorySession {
     }
 
     /// R16/R25 (native): 确保本会话的投递 driver 已启动。driver 持会话
-    /// Weak，队列清空且会话被弃置后退出；空闲时泊在 `delivery_notify` 上，
-    /// 每次提交都会被唤醒（泊车前双检队列避免丢事件）。driver 与追加者
-    /// 完全解耦——追加者的取消/阻塞不影响 driver 送达已提交事件。
+    /// 广播核的强引用运行；空闲时泊在 `delivery_notify` 上，每次提交都会
+    /// 被唤醒（泊车前双检队列避免丢事件）。driver 与追加者完全解耦——
+    /// 追加者的取消/阻塞不影响 driver 送达已提交事件。
+    ///
+    /// R39: 退出由弃置关闭标志驱动——最后一个会话句柄 Drop 置位
+    /// `closed` 并唤醒 driver；driver 完成最终一轮投递（置位后队列冻结，
+    /// 已提交事件全部送达存活监听者）后确认退出并置 `driver_exited`，
+    /// 不残留泊车任务。
     #[cfg(not(target_family = "wasm"))]
     fn ensure_driver(&self, handle: &tokio::runtime::Handle) {
         if self
@@ -696,22 +740,24 @@ impl ListenableInMemorySession {
         {
             return;
         }
-        let weak = Arc::downgrade(&self.broadcast);
+        let core = Arc::clone(&self.broadcast);
         handle.spawn(async move {
             loop {
-                let Some(core) = weak.upgrade() else { break };
                 // R25: 唯一投递路径——与内联兜底共用 deliver_pending。
                 core.deliver_pending().await;
-                // 队列空：克隆 Notify 后放掉 core 强引用再挂起等待（克隆的
-                // Arc 不借用 core，避免自引用）。唤醒前双检避免丢事件。
-                let notify = Arc::clone(&core.delivery_notify);
                 let has_events = !core.broadcast_queue.lock().await.is_empty();
-                drop(core);
+                if core.closed.load(std::sync::atomic::Ordering::SeqCst) && !has_events {
+                    break;
+                }
                 if has_events {
                     continue;
                 }
-                notify.notified().await;
+                // 队列空：泊车等待下一次提交或弃置唤醒（Notify 允许
+                // 唤醒先于泊车到达，不丢事件）。
+                core.delivery_notify.notified().await;
             }
+            core.driver_exited
+                .store(true, std::sync::atomic::Ordering::SeqCst);
         });
     }
 }
@@ -719,6 +765,21 @@ impl ListenableInMemorySession {
 impl Default for ListenableInMemorySession {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// R39: 弃置唤醒。最后一个会话句柄 Drop 时置位广播核的关闭标志并唤醒
+/// driver——此前 driver 空闲时泊在 Notify 上，Weak 失效不会自行唤醒，
+/// 每个弃置的空闲会话都会残留一个泊车任务。置位后不可能再有写入
+/// （在途 append 都持有句柄），driver 的最终一轮投递把已提交事件送达
+/// 存活监听者后确认退出并置 `driver_exited`。无 Tokio runtime 的环境
+/// 没有 driver 任务，本 Drop 只做标志置位。
+impl Drop for ListenableInMemorySession {
+    fn drop(&mut self) {
+        self.broadcast
+            .closed
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.broadcast.delivery_notify.notify_one();
     }
 }
 
@@ -1973,5 +2034,114 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1, 2, 3]
         );
+    }
+
+    /// R38: 非 Tokio executor 中，监听者回调内追加同一会话必须能完成。
+    /// inline 投递持有 `delivery_lock` 调用回调；重入追加若再等待同一把
+    /// 锁就是等待自己的回调（死锁）。修复后重入方直接返回，外层循环
+    /// 继续取批——原事件与新事件按 seq 顺序各投一次。
+    #[test]
+    fn non_tokio_reentrant_listener_append_completes() {
+        use std::sync::Mutex as StdMutex;
+
+        struct ReentrantAppend {
+            session: Arc<ListenableInMemorySession>,
+            seen: Arc<StdMutex<Vec<String>>>,
+        }
+        #[async_trait]
+        impl SessionEventListener for ReentrantAppend {
+            async fn on_event(&self, event: &SessionEvent) {
+                self.seen.lock().unwrap().push(event.event_type.clone());
+                if event.event_type == "outer" {
+                    self.session
+                        .append(SessionEvent::new_runtime("inner"))
+                        .await
+                        .unwrap();
+                }
+            }
+        }
+
+        let session = Arc::new(ListenableInMemorySession::new());
+        let seen = Arc::new(StdMutex::new(Vec::new()));
+        futures_executor::block_on(session.subscribe(Arc::new(ReentrantAppend {
+            session: session.clone(),
+            seen: Arc::clone(&seen),
+        })));
+        // 无 Tokio runtime：append 走 inline 投递，回调内重入追加必须返回。
+        futures_executor::block_on(session.append(SessionEvent::new_runtime("outer")))
+            .unwrap();
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec!["outer".to_string(), "inner".to_string()],
+            "original and reentrant events must be delivered in order, exactly once"
+        );
+        // 重入追加已提交进事件日志。
+        futures_executor::block_on(async {
+            assert_eq!(session.inner.events.read().await.len(), 2);
+        });
+    }
+
+    /// R39: driver 空闲泊车后弃置最后一个会话句柄，driver 必须被唤醒并
+    /// 退出（独立退出信号），不能残留泊车任务。断言观察的是 driver 的
+    /// 退出信号本身，不是外层 append 任务。
+    #[tokio::test]
+    async fn disposal_wakes_idle_driver_and_reclaims_it() {
+        let session = ListenableInMemorySession::new();
+        let (listener, received) = make_test_listener();
+        session.subscribe(listener).await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+            .await
+            .unwrap();
+        wait_for_events(&received, 1).await;
+        // 让 driver 完成投递并重新泊车（空闲状态）。
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        let broadcast = Arc::clone(&session.broadcast);
+        assert!(
+            !broadcast.driver_exited.load(Ordering::SeqCst),
+            "driver should still be parked while the session is alive"
+        );
+        drop(session);
+        for _ in 0..10_000 {
+            if broadcast.driver_exited.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            broadcast.driver_exited.load(Ordering::SeqCst),
+            "driver must wake and exit after the last session handle is dropped"
+        );
+    }
+
+    /// R39: 弃置时已提交但尚未投递的排队事件由 driver 的最终一轮投递
+    /// 送达存活监听者——关闭语义不吞掉已提交事件。
+    #[tokio::test]
+    async fn disposal_delivers_committed_events_before_exit() {
+        let session = ListenableInMemorySession::new();
+        let (listener, received) = make_test_listener();
+        session.subscribe(listener).await;
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+            .await
+            .unwrap();
+        session
+            .append(SessionEvent::progress(serde_json::json!({"n": 2})))
+            .await
+            .unwrap();
+        let broadcast = Arc::clone(&session.broadcast);
+        drop(session);
+        for _ in 0..10_000 {
+            if broadcast.driver_exited.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(broadcast.driver_exited.load(Ordering::SeqCst));
+        let seen = received.lock().await;
+        let seqs: Vec<u64> = seen.iter().map(|e| e.seq).collect();
+        assert_eq!(seqs, vec![1, 2], "committed events must still be delivered");
     }
 }
