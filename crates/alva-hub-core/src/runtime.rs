@@ -4,11 +4,12 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 use alva_engine_runtime::{
-    EngineDescriptor, EngineRuntime, PermissionDecision, RuntimeEvent, RuntimeRequest,
-    SoftStreamWarning, StreamContract, ToolOutput,
+    EngineDescriptor, EngineRuntime, PermissionDecision, RuntimeError, RuntimeEvent,
+    RuntimeRequest, SoftStreamWarning, StreamContract, ToolOutput,
 };
 use futures_core::Stream;
 use tokio::sync::mpsc;
@@ -254,6 +255,10 @@ pub struct HubRuntime {
     /// that can stop the run and reach its engine even after the registry
     /// entry for that engine is gone. Removed when the spawned task exits.
     runs: Arc<RwLock<HashMap<ProductSessionId, RunHandle>>>,
+    /// R58: 进程内单调 run 代际计数。每个 RunHandle 携带登记时的代际，
+    /// 旧 run 的尾部清理只删除同代际条目——快结束的旧轮与下一轮 execute
+    /// 的登记竞争时，不会误删新 run 的控制面句柄。
+    run_generation: Arc<AtomicU64>,
 }
 
 /// A handle on one running `execute()` turn (ticket 13).
@@ -269,6 +274,8 @@ pub struct RunHandle {
     engine_id: EngineId,
     /// Native session id, filled once `SessionStarted` arrives on this run.
     engine_session_id: Arc<RwLock<Option<String>>>,
+    /// R58: 登记代际。尾部清理按代际匹配，旧轮只删自己的条目。
+    generation: u64,
 }
 
 impl HubRuntime {
@@ -671,6 +678,9 @@ impl HubRuntime {
         // for this engine is gone (ticket 13).
         let run_slot = Arc::new(RwLock::new(None::<String>));
         let handle_run_slot = run_slot.clone();
+        // R58: 登记握手。任务尾部清理前必须收到本侧完成 RunHandle 登记
+        // 的信号（同一代际），使"先 remove 后 insert"的残留不可能。
+        let (registered_tx, registered_rx) = tokio::sync::oneshot::channel::<u64>();
 
         let task = tokio::spawn(async move {
             let mut engine_stream = engine_stream;
@@ -684,6 +694,10 @@ impl HubRuntime {
             let mut contract = StreamContract::new();
             let mut hard_violations = 0u32;
             let mut saw_session_started = false;
+            // R49: 循环内实时跟踪未闭合工具。终态事件（Completed / fatal
+            // Error）在循环内转发，补发 ToolEnd 必须发生在转发之前——
+            // 产品收到终态后可能立即停止消费，之后的 ToolEnd 无人处理。
+            let mut open_tools: HashMap<String, String> = HashMap::new();
             let run_slot = run_slot;
             loop {
                 // `abandon` cancels this token so the loop stops draining an
@@ -722,7 +736,42 @@ impl HubRuntime {
                         ..
                     }
                 );
+                match &event {
+                    RuntimeEvent::ToolStart { id, name, .. } => {
+                        open_tools.insert(id.clone(), name.clone());
+                    }
+                    RuntimeEvent::ToolEnd { id, .. } => {
+                        open_tools.remove(id);
+                    }
+                    _ => {}
+                }
                 update_session(&sessions, &output_session_id, my_seq, &event);
+                // R49: 引擎自带的终态事件转发前，先补齐仍未闭合的工具——
+                // ToolEnd 必须先于 Error/Completed 到达产品。
+                let forwarding_terminal = matches!(&event, RuntimeEvent::Completed { .. })
+                    || matches!(
+                        &event,
+                        RuntimeEvent::Error {
+                            recoverable: false,
+                            ..
+                        }
+                    );
+                if forwarding_terminal && output_open && !open_tools.is_empty() {
+                    for (id, name) in std::mem::take(&mut open_tools) {
+                        let _ = event_tx.send(HubEvent {
+                            product_session_id: output_session_id.clone(),
+                            engine_id: engine_id.clone(),
+                            event: RuntimeEvent::ToolEnd {
+                                id,
+                                name,
+                                result: ToolOutput::error(
+                                    "engine ended with tool still running".to_string(),
+                                ),
+                                duration_ms: None,
+                            },
+                        });
+                    }
+                }
                 if output_open
                     && event_tx
                         .send(HubEvent {
@@ -786,6 +835,10 @@ impl HubRuntime {
                     );
                 }
             }
+            // R49: 循环内已在终态转发前补过的工具不再重复补——contract 的
+            // finish 快照仍视其为未闭合，但转发面已经关闭它们；open_tools
+            // 只剩从未到达终态（EOF / 中断路径）的未闭合工具。
+            unclosed_tools.retain(|(id, _)| open_tools.contains_key(id));
             if hard_violations > 0 {
                 debug!(
                     product_session = %output_session_id,
@@ -873,10 +926,24 @@ impl HubRuntime {
             }
             // This run is done; release the control-plane handle so a later
             // execute on the same product session can register a fresh one.
-            runs.write()
-                .expect("Hub runs lock poisoned")
-                .remove(&output_session_id);
+            // R58: 清理只删除自身代际的条目——旧轮尾部与下一轮 execute 的
+            // 登记竞争时，不能误删新 run 的句柄。删除前等待登记握手，
+            // "极快结束先 remove 后 insert"造成的永久残留不再可能。
+            let my_generation = match registered_rx.await {
+                Ok(generation) => generation,
+                // 登记方消失意味着 execute 已放弃本轮（任务被 abort），
+                // 条目由 abort 方负责。
+                Err(_) => return,
+            };
+            let mut runs = runs.write().expect("Hub runs lock poisoned");
+            if runs.get(&output_session_id).map(|h| h.generation) == Some(my_generation) {
+                runs.remove(&output_session_id);
+            }
         });
+
+        // R58: 登记代际在本侧生成；任务尾部经握手拿到同一代际后再清理。
+        // 握手保证删除不会先于登记执行。
+        let my_generation = self.run_generation.fetch_add(1, Ordering::SeqCst) + 1;
 
         // Hold the abort handle + a strong engine reference so this run stays
         // controllable even if its engine is later unregistered.
@@ -887,8 +954,10 @@ impl HubRuntime {
                 engine,
                 engine_id: run_engine_id,
                 engine_session_id: handle_run_slot,
+                generation: my_generation,
             },
         );
+        let _ = registered_tx.send(my_generation);
 
         Ok(Box::pin(UnboundedReceiverStream::new(event_rx)))
     }
@@ -901,6 +970,10 @@ impl HubRuntime {
     /// sessions with no live run. Two-tier (ticket 08): when the request
     /// cannot reach a native session, Hub still releases its own claim via
     /// [`Self::abandon`].
+    ///
+    /// R50: 能力门控覆盖两条路径——引擎声明不支持 cancel（或实现与声明
+    /// 不符地返回 Unsupported）时同样走 abandon 释放 Hub claim，会话回到
+    /// 可重开状态。Hub 释放只代表本进程放弃这一轮，不代表引擎进程已终止。
     pub async fn cancel(&self, product_session_id: &ProductSessionId) -> Result<(), HubError> {
         let live_handle = self
             .runs
@@ -917,8 +990,18 @@ impl HubRuntime {
                     .clone()
             };
             if let Some(engine_session_id) = engine_session_id {
-                handle.engine.cancel(&engine_session_id).await?;
-                return Ok(());
+                if !handle.engine.capabilities().cancel {
+                    self.abandon(product_session_id)?;
+                    return Ok(());
+                }
+                return match handle.engine.cancel(&engine_session_id).await {
+                    Ok(()) => Ok(()),
+                    Err(RuntimeError::Unsupported(_)) => {
+                        self.abandon(product_session_id)?;
+                        Ok(())
+                    }
+                    Err(err) => Err(err.into()),
+                };
             }
             self.abandon(product_session_id)?;
             return Ok(());
@@ -936,8 +1019,14 @@ impl HubRuntime {
             self.abandon(product_session_id)?;
             return Ok(());
         }
-        engine.cancel(&engine_session_id).await?;
-        Ok(())
+        match engine.cancel(&engine_session_id).await {
+            Ok(()) => Ok(()),
+            Err(RuntimeError::Unsupported(_)) => {
+                self.abandon(product_session_id)?;
+                Ok(())
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// Route a permission decision from Hub UI/CLI to the engine session that
@@ -2945,5 +3034,465 @@ mod tests {
             events[4].event,
             RuntimeEvent::Completed { result: None, .. }
         ));
+    }
+
+    // -----------------------------------------------------------------------
+    // R49: unclosed tools must close BEFORE the engine's own terminal events
+    // -----------------------------------------------------------------------
+
+    /// Reaches Completed with a tool still open: ToolStart a, ToolStart b,
+    /// ToolEnd b (a never closes), then the engine's own fatal Error +
+    /// Completed pair.
+    struct TerminalWithOpenToolEngine;
+
+    #[async_trait]
+    impl EngineRuntime for TerminalWithOpenToolEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            Ok(Box::pin(stream::iter(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: "terminal-open".into(),
+                    model: None,
+                    tools: vec![],
+                },
+                RuntimeEvent::ToolStart {
+                    id: "a".into(),
+                    name: "read".into(),
+                    input: serde_json::json!({}),
+                },
+                RuntimeEvent::ToolStart {
+                    id: "b".into(),
+                    name: "grep".into(),
+                    input: serde_json::json!({}),
+                },
+                RuntimeEvent::ToolEnd {
+                    id: "b".into(),
+                    name: "grep".into(),
+                    result: ToolOutput::text("ok"),
+                    duration_ms: Some(3),
+                },
+                RuntimeEvent::Error {
+                    message: "fixture failure".into(),
+                    recoverable: false,
+                },
+                RuntimeEvent::Completed {
+                    session_id: "terminal-open".into(),
+                    result: None,
+                    usage: None,
+                },
+            ])))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: true,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn unclosed_tool_closes_before_engine_terminal_events() {
+        let hub = HubRuntime::new();
+        hub.register_engine("terminal-open", Arc::new(TerminalWithOpenToolEngine))
+            .unwrap();
+
+        let events: Vec<_> = hub
+            .execute(HubRequest::new(
+                "terminal-open",
+                RuntimeRequest::new("probe"),
+            ))
+            .unwrap()
+            .collect()
+            .await;
+
+        // SessionStarted, ToolStart a, ToolStart b, ToolEnd b, then the
+        // synthesized ToolEnd for a BEFORE the engine's own Error/Completed.
+        let kinds: Vec<String> = events
+            .iter()
+            .map(|e| match &e.event {
+                RuntimeEvent::SessionStarted { .. } => "started".into(),
+                RuntimeEvent::ToolStart { id, .. } => format!("start:{id}"),
+                RuntimeEvent::ToolEnd { id, .. } => format!("end:{id}"),
+                RuntimeEvent::Error { .. } => "error".into(),
+                RuntimeEvent::Completed { .. } => "completed".into(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        let error_at = kinds.iter().position(|k| k == "error").unwrap();
+        let completed_at = kinds.iter().position(|k| k == "completed").unwrap();
+        let ends_of_a: Vec<usize> = kinds
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| k.as_str() == "end:a")
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            ends_of_a.len(),
+            1,
+            "only the unclosed tool gets a synthetic end, exactly once: {kinds:?}"
+        );
+        assert!(
+            ends_of_a[0] < error_at,
+            "synthetic ToolEnd must precede the engine's Error: {kinds:?}"
+        );
+        assert!(
+            ends_of_a[0] < completed_at,
+            "synthetic ToolEnd must precede the engine's Completed: {kinds:?}"
+        );
+        // The engine's own ToolEnd b is untouched and single.
+        assert_eq!(
+            kinds.iter().filter(|k| k.as_str() == "end:b").count(),
+            1,
+            "already-closed tool must not be re-closed: {kinds:?}"
+        );
+        // The engine emitted a fatal Error: per session semantics the status
+        // stays Failed even though Completed followed (matches update_session
+        // contract tests).
+        assert_eq!(
+            hub.session(&events[0].product_session_id).unwrap().status,
+            HubSessionStatus::Failed
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // R50: cancel without engine cancel capability must still release the
+    // Hub claim
+    // -----------------------------------------------------------------------
+
+    /// Declares cancel:false and records any cancel attempts; the stream
+    /// stays pending forever after SessionStarted.
+    struct UncancellablePendingEngine {
+        cancel_attempts: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl EngineRuntime for UncancellablePendingEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            let started = stream::iter(vec![RuntimeEvent::SessionStarted {
+                session_id: "uncancellable-1".into(),
+                model: None,
+                tools: vec![],
+            }]);
+            Ok(Box::pin(started.chain(stream::pending())))
+        }
+
+        async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
+            self.cancel_attempts.lock().unwrap().push(session_id.into());
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: false,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_without_engine_capability_releases_claim_and_allows_reopen() {
+        let hub = HubRuntime::new();
+        let engine = Arc::new(UncancellablePendingEngine {
+            cancel_attempts: Mutex::new(Vec::new()),
+        });
+        hub.register_engine("uncanc", engine.clone()).unwrap();
+
+        let mut stream = hub
+            .execute(HubRequest::new("uncanc", RuntimeRequest::new("hi")))
+            .unwrap();
+        let pid = stream.next().await.unwrap().product_session_id;
+        assert!(hub.has_live_run(&pid));
+
+        // Before the fix this returned Err(Unsupported) and left the session
+        // Running forever. Hub must release its own claim instead.
+        hub.cancel(&pid)
+            .await
+            .expect("cancel must release the Hub claim even without engine cancel");
+        assert!(
+            engine.cancel_attempts.lock().unwrap().is_empty(),
+            "engine without cancel capability must not be asked to cancel"
+        );
+        assert_ne!(
+            hub.session(&pid).unwrap().status,
+            HubSessionStatus::Running,
+            "released claim must not leave the session running"
+        );
+
+        // The freed claim is immediately reusable.
+        let mut next = hub
+            .execute(HubRequest::new("uncanc", RuntimeRequest::new("again")).resume(pid.clone()))
+            .expect("released session must be re-executable");
+        let event = tokio::time::timeout(std::time::Duration::from_millis(500), next.next())
+            .await
+            .expect("reopened session must start")
+            .unwrap();
+        assert!(matches!(event.event, RuntimeEvent::SessionStarted { .. }));
+    }
+
+    #[tokio::test]
+    async fn cancel_reporting_unsupported_still_releases_claim() {
+        // A well-behaved capability declaration is covered above; here the
+        // engine claims cancel support but its implementation refuses — the
+        // Hub release must still happen instead of failing the request.
+        struct LiesAboutCancelEngine;
+        #[async_trait]
+        impl EngineRuntime for LiesAboutCancelEngine {
+            fn execute(
+                &self,
+                _request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                let started = stream::iter(vec![RuntimeEvent::SessionStarted {
+                    session_id: "lies-1".into(),
+                    model: None,
+                    tools: vec![],
+                }]);
+                Ok(Box::pin(started.chain(stream::pending())))
+            }
+            async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+                Err(RuntimeError::Unsupported("cancel".into()))
+            }
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+            fn capabilities(&self) -> RuntimeCapabilities {
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: false,
+                    permission_callback: false,
+                    resume: true,
+                    cancel: true,
+                }
+            }
+        }
+
+        let hub = HubRuntime::new();
+        hub.register_engine("lies", Arc::new(LiesAboutCancelEngine))
+            .unwrap();
+        let mut stream = hub
+            .execute(HubRequest::new("lies", RuntimeRequest::new("hi")))
+            .unwrap();
+        let pid = stream.next().await.unwrap().product_session_id;
+        hub.cancel(&pid)
+            .await
+            .expect("Unsupported engine cancel must fall back to the Hub release");
+        assert_ne!(
+            hub.session(&pid).unwrap().status,
+            HubSessionStatus::Running,
+            "Hub release must move the session out of Running (the engine process itself is not claimed dead)"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // R58: RunHandle registration order + per-generation cleanup
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn fast_finishing_run_leaves_no_stale_handle() {
+        let hub = HubRuntime::new();
+        hub.register_engine("alva", Arc::new(FakeEngine::new()))
+            .unwrap();
+        let events: Vec<_> = hub
+            .execute(HubRequest::new("alva", RuntimeRequest::new("done fast")))
+            .unwrap()
+            .collect()
+            .await;
+        let pid = events[0].product_session_id.clone();
+        // The product stream only ends after the run task drops event_tx —
+        // i.e. after its tail cleanup. The entry must be gone (the old
+        // spawn-before-insert order could strand it forever).
+        assert!(
+            !hub.has_live_run(&pid),
+            "a finished run must not leave a stale control-plane handle"
+        );
+    }
+
+    /// Turn 1 emits SessionStarted + Completed, then parks until released a
+    /// second time before ending the stream — holding the run task between
+    /// the terminal event and its tail cleanup. Turn 2 behaves like a live
+    /// run that records cancels.
+    struct TwoTurnGatedEngine {
+        gate: Arc<tokio::sync::Notify>,
+        turn: AtomicUsize,
+        cancelled: Mutex<Vec<String>>,
+    }
+
+    impl TwoTurnGatedEngine {
+        fn first_stream(
+            &self,
+        ) -> Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>> {
+            let gate = self.gate.clone();
+            enum St {
+                EmitStarted,
+                WaitThenCompleted,
+                WaitThenEnd,
+            }
+            Box::pin(stream::unfold(St::EmitStarted, move |st| {
+                let gate = gate.clone();
+                async move {
+                    match st {
+                        St::EmitStarted => Some((
+                            RuntimeEvent::SessionStarted {
+                                session_id: "gated-1".into(),
+                                model: None,
+                                tools: vec![],
+                            },
+                            St::WaitThenCompleted,
+                        )),
+                        St::WaitThenCompleted => {
+                            gate.notified().await;
+                            Some((
+                                RuntimeEvent::Completed {
+                                    session_id: "gated-1".into(),
+                                    result: None,
+                                    usage: None,
+                                },
+                                St::WaitThenEnd,
+                            ))
+                        }
+                        St::WaitThenEnd => {
+                            gate.notified().await;
+                            None
+                        }
+                    }
+                }
+            }))
+        }
+    }
+
+    #[async_trait]
+    impl EngineRuntime for TwoTurnGatedEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            if self.turn.fetch_add(1, Ordering::SeqCst) == 0 {
+                Ok(self.first_stream())
+            } else {
+                let started = stream::iter(vec![RuntimeEvent::SessionStarted {
+                    session_id: "second-1".into(),
+                    model: None,
+                    tools: vec![],
+                }]);
+                Ok(Box::pin(started.chain(stream::pending())))
+            }
+        }
+
+        async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
+            self.cancelled.lock().unwrap().push(session_id.into());
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn old_run_tail_does_not_delete_the_new_runs_handle() {
+        let hub = HubRuntime::new();
+        let engine = Arc::new(TwoTurnGatedEngine {
+            gate: Arc::new(tokio::sync::Notify::new()),
+            turn: AtomicUsize::new(0),
+            cancelled: Mutex::new(Vec::new()),
+        });
+        hub.register_engine("gated", engine.clone()).unwrap();
+
+        // Turn 1: SessionStarted arrives; the run parks before Completed.
+        let mut first = hub
+            .execute(HubRequest::new("gated", RuntimeRequest::new("one")))
+            .unwrap();
+        let pid = first.next().await.unwrap().product_session_id;
+
+        // Release the gate: Completed flows, session turns terminal, but the
+        // run task is still parked before its tail cleanup.
+        engine.gate.notify_one();
+        let completed = tokio::time::timeout(std::time::Duration::from_millis(500), first.next())
+            .await
+            .expect("gated Completed must arrive")
+            .unwrap();
+        assert!(matches!(completed.event, RuntimeEvent::Completed { .. }));
+        assert!(hub.has_live_run(&pid), "run 1 still holds the handle");
+
+        // Turn 2 registers on the now-terminal session, replacing run 1's
+        // entry with a fresh generation.
+        let mut second = hub
+            .execute(HubRequest::new("gated", RuntimeRequest::new("two")).resume(pid.clone()))
+            .unwrap();
+        let event = tokio::time::timeout(std::time::Duration::from_millis(500), second.next())
+            .await
+            .expect("second turn must start")
+            .unwrap();
+        assert!(matches!(event.event, RuntimeEvent::SessionStarted { .. }));
+
+        // End run 1's stream: its tail must NOT delete run 2's handle. Give
+        // the old tail a bounded window to (wrongly) run before asserting.
+        engine.gate.notify_one();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(
+            hub.has_live_run(&pid),
+            "old run's tail cleanup must not remove the new run's handle"
+        );
+
+        // The control plane still routes to run 2.
+        hub.cancel(&pid).await.unwrap();
+        assert_eq!(
+            engine.cancelled.lock().unwrap().as_slice(),
+            &["second-1".to_string()],
+            "cancel must reach the NEW run after the old run's tail cleanup"
+        );
     }
 }
