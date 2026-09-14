@@ -271,7 +271,7 @@ impl HostEscalationHandler {
                     request.command
                 )),
             );
-            if let SecurityDecision::NeedHumanApproval { request_id } = &decision {
+            if let SecurityDecision::NeedHumanApproval { request_id, .. } = &decision {
                 let _pending = guard.take_pending_receiver(request_id);
                 let _ = guard.resolve_permission(
                     request_id,

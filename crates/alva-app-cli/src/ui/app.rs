@@ -992,8 +992,16 @@ impl TuiApp {
             _ => PermissionType::Bash,
         };
 
-        // Build detail string from arguments.
-        let mut detail = format!("Tool: {}", approval.request.tool_name);
+        // Build detail string from arguments. When the tool declares its own
+        // describe_effect wording (R57) it leads the dialog, so the prompt
+        // quotes what the tool says it will do instead of only naming it.
+        let mut detail = match &approval.request.effect_summary {
+            Some(summary) => {
+                let text = format!("Effect: {summary}\nTool: {}", approval.request.tool_name);
+                text
+            }
+            None => format!("Tool: {}", approval.request.tool_name),
+        };
         if let Some(cmd) = approval
             .request
             .arguments
@@ -2049,6 +2057,7 @@ mod tests {
                 request_id: "req-1".into(),
                 tool_name: "execute_shell".into(),
                 arguments: serde_json::json!({ "command": "rm -rf ./x" }),
+                effect_summary: None,
             },
         });
     }

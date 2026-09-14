@@ -82,6 +82,11 @@ pub struct ApprovalRequest {
     pub request_id: String,
     pub tool_name: String,
     pub arguments: serde_json::Value,
+    /// R57: the tool's own `describe_effect` wording, carried from the
+    /// security decision so the approval UI quotes the tool's explanation
+    /// rather than guessing from the tool name. `None` when the tool
+    /// declares no summary.
+    pub effect_summary: Option<String>,
 }
 
 /// Bus Capability: fire-and-forget channel that wakes the HITL UI when
@@ -237,7 +242,7 @@ impl Middleware for SecurityMiddleware {
                 &tool_context,
                 &effect,
             );
-            let rx = if let SecurityDecision::NeedHumanApproval { ref request_id } = decision {
+            let rx = if let SecurityDecision::NeedHumanApproval { ref request_id, .. } = decision {
                 guard.take_pending_receiver(request_id)
             } else {
                 None
@@ -274,7 +279,10 @@ impl Middleware for SecurityMiddleware {
                                 let mut guard = self.guard.lock().await;
                                 guard.request_url_approval(&tool_call.name, &tool_call.arguments)
                             };
-                            let SecurityDecision::NeedHumanApproval { request_id } = decision
+                            let SecurityDecision::NeedHumanApproval {
+                                request_id,
+                                effect_summary,
+                            } = decision
                             else {
                                 unreachable!("URL approval registration always requests approval")
                             };
@@ -282,7 +290,7 @@ impl Middleware for SecurityMiddleware {
                                 let mut guard = self.guard.lock().await;
                                 guard.take_pending_receiver(&request_id)
                             };
-                            (SecurityDecision::NeedHumanApproval { request_id }, rx)
+                            (SecurityDecision::NeedHumanApproval { request_id, effect_summary }, rx)
                         }
                     }
                     None => (SecurityDecision::Allow, None),
@@ -295,7 +303,10 @@ impl Middleware for SecurityMiddleware {
         match decision {
             SecurityDecision::Allow => Ok(()),
             SecurityDecision::Deny { reason } => Err(MiddlewareError::Blocked { reason }),
-            SecurityDecision::NeedHumanApproval { request_id } => {
+            SecurityDecision::NeedHumanApproval {
+                request_id,
+                effect_summary,
+            } => {
                 // Mirror the request into the session event log before any
                 // side-channel notification fires. Subscribers see this event
                 // appear synchronously with seq assignment; readers will find
@@ -320,6 +331,7 @@ impl Middleware for SecurityMiddleware {
                                 request_id: request_id.clone(),
                                 tool_name: tool_call.name.clone(),
                                 arguments: tool_call.arguments.clone(),
+                                effect_summary: effect_summary.clone(),
                             })
                             .is_err()
                         {
@@ -674,6 +686,91 @@ mod tests {
         let result = mw.before_tool_call(&mut state, &tc).await;
         approval_handle.await.unwrap();
         assert!(result.is_err(), "should be denied after rejection");
+    }
+
+
+    /// R57: a NON-builtin tool's own `describe_effect` wording must reach the
+    /// real ApprovalRequest the UI consumes — not stay a debug log line, and
+    /// not be re-guessed from the tool name by the harness.
+    #[tokio::test]
+    async fn effect_summary_travels_with_the_approval_request() {
+        use alva_kernel_abi::base::error::AgentError;
+        use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
+        use alva_kernel_abi::tool::{Tool, ToolSchemaContext};
+
+        /// A third-party tool with a distinctive effect self-description.
+        struct CustomPublishTool;
+        #[async_trait]
+        impl Tool for CustomPublishTool {
+            fn name(&self) -> &str {
+                "custom_publish"
+            }
+            fn description(&self) -> &str {
+                "generic description"
+            }
+            fn parameters_schema(&self, _ctx: &ToolSchemaContext) -> serde_json::Value {
+                serde_json::json!({"type": "object"})
+            }
+            async fn execute(
+                &self,
+                _input: serde_json::Value,
+                _ctx: &dyn ToolExecutionContext,
+            ) -> Result<ToolOutput, AgentError> {
+                unreachable!("never executed in this test")
+            }
+            fn describe_effect(
+                &self,
+                _input: &serde_json::Value,
+            ) -> alva_kernel_abi::EffectDescription {
+                alva_kernel_abi::EffectDescription::of(
+                    "publishes the draft post to the production blog",
+                )
+            }
+        }
+
+        let (approval_tx, mut approval_rx) =
+            tokio::sync::mpsc::unbounded_channel::<ApprovalRequest>();
+        let bus = Bus::new();
+        bus.writer()
+            .provide(Arc::new(ApprovalNotifier { tx: approval_tx }));
+
+        let mw = SecurityMiddleware::for_workspace("/projects/test", SandboxMode::RestrictiveOpen)
+            .with_bus(bus.handle());
+        {
+            let guard_arc = mw.guard();
+            let mut guard = guard_arc.lock().await;
+            guard.add_dangerous_tool("custom_publish");
+        }
+        let mut state = make_state();
+        let tool: Arc<dyn Tool> = Arc::new(CustomPublishTool);
+        state.tools.push(tool);
+
+        let tc = ToolCall {
+            id: "1".into(),
+            name: "custom_publish".into(),
+            arguments: serde_json::json!({ "post_id": 7 }),
+        };
+
+        let mw_guard = mw.guard().clone();
+        let approval_handle = tokio::spawn(async move {
+            let req = approval_rx.recv().await.unwrap();
+            assert_eq!(req.tool_name, "custom_publish");
+            assert_eq!(
+                req.effect_summary.as_deref(),
+                Some("publishes the draft post to the production blog"),
+                "the tool's own effect wording must reach the approval request"
+            );
+            let mut g = mw_guard.lock().await;
+            g.resolve_permission(
+                &req.request_id,
+                "custom_publish",
+                crate::PermissionDecision::RejectOnce,
+            );
+        });
+
+        let result = mw.before_tool_call(&mut state, &tc).await;
+        approval_handle.await.unwrap();
+        assert!(result.is_err(), "rejection must still block the call");
     }
 
     #[tokio::test]

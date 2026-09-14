@@ -29,8 +29,14 @@ pub enum SecurityDecision {
     /// Tool call is blocked. `reason` explains why.
     Deny { reason: String },
     /// Tool call needs human approval. `request_id` is used to track the
-    /// pending decision via `PermissionManager::resolve()`.
-    NeedHumanApproval { request_id: String },
+    /// pending decision via `PermissionManager::resolve()`. `effect_summary`
+    /// is the tool's own `describe_effect` wording (R57) so the approval
+    /// prompt can quote what the tool says it will do instead of guessing
+    /// from the tool name; `None` when the tool declares no summary.
+    NeedHumanApproval {
+        request_id: String,
+        effect_summary: Option<String>,
+    },
 }
 
 /// Default tools that require HITL review.
@@ -284,7 +290,10 @@ impl SecurityGuard {
             .permission_manager
             .request_approval(request_id.clone(), tool_name, args);
         self.pending_receivers.insert(request_id.clone(), rx);
-        SecurityDecision::NeedHumanApproval { request_id }
+        SecurityDecision::NeedHumanApproval {
+            request_id,
+            effect_summary: None,
+        }
     }
 
     /// Set the permission mode.
@@ -331,8 +340,11 @@ impl SecurityGuard {
         // permission mode, rules, and caches. A tool cannot deny or ask
         // itself through its description — the summary is surfaced for the
         // human approval prompt only.
-        if !effect.summary.is_empty() {
-            tracing::debug!(tool = tool_name, effect = %effect.summary, "tool effect description");
+        // R57: the summary travels with the approval decision instead of
+        // staying a debug line, so the real approval prompt can quote it.
+        let effect_summary = (!effect.summary.is_empty()).then(|| effect.summary.clone());
+        if let Some(summary) = &effect_summary {
+            tracing::debug!(tool = tool_name, effect = %summary, "tool effect description");
         }
         let dangerous = self.is_dangerous(tool_name);
         let current_mode = self.mode.get_mode();
@@ -480,7 +492,10 @@ impl SecurityGuard {
                         args,
                     );
                     self.pending_receivers.insert(request_id.clone(), rx);
-                    return SecurityDecision::NeedHumanApproval { request_id };
+                    return SecurityDecision::NeedHumanApproval {
+                        request_id,
+                        effect_summary: effect_summary.clone(),
+                    };
                 }
             }
         }
@@ -788,7 +803,7 @@ mod tests {
         // First call — needs approval
         let args = json!({ "command": "ls /projects/myapp" });
         let decision = guard.check_tool_call_for_test("execute_shell", &args, &test_ctx());
-        if let SecurityDecision::NeedHumanApproval { request_id } = decision {
+        if let SecurityDecision::NeedHumanApproval { request_id, .. } = decision {
             guard.resolve_permission(
                 &request_id,
                 "execute_shell",
@@ -819,7 +834,7 @@ mod tests {
         );
         let approved_args = json!({ "command": "ls /projects/myapp" });
         let approved = guard.check_tool_call_for_test("execute_shell", &approved_args, &test_ctx());
-        if let SecurityDecision::NeedHumanApproval { request_id } = approved {
+        if let SecurityDecision::NeedHumanApproval { request_id, .. } = approved {
             guard.resolve_permission(
                 &request_id,
                 "execute_shell",
@@ -908,7 +923,7 @@ mod tests {
         let decision = guard.check_tool_call_for_test("execute_shell", &args, &test_ctx());
 
         let request_id = match decision {
-            SecurityDecision::NeedHumanApproval { request_id } => request_id,
+            SecurityDecision::NeedHumanApproval { request_id, .. } => request_id,
             other => panic!("expected NeedHumanApproval, got {:?}", other),
         };
 

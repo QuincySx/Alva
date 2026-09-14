@@ -322,7 +322,9 @@ impl EngineRuntime for AlvaAdapter {
                                             request_id: req.request_id,
                                             tool_name: req.tool_name,
                                             tool_input: req.arguments,
-                                            description: None,
+                                            // R57: the tool's own describe_effect
+                                            // wording reaches the real approval UI.
+                                            description: req.effect_summary,
                                         })
                                         .is_err()
                                 {
@@ -621,6 +623,163 @@ mod tests {
         );
     }
 
+/// R52: a factory build failure is exactly Error{fatal} + Completed{None}
+    /// at the execute() boundary.
+    #[tokio::test]
+    async fn spawn_failure_conforms() {
+        struct FailingFactory;
+        #[async_trait]
+        impl BaseAgentFactory for FailingFactory {
+            async fn build(
+                &self,
+                _request: &RuntimeRequest,
+                _session: Arc<dyn alva_kernel_abi::AgentSession>,
+            ) -> Result<BuiltAgent, EngineError> {
+                Err(EngineError::LLMProvider("factory exploded".into()))
+            }
+        }
+        let adapter = AlvaAdapter::new(Arc::new(FailingFactory));
+        alva_engine_runtime::assert_conforms(
+            &adapter,
+            RuntimeRequest::new("hello"),
+            alva_engine_runtime::Scenario::SpawnFailure,
+        )
+        .await;
+    }
+
+    /// R52: a mid-run channel close (run task crash) surfaces as a fatal
+    /// error pair — the EofWithoutResult contract, strengthened in R52 to
+    /// reject a bare Completed{None} without a preceding Error.
+    #[tokio::test]
+    async fn eof_without_result_conforms() {
+        let config =
+            DefaultBaseAgentFactoryConfig::new(Arc::new(PanickingModel), std::env::temp_dir());
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
+        alva_engine_runtime::assert_conforms(
+            &adapter,
+            RuntimeRequest::new("hello"),
+            alva_engine_runtime::Scenario::EofWithoutResult,
+        )
+        .await;
+    }
+
+    /// R52: an LLM error surfaces as a fatal Error followed by nothing but
+    /// the terminal Completed — never more output after the fatal.
+    #[tokio::test]
+    async fn output_after_fatal_conforms() {
+        let model = Arc::new(
+            alva_test::mock_provider::MockLanguageModel::new()
+                .with_error(alva_kernel_abi::AgentError::LlmError("boom".into())),
+        );
+        let config = DefaultBaseAgentFactoryConfig::new(model, std::env::temp_dir());
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
+        alva_engine_runtime::assert_conforms(
+            &adapter,
+            RuntimeRequest::new("hello"),
+            alva_engine_runtime::Scenario::OutputAfterFatal,
+        )
+        .await;
+    }
+
+/// R48: the same nested chain, queried back through the PRODUCTION
+    /// Inspector entry (RepositoryInspector::snapshot) after a repository
+    /// reopen — root → child → grandchild drill-down with typed causal
+    /// links and durable conversation records visible at every level. This
+    /// is the Inspector-query leg; the repository-leg and the swap×child
+    /// combination (alva-app-core r48_swap_child_identity) are recorded
+    /// separately and do not stand in for each other.
+    #[tokio::test]
+    async fn inspector_drill_down_after_repo_reopen_reaches_grandchild() {
+        let dir = std::env::temp_dir().join(format!(
+            "alva-adapter-inspector-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let repository_path = dir.join("records.db");
+
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(tool_use_message(
+                    "spawn-root",
+                    "agent",
+                    json!({"task": "delegate one level down", "role": "worker"}),
+                ))
+                .with_response(tool_use_message(
+                    "spawn-child",
+                    "agent",
+                    json!({"task": "do the leaf work", "role": "grandworker"}),
+                ))
+                .with_response(make_assistant_message("grand done"))
+                .with_response(make_assistant_message("child done"))
+                .with_response(make_assistant_message("parent done")),
+        );
+        let factory = crate::factory::CatalogBaseAgentFactory::new(model.clone(), dir.clone());
+        let adapter = AlvaAdapter::new(Arc::new(factory))
+            .with_session_repository(SessionRepository::open(&repository_path).unwrap());
+
+        let events: Vec<_> = adapter
+            .execute(RuntimeRequest::new("spawn nested workers"))
+            .unwrap()
+            .collect()
+            .await;
+        let root_id = match events.first() {
+            Some(RuntimeEvent::SessionStarted { session_id, .. }) => session_id.clone(),
+            other => panic!("expected SessionStarted, got {other:?}"),
+        };
+        assert!(matches!(events.last(), Some(RuntimeEvent::Completed { .. })));
+        drop(adapter);
+
+        // Reopen the repository and query through the production Inspector.
+        let inspector = crate::session_repository::RepositoryInspector::new(
+            SessionRepository::open(&repository_path).unwrap(),
+        );
+
+        let root = inspector.snapshot(&root_id).await.unwrap();
+        assert_eq!(root.parent_session_id, None);
+        assert_eq!(root.children.len(), 1, "root links exactly one child");
+        let child_id = root.children[0].child_session_id.clone();
+        assert_eq!(root.children[0].parent_session_id, root_id);
+
+        let child = inspector.snapshot(&child_id).await.unwrap();
+        assert_eq!(
+            child.parent_session_id.as_deref(),
+            Some(root_id.as_str()),
+            "typed parent link survives the reopen"
+        );
+        assert_eq!(child.children.len(), 1, "child links the grandchild");
+        let grandchild_id = child.children[0].child_session_id.clone();
+
+        let grandchild = inspector.snapshot(&grandchild_id).await.unwrap();
+        assert_eq!(
+            grandchild.parent_session_id.as_deref(),
+            Some(child_id.as_str())
+        );
+        // Durable conversation is visible through the Inspector projection.
+        let grand_text = grandchild
+            .records
+            .iter()
+            .filter_map(|record| match &record.payload {
+                SessionRecordPayload::Conversation(conversation) => conversation
+                    .agent_message
+                    .as_ref()
+                    .map(|msg| match msg {
+                        alva_kernel_abi::AgentMessage::Standard(m) => m.text_content(),
+                        _ => String::new(),
+                    }),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            grand_text.contains("grand done"),
+            "grandchild records must be visible through the Inspector, got {grand_text:?}"
+        );
+    }
+
     /// ticket 16: end-to-end conformance over the real in-process agent.
     #[tokio::test]
     async fn normal_run_conforms() {
@@ -788,6 +947,7 @@ mod tests {
                 request_id: "approval-2".into(),
                 tool_name: "execute_shell".into(),
                 arguments: json!({"command": "pwd"}),
+                effect_summary: None,
             })
             .unwrap();
         let mut resumed = RuntimeRequest::new("second prompt");
