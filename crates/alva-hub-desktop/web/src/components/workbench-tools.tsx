@@ -2,7 +2,7 @@
 // OUTPUT: Files, text, Git, Review, Agent, Inspector, Tasks, Usage, Chrome, and Terminal views
 // POS:    Auxiliary HubSession tools kept separate from conversation and shared workbench chrome
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bot,
   CheckCircle2,
@@ -61,7 +61,9 @@ export function TextBrowserTool({ detail }: { detail: HubSessionDetail | null })
         ))}
       </PanelSection>
       <PanelSection heading={activeFile?.split("/").at(-1) ?? t("tool.textPreview")} description={activeFile ?? t("tool.chooseFile")}>
-        <pre className="hub-text-preview">{activeFile ? t("tool.previewConnected", { file: activeFile }) : t("tool.noFileSelected")}</pre>
+        {/* R53: nothing reads the file here — claiming a connected preview was a
+            fake connection. State the gap instead of inventing content. */}
+        <EmptyState icon={<FileCode2 size={18} />} title={t("tool.previewNotWiredTitle")} description={activeFile ? t("tool.previewNotWired", { file: activeFile }) : t("tool.noFileSelected")} />
       </PanelSection>
     </div>
   );
@@ -71,14 +73,17 @@ export function GitTool({ detail }: { detail: HubSessionDetail | null }) {
   const { t } = useI18n();
   const effects = detail?.turns.flatMap((turn) => turn.attempts.flatMap((attempt) => attempt.side_effects)) ?? [];
   return (
-    <PanelSection description={t("tool.gitDescription")} heading={t("workbench.git")} meta={t("common.changeCount", { count: effects.length })}>
-      {effects.length === 0 ? <EmptyState icon={<GitBranch size={18} />} title={t("tool.clean")} description={t("tool.cleanDescription")} /> : effects.map((effect) => (
+    // R54: these rows are recorded TOOL executions, not a Git status. A
+    // read-only tool call is not a modification, an empty session is not a
+    // clean tree, and a running tool is pending — never inferred.
+    <PanelSection description={t("tool.recordedPathsDescription")} heading={t("tool.recordedPaths")} meta={t("common.changeCount", { count: effects.length })}>
+      {effects.length === 0 ? <EmptyState icon={<GitBranch size={18} />} title={t("tool.noToolRecords")} description={t("tool.noToolRecordsDescription")} /> : effects.map((effect) => (
         <ListRow
           description={effect.path ?? effect.tool_name}
-          heading={effect.succeeded === false ? t("tool.failedChange") : t("tool.modified")}
+          heading={effect.succeeded === false ? t("tool.failedChange") : effect.succeeded === true ? t("tool.executedRow") : t("tool.pendingRow")}
           key={effect.tool_call_id}
           leading={<GitBranch size={16} />}
-          meta={effect.duration_ms ? `${effect.duration_ms} ms` : t("tool.sessionChange")}
+          meta={effect.duration_ms ? `${effect.duration_ms} ms` : effect.succeeded === null || effect.succeeded === undefined ? t("tool.pendingRow") : t("tool.sessionChange")}
         />
       ))}
     </PanelSection>
@@ -95,8 +100,8 @@ export function ReviewTool({ detail }: { detail: HubSessionDetail | null }) {
           heading={effect.tool_name}
           description={effect.path ?? t("tool.noPath")}
           key={effect.tool_call_id}
-          leading={effect.succeeded === false ? <CircleDot size={16} /> : <CheckCircle2 size={16} />}
-          meta={effect.duration_ms ? `${effect.duration_ms} ms` : t("common.recorded")}
+          leading={effect.succeeded === true ? <CheckCircle2 size={16} /> : effect.succeeded === false ? <CircleDot size={16} /> : <CircleDot size={16} />}
+          meta={effect.succeeded === true ? t("tool.executedRow") : effect.succeeded === false ? t("tool.failedChange") : t("tool.pendingRow")}
         />
       ))}
     </PanelSection>
@@ -184,6 +189,46 @@ export function InspectorTool({ detail, events, loadInspection }: { detail: HubS
   // unavailable state instead of a silent no-op.
   const [focusSession, setFocusSession] = useState<string | null>(null);
   const [unavailableEngine, setUnavailableEngine] = useState<string | null>(null);
+  // R42: the execution overview lives HERE (Inspector surface), not as a
+  // swim lane in the chat column. A summary row opens and locates the
+  // matching persisted tool record below.
+  const [focusToolCallId, setFocusToolCallId] = useState<string | null>(null);
+  const activityEvents = useMemo(
+    () => events.filter((event) => Boolean(event.activity)),
+    [events],
+  );
+  const toolRecorded = (toolCallId: string | null | undefined): boolean => {
+    if (!toolCallId || !detail) return false;
+    return detail.turns.some((turn) =>
+      turn.attempts.some((attempt) =>
+        attempt.side_effects.some((effect) => effect.tool_call_id === toolCallId),
+      ),
+    );
+  };
+  const locateToolEvent = (event: HubTimelineEvent) => {
+    const id = event.item_id;
+    if (!id) return;
+    setFocusToolCallId(id);
+    const attempt = detail?.turns
+      .flatMap((turn) => turn.attempts)
+      .find((candidate) => candidate.side_effects.some((effect) => effect.tool_call_id === id));
+    if (attempt) {
+      const branch = detail?.branches.find((candidate) => candidate.branch_id === attempt.branch_id) ?? null;
+      if (branch?.engine_id === "alva" && branch.engine_session_id) {
+        setUnavailableEngine(null);
+        setFocusSession(branch.engine_session_id);
+      } else {
+        setUnavailableEngine(branch?.engine_id ?? attempt.engine_id);
+      }
+    }
+  };
+  useEffect(() => {
+    if (!focusToolCallId) return;
+    // jsdom has no layout; guard the scroll call.
+    document
+      .querySelector(`[data-inspector-tool="${focusToolCallId}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [focusToolCallId]);
   const locateAttempt = (attempt: StoredAttempt) => {
     const branch = detail?.branches.find((candidate) => candidate.branch_id === attempt.branch_id) ?? null;
     if (branch?.engine_id === "alva" && branch.engine_session_id) {
@@ -208,6 +253,37 @@ export function InspectorTool({ detail, events, loadInspection }: { detail: HubS
           tone="warning"
         />
       ) : null}
+      <PanelSection description={t("workbench.executionOverviewDescription")} heading={t("workbench.executionOverview")} meta={`${activityEvents.length}`}>
+        {activityEvents.length === 0 ? (
+          <EmptyState icon={<CircleDot size={18} />} title={t("workbench.executionOverviewEmpty")} description={t("workbench.executionOverviewEmptyDescription")} />
+        ) : (
+          activityEvents.map((event, index) => {
+            const activity = event.activity!;
+            const recorded = toolRecorded(event.item_id);
+            const running = activity.succeeded === null || activity.succeeded === undefined;
+            return (
+              <ListRow
+                description={running ? t("workbench.toolNotRecordedYet") : event.message ?? undefined}
+                heading={`${activity.tool_name} · ${running ? t("tool.pendingRow") : activity.succeeded ? t("tool.executedRow") : t("tool.failedChange")}`}
+                key={`${event.product_session_id}-${event.item_id ?? index}`}
+                leading={running ? <CircleDot size={16} /> : activity.succeeded ? <CheckCircle2 size={16} /> : <CircleDot size={16} />}
+                meta={activity.duration_ms ? `${activity.duration_ms} ms` : undefined}
+                actions={
+                  <Button
+                    aria-label={t("workbench.locateRecord")}
+                    disabled={!recorded}
+                    onClick={() => locateToolEvent(event)}
+                    size="small"
+                    variant="ghost"
+                  >
+                    {t("workbench.locateRecord")}
+                  </Button>
+                }
+              />
+            );
+          })
+        )}
+      </PanelSection>
       <Disclosure defaultOpen={false} description={t("workbench.productAttemptsDescription")} title={t("workbench.productAttempts")} meta={detail ? t("common.turnCount", { count: detail.turns.length }) : t("tool.noSession")}>
         {detail?.turns.map((turn) => (
           <Disclosure key={turn.turn_id} title={turn.prompt} description={`${localize(turn.status)} · ${t("common.attemptCount", { count: turn.attempts.length })}`}>
@@ -231,10 +307,14 @@ export function InspectorTool({ detail, events, loadInspection }: { detail: HubS
                   ) : null}
                   {attempt.side_effects.map((effect) => (
                     <Disclosure
+                      data-inspector-tool={effect.tool_call_id}
                       key={effect.tool_call_id}
                       title={`${effect.tool_name} ${effect.succeeded === false ? "✗" : effect.succeeded === true ? "✓" : "…"}`}
                       description={effect.path ?? effect.tool_call_id}
                       meta={effect.duration_ms ? `${effect.duration_ms}ms` : undefined}
+                      open={focusToolCallId === effect.tool_call_id ? true : undefined}
+                      onOpenChange={focusToolCallId === effect.tool_call_id ? () => setFocusToolCallId(null) : undefined}
+                      className={focusToolCallId === effect.tool_call_id ? "hub-inspector-record--focused" : undefined}
                     >
                       <div className="hub-inspector-tool-io">
                         <div><small>tool_call_id: {effect.tool_call_id}</small></div>
@@ -322,13 +402,24 @@ export function UsageTool({ detail }: { detail: HubSessionDetail | null }) {
   const { t } = useI18n();
   const usage = detail?.turns.flatMap((turn) => turn.attempts.map((attempt) => attempt.usage).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))) ?? [];
   const totals = usage.reduce((sum, entry) => ({ input: sum.input + entry.input_tokens, output: sum.output + entry.output_tokens, duration: sum.duration + entry.duration_ms, cost: sum.cost + (entry.total_cost_usd ?? 0) }), { input: 0, output: 0, duration: 0, cost: 0 });
+  // R55: an unreported cost is not a free run. Distinguish "no attempt
+  // reported anything", "genuinely $0", and "partial — some attempts did
+  // not report"; never render null as $0.00.
+  const reportedCosts = usage.filter((entry) => entry.total_cost_usd !== null && entry.total_cost_usd !== undefined);
+  const allUnknown = usage.length > 0 && reportedCosts.length === 0;
+  const partial = reportedCosts.length > 0 && reportedCosts.length < usage.length;
+  const costValue = usage.length === 0
+    ? "—"
+    : allUnknown
+      ? t("tool.costNotReported")
+      : `$${totals.cost.toFixed(2)}${partial ? ` ${t("tool.costPartial")}` : ""}`;
   return (
     <PanelSection description={t("tool.usageDescription")} heading={t("workbench.usage")}>
       <div className="hub-metric-grid">
         <div><strong>{totals.input.toLocaleString()}</strong><small>{t("tool.inputTokens")}</small></div>
         <div><strong>{totals.output.toLocaleString()}</strong><small>{t("tool.outputTokens")}</small></div>
         <div><strong>{Math.round(totals.duration / 1000)}s</strong><small>{t("tool.runtime")}</small></div>
-        <div><strong>${totals.cost.toFixed(2)}</strong><small>{t("tool.reportedCost")}</small></div>
+        <div><strong>{costValue}</strong><small>{t("tool.reportedCost")}</small></div>
       </div>
     </PanelSection>
   );
@@ -336,29 +427,30 @@ export function UsageTool({ detail }: { detail: HubSessionDetail | null }) {
 
 export function BrowserTool() {
   const { t } = useI18n();
-  const [url, setUrl] = useState("http://127.0.0.1:1421");
-  const [loadedUrl, setLoadedUrl] = useState(url);
+  // R53: nothing loads here — no WebView bridge exists behind this panel.
+  // Present the disabled capability honestly instead of a fake "ready" state.
+  const [url, setUrl] = useState("");
   return (
     <PanelSection description={t("tool.browserDescription")} heading={t("workbench.browser")}>
-      <div className="hub-browser-toolbar"><TextField aria-label={t("tool.browserAddress")} value={url} onChange={(event) => setUrl(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") setLoadedUrl(url); }} /><Button leadingIcon={<Globe2 size={14} />} onClick={() => setLoadedUrl(url)} size="small">{t("common.open")}</Button></div>
-      <EmptyState icon={<Globe2 size={18} />} title={t("tool.browserReady")} description={loadedUrl} />
+      <EmptyState icon={<Globe2 size={18} />} title={t("tool.browserNotWiredTitle")} description={t("tool.browserNotWired")} />
+      <div className="hub-browser-toolbar">
+        <TextField aria-label={t("tool.browserAddress")} disabled value={url} onChange={(event) => setUrl(event.target.value)} />
+        <Button disabled leadingIcon={<Globe2 size={14} />} size="small">{t("common.open")}</Button>
+      </div>
     </PanelSection>
   );
 }
 
 export function TerminalTool() {
   const { t } = useI18n();
+  // R53: the native terminal adapter is not wired in — typed commands were
+  // echoed back as "queued" without ever running. Keep the surface disabled
+  // and say so.
   const [command, setCommand] = useState("");
-  const [lines, setLines] = useState<string[]>([t("tool.terminalWelcome"), t("tool.terminalChooseWorkspace")]);
-  function run() {
-    if (!command.trim()) return;
-    setLines((current) => [...current, `$ ${command}`, t("tool.commandQueued")]);
-    setCommand("");
-  }
   return (
     <PanelSection description={t("tool.terminalDescription")} heading={t("workbench.terminal")}>
-      <pre className="hub-terminal-output">{lines.join("\n")}</pre>
-      <div className="hub-terminal-input"><TerminalSquare size={16} /><TextField aria-label={t("tool.terminalCommand")} value={command} onChange={(event) => setCommand(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") run(); }} /><Button aria-label={t("tool.runCommand")} onClick={run} size="icon"><Play size={14} /></Button></div>
+      <pre className="hub-terminal-output">{[t("tool.terminalWelcome"), t("tool.terminalNotWired")].join("\n")}</pre>
+      <div className="hub-terminal-input"><TerminalSquare size={16} /><TextField aria-label={t("tool.terminalCommand")} disabled value={command} onChange={(event) => setCommand(event.target.value)} /><Button aria-label={t("tool.runCommand")} disabled size="icon"><Play size={14} /></Button></div>
     </PanelSection>
   );
 }
