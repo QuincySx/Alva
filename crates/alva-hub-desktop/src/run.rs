@@ -656,6 +656,16 @@ where
         .with_cwd(workspace)
         .with_streaming();
     let hub_request = HubRequest::new(engine_id, runtime_request).resume(product_session_id);
+    // Publish the live hub BEFORE the claim so the product's Stop command can
+    // reach the run's control plane from the earliest moment — including the
+    // startup window where no native session exists yet (HubRuntime::cancel
+    // releases the claim via abandon). Removed when the turn ends (ticket 13
+    // batch 4, R51).
+    if let Some(sink) = hub_sink {
+        sink.lock()
+            .expect("active hubs lock poisoned")
+            .insert(product_id.clone(), hub.clone());
+    }
     let mut stream = match hub.execute(hub_request) {
         Ok(stream) => stream,
         Err(error) => {
@@ -689,13 +699,6 @@ where
     let mut engine_session_id = None;
     let mut usage = None;
     let mut failure_class = None;
-    // Publish the live hub so the product's Stop command can reach the run's
-    // control plane (ticket 13 batch 4). Removed when the turn ends below.
-    if let Some(sink) = hub_sink {
-        sink.lock()
-            .expect("active hubs lock poisoned")
-            .insert(product_id.clone(), hub.clone());
-    }
     // Stall watchdog state: the timer only runs while nothing is legitimately
     // in flight. Open tools and a pending user approval disarm it; every
     // received event (including streamed deltas) resets the window. Once the

@@ -53,8 +53,8 @@ pub use repair::{
     repair_argv, repair_plan, run_repair_command, RepairAction, RepairKind, RepairOutcome,
 };
 pub use run::{
-    run_once, run_persisted, run_persisted_with_target, RunOutcome, RunRequest, TimelineActivity,
-    TimelineEvent, TimelineStatus,
+    run_once, run_persisted, run_persisted_with_target, ActiveHubs, RunOutcome, RunRequest,
+    TimelineActivity, TimelineEvent, TimelineStatus,
 };
 pub use session_workspace::{create_managed_session_workspace, WorkspaceBinding, WorkspaceKind};
 pub use store::{

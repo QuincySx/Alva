@@ -3,6 +3,7 @@
 // OUTPUT: headless HTTP service: reuses Hub sessions, engines, Inspector, and timeline over HTTP/SSE
 // POS:    Alva Hub as a local service — one backend, many frontends.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -21,10 +22,12 @@ use serde_json::json;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
+use alva_hub_core::ProductSessionId;
 use alva_hub_desktop::{
     build_engine_for_target_with_inspector, permission_eligibility, probe_readiness,
-    run_persisted_with_target, EngineTarget, HubInspectorService, HubStore, PermissionProfile,
-    ProviderCatalog, RunRequest, SaveProviderProfile, SystemProbe, TimelineEvent,
+    run_persisted_with_target, ActiveHubs, EngineTarget, HubInspectorService, HubStore,
+    PermissionProfile, ProviderCatalog, RunRequest, SaveProviderProfile, SystemProbe,
+    TimelineEvent, TimelineStatus,
 };
 use alva_llm_provider::ProviderConfig;
 
@@ -47,6 +50,15 @@ struct AppState {
     active_engines: std::sync::Arc<
         Mutex<std::collections::HashMap<String, Arc<dyn alva_engine_runtime::EngineRuntime>>>,
     >,
+    /// R51: live per-session [`alva_hub_core::HubRuntime`] control planes,
+    /// published by the run seam for the duration of each turn. Stop routes
+    /// through `HubRuntime::cancel` instead of hand-rolled engine calls —
+    /// same control plane as the Tauri product.
+    active_hubs: Arc<ActiveHubs>,
+    /// R51: sessions whose Stop was acked but whose engine stream has not
+    /// ended yet. The cancelled terminal is recorded only when the run's own
+    /// terminal event arrives, never on the cancel ack itself.
+    stopping: Arc<Mutex<HashSet<String>>>,
     permission_router: Arc<alva_hub_desktop::PermissionRouter>,
 }
 
@@ -73,6 +85,8 @@ impl AppState {
             inspector,
             events,
             active_engines: std::sync::Arc::new(Mutex::new(std::collections::HashMap::new())),
+            active_hubs: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            stopping: Arc::new(Mutex::new(HashSet::new())),
             permission_router: Arc::new(alva_hub_desktop::PermissionRouter::new()),
         })
     }
@@ -561,8 +575,13 @@ async fn stop_attempt(
         )
             .into_response();
     }
-    let engine = match state.active_engines.lock().unwrap().get(&id).cloned() {
-        Some(e) => e,
+    // R51: route through the live Hub control plane (published by the run
+    // seam) instead of calling the engine directly. HubRuntime::cancel
+    // reaches the native session via its RunHandle, and releases the Hub
+    // claim itself when the engine cannot cancel or no native session has
+    // started yet — including the early-start window.
+    let hub = match state.active_hubs.lock().unwrap().get(&id).cloned() {
+        Some(hub) => hub,
         None => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -571,47 +590,36 @@ async fn stop_attempt(
                 .into_response()
         }
     };
-    let engine_session_id = match detail.session.engine_session_id {
-        Some(s) => s,
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "no engine session" })),
-            )
-                .into_response()
-        }
-    };
-    if let Err(e) = state.store.record_attempt_cancelled(&id, "User stopped") {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
-    }
+    // The stopped attempt's approvals die with it — clear them before the
+    // cancel so a stale Allow can no longer reach the cancelled session.
     state.permission_router.clear_session(&id);
-    match engine.cancel(&engine_session_id).await {
-        Ok(()) => {
-            let _ = state.events.send(WireTimelineEvent {
-                event: TimelineEvent {
-                    created_at: timeline_now_ms(),
-                    status: alva_hub_desktop::TimelineStatus::Interrupted,
-                    engine_id: detail.session.engine_id,
-                    product_session_id: id,
-                    message: Some("User stopped".into()),
-                    item_id: None,
-                    activity: None,
-                    permission_request: None,
-                },
-                run_token: None,
-            });
-            Json(json!({ "ok": true })).into_response()
-        }
-        Err(e) => (
+    // R51: nothing is recorded before the cancel — a failed cancel must not
+    // leave a cancelled terminal behind.
+    if let Err(e) = hub.cancel(&ProductSessionId::from_existing(&id)).await {
+        return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e.to_string() })),
         )
-            .into_response(),
+            .into_response();
     }
+    // Cancel acked, not yet terminated: surface the stopping state now and
+    // let the run's own terminal event (observed in the run handler) record
+    // the cancelled terminal and emit Interrupted.
+    state.stopping.lock().unwrap().insert(id.clone());
+    let _ = state.events.send(WireTimelineEvent {
+        event: TimelineEvent {
+            created_at: timeline_now_ms(),
+            status: TimelineStatus::Running,
+            engine_id: detail.session.engine_id,
+            product_session_id: id,
+            message: Some("User stopped — waiting for the engine to terminate".into()),
+            item_id: None,
+            activity: None,
+            permission_request: None,
+        },
+        run_token: None,
+    });
+    Json(json!({ "ok": true, "stopping": true })).into_response()
 }
 
 fn effective_model_routes(
@@ -782,6 +790,8 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
     };
 
     let tx = state.events.clone();
+    let stopping = state.stopping.clone();
+    let stop_store = state.store.clone();
 
     // Spawn the (potentially long) run on the runtime; emit each timeline
     // event to the broadcast channel.
@@ -831,9 +841,9 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
         },
         request,
         selected_target,
-        // Server keeps its own shadow table for now; the run seam sink (ticket
-        // 13 batch 4) is desktop-only in this increment.
-        None,
+        // R51: publish the live per-session HubRuntime so Stop routes through
+        // the same Hub control plane the Tauri product uses.
+        Some(state.active_hubs.as_ref()),
         {
             let tx = tx.clone();
             let run_token = run_token.clone();
@@ -842,6 +852,8 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
             let autonomy_store = autonomy_store.clone();
             let approval_scope = approval_scope.clone();
             let requester_label = requester_label.clone();
+            let stopping = stopping.clone();
+            let stop_store = stop_store.clone();
             move |event: TimelineEvent| {
                 if let Some(info) = &event.permission_request {
                     let engine = active_engines
@@ -919,6 +931,32 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
                         | alva_hub_desktop::TimelineStatus::Exhausted
                 ) {
                     permission_router.clear_session(&event.product_session_id);
+                    // R51: a Stop that was acked records its cancelled
+                    // terminal here — when the engine stream really ended —
+                    // never on the cancel ack itself.
+                    if stopping
+                        .lock()
+                        .unwrap()
+                        .remove(&event.product_session_id)
+                    {
+                        let _ = stop_store.record_attempt_cancelled(
+                            &event.product_session_id,
+                            "User stopped",
+                        );
+                        let _ = tx.send(WireTimelineEvent {
+                            event: TimelineEvent {
+                                created_at: timeline_now_ms(),
+                                status: alva_hub_desktop::TimelineStatus::Interrupted,
+                                engine_id: event.engine_id.clone(),
+                                product_session_id: event.product_session_id.clone(),
+                                message: Some("User stopped".into()),
+                                item_id: None,
+                                activity: None,
+                                permission_request: None,
+                            },
+                            run_token: run_token.clone(),
+                        });
+                    }
                 }
                 let wire = WireTimelineEvent {
                     event: event.clone(),
