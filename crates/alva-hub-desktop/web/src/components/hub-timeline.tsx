@@ -172,6 +172,9 @@ export function HubTimeline({
                     <ShieldAlert size={16} style={{ color: "var(--color-warning)" }} />
                     <strong>{locale === "zh-CN" ? "操作授权请求" : "Permission Request"}</strong>
                   </div>
+                  <small className="timeline-hint">
+                    {t("timeline.tool", { tool: entry.permission_request.tool_name })}
+                  </small>
                   {entry.permission_request.resource ? (
                     <small className="timeline-hint">
                       {t("timeline.resource", {
@@ -179,14 +182,10 @@ export function HubTimeline({
                       })}
                     </small>
                   ) : null}
+                  {/* 工具自述的效果说明是运行期事实，任何 locale 都原样保留，
+                      不能套用产品诊断文案的未知英语隐藏规则。 */}
                   {entry.permission_request.description ? (
-                    <small>
-                      {localizeSystemText(
-                        locale,
-                        entry.permission_request.description,
-                        t("system.diagnosticUnavailable"),
-                      )}
-                    </small>
+                    <small>{entry.permission_request.description}</small>
                   ) : null}
                   {answeredPermissions[entry.permission_request.request_id] ? (
                     <small className="permission-answered">

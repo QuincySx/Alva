@@ -84,6 +84,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Fallback policy | `components/fallback-policy-panel.tsx` | 有序 fallback 目标、模型/provider 设置与自动使用授权 |
 | Team panel | `components/team-panel.tsx` | Worker 生命周期、任务队列、worktree adoption、资源声明与自治开关 |
 | Component tests | `components/components.test.tsx` | Composer、模型选择器、shared-clock timeline 与 Inspector 子 Agent 回退回归 |
+| Timeline tests | `components/hub-timeline.test.tsx` | 审批卡工具名/资源/效果说明同屏与多语言保留回归（R76） |
 | Product pages | `components/product-pages.tsx` | 自动化、插件/技能、设置与搜索共享页面体系 |
 | Workbench tools | `components/workbench-tools.tsx` | Files、Text、Git、Review、Agent、产品 Attempt + native Inspector、Tasks、Usage、Chrome、Terminal 标签内容 |
 | UI Lab | `ui-lab.tsx` | 开发/test-only 确定性组件与页面状态展台 |
