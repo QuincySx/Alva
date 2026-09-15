@@ -708,11 +708,16 @@ impl HubRuntime {
                     .sessions
                     .write()
                     .expect("Hub session registry lock poisoned");
-                if let Some(mut previous) = previous_session {
-                    previous.pending_handoff_context = handoff_context_used;
-                    sessions.insert(product_session_id.clone(), previous);
-                } else {
-                    sessions.remove(&product_session_id);
+                // R64: 仅当本 execute 仍是当前认领者时回滚。同步 execute
+                // Err 返回前 claim 已被 abandon + 新轮取代时，不得用旧
+                // 快照覆写、也不得删除新轮的注册表条目。
+                if sessions.get(&product_session_id).map(|s| s.claim_seq) == Some(my_seq) {
+                    if let Some(mut previous) = previous_session {
+                        previous.pending_handoff_context = handoff_context_used;
+                        sessions.insert(product_session_id.clone(), previous);
+                    } else {
+                        sessions.remove(&product_session_id);
+                    }
                 }
                 return Err(error.into());
             }
@@ -997,19 +1002,37 @@ impl HubRuntime {
         // 握手保证删除不会先于登记执行。
         let my_generation = self.run_generation.fetch_add(1, Ordering::SeqCst) + 1;
 
-        // Hold the abort handle + a strong engine reference so this run stays
-        // controllable even if its engine is later unregistered.
-        self.runs.write().expect("Hub runs lock poisoned").insert(
-            run_key,
-            RunHandle {
-                abort: task.abort_handle(),
-                engine,
-                engine_id: run_engine_id,
-                engine_session_id: handle_run_slot,
-                generation: my_generation,
-            },
-        );
-        let _ = registered_tx.send(my_generation);
+        // R64: 登记前校验本 execute 仍是当前认领者。旧 execute 在同步
+        // `engine.execute` 中被 abandon、新轮已认领时，迟到的登记不得
+        // 覆盖新轮的 RunHandle。sessions 写锁覆盖校验+插入，期间新
+        // execute/abandon 无法递增 claim_seq。
+        let mut registered = false;
+        {
+            let sessions = self
+                .sessions
+                .write()
+                .expect("Hub session registry lock poisoned");
+            if sessions.get(&product_session_id).map(|s| s.claim_seq) == Some(my_seq) {
+                // Hold the abort handle + a strong engine reference so this run stays
+                // controllable even if its engine is later unregistered.
+                self.runs.write().expect("Hub runs lock poisoned").insert(
+                    run_key,
+                    RunHandle {
+                        abort: task.abort_handle(),
+                        engine,
+                        engine_id: run_engine_id,
+                        engine_session_id: handle_run_slot,
+                        generation: my_generation,
+                    },
+                );
+                registered = true;
+            }
+        }
+        // R64: 登记被跳过时丢弃握手发送端——任务尾部收到 Err 直接返回，
+        // 不会误删新代际的条目。
+        if registered {
+            let _ = registered_tx.send(my_generation);
+        }
 
         Ok(Box::pin(UnboundedReceiverStream::new(event_rx)))
     }
@@ -2814,6 +2837,204 @@ mod tests {
         );
         assert!(hub.has_live_run(&pid));
         drop(next); // 测试收尾：运行时关闭时回收 pending 流任务
+    }
+
+    /// R64: 同步启动 gate。turn 0 的 execute 阻塞在 OS 门上（模拟已 claim
+    /// 但尚未返回/登记的旧轮），释放后按 `mode` 返回 pending 流或 Err。
+    struct GatedSyncExecuteEngine {
+        turn: AtomicUsize,
+        entered: Arc<tokio::sync::Notify>,
+        gate: Arc<(Mutex<bool>, std::sync::Condvar)>,
+        fail_first: bool,
+    }
+    #[async_trait]
+    impl EngineRuntime for GatedSyncExecuteEngine {
+        fn execute(
+            &self,
+            _request: RuntimeRequest,
+        ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            let n = self.turn.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                self.entered.notify_one();
+                let mut released = self.gate.0.lock().unwrap();
+                while !*released {
+                    released = self.gate.1.wait(released).unwrap();
+                }
+                if self.fail_first {
+                    return Err(RuntimeError::Unsupported("gated sync start".into()));
+                }
+                return Ok(Box::pin(stream::pending::<RuntimeEvent>()));
+            }
+            Ok(Box::pin(
+                stream::iter(vec![RuntimeEvent::SessionStarted {
+                    session_id: "new-native".into(),
+                    model: None,
+                    tools: vec![],
+                }])
+                .chain(stream::pending::<RuntimeEvent>()),
+            ))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    fn release_gate(gate: &(Mutex<bool>, std::sync::Condvar)) {
+        *gate.0.lock().unwrap() = true;
+        gate.1.notify_all();
+    }
+
+    /// R64: 已被 abandon 的旧 execute 迟到返回时，其登记不得覆盖新轮的
+    /// RunHandle。旧 execute 阻塞在同步 engine.execute → abandon → 新轮
+    /// Started 并登记 → 释放旧 execute → 登记被跳过，新代际句柄仍可达。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn late_registration_after_abandon_does_not_overwrite_new_run() {
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let engine = Arc::new(GatedSyncExecuteEngine {
+            turn: AtomicUsize::new(0),
+            entered: Arc::new(tokio::sync::Notify::new()),
+            gate: gate.clone(),
+            fail_first: false,
+        });
+        let hub = Arc::new(HubRuntime::new());
+        hub.register_engine("probe", engine.clone()).unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        {
+            let hub = hub.clone();
+            let handle = tokio::runtime::Handle::current();
+            std::thread::spawn(move || {
+                let _enter = handle.enter();
+                tx.send(
+                    hub.execute(HubRequest::new("probe", RuntimeRequest::new("old")))
+                        .unwrap(),
+                )
+                .unwrap();
+            });
+        }
+        engine.entered.notified().await;
+
+        let pid = hub.sessions()[0].product_session_id.clone();
+        hub.abandon(&pid).unwrap();
+
+        let mut second = hub
+            .execute(HubRequest::new("probe", RuntimeRequest::new("new")).resume(pid.clone()))
+            .unwrap();
+        assert!(matches!(
+            second.next().await.unwrap().event,
+            RuntimeEvent::SessionStarted { .. }
+        ));
+        assert!(hub.has_live_run(&pid));
+        let new_generation = hub
+            .runs
+            .read()
+            .expect("Hub runs lock poisoned")
+            .get(&pid)
+            .unwrap()
+            .generation;
+
+        // 旧 execute 迟到返回并尝试登记。
+        release_gate(&gate);
+        rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+        // 有界轮询给旧登记尝试留出执行窗口（负向断言：登记必须被跳过）。
+        for _ in 0..20 {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            let current = hub
+                .runs
+                .read()
+                .expect("Hub runs lock poisoned")
+                .get(&pid)
+                .unwrap()
+                .generation;
+            assert_eq!(
+                current, new_generation,
+                "late abandoned registration must not overwrite the new run handle"
+            );
+            assert!(hub.has_live_run(&pid));
+        }
+        assert_eq!(hub.session(&pid).unwrap().status, HubSessionStatus::Running);
+    }
+
+    /// R64: 旧 execute 的同步启动 Err 回滚在 claim 已被取代时不得触碰
+    /// 新轮——旧快照（Completed/old-native）不得覆写新轮的 Running。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn late_sync_execute_err_rollback_does_not_clobber_new_turn() {
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let engine = Arc::new(GatedSyncExecuteEngine {
+            turn: AtomicUsize::new(0),
+            entered: Arc::new(tokio::sync::Notify::new()),
+            gate: gate.clone(),
+            fail_first: true,
+        });
+        let hub = Arc::new(HubRuntime::new());
+        hub.register_engine("probe", engine.clone()).unwrap();
+
+        let pid = ProductSessionId::new();
+        hub.restore_session(pid.clone(), "probe", "old-native", HubSessionStatus::Completed)
+            .unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        {
+            let hub = hub.clone();
+            let pid = pid.clone();
+            let handle = tokio::runtime::Handle::current();
+            std::thread::spawn(move || {
+                let _enter = handle.enter();
+                let result = hub.execute(
+                    HubRequest::new("probe", RuntimeRequest::new("old")).resume(pid),
+                );
+                tx.send(result.is_err()).unwrap();
+            });
+        }
+        engine.entered.notified().await;
+        hub.abandon(&pid).unwrap();
+
+        let mut second = hub
+            .execute(HubRequest::new("probe", RuntimeRequest::new("new")).resume(pid.clone()))
+            .unwrap();
+        assert!(matches!(
+            second.next().await.unwrap().event,
+            RuntimeEvent::SessionStarted { .. }
+        ));
+
+        // 旧 execute 拿到 Err，迟到回滚。
+        release_gate(&gate);
+        assert!(rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap());
+        for _ in 0..20 {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            let session = hub.session(&pid).unwrap();
+            assert_eq!(
+                session.status,
+                HubSessionStatus::Running,
+                "stale rollback must not overwrite the new turn with the old snapshot"
+            );
+            assert_eq!(
+                session.engine_session_id.as_deref(),
+                Some("new-native"),
+                "stale rollback must not restore the old native id"
+            );
+        }
+        assert!(hub.has_live_run(&pid));
     }
 
     #[tokio::test]
