@@ -17,7 +17,7 @@
 6. 同 product session execute：有 native id 则 resume；无则 handoff 首轮。`pending_handoff` 时注入 `HubRequest.handoff_context`（或默认 banner）一次；若 engine 同步启动失败、stream 产生 fatal error 或缺失 `Completed`，恢复待切换状态并缓存同一 context 供重试（恢复时终端状态保持 `Failed`，不把 fatal turn 伪造成 `Completed`）。
 7. execute 转发循环用 `StreamContract` 观测；缺 `Completed` 仍合成 Error+Completed；引擎流留下未闭合工具时，在终端对之前合成失败的 `ToolEnd`，让产品工具卡片不会永久停在 running。
 8. `abandon`：消费者放弃某轮（超时 / Ctrl-C / 关标签页）的公开出口——取消该轮 `CancellationToken`、推进 `claim_seq` 并置 `Failed`，下一次 execute/switch 可重新认领。
-9. `cancel` 两级：能路由到 native session 且引擎支持 cancel 时才转发给引擎；否则等价 `abandon` 释放 Hub 侧 claim（会话不会被永久卡死）。
+9. `cancel` 两级：能路由到 native session 且引擎支持 cancel 时才转发给引擎；否则等价 `abandon` 释放 Hub 侧 claim（会话不会被永久卡死）。R63：await 引擎结果前固定目标身份（live run 路径按登记代际、回退路径按 claim_seq），返回 Unsupported 后的释放经 `abandon_targeted` 校验目标仍是当前认领者——旧轮 cancel 的迟到结果不得中止同 pid 新轮。
 10. 每次 execute/abandon 递增 `claim_seq`，一切 spawned 轮的尾部写入（update/mark/restore/diagnostics）都要校验 `claim_seq == my_seq`，被取代的轮不得覆写新轮状态。
 11. `HubSessionSnapshot` 含 stream 诊断 + previous engine + `pending_handoff`。
 
