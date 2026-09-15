@@ -550,23 +550,45 @@ struct BroadcastCore {
     driver_exited: std::sync::atomic::AtomicBool,
 }
 
-// R38: 线程局部投递重入标志。inline 投递路径（无 Tokio runtime / wasm
-// 单线程）中，监听者回调在 `delivery_lock` 持有期间执行；回调内同步追加
-// 同一会话（含回调内 `block_on`，它仍在本线程上 poll）会再次进入
-// `deliver_pending`——此时事件已入队，外层循环会继续取批投递，重入方
-// 直接返回；若再等待 `delivery_lock` 就是等待自己的回调，构成死锁。
-// 投递期间的回调都在单次 poll 内同步执行，线程局部标志足以覆盖全部
-// 重入形态；跨线程派生的追加不等待自己，正常排队即可。
+// R38/R62: 投递重入保护必须限定到"同一线程上正在投递的同一个广播核"。
+// inline 投递路径（无 Tokio runtime / wasm 单线程）中，监听者回调在
+// `delivery_lock` 持有期间执行；回调内同步追加同一会话（含回调内
+// `block_on`，它仍在本线程上 poll）会再次进入 `deliver_pending`——此时
+// 事件已入队，外层循环会继续取批投递，重入方直接返回；若再等待
+// `delivery_lock` 就是等待自己的回调，构成死锁。
+//
+// R62: 重入标记不能是整线程单一 bool——它跨 `on_event().await` 保存且
+// 不区分会话，会把独立会话的首次投递误判成重入：无 Tokio 时 A 的回调向
+// 独立 B append，B 的内联投递被跳过，B 无后续写入则永不投递；
+// current_thread 中 A 的监听者停在 pending 时，B 的 driver 被误判重入
+// 后对非空队列持续 `continue` 空转。各会话的广播核拥有独立的
+// `delivery_lock`，跨会话投递本就互不阻塞，因此按"广播核地址 + 当前
+// 线程"记录在投递中的核，只有同一核在同一线程上的嵌套进入才算重入。
+// 广播核驻留 Arc、投递期间调用方（会话句柄或 driver 强引用）必持有
+// 引用，地址稳定可作身份。
 thread_local! {
-    static DELIVERY_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static DELIVERING_CORES: std::cell::RefCell<std::collections::HashSet<usize>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
 }
 
-/// 以 Drop 恢复线程局部标志，投递循环 panic/提前返回都不会留下假阳性。
-struct DeliveryActiveGuard;
+/// 以 Drop 恢复线程局部标记，投递循环 panic/提前返回/在锁上被取消都
+/// 不会留下假阳性。
+struct DeliveryActiveGuard(usize);
+
+impl DeliveryActiveGuard {
+    fn insert(core_id: usize) -> Self {
+        DELIVERING_CORES.with(|cores| {
+            cores.borrow_mut().insert(core_id);
+        });
+        Self(core_id)
+    }
+}
 
 impl Drop for DeliveryActiveGuard {
     fn drop(&mut self) {
-        DELIVERY_ACTIVE.with(|active| active.set(false));
+        DELIVERING_CORES.with(|cores| {
+            cores.borrow_mut().remove(&self.0);
+        });
     }
 }
 
@@ -593,13 +615,20 @@ impl BroadcastCore {
     /// R38: 重入保护——回调内追加同一会话时本方法被再次进入，此时事件
     /// 已在队列中，外层循环的空批检查会继续取到并按 FIFO 投递（恰好
     /// 一次），重入方直接返回而不等待自己持有的 `delivery_lock`。
+    ///
+    /// R62: 只有"同一广播核在同一线程上的嵌套进入"才算重入；独立会话
+    /// 的投递（不同核、不同锁）互不阻塞，照常执行。
     async fn deliver_pending(&self) {
-        if DELIVERY_ACTIVE.with(|active| active.get()) {
+        let core_id = self as *const BroadcastCore as usize;
+        let already_delivering =
+            DELIVERING_CORES.with(|cores| cores.borrow().contains(&core_id));
+        if already_delivering {
             return;
         }
+        // 标记先于取锁进入作用域：等待锁时被取消也能由 Drop 清除标记。
+        // 检查与插入之间无 await 点，同线程上不会交错。
+        let _active = DeliveryActiveGuard::insert(core_id);
         let _delivery_guard = self.delivery_lock.lock().await;
-        let _active = DeliveryActiveGuard;
-        DELIVERY_ACTIVE.with(|active| active.set(true));
         loop {
             let batch = {
                 let mut queue = self.broadcast_queue.lock().await;
@@ -2079,6 +2108,90 @@ mod tests {
         futures_executor::block_on(async {
             assert_eq!(session.inner.events.read().await.len(), 2);
         });
+    }
+
+    /// R62: 无 Tokio executor 中，A 的监听者回调向独立会话 B append，
+    /// B 的内联投递必须实际执行——重入标记限定到广播核之后，跨会话
+    /// 投递不再被 A 的在投状态误杀；B 无后续写入也能投递恰好一次。
+    #[test]
+    fn non_tokio_cross_session_inline_delivery() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Count(Arc<AtomicUsize>);
+        #[async_trait]
+        impl SessionEventListener for Count {
+            async fn on_event(&self, _event: &SessionEvent) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        struct ForwardToB(Arc<ListenableInMemorySession>);
+        #[async_trait]
+        impl SessionEventListener for ForwardToB {
+            async fn on_event(&self, _event: &SessionEvent) {
+                self.0
+                    .append(SessionEvent::new_runtime("forwarded"))
+                    .await
+                    .unwrap();
+            }
+        }
+
+        let a = Arc::new(ListenableInMemorySession::new());
+        let b = Arc::new(ListenableInMemorySession::new());
+        let count = Arc::new(AtomicUsize::new(0));
+        futures_executor::block_on(b.subscribe(Arc::new(Count(Arc::clone(&count)))));
+        futures_executor::block_on(a.subscribe(Arc::new(ForwardToB(Arc::clone(&b)))));
+
+        futures_executor::block_on(a.append(SessionEvent::new_runtime("outer"))).unwrap();
+        assert_eq!(
+            count.load(Ordering::SeqCst),
+            1,
+            "cross-session append must deliver without requiring an unrelated future append"
+        );
+    }
+
+    /// R62: current_thread 中 A 的监听者停在 pending（A driver 跨 await
+    /// 持有在投标记），独立 B 的 driver 必须照常投递——旧实现把整线程
+    /// 单 bool 当重入标记，B 的 driver 对非空队列持续空转、永不投递。
+    /// 以超时轮询断言，确定性覆盖"B 未投递即空转"的反例。
+    #[tokio::test(flavor = "current_thread")]
+    async fn unrelated_session_driver_delivers_while_listener_awaits() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Count(Arc<AtomicUsize>);
+        #[async_trait]
+        impl SessionEventListener for Count {
+            async fn on_event(&self, _event: &SessionEvent) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        /// 通知测试 A 的 driver 已进入回调，然后停在 pending。
+        struct Park(Arc<tokio::sync::Notify>);
+        #[async_trait]
+        impl SessionEventListener for Park {
+            async fn on_event(&self, _event: &SessionEvent) {
+                self.0.notify_one();
+                std::future::pending::<()>().await;
+            }
+        }
+
+        let a = Arc::new(ListenableInMemorySession::new());
+        let b = Arc::new(ListenableInMemorySession::new());
+        let count = Arc::new(AtomicUsize::new(0));
+        b.subscribe(Arc::new(Count(Arc::clone(&count)))).await;
+        let entered = Arc::new(tokio::sync::Notify::new());
+        a.subscribe(Arc::new(Park(entered.clone()))).await;
+
+        a.append(SessionEvent::new_runtime("a")).await.unwrap();
+        entered.notified().await; // A driver 已停在 pending 的回调里
+        b.append(SessionEvent::new_runtime("b")).await.unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while count.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("unrelated B driver must deliver while A listener awaits");
     }
 
     /// R39: driver 空闲泊车后弃置最后一个会话句柄，driver 必须被唤醒并
