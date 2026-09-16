@@ -369,6 +369,13 @@ impl HubRuntime {
             .is_some()
     }
 
+    /// R66: 实例身份比较。ActiveHubs sink 没有代际字段，同步启动失败的
+    /// 回收用本方法判定条目是否仍是自己发布的实例，避免误删并发的
+    /// 后继代际。
+    pub fn same_instance(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.sessions, &other.sessions)
+    }
+
     /// Whether a run is currently registered for this product session
     /// (inspection / tests).
     pub fn has_live_run(&self, product_session_id: &ProductSessionId) -> bool {

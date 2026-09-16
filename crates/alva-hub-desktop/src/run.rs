@@ -669,6 +669,19 @@ where
     let mut stream = match hub.execute(hub_request) {
         Ok(stream) => stream,
         Err(error) => {
+            // R66: 同步启动失败也必须回收已发布的 hub，否则失败会话在
+            // sink 里留下无运行的 Hub，后续 Stop 会打到死控制面。回收
+            // 用 Arc 身份判定——claim 已随失败回滚，并发后继代际可能已
+            // 插入自己的条目，不得误删。
+            if let Some(sink) = hub_sink {
+                let mut hubs = sink.lock().expect("active hubs lock poisoned");
+                if hubs
+                    .get(&product_id)
+                    .is_some_and(|current| current.same_instance(hub))
+                {
+                    hubs.remove(&product_id);
+                }
+            }
             let message = error.to_string();
             emit(TimelineEvent {
                 status: TimelineStatus::Failed,
@@ -1841,6 +1854,111 @@ mod tests {
         })
         .await
         .expect("run seam must remove the live hub when the turn ends");
+    }
+
+    /// R66: 同步启动失败也必须回收已发布的 ActiveHubs——失败会话不得在
+    /// sink 里留下无运行的 Hub。正式入口注入同步 execute Err，返回后
+    /// sink 为空；后继轮照常认领、发布并清理。
+    #[tokio::test]
+    async fn sync_start_failure_recycles_the_published_hub() {
+        struct SyncFailEngine;
+        #[async_trait]
+        impl EngineRuntime for SyncFailEngine {
+            fn execute(
+                &self,
+                _request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                Err(RuntimeError::NotReady("sync start failure".into()))
+            }
+
+            async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            fn capabilities(&self) -> RuntimeCapabilities {
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: true,
+                    permission_callback: true,
+                    resume: true,
+                    cancel: true,
+                }
+            }
+        }
+
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let database = data_dir.path().join("alva-hub.db");
+        let store = Arc::new(crate::HubStore::open(&database).unwrap());
+        let sink: Arc<ActiveHubs> = Arc::new(Mutex::new(HashMap::new()));
+
+        let outcome = run_persisted_with_target(
+            store.as_ref(),
+            single_engine(Arc::new(SyncFailEngine)),
+            healthy,
+            RunRequest {
+                prompt: "first".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            None,
+            Some(sink.as_ref()),
+            |_| {},
+        )
+        .await
+        .expect("run must return even when the engine start fails");
+        assert!(outcome.failed, "a sync start failure is a failed turn");
+        assert!(
+            sink.lock().unwrap().is_empty(),
+            "a failed start must not leave a published hub behind"
+        );
+
+        // 后继轮：认领同一 session，照常发布并在结束时清理。
+        let pid = outcome.product_session_id.clone();
+        let outcome = run_persisted_with_target(
+            store.as_ref(),
+            single_engine(Arc::new(FakeEngine::new(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: "native-after-fail".into(),
+                    model: None,
+                    tools: vec![],
+                },
+                RuntimeEvent::Completed {
+                    session_id: "native-after-fail".into(),
+                    result: Some("done".into()),
+                    usage: None,
+                },
+            ]))),
+            healthy,
+            RunRequest {
+                prompt: "second".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: Some(pid),
+                permission_profile: None,
+            },
+            None,
+            Some(sink.as_ref()),
+            |_| {},
+        )
+        .await
+        .expect("the next turn must be claimable after a failed start");
+        assert!(!outcome.failed);
+        assert!(
+            sink.lock().unwrap().is_empty(),
+            "the successor turn must clean up its own hub"
+        );
     }
 
     #[tokio::test]
