@@ -10,8 +10,9 @@
 
 1. `AppState` 初始化私有 HubStore、ProviderCatalog、共享 Alva Inspector repository 与 live engine registry。
 2. JSON handlers 把 HTTP 请求转发到稳定产品 API；运行事件通过 SSE 广播。
-3. Inspector handler 按 product session 读取 durable native snapshot，wire shape 与 Tauri command 一致。
-4. 未命中 API 的请求落到内嵌 React 静态资源。
+3. Stop（R51/R65）：cancel 成功后立即持久化取消事实（失败上抛 500，不静默）；SSE 的 Interrupted 终态由 run handler 在 outcome（真实流结束）后统一结算——`stopping` marker 新一轮开始时清理、ack 后 run 已结束则丢弃，不泄漏到同 session 下一轮；引擎自然完成的取消不追加 Interrupted。
+4. Inspector handler 按 product session 读取 durable native snapshot，wire shape 与 Tauri command 一致。
+5. 未命中 API 的请求落到内嵌 React 静态资源。
 
 ## 约束
 

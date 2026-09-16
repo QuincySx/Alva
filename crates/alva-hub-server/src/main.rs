@@ -60,6 +60,19 @@ struct AppState {
     /// terminal event arrives, never on the cancel ack itself.
     stopping: Arc<Mutex<HashSet<String>>>,
     permission_router: Arc<alva_hub_desktop::PermissionRouter>,
+    /// R65: 集成测试注入 fake engine 的唯一接缝；生产路径恒为 None。
+    #[cfg(test)]
+    test_engine_factory: Option<
+        Arc<
+            dyn Fn(
+                    &EngineTarget,
+                    &str,
+                    PermissionProfile,
+                ) -> Result<Arc<dyn alva_engine_runtime::EngineRuntime>, String>
+                + Send
+                + Sync,
+        >,
+    >,
 }
 
 impl AppState {
@@ -88,6 +101,8 @@ impl AppState {
             active_hubs: Arc::new(Mutex::new(std::collections::HashMap::new())),
             stopping: Arc::new(Mutex::new(HashSet::new())),
             permission_router: Arc::new(alva_hub_desktop::PermissionRouter::new()),
+            #[cfg(test)]
+            test_engine_factory: None,
         })
     }
 }
@@ -602,10 +617,26 @@ async fn stop_attempt(
         )
             .into_response();
     }
+    // R65: 取消事实在 cancel 成功后立刻落库——此时会话仍 running，是
+    // record_attempt_cancelled 唯一能成功的窗口（run 结束时 finish_turn
+    // 已把它置为终态）。失败必须上抛给调用方，不得静默成功。
+    if let Err(e) = state.store.record_attempt_cancelled(&id, "User stopped") {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e })),
+        )
+            .into_response();
+    }
     // Cancel acked, not yet terminated: surface the stopping state now and
-    // let the run's own terminal event (observed in the run handler) record
-    // the cancelled terminal and emit Interrupted.
+    // settle the cancelled projection when this run's stream really ends
+    // (the run handler, after outcome_fut).
     state.stopping.lock().unwrap().insert(id.clone());
+    // R65: 终态抢在 ack 前落地的代际竞态——run 在 cancel await 期间结束
+    // 时，active_hubs 条目已被移除、结算已（或将不带 marker）执行完毕；
+    // 此时丢弃 marker，防止它残留并被同 session 下一轮误消费。
+    if state.active_hubs.lock().unwrap().get(&id).is_none() {
+        state.stopping.lock().unwrap().remove(&id);
+    }
     let _ = state.events.send(WireTimelineEvent {
         event: TimelineEvent {
             created_at: timeline_now_ms(),
@@ -775,6 +806,7 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
     let build_registry = engine_lease.registry();
     let autonomy_store = state.store.clone();
     let request_product_session = request.product_session_id.clone().unwrap_or_default();
+    let request_engine_id = request.engine_id.clone();
     let approval_scope = state
         .store
         .collaboration_scope(&request_product_session)
@@ -791,11 +823,20 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
 
     let tx = state.events.clone();
     let stopping = state.stopping.clone();
-    let stop_store = state.store.clone();
+    // R65: 新一轮开始前清掉可能残留的 stopping marker——marker 只允许
+    // 作用于它 ack 时活跃的那一轮，不得泄漏到同 session 下一轮。
+    stopping
+        .lock()
+        .expect("stopping lock poisoned")
+        .remove(&request_product_session);
+    // R65: 引擎流是否自然完成。取消结算据此决定是否追加 Interrupted。
+    let run_completed_normally = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Spawn the (potentially long) run on the runtime; emit each timeline
     // event to the broadcast channel.
     let active_engines_for_build_cloned = active_engines_for_build.clone();
+    #[cfg(test)]
+    let test_engine_factory = state.test_engine_factory.clone();
     let outcome_fut = run_persisted_with_target(
         &state.store,
         {
@@ -803,6 +844,10 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
             let workspace = workspace.clone();
             let active_engines_for_build = active_engines_for_build_cloned.clone();
             move |target, product_session_id, profile| {
+                #[cfg(test)]
+                if let Some(factory) = test_engine_factory.as_ref() {
+                    return factory(target, product_session_id, profile);
+                }
                 let provider_config = providers.resolve_target(target, &workspace)?.or_else(|| {
                     // fall back to env-based config for the "alva" engine
                     // when no provider catalog entry exists yet.
@@ -852,9 +897,13 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
             let autonomy_store = autonomy_store.clone();
             let approval_scope = approval_scope.clone();
             let requester_label = requester_label.clone();
-            let stopping = stopping.clone();
-            let stop_store = stop_store.clone();
+            let run_completed_normally = run_completed_normally.clone();
             move |event: TimelineEvent| {
+                if event.status == alva_hub_desktop::TimelineStatus::Completed {
+                    // R65: 引擎流自然完成（非取消截断）——结算时据此不再
+                    // 追加 Interrupted，避免一个取消结算输出冲突终态。
+                    run_completed_normally.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
                 if let Some(info) = &event.permission_request {
                     let engine = active_engines
                         .lock()
@@ -931,32 +980,9 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
                         | alva_hub_desktop::TimelineStatus::Exhausted
                 ) {
                     permission_router.clear_session(&event.product_session_id);
-                    // R51: a Stop that was acked records its cancelled
-                    // terminal here — when the engine stream really ended —
-                    // never on the cancel ack itself.
-                    if stopping
-                        .lock()
-                        .unwrap()
-                        .remove(&event.product_session_id)
-                    {
-                        let _ = stop_store.record_attempt_cancelled(
-                            &event.product_session_id,
-                            "User stopped",
-                        );
-                        let _ = tx.send(WireTimelineEvent {
-                            event: TimelineEvent {
-                                created_at: timeline_now_ms(),
-                                status: alva_hub_desktop::TimelineStatus::Interrupted,
-                                engine_id: event.engine_id.clone(),
-                                product_session_id: event.product_session_id.clone(),
-                                message: Some("User stopped".into()),
-                                item_id: None,
-                                activity: None,
-                                permission_request: None,
-                            },
-                            run_token: run_token.clone(),
-                        });
-                    }
+                    // R65: 这里不再结算取消——Failed 在 fatal Error 事件就
+                    // 发出，不代表引擎流真的结束了。取消的 Interrupted 终态
+                    // 由 run handler 在 outcome（真实流结束）之后统一结算。
                 }
                 let wire = WireTimelineEvent {
                     event: event.clone(),
@@ -974,6 +1000,35 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
     // engine is already registered) left the handle in the map forever. A later
     // stop on that session would then reach a dead adapter and report success.
     drop(engine_lease);
+
+    // R65: 取消的 SSE 终态在真实流结束（outcome 就绪）之后统一结算。
+    // mid-stream 的 Failed 只代表 fatal Error 事件到达，不代表引擎流
+    // 结束；这里消费 marker（恰好一次）后，仅在引擎没有自然完成时追加
+    // 唯一的 Interrupted 终态，取消结算不再输出互相冲突的状态对。
+    let settle_session = match &outcome_result {
+        Ok(outcome) => outcome.product_session_id.as_str().to_string(),
+        Err(_) => request_product_session.clone(),
+    };
+    let was_stopping = stopping
+        .lock()
+        .expect("stopping lock poisoned")
+        .remove(&settle_session);
+    if was_stopping && !run_completed_normally.load(std::sync::atomic::Ordering::SeqCst) {
+        let _ = tx.send(WireTimelineEvent {
+            event: TimelineEvent {
+                created_at: timeline_now_ms(),
+                status: TimelineStatus::Interrupted,
+                engine_id: request_engine_id,
+                product_session_id: settle_session,
+                message: Some("User stopped".into()),
+                item_id: None,
+                activity: None,
+                permission_request: None,
+            },
+            run_token: run_token.clone(),
+        });
+    }
+
     let outcome = match outcome_result {
         Ok(outcome) => outcome,
         Err(e) => {
@@ -1089,7 +1144,20 @@ async fn main() -> Result<(), String> {
     let state = Arc::new(AppState::new(data_dir)?);
 
     let addr = std::env::var("ALVA_HUB_ADDR").unwrap_or_else(|_| "127.0.0.1:8790".to_string());
-    let app = Router::new()
+    let app = build_app(state);
+
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .map_err(|e| format!("bind {addr}: {e}"))?;
+    info!("alva-hub-server listening on http://{addr}");
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| format!("server error: {e}"))
+}
+
+/// R65: router 构建独立成函数，真实 HTTP/SSE 集成测试直接装配同一个 app。
+fn build_app(state: Arc<AppState>) -> Router {
+    Router::new()
         .route("/api/health", get(health))
         .route("/api/sessions", get(list_sessions))
         .route("/api/sessions/:id", get(get_session))
@@ -1123,13 +1191,689 @@ async fn main() -> Result<(), String> {
         .route("/api/sessions/:id/memory", post(add_memory))
         .route("/api/sessions/:id/transcript", post(set_transcript))
         .fallback(static_handler)
-        .with_state(state);
+        .with_state(state)
+}
 
-    let listener = tokio::net::TcpListener::bind(&addr)
+// ---------------------------------------------------------------------------
+// R65: real HTTP/SSE stop-settlement integration tests. Axum serves the same
+// `build_app` router on an ephemeral port; the fake engine is injected through
+// the test-only engine factory and gated per scenario.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod r65_stop_integration {
+    use super::*;
+    use alva_engine_runtime::{
+        PermissionDecision, RuntimeCapabilities, RuntimeError, RuntimeEvent, RuntimeRequest,
+    };
+    use async_trait::async_trait;
+    use futures_core::Stream;
+    use std::collections::VecDeque;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpStream;
+
+    type EngineStream = Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>;
+
+    /// turn 0 的流脚本；turn ≥1 一律立即 Started + Completed。
+    #[derive(Clone)]
+    enum Step {
+        /// gate 放行后发 fatal Error。
+        Fatal(String),
+        /// gate 放行后发 Completed。
+        Complete,
+        /// 立即发 Completed（无 gate）。
+        CompleteNow,
+        /// 停在 pending，直到 cancel 后被 kill（EOF 无终态）。
+        HoldUntilKilled,
+    }
+
+    struct ScriptedEngine {
+        turn: AtomicUsize,
+        steps: std::sync::Mutex<VecDeque<Step>>,
+        advance: Arc<tokio::sync::Notify>,
+        started: Arc<tokio::sync::Notify>,
+        cancel_fails: AtomicBool,
+        /// false：cancel 立即返回 Ok（notify cancel_entered 后直接成功）。
+        cancel_gates: AtomicBool,
+        cancel_entered: Arc<tokio::sync::Notify>,
+        cancel_release: Arc<tokio::sync::Notify>,
+        /// HoldUntilKilled 的终止信号由测试在 stop ack 之后显式触发。
+        killed: Arc<tokio::sync::Notify>,
+    }
+
+    impl ScriptedEngine {
+        fn new(steps: Vec<Step>, cancel_fails: bool) -> Arc<Self> {
+            Self::with_gates(steps, cancel_fails, true)
+        }
+
+        fn with_gates(steps: Vec<Step>, cancel_fails: bool, cancel_gates: bool) -> Arc<Self> {
+            Arc::new(Self {
+                turn: AtomicUsize::new(0),
+                steps: std::sync::Mutex::new(steps.into()),
+                advance: Arc::new(tokio::sync::Notify::new()),
+                started: Arc::new(tokio::sync::Notify::new()),
+                cancel_fails: AtomicBool::new(cancel_fails),
+                cancel_gates: AtomicBool::new(cancel_gates),
+                cancel_entered: Arc::new(tokio::sync::Notify::new()),
+                cancel_release: Arc::new(tokio::sync::Notify::new()),
+                killed: Arc::new(tokio::sync::Notify::new()),
+            })
+        }
+
+        async fn release(&self) {
+            self.advance.notify_one();
+            // Notify 允许唤醒先于泊车到达；再让一步确保 gate 内的任务
+            // 真正拿到唤醒并继续产出。
+            tokio::task::yield_now().await;
+        }
+    }
+
+    fn started_event(session_id: String) -> RuntimeEvent {
+        RuntimeEvent::SessionStarted {
+            session_id,
+            model: None,
+            tools: vec![],
+        }
+    }
+
+    fn completed_event(session_id: String) -> RuntimeEvent {
+        RuntimeEvent::Completed {
+            session_id,
+            result: Some("done".into()),
+            usage: None,
+        }
+    }
+
+    #[async_trait]
+    impl alva_engine_runtime::EngineRuntime for ScriptedEngine {
+        fn execute(&self, _request: RuntimeRequest) -> Result<EngineStream, RuntimeError> {
+            let n = self.turn.fetch_add(1, Ordering::SeqCst);
+            self.started.notify_one();
+            let session_id = format!("native-{n}");
+            let steps: VecDeque<Step> = if n == 0 {
+                self.steps.lock().unwrap().drain(..).collect()
+            } else {
+                VecDeque::from(vec![Step::CompleteNow])
+            };
+            let advance = self.advance.clone();
+            let killed = self.killed.clone();
+            let stream = async_stream::stream! {
+                yield started_event(session_id.clone());
+                for step in steps {
+                    match step {
+                        Step::CompleteNow => {
+                            yield completed_event(session_id.clone());
+                        }
+                        Step::Fatal(message) => {
+                            advance.notified().await;
+                            yield RuntimeEvent::Error { message: message.clone(), recoverable: false };
+                        }
+                        Step::Complete => {
+                            advance.notified().await;
+                            yield completed_event(session_id.clone());
+                        }
+                        Step::HoldUntilKilled => {
+                            // 模拟 cancel 导致引擎断流：EOF、无任何终态。
+                            killed.notified().await;
+                            return;
+                        }
+                    }
+                }
+            };
+            Ok(Box::pin(stream))
+        }
+
+        async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+            self.cancel_entered.notify_one();
+            if self.cancel_gates.load(Ordering::SeqCst) {
+                self.cancel_release.notified().await;
+            }
+            if self.cancel_fails.load(Ordering::SeqCst) {
+                return Err(RuntimeError::ProcessError("cancel refused".into()));
+            }
+            Ok(())
+        }
+
+        async fn respond_permission(
+            &self,
+            _session_id: &str,
+            _request_id: &str,
+            _decision: PermissionDecision,
+        ) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        fn capabilities(&self) -> RuntimeCapabilities {
+            RuntimeCapabilities {
+                streaming: true,
+                tool_control: false,
+                permission_callback: false,
+                resume: true,
+                cancel: true,
+            }
+        }
+    }
+
+    struct TestServer {
+        addr: std::net::SocketAddr,
+        engine: Arc<ScriptedEngine>,
+        data_dir: PathBuf,
+    }
+
+    static NEXT_PORT: AtomicUsize = AtomicUsize::new(0);
+
+    async fn spawn_server(steps: Vec<Step>, cancel_fails: bool) -> TestServer {
+        spawn_server_gated(steps, cancel_fails, true).await
+    }
+
+    async fn spawn_server_gated(
+        steps: Vec<Step>,
+        cancel_fails: bool,
+        cancel_gates: bool,
+    ) -> TestServer {
+        let data_dir = std::env::temp_dir().join(format!(
+            "alva-hub-server-r65-{}-{}",
+            std::process::id(),
+            NEXT_PORT.fetch_add(1, Ordering::SeqCst)
+        ));
+        let workspace = data_dir.join("workspace");
+        std::fs::create_dir_all(workspace.join(".alva")).unwrap();
+        // quick_veto("alva") 依赖 workspace 的 provider 配置。
+        std::fs::write(
+            workspace.join(".alva/config.json"),
+            r#"{"api_key":"test-key"}"#,
+        )
+        .unwrap();
+
+        let mut state = Arc::new(AppState::new(data_dir.clone()).unwrap());
+        // R65: 预置 anthropic→alva 默认路由，使 /api/run 的新 run 路径
+        // 通过 canonical route 检查（引擎本体由测试工厂注入）。
+        state
+            .providers
+            .save(
+                SaveProviderProfile {
+                    id: "anthropic".into(),
+                    display_name: "Anthropic direct".into(),
+                    base_url: "https://api.anthropic.com/".into(),
+                    enabled: true,
+                    api_key: Some("test-key".into()),
+                    clear_api_key: false,
+                    max_output_tokens: 4096,
+                    models: vec![alva_hub_desktop::ProviderModel {
+                        id: "test-model".into(),
+                        display_name: "Test model".into(),
+                        enabled: true,
+                        registry_id: None,
+                        context_window: Some(100_000),
+                        capabilities: vec![],
+                        supported_engines: vec!["alva".into()],
+                        runtime_options: Default::default(),
+                    }],
+                },
+                None,
+            )
+            .unwrap();
+        {
+            let mut target = EngineTarget::for_engine("alva").unwrap();
+            target.model_id = "test-model".into();
+            target.provider_id = "anthropic".into();
+            state.providers.set_default_target(target, None).unwrap();
+        }
+        let engine = ScriptedEngine::with_gates(steps, cancel_fails, cancel_gates);
+        let factory_engine = engine.clone();
+        Arc::get_mut(&mut state)
+            .expect("state not yet shared")
+            .test_engine_factory = Some(Arc::new(move |_target, _pid, _profile| {
+            Ok(factory_engine.clone() as Arc<dyn alva_engine_runtime::EngineRuntime>)
+        }));
+
+        let app = build_app(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        TestServer {
+            addr,
+            engine,
+            data_dir,
+        }
+    }
+
+    impl Drop for TestServer {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.data_dir);
+        }
+    }
+
+    /// 订阅 /api/events，把全部 SSE 帧累积到共享缓冲。连接（含写半）
+    /// 整体驻留在后台任务里——写半被丢弃会向服务端半关闭连接并终止 SSE 流。
+    async fn subscribe_sse(addr: std::net::SocketAddr) -> Arc<std::sync::Mutex<String>> {
+        let buffer = Arc::new(std::sync::Mutex::new(String::new()));
+        let shared = buffer.clone();
+        let request = format!(
+            "GET /api/events HTTP/1.1\r\nHost: {addr}\r\nAccept: text/event-stream\r\n\r\n"
+        );
+        tokio::spawn(async move {
+            let stream = TcpStream::connect(addr).await.expect("SSE connect");
+            let (reader, mut writer) = stream.into_split();
+            writer.write_all(request.as_bytes()).await.unwrap();
+            let mut lines = BufReader::new(reader).lines();
+            loop {
+                match lines.next_line().await {
+                    Ok(Some(line)) => {
+                        shared.lock().unwrap().push_str(&line);
+                        shared.lock().unwrap().push('\n');
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        eprintln!("SSE reader error: {error}");
+                        break;
+                    }
+                }
+            }
+        });
+        buffer
+    }
+
+    /// 有界轮询直到缓冲包含 needle；负向断言用 assert_absent。
+    async fn wait_for(buffer: &Arc<std::sync::Mutex<String>>, needle: &str) {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if buffer.lock().unwrap().contains(needle) {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
         .await
-        .map_err(|e| format!("bind {addr}: {e}"))?;
-    info!("alva-hub-server listening on http://{addr}");
-    axum::serve(listener, app)
+        .unwrap_or_else(|_| {
+            panic!(
+                "SSE stream should eventually contain {needle:?}; buffer:\n{}",
+                buffer.lock().unwrap()
+            )
+        });
+    }
+
+    /// 有界轮询，直到 SSE 缓冲里出现首个带 product_session_id 的事件。
+    async fn wait_for_pid(buffer: &Arc<std::sync::Mutex<String>>) -> String {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let pid = extract_pid(buffer);
+                if let Some(pid) = pid {
+                    return pid;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
         .await
-        .map_err(|e| format!("server error: {e}"))
+        .unwrap_or_else(|_| {
+            panic!(
+                "SessionStarted event should announce the product session; buffer:\n{}",
+                buffer.lock().unwrap()
+            )
+        })
+    }
+
+    fn extract_pid(buffer: &Arc<std::sync::Mutex<String>>) -> Option<String> {
+        buffer
+            .lock()
+            .unwrap()
+            .lines()
+            .filter_map(|line| line.strip_prefix("data:"))
+            .find_map(|line| {
+                let event: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+                // WireTimelineEvent 把 TimelineEvent 扁平序列化。
+                event["product_session_id"]
+                    .as_str()
+                    .map(str::to_string)
+            })
+    }
+
+    fn assert_absent(buffer: &Arc<std::sync::Mutex<String>>, needle: &str) {
+        assert!(
+            !buffer.lock().unwrap().contains(needle),
+            "SSE stream must not contain {needle:?}:\n{}",
+            buffer.lock().unwrap()
+        );
+    }
+
+    async fn http_post(
+        addr: std::net::SocketAddr,
+        path: String,
+        body: String,
+    ) -> (u16, String) {
+        let stream = TcpStream::connect(addr).await.unwrap();
+        let (reader, mut writer) = stream.into_split();
+        let request = format!(
+            "POST {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        writer.write_all(request.as_bytes()).await.unwrap();
+        let mut raw = String::new();
+        let mut reader = BufReader::new(reader);
+        reader.read_to_string(&mut raw).await.unwrap();
+        let status: u16 = raw
+            .split_whitespace()
+            .nth(1)
+            .and_then(|code| code.parse().ok())
+            .unwrap_or(0);
+        let body = raw
+            .split("\r\n\r\n")
+            .nth(1)
+            .unwrap_or_default()
+            .to_string();
+        (status, body)
+    }
+
+    fn run_body(workspace: &str, product_session_id: Option<&str>) -> String {
+        let session_part = product_session_id
+            .map(|id| format!(r#","product_session_id":"{id}""#))
+            .unwrap_or_default();
+        format!(
+            r#"{{"prompt":"hello","workspace":"{workspace}","engine_id":"alva","run_token":"token-r65"{session_part}}}"#
+        )
+    }
+
+    /// R65: ack 后流未结束时不发任何取消终态（Error 只是事件，不是流
+    /// 结束）；真实流结束（outcome 就绪）后恰好结算一个 Interrupted，
+    /// 作为最后的取消终态。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stop_acked_error_then_completed_projects_single_terminal() {
+        let server = spawn_server_gated(
+            vec![Step::Fatal("engine fatal".into()), Step::Complete],
+            false,
+            false,
+        )
+        .await;
+        let sse = subscribe_sse(server.addr).await;
+        // 等订阅握手完成（响应头进缓冲），再触发会产生事件的操作——
+        // broadcast 不回放订阅前的事件。
+        wait_for(&sse, "text/event-stream").await;
+
+        let workspace = server.data_dir.join("workspace");
+        let ws = workspace.display().to_string();
+        let run_task = tokio::spawn(http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, None),
+        ));
+        server.engine.started.notified().await;
+
+        let pid = wait_for_pid(&sse).await;
+
+        // Stop ack：引擎 cancel 立即 Ok，session 仍在 running（流被 gate 住）。
+        let (status, body) = http_post(
+            server.addr,
+            format!("/api/sessions/{pid}/stop"),
+            "{}".to_string(),
+        )
+        .await;
+        assert_eq!(status, 200, "stop should ack: {body}");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&body).unwrap()["stopping"],
+            json!(true)
+        );
+        wait_for(&sse, "waiting for the engine to terminate").await;
+
+        // Error 后流仍未结束：不投影任何取消终态。
+        server.engine.release().await;
+        wait_for(&sse, "engine fatal").await;
+        assert_absent(&sse, "\"interrupted\"");
+
+        // 引擎 fatal 之后发 Completed：run.rs 对已带 terminal_error 的
+        // Completed 不再投影 completed——用户停掉的这轮以唯一的
+        // Interrupted 结算收尾（在 Failed 之后）。
+        server.engine.release().await;
+        let (run_status, run_response) = run_task.await.unwrap();
+        assert_eq!(run_status, 200, "{run_response}");
+        wait_for(&sse, "\"interrupted\"").await;
+        let sse_text = sse.lock().unwrap().clone();
+        assert_eq!(
+            sse_text.matches("\"interrupted\"").count(),
+            1,
+            "exactly one cancelled settlement:\n{sse_text}"
+        );
+        assert!(
+            sse_text.find("\"failed\"").unwrap() < sse_text.find("\"interrupted\"").unwrap(),
+            "the cancelled settlement must be the final terminal"
+        );
+    }
+
+    /// R65: ack 后引擎延迟自然完成（无 fatal）——期间保持停止中、不投影
+    /// 取消终态；真实完成后取消结算不再追加 Interrupted，终态只有
+    /// Completed 一个正确状态。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stop_acked_delayed_natural_completion_projects_completed_only() {
+        let server = spawn_server(vec![Step::Complete], false).await;
+        let sse = subscribe_sse(server.addr).await;
+        wait_for(&sse, "text/event-stream").await;
+
+        let workspace = server.data_dir.join("workspace");
+        let ws = workspace.display().to_string();
+        let run_task = tokio::spawn(http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, None),
+        ));
+        server.engine.started.notified().await;
+        let pid = wait_for_pid(&sse).await;
+
+        let stop_task = tokio::spawn(http_post(
+            server.addr,
+            format!("/api/sessions/{pid}/stop"),
+            "{}".to_string(),
+        ));
+        server.engine.cancel_entered.notified().await;
+        server.engine.cancel_release.notify_one();
+        let (status, body) = stop_task.await.unwrap();
+        assert_eq!(status, 200, "stop should ack: {body}");
+        wait_for(&sse, "waiting for the engine to terminate").await;
+
+        // 流仍被 gate 住：没有任何终态。
+        assert_absent(&sse, "\"completed\"");
+        assert_absent(&sse, "\"interrupted\"");
+
+        // 延迟自然完成：只有一个 Completed 终态，无取消结算。
+        server.engine.release().await;
+        let (run_status, run_response) = run_task.await.unwrap();
+        assert_eq!(run_status, 200, "{run_response}");
+        wait_for(&sse, "\"completed\"").await;
+        let sse_text = sse.lock().unwrap().clone();
+        assert_eq!(
+            sse_text.matches("\"interrupted\"").count(),
+            0,
+            "a naturally completed turn must not gain a cancelled settlement:\n{sse_text}"
+        );
+    }
+
+    /// R65: ack 后引擎被取消截断（EOF 无终态）→ 真实流结束时恰好投影
+    /// 一个 Interrupted，且在合成的 Failed 之后。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stop_acked_killed_stream_settles_interrupted_once_at_real_end() {
+        let server = spawn_server(vec![Step::HoldUntilKilled], false).await;
+        let sse = subscribe_sse(server.addr).await;
+        // 等订阅握手完成（响应头进缓冲），再触发会产生事件的操作——
+        // broadcast 不回放订阅前的事件。
+        wait_for(&sse, "text/event-stream").await;
+
+        let workspace = server.data_dir.join("workspace");
+        let ws = workspace.display().to_string();
+        let run_task = tokio::spawn(http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, None),
+        ));
+        server.engine.started.notified().await;
+
+        let pid = wait_for_pid(&sse).await;
+
+        // 先放行 cancel gate 之前，先停：cancel 会等 gate；这里让 cancel
+        // 直接通过（无需先 release，cancel_release 未被等待前 notify 保留）。
+        // 实际顺序：stop 请求 → cancel 进入引擎（cancel_entered）→ 释放
+        // cancel_release → cancel Ok + kill → 引擎流 EOF。
+        let stop_task = tokio::spawn(http_post(
+            server.addr,
+            format!("/api/sessions/{pid}/stop"),
+            "{}".to_string(),
+        ));
+        server.engine.cancel_entered.notified().await;
+        server.engine.cancel_release.notify_one();
+
+        let (stop_status, stop_body) = stop_task.await.unwrap();
+        assert_eq!(stop_status, 200, "{stop_body}");
+
+        // ack 已落地（record/mark 已完成），此刻才让引擎断流。
+        server.engine.killed.notify_one();
+        let (run_status, run_response) = run_task.await.unwrap();
+        assert_eq!(run_status, 200, "{run_response}");
+
+        // 真实流结束（outcome 就绪）后才结算唯一的 Interrupted。
+        wait_for(&sse, "\"interrupted\"").await;
+        let sse_text = sse.lock().unwrap().clone();
+        let interrupted = sse_text.matches("\"interrupted\"").count();
+        let failed = sse_text.matches("\"failed\"").count();
+        assert_eq!(interrupted, 1, "exactly one Interrupted:\n{sse_text}");
+        assert!(
+            failed >= 1,
+            "synthesized fatal must surface as Failed before Interrupted"
+        );
+        let failed_pos = sse_text.find("\"failed\"").unwrap();
+        let interrupted_pos = sse_text.find("\"interrupted\"").unwrap();
+        assert!(
+            failed_pos < interrupted_pos,
+            "Interrupted must be the single final settlement, after the Failed"
+        );
+    }
+
+    /// R65: cancel Err 不记取消——stop 返回 500 携带错误，无 stopping
+    /// marker、无 waiting/Interrupted 投影，run 随后正常完成。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_cancel_records_nothing_and_run_completes() {
+        let server = spawn_server(vec![Step::Complete], true).await;
+        let sse = subscribe_sse(server.addr).await;
+        // 等订阅握手完成（响应头进缓冲），再触发会产生事件的操作——
+        // broadcast 不回放订阅前的事件。
+        wait_for(&sse, "text/event-stream").await;
+
+        let workspace = server.data_dir.join("workspace");
+        let ws = workspace.display().to_string();
+        let run_task = tokio::spawn(http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, None),
+        ));
+        server.engine.started.notified().await;
+
+        let pid = wait_for_pid(&sse).await;
+
+        let stop_task = tokio::spawn(http_post(
+            server.addr,
+            format!("/api/sessions/{pid}/stop"),
+            "{}".to_string(),
+        ));
+        server.engine.cancel_entered.notified().await;
+        server.engine.cancel_release.notify_one();
+        let (stop_status, stop_body) = stop_task.await.unwrap();
+        assert_eq!(stop_status, 500, "cancel Err must surface: {stop_body}");
+        assert!(stop_body.contains("cancel refused"));
+
+        // 无取消投影。
+        assert_absent(&sse, "waiting for the engine to terminate");
+        assert_absent(&sse, "\"interrupted\"");
+
+        // 放行引擎完成：run 正常完成，session 进入 completed。
+        server.engine.release().await;
+        let (run_status, run_response) = run_task.await.unwrap();
+        assert_eq!(run_status, 200, "{run_response}");
+        wait_for(&sse, "\"completed\"").await;
+
+        // 存储侧同样没有取消事实。
+        let stream = TcpStream::connect(server.addr).await.unwrap();
+        let (reader, mut writer) = stream.into_split();
+        writer
+            .write_all(
+                format!(
+                    "GET /api/sessions/{pid} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                    server.addr
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut raw = String::new();
+        let mut reader = BufReader::new(reader);
+        reader.read_to_string(&mut raw).await.unwrap();
+        let detail = raw.split("\r\n\r\n").nth(1).unwrap_or_default();
+        assert!(
+            !detail.contains("attempt_cancelled"),
+            "a failed cancel must not record the cancelled fact:\n{detail}"
+        );
+    }
+
+    /// R65: 终态抢在 ack 前（turn 已完成后再 stop）→ 请求被诚实拒绝，
+    /// 同 session 下一轮照常完成，取消事实零泄漏。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn terminal_before_ack_leaves_no_marker_for_next_turn() {
+        let server = spawn_server(vec![Step::CompleteNow], false).await;
+        let sse = subscribe_sse(server.addr).await;
+        // 等订阅握手完成（响应头进缓冲），再触发会产生事件的操作——
+        // broadcast 不回放订阅前的事件。
+        wait_for(&sse, "text/event-stream").await;
+
+        let workspace = server.data_dir.join("workspace");
+        let ws = workspace.display().to_string();
+
+        // 第一轮直接跑完。
+        let (run_status, run_response) = http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, None),
+        )
+        .await;
+        assert_eq!(run_status, 200, "{run_response}");
+        wait_for(&sse, "\"completed\"").await;
+
+        let pid = wait_for_pid(&sse).await;
+
+        // 迟到的 stop：会话已终态，必须被拒绝而非静默成功。
+        let (stop_status, stop_body) = http_post(
+            server.addr,
+            format!("/api/sessions/{pid}/stop"),
+            "{}".to_string(),
+        )
+        .await;
+        assert!(
+            stop_status == 400 || stop_status == 404 || stop_status == 409,
+            "late stop must be rejected honestly: {stop_status} {stop_body}"
+        );
+        assert_absent(&sse, "\"interrupted\"");
+
+        // 同 session 下一轮：正常完成，无取消残留。
+        let (next_status, next_response) = http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, Some(&pid)),
+        )
+        .await;
+        assert_eq!(next_status, 200, "{next_response}");
+        // 有界等待第二轮的 completed 帧进缓冲（SSE 投递与响应到达可微乱序）。
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if sse.lock().unwrap().matches("\"completed\"").count() >= 2 {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("both turns must complete");
+        let sse_text = sse.lock().unwrap().clone();
+        assert_eq!(
+            sse_text.matches("\"interrupted\"").count(),
+            0,
+            "no cancelled projection may leak into the next turn"
+        );
+    }
 }
