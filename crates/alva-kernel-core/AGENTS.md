@@ -11,7 +11,7 @@
 - `context_runtime.rs` 提供 `ContextRuntime`，集中处理 ContextHooks 的 pending injection、assemble、budget compression、after_turn 与 dispose。
 - `event.rs` 提供 `AgentEventSender`：保留 unbounded SDK 兼容路径，bounded 路径让 lifecycle/message/tool terminal 事件对生产消费者施加真实背压；同步 progress 更新满载时 best-effort 丢弃。
 - `run/mod.rs` 的 `llm_call_start` 记录版本化 cache-base/tool-schema 指纹，`llm_call_end` 把 provider usage 归类为 hit/write/miss/unreported；指纹只做通用审计，provider 专有 cache-control 仍归 provider adapter。
-- `tool_batch.rs` 提供 `ToolBatchCoordinator`，集中处理一批模型声明的 tool call：显式 concurrency-safe 且资源无冲突的调用组成并行 wave；未知、冲突、全局串行和 coordinator 调用形成顺序屏障；intent/outcome 始终按模型顺序提交。
+- `tool_batch.rs` 提供 `ToolBatchCoordinator`，集中处理一批模型声明的 tool call：显式 concurrency-safe 且资源无冲突的调用组成并行 wave（含自带 concurrency_safe 且不持全局写锁的 coordinator，其嵌套工具经锁注册表自取资源锁）；未知、冲突、全局串行（SerialGlobal）和未声明安全的调用形成顺序屏障；intent/outcome 始终按模型顺序提交。
 - （R46 更正：`context_apply` 与 `tool_lock` 已不在本 crate——`tool_lock` 在 `alva-agent-core`，context hook 返回值落位由 `context_runtime.rs` 协调。）
 - `runtime_context.rs` 为 tool 执行构造 `RuntimeExecutionContext`，把 progress、workspace、bus 等能力桥接给 tool。
 - `builtins/` 放 kernel 级默认 middleware，如 loop detection、dangling tool call、tool timeout。

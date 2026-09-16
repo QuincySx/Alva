@@ -259,10 +259,12 @@ fn find_tool(state: &AgentState, tool_call: &ToolCall) -> Option<Arc<dyn Tool>> 
 /// Return the size of the next conflict-free parallel wave.
 ///
 /// A tool must opt in through its [`Scheduling`] descriptor —
-/// `concurrency_safe` with fine-grained `ExecutionMode::Parallel` — and have
-/// no read/write conflict with an earlier call in the same wave. Unknown,
-/// global, coordinator, and concurrency-unsafe calls are hard ordering
-/// barriers.
+/// `concurrency_safe`, carrying no global write lock — and have no read/write
+/// conflict with an earlier call in the same wave. A `Parallel` tool takes
+/// only its declared resource keys; a `Coordinator` that opts in holds no
+/// locks of its own (its nested tools acquire their own through the lock
+/// registry, which is what serializes them). Unknown, `SerialGlobal`, and
+/// concurrency-unsafe calls are hard ordering barriers.
 fn parallel_wave_len(
     state: &AgentState,
     workspace: Option<&std::path::Path>,
@@ -323,8 +325,13 @@ fn tool_scheduling(
 }
 
 fn is_parallel_candidate(scheduling: &Scheduling) -> bool {
-    scheduling.execution_mode == alva_kernel_abi::ExecutionMode::Parallel
-        && scheduling.concurrency_safe
+    // R72: a `Coordinator` that declares itself concurrency-safe is also a
+    // valid wave member — it acquires no locks of its own (its nested tools
+    // take their own), so it cannot conflict with its siblings through the
+    // registry. Only `SerialGlobal` (which takes the global write lock) is
+    // categorically excluded.
+    scheduling.concurrency_safe
+        && scheduling.execution_mode != alva_kernel_abi::ExecutionMode::SerialGlobal
 }
 
 fn resource_sets_conflict(left: &[ResourceKey], right: &[ResourceKey]) -> bool {

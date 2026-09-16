@@ -208,6 +208,11 @@ struct SpawnInput {
     // locks). Holding the global read lock here would deadlock a child's
     // `serial-global` tool (e.g. execute_shell) requesting the global write.
     execution_mode = "coordinator",
+    // R72: a coordinator holds NO locks of its own (children take their
+    // own), so two sibling spawns in one batch are conflict-free and may
+    // run concurrently — this is what makes child-level tool-lock
+    // contention real (see tests/r11_tool_lock_matrix.rs).
+    concurrency_safe,
 )]
 pub struct AgentSpawnTool {
     scope: Arc<SpawnScopeImpl>,
