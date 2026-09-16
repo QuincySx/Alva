@@ -1212,7 +1212,7 @@ input {
 .chat-list:not(.chat-list--ordered) { list-style: disc; }
 
 .chat-inline-code {
-  padding: 1px var(--space-1);
+  padding: var(--space-0) var(--space-1);
   border-radius: var(--radius-xs);
   background: var(--surface-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
