@@ -76,14 +76,14 @@ export function GitTool({ detail }: { detail: HubSessionDetail | null }) {
     // R54: these rows are recorded TOOL executions, not a Git status. A
     // read-only tool call is not a modification, an empty session is not a
     // clean tree, and a running tool is pending — never inferred.
-    <PanelSection description={t("tool.recordedPathsDescription")} heading={t("tool.recordedPaths")} meta={t("common.changeCount", { count: effects.length })}>
+    <PanelSection description={t("tool.recordedPathsDescription")} heading={t("tool.recordedPaths")} meta={t("tool.executionCount", { count: effects.length })}>
       {effects.length === 0 ? <EmptyState icon={<GitBranch size={18} />} title={t("tool.noToolRecords")} description={t("tool.noToolRecordsDescription")} /> : effects.map((effect) => (
         <ListRow
           description={effect.path ?? effect.tool_name}
-          heading={effect.succeeded === false ? t("tool.failedChange") : effect.succeeded === true ? t("tool.executedRow") : t("tool.pendingRow")}
+          heading={effect.succeeded === false ? t("tool.failedExecution") : effect.succeeded === true ? t("tool.executedRow") : t("tool.pendingRow")}
           key={effect.tool_call_id}
           leading={<GitBranch size={16} />}
-          meta={effect.duration_ms ? `${effect.duration_ms} ms` : effect.succeeded === null || effect.succeeded === undefined ? t("tool.pendingRow") : t("tool.sessionChange")}
+          meta={effect.duration_ms ? `${effect.duration_ms} ms` : effect.succeeded === null || effect.succeeded === undefined ? t("tool.pendingRow") : undefined}
         />
       ))}
     </PanelSection>
@@ -101,7 +101,7 @@ export function ReviewTool({ detail }: { detail: HubSessionDetail | null }) {
           description={effect.path ?? t("tool.noPath")}
           key={effect.tool_call_id}
           leading={effect.succeeded === true ? <CheckCircle2 size={16} /> : effect.succeeded === false ? <CircleDot size={16} /> : <CircleDot size={16} />}
-          meta={effect.succeeded === true ? t("tool.executedRow") : effect.succeeded === false ? t("tool.failedChange") : t("tool.pendingRow")}
+          meta={effect.succeeded === true ? t("tool.executedRow") : effect.succeeded === false ? t("tool.failedExecution") : t("tool.pendingRow")}
         />
       ))}
     </PanelSection>
@@ -346,7 +346,7 @@ export function InspectorTool({ detail, events, loadInspection }: { detail: HubS
                       }
                       heading={
                         activity
-                          ? `${activity.tool_name} · ${running ? t("tool.pendingRow") : activity.succeeded ? t("tool.executedRow") : t("tool.failedChange")}`
+                          ? `${activity.tool_name} · ${running ? t("tool.pendingRow") : activity.succeeded ? t("tool.executedRow") : t("tool.failedExecution")}`
                           : event.message ?? localize(event.status)
                       }
                       key={`${event.product_session_id}-${lane.id}-${event.item_id ?? event.created_at ?? event.message ?? "evt"}`}

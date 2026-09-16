@@ -173,3 +173,77 @@ describe("InspectorTool shared-clock execution overview (R67)", () => {
     expect(tools?.textContent).toContain("210 ms");
   });
 });
+
+// R68：Git/Review 面是"工具执行记录"，不是 Git 状态——任何成功/失败/
+// 待定的工具执行都不得使用"变更/change"词汇；空会话不推断 clean。
+import { GitTool } from "./workbench-tools";
+import type { HubSessionDetail } from "../bridge";
+
+function gitDetail(sideEffects: import("../bridge").SideEffectEvidence[]): HubSessionDetail {
+  const detail = demoDetail();
+  detail.turns = [
+    {
+      ...detail.turns[0],
+      attempts: [
+        {
+          ...detail.turns[0].attempts[0],
+          side_effects: sideEffects,
+        },
+      ],
+    },
+  ];
+  return detail;
+}
+
+function renderGit(detail: HubSessionDetail) {
+  localStorage.setItem("alva-hub.locale", "zh-CN");
+  return render(
+    <UIProvider>
+      <I18nProvider>
+        <GitTool detail={detail} />
+      </I18nProvider>
+    </UIProvider>,
+  );
+}
+
+describe("GitTool execution vocabulary (R68)", () => {
+  it("a successful read-only tool claims no change anywhere", () => {
+    const { container } = renderGit(
+      gitDetail([{ tool_call_id: "r1", tool_name: "file_read", succeeded: true, duration_ms: 8, path: "README.md" }]),
+    );
+    expect(container.textContent).not.toMatch(/变更|change/i);
+    expect(container.textContent).toContain("已执行");
+    expect(container.textContent).toContain("1 条记录");
+  });
+
+  it("a failed read-only tool reports a failed execution, not a failed change", () => {
+    const { container } = renderGit(
+      gitDetail([{ tool_call_id: "r2", tool_name: "file_read", succeeded: false, duration_ms: 5, path: "README.md" }]),
+    );
+    expect(container.textContent).not.toMatch(/变更|change/i);
+    expect(container.textContent).toContain("执行失败");
+  });
+
+  it("a write tool is still described as an executed record, not a modification claim", () => {
+    const { container } = renderGit(
+      gitDetail([{ tool_call_id: "w1", tool_name: "file_edit", succeeded: true, duration_ms: 120, path: "src/lib.rs" }]),
+    );
+    expect(container.textContent).not.toMatch(/变更|change/i);
+    expect(container.textContent).toContain("已执行");
+  });
+
+  it("pending executions keep the pending wording", () => {
+    const { container } = renderGit(
+      gitDetail([{ tool_call_id: "p1", tool_name: "bash", succeeded: null, duration_ms: null, path: null }]),
+    );
+    expect(container.textContent).not.toMatch(/变更|change/i);
+    expect(container.textContent).toContain("运行中");
+  });
+
+  it("an empty session renders no records and no Git conclusion", () => {
+    const { container } = renderGit(gitDetail([]));
+    expect(container.textContent).not.toMatch(/变更|change/i);
+    expect(container.textContent).not.toMatch(/clean|干净/i);
+    expect(container.textContent).toContain("还没有工具记录");
+  });
+});
