@@ -609,3 +609,21 @@
   font-size: var(--font-size-caption);
   color: var(--color-text-subtle);
 }
+
+/* R67: Inspector 执行概览的三条泳道（Input / Agent / Tools）共享同一
+   产品时钟；行内容复用 ListRow，不做额外卡片。 */
+.hub-overview-lane {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+}
+
+.hub-overview-lane + .hub-overview-lane {
+  border-top: 1px solid var(--color-border);
+}
+
+.hub-overview-lane__label small {
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-strong);
+  color: var(--color-text-subtle);
+}

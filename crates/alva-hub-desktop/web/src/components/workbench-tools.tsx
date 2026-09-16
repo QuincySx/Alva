@@ -189,14 +189,14 @@ export function InspectorTool({ detail, events, loadInspection }: { detail: HubS
   // unavailable state instead of a silent no-op.
   const [focusSession, setFocusSession] = useState<string | null>(null);
   const [unavailableEngine, setUnavailableEngine] = useState<string | null>(null);
-  // R42: the execution overview lives HERE (Inspector surface), not as a
-  // swim lane in the chat column. A summary row opens and locates the
-  // matching persisted tool record below.
+  // R42/R67: the execution overview lives HERE (Inspector surface): Input /
+  // Agent / Tools rows on one shared clock. A row's Locate action expands the
+  // full owning path (root attempts → turn → attempt → tool) before scrolling.
   const [focusToolCallId, setFocusToolCallId] = useState<string | null>(null);
-  const activityEvents = useMemo(
-    () => events.filter((event) => Boolean(event.activity)),
-    [events],
-  );
+  // R67: 定位必须展开整条祖先链——默认全折叠时 Radix 不挂载内层内容，
+  // 只设置最内层 tool id 时目标根本不存在。三个层级都是受控展开，
+  // onOpenChange 仍允许用户手动开合。
+  const [expandedPath, setExpandedPath] = useState<Record<string, boolean>>({});
   const toolRecorded = (toolCallId: string | null | undefined): boolean => {
     if (!toolCallId || !detail) return false;
     return detail.turns.some((turn) =>
@@ -205,10 +205,38 @@ export function InspectorTool({ detail, events, loadInspection }: { detail: HubS
       ),
     );
   };
+  const owningPath = (toolCallId: string) => {
+    for (const turn of detail?.turns ?? []) {
+      for (const attempt of turn.attempts) {
+        if (attempt.side_effects.some((effect) => effect.tool_call_id === toolCallId)) {
+          return { turn, attempt };
+        }
+      }
+    }
+    return null;
+  };
   const locateToolEvent = (event: HubTimelineEvent) => {
     const id = event.item_id;
     if (!id) return;
     setFocusToolCallId(id);
+    const path = owningPath(id);
+    if (path) {
+      // R67: attempt+tool identity 决定展开路径——先展开全链再滚动。
+      setExpandedPath((current) => ({
+        ...current,
+        root: true,
+        [`turn:${path.turn.turn_id}`]: true,
+        [`attempt:${path.attempt.attempt_id}`]: true,
+      }));
+      const branch = detail?.branches.find((candidate) => candidate.branch_id === path.attempt.branch_id) ?? null;
+      if (branch?.engine_id === "alva" && branch.engine_session_id) {
+        setUnavailableEngine(null);
+        setFocusSession(branch.engine_session_id);
+      } else {
+        setUnavailableEngine(branch?.engine_id ?? path.attempt.engine_id);
+      }
+      return;
+    }
     const attempt = detail?.turns
       .flatMap((turn) => turn.attempts)
       .find((candidate) => candidate.side_effects.some((effect) => effect.tool_call_id === id));
@@ -238,6 +266,39 @@ export function InspectorTool({ detail, events, loadInspection }: { detail: HubS
       setUnavailableEngine(branch?.engine_id ?? attempt.engine_id);
     }
   };
+  // R67: shared-clock overview rows — Input (user) / Agent (assistant) /
+  // Tools (activity) merged and ordered by the product shared clock, each
+  // row showing its offset from the earliest stamped event.
+  const overview = useMemo(() => {
+    const stamped = events
+      .filter((event) => typeof event.created_at === "number")
+      .map((event) => event.created_at as number);
+    const clockBase = stamped.length ? Math.min(...stamped) : null;
+    const rows = events
+      .filter(
+        (event) =>
+          event.status === "user_message" ||
+          event.status === "assistant_message" ||
+          Boolean(event.activity),
+      )
+      .map((event) => ({
+        event,
+        lane: event.status === "user_message" ? "input" : event.status === "assistant_message" ? "agent" : "tools",
+        at: typeof event.created_at === "number" ? event.created_at : null,
+      }));
+    rows.sort((left, right) => (left.at ?? Number.MAX_SAFE_INTEGER) - (right.at ?? Number.MAX_SAFE_INTEGER));
+    return { clockBase, rows };
+  }, [events]);
+  const formatOffset = (at: number | null) => {
+    if (overview.clockBase === null || at === null) return t("workbench.overviewClockZero");
+    const offset = at - overview.clockBase;
+    return offset === 0 ? t("workbench.overviewClockZero") : `+${offset}ms`;
+  };
+  const overviewLanes: Array<{ id: "input" | "agent" | "tools"; label: string; rows: typeof overview.rows }> = [
+    { id: "input", label: t("workbench.overviewLaneInput"), rows: overview.rows.filter((row) => row.lane === "input") },
+    { id: "agent", label: t("workbench.overviewLaneAgent"), rows: overview.rows.filter((row) => row.lane === "agent") },
+    { id: "tools", label: t("workbench.overviewLaneTools"), rows: overview.rows.filter((row) => row.lane === "tools") },
+  ];
   return (
     <div className="hub-inspector-tool">
       <EngineInspectorPanel
@@ -253,40 +314,85 @@ export function InspectorTool({ detail, events, loadInspection }: { detail: HubS
           tone="warning"
         />
       ) : null}
-      <PanelSection description={t("workbench.executionOverviewDescription")} heading={t("workbench.executionOverview")} meta={`${activityEvents.length}`}>
-        {activityEvents.length === 0 ? (
+      <PanelSection
+        aria-label={t("workbench.executionOverviewName")}
+        description={t("workbench.executionOverviewDescription")}
+        heading={t("workbench.executionOverview")}
+        meta={`${overview.rows.length}`}
+      >
+        {overview.rows.length === 0 ? (
           <EmptyState icon={<CircleDot size={18} />} title={t("workbench.executionOverviewEmpty")} description={t("workbench.executionOverviewEmptyDescription")} />
         ) : (
-          activityEvents.map((event, index) => {
-            const activity = event.activity!;
-            const recorded = toolRecorded(event.item_id);
-            const running = activity.succeeded === null || activity.succeeded === undefined;
-            return (
-              <ListRow
-                description={running ? t("workbench.toolNotRecordedYet") : event.message ?? undefined}
-                heading={`${activity.tool_name} · ${running ? t("tool.pendingRow") : activity.succeeded ? t("tool.executedRow") : t("tool.failedChange")}`}
-                key={`${event.product_session_id}-${event.item_id ?? index}`}
-                leading={running ? <CircleDot size={16} /> : activity.succeeded ? <CheckCircle2 size={16} /> : <CircleDot size={16} />}
-                meta={activity.duration_ms ? `${activity.duration_ms} ms` : undefined}
-                actions={
-                  <Button
-                    aria-label={t("workbench.locateRecord")}
-                    disabled={!recorded}
-                    onClick={() => locateToolEvent(event)}
-                    size="small"
-                    variant="ghost"
-                  >
-                    {t("workbench.locateRecord")}
-                  </Button>
-                }
-              />
-            );
-          })
+          overviewLanes.map((lane) => (
+            <div className="hub-overview-lane" data-overview-lane={lane.id} key={lane.id}>
+              <div className="hub-overview-lane__label">
+                <small>{lane.label}</small>
+              </div>
+              {lane.rows.length === 0 ? (
+                <small style={{ opacity: 0.6 }}>—</small>
+              ) : (
+                lane.rows.map(({ event }) => {
+                  const activity = event.activity;
+                  const running = activity && (activity.succeeded === null || activity.succeeded === undefined);
+                  const recorded = toolRecorded(event.item_id);
+                  return (
+                    <ListRow
+                      description={
+                        activity
+                          ? running
+                            ? t("workbench.toolNotRecordedYet")
+                            : event.message ?? undefined
+                          : formatOffset(event.created_at ?? null)
+                      }
+                      heading={
+                        activity
+                          ? `${activity.tool_name} · ${running ? t("tool.pendingRow") : activity.succeeded ? t("tool.executedRow") : t("tool.failedChange")}`
+                          : event.message ?? localize(event.status)
+                      }
+                      key={`${event.product_session_id}-${lane.id}-${event.item_id ?? event.created_at ?? event.message ?? "evt"}`}
+                      leading={activity ? (running ? <CircleDot size={16} /> : activity.succeeded ? <CheckCircle2 size={16} /> : <CircleDot size={16} />) : <CircleDot size={16} />}
+                      meta={
+                        activity?.duration_ms
+                          ? `${activity.duration_ms} ms · ${formatOffset(event.created_at ?? null)}`
+                          : formatOffset(event.created_at ?? null)
+                      }
+                      actions={
+                        activity ? (
+                          <Button
+                            aria-label={t("workbench.locateRecord")}
+                            disabled={!recorded}
+                            onClick={() => locateToolEvent(event)}
+                            size="small"
+                            variant="ghost"
+                          >
+                            {t("workbench.locateRecord")}
+                          </Button>
+                        ) : undefined
+                      }
+                    />
+                  );
+                })
+              )}
+            </div>
+          ))
         )}
       </PanelSection>
-      <Disclosure defaultOpen={false} description={t("workbench.productAttemptsDescription")} title={t("workbench.productAttempts")} meta={detail ? t("common.turnCount", { count: detail.turns.length }) : t("tool.noSession")}>
+      <Disclosure
+        defaultOpen={false}
+        description={t("workbench.productAttemptsDescription")}
+        meta={detail ? t("common.turnCount", { count: detail.turns.length }) : t("tool.noSession")}
+        open={expandedPath.root === true ? true : undefined}
+        onOpenChange={(open) => setExpandedPath((current) => ({ ...current, root: open }))}
+        title={t("workbench.productAttempts")}
+      >
         {detail?.turns.map((turn) => (
-          <Disclosure key={turn.turn_id} title={turn.prompt} description={`${localize(turn.status)} · ${t("common.attemptCount", { count: turn.attempts.length })}`}>
+          <Disclosure
+            key={turn.turn_id}
+            description={`${localize(turn.status)} · ${t("common.attemptCount", { count: turn.attempts.length })}`}
+            onOpenChange={(open) => setExpandedPath((current) => ({ ...current, [`turn:${turn.turn_id}`]: open }))}
+            open={expandedPath[`turn:${turn.turn_id}`] === true ? true : undefined}
+            title={turn.prompt}
+          >
             <div className="hub-inspector-records">
               {turn.attempts.map((attempt) => (
                 <Disclosure
@@ -294,6 +400,8 @@ export function InspectorTool({ detail, events, loadInspection }: { detail: HubS
                   title={`${attempt.engine_id} · ${localize(attempt.status)}`}
                   description={attempt.failure_reason ? localizeSystemText(locale, attempt.failure_reason, t("system.operationFailed")) : attempt.branch_id}
                   meta={attempt.usage ? t("common.tokenCount", { count: attempt.usage.input_tokens + attempt.usage.output_tokens }) : t("tool.noUsage")}
+                  open={expandedPath[`attempt:${attempt.attempt_id}`] === true ? true : undefined}
+                  onOpenChange={(open) => setExpandedPath((current) => ({ ...current, [`attempt:${attempt.attempt_id}`]: open }))}
                   actions={
                     <Button onClick={() => locateAttempt(attempt)} size="small" variant="ghost">
                       {t("workbench.locateInInspector")}
