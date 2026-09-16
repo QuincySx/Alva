@@ -1076,7 +1076,15 @@ impl HubRuntime {
             };
             if let Some(engine_session_id) = engine_session_id {
                 if !handle.engine.capabilities().cancel {
-                    self.abandon(product_session_id)?;
+                    // R80: the capability bypass releases only THIS
+                    // generation. Between the handle clone and this release a
+                    // concurrent abandon+execute may have claimed a new run
+                    // under the same product id; an untargeted abandon would
+                    // tear that new run down.
+                    self.abandon_targeted(
+                        product_session_id,
+                        ClaimTarget::RunGeneration(my_generation),
+                    )?;
                     return Ok(());
                 }
                 return match handle.engine.cancel(&engine_session_id).await {
@@ -1093,38 +1101,48 @@ impl HubRuntime {
                     Err(err) => Err(err.into()),
                 };
             }
-            self.abandon(product_session_id)?;
+            // R80: no native id yet — same targeted release as the bypass
+            // above; the saved generation is the only claim this cancel may
+            // release.
+            self.abandon_targeted(
+                product_session_id,
+                ClaimTarget::RunGeneration(my_generation),
+            )?;
             return Ok(());
         }
 
-        let session = self
-            .session(product_session_id)
-            .ok_or_else(|| HubError::SessionNotFound(product_session_id.to_string()))?;
-        let engine = self.engine(&session.engine_id)?;
-        let Some(engine_session_id) = session.engine_session_id.clone() else {
-            self.abandon(product_session_id)?;
+        // R80: route (native id) and claim identity must come from ONE
+        // session snapshot. Sampling claim_seq after the capability gate can
+        // pick up a newer generation's claim and aim the release at the new
+        // turn even though the cancel went to the old native id.
+        let (engine_id, engine_session_id, my_claim_seq) = {
+            let sessions = self
+                .sessions
+                .read()
+                .expect("Hub session registry lock poisoned");
+            let session = sessions
+                .get(product_session_id)
+                .ok_or_else(|| HubError::SessionNotFound(product_session_id.to_string()))?;
+            (
+                session.engine_id.clone(),
+                session.engine_session_id.clone(),
+                session.claim_seq,
+            )
+        };
+        let engine = self.engine(&engine_id)?;
+        let Some(engine_session_id) = engine_session_id else {
+            self.abandon_targeted(product_session_id, ClaimTarget::ClaimSeq(my_claim_seq))?;
             return Ok(());
         };
         if !engine.capabilities().cancel {
-            self.abandon(product_session_id)?;
+            self.abandon_targeted(product_session_id, ClaimTarget::ClaimSeq(my_claim_seq))?;
             return Ok(());
         }
-        // R63: 回退路径同样在 await 前固定目标 claim。
-        let my_claim_seq = self
-            .sessions
-            .read()
-            .expect("Hub session registry lock poisoned")
-            .get(product_session_id)
-            .map(|session| session.claim_seq);
+        // R63: 回退路径同样在 await 前固定目标 claim（R80：与路由同快照）。
         match engine.cancel(&engine_session_id).await {
             Ok(()) => Ok(()),
             Err(RuntimeError::Unsupported(_)) => {
-                if let Some(my_claim_seq) = my_claim_seq {
-                    self.abandon_targeted(
-                        product_session_id,
-                        ClaimTarget::ClaimSeq(my_claim_seq),
-                    )?;
-                }
+                self.abandon_targeted(product_session_id, ClaimTarget::ClaimSeq(my_claim_seq))?;
                 Ok(())
             }
             Err(err) => Err(err.into()),
@@ -2841,6 +2859,245 @@ mod tests {
             hub.session(&pid).unwrap().status,
             HubSessionStatus::Running,
             "stale fallback cancel must not release the new claim"
+        );
+        assert!(hub.has_live_run(&pid));
+        drop(next); // 测试收尾：运行时关闭时回收 pending 流任务
+    }
+
+    /// R80: live 路径的能力 bypass 只释放原代际。旧 cancel 已 clone handle
+    /// （generation 已固定）后停进同步的 capabilities() gate；期间旧轮被
+    /// abandon、同 pid 新轮认领。gate 返回 cancel=false 时，无差别 abandon
+    /// 会误杀新轮；目标化释放必须跳过。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn capability_bypass_cancel_must_target_original_generation() {
+        // 只有第一次 capabilities() 调用（cancel 自己的查询）会停在 gate；
+        // 后续 resume-execute 的能力探针直接通过。
+        struct GateCapEngine {
+            turn: AtomicUsize,
+            gate: Arc<(Mutex<bool>, std::sync::Condvar)>,
+            cap_enter: Arc<AtomicUsize>,
+        }
+        #[async_trait]
+        impl EngineRuntime for GateCapEngine {
+            fn execute(
+                &self,
+                _request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                let n = self.turn.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::pin(
+                    stream::iter(vec![RuntimeEvent::SessionStarted {
+                        session_id: format!("native-{n}"),
+                        model: None,
+                        tools: vec![],
+                    }])
+                    .chain(stream::pending::<RuntimeEvent>()),
+                ))
+            }
+
+            async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+                Err(RuntimeError::Unsupported("cancel".into()))
+            }
+
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            fn capabilities(&self) -> RuntimeCapabilities {
+                if self.cap_enter.fetch_add(1, Ordering::SeqCst) == 0 {
+                    let mut released = self.gate.0.lock().unwrap();
+                    while !*released {
+                        released = self.gate.1.wait(released).unwrap();
+                    }
+                }
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: false,
+                    permission_callback: false,
+                    resume: true,
+                    cancel: false,
+                }
+            }
+        }
+
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let cap_enter = Arc::new(AtomicUsize::new(0));
+        let engine = Arc::new(GateCapEngine {
+            turn: AtomicUsize::new(0),
+            gate: gate.clone(),
+            cap_enter: cap_enter.clone(),
+        });
+        let hub = HubRuntime::new();
+        hub.register_engine("probe", engine.clone()).unwrap();
+
+        let mut first = hub
+            .execute(HubRequest::new("probe", RuntimeRequest::new("one")))
+            .unwrap();
+        let pid = first.next().await.unwrap().product_session_id;
+        assert_eq!(hub.session(&pid).unwrap().status, HubSessionStatus::Running);
+
+        // 旧 cancel 已 clone handle（generation 固定）并停进 capabilities gate。
+        let cancel_task = {
+            let hub = hub.clone();
+            let pid = pid.clone();
+            tokio::spawn(async move { hub.cancel(&pid).await })
+        };
+        let mut waited = 0;
+        while cap_enter.load(Ordering::SeqCst) == 0 {
+            waited += 1;
+            assert!(waited <= 200, "cancel must reach the capability gate");
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+
+        // gate 未开时：旧轮被 abandon，同 pid 新轮认领并 Running。
+        hub.abandon(&pid).unwrap();
+        let mut second = hub
+            .execute(HubRequest::new("probe", RuntimeRequest::new("two")).resume(pid.clone()))
+            .unwrap();
+        assert!(matches!(
+            second.next().await.unwrap().event,
+            RuntimeEvent::SessionStarted { .. }
+        ));
+        assert_eq!(hub.session(&pid).unwrap().status, HubSessionStatus::Running);
+
+        // gate 返回 cancel=false：bypass 只允许释放旧代际。
+        release_gate(&gate);
+        cancel_task.await.unwrap().unwrap();
+        assert_eq!(
+            hub.session(&pid).unwrap().status,
+            HubSessionStatus::Running,
+            "capability-bypass cancel must not abandon a newer generation"
+        );
+        assert!(hub.has_live_run(&pid), "new generation handle must survive");
+
+        // 新轮自身的真实 cancel 仍落地（bypass 命中当前代际）。
+        let second_cancel = {
+            let hub = hub.clone();
+            let pid = pid.clone();
+            tokio::spawn(async move { hub.cancel(&pid).await })
+        };
+        second_cancel.await.unwrap().unwrap();
+        assert_eq!(hub.session(&pid).unwrap().status, HubSessionStatus::Failed);
+        assert!(!hub.has_live_run(&pid));
+        drop(first);
+        drop(second);
+    }
+
+    /// R80: 回退路径的路由与 claim 必须来自同一会话快照。恢复会话的
+    /// cancel 停在 capabilities gate 期间新 execute 已认领；cancel 走旧
+    /// native id，Unsupported 只能释放采样到的旧 claim_seq——旧实现在
+    /// gate 之后另采 claim_seq，释放的是新轮。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fallback_capability_gate_cancel_must_keep_original_claim() {
+        struct GateCapFallbackEngine {
+            gate: Arc<(Mutex<bool>, std::sync::Condvar)>,
+            cap_enter: Arc<AtomicUsize>,
+            cancelled_ids: Arc<Mutex<Vec<String>>>,
+        }
+        #[async_trait]
+        impl EngineRuntime for GateCapFallbackEngine {
+            fn execute(
+                &self,
+                _request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                Ok(Box::pin(
+                    stream::iter(vec![RuntimeEvent::SessionStarted {
+                        session_id: "new-native".into(),
+                        model: None,
+                        tools: vec![],
+                    }])
+                    .chain(stream::pending::<RuntimeEvent>()),
+                ))
+            }
+
+            async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
+                self.cancelled_ids
+                    .lock()
+                    .expect("cancelled ids lock poisoned")
+                    .push(session_id.to_string());
+                Err(RuntimeError::Unsupported("cancel".into()))
+            }
+
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            fn capabilities(&self) -> RuntimeCapabilities {
+                if self.cap_enter.fetch_add(1, Ordering::SeqCst) == 0 {
+                    let mut released = self.gate.0.lock().unwrap();
+                    while !*released {
+                        released = self.gate.1.wait(released).unwrap();
+                    }
+                }
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: false,
+                    permission_callback: false,
+                    resume: true,
+                    cancel: true,
+                }
+            }
+        }
+
+        let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let cap_enter = Arc::new(AtomicUsize::new(0));
+        let cancelled_ids = Arc::new(Mutex::new(Vec::new()));
+        let engine = Arc::new(GateCapFallbackEngine {
+            gate: gate.clone(),
+            cap_enter: cap_enter.clone(),
+            cancelled_ids: cancelled_ids.clone(),
+        });
+        let hub = HubRuntime::new();
+        hub.register_engine("probe", engine.clone()).unwrap();
+
+        // 恢复的会话：终态 + 已知旧 native id，无 live run。
+        let pid = ProductSessionId::new();
+        hub.restore_session(pid.clone(), "probe", "native-old", HubSessionStatus::Completed)
+            .unwrap();
+
+        let cancel_task = {
+            let hub = hub.clone();
+            let pid = pid.clone();
+            tokio::spawn(async move { hub.cancel(&pid).await })
+        };
+        let mut waited = 0;
+        while cap_enter.load(Ordering::SeqCst) == 0 {
+            waited += 1;
+            assert!(waited <= 200, "cancel must reach the capability gate");
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+
+        // gate 未开时新轮已认领（claim_seq 递增、native id 换新）。
+        let mut next = hub
+            .execute(HubRequest::new("probe", RuntimeRequest::new("next")).resume(pid.clone()))
+            .unwrap();
+        assert!(matches!(
+            next.next().await.unwrap().event,
+            RuntimeEvent::SessionStarted { .. }
+        ));
+        assert!(hub.has_live_run(&pid));
+
+        // gate 返回 cancel=true：cancel 走旧 native id 并返回 Unsupported。
+        release_gate(&gate);
+        cancel_task.await.unwrap().unwrap();
+        assert_eq!(
+            *cancelled_ids.lock().unwrap(),
+            vec!["native-old".to_string()],
+            "cancel must route to the snapshot's original native id"
+        );
+        assert_eq!(
+            hub.session(&pid).unwrap().status,
+            HubSessionStatus::Running,
+            "stale fallback cancel must not release the newer claim"
         );
         assert!(hub.has_live_run(&pid));
         drop(next); // 测试收尾：运行时关闭时回收 pending 流任务
