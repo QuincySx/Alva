@@ -1,6 +1,8 @@
 const	tool_lock::DEFAULT_ACQUIRE_TIMEOUT const DEFAULT_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(300)
 const	tool_lock::GLOBAL_SERIAL_KEY const GLOBAL_SERIAL_KEY: &str = " "
+enum	extension::phase::PhaseOrder
 enum	tool_lock::AcquireError
+field	agent::AgentAssemblySnapshot::direct_middleware_names #[serde(default)] pub direct_middleware_names: Vec<String>
 field	agent::AgentAssemblySnapshot::middleware_names pub middleware_names: Vec<String>
 field	agent::AgentAssemblySnapshot::plugin_names pub plugin_names: Vec<String>
 field	agent::AgentAssemblySnapshot::plugins pub plugins: Vec<PluginAssemblySnapshot>
@@ -9,6 +11,7 @@ field	agent::PluginAssemblySnapshot::description pub description: String
 field	agent::PluginAssemblySnapshot::finalized_tool_names pub finalized_tool_names: Vec<String>
 field	agent::PluginAssemblySnapshot::middleware_names pub middleware_names: Vec<String>
 field	agent::PluginAssemblySnapshot::name pub name: String
+field	agent::PluginAssemblySnapshot::phase_contribution_names #[serde(default)] pub phase_contribution_names: Vec<String>
 field	agent::PluginAssemblySnapshot::registered_tool_names pub registered_tool_names: Vec<String>
 field	agent::PluginAssemblySnapshot::system_prompt_fragments pub system_prompt_fragments: usize
 field	extension::host::RegisteredCommand::description pub description: String
@@ -169,4 +172,11 @@ use	pub use phase::{PhaseContribution, PhaseHandler, PhaseOrder}
 use	pub use plugin::Plugin
 use	pub use registrar::{LateContext, Registrar}
 use	pub use tool_lock::{ AcquireError, LockSnapshot, ToolLockGuards, ToolLockMiddleware, ToolLockRegistry, DEFAULT_ACQUIRE_TIMEOUT, GLOBAL_SERIAL_KEY, }
-variant	tool_lock::AcquireError::Timeout
+variant	extension::phase::PhaseOrder::Finalizer Finalizer
+variant	extension::phase::PhaseOrder::Hooks Hooks
+variant	extension::phase::PhaseOrder::Normal Normal
+variant	extension::phase::PhaseOrder::Policy Policy
+variant	extension::phase::PhaseOrder::Security Security
+variant	extension::phase::PhaseOrder::System System
+variant	extension::phase::PhaseOrder::Telemetry Telemetry
+variant	tool_lock::AcquireError::Timeout Timeout { waited: Duration, keys: Vec<ResourceKey>, }

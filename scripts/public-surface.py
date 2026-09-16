@@ -211,27 +211,45 @@ def find_header_end(src: str, start: int):
 
 
 def skip_attributes(src: str, i: int) -> int:
-    """Skip `#[...]` / `#![...]` attribute spans starting at i; return next index."""
+    """Skip `#[...]` / `#![...]` attribute spans starting at i; return next index.
+
+    R70: whitespace BETWEEN stacked attributes is consumed too —
+    `#[derive(Debug)]\n#[repr(u8)]\npub enum E` used to leave the second
+    attribute in the stream, hiding the whole item from the gate."""
     n = len(src)
-    while i < n and src[i] == "#":
-        j = i + 1
-        if j < n and src[j] == "!":
-            j += 1
-        if j < n and src[j] == "[":
-            depth = 0
-            while j < n:
-                if src[j] == "[":
-                    depth += 1
-                elif src[j] == "]":
-                    depth -= 1
-                    if depth == 0:
-                        j += 1
-                        break
+    while i < n:
+        if src[i] == "#":
+            j = i + 1
+            if j < n and src[j] == "!":
                 j += 1
-            i = j
-        else:
+            if j < n and src[j] == "[":
+                depth = 0
+                while j < n:
+                    if src[j] == "[":
+                        depth += 1
+                    elif src[j] == "]":
+                        depth -= 1
+                        if depth == 0:
+                            j += 1
+                            break
+                    j += 1
+                i = j
+                continue
             break
+        if src[i].isspace():
+            i += 1
+            continue
+        break
     return i
+
+
+def skip_leading_attributes(part: str) -> str:
+    """R70: strip leading `#[...]` attributes (and whitespace) from a
+    comma-separated member part so name matching sees the item itself."""
+    stripped = part.lstrip()
+    consumed = len(part) - len(stripped)
+    consumed = skip_attributes(part, consumed)
+    return part[consumed:]
 
 
 def emit_fn_record(records, kind_tag, path, header_txt):
@@ -247,22 +265,39 @@ ASSOC_TYPE_RE = re.compile(r"^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)")
 def scan_pub_fields(body: str, type_path: str, records: list) -> None:
     """R56: record public named fields of a public struct/union. Fields are
     comma-separated (not brace/semicolon terminated), so split on top-level
-    commas and match each part."""
+    commas and match each part.
+
+    R70: fields may lead with attributes (`#[cfg(unix)] pub retries: u32`) —
+    skip them before matching and record the whole normalized part so a
+    payload or cfg change surfaces."""
     for part in split_top_level_commas(body):
         part = part.strip()
         if not part:
             continue
-        m = FIELD_NAME_RE.match(part)
-        if m and not re.match(r"pub\(", part):
+        item = skip_leading_attributes(part).strip()
+        m = FIELD_NAME_RE.match(item)
+        if m and not re.match(r"pub\(", item):
             records.append(("field", f"{type_path}::{m.group(1)} {normalize(part)}"))
 
 
 def split_top_level_commas(body: str) -> list:
-    """Split a brace/bracket/angle-balanced body on top-level commas."""
+    """Split a brace/bracket/angle-balanced body on top-level commas.
+
+    R70: the `>` of a return arrow (`fn() -> u32`) is not a generic closer —
+    treating it as one pushed the depth negative and glued the following
+    variants onto the same part, losing records."""
     parts = []
     depth = 0
     current = []
-    for ch in body:
+    i = 0
+    n = len(body)
+    while i < n:
+        ch = body[i]
+        if ch == "-" and i + 1 < n and body[i + 1] == ">":
+            current.append(ch)
+            current.append(">")
+            i += 2
+            continue
         if ch in "([{<":
             depth += 1
         elif ch in ")]}>":
@@ -272,6 +307,7 @@ def split_top_level_commas(body: str) -> list:
             current = []
         else:
             current.append(ch)
+        i += 1
     if current:
         parts.append("".join(current))
     return parts
@@ -279,14 +315,19 @@ def split_top_level_commas(body: str) -> list:
 
 def scan_enum_variants(body: str, enum_path: str, records: list) -> None:
     """R56: record every variant name of a public enum (variants inherit the
-    enum's visibility)."""
+    enum's visibility).
+
+    R70: variants may lead with attributes and may carry payloads
+    (`Handler(fn() -> u32)`) — record the whole normalized part so renames,
+    payload changes, and attributed variants all surface."""
     for part in split_top_level_commas(body):
-        m = VARIANT_NAME_RE.match(part.strip())
+        item = skip_leading_attributes(part).strip()
+        m = VARIANT_NAME_RE.match(item)
         if m:
             name = m.group(1)
             if name in ("const", "static", "unsafe", "async"):
                 continue
-            records.append(("variant", f"{enum_path}::{name}"))
+            records.append(("variant", f"{enum_path}::{name} {normalize(part)}"))
 
 
 def scan_assoc_types(body: str, trait_path: str, records: list) -> None:
@@ -306,7 +347,9 @@ def scan_assoc_types(body: str, trait_path: str, records: list) -> None:
         header = body[header_start:hdr_end]
         m = ASSOC_TYPE_RE.match(header)
         if m:
-            records.append(("assoc", f"{trait_path}::{m.group(1)}"))
+            # R70: record the full header so bound changes
+            # (`type Item: Send` → `Sync`) surface, not just the name.
+            records.append(("assoc", f"{trait_path}::{m.group(1)} {normalize(header)}"))
         if kind == "{":
             i = find_block_end(body, hdr_end)
         else:

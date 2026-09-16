@@ -222,7 +222,7 @@ let agent = BaseAgent::builder()
 | 项 | 职责 |
 |------|------|
 | `scripts/ci-check-deps.sh` | CI 强制 crate 边界规则。Rule 17 = SDK 不得依赖 app/host。wasm-clean crate 集合必须通过 `wasm32-unknown-unknown`；native host 由 `alva-host-native` 承担，不要求 wasm-clean。 |
-| `scripts/public-surface.sh` | **公开符号快照闸**：`alva-kernel-abi` 与 `alva-agent-core` 的公开符号快照存于 `scripts/public-surface/`，CI 比对；对这两层公开表面的任何增删改都必须在同一个 commit 里显式更新快照。同时执行 `docs/REGISTRAR-RULES.md` 的 Registrar 准入规则（只增贡献方法，不增读取方法）。 |
+| `scripts/public-surface.sh` | **公开符号快照闸**：`alva-kernel-abi`、`alva-agent-abi` 与 `alva-agent-core` 的公开符号快照存于 `scripts/public-surface/`，CI 比对；对这两层公开表面的任何增删改都必须在同一个 commit 里显式更新快照。同时执行 `docs/REGISTRAR-RULES.md` 的 Registrar 准入规则（只增贡献方法，不增读取方法）。扫描器自身的回归 fixtures 在 `scripts/public-surface-regressions.py`（R70：属性项、变体 payload、关联类型 bounds、`->` 分割、堆叠属性均须可检测）。 |
 | `docs/BUS-RULES.md` | bus 防退化规则（防止退化为 God Object）。 |
 | `docs/ARCHITECTURE.md` | 三仓库架构设计：alva-sandbox + alva-agent + alva-app。 |
 | `docs/ALVA-HUB-V1.md` | 已接受、正在增量实现的 Hub Desktop V1 产品、fallback、Orca 协作与验收规范。 |

@@ -1,6 +1,11 @@
+enum	analytics::AnalyticsEvent
+enum	phase::Phase
+enum	phase::PhaseEffect
 enum	provider::types::ProviderError
 enum	scope::spawn::communication::SpawnCommError
 enum	scope::types::ScopeError
+enum	task::TaskStatus
+enum	task::TaskType
 field	scope::spawn::communication::SpawnCommContext::bus pub bus: Option<&'a BusHandle>
 field	scope::spawn::communication::SpawnCommContext::child_scope_id pub child_scope_id: &'a str
 field	scope::spawn::communication::SpawnCommContext::child_session_id pub child_session_id: &'a str
@@ -15,6 +20,7 @@ field	scope::spawn::communication::SpawnResult::text pub text: String
 field	scope::types::ChildScopeConfig::max_iterations pub max_iterations: Option<u32>
 field	scope::types::ChildScopeConfig::role pub role: String
 field	scope::types::ChildScopeConfig::system_prompt pub system_prompt: String
+field	scope::types::ChildScopeConfig::timeout #[serde(with = " ")] pub timeout: Option<Duration>
 field	scope::types::ScopeSnapshot::children_count pub children_count: usize
 field	scope::types::ScopeSnapshot::completed pub completed: bool
 field	scope::types::ScopeSnapshot::depth pub depth: u32
@@ -108,5 +114,65 @@ use	pub use task::{create_task_state, generate_task_id, TaskState, TaskStatus, T
 use	pub use token_estimation::{SimpleTokenEstimator, TokenEstimator}
 use	pub use types::*
 use	pub use types::*
-variant	scope::spawn::communication::SpawnCommError::AttachFailed
-variant	scope::spawn::communication::SpawnCommError::InvalidConfig
+variant	analytics::AnalyticsEvent::LlmCall LlmCall { session_id: String, provider: String, model: String, #[serde(default)] input_tokens: u32, #[serde(default)] output_tokens: u32, #[serde(default)] cache_read: u32, #[serde(default)] cache_write: u32, #[serde(default)] cost_usd: f64, latency_ms: u64, ts: SystemTime, }
+variant	analytics::AnalyticsEvent::SessionEnd SessionEnd { session_id: String, duration_ms: u64, ts: SystemTime, }
+variant	analytics::AnalyticsEvent::SessionStart SessionStart { session_id: String, workspace: PathBuf, ts: SystemTime, }
+variant	analytics::AnalyticsEvent::ToolCallEnd ToolCallEnd { session_id: String, tool: String, call_id: String, latency_ms: u64, ok: bool, #[serde(default, skip_serializing_if = " ")] error: Option<String>, ts: SystemTime, }
+variant	analytics::AnalyticsEvent::ToolCallStart ToolCallStart { session_id: String, tool: String, call_id: String, ts: SystemTime, }
+variant	phase::Phase::AfterLlmCall AfterLlmCall
+variant	phase::Phase::AfterToolCall AfterToolCall
+variant	phase::Phase::AfterTurn AfterTurn
+variant	phase::Phase::AroundLlmCall AroundLlmCall
+variant	phase::Phase::AroundToolCall AroundToolCall
+variant	phase::Phase::AssistantCommitted AssistantCommitted
+variant	phase::Phase::BeforeLlmCall BeforeLlmCall
+variant	phase::Phase::BeforeToolCall BeforeToolCall
+variant	phase::Phase::InputCommitted InputCommitted
+variant	phase::Phase::IterationEnd IterationEnd
+variant	phase::Phase::IterationStart IterationStart
+variant	phase::Phase::LlmCallEnd LlmCallEnd
+variant	phase::Phase::LlmCallStart LlmCallStart
+variant	phase::Phase::PrepareLlmRequest PrepareLlmRequest
+variant	phase::Phase::RunEnd RunEnd
+variant	phase::Phase::RunStart RunStart
+variant	phase::Phase::ToolBatchDeclared ToolBatchDeclared
+variant	phase::Phase::ToolBatchEnd ToolBatchEnd
+variant	phase::Phase::ToolBatchPlanned ToolBatchPlanned
+variant	phase::Phase::ToolResultCommitted ToolResultCommitted
+variant	phase::Phase::ToolUseDeclared ToolUseDeclared
+variant	phase::PhaseEffect::Decide Decide
+variant	phase::PhaseEffect::Mutate Mutate
+variant	phase::PhaseEffect::Observe Observe
+variant	phase::PhaseEffect::Wrap Wrap
+variant	provider::types::ProviderError::ApiCall #[error(" ")] ApiCall { message: String, url: String, status_code: Option<u16>, response_body: Option<String>, is_retryable: bool, }
+variant	provider::types::ProviderError::EmptyResponseBody #[error(" ")] EmptyResponseBody
+variant	provider::types::ProviderError::InvalidArgument #[error(" ")] InvalidArgument { argument: String, message: String }
+variant	provider::types::ProviderError::InvalidPrompt #[error(" ")] InvalidPrompt { message: String }
+variant	provider::types::ProviderError::InvalidResponseData #[error(" ")] InvalidResponseData { message: String }
+variant	provider::types::ProviderError::JsonParse #[error(" ")] JsonParse { message: String, text: String }
+variant	provider::types::ProviderError::LoadApiKey #[error(" ")] LoadApiKey { message: String }
+variant	provider::types::ProviderError::LoadSetting #[error(" ")] LoadSetting { message: String }
+variant	provider::types::ProviderError::Network #[error(" ")] Network(String)
+variant	provider::types::ProviderError::NoContentGenerated #[error(" ")] NoContentGenerated
+variant	provider::types::ProviderError::NoSuchModel #[error(" ")] NoSuchModel { model_id: String, model_type: String, }
+variant	provider::types::ProviderError::RateLimited #[error(" ")] RateLimited { retry_after_ms: Option<u64> }
+variant	provider::types::ProviderError::TooManyEmbeddingValues #[error(" ")] TooManyEmbeddingValues { count: usize, max: usize }
+variant	provider::types::ProviderError::TypeValidation #[error(" ")] TypeValidation { message: String }
+variant	provider::types::ProviderError::UnsupportedFunctionality #[error(" ")] UnsupportedFunctionality(String)
+variant	scope::spawn::communication::SpawnCommError::AttachFailed AttachFailed(String)
+variant	scope::spawn::communication::SpawnCommError::InvalidConfig InvalidConfig(String)
+variant	scope::types::ScopeError::BudgetExceeded #[error(" ")] BudgetExceeded { reason: String }
+variant	scope::types::ScopeError::DepthExceeded #[error(" ")] DepthExceeded { current: u32, max: u32 }
+variant	scope::types::ScopeError::Other #[error(" ")] Other(String)
+variant	task::TaskStatus::Completed Completed
+variant	task::TaskStatus::Failed Failed
+variant	task::TaskStatus::Killed Killed
+variant	task::TaskStatus::Pending Pending
+variant	task::TaskStatus::Running Running
+variant	task::TaskType::Dream Dream
+variant	task::TaskType::InProcessTeammate InProcessTeammate
+variant	task::TaskType::LocalAgent LocalAgent
+variant	task::TaskType::LocalBash LocalBash
+variant	task::TaskType::LocalWorkflow LocalWorkflow
+variant	task::TaskType::MonitorMcp MonitorMcp
+variant	task::TaskType::RemoteAgent RemoteAgent

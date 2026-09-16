@@ -15,6 +15,7 @@ const	constants::POLICY_LIMITS_POLL_INTERVAL_SECS const POLICY_LIMITS_POLL_INTER
 const	constants::RATE_LIMIT_WINDOW_HOURS const RATE_LIMIT_WINDOW_HOURS: u64 = 5
 const	constants::WEB_FETCH_CACHE_TTL_SECS const WEB_FETCH_CACHE_TTL_SECS: u64 = 900
 const	session_record::SESSION_RECORD_SCHEMA_VERSION const SESSION_RECORD_SCHEMA_VERSION: u32 = 1
+enum	agent_session::EmitterKind
 enum	agent_session::SessionError
 enum	base::error::AgentError
 enum	scope::context::error::ContextError
@@ -26,6 +27,10 @@ enum	scope::context::types::InjectionContent
 enum	scope::context::types::MemoryCategory
 enum	scope::context::types::MessageSelector
 enum	scope::context::types::Priority
+enum	session_record::ExecutionRecord
+enum	session_record::RecordCategory
+enum	session_record::RecordValue
+enum	session_record::SessionRecordPayload
 enum	tool::scheduler::ExecutionMode
 enum	tool::scheduler::LockMode
 field	agent_session::ComponentDescriptor::id pub id: String
@@ -44,6 +49,7 @@ field	agent_session::EventQuery::role pub role: Option<String>
 field	agent_session::EventQuery::text_contains pub text_contains: Option<String>
 field	agent_session::SessionEvent::data pub data: Option<serde_json::Value>
 field	agent_session::SessionEvent::emitter pub emitter: EventEmitter
+field	agent_session::SessionEvent::event_type #[serde(rename = " ")] pub event_type: String
 field	agent_session::SessionEvent::message pub message: Option<SessionMessage>
 field	agent_session::SessionEvent::parent_uuid pub parent_uuid: Option<String>
 field	agent_session::SessionEvent::seq pub seq: u64
@@ -54,6 +60,16 @@ field	agent_session::SessionMessage::role pub role: String
 field	model::CompletionResponse::message pub message: Message
 field	model::CompletionResponse::raw pub raw: Option<serde_json::Value>
 field	model::HeuristicTokenCounter::context_window_size pub context_window_size: usize
+field	scope::context::events::ContextCompacted::agent_id pub agent_id: String
+field	scope::context::events::ContextCompacted::strategy pub strategy: String
+field	scope::context::events::ContextCompacted::tokens_after pub tokens_after: usize
+field	scope::context::events::ContextCompacted::tokens_before pub tokens_before: usize
+field	scope::context::events::MemoryExtracted::agent_id pub agent_id: String
+field	scope::context::events::MemoryExtracted::fact_count pub fact_count: usize
+field	scope::context::events::TokenBudgetExceeded::agent_id pub agent_id: String
+field	scope::context::events::TokenBudgetExceeded::budget_tokens pub budget_tokens: usize
+field	scope::context::events::TokenBudgetExceeded::usage_ratio pub usage_ratio: f32
+field	scope::context::events::TokenBudgetExceeded::used_tokens pub used_tokens: usize
 field	scope::context::types::BudgetInfo::budget_tokens pub budget_tokens: usize
 field	scope::context::types::BudgetInfo::model_window pub model_window: usize
 field	scope::context::types::BudgetInfo::remaining_tokens pub remaining_tokens: usize
@@ -125,6 +141,7 @@ field	session_record::BlobReference::preview pub preview: String
 field	session_record::BlobReference::sha256 pub sha256: String
 field	session_record::BlobReference::size_bytes pub size_bytes: u64
 field	session_record::ConversationRecord::agent_message pub agent_message: Option<AgentMessage>
+field	session_record::ConversationRecord::agent_message_blob #[serde(default, skip_serializing_if = " ")] pub agent_message_blob: Option<BlobReference>
 field	session_record::ConversationRecord::content pub content: RecordValue
 field	session_record::ConversationRecord::parent_entry_id pub parent_entry_id: Option<String>
 field	session_record::ConversationRecord::role pub role: String
@@ -270,6 +287,9 @@ struct	model::CompletionResponse
 struct	model::HeuristicTokenCounter
 struct	runtime::NoopSleeper
 struct	runtime::TimeoutError
+struct	scope::context::events::ContextCompacted
+struct	scope::context::events::MemoryExtracted
+struct	scope::context::events::TokenBudgetExceeded
 struct	scope::context::noop::NoopContextHandle
 struct	scope::context::noop::NoopContextHooks
 struct	scope::context::system::ContextSystem
@@ -444,43 +464,75 @@ use	pub use tool::{ tool_definition, EffectDescription, Tool, ToolCall, ToolDefi
 use	pub use traits::*
 use	pub use types::*
 use	pub use types::{ tool_definition, EffectDescription, Tool, ToolCall, ToolDefinition, ToolFs, ToolFsDirEntry, ToolFsExecResult, ToolRegistry, }
-variant	scope::context::types::CompressAction::Externalize
-variant	scope::context::types::CompressAction::RemoveByPriority
-variant	scope::context::types::CompressAction::ReplaceToolResult
-variant	scope::context::types::CompressAction::SlidingWindow
-variant	scope::context::types::CompressAction::Summarize
-variant	scope::context::types::ContextLayer::AlwaysPresent
-variant	scope::context::types::ContextLayer::Memory
-variant	scope::context::types::ContextLayer::OnDemand
-variant	scope::context::types::ContextLayer::RuntimeInject
-variant	scope::context::types::EntryOrigin::Model
-variant	scope::context::types::EntryOrigin::Plugin
-variant	scope::context::types::EntryOrigin::SubAgent
-variant	scope::context::types::EntryOrigin::System
-variant	scope::context::types::EntryOrigin::Tool
-variant	scope::context::types::EntryOrigin::User
-variant	scope::context::types::IngestAction::Keep
-variant	scope::context::types::IngestAction::Modify
-variant	scope::context::types::IngestAction::Skip
-variant	scope::context::types::InjectionContent::Memory
-variant	scope::context::types::InjectionContent::Message
-variant	scope::context::types::InjectionContent::RuntimeContext
-variant	scope::context::types::InjectionContent::Skill
-variant	scope::context::types::InjectionContent::SystemPrompt
-variant	scope::context::types::MemoryCategory::Constraint
-variant	scope::context::types::MemoryCategory::ProjectContext
-variant	scope::context::types::MemoryCategory::TaskPattern
-variant	scope::context::types::MemoryCategory::UserPreference
-variant	scope::context::types::MemoryCategory::UserProfile
-variant	scope::context::types::MessageSelector::ById
-variant	scope::context::types::MessageSelector::ByIndex
-variant	scope::context::types::MessageSelector::FromStart
-variant	scope::context::types::MessageSelector::ToEnd
-variant	scope::context::types::Priority::Critical
-variant	scope::context::types::Priority::Disposable
-variant	scope::context::types::Priority::High
-variant	scope::context::types::Priority::Low
-variant	tool::scheduler::ExecutionMode::Coordinator
-variant	tool::scheduler::ExecutionMode::SerialGlobal
-variant	tool::scheduler::LockMode::Read
-variant	tool::scheduler::LockMode::Write
+variant	agent_session::EmitterKind::Extension Extension
+variant	agent_session::EmitterKind::Middleware Middleware
+variant	agent_session::EmitterKind::Other Other(String)
+variant	agent_session::EmitterKind::Runtime Runtime
+variant	agent_session::EmitterKind::Tool Tool
+variant	agent_session::SessionError::Io #[error(" ")] Io(#[from] std::io::Error)
+variant	agent_session::SessionError::NotFound #[error(" ")] NotFound(String)
+variant	agent_session::SessionError::Other #[error(" ")] Other(String)
+variant	agent_session::SessionError::Serialization #[error(" ")] Serialization(#[from] serde_json::Error)
+variant	base::error::AgentError::Cancelled #[error(" ")] Cancelled
+variant	base::error::AgentError::ConfigError #[error(" ")] ConfigError(String)
+variant	base::error::AgentError::LlmError #[error(" ")] LlmError(String)
+variant	base::error::AgentError::MaxIterations #[error(" ")] MaxIterations(u32)
+variant	base::error::AgentError::Other #[error(" ")] Other(String)
+variant	base::error::AgentError::Session #[error(" ")] Session(#[from] crate::agent_session::SessionError)
+variant	base::error::AgentError::ToolError #[error(" ")] ToolError { tool_name: String, message: String }
+variant	scope::context::error::ContextError::Other #[error(" ")] Other(String)
+variant	scope::context::types::CompressAction::Externalize Externalize { range: MessageRange, path: String, }
+variant	scope::context::types::CompressAction::RemoveByPriority RemoveByPriority { priority: Priority, }
+variant	scope::context::types::CompressAction::ReplaceToolResult ReplaceToolResult { message_id: String, summary: String, }
+variant	scope::context::types::CompressAction::SlidingWindow SlidingWindow { keep_recent: usize, }
+variant	scope::context::types::CompressAction::Summarize Summarize { range: MessageRange, hints: Vec<String>, }
+variant	scope::context::types::ContextLayer::AlwaysPresent AlwaysPresent
+variant	scope::context::types::ContextLayer::Memory Memory
+variant	scope::context::types::ContextLayer::OnDemand OnDemand
+variant	scope::context::types::ContextLayer::RuntimeInject RuntimeInject
+variant	scope::context::types::EntryOrigin::Model Model
+variant	scope::context::types::EntryOrigin::Plugin Plugin { plugin_name: String }
+variant	scope::context::types::EntryOrigin::SubAgent SubAgent { agent_id: String }
+variant	scope::context::types::EntryOrigin::System System
+variant	scope::context::types::EntryOrigin::Tool Tool { tool_name: String }
+variant	scope::context::types::EntryOrigin::User User
+variant	scope::context::types::IngestAction::Keep Keep
+variant	scope::context::types::IngestAction::Modify Modify { message: AgentMessage, priority: Option<Priority>, }
+variant	scope::context::types::IngestAction::Skip Skip
+variant	scope::context::types::InjectionContent::Memory Memory(Vec<MemoryFact>)
+variant	scope::context::types::InjectionContent::Message Message(AgentMessage)
+variant	scope::context::types::InjectionContent::RuntimeContext RuntimeContext(String)
+variant	scope::context::types::InjectionContent::Skill Skill { name: String, content: String }
+variant	scope::context::types::InjectionContent::SystemPrompt SystemPrompt(PromptSection)
+variant	scope::context::types::MemoryCategory::Constraint Constraint
+variant	scope::context::types::MemoryCategory::ProjectContext ProjectContext
+variant	scope::context::types::MemoryCategory::TaskPattern TaskPattern
+variant	scope::context::types::MemoryCategory::UserPreference UserPreference
+variant	scope::context::types::MemoryCategory::UserProfile UserProfile
+variant	scope::context::types::MessageSelector::ById ById(String)
+variant	scope::context::types::MessageSelector::ByIndex ByIndex(usize)
+variant	scope::context::types::MessageSelector::FromStart FromStart
+variant	scope::context::types::MessageSelector::ToEnd ToEnd
+variant	scope::context::types::Priority::Critical Critical = 4
+variant	scope::context::types::Priority::Disposable Disposable = 0
+variant	scope::context::types::Priority::High High = 3
+variant	scope::context::types::Priority::Low Low = 1
+variant	scope::context::types::Priority::Normal #[default] Normal = 2
+variant	session_record::ExecutionRecord::ChildSessionLinked ChildSessionLinked { child_session_id: String, parent_run_id: String, spawn_tool_call_id: String, }
+variant	session_record::ExecutionRecord::ConversationHeadMoved ConversationHeadMoved { entry_id: String, }
+variant	session_record::ExecutionRecord::Event Event { data: serde_json::Value, }
+variant	session_record::ExecutionRecord::Intent Intent { operation_id: String, operation: String, input: RecordValue, }
+variant	session_record::ExecutionRecord::Outcome Outcome { operation_id: String, success: bool, output: RecordValue, }
+variant	session_record::RecordCategory::Conversation Conversation
+variant	session_record::RecordCategory::Execution Execution
+variant	session_record::RecordCategory::Extension Extension
+variant	session_record::RecordValue::Blob Blob { reference: BlobReference }
+variant	session_record::RecordValue::Inline Inline { value: serde_json::Value }
+variant	session_record::SessionRecordPayload::Conversation Conversation(ConversationRecord)
+variant	session_record::SessionRecordPayload::Execution Execution(ExecutionRecord)
+variant	session_record::SessionRecordPayload::Extension Extension(ExtensionRecord)
+variant	tool::scheduler::ExecutionMode::Coordinator Coordinator
+variant	tool::scheduler::ExecutionMode::Parallel #[default] Parallel
+variant	tool::scheduler::ExecutionMode::SerialGlobal SerialGlobal
+variant	tool::scheduler::LockMode::Read Read
+variant	tool::scheduler::LockMode::Write Write
