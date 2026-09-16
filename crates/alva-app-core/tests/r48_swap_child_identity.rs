@@ -7,7 +7,7 @@
 
 use alva_app_core::extension::{SubAgentPlugin, ToolLockRegistryPlugin};
 use alva_kernel_abi::{
-    LanguageModel, Message, ModelConfig, StreamEvent,
+    ConversationLog, LanguageModel, Message, ModelConfig, StreamEvent,
 };
 use alva_test::{
     assertions::collect_events,
@@ -42,7 +42,9 @@ impl GatedSpawnModel {
             // 2. child's answer (delivered after the gate releases).
             .with_response(make_assistant_message("child done"))
             // 3. parent's answer after the child returned.
-            .with_response(make_assistant_message("parent done"));
+            .with_response(make_assistant_message("parent done"))
+            // 4. the SECOND root turn, run on the swapped-in session.
+            .with_response(make_assistant_message("second turn done"));
         let child_entered = Arc::new(Semaphore::new(0));
         let child_release = Arc::new(Semaphore::new(0));
         (
@@ -105,14 +107,164 @@ impl LanguageModel for GatedSpawnModel {
     }
 }
 
+
+/// R71: root session wrapper that CAPTURES the child sessions created through
+/// the spawn machinery, so the test can query the child's own identity and
+/// follow-up records instead of only the parent-side link.
+struct ChildCaptureSession {
+    inner: Arc<alva_agent_core::agent_session::ListenableInMemorySession>,
+    children: Arc<std::sync::Mutex<Vec<std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>>>>,
+}
+
+impl ChildCaptureSession {
+    fn new() -> (
+        Arc<Self>,
+        Arc<std::sync::Mutex<Vec<std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>>>>,
+    ) {
+        let children: Arc<std::sync::Mutex<Vec<std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        (
+            Arc::new(Self {
+                inner: Arc::new(alva_agent_core::agent_session::ListenableInMemorySession::new()),
+                children: children.clone(),
+            }),
+            children,
+        )
+    }
+}
+
+#[async_trait::async_trait]
+impl alva_kernel_abi::ConversationLog for ChildCaptureSession {
+    fn session_id(&self) -> &str {
+        self.inner.session_id()
+    }
+    async fn messages(&self) -> Result<Vec<alva_kernel_abi::AgentMessage>, alva_kernel_abi::SessionError> {
+        self.inner.messages().await
+    }
+    async fn recent_messages(
+        &self,
+        n: usize,
+    ) -> Result<Vec<alva_kernel_abi::AgentMessage>, alva_kernel_abi::SessionError> {
+        self.inner.recent_messages(n).await
+    }
+    async fn append_message(
+        &self,
+        msg: alva_kernel_abi::AgentMessage,
+        parent_uuid: Option<String>,
+    ) -> Result<(), alva_kernel_abi::SessionError> {
+        self.inner.append_message(msg, parent_uuid).await
+    }
+    async fn append(&self, event: alva_kernel_abi::SessionEvent) -> Result<(), alva_kernel_abi::SessionError> {
+        self.inner.append(event).await
+    }
+    async fn append_records(
+        &self,
+        records: Vec<alva_kernel_abi::SessionRecord>,
+    ) -> Result<alva_kernel_abi::AppendReceipt, alva_kernel_abi::SessionError> {
+        self.inner.append_records(records).await
+    }
+    fn supports_atomic_records(&self) -> bool {
+        self.inner.supports_atomic_records()
+    }
+    async fn flush(&self) -> Result<(), alva_kernel_abi::SessionError> {
+        self.inner.flush().await
+    }
+}
+
+#[async_trait::async_trait]
+impl alva_kernel_abi::SessionStore for ChildCaptureSession {
+    fn parent_session_id(&self) -> Option<&str> {
+        self.inner.parent_session_id()
+    }
+    async fn create_child_session(
+        &self,
+        parent_run_id: &str,
+        spawn_tool_call_id: &str,
+    ) -> Result<Option<std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession>>, alva_kernel_abi::SessionError> {
+        let child: std::sync::Arc<dyn alva_kernel_abi::agent_session::AgentSession> =
+            std::sync::Arc::new(alva_agent_core::agent_session::ListenableInMemorySession::with_parent(
+                self.inner.session_id(),
+            ));
+        self.children.lock().unwrap().push(child.clone());
+        let link = alva_kernel_abi::SessionRecord::execution(
+            "child_session_linked",
+            alva_kernel_abi::EventEmitter::runtime(),
+            alva_kernel_abi::ExecutionRecord::ChildSessionLinked {
+                child_session_id: child.session_id().to_string(),
+                parent_run_id: parent_run_id.to_string(),
+                spawn_tool_call_id: spawn_tool_call_id.to_string(),
+            },
+        );
+        self.inner.append_records(vec![link]).await?;
+        Ok(Some(child))
+    }
+    async fn query(&self, filter: &alva_kernel_abi::EventQuery) -> Vec<alva_kernel_abi::EventMatch> {
+        self.inner.query(filter).await
+    }
+    async fn records(&self, from_seq: u64) -> Vec<alva_kernel_abi::SessionRecord> {
+        // 委托 typed 投影——默认实现经事件重建会把 ChildSessionLinked
+        // 降级为通用形态。
+        self.inner.records(from_seq).await
+    }
+    async fn count(&self, filter: &alva_kernel_abi::EventQuery) -> usize {
+        self.inner.count(filter).await
+    }
+    async fn rollback_after(&self, uuid: &str) -> usize {
+        self.inner.rollback_after(uuid).await
+    }
+    async fn save_snapshot(&self, data: &[u8]) {
+        self.inner.save_snapshot(data).await
+    }
+    async fn load_snapshot(&self) -> Option<Vec<u8>> {
+        self.inner.load_snapshot().await
+    }
+    async fn restore(&self) -> Result<(), alva_kernel_abi::SessionError> {
+        self.inner.restore().await
+    }
+    async fn close(&self) -> Result<(), alva_kernel_abi::SessionError> {
+        self.inner.close().await
+    }
+    async fn clear(&self) -> Result<(), alva_kernel_abi::SessionError> {
+        self.inner.clear().await
+    }
+    async fn compact_messages(&self, replacement: Vec<alva_kernel_abi::AgentMessage>) {
+        self.inner.compact_messages(replacement).await
+    }
+}
+
+impl alva_kernel_abi::agent_session::AgentSession for ChildCaptureSession {}
+
+
+/// Flatten an AgentMessage list into comparable text.
+fn agent_message_text(messages: &[alva_kernel_abi::AgentMessage]) -> String {
+    messages
+        .iter()
+        .map(|message| match message {
+            alva_kernel_abi::AgentMessage::Standard(message) => message
+                .content
+                .iter()
+                .map(|block| match block {
+                    alva_kernel_abi::ContentBlock::Text { text, .. } => text.clone(),
+                    other => format!("{other:?}"),
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+            other => format!("{other:?}"),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn root_swap_during_a_running_child_preserves_child_identity() {
     let tmp = tempfile::tempdir().unwrap();
     let (model, child_entered, child_release) = GatedSpawnModel::new();
     let registry = Arc::new(alva_agent_core::ToolLockRegistry::new());
+    let (root_session, captured_children) = ChildCaptureSession::new();
     let agent = Arc::new(
         alva_app_core::BaseAgent::builder()
             .workspace(tmp.path())
+            .session(root_session)
             .plugin(Box::new(ToolLockRegistryPlugin::with_registry(registry)))
             .plugin(Box::new(SubAgentPlugin::new(3, Duration::from_secs(10))))
             .max_iterations(6)
@@ -146,10 +298,27 @@ async fn root_swap_during_a_running_child_preserves_child_identity() {
         alva_agent_core::agent_session::InMemoryAgentSession::with_id("session-b".into()),
     );
     let session_b_id = session_b.session_id().to_string();
-    let swap_task = {
+    let (swap_started_tx, swap_started_rx) = tokio::sync::oneshot::channel::<()>();
+    let mut swap_task = {
         let agent = agent.clone();
-        tokio::spawn(async move { agent.swap_session(session_b).await })
+        tokio::spawn(async move {
+            // R71: 握手——swap future 已开始执行。父轮此刻仍持有 state 锁
+            // （child 尚未放行），swap 只能停在该锁上等待。
+            let _ = swap_started_tx.send(());
+            agent.swap_session(session_b).await
+        })
     };
+    tokio::time::timeout(Duration::from_secs(2), swap_started_rx)
+        .await
+        .expect("swap task must start")
+        .expect("swap handshake must be received");
+    // R71: 确定性负向 gate——child 未结束（父轮未释放状态）期间 swap
+    // 不得落地；过早落地的坏实现会在此处让 timeout 返回 Ok。
+    let premature = tokio::time::timeout(Duration::from_millis(200), &mut swap_task).await;
+    assert!(
+        premature.is_err(),
+        "swap must not complete while the root turn is still running"
+    );
 
     // Release the child; the parent finishes; the swap then lands.
     child_release.add_permits(1);
@@ -219,5 +388,66 @@ async fn root_swap_during_a_running_child_preserves_child_identity() {
                 )
             )),
         "the swapped-in session must not inherit the child link: {b_records:?}"
+    );
+
+    // R71: query the CHILD's own session — identity (parent id) and its
+    // follow-up log, not just the parent-side link.
+    let children = captured_children.lock().unwrap().clone();
+    assert_eq!(children.len(), 1, "exactly one child must have been spawned");
+    let child = children[0].clone();
+    assert_eq!(
+        child.parent_session_id(),
+        Some(original_id.as_str()),
+        "the child session must record the ORIGINAL root as its parent"
+    );
+    let child_messages = child.recent_messages(10).await.unwrap();
+    let child_text = agent_message_text(&child_messages);
+    assert!(
+        child_text.contains("child done"),
+        "the child session must carry the child's own answer: {child_text}"
+    );
+
+    // R71: the next root turn REALLY runs — and lands on the swapped-in
+    // session, not the original one.
+    let turn2 = {
+        let agent = agent.clone();
+        tokio::spawn(async move {
+            collect_events(agent.prompt_text("second turn follow-up").await).await
+        })
+    };
+    let events2 = tokio::time::timeout(Duration::from_secs(10), turn2)
+        .await
+        .expect("second root turn must finish")
+        .expect("second turn task must not panic");
+    assert!(
+        events2
+            .iter()
+            .any(|e| matches!(e, alva_kernel_core::AgentEvent::AgentEnd { error: None })),
+        "second root turn must finish cleanly: {events2:?}"
+    );
+    let b_messages = agent
+        .session_handle()
+        .await
+        .recent_messages(10)
+        .await
+        .unwrap();
+    let b_text = agent_message_text(&b_messages);
+    assert!(
+        b_text.contains("second turn follow-up"),
+        "the post-swap turn must write to the swapped-in session: {b_text}"
+    );
+    let original_messages = original.recent_messages(10).await.unwrap();
+    let original_text = agent_message_text(&original_messages);
+    assert!(
+        original_text.contains("spawn a worker"),
+        "the original session must still carry the first turn: {original_text}"
+    );
+    assert!(
+        !original_text.contains("second turn follow-up"),
+        "the original session must NOT receive the post-swap turn"
+    );
+    assert!(
+        !child_text.contains("second turn follow-up"),
+        "the child session must NOT receive post-swap root traffic"
     );
 }
