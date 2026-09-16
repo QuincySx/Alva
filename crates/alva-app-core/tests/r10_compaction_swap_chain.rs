@@ -1,7 +1,9 @@
-// INPUT: BaseAgent + real CompactionMiddleware, scripted model, three InMemoryAgentSessions
+// INPUT: BaseAgent + real CompactionMiddleware, scripted model; A is the builder's default
+//        session (the real first-turn session), B/C are fresh InMemoryAgentSessions
 // OUTPUT: R10 combination evidence — across an A→B→C→B swap chain the compaction marker,
 //         the rewritten message projection and the durable records land in the session that is
-//         CURRENT when compaction fires (B on the way back), never in a stale one
+//         CURRENT when compaction fires (B on the way back), never in a stale one; A provably
+//         carries the real first turn and stays uncontaminated
 // POS:    Session-switch × compaction combination test (R48's R10 supplement). The middleware
 //         captures the PersistentSessions narrow capability once at configure time and must
 //         resolve the CURRENT session on every write — this test pins that property end to end.
@@ -123,9 +125,11 @@ async fn compaction_across_swap_chain_lands_in_the_current_session() {
             .unwrap(),
     );
 
-    let session_a: Arc<dyn alva_kernel_abi::agent_session::AgentSession> = Arc::new(
-        alva_agent_core::agent_session::InMemoryAgentSession::with_id("r10-a".into()),
-    );
+    // A is the agent's REAL first-turn session (the builder's default), not
+    // an empty bystander: bind it before turn one so the no-pollution checks
+    // at the end are meaningful (a fresh empty session would pass them
+    // vacuously).
+    let session_a = agent.session_handle().await;
     let session_b: Arc<dyn alva_kernel_abi::agent_session::AgentSession> = Arc::new(
         alva_agent_core::agent_session::InMemoryAgentSession::with_id("r10-b".into()),
     );
@@ -178,6 +182,28 @@ async fn compaction_across_swap_chain_lands_in_the_current_session() {
     );
 
     let query = EventQuery::default();
+    // A is bound to the real first-turn session: first PROVE it carries the
+    // first turn (otherwise the no-pollution assertions below would be
+    // vacuously true on an empty session), THEN assert it carries neither
+    // the compaction marker nor B's rewritten summary.
+    let a_texts: Vec<String> = session_a
+        .messages()
+        .await
+        .unwrap()
+        .iter()
+        .map(|m: &AgentMessage| match m {
+            AgentMessage::Standard(m) => m.text_content(),
+            _ => String::new(),
+        })
+        .collect();
+    assert!(
+        a_texts.iter().any(|t| t.contains("turn one in A")),
+        "A must carry the real first-turn user message: {a_texts:?}"
+    );
+    assert!(
+        a_texts.iter().any(|t| t.contains("reply-0")),
+        "A must carry the real first-turn assistant reply: {a_texts:?}"
+    );
     for (label, stale) in [("A", &session_a), ("C", &session_c)] {
         let matches = stale.query(&query).await;
         assert!(
@@ -191,6 +217,12 @@ async fn compaction_across_swap_chain_lands_in_the_current_session() {
         compaction_markers(session_a.as_ref()),
         0,
         "A must be untouched"
+    );
+    assert!(
+        !a_texts
+            .iter()
+            .any(|text| text.contains("B-history-summary")),
+        "A must not receive B's rewritten projection: {a_texts:?}"
     );
     assert_eq!(
         compaction_markers(session_c.as_ref()),
