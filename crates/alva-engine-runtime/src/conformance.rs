@@ -79,6 +79,20 @@ pub fn assert_conforms_events(events: &[RuntimeEvent], scenario: Scenario) {
                 matches!(events.last(), Some(RuntimeEvent::Completed { .. })),
                 "Normal must end with Completed: {events:#?}"
             );
+            // R83: a fatal Error means the engine FAILED. A failed stream —
+            // even one that closes with the terminal pair — is an outage
+            // sample, not a normal completion, and must not pass this gate.
+            // Recoverable (non-fatal) errors may legitimately appear mid-run.
+            assert!(
+                !events.iter().any(|event| matches!(
+                    event,
+                    RuntimeEvent::Error {
+                        recoverable: false,
+                        ..
+                    }
+                )),
+                "Normal must not contain a fatal Error: {events:#?}"
+            );
         }
         Scenario::SpawnFailure => {
             assert_eq!(
@@ -223,5 +237,48 @@ mod mutation {
             usage: None,
         };
         assert_conforms_events(&[started(), success], Scenario::OutputAfterFatal);
+    }
+
+    // R83: Normal must reject failure streams — a fatal Error followed by
+    // the terminal pair is an outage, not a normal completion.
+    #[test]
+    #[should_panic(expected = "Normal must not contain a fatal Error")]
+    fn normal_with_fatal_is_rejected() {
+        let fatal = RuntimeEvent::Error {
+            message: "upstream exploded".into(),
+            recoverable: false,
+        };
+        assert_conforms_events(&[started(), fatal, completed_none()], Scenario::Normal);
+    }
+
+    #[test]
+    #[should_panic(expected = "Normal must not contain a fatal Error")]
+    fn normal_with_fatal_then_success_result_is_rejected() {
+        let fatal = RuntimeEvent::Error {
+            message: "upstream exploded".into(),
+            recoverable: false,
+        };
+        let success = RuntimeEvent::Completed {
+            session_id: "mutation".into(),
+            result: Some("finished".into()),
+            usage: None,
+        };
+        assert_conforms_events(&[started(), fatal, success], Scenario::Normal);
+    }
+
+    #[test]
+    fn normal_with_recoverable_error_still_passes() {
+        // Control for the two mutations above: recoverable (non-fatal)
+        // errors legitimately appear mid-run and must not disqualify a
+        // normal completion. Also pins that a textless success (result None,
+        // no fatal) stays a valid Normal sample.
+        let recoverable = RuntimeEvent::Error {
+            message: "tool hiccup".into(),
+            recoverable: true,
+        };
+        assert_conforms_events(
+            &[started(), recoverable, completed_none()],
+            Scenario::Normal,
+        );
     }
 }

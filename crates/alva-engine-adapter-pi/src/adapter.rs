@@ -407,7 +407,7 @@ sleep 600
     mod conformance {
         use super::*;
         use alva_engine_runtime::{
-            assert_conforms, assert_conforms_events, RuntimeRequest, Scenario,
+            assert_conforms, assert_conforms_events, collect_stream, RuntimeRequest, Scenario,
         };
         use std::time::Duration;
 
@@ -420,14 +420,28 @@ sleep 600
                 r#"#!/bin/sh
 printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
 printf '%s\n' '{"type":"message_start","message":{"role":"assistant","id":"m1"}}'
-printf '%s\n' '{"type":"message_end","message":{"role":"assistant","id":"m1","stopReason":"end","content":[{"type":"text","text":"two plus two is four"}],"usage":{"input":1,"output":1,"cost":{"total":0.001}}}'"#,
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","id":"m1","stopReason":"end","content":[{"type":"text","text":"two plus two is four"}],"usage":{"input":1,"output":1,"cost":{"total":0.001}}}}'
+printf '%s\n' '{"type":"agent_end","willRetry":false}'"#,
             );
-            assert_conforms(
-                &pi_adapter(executable),
-                RuntimeRequest::new("hi"),
-                Scenario::Normal,
-            )
-            .await;
+            // R83: the fixture ends with the engine's REAL whole-turn
+            // terminal (agent_end, no retry pending) and a known answer, so
+            // the harness plus a body/usage assertion pin that a normal run
+            // keeps both.
+            let events = collect_stream(&pi_adapter(executable), RuntimeRequest::new("hi"))
+                .await
+                .expect("normal pi run must stream");
+            assert_conforms_events(&events, Scenario::Normal);
+            let completed = events.iter().find_map(|event| match event {
+                RuntimeEvent::Completed { result, usage, .. } => {
+                    Some((result.clone(), usage.clone()))
+                }
+                _ => None,
+            });
+            let (result, usage) = completed.expect("Normal must end with Completed");
+            assert_eq!(result.as_deref(), Some("two plus two is four"));
+            let usage = usage.expect("pi message_end carries usage");
+            assert_eq!(usage.input_tokens, 1);
+            assert_eq!(usage.output_tokens, 1);
         }
 
         #[tokio::test]

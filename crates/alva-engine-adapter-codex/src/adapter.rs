@@ -461,7 +461,9 @@ sleep 600
     #[cfg(unix)]
     mod conformance {
         use super::*;
-        use alva_engine_runtime::{assert_conforms, RuntimeRequest, Scenario};
+        use alva_engine_runtime::{
+            assert_conforms, assert_conforms_events, collect_stream, RuntimeRequest, Scenario,
+        };
 
         #[tokio::test]
         async fn normal_run_conforms() {
@@ -472,6 +474,7 @@ sleep 600
                 r#"#!/bin/sh
 printf '%s\n' '{"type":"thread.started","thread_id":"codex-thread-1"}'
 printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"two plus two is four"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":5}}'
 "#,
             );
             let adapter = CodexAdapter::new(CodexAdapterConfig {
@@ -479,7 +482,24 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"t
                 default_cwd: Some(fixture.path().to_path_buf()),
                 ..Default::default()
             });
-            assert_conforms(&adapter, RuntimeRequest::new("hi"), Scenario::Normal).await;
+            // R83: the fixture carries the engine's REAL terminal
+            // (turn.completed) and the known answer, so the harness plus a
+            // body/usage assertion pin that a normal run keeps both.
+            let events = collect_stream(&adapter, RuntimeRequest::new("hi"))
+                .await
+                .expect("normal codex run must stream");
+            assert_conforms_events(&events, Scenario::Normal);
+            let completed = events.iter().find_map(|event| match event {
+                RuntimeEvent::Completed { result, usage, .. } => {
+                    Some((result.clone(), usage.clone()))
+                }
+                _ => None,
+            });
+            let (result, usage) = completed.expect("Normal must end with Completed");
+            assert_eq!(result.as_deref(), Some("two plus two is four"));
+            let usage = usage.expect("codex turn.completed carries usage");
+            assert_eq!(usage.input_tokens, 3);
+            assert_eq!(usage.output_tokens, 5);
         }
 
         #[tokio::test]
