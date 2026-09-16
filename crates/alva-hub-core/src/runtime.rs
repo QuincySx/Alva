@@ -677,14 +677,21 @@ impl HubRuntime {
                         .map(|e| e.as_str())
                         .unwrap_or("unknown");
                     let banner = handoff_context
-                        .or_else(|| existing.pending_handoff_context.take())
+                        .or_else(|| existing.pending_handoff_context.clone())
                         .unwrap_or_else(|| {
                             default_handoff_banner(prev, request.engine_id.as_str())
                         });
                     runtime_request.prompt =
                         format!("{banner}\n\n## User message\n\n{}", runtime_request.prompt);
+                    // R90: the flag and the exact banner stay ON the session
+                    // until this turn's OUTCOME is known. Consuming them here
+                    // left a fatal first turn retrying with no handoff
+                    // context (the old stream's EOF restore is generation-
+                    // skipped once the retry claims). Success clears both at
+                    // the terminal projection; a failed turn keeps them so
+                    // the retry re-injects the same banner exactly once.
+                    existing.pending_handoff_context = Some(banner.clone());
                     handoff_context_used = Some(banner);
-                    existing.pending_handoff = false;
                 }
 
                 existing.claim_seq = existing.claim_seq.wrapping_add(1);
@@ -730,6 +737,9 @@ impl HubRuntime {
             }
         };
         let failed_handoff_rollback = previous_session.zip(handoff_context_used);
+        // R90: whether THIS claim injected the handoff preamble — captured
+        // before the rollback pair consumes the context.
+        let handoff_turn = failed_handoff_rollback.is_some();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let sessions = self.sessions.clone();
         let runs = self.runs.clone();
@@ -809,7 +819,13 @@ impl HubRuntime {
                     }
                     _ => {}
                 }
-                update_session(&sessions, &output_session_id, my_seq, &event);
+                update_session(
+                    &sessions,
+                    &output_session_id,
+                    my_seq,
+                    &event,
+                    handoff_turn,
+                );
                 // R49: 引擎自带的终态事件转发前，先补齐仍未闭合的工具——
                 // ToolEnd 必须先于 Error/Completed 到达产品。
                 let forwarding_terminal = matches!(&event, RuntimeEvent::Completed { .. })
@@ -1221,6 +1237,7 @@ fn update_session(
     product_session_id: &ProductSessionId,
     my_seq: u64,
     event: &RuntimeEvent,
+    handoff_turn: bool,
 ) {
     let mut sessions = sessions
         .write()
@@ -1246,6 +1263,15 @@ fn update_session(
         }
         RuntimeEvent::Completed { .. } if session.status != HubSessionStatus::Failed => {
             session.status = HubSessionStatus::Completed;
+            // R90: a handoff turn that finishes successfully consumes the
+            // preamble exactly once. The clear must be atomic with the
+            // success terminal — clearing it at claim time left a fatal
+            // first turn retrying with no handoff context, and clearing it
+            // in a separate later step would race a next claim in between.
+            if handoff_turn {
+                session.pending_handoff = false;
+                session.pending_handoff_context = None;
+            }
         }
         _ => {}
     }
@@ -1407,6 +1433,7 @@ mod tests {
                 message: "engine failed".into(),
                 recoverable: false,
             },
+            false,
         );
         update_session(
             &sessions,
@@ -1417,6 +1444,7 @@ mod tests {
                 result: None,
                 usage: None,
             },
+                    false,
         );
 
         assert_eq!(
@@ -1436,6 +1464,7 @@ mod tests {
                 message: "temporary failure".into(),
                 recoverable: true,
             },
+                    false,
         );
         update_session(
             &sessions,
@@ -1446,6 +1475,7 @@ mod tests {
                 model: None,
                 tools: vec![],
             },
+                    false,
         );
         update_session(
             &sessions,
@@ -1456,6 +1486,7 @@ mod tests {
                 result: Some("done".into()),
                 usage: None,
             },
+                    false,
         );
 
         let session = &sessions.read().unwrap()[&product_session_id];
@@ -2059,6 +2090,179 @@ mod tests {
         assert!(requests[0].prompt.contains("SAFE_HANDOFF_BLOCK"));
         assert!(requests[1].prompt.contains("SAFE_HANDOFF_BLOCK"));
         assert!(!hub.session(&product_id).unwrap().pending_handoff);
+    }
+
+    /// R90: the fatal first handoff turn must not lose the preamble when the
+    /// retry claims BEFORE the old stream reaches EOF. The old stream parks
+    /// after its fatal Error; the retry (same product session, no handoff
+    /// context of its own) must start with the SAME banner injected exactly
+    /// once; releasing the old stream then EOFs it, and its restore/cleanup
+    /// must be generation-skipped without clobbering the new turn.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn retry_before_handoff_stream_eof_still_carries_the_banner() {
+        struct GatedFatalHandoffEngine {
+            turn: AtomicUsize,
+            // Async gate on purpose: a parked stream task must stay
+            // droppable when a failing assertion unwinds the test.
+            eof_gate: Arc<tokio::sync::Notify>,
+            requests: Mutex<Vec<String>>,
+        }
+        #[async_trait]
+        impl EngineRuntime for GatedFatalHandoffEngine {
+            fn execute(
+                &self,
+                request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                let n = self.turn.fetch_add(1, Ordering::SeqCst);
+                self.requests.lock().unwrap().push(request.prompt.clone());
+                let session_id = format!("native-{n}");
+                let started = stream::iter(vec![RuntimeEvent::SessionStarted {
+                    session_id: session_id.clone(),
+                    model: None,
+                    tools: vec![],
+                }]);
+                if n == 0 {
+                    // First handoff turn: fatal Error, then park BEFORE EOF.
+                    let gate = self.eof_gate.clone();
+                    let gate_session = session_id.clone();
+                    Ok(Box::pin(
+                        started
+                            .chain(stream::iter(vec![RuntimeEvent::Error {
+                                message: "fatal mid-handoff".into(),
+                                recoverable: false,
+                            }]))
+                            .chain(stream::once(async move {
+                                gate.notified().await;
+                                RuntimeEvent::Completed {
+                                    session_id: gate_session,
+                                    result: None,
+                                    usage: None,
+                                }
+                            })),
+                    ))
+                } else {
+                    Ok(Box::pin(started.chain(stream::iter(vec![
+                        RuntimeEvent::Completed {
+                            session_id,
+                            result: Some("retry done".into()),
+                            usage: None,
+                        },
+                    ]))))
+                }
+            }
+
+            async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            fn capabilities(&self) -> RuntimeCapabilities {
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: false,
+                    permission_callback: false,
+                    resume: true,
+                    cancel: true,
+                }
+            }
+        }
+
+        let eof_gate = Arc::new(tokio::sync::Notify::new());
+        let retry_engine = Arc::new(GatedFatalHandoffEngine {
+            turn: AtomicUsize::new(0),
+            eof_gate: eof_gate.clone(),
+            requests: Mutex::new(Vec::new()),
+        });
+        let hub = HubRuntime::new();
+        hub.register_engine("alva", Arc::new(FakeEngine::new()))
+            .unwrap();
+        hub.register_engine("retry", retry_engine.clone()).unwrap();
+
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("alva", RuntimeRequest::new("start")))
+            .unwrap()
+            .collect()
+            .await;
+        let product_id = first[0].product_session_id.clone();
+        hub.switch_engine(&product_id, "retry").unwrap();
+
+        // 第一轮带唯一标记；流在 fatal 之后、EOF 之前停住。
+        let mut failed_stream = hub
+            .execute(
+                HubRequest::new("retry", RuntimeRequest::new("first attempt"))
+                    .resume(product_id.clone())
+                    .with_handoff_context("R90_HANDOFF_MARKER"),
+            )
+            .unwrap();
+        let mut saw_fatal = false;
+        while let Some(event) = failed_stream.next().await {
+            if matches!(
+                event.event,
+                RuntimeEvent::Error {
+                    recoverable: false,
+                    ..
+                }
+            ) {
+                saw_fatal = true;
+                break;
+            }
+        }
+        assert!(saw_fatal, "first handoff turn must turn fatal");
+        let between = hub.session(&product_id).unwrap();
+        assert_eq!(between.status, HubSessionStatus::Failed);
+        assert!(
+            between.pending_handoff,
+            "a fatal handoff turn must keep the preamble pending"
+        );
+
+        // 旧流 EOF 未到达时的重跑：不得丢交接上下文，标记恰好一次。
+        let retried: Vec<_> = hub
+            .execute(
+                HubRequest::new("retry", RuntimeRequest::new("second attempt"))
+                    .resume(product_id.clone()),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        assert!(matches!(
+            retried.last().unwrap().event,
+            RuntimeEvent::Completed { .. }
+        ));
+        {
+            let requests = retry_engine.requests.lock().unwrap();
+            assert!(requests[1].contains("second attempt"));
+            assert_eq!(
+                requests[1].matches("R90_HANDOFF_MARKER").count(),
+                1,
+                "the retry must carry the original banner exactly once: {}",
+                requests[1]
+            );
+        }
+        let after_retry = hub.session(&product_id).unwrap();
+        assert_eq!(after_retry.status, HubSessionStatus::Completed);
+        assert!(!after_retry.pending_handoff);
+
+        // 释放旧流：其尾部恢复/合成被代际校验跳过，不覆写新轮。
+        eof_gate.notify_one();
+        while let Some(_event) = failed_stream.next().await {}
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let final_state = hub.session(&product_id).unwrap();
+        assert_eq!(
+            final_state.status,
+            HubSessionStatus::Completed,
+            "the abandoned stream's tail must not overwrite the retry turn"
+        );
+        assert!(!final_state.pending_handoff);
+        let requests = retry_engine.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2, "the stale stream must not re-execute");
     }
 
     #[tokio::test]
@@ -3351,6 +3555,7 @@ mod tests {
                 result: Some("done".into()),
                 usage: None,
             },
+                    false,
         );
         update_session(
             &sessions,
@@ -3360,6 +3565,7 @@ mod tests {
                 message: "late fatal after completed".into(),
                 recoverable: false,
             },
+            false,
         );
         let session = &sessions.read().unwrap()[&product_session_id];
         assert_eq!(session.status, HubSessionStatus::Completed);
