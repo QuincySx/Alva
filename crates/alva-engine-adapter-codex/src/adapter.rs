@@ -131,7 +131,13 @@ impl EngineRuntime for CodexAdapter {
             let mut native_session = provisional_id.clone();
             let mut retry_tracker = RecoverableRetryTracker::new();
             let mut escalated = false;
-            let mut terminal_forwarded = false;
+            // R81: `turn.completed` is the engine's own normal-terminal
+            // evidence, but it maps to no outward event (its usage lands in
+            // the mapper). "Seen the native terminal" and "forwarded a
+            // Completed" are therefore tracked separately — the adapter
+            // sends exactly one Completed when the stream ends, whatever the
+            // outcome.
+            let mut native_terminal_seen = false;
             let mut error_forwarded = false;
             // Stream contract R2: after a non-recoverable Error only Completed may
             // follow, so stop reading as soon as one is forwarded.
@@ -168,10 +174,10 @@ impl EngineRuntime for CodexAdapter {
                                 if matches!(event, CodexEvent::TurnStarted) {
                                     retry_tracker.reset();
                                 }
+                                if matches!(event, CodexEvent::TurnCompleted { .. }) {
+                                    native_terminal_seen = true;
+                                }
                                 for runtime_event in mapper.map(event) {
-                                    if matches!(runtime_event, RuntimeEvent::Completed { .. }) {
-                                        terminal_forwarded = true;
-                                    }
                                     if let RuntimeEvent::SessionStarted { session_id, .. } =
                                         &runtime_event
                                     {
@@ -252,14 +258,14 @@ impl EngineRuntime for CodexAdapter {
             // engine's own terminal event is an outage, not a success — it
             // must surface a fatal Error before the synthesized Completed,
             // and never carry stale text as a result.
-            if !terminal_forwarded && !error_forwarded && !escalated {
+            if !native_terminal_seen && !error_forwarded && !escalated {
                 let _ = event_tx.send(RuntimeEvent::Error {
                     message: "codex exited without a terminal event".into(),
                     recoverable: false,
                 });
             }
             // Fatal path: never put a success answer on Completed (stream soft rule).
-            let result = if mapper.failed() || escalated || !terminal_forwarded {
+            let result = if mapper.failed() || escalated || !native_terminal_seen {
                 None
             } else {
                 mapper.last_agent_text().map(str::to_string)
