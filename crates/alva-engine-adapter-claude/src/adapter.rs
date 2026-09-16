@@ -1243,6 +1243,201 @@ export function query({ options }) {
         assert!(saw_completed, "cancel must produce Completed");
     }
 
+    // ── R74: Full-mode conformance matrix ───────────────────────────────
+    //
+    // The five harness scenarios run against the REAL embedded bridge script
+    // and a REAL Node process by faking only the Claude Agent SDK package in
+    // the workspace's node_modules (same fixture pattern as the cancel-grace
+    // test above). No API key and no network: the adapter under test sees a
+    // bridge speaking the exact SDK-derived wire protocol.
+
+    fn node_missing() -> bool {
+        Command::new("node").arg("--version").output().is_err()
+    }
+
+    async fn fake_sdk_workspace(index_js: &str) -> tempfile::TempDir {
+        let workspace = tempfile::tempdir().unwrap();
+        let package = workspace
+            .path()
+            .join("node_modules/@anthropic-ai/claude-agent-sdk");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"@anthropic-ai/claude-agent-sdk","type":"module","exports":"./index.js"}"#,
+        )
+        .unwrap();
+        std::fs::write(package.join("index.js"), index_js).unwrap();
+        workspace
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn full_normal_conforms() {
+        let _environment_lock = node_environment_lock().lock().await;
+        if node_missing() {
+            eprintln!("skipping Node bridge integration test: node is not installed");
+            return;
+        }
+        let workspace = fake_sdk_workspace(
+            r#"
+export function query() {
+  return (async function* () {
+    yield { type: "system", subtype: "init", session_id: "fake-normal", model: "fake", tools: ["Read"] };
+    yield { type: "assistant", message: { content: [{ type: "text", text: "fake answer" }] } };
+    yield { type: "result", subtype: "success", result: "fake answer", duration_ms: 1, num_turns: 1, usage: { input_tokens: 1, output_tokens: 1 } };
+  })();
+}
+"#,
+        )
+        .await;
+        let adapter = ClaudeAdapter::new(ClaudeAdapterConfig::default());
+        let events = alva_engine_runtime::collect_stream(
+            &adapter,
+            RuntimeRequest::new("hello").with_cwd(workspace.path()),
+        )
+        .await
+        .expect("execute must stream");
+        alva_engine_runtime::assert_conforms_events(
+            &events,
+            alva_engine_runtime::Scenario::Normal,
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, RuntimeEvent::Completed { result: Some(text), .. } if text == "fake answer")),
+            "normal run must surface the fake SDK result text: {events:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn full_spawn_failure_conforms() {
+        let _environment_lock = node_environment_lock().lock().await;
+        // SpawnFailure is a spawn-level contract: the engine binary itself is
+        // unexecutable. A missing node_path is exactly that failure.
+        let adapter = ClaudeAdapter::new(ClaudeAdapterConfig {
+            node_path: Some("/nonexistent/bin/alva-no-such-node-r74".into()),
+            ..Default::default()
+        });
+        alva_engine_runtime::assert_conforms(
+            &adapter,
+            RuntimeRequest::new("hello"),
+            alva_engine_runtime::Scenario::SpawnFailure,
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn full_killed_mid_run_conforms() {
+        let _environment_lock = node_environment_lock().lock().await;
+        if node_missing() {
+            eprintln!("skipping Node bridge integration test: node is not installed");
+            return;
+        }
+        let workspace = fake_sdk_workspace(
+            r#"
+export function query() {
+  return (async function* () {
+    yield { type: "system", subtype: "init", session_id: "fake-killed", model: "fake", tools: [] };
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 100_000));
+    }
+  })();
+}
+"#,
+        )
+        .await;
+        let adapter = ClaudeAdapter::new(ClaudeAdapterConfig::default());
+        let mut stream = adapter
+            .execute(RuntimeRequest::new("hello").with_cwd(workspace.path()))
+            .unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(5), stream.next())
+            .await
+            .expect("fake bridge must start")
+            .expect("stream must stay open");
+        let session_id = match &first {
+            RuntimeEvent::SessionStarted { session_id, .. } => session_id.clone(),
+            other => panic!("expected SessionStarted, got {other:?}"),
+        };
+        adapter
+            .cancel(&session_id)
+            .await
+            .expect("cancel must be deliverable");
+        let mut events = vec![first];
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while let Some(event) = stream.next().await {
+                let terminal = matches!(event, RuntimeEvent::Completed { .. });
+                events.push(event);
+                if terminal {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("cancel must close the bridge stream within the grace bound");
+        alva_engine_runtime::assert_conforms_events(
+            &events,
+            alva_engine_runtime::Scenario::KilledMidRun,
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn full_eof_without_result_conforms() {
+        let _environment_lock = node_environment_lock().lock().await;
+        if node_missing() {
+            eprintln!("skipping Node bridge integration test: node is not installed");
+            return;
+        }
+        // The generator ends without ever yielding a result frame: the bridge
+        // emits done, and the adapter must surface the missing result as a
+        // fatal pair, never as a success.
+        let workspace = fake_sdk_workspace(
+            r#"
+export function query() {
+  return (async function* () {
+    yield { type: "system", subtype: "init", session_id: "fake-eof", model: "fake", tools: [] };
+  })();
+}
+"#,
+        )
+        .await;
+        let adapter = ClaudeAdapter::new(ClaudeAdapterConfig::default());
+        alva_engine_runtime::assert_conforms(
+            &adapter,
+            RuntimeRequest::new("hello").with_cwd(workspace.path()),
+            alva_engine_runtime::Scenario::EofWithoutResult,
+        )
+        .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn full_output_after_fatal_conforms() {
+        let _environment_lock = node_environment_lock().lock().await;
+        if node_missing() {
+            eprintln!("skipping Node bridge integration test: node is not installed");
+            return;
+        }
+        // The generator throws mid-stream: the bridge catches and emits one
+        // error frame; the adapter must close with the fatal pair and never
+        // emit further output after it.
+        let workspace = fake_sdk_workspace(
+            r#"
+export function query() {
+  return (async function* () {
+    yield { type: "system", subtype: "init", session_id: "fake-fatal", model: "fake", tools: [] };
+    throw new Error("upstream exploded");
+  })();
+}
+"#,
+        )
+        .await;
+        let adapter = ClaudeAdapter::new(ClaudeAdapterConfig::default());
+        alva_engine_runtime::assert_conforms(
+            &adapter,
+            RuntimeRequest::new("hello").with_cwd(workspace.path()),
+            alva_engine_runtime::Scenario::OutputAfterFatal,
+        )
+        .await;
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn explicit_sdk_override_fails_closed_without_leaking_its_specifier() {
         let _environment_lock = node_environment_lock().lock().await;

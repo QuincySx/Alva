@@ -681,6 +681,124 @@ mod tests {
         .await;
     }
 
+    /// R74: a mid-run cancel is the KilledMidRun contract — the terminal
+    /// pair is a fatal Error (the kernel's Cancelled outcome) followed by
+    /// Completed{result:None}, never a success result. The model parks the
+    /// first response until the test has cancelled the session, so the kill
+    /// genuinely lands mid-run; the parked response carries a tool call so
+    /// the loop reaches the next iteration boundary, where the cancellation
+    /// aborts the run (the natural no-tool-call finish would not check it).
+    #[tokio::test]
+    async fn killed_mid_run_conforms() {
+        struct ParkedToolCallModel {
+            entered: Arc<tokio::sync::Semaphore>,
+            release: Arc<tokio::sync::Notify>,
+        }
+
+        fn tool_call_response() -> Arc<MockLanguageModel> {
+            Arc::new(
+                MockLanguageModel::new()
+                    .with_response(tool_use_message("call-1", "no_such_tool", json!({}))),
+            )
+        }
+
+        #[async_trait]
+        impl alva_kernel_abi::LanguageModel for ParkedToolCallModel {
+            async fn complete(
+                &self,
+                messages: &[alva_kernel_abi::Message],
+                tools: &[&dyn alva_kernel_abi::Tool],
+                config: &alva_kernel_abi::ModelConfig,
+            ) -> Result<alva_kernel_abi::CompletionResponse, alva_kernel_abi::AgentError> {
+                tool_call_response().complete(messages, tools, config).await
+            }
+
+            fn stream(
+                &self,
+                messages: &[alva_kernel_abi::Message],
+                tools: &[&dyn alva_kernel_abi::Tool],
+                config: &alva_kernel_abi::ModelConfig,
+            ) -> Pin<Box<dyn futures_core::Stream<Item = alva_kernel_abi::StreamEvent> + Send>>
+            {
+                self.entered.add_permits(1);
+                let release = self.release.clone();
+                let inner = tool_call_response().stream(messages, tools, config);
+                // Deterministic mid-run park: hold the first response until
+                // the test has cancelled the session, then let the tool call
+                // through.
+                let stream = futures_util::stream::unfold(
+                    (false, release, inner),
+                    |(parked, release, mut inner)| async move {
+                        if !parked {
+                            release.notified().await;
+                        }
+                        inner
+                            .next()
+                            .await
+                            .map(|event| (event, (true, release, inner)))
+                    },
+                );
+                Box::pin(stream)
+            }
+
+            fn model_id(&self) -> &str {
+                "parked-tool-call"
+            }
+        }
+
+        let entered = Arc::new(tokio::sync::Semaphore::new(0));
+        let release = Arc::new(tokio::sync::Notify::new());
+        let config = DefaultBaseAgentFactoryConfig::new(
+            Arc::new(ParkedToolCallModel {
+                entered: entered.clone(),
+                release: release.clone(),
+            }),
+            std::env::temp_dir(),
+        );
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
+
+        let mut stream = adapter
+            .execute(RuntimeRequest::new("hello"))
+            .expect("execute must return a stream");
+        let first = tokio::time::timeout(Duration::from_secs(5), stream.next())
+            .await
+            .expect("run must start")
+            .expect("stream must stay open");
+        let session_id = match &first {
+            RuntimeEvent::SessionStarted { session_id, .. } => session_id.clone(),
+            other => panic!("expected SessionStarted, got {other:?}"),
+        };
+
+        // Wait until the run is parked inside the LLM call, then kill it.
+        tokio::time::timeout(Duration::from_secs(5), entered.acquire())
+            .await
+            .expect("run must reach the parked LLM call")
+            .expect("entered semaphore must be open")
+            .forget();
+        adapter
+            .cancel(&session_id)
+            .await
+            .expect("cancel must be accepted");
+        release.notify_one();
+
+        let mut events = vec![first];
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while let Some(event) = stream.next().await {
+                let terminal = matches!(event, RuntimeEvent::Completed { .. });
+                events.push(event);
+                if terminal {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("cancelled run must reach its terminal pair");
+        alva_engine_runtime::assert_conforms_events(
+            &events,
+            alva_engine_runtime::Scenario::KilledMidRun,
+        );
+    }
+
 /// R48: the same nested chain, queried back through the PRODUCTION
     /// Inspector entry (RepositoryInspector::snapshot) after a repository
     /// reopen — root → child → grandchild drill-down with typed causal
