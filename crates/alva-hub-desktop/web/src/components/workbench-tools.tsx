@@ -508,15 +508,18 @@ export function TasksTool({ run }: { run: TeamRunDetail | null }) {
 
 export function UsageTool({ detail }: { detail: HubSessionDetail | null }) {
   const { t } = useI18n();
-  const usage = detail?.turns.flatMap((turn) => turn.attempts.map((attempt) => attempt.usage).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))) ?? [];
+  // R69: 完整度按"适用 attempt"计数——整个 usage 缺失的 attempt 也是
+  // 一条未上报成本的记录，不能先过滤掉再判 partial。
+  const attempts = detail?.turns.flatMap((turn) => turn.attempts) ?? [];
+  const usage = attempts.map((attempt) => attempt.usage).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
   const totals = usage.reduce((sum, entry) => ({ input: sum.input + entry.input_tokens, output: sum.output + entry.output_tokens, duration: sum.duration + entry.duration_ms, cost: sum.cost + (entry.total_cost_usd ?? 0) }), { input: 0, output: 0, duration: 0, cost: 0 });
   // R55: an unreported cost is not a free run. Distinguish "no attempt
   // reported anything", "genuinely $0", and "partial — some attempts did
   // not report"; never render null as $0.00.
   const reportedCosts = usage.filter((entry) => entry.total_cost_usd !== null && entry.total_cost_usd !== undefined);
-  const allUnknown = usage.length > 0 && reportedCosts.length === 0;
-  const partial = reportedCosts.length > 0 && reportedCosts.length < usage.length;
-  const costValue = usage.length === 0
+  const allUnknown = attempts.length > 0 && reportedCosts.length === 0;
+  const partial = reportedCosts.length > 0 && reportedCosts.length < attempts.length;
+  const costValue = attempts.length === 0
     ? "—"
     : allUnknown
       ? t("tool.costNotReported")

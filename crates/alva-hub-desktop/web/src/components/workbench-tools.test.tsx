@@ -247,3 +247,92 @@ describe("GitTool execution vocabulary (R68)", () => {
     expect(container.textContent).toContain("还没有工具记录");
   });
 });
+
+// R69：费用完整度按适用 attempt 计数——整个 usage 缺失的 attempt 也算
+// 未上报成本；全部未知显示未上报；真实零保持 $0.00 无 partial；
+// 已测 token/duration 累加不受影响。
+import { UsageTool } from "./workbench-tools";
+import type { StoredAttempt } from "../bridge";
+
+function usageDetail(attempts: StoredAttempt[]): HubSessionDetail {
+  const detail = demoDetail();
+  detail.turns = [
+    {
+      ...detail.turns[0],
+      attempts,
+    },
+  ];
+  return detail;
+}
+
+function baseAttempt(overrides: Partial<StoredAttempt>): StoredAttempt {
+  return {
+    attempt_id: "att-r69",
+    turn_id: "turn-demo-1",
+    branch_id: "b-alva",
+    engine_id: "alva",
+    status: "completed",
+    failure_reason: null,
+    usage: null,
+    side_effects: [],
+    started_at: 0,
+    completed_at: null,
+    ...overrides,
+  };
+}
+
+function renderUsage(detail: HubSessionDetail) {
+  localStorage.setItem("alva-hub.locale", "zh-CN");
+  return render(
+    <UIProvider>
+      <I18nProvider>
+        <UsageTool detail={detail} />
+      </I18nProvider>
+    </UIProvider>,
+  );
+}
+
+describe("UsageTool cost completeness (R69)", () => {
+  it("a known cost plus an attempt with no usage is visibly partial", () => {
+    const { container } = renderUsage(
+      usageDetail([
+        baseAttempt({ attempt_id: "a1", usage: { input_tokens: 100, output_tokens: 10, total_cost_usd: 0.12, duration_ms: 1000, num_turns: 1 } }),
+        baseAttempt({ attempt_id: "a2", usage: null }),
+      ]),
+    );
+    expect(container.textContent).toContain("$0.12");
+    expect(container.textContent).toContain("部分统计");
+  });
+
+  it("all attempts missing usage render as not reported", () => {
+    const { container } = renderUsage(
+      usageDetail([baseAttempt({ attempt_id: "a1" }), baseAttempt({ attempt_id: "a2" })]),
+    );
+    expect(container.textContent).toContain("未上报");
+    expect(container.textContent).not.toContain("$0.00");
+  });
+
+  it("genuinely zero reported costs stay $0.00 without partial", () => {
+    const { container } = renderUsage(
+      usageDetail([
+        baseAttempt({ attempt_id: "a1", usage: { input_tokens: 10, output_tokens: 1, total_cost_usd: 0, duration_ms: 50, num_turns: 1 } }),
+        baseAttempt({ attempt_id: "a2", usage: { input_tokens: 20, output_tokens: 2, total_cost_usd: 0, duration_ms: 60, num_turns: 1 } }),
+      ]),
+    );
+    expect(container.textContent).toContain("$0.00");
+    expect(container.textContent).not.toContain("部分统计");
+  });
+
+  it("measured token and duration sums only count reported usage", () => {
+    const { container } = renderUsage(
+      usageDetail([
+        baseAttempt({ attempt_id: "a1", usage: { input_tokens: 100, output_tokens: 10, total_cost_usd: 0.12, duration_ms: 1000, num_turns: 2 } }),
+        baseAttempt({ attempt_id: "a2", usage: null }),
+      ]),
+    );
+    // 已测累加只含上报的 attempt：输入 100 / 输出 10 / 时长 1s。
+    expect(container.textContent).toContain("100");
+    expect(container.textContent).toContain("10");
+    expect(container.textContent).toContain("1s");
+  });
+});
