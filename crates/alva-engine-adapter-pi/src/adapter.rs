@@ -119,7 +119,12 @@ impl EngineRuntime for PiAdapter {
             // stream that ends without the engine's own Completed is an
             // outage and must surface a fatal Error before the synthesized
             // terminal pair.
-            let mut terminal_forwarded = false;
+            // R82: pi's own whole-turn terminal is `agent_end` with
+            // willRetry:false (message_end is per-message, and a retrying
+            // agent_end keeps the turn open). It maps to no outward event,
+            // so "seen the native terminal" is tracked here; the adapter
+            // still sends exactly one Completed when the stream ends.
+            let mut native_terminal_seen = false;
             let mut error_forwarded = false;
             loop {
                 tokio::select! {
@@ -148,10 +153,12 @@ impl EngineRuntime for PiAdapter {
                                         continue;
                                     }
                                 };
+                                // R82: only a non-retrying agent_end closes the
+                                // whole turn; a retrying one keeps it open.
+                                if matches!(event, PiEvent::AgentEnd { will_retry: false }) {
+                                    native_terminal_seen = true;
+                                }
                                 for runtime_event in mapper.map(event) {
-                                    if matches!(runtime_event, RuntimeEvent::Completed { .. }) {
-                                        terminal_forwarded = true;
-                                    }
                                     if let RuntimeEvent::SessionStarted { session_id, .. } = &runtime_event {
                                         if session_id != &native_session {
                                             let mut map = sessions.lock().await;
@@ -192,13 +199,13 @@ impl EngineRuntime for PiAdapter {
                 .session_id()
                 .unwrap_or(native_session.as_str())
                 .to_string();
-            if !terminal_forwarded && !error_forwarded && !fatal_seen {
+            if !native_terminal_seen && !error_forwarded && !fatal_seen {
                 let _ = event_tx.send(RuntimeEvent::Error {
                     message: "pi exited without a terminal event".into(),
                     recoverable: false,
                 });
             }
-            let result = if mapper.failed() || !terminal_forwarded {
+            let result = if mapper.failed() || !native_terminal_seen {
                 None
             } else {
                 mapper.last_agent_text().map(str::to_string)
