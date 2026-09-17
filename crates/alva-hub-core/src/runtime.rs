@@ -266,8 +266,13 @@ pub struct HubRuntime {
 /// 认领者仍是目标代际/claim 时才允许 abandon 落地，旧结果不得触碰
 /// 后来认领者。
 enum ClaimTarget {
-    /// live [`RunHandle`] 路径：按登记代际匹配。
-    RunGeneration(u64),
+    /// live [`RunHandle`] 路径：按登记代际 + 该登记对应的会话 claim_seq
+    /// 双重匹配。R92：runs 表与 sessions 表的更新时间线不同——新轮
+    /// execute 已递增 claim_seq 但同步 engine.execute 尚未返回、RunHandle
+    /// 未登记时，runs 里仍是旧条目，只比较旧 generation 会误判"仍是
+    /// 当前认领者"。claim_seq 在 sessions 写锁内同事务校验，堵住这个
+    /// claim→登记窗口。
+    RunGeneration(u64, u64),
     /// 无 live run 的回退路径：按会话 claim_seq 匹配。
     ClaimSeq(u64),
 }
@@ -287,6 +292,10 @@ pub struct RunHandle {
     engine_session_id: Arc<RwLock<Option<String>>>,
     /// R58: 登记代际。尾部清理按代际匹配，旧轮只删自己的条目。
     generation: u64,
+    /// R92: 登记时该轮持有的会话 claim_seq。定向释放必须同时匹配
+    /// 代际与 claim——代际只证明 runs 表没换人，claim 才证明会话
+    /// 认领没换人（claim→登记窗口内两者会短暂不一致）。
+    claim_seq: u64,
 }
 
 impl HubRuntime {
@@ -552,13 +561,19 @@ impl HubRuntime {
             .write()
             .expect("Hub session registry lock poisoned");
         let still_current = match target {
-            ClaimTarget::RunGeneration(expected) => {
-                self.runs
-                    .read()
-                    .expect("Hub runs lock poisoned")
-                    .get(product_session_id)
-                    .map(|handle| handle.generation)
-                    == Some(expected)
+            ClaimTarget::RunGeneration(expected_generation, expected_claim) => {
+                // R92: 同一把 sessions 写锁内同时校验 runs 代际与会话
+                // claim——校验和释放之间新 execute/abandon 无法插入。
+                let claim_matches =
+                    sessions.get(product_session_id).map(|s| s.claim_seq) == Some(expected_claim);
+                claim_matches
+                    && self
+                        .runs
+                        .read()
+                        .expect("Hub runs lock poisoned")
+                        .get(product_session_id)
+                        .map(|handle| handle.generation)
+                        == Some(expected_generation)
             }
             ClaimTarget::ClaimSeq(expected) => {
                 sessions.get(product_session_id).map(|s| s.claim_seq) == Some(expected)
@@ -1046,6 +1061,7 @@ impl HubRuntime {
                         engine_id: run_engine_id,
                         engine_session_id: handle_run_slot,
                         generation: my_generation,
+                        claim_seq: my_seq,
                     },
                 );
                 registered = true;
@@ -1081,8 +1097,11 @@ impl HubRuntime {
             .cloned();
         if let Some(handle) = live_handle {
             // R63: await 前固定目标代际——await 返回后的释放只允许作用于
-            // 这一代际，旧结果不得触碰后来认领的新轮。
+            // 这一代际，旧结果不得触碰后来认领的新轮。R92: 同时固定该
+            // 登记对应的 claim_seq，claim→登记窗口内新轮已换 claim 时
+            // 释放被跳过，旧 handle 不再能操作新会话。
             let my_generation = handle.generation;
+            let my_claim_seq = handle.claim_seq;
             let engine_session_id = {
                 handle
                     .engine_session_id
@@ -1099,7 +1118,7 @@ impl HubRuntime {
                     // tear that new run down.
                     self.abandon_targeted(
                         product_session_id,
-                        ClaimTarget::RunGeneration(my_generation),
+                        ClaimTarget::RunGeneration(my_generation, my_claim_seq),
                     )?;
                     return Ok(());
                 }
@@ -1110,7 +1129,7 @@ impl HubRuntime {
                         // 新轮已认领时跳过释放，新轮继续运行。
                         self.abandon_targeted(
                             product_session_id,
-                            ClaimTarget::RunGeneration(my_generation),
+                            ClaimTarget::RunGeneration(my_generation, my_claim_seq),
                         )?;
                         Ok(())
                     }
@@ -1122,7 +1141,7 @@ impl HubRuntime {
             // release.
             self.abandon_targeted(
                 product_session_id,
-                ClaimTarget::RunGeneration(my_generation),
+                ClaimTarget::RunGeneration(my_generation, my_claim_seq),
             )?;
             return Ok(());
         }
@@ -2975,6 +2994,163 @@ mod tests {
             hub.session(&pid).unwrap().status,
             HubSessionStatus::Failed,
             "a real cancel of the current generation must still release"
+        );
+        assert!(!hub.has_live_run(&pid));
+    }
+
+    /// R92: 旧轮 fatal 后流未 EOF、旧 RunHandle 仍在 runs；新 execute 已
+    /// 递增 claim_seq 并置 Starting，但同步 `engine.execute` 尚未返回、
+    /// 新 RunHandle 未登记。此时旧 cancel 返回 Unsupported：只比较 runs
+    /// 里仍是旧条目的 generation 会误判"自己仍是当前认领者"，进而把
+    /// 新轮 Starting 置 Failed、取消其 token。释放目标必须绑定该登记
+    /// 对应的 claim_seq，且校验与释放同处一个 sessions 写锁事务。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stale_cancel_in_claim_registration_gap_must_not_kill_new_turn() {
+        struct ClaimGapEngine {
+            turn: AtomicUsize,
+            cancel_enter: Arc<tokio::sync::Notify>,
+            cancel_release: Arc<tokio::sync::Notify>,
+            execute_entered: Arc<tokio::sync::Notify>,
+            execute_gate: Arc<(Mutex<bool>, std::sync::Condvar)>,
+        }
+        #[async_trait]
+        impl EngineRuntime for ClaimGapEngine {
+            fn execute(
+                &self,
+                _request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                let n = self.turn.fetch_add(1, Ordering::SeqCst);
+                if n == 1 {
+                    // 新轮：同步 execute 停在 OS 门上——已认领、未登记。
+                    self.execute_entered.notify_one();
+                    let mut released = self.execute_gate.0.lock().unwrap();
+                    while !*released {
+                        released = self.execute_gate.1.wait(released).unwrap();
+                    }
+                }
+                let started = stream::iter(vec![RuntimeEvent::SessionStarted {
+                    session_id: format!("native-{n}"),
+                    model: None,
+                    tools: vec![],
+                }]);
+                if n == 0 {
+                    // 旧轮：fatal 后流悬停不 EOF，旧 RunHandle 持续存活。
+                    Ok(Box::pin(
+                        started
+                            .chain(stream::iter(vec![RuntimeEvent::Error {
+                                message: "fatal before eof".into(),
+                                recoverable: false,
+                            }]))
+                            .chain(stream::pending::<RuntimeEvent>()),
+                    ))
+                } else {
+                    Ok(Box::pin(
+                        started.chain(stream::pending::<RuntimeEvent>()),
+                    ))
+                }
+            }
+
+            async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+                self.cancel_enter.notify_one();
+                self.cancel_release.notified().await;
+                Err(RuntimeError::Unsupported("cancel".into()))
+            }
+
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            fn capabilities(&self) -> RuntimeCapabilities {
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: false,
+                    permission_callback: false,
+                    resume: true,
+                    cancel: true,
+                }
+            }
+        }
+
+        let engine = Arc::new(ClaimGapEngine {
+            turn: AtomicUsize::new(0),
+            cancel_enter: Arc::new(tokio::sync::Notify::new()),
+            cancel_release: Arc::new(tokio::sync::Notify::new()),
+            execute_entered: Arc::new(tokio::sync::Notify::new()),
+            execute_gate: Arc::new((Mutex::new(false), std::sync::Condvar::new())),
+        });
+        let hub = HubRuntime::new();
+        hub.register_engine("probe", engine.clone()).unwrap();
+
+        // 旧轮：fatal 已置 Failed，但流悬停，RunHandle 仍在。
+        let mut first = hub
+            .execute(HubRequest::new("probe", RuntimeRequest::new("first")))
+            .unwrap();
+        let pid = first.next().await.unwrap().product_session_id;
+        assert!(matches!(
+            first.next().await.unwrap().event,
+            RuntimeEvent::Error {
+                recoverable: false,
+                ..
+            }
+        ));
+        assert_eq!(hub.session(&pid).unwrap().status, HubSessionStatus::Failed);
+
+        // 旧 cancel 进入引擎并停在 release gate。
+        let old_cancel = {
+            let hub = hub.clone();
+            let pid = pid.clone();
+            tokio::spawn(async move { hub.cancel(&pid).await })
+        };
+        engine.cancel_enter.notified().await;
+
+        // 新轮同步 execute 认领后停在 claim→登记窗口。
+        let new_execute = {
+            let hub = hub.clone();
+            let pid = pid.clone();
+            tokio::task::spawn_blocking(move || {
+                hub.execute(HubRequest::new("probe", RuntimeRequest::new("second")).resume(pid))
+            })
+        };
+        engine.execute_entered.notified().await;
+        assert_eq!(
+            hub.session(&pid).unwrap().status,
+            HubSessionStatus::Starting
+        );
+
+        // 旧 cancel 返回 Unsupported：claim 已换人，不得释放/伤害新轮。
+        engine.cancel_release.notify_one();
+        old_cancel.await.unwrap().unwrap();
+        assert_eq!(
+            hub.session(&pid).unwrap().status,
+            HubSessionStatus::Starting,
+            "old RunGeneration must not release a newer session claim before its RunHandle registers"
+        );
+
+        // 新轮正常登记、Started，且随后可被自己的 cancel 正常释放。
+        release_gate(&engine.execute_gate);
+        let mut second = new_execute.await.unwrap().unwrap();
+        assert!(matches!(
+            second.next().await.unwrap().event,
+            RuntimeEvent::SessionStarted { .. }
+        ));
+        assert!(hub.has_live_run(&pid), "new turn must register once its synchronous start returns");
+        let second_cancel = {
+            let hub = hub.clone();
+            let pid = pid.clone();
+            tokio::spawn(async move { hub.cancel(&pid).await })
+        };
+        engine.cancel_enter.notified().await;
+        engine.cancel_release.notify_one();
+        second_cancel.await.unwrap().unwrap();
+        assert_eq!(
+            hub.session(&pid).unwrap().status,
+            HubSessionStatus::Failed,
+            "the registered new turn must remain cancelable"
         );
         assert!(!hub.has_live_run(&pid));
     }
