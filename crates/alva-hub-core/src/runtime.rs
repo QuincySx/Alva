@@ -783,6 +783,10 @@ impl HubRuntime {
             let mut contract = StreamContract::new();
             let mut hard_violations = 0u32;
             let mut saw_session_started = false;
+            // R93: 本流自己观察到的 native id。handoff 失败轮的身份在
+            // fatal 事件时即从会话表清除（重试不得 resume），合成终态对
+            // 仍应携带本轮真实启动过的 native id，投影不因清除而变空。
+            let mut native_id: Option<String> = None;
             // R49: 循环内实时跟踪未闭合工具。终态事件（Completed / fatal
             // Error）在循环内转发，补发 ToolEnd 必须发生在转发之前——
             // 产品收到终态后可能立即停止消费，之后的 ToolEnd 无人处理。
@@ -817,6 +821,7 @@ impl HubRuntime {
                 saw_session_started |= matches!(&event, RuntimeEvent::SessionStarted { .. });
                 if let RuntimeEvent::SessionStarted { session_id, .. } = &event {
                     *run_slot.write().expect("run slot lock poisoned") = Some(session_id.clone());
+                    native_id = Some(session_id.clone());
                 }
                 saw_fatal_error |= matches!(
                     &event,
@@ -970,6 +975,9 @@ impl HubRuntime {
             if !saw_completed {
                 saw_fatal_error = true;
                 let engine_session_id = mark_session_failed(&sessions, &output_session_id, my_seq)
+                    // R93: handoff 失败轮的会话表身份已在 fatal 时清除，
+                    // 合成终态对改用本流观察到的 native id，其余路径不变。
+                    .or_else(|| if handoff_turn { native_id.clone() } else { None })
                     .unwrap_or_else(|| {
                         // No native session id exists when the engine never sent
                         // SessionStarted. The empty string is the honest value —
@@ -1279,6 +1287,14 @@ fn update_session(
             recoverable: false, ..
         } if session.status != HubSessionStatus::Completed => {
             session.status = HubSessionStatus::Failed;
+            // R93: 失败的首个 handoff 轮必须在重试被允许之前就完成与 EOF
+            // 后 restore_failed_handoff 相同的身份恢复——否则 fatal→EOF
+            // 窗口内的新认领会拿到 SessionStarted 留下的失败轮 native id
+            // 并 resume 它。banner/pending_handoff 仍由 R90 语义保留到
+            // 成功为止；EOF 尾部的恢复按 claim 校验照常执行或跳过。
+            if handoff_turn {
+                session.engine_session_id = None;
+            }
         }
         RuntimeEvent::Completed { .. } if session.status != HubSessionStatus::Failed => {
             session.status = HubSessionStatus::Completed;
@@ -2282,6 +2298,329 @@ mod tests {
         assert!(!final_state.pending_handoff);
         let requests = retry_engine.requests.lock().unwrap();
         assert_eq!(requests.len(), 2, "the stale stream must not re-execute");
+    }
+
+    /// R93: fatal→EOF 窗口内的 handoff 重试不得 resume 失败轮的 native
+    /// 身份。失败轮的 SessionStarted 把 native id 写进了会话表；R90 只
+    /// 保住了 banner，重试请求却仍携带 `resume_session=Some(失败轮 id)`。
+    /// 身份恢复现在在 fatal 事件时同步完成：窗口内重试拿到
+    /// resume_session=None、banner 恰好一次；旧流尾部按 claim 校验跳过，
+    /// 不覆写新轮。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn retry_before_handoff_eof_does_not_resume_failed_native() {
+        struct GatedFatalNativeEngine {
+            turn: AtomicUsize,
+            eof_gate: Arc<tokio::sync::Notify>,
+            requests: Mutex<Vec<RuntimeRequest>>,
+        }
+        #[async_trait]
+        impl EngineRuntime for GatedFatalNativeEngine {
+            fn execute(
+                &self,
+                request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                let n = self.turn.fetch_add(1, Ordering::SeqCst);
+                self.requests.lock().unwrap().push(request);
+                let session_id = format!("native-{n}");
+                let started = stream::iter(vec![RuntimeEvent::SessionStarted {
+                    session_id: session_id.clone(),
+                    model: None,
+                    tools: vec![],
+                }]);
+                if n == 0 {
+                    // 首个 handoff 轮：SessionStarted → fatal → 停在 EOF 前。
+                    let gate = self.eof_gate.clone();
+                    Ok(Box::pin(
+                        started
+                            .chain(stream::iter(vec![RuntimeEvent::Error {
+                                message: "fatal first handoff".into(),
+                                recoverable: false,
+                            }]))
+                            .chain(stream::once(async move {
+                                gate.notified().await;
+                                RuntimeEvent::Completed {
+                                    session_id,
+                                    result: None,
+                                    usage: None,
+                                }
+                            })),
+                    ))
+                } else {
+                    Ok(Box::pin(started.chain(stream::iter(vec![
+                        RuntimeEvent::Completed {
+                            session_id,
+                            result: Some("recovered".into()),
+                            usage: None,
+                        },
+                    ]))))
+                }
+            }
+
+            async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            fn capabilities(&self) -> RuntimeCapabilities {
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: false,
+                    permission_callback: false,
+                    resume: true,
+                    cancel: true,
+                }
+            }
+        }
+
+        let eof_gate = Arc::new(tokio::sync::Notify::new());
+        let target = Arc::new(GatedFatalNativeEngine {
+            turn: AtomicUsize::new(0),
+            eof_gate: eof_gate.clone(),
+            requests: Mutex::new(Vec::new()),
+        });
+        let hub = HubRuntime::new();
+        hub.register_engine("source", Arc::new(FakeEngine::new()))
+            .unwrap();
+        hub.register_engine("target", target.clone()).unwrap();
+
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("source", RuntimeRequest::new("start")))
+            .unwrap()
+            .collect()
+            .await;
+        let pid = first[0].product_session_id.clone();
+        hub.switch_engine(&pid, "target").unwrap();
+
+        // 首个 handoff 轮：fatal 之后、EOF 之前停住。
+        let mut failed_stream = hub
+            .execute(
+                HubRequest::new("target", RuntimeRequest::new("first attempt"))
+                    .resume(pid.clone())
+                    .with_handoff_context("R93_UNIQUE_MARKER"),
+            )
+            .unwrap();
+        let mut saw_fatal = false;
+        while let Some(event) = failed_stream.next().await {
+            if matches!(
+                event.event,
+                RuntimeEvent::Error {
+                    recoverable: false,
+                    ..
+                }
+            ) {
+                saw_fatal = true;
+                break;
+            }
+        }
+        assert!(saw_fatal);
+        let between = hub.session(&pid).unwrap();
+        assert_eq!(between.status, HubSessionStatus::Failed);
+        assert!(between.pending_handoff);
+        assert!(
+            between.engine_session_id.is_none(),
+            "the failed handoff turn's native id must be released before a retry can claim it"
+        );
+
+        // EOF 未到达时的重试：完整请求必须 resume=None、banner 恰好一次。
+        let retried: Vec<_> = hub
+            .execute(
+                HubRequest::new("target", RuntimeRequest::new("second attempt"))
+                    .resume(pid.clone()),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        assert!(matches!(
+            retried.last().unwrap().event,
+            RuntimeEvent::Completed { .. }
+        ));
+        {
+            let requests = target.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert!(
+                requests[1].resume_session.is_none(),
+                "the failed first-handoff native id must not be resumed: {:?}",
+                requests[1].resume_session
+            );
+            assert_eq!(
+                requests[1].prompt.matches("R93_UNIQUE_MARKER").count(),
+                1,
+                "the retry must carry the banner exactly once: {}",
+                requests[1].prompt
+            );
+            assert!(requests[1].prompt.contains("second attempt"));
+        }
+        let after_retry = hub.session(&pid).unwrap();
+        assert_eq!(after_retry.status, HubSessionStatus::Completed);
+        assert!(!after_retry.pending_handoff);
+        assert_eq!(after_retry.engine_session_id.as_deref(), Some("native-1"));
+
+        // 释放旧流：其尾部恢复按 claim 校验跳过，不覆写新轮。
+        eof_gate.notify_one();
+        while let Some(_event) = failed_stream.next().await {}
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let final_state = hub.session(&pid).unwrap();
+        assert_eq!(
+            final_state.status,
+            HubSessionStatus::Completed,
+            "the stale stream's tail must not overwrite the retry turn"
+        );
+        assert_eq!(
+            final_state.engine_session_id.as_deref(),
+            Some("native-1"),
+            "the stale stream's tail must not restore the failed native id over the retry's"
+        );
+        assert!(!final_state.pending_handoff);
+        assert_eq!(target.requests.lock().unwrap().len(), 2);
+    }
+
+    /// R93: EOF 已到达的失败 handoff 重试同样必须 resume=None——与窗口内
+    /// 时序保持同一身份契约。合成终态对仍携带失败轮真实启动过的 native
+    /// id（投影不变），但会话表身份恢复为 None。
+    #[tokio::test]
+    async fn retry_after_failed_handoff_eof_resumes_no_native_identity() {
+        struct FatalAfterStartEngine {
+            turn: AtomicUsize,
+            requests: Mutex<Vec<RuntimeRequest>>,
+        }
+        #[async_trait]
+        impl EngineRuntime for FatalAfterStartEngine {
+            fn execute(
+                &self,
+                request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                let n = self.turn.fetch_add(1, Ordering::SeqCst);
+                self.requests.lock().unwrap().push(request);
+                let session_id = format!("native-{n}");
+                if n == 0 {
+                    // fatal 后直接 EOF（无 Completed）——走合成终态路径。
+                    Ok(Box::pin(stream::iter(vec![
+                        RuntimeEvent::SessionStarted {
+                            session_id: session_id.clone(),
+                            model: None,
+                            tools: vec![],
+                        },
+                        RuntimeEvent::Error {
+                            message: "fatal after start".into(),
+                            recoverable: false,
+                        },
+                    ])))
+                } else {
+                    Ok(Box::pin(stream::iter(vec![
+                        RuntimeEvent::SessionStarted {
+                            session_id: session_id.clone(),
+                            model: None,
+                            tools: vec![],
+                        },
+                        RuntimeEvent::Completed {
+                            session_id,
+                            result: Some("recovered".into()),
+                            usage: None,
+                        },
+                    ])))
+                }
+            }
+
+            async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            fn capabilities(&self) -> RuntimeCapabilities {
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: false,
+                    permission_callback: false,
+                    resume: true,
+                    cancel: true,
+                }
+            }
+        }
+
+        let target = Arc::new(FatalAfterStartEngine {
+            turn: AtomicUsize::new(0),
+            requests: Mutex::new(Vec::new()),
+        });
+        let hub = HubRuntime::new();
+        hub.register_engine("source", Arc::new(FakeEngine::new()))
+            .unwrap();
+        hub.register_engine("target", target.clone()).unwrap();
+
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("source", RuntimeRequest::new("start")))
+            .unwrap()
+            .collect()
+            .await;
+        let pid = first[0].product_session_id.clone();
+        hub.switch_engine(&pid, "target").unwrap();
+
+        let failed: Vec<_> = hub
+            .execute(
+                HubRequest::new("target", RuntimeRequest::new("first attempt"))
+                    .resume(pid.clone())
+                    .with_handoff_context("R93_EOF_MARKER"),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        assert!(matches!(
+            failed[1].event,
+            RuntimeEvent::Error {
+                recoverable: false,
+                ..
+            }
+        ));
+        // 合成终态对收尾；失败轮启动过的 native id 保留在投影里。
+        assert!(matches!(
+            failed.last().unwrap().event,
+            RuntimeEvent::Completed {
+                ref session_id,
+                result: None,
+                ..
+            } if session_id == "native-0"
+        ));
+        let after_failure = hub.session(&pid).unwrap();
+        assert_eq!(after_failure.status, HubSessionStatus::Failed);
+        assert!(after_failure.pending_handoff);
+        assert!(after_failure.engine_session_id.is_none());
+
+        let retried: Vec<_> = hub
+            .execute(
+                HubRequest::new("target", RuntimeRequest::new("second attempt"))
+                    .resume(pid.clone()),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        assert!(matches!(
+            retried.last().unwrap().event,
+            RuntimeEvent::Completed { .. }
+        ));
+        let requests = target.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].resume_session.is_none());
+        assert_eq!(
+            requests[1].prompt.matches("R93_EOF_MARKER").count(),
+            1,
+            "the post-EOF retry must carry the banner exactly once: {}",
+            requests[1].prompt
+        );
     }
 
     #[tokio::test]
