@@ -305,9 +305,12 @@ mod tests {
         std::fs::set_permissions(path, permissions).unwrap();
     }
 
-    /// A normal Pi failure emits `message_update{error}` immediately followed by
-    /// `message_end{stopReason:"error"}`, and both map to a fatal `Error`.
-    /// Stream contract R2 allows only the first one to reach the consumer.
+    /// A definitive Pi failure follows the real 0.85.1 wire order:
+    /// `message_update{error}` → `message_end{stopReason:"error"}` →
+    /// `agent_end{willRetry:false}`. R95: the assistant error frames are
+    /// provisional and forward nothing; the non-retrying agent_end settles
+    /// the single fatal. A trailing message after that fatal must never be
+    /// forwarded (stream contract R2 — stop reading).
     #[cfg(unix)]
     #[tokio::test]
     async fn stops_reading_after_fatal_error() {
@@ -318,8 +321,10 @@ mod tests {
             r#"#!/bin/sh
 printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
 printf '%s\n' '{"type":"message_start","message":{"role":"assistant"}}'
-printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"errorMessage":"upstream refused"}}}'
-printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"must not be forwarded"}}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"role":"assistant","stopReason":"error","errorMessage":"upstream refused","content":[]}}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"upstream refused","content":[]}}'
+printf '%s\n' '{"type":"agent_end","willRetry":false}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"end","content":[{"type":"text","text":"must not be forwarded"}],"usage":{"input":1,"output":1}}}'
 "#,
         );
 
@@ -346,14 +351,18 @@ printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":
                 _ => None,
             })
             .collect();
-        // Asserting the count alone cannot tell "the break worked" apart from
-        // "only one fatal was ever produced" (e.g. the message_update line
-        // drifting into PiEvent::Unknown). Pinning *which* fatal arrived keeps
+        // Pinning *which* fatal arrived (and that it is the only one) keeps
         // the test honest if either wire shape changes.
         assert_eq!(
             fatals,
             vec!["upstream refused"],
-            "only the first fatal Error may be forwarded: {events:#?}"
+            "exactly one fatal, settled at the non-retrying agent_end: {events:#?}"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, RuntimeEvent::Message { .. })),
+            "no Message may follow the fatal settle point: {events:#?}"
         );
         assert!(
             matches!(events.last(), Some(RuntimeEvent::Completed { .. })),
@@ -669,14 +678,175 @@ printf '%s\n' '{"type":"message_start","message":{"role":"assistant","id":"m1"}}
                 r#"#!/bin/sh
 printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
 printf '%s\n' '{"type":"message_start","message":{"role":"assistant"}}'
-printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"errorMessage":"upstream refused"}}}'
-printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"must not be forwarded"}}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"role":"assistant","stopReason":"error","errorMessage":"upstream refused","content":[]}}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"upstream refused","content":[]}}'
+printf '%s\n' '{"type":"agent_end","willRetry":false}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"end","content":[{"type":"text","text":"must not be forwarded"}],"usage":{"input":1,"output":1}}}'
 "#,
             );
             assert_conforms(
                 &pi_adapter(executable),
                 RuntimeRequest::new("hi"),
                 Scenario::OutputAfterFatal,
+            )
+            .await;
+        }
+
+        /// R95: 真实重试时序——assistant 503 错误（update + end）→
+        /// agent_end(willRetry:true) → auto_retry_start → 成功 message_end
+        /// → auto_retry_end(success) → agent_end(false)。待定错误被重试
+        /// 恢复：全程无 fatal，答案保留，恰好一个 Completed。
+        #[tokio::test]
+        async fn retried_provisional_error_keeps_the_recovered_answer() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-pi-retry");
+            write_fake_pi(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-retry-1"}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"role":"assistant","stopReason":"error","errorMessage":"503 Service Unavailable","content":[]}}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"503 Service Unavailable","content":[]}}'
+printf '%s\n' '{"type":"agent_end","willRetry":true}'
+printf '%s\n' '{"type":"auto_retry_start","attempt":1,"maxAttempts":3,"errorMessage":"503 Service Unavailable"}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"recovered answer"}],"stopReason":"stop","usage":{"input":3,"output":5}}}'
+printf '%s\n' '{"type":"auto_retry_end","success":true}'
+printf '%s\n' '{"type":"agent_end","willRetry":false}'
+"#,
+            );
+            let events = collect_stream(&pi_adapter(executable), RuntimeRequest::new("hi"))
+                .await
+                .expect("retry fixture must stream");
+            assert_conforms_events(&events, Scenario::Normal);
+            assert!(
+                matches!(
+                    events.last(),
+                    Some(RuntimeEvent::Completed {
+                        result: Some(text),
+                        ..
+                    }) if text == "recovered answer"
+                ),
+                "the retried answer must survive: {events:#?}"
+            );
+            assert!(
+                events.iter().any(|event| matches!(
+                    event,
+                    RuntimeEvent::Error {
+                        message,
+                        recoverable: true,
+                        ..
+                    } if message.contains("503")
+                )),
+                "the retry progress stays visible as a recoverable error: {events:#?}"
+            );
+        }
+
+        /// R95: 重试耗尽——auto_retry_end(success=false) 是唯一 fatal，
+        /// agent_end(false) 的定性分支不再重复，终态为 fatal + None。
+        #[tokio::test]
+        async fn retry_exhausted_emits_one_fatal_and_no_result() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-pi-exhausted");
+            write_fake_pi(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-exhausted-1"}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"503 Service Unavailable","content":[]}}'
+printf '%s\n' '{"type":"agent_end","willRetry":true}'
+printf '%s\n' '{"type":"auto_retry_start","attempt":1,"maxAttempts":3,"errorMessage":"503 Service Unavailable"}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"503 Service Unavailable","content":[]}}'
+printf '%s\n' '{"type":"auto_retry_end","success":false,"finalError":"503 exhausted after 3 attempts"}'
+printf '%s\n' '{"type":"agent_end","willRetry":false}'
+"#,
+            );
+            let events = collect_stream(&pi_adapter(executable), RuntimeRequest::new("hi"))
+                .await
+                .expect("exhausted fixture must stream");
+            let fatals: Vec<&str> = events
+                .iter()
+                .filter_map(|event| match event {
+                    RuntimeEvent::Error {
+                        message,
+                        recoverable: false,
+                    } => Some(message.as_str()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                fatals,
+                vec!["503 exhausted after 3 attempts"],
+                "exhaustion settles exactly one fatal at auto_retry_end: {events:#?}"
+            );
+            assert!(
+                matches!(
+                    events.last(),
+                    Some(RuntimeEvent::Completed { result: None, .. })
+                ),
+                "exhaustion must not carry a success result: {events:#?}"
+            );
+            assert!(validate_event_stream(&events).is_ok());
+        }
+
+        /// R95: 不可重试错误——没有 willRetry，agent_end(false) 直接定性
+        /// 唯一 fatal + None（错误消息经待定状态保留到定性点）。
+        #[tokio::test]
+        async fn non_retryable_error_converges_at_agent_end() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-pi-fatal");
+            write_fake_pi(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-fatal-1"}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"role":"assistant","stopReason":"error","errorMessage":"authentication rejected","content":[]}}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"authentication rejected","content":[]}}'
+printf '%s\n' '{"type":"agent_end","willRetry":false}'
+"#,
+            );
+            let events = collect_stream(&pi_adapter(executable), RuntimeRequest::new("hi"))
+                .await
+                .expect("non-retryable fixture must stream");
+            let fatals: Vec<&str> = events
+                .iter()
+                .filter_map(|event| match event {
+                    RuntimeEvent::Error {
+                        message,
+                        recoverable: false,
+                    } => Some(message.as_str()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                fatals,
+                vec!["authentication rejected"],
+                "the buffered error message settles as the single fatal: {events:#?}"
+            );
+            assert!(
+                matches!(
+                    events.last(),
+                    Some(RuntimeEvent::Completed { result: None, .. })
+                ),
+                "a failed turn must end Completed{{result:None}}: {events:#?}"
+            );
+            assert!(validate_event_stream(&events).is_ok());
+        }
+
+        /// R95: 错误后 agent_end(true) 但流中断（EOF）——待定错误不得
+        /// 把中断伪装成成功：EOF 无原生终态仍是 fatal + None。
+        #[tokio::test]
+        async fn eof_while_retry_pending_is_still_an_outage() {
+            let fixture = tempfile::tempdir().unwrap();
+            let executable = fixture.path().join("fake-pi-eof-retry");
+            write_fake_pi(
+                &executable,
+                r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-eof-retry-1"}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"503 Service Unavailable","content":[]}}'
+printf '%s\n' '{"type":"agent_end","willRetry":true}'
+"#,
+            );
+            assert_conforms(
+                &pi_adapter(executable),
+                RuntimeRequest::new("hi"),
+                Scenario::EofWithoutResult,
             )
             .await;
         }

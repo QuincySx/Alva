@@ -17,7 +17,9 @@ Hub multi-engine 的 Pi 后端。子进程和 JSONL 映射都留在本 crate；�
 - workspace-write 映射为只读工具 allowlist，宁可更严格，不得伪装成等价沙箱。
 - custom Provider 密钥不得进入 argv、日志或临时 `models.json`。
 - stdout EOF 后 adapter 统一补唯一 `Completed`。
-- stream contract R2：转发 fatal `Error`（`recoverable: false`）后**立即停止读取循环**，只补 `Completed`。一次正常失败会连续产出 `message_update{assistantMessageEvent.type=error}` 与 `message_end{stopReason="error"}` 两条 fatal，只有第一条可送达。判定用 `alva_engine_runtime::is_fatal_error`，不要在本 crate 重写。
+- stream contract R2：转发 fatal `Error`（`recoverable: false`）后**立即停止读取循环**，只补 `Completed`。判定用 `alva_engine_runtime::is_fatal_error`，不要在本 crate 重写。
+- R95 暂时性错误结算：Pi 0.85.1 真实时序是 `message_update(error)` → `message_end(stopReason="error")` → `agent_end{willRetry}` → `auto_retry_*`。assistant 错误帧只是**待定状态**（`mapper.pending_error`），不外发；定性点在 `agent_end{willRetry:false}`（携带未恢复错误 → 唯一 fatal）或 `auto_retry_end{success:false}`（重试耗尽 → 唯一 fatal）。成功 assistant 消息清除待定错误（重试恢复，无 fatal）。错误后 `agent_end{willRetry:true}` 即 EOF 仍按缺终态 outage 报 fatal。
+- R94 终态结算：`agent_end{willRetry:false}`（原生终态）提交后，尾部传输失败与迟到 cancel 只结束读取、不产生 fatal，已提交结果原样保留；终态之前的读取失败/取消仍按 fatal + `result=None` 结算。禁止"fatal Error + 成功答案"并存。
 
 ## 业务域清单
 | 名称 | 文件 | 职责 |

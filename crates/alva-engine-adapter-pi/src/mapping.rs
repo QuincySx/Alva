@@ -15,6 +15,14 @@ pub struct EventMapper {
     last_agent_text: Option<String>,
     usage: RuntimeUsage,
     failed: bool,
+    /// R95: 暂时性 assistant 错误（未定性的失败候选）。Pi 0.85.1 的真实
+    /// 时序是 message_update(error) → message_end(error) →
+    /// agent_end(willRetry) → auto_retry_start → 重试 → auto_retry_end /
+    /// agent_end(willRetry:false)：单个 assistant 错误只是"本轮尚未定
+    /// 性"，CLI 仍可能合法重试。在可判定之前保持状态、不外发任何 fatal；
+    /// 定性点在 agent_end(willRetry:false)（携带未恢复错误 → 唯一 fatal）
+    /// 或 auto_retry_end(success:false)（重试耗尽，既有路径）。
+    pending_error: Option<String>,
 }
 
 impl EventMapper {
@@ -107,6 +115,20 @@ impl EventMapper {
                 }]
             }
             PiEvent::AgentEnd { will_retry: true } => Vec::new(),
+            PiEvent::AgentEnd { will_retry: false } => {
+                // R95: 原生终态。最后一条 assistant 消息若仍停留在未恢复
+                // 的错误上（重试耗尽后不再重试 / 不可重试错误），此刻才
+                // 定性：唯一 fatal + failed。正常终态不产生事件。
+                if let Some(message) = self.pending_error.take() {
+                    self.failed = true;
+                    vec![RuntimeEvent::Error {
+                        message,
+                        recoverable: false,
+                    }]
+                } else {
+                    Vec::new()
+                }
+            }
             _ => Vec::new(),
         }
     }
@@ -130,13 +152,15 @@ impl EventMapper {
                 }]
             }
             PiAssistantMessageEvent::Error { error } => {
-                self.failed = true;
-                vec![RuntimeEvent::Error {
-                    message: error
+                // R95: 暂时性 assistant 错误只记录待定状态，不立即定性为
+                // fatal——随后的 agent_end(willRetry=true) + auto_retry
+                // 会合法恢复；真正失败在 agent_end(willRetry=false) 定性。
+                self.pending_error = Some(
+                    error
                         .error_message
                         .unwrap_or_else(|| "Pi assistant request failed".into()),
-                    recoverable: false,
-                }]
+                );
+                Vec::new()
             }
             _ => Vec::new(),
         }
@@ -153,13 +177,14 @@ impl EventMapper {
             self.usage.num_turns = self.usage.num_turns.saturating_add(1);
         }
         if matches!(message.stop_reason.as_deref(), Some("error" | "aborted")) {
-            self.failed = true;
-            return vec![RuntimeEvent::Error {
-                message: message
+            // R95: 记为待定错误（usage 已在上方入账），是否 fatal 推迟到
+            // agent_end / auto_retry_end 可判定时。
+            self.pending_error = Some(
+                message
                     .error_message
                     .unwrap_or_else(|| "Pi turn failed".into()),
-                recoverable: false,
-            }];
+            );
+            return Vec::new();
         }
 
         let text = message
@@ -174,6 +199,8 @@ impl EventMapper {
         if text.is_empty() {
             return Vec::new();
         }
+        // R95: 一条成功的 assistant 消息意味着此前待定的错误已被重试恢复。
+        self.pending_error = None;
         self.last_agent_text = Some(text.clone());
         vec![RuntimeEvent::Message {
             id: self
@@ -266,5 +293,104 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// R95: 单个 assistant 错误在 agent_end 之前不得外发 fatal——真实
+    /// 时序里错误之后还有 willRetry 决定。不可重试终态在 agent_end(false)
+    /// 处定性为唯一 fatal。
+    #[test]
+    fn provisional_assistant_error_defers_to_agent_end() {
+        let mut mapper = EventMapper::new();
+        let _ = mapper.map(PiEvent::Session {
+            id: "pi-1".into(),
+            cwd: None,
+        });
+        assert!(
+            mapper
+                .map(PiEvent::MessageUpdate {
+                    assistant_message_event: PiAssistantMessageEvent::Error {
+                        error: PiMessage {
+                            role: "assistant".into(),
+                            stop_reason: Some("error".into()),
+                            error_message: Some("503 Service Unavailable".into()),
+                            ..PiMessage::default()
+                        },
+                    },
+                })
+                .is_empty(),
+            "a provisional assistant error must stay buffered, not go fatal"
+        );
+        assert!(
+            mapper
+                .map(PiEvent::MessageEnd {
+                    message: PiMessage {
+                        role: "assistant".into(),
+                        stop_reason: Some("error".into()),
+                        error_message: Some("503 Service Unavailable".into()),
+                        ..PiMessage::default()
+                    },
+                })
+                .is_empty(),
+            "message_end(error) must not settle the turn either"
+        );
+        let settled = mapper.map(PiEvent::AgentEnd {
+            will_retry: false,
+        });
+        assert_eq!(settled.len(), 1, "the definitive end settles exactly one event");
+        assert!(matches!(
+            &settled[0],
+            RuntimeEvent::Error {
+                message,
+                recoverable: false,
+                ..
+            } if message == "503 Service Unavailable"
+        ));
+        assert!(mapper.failed());
+    }
+
+    /// R95: error → agent_end(true) → 重试成功 → agent_end(false) 全程无
+    /// fatal，成功答案恢复且待定错误被清除。
+    #[test]
+    fn retried_error_recovers_without_any_fatal() {
+        let mut mapper = EventMapper::new();
+        let _ = mapper.map(PiEvent::Session {
+            id: "pi-1".into(),
+            cwd: None,
+        });
+        let _ = mapper.map(PiEvent::MessageUpdate {
+            assistant_message_event: PiAssistantMessageEvent::Error {
+                error: PiMessage {
+                    role: "assistant".into(),
+                    stop_reason: Some("error".into()),
+                    error_message: Some("503 Service Unavailable".into()),
+                    ..PiMessage::default()
+                },
+            },
+        });
+        let _ = mapper.map(PiEvent::MessageEnd {
+            message: PiMessage {
+                role: "assistant".into(),
+                stop_reason: Some("error".into()),
+                error_message: Some("503 Service Unavailable".into()),
+                ..PiMessage::default()
+            },
+        });
+        assert!(mapper
+            .map(PiEvent::AgentEnd { will_retry: true })
+            .is_empty());
+        let retried = mapper.map(PiEvent::MessageEnd {
+            message: PiMessage {
+                role: "assistant".into(),
+                stop_reason: Some("stop".into()),
+                content: vec![PiContent::Text {
+                    text: "recovered answer".into(),
+                }],
+                ..PiMessage::default()
+            },
+        });
+        assert!(matches!(&retried[0], RuntimeEvent::Message { .. }));
+        assert!(mapper.map(PiEvent::AgentEnd { will_retry: false }).is_empty());
+        assert!(!mapper.failed());
+        assert_eq!(mapper.last_agent_text(), Some("recovered answer"));
     }
 }
