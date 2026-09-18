@@ -96,8 +96,12 @@ pub fn normalize_path_string(raw: &str) -> String {
 /// 超时）的调度问答，永远一起被问、一起被用，现在合成这一份描述符。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Scheduling {
-    /// 执行模式。`Parallel` 且 `concurrency_safe` 的调用才可能进并行波；
-    /// `SerialGlobal` 独占整批；`Coordinator` 不持锁、内联驱动嵌套工具。
+    /// 执行模式。进并行波的规则（R72 起与 kernel wave composer 一致）：
+    /// `concurrency_safe` 且非 `SerialGlobal` 的调用即候选——`Parallel`
+    /// 工具按资源锁多读单写并发；`Coordinator` 自身不持任何锁，嵌套工具
+    /// 经共享 `ToolLockRegistry` 自取资源锁，兄弟冲突在运行期由注册表
+    /// 串行化，因此同样可入波。`SerialGlobal` 是绝对屏障，独占整批；
+    /// 未声明 `concurrency_safe` 的工具永远是顺序屏障。
     pub execution_mode: ExecutionMode,
     /// 能否与其它工具调用安全并行。默认 `false` —— 未显式声明的工具是
     /// 顺序执行的硬屏障。
