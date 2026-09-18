@@ -149,11 +149,16 @@ impl EngineRuntime for CodexAdapter {
                         if let Err(error) = process.kill().await {
                             warn!(%error, "codex kill failed");
                         }
-                        let _ = event_tx.send(RuntimeEvent::Error {
-                            message: "Codex session cancelled".into(),
-                            recoverable: false,
-                        });
-                        error_forwarded = true;
+                        // R94: `turn.completed` 已提交本轮成功；迟到的 cancel
+                        // 只结束读取，不得把已提交的结果反转为"取消 fatal +
+                        // 成功答案"的矛盾终态。
+                        if !native_terminal_seen {
+                            let _ = event_tx.send(RuntimeEvent::Error {
+                                message: "Codex session cancelled".into(),
+                                recoverable: false,
+                            });
+                            error_forwarded = true;
+                        }
                         break;
                     }
                     line = process.next_line() => {
@@ -232,11 +237,24 @@ impl EngineRuntime for CodexAdapter {
                             }
                             Ok(None) => break,
                             Err(error) => {
-                                let _ = event_tx.send(RuntimeEvent::Error {
-                                    message: error.to_string(),
-                                    recoverable: false,
-                                });
-                                error_forwarded = true;
+                                // R94: 原生终态已提交成功后，尾部传输失败
+                                //（断管 / 非法 UTF-8）不构成失败轮——要么
+                                // 忽略提交后的噪声，要么清掉结果，二者不得
+                                // 混合。这里选择前者：记录并停止读取，
+                                // `turn.completed` 的结算（答案 + usage）保持
+                                // 原样。终态之前的读取失败仍按 fatal 结算。
+                                if !native_terminal_seen {
+                                    let _ = event_tx.send(RuntimeEvent::Error {
+                                        message: error.to_string(),
+                                        recoverable: false,
+                                    });
+                                    error_forwarded = true;
+                                } else {
+                                    warn!(
+                                        %error,
+                                        "codex stream failed after the native terminal; committed result stands"
+                                    );
+                                }
                                 break;
                             }
                         }
@@ -264,7 +282,10 @@ impl EngineRuntime for CodexAdapter {
                     recoverable: false,
                 });
             }
-            // Fatal path: never put a success answer on Completed (stream soft rule).
+            // Fatal path: never put a success answer on Completed (stream soft
+            // rule). R94: 结算只有三种一致出口——引擎声明的失败
+            // (`mapper.failed()`)、升级、或从未见到原生终态；原生终态之后
+            // 的 adapter 侧噪声不参与结算，已提交的结果原样保留。
             let result = if mapper.failed() || escalated || !native_terminal_seen {
                 None
             } else {
@@ -385,10 +406,134 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"m
                 ..
             }
         ));
-        assert!(matches!(
-            events[2],
-            RuntimeEvent::Completed { result: None, .. }
-        ));
+        assert!(validate_event_stream(&events).is_ok());
+    }
+
+    /// R94: `turn.completed` 提交本轮成功之后到达的传输失败（非法 UTF-8
+    /// 尾行）不得把已提交的成功反转为携带答案的 fatal Error——终态必须
+    /// 一致：无 fatal、答案保留、恰好一个 Completed。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn transport_failure_after_native_terminal_keeps_committed_result() {
+        let fixture = tempfile::tempdir().unwrap();
+        let executable = fixture.path().join("fake-codex");
+        write_fake_codex(
+            &executable,
+            r#"#!/bin/sh
+printf '%s\n' '{"type":"thread.started","thread_id":"codex-thread-1"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"expected successful answer"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":5}}'
+printf '\377\n'
+"#,
+        );
+
+        let adapter = CodexAdapter::new(CodexAdapterConfig {
+            codex_path: executable.to_string_lossy().into_owned(),
+            default_cwd: Some(fixture.path().to_path_buf()),
+            ..Default::default()
+        });
+
+        let mut stream = adapter.execute(RuntimeRequest::new("hi")).unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+
+        assert!(
+            !events.iter().any(|event| matches!(
+                event,
+                RuntimeEvent::Error {
+                    recoverable: false,
+                    ..
+                }
+            )),
+            "a committed turn must not grow a fatal Error from trailing noise: {events:#?}"
+        );
+        assert!(
+            matches!(
+                events.last(),
+                Some(RuntimeEvent::Completed {
+                    result: Some(text),
+                    ..
+                }) if text == "expected successful answer"
+            ),
+            "the committed answer must survive the trailing transport failure: {events:#?}"
+        );
+        assert!(validate_event_stream(&events).is_ok());
+    }
+
+    /// R94: 原生终态之后到达的 cancel 只结束读取，不把已提交的成功改成
+    /// "取消 fatal + 成功答案"的矛盾终态。fixture 让 `turn.completed` 先于
+    /// 答案行，使 Message 事件被观察到时代际判定必然已完成。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancel_after_native_terminal_keeps_committed_result() {
+        use std::time::Duration;
+
+        let fixture = tempfile::tempdir().unwrap();
+        let executable = fixture.path().join("fake-codex");
+        write_fake_codex(
+            &executable,
+            r#"#!/bin/sh
+printf '%s\n' '{"type":"thread.started","thread_id":"codex-thread-1"}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":5}}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"expected successful answer"}}'
+sleep 600
+"#,
+        );
+
+        let adapter = Arc::new(CodexAdapter::new(CodexAdapterConfig {
+            codex_path: executable.to_string_lossy().into_owned(),
+            default_cwd: Some(fixture.path().to_path_buf()),
+            ..Default::default()
+        }));
+        let mut stream = adapter.execute(RuntimeRequest::new("hi")).unwrap();
+        // 读到答案 Message：`turn.completed` 已在它之前被顺序解析，原生
+        // 终态必然已提交。
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while let Some(event) = stream.next().await {
+                if matches!(event, RuntimeEvent::Message { .. }) {
+                    return;
+                }
+            }
+            panic!("fixture codex stream ended before the answer Message")
+        })
+        .await
+        .expect("fixture codex must reach the answer");
+
+        let collector = tokio::spawn(async move {
+            let mut events = Vec::new();
+            while let Some(event) = stream.next().await {
+                events.push(event);
+            }
+            events
+        });
+        adapter.cancel("codex-thread-1").await.expect("cancel must be deliverable");
+
+        let events = tokio::time::timeout(Duration::from_secs(10), collector)
+            .await
+            .expect("cancel must close the codex stream")
+            .unwrap();
+        assert!(
+            !events.iter().any(|event| matches!(
+                event,
+                RuntimeEvent::Error {
+                    recoverable: false,
+                    ..
+                }
+            )),
+            "cancel after the committed terminal must not emit a contradictory fatal: {events:#?}"
+        );
+        assert!(
+            matches!(
+                events.last(),
+                Some(RuntimeEvent::Completed {
+                    result: Some(text),
+                    ..
+                }) if text == "expected successful answer"
+            ),
+            "the committed result must survive a late cancel: {events:#?}"
+        );
         assert!(validate_event_stream(&events).is_ok());
     }
 
