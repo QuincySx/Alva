@@ -1415,27 +1415,54 @@ export function query() {
             eprintln!("skipping Node bridge integration test: node is not installed");
             return;
         }
-        // The generator throws mid-stream: the bridge catches and emits one
-        // error frame; the adapter must close with the fatal pair and never
-        // emit further output after it.
+        // R74 round-9 re-review: the fatal must be followed by REAL adapter
+        // input, not just a generator that throws and stops. The fake SDK
+        // yields an error-subtype result frame (the adapter's fatal settle
+        // point) and then KEEPS yielding assistant/system frames — the whole
+        // point is that the adapter must settle at the result frame and never
+        // forward what comes after it. A mutation that drops the fatal's
+        // paired Completed (the suppression) makes the trailing assistant
+        // frame surface after the fatal and must fail this test.
         let workspace = fake_sdk_workspace(
             r#"
 export function query() {
   return (async function* () {
     yield { type: "system", subtype: "init", session_id: "fake-fatal", model: "fake", tools: [] };
-    throw new Error("upstream exploded");
+    yield { type: "assistant", message: { content: [{ type: "text", text: "pre-fatal answer" }] } };
+    yield { type: "result", subtype: "error_max_turns", result: null, duration_ms: 1, num_turns: 1, usage: { input_tokens: 1, output_tokens: 1 } };
+    yield { type: "assistant", message: { content: [{ type: "text", text: "must not be forwarded after fatal" }] } };
+    yield { type: "system", subtype: "init", session_id: "fake-fatal-late", model: "fake", tools: [] };
   })();
 }
 "#,
         )
         .await;
         let adapter = ClaudeAdapter::new(ClaudeAdapterConfig::default());
-        alva_engine_runtime::assert_conforms(
+        let events = alva_engine_runtime::collect_stream(
             &adapter,
             RuntimeRequest::new("hello").with_cwd(workspace.path()),
-            alva_engine_runtime::Scenario::OutputAfterFatal,
         )
-        .await;
+        .await
+        .expect("execute must stream");
+        alva_engine_runtime::assert_conforms_events(
+            &events,
+            alva_engine_runtime::Scenario::OutputAfterFatal,
+        );
+        assert!(
+            !events.iter().any(|event| matches!(
+                event,
+                RuntimeEvent::Message { content, .. }
+                    if content.iter().any(|block| block.as_text() == Some("must not be forwarded after fatal"))
+            )),
+            "frames after the fatal settle point must never reach the product: {events:?}"
+        );
+        assert!(
+            matches!(
+                events.last(),
+                Some(RuntimeEvent::Completed { result: None, .. })
+            ),
+            "an error-subtype result must settle Completed{{result:None}}: {events:?}"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
