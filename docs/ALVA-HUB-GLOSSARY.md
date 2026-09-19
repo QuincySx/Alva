@@ -21,9 +21,30 @@ Avoid: “thread” or “chat” in domain APIs when the value is a HubSession.
 ### Engine
 
 An agent harness that can execute work through `EngineRuntime`. V1 engines are
-Alva, Claude, and Codex.
+Alva (the default), Claude, Codex, and Pi.
 
 An Engine is not a model and not a provider.
+
+### Project
+
+A user-declared product aggregate: one working directory (Workspace) plus the
+HubSessions collected under it, optionally spanning several Git worktrees
+(read-only discovery; discovery never creates, prunes, or deletes worktrees).
+
+A Project is not a HubSession and not the Workspace itself. A non-Git directory
+may still be added as a Project; Hub never runs `git init` on the user's behalf.
+
+### Conversation mode
+
+A startup entry mode in which a HubSession does not require a Project. The
+session uses a managed independent session directory; cwd and permission
+contracts are unchanged.
+
+### Project mode
+
+A startup entry mode in which the sidebar aggregates worktrees and HubSessions
+by Project. Both modes are first-class entries; switching modes never migrates
+existing sessions or widens permissions.
 
 ### Model
 
