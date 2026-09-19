@@ -46,6 +46,38 @@ function summarizeFrameIntervals(intervals) {
   };
 }
 
+/** Continuous CDP scroll gesture. Demand-driven wheel bursts make DrawFrame
+ *  intervals include idle time between inputs; synthesizeScrollGesture feeds
+ *  input every frame so intervals reflect real frame cadence. Returns after
+ *  `durationMs` of continuous scrolling (direction pattern decides up/down). */
+async function scrollGestureFor(cdp, page, durationMs, { distance = 2500, speed = 2500, alternate = false } = {}) {
+  const deadline = Date.now() + durationMs;
+  let up = true;
+  while (Date.now() < deadline) {
+    await cdp.send("Input.synthesizeScrollGesture", {
+      x: 720,
+      y: 450,
+      xDistance: 0,
+      yDistance: up ? -distance : distance,
+      speed,
+      gestureSourceType: "mouse",
+    });
+    if (alternate) up = !up;
+    // Reset to the bottom when a history sweep hits the top so the gesture
+    // keeps producing frames for the full window.
+    const atTop = await page.evaluate(() => {
+      const region = document.querySelector("[data-chat-scroll-region]");
+      return region instanceof HTMLElement && region.scrollTop <= 1;
+    });
+    if (atTop) {
+      await page.evaluate(() => {
+        const region = document.querySelector("[data-chat-scroll-region]");
+        if (region instanceof HTMLElement) region.scrollTop = region.scrollHeight;
+      });
+    }
+  }
+}
+
 function summarizeLongTasks(tasks) {
   const over50 = tasks.filter((task) => task >= 50);
   return { count: tasks.length, over_50ms: over50.length, max_ms: percentile(tasks, 1.0) };
@@ -76,7 +108,7 @@ async function withTrace(page, fn) {
       ],
     },
   });
-  const result = await fn();
+  const result = await fn(cdp);
   const complete = new Promise((resolve) => cdp.once("Tracing.tracingComplete", resolve));
   await cdp.send("Tracing.end");
   const payload = await complete;
@@ -99,7 +131,14 @@ async function withTrace(page, fn) {
     const delta = frames[i] - frames[i - 1];
     if (delta > 0 && delta < 1000) intervals.push(delta);
   }
-  return { drawFrame: summarizeFrameIntervals(intervals), rawFrameCount: frames.length };
+  // Discontinuities (gesture resets, page hitches with no input) are not
+  // frame costs; count them separately instead of polluting percentiles.
+  const active = intervals.filter((delta) => delta <= 250);
+  return {
+    drawFrame: summarizeFrameIntervals(active),
+    discontinuities: intervals.length - active.length,
+    rawFrameCount: frames.length,
+  };
 }
 
 async function main() {
@@ -194,25 +233,22 @@ async function main() {
         await page.waitForSelector("[data-chat-scroll-region] .chat-message:last-child");
         await page.waitForTimeout(1000); // warmup/settle
         const inputLatencies = [];
-        const traceResult = await withTrace(page, async () => {
+        const traceResult = await withTrace(page, async (cdp) => {
           const deadline = Date.now() + 30000;
           let sampled = 0;
-          while (Date.now() < deadline) {
+          // First 15 steps: wheel-based input→event latency samples.
+          while (Date.now() < deadline && sampled < 15) {
             await page.mouse.move(720, 450);
-            if (sampled < 15) {
-              // Sample input→event latency on the first 15 wheel steps.
-              await page.evaluate(() => window.__perf.arm());
-              const dispatchAt = Date.now();
-              await page.mouse.wheel(0, -500);
-              await page.waitForTimeout(120);
-              const stamps = await page.evaluate(() => window.__perf.inputLatencies.splice(0));
-              for (const stamp of stamps) inputLatencies.push(stamp - dispatchAt);
-              sampled += 1;
-            } else {
-              await page.mouse.wheel(0, -500);
-              await page.waitForTimeout(160);
-            }
+            await page.evaluate(() => window.__perf.arm());
+            const dispatchAt = Date.now();
+            await page.mouse.wheel(0, -500);
+            await page.waitForTimeout(120);
+            const stamps = await page.evaluate(() => window.__perf.inputLatencies.splice(0));
+            for (const stamp of stamps) inputLatencies.push(stamp - dispatchAt);
+            sampled += 1;
           }
+          // Remaining window: continuous gesture scrolling for real frame cadence.
+          await scrollGestureFor(cdp, page, Math.max(0, deadline - Date.now()), { distance: 2500, speed: 2500 });
         });
         const stats = await page.evaluate(() => ({
           dom: window.__perf.domNodes(),
@@ -224,6 +260,7 @@ async function main() {
           run,
           drawFrame: traceResult.drawFrame,
           rawFrameCount: traceResult.rawFrameCount,
+          discontinuities: traceResult.discontinuities,
           input_latency_ms: {
             samples: inputLatencies.length,
             p50: percentile(inputLatencies, 0.5),
@@ -248,23 +285,16 @@ async function main() {
         await page.goto(`${BASE}/?perf=1&n=${size}&seed=${SEED}`, { waitUntil: "load" });
         await page.waitForSelector("[data-chat-scroll-region] .chat-message:last-child");
         await page.waitForTimeout(1000);
-        const traceResult = await withTrace(page, async () => {
-          const deadline = Date.now() + 15000;
-          let down = false;
-          while (Date.now() < deadline) {
-            await page.mouse.move(720, 450);
-            await page.mouse.wheel(0, down ? 900 : -900);
-            down = !down;
-            await page.waitForTimeout(40);
-          }
-        });
+        const traceResult = await withTrace(page, (cdp) =>
+          scrollGestureFor(cdp, page, 15000, { distance: 2500, speed: 6000, alternate: true }),
+        );
         const stats = await page.evaluate(() => ({
           dom: window.__perf.domNodes(),
           scroller: window.__perf.scrollerStats(),
           heap: window.__perf.heap(),
           longtasks: window.__longtasks,
         }));
-        sizeResult.scenarios.S3_fast_scroll.push({ run, drawFrame: traceResult.drawFrame, rawFrameCount: traceResult.rawFrameCount, ...stats });
+        sizeResult.scenarios.S3_fast_scroll.push({ run, drawFrame: traceResult.drawFrame, rawFrameCount: traceResult.rawFrameCount, discontinuities: traceResult.discontinuities, ...stats });
         await context.close();
       }
 
@@ -282,14 +312,9 @@ async function main() {
         await page.goto(`${BASE}/?perf=1&n=${size}&seed=${SEED}&stream=1&streamMs=20000`, { waitUntil: "load" });
         await page.waitForSelector("[data-chat-scroll-region] .chat-message:last-child");
         await page.waitForTimeout(2000); // stream warms up, view pinned to bottom
-        const traceResult = await withTrace(page, async () => {
-          const deadline = Date.now() + 16000;
-          while (Date.now() < deadline) {
-            await page.mouse.move(720, 450);
-            await page.mouse.wheel(0, -350);
-            await page.waitForTimeout(500);
-          }
-        });
+        const traceResult = await withTrace(page, (cdp) =>
+          scrollGestureFor(cdp, page, 16000, { distance: 1500, speed: 1500 }),
+        );
         const stats = await page.evaluate(() => ({
           dom: window.__perf.domNodes(),
           scroller: window.__perf.scrollerStats(),
@@ -298,7 +323,7 @@ async function main() {
         }));
         const streamState = await page.getAttribute("html", "data-stream-state");
         sizeResult.scenarios.S4_scroll_while_streaming.push({
-          run, stream_state: streamState, drawFrame: traceResult.drawFrame, rawFrameCount: traceResult.rawFrameCount, ...stats,
+          run, stream_state: streamState, drawFrame: traceResult.drawFrame, rawFrameCount: traceResult.rawFrameCount, discontinuities: traceResult.discontinuities, ...stats,
         });
         await context.close();
       }

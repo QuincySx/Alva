@@ -1,11 +1,16 @@
-// INPUT:  Projected Hub events (user/assistant messages), i18n, clipboard
+// INPUT:  Projected Hub entries (user/assistant messages), i18n, clipboard
 // OUTPUT: ChatTranscript — the always-visible message reading flow with safe
-//         Markdown rendering, per-codeblock copy, and follow/jump-to-bottom
-// POS:    R29/R30 chat-first transcript. Execution diagnostics and the tool
-//         timeline live in the Inspector workbench, NOT here; this component
-//         renders messages only and never unmounts them on terminal events.
+//         Markdown rendering, per-codeblock copy, follow/jump-to-bottom, and
+//         a bounded mounted window (H21)
+// POS:    R29/R30 chat-first transcript; H21 bounds the DOM. Message bodies
+//         are memoized per entry so a streaming delta re-renders only the
+//         tail item; history outside the window unmounts as a DOM policy —
+//         the full list stays in the data array and is fully reachable by
+//         scrolling. This component renders messages only and never unmounts
+//         them on terminal events.
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -15,6 +20,7 @@ import {
 } from "react";
 import { ArrowDown, Bot, Check, Copy, User } from "lucide-react";
 import type { HubTimelineEvent } from "./hub-timeline";
+import { BoundedList, useRowRef, type RowRegister } from "../session/bounded-list";
 import { Button } from "../ui";
 import { useI18n } from "../i18n";
 
@@ -30,6 +36,12 @@ function messageRole(entry: HubTimelineEvent): "user" | "assistant" | null {
 
 function isMessageEntry(entry: HubTimelineEvent): boolean {
   return messageRole(entry) !== null;
+}
+
+function entryKey(entry: HubTimelineEvent, index: number): string {
+  // H20 entries carry a canonical id; plain events fall back to session+item.
+  if ("id" in entry && typeof entry.id === "string") return entry.id;
+  return `${entry.product_session_id}-${entry.item_id ?? index}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,14 +203,13 @@ function isPinnedToBottom(element: HTMLElement): boolean {
 }
 
 export interface ChatTranscriptProps {
-  /** aria-controls id of the scroll container this transcript renders into. */
   events: HubTimelineEvent[];
   /** The live stream may still be appending deltas to the last message. */
   streaming: boolean;
 }
 
 export function ChatTranscript({ events, streaming }: ChatTranscriptProps) {
-  const { localize, t } = useI18n();
+  const { t } = useI18n();
   const messages = useMemo(() => events.filter(isMessageEntry), [events]);
   const scrollerRef = useRef<HTMLElement | null>(null);
   const [pinned, setPinned] = useState(true);
@@ -228,46 +239,22 @@ export function ChatTranscript({ events, streaming }: ChatTranscriptProps) {
 
   return (
     <div className="chat-transcript" data-testid="chat-transcript">
-      <ol
-        aria-label={t("chat.transcriptLabel")}
+      <BoundedList
+        ariaLabel={t("chat.transcriptLabel")}
         className="chat-transcript__list"
-      >
-        {messages.map((entry, index) => {
-          const isUser = messageRole(entry) === "user";
-          return (
-            <li
-              className={`chat-message chat-message--${isUser ? "user" : "assistant"}`}
-              data-status={entry.status}
-              key={`${entry.product_session_id}-${entry.item_id ?? index}`}
-            >
-              <div className="chat-message__meta">
-                {isUser ? (
-                  <User size={14} aria-hidden="true" />
-                ) : (
-                  <Bot size={14} aria-hidden="true" />
-                )}
-                <span>{isUser ? t("timeline.you") : entry.engine_id || "ALVA Agent"}</span>
-                {!isUser && entry.status !== "assistant_message" ? (
-                  <small>{localize(entry.status)}</small>
-                ) : null}
-              </div>
-              <div className="chat-message__body">
-                {entry.message
-                  ? renderMarkdown(isUser ? entry.message : localizeSystemFallback(entry.message, localize))
-                  : entry.status === "running"
-                    ? <p className="chat-paragraph">{t("timeline.executing")}</p>
-                    : null}
-                {streaming && !isUser && index === messages.length - 1 && entry.status === "running" ? (
-                  <span aria-hidden="true" className="chat-cursor" />
-                ) : null}
-              </div>
-              {entry.status === "interrupted" ? (
-                <small className="chat-hint">{t("timeline.interruptedHint")}</small>
-              ) : null}
-            </li>
-          );
-        })}
-      </ol>
+        items={messages}
+        keyOf={entryKey}
+        renderItem={(entry, index, rowRegister) => (
+          <ChatMessageRow
+            entry={entry}
+            index={index}
+            register={rowRegister}
+            streaming={streaming && index === messages.length - 1}
+          />
+        )}
+        scrollerRef={scrollerRef}
+        testId="chat-transcript-list"
+      />
       {!pinned ? (
         <Button
           aria-label={t("chat.jumpToLatest")}
@@ -296,6 +283,70 @@ export function ChatTranscript({ events, streaming }: ChatTranscriptProps) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Memoized message row (H21): a streaming delta re-renders ONLY this item
+// when its body changed; unchanged items keep reference equality so their
+// Markdown parse result is reused.
+// ---------------------------------------------------------------------------
+
+interface ChatMessageRowProps {
+  entry: HubTimelineEvent;
+  index: number;
+  register: RowRegister;
+  /** True only for the tail item while the stream is appending. */
+  streaming: boolean;
+}
+
+const ChatMessageRow = memo(function ChatMessageRow({
+  entry,
+  index,
+  register,
+  streaming,
+}: ChatMessageRowProps) {
+  const { localize, t } = useI18n();
+  const isUser = messageRole(entry) === "user";
+  const key = entryKey(entry, index);
+  const rowRef = useRowRef(register, key);
+  const body = useMemo(
+    () => (entry.message
+      ? renderMarkdown(isUser ? entry.message : localizeSystemFallback(entry.message, localize))
+      : null),
+    [entry.message, isUser, localize],
+  );
+
+  return (
+    <li
+      className={`chat-message chat-message--${isUser ? "user" : "assistant"}`}
+      data-status={entry.status}
+      ref={rowRef}
+    >
+      <div className="chat-message__meta">
+        {isUser ? (
+          <User size={14} aria-hidden="true" />
+        ) : (
+          <Bot size={14} aria-hidden="true" />
+        )}
+        <span>{isUser ? t("timeline.you") : entry.engine_id || "ALVA Agent"}</span>
+        {!isUser && entry.status !== "assistant_message" ? (
+          <small>{localize(entry.status)}</small>
+        ) : null}
+      </div>
+      <div className="chat-message__body">
+        {body}
+        {!entry.message && entry.status === "running" ? (
+          <p className="chat-paragraph">{t("timeline.executing")}</p>
+        ) : null}
+        {streaming && entry.status === "running" ? (
+          <span aria-hidden="true" className="chat-cursor" />
+        ) : null}
+      </div>
+      {entry.status === "interrupted" ? (
+        <small className="chat-hint">{t("timeline.interruptedHint")}</small>
+      ) : null}
+    </li>
+  );
+});
 
 /** Assistant text stays as-is (it is model prose, not localized system copy);
  *  this hook exists so future system-authored messages localize correctly. */
