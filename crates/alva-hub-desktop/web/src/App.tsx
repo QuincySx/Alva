@@ -29,6 +29,7 @@ import { EngineReadinessPanel } from "./components/engine-readiness-panel";
 import { FallbackPolicyPanel } from "./components/fallback-policy-panel";
 import { ModelPicker, type HubModelRoute } from "./components/model-picker";
 import { HubSidebar } from "./components/hub-sidebar";
+import { StartupGate, type EntryMode, type ProjectWorktreeState } from "./components/startup-gate";
 import { ChatTranscript } from "./components/chat-transcript";
 import {
   HubTimeline,
@@ -37,7 +38,6 @@ import {
 import { HubTopbar } from "./components/hub-topbar";
 import { SessionDetails } from "./components/session-details";
 import { TeamPanel } from "./components/team-panel";
-import { WorkspaceGate } from "./components/workspace-gate";
 import {
   AutomationsPage,
   ExtensionsPage,
@@ -83,15 +83,21 @@ import {
 import {
   addSessionMemory,
   chooseWorkspace,
+  createProject,
   createSessionWorkspace,
+  deleteProject,
   discoverModelsForProvider,
+  discoverProjectWorktrees,
   getEngineReadiness,
   getDefaultModelRoute,
   getGlobalFallbackPolicy,
   getHubSession,
   getPermissionEligibility,
   getPermissionGroups,
+  hasTauriRuntime,
+  listProjects,
   respondPermissionGroup,
+  setSessionProject,
   setTeamAutonomy,
   addTeamWorker,
   adoptWorkerWork,
@@ -139,6 +145,7 @@ import {
   type TeamRunDetail,
   type RepairKind,
   type ModelRoute,
+  type ProjectSummary,
   type ProviderProfile,
   type SaveProviderProfile,
   type WorkspaceKind,
@@ -503,6 +510,16 @@ export default function App() {
   const localizeSystem = (value: string | null | undefined, fallback = t("system.operationFailed")) =>
     localizeSystemText(locale, value, fallback);
   const [workspace, setWorkspace] = useState("");
+  // H08: two first-class entry modes. Conversation sessions never require a
+  // project; project mode aggregates one project's worktrees and sessions.
+  // The choice persists across restarts but never migrates sessions.
+  const [entryMode, setEntryMode] = useState<EntryMode>(() => {
+    const stored = window.localStorage.getItem("alva-hub.entry-mode");
+    return stored === "conversation" || stored === "project" ? stored : "conversation";
+  });
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [projectWorktrees, setProjectWorktrees] = useState<Record<string, ProjectWorktreeState>>({});
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [workspaceKind, setWorkspaceKind] = useState<WorkspaceKind | null>(null);
   const [workspaceCreating, setWorkspaceCreating] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -687,6 +704,8 @@ export default function App() {
     void getPermissionGroups().then(setApprovalGroups).catch(() => {});
     void refreshSessions();
     void loadGlobalFallbackPolicy().catch(appendLocalFailure);
+    // H08: project mode restores the aggregated project list on startup.
+    if (entryMode === "project") void refreshProjects();
     const requestedSession = queryValue("session");
     if (requestedSession) void loadSession(requestedSession).catch(appendLocalFailure);
   }, []);
@@ -789,15 +808,23 @@ export default function App() {
   }
 
   const filteredSessions = useMemo(() => {
+    // H08: entry modes scope which sessions are listed — conversation mode
+    // shows unattached sessions, project mode shows the open project's.
+    // Filtering is display-only; no session is moved or rewritten.
+    const scoped = entryMode === "project" && activeProjectId
+      ? sessions.filter((session) => session.project_id === activeProjectId)
+      : entryMode === "conversation"
+        ? sessions.filter((session) => !session.project_id)
+        : sessions;
     const query = sessionQuery.trim().toLowerCase();
-    if (!query) return sessions;
-    return sessions.filter((session) =>
+    if (!query) return scoped;
+    return scoped.filter((session) =>
       [session.workspace, session.last_prompt ?? "", session.engine_id]
         .join(" ")
         .toLowerCase()
         .includes(query),
     );
-  }, [sessions, sessionQuery]);
+  }, [sessions, sessionQuery, entryMode, activeProjectId]);
 
   // A Stop control must be offered exactly when something can be stopped.
   const attemptIsLive =
@@ -946,20 +973,6 @@ export default function App() {
     void loadGlobalFallbackPolicy().catch(appendLocalFailure);
   }
 
-  async function selectWorkspace() {
-    try {
-      const selected = await chooseWorkspace();
-      if (selected) {
-        setWorkspace(selected);
-        setWorkspaceKind("project");
-        resetSessionSurface();
-        await loadGlobalFallbackPolicy();
-      }
-    } catch (error) {
-      appendLocalFailure(error);
-    }
-  }
-
   async function createIndependentSession() {
     if (workspaceCreating) return;
     setWorkspaceCreating(true);
@@ -967,12 +980,79 @@ export default function App() {
       const binding = await createSessionWorkspace();
       setWorkspace(binding.path);
       setWorkspaceKind(binding.kind);
+      setActiveProjectId(null);
       resetSessionSurface();
       await loadGlobalFallbackPolicy();
     } catch (error) {
       appendLocalFailure(error);
     } finally {
       setWorkspaceCreating(false);
+    }
+  }
+
+  // ---- H08: project mode handlers (H04/H05 bridge) -------------------------
+
+  const projectsSupported = hasTauriRuntime();
+
+  function changeEntryMode(mode: EntryMode) {
+    setEntryMode(mode);
+    window.localStorage.setItem("alva-hub.entry-mode", mode);
+    if (mode === "project") void refreshProjects();
+  }
+
+  async function refreshProjects() {
+    if (!projectsSupported) return;
+    try {
+      const list = await listProjects();
+      setProjects(list);
+      // Read-only discovery per project — a non-Git project is a STATE,
+      // not an error, and never blocks the list.
+      const nextStates: Record<string, ProjectWorktreeState> = {};
+      await Promise.all(list.map(async (project) => {
+        const result = await discoverProjectWorktrees(project.workspace_canonical);
+        if (Array.isArray(result)) {
+          nextStates[project.project_id] = { worktrees: result, state: null };
+        } else {
+          nextStates[project.project_id] = { worktrees: [], state: result };
+        }
+      }));
+      setProjectWorktrees(nextStates);
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  async function addProject() {
+    try {
+      const selected = await chooseWorkspace();
+      if (!selected) return;
+      const project = await createProject(selected);
+      await refreshProjects();
+      openProject(project);
+    } catch (error) {
+      appendLocalFailure(error);
+    }
+  }
+
+  function openProject(project: ProjectSummary) {
+    setWorkspace(project.workspace_path);
+    setWorkspaceKind("project");
+    setActiveProjectId(project.project_id);
+    resetSessionSurface();
+    void loadGlobalFallbackPolicy().catch(appendLocalFailure);
+  }
+
+  async function removeProject(project: ProjectSummary) {
+    try {
+      await deleteProject(project.project_id);
+      if (activeProjectId === project.project_id) {
+        setActiveProjectId(null);
+        setWorkspace("");
+        setWorkspaceKind(null);
+      }
+      await refreshProjects();
+    } catch (error) {
+      appendLocalFailure(error);
     }
   }
 
@@ -1002,6 +1082,9 @@ export default function App() {
     activeSessionRef.current = detail.session.product_session_id;
     setWorkspace(detail.session.workspace);
     setWorkspaceKind(detail.session.workspace_kind ?? "project");
+    // H08: opening a session restores its project context exactly (the
+    // session's own stored project — never guessed from the mode).
+    setActiveProjectId(detail.session.project_id ?? null);
     setEngine(detail.session.engine_id);
     const activeBranch = detail.branches.find(
       (branch) => branch.branch_id === detail.session.active_branch_id,
@@ -1485,6 +1568,13 @@ export default function App() {
       }, activeSessionId ? null : selectedTarget, runToken);
       setActiveSessionId(outcome.product_session_id);
       activeSessionRef.current = outcome.product_session_id;
+      // H08: a session started inside an open project belongs to it. The
+      // attach is a durable product fact written once after creation; it
+      // never rewrites the session's workspace/cwd.
+      if (runToken && activeProjectId) {
+        await setSessionProject(outcome.product_session_id, activeProjectId)
+          .catch(appendLocalFailure);
+      }
       await refreshSessions();
       await loadSession(outcome.product_session_id);
     } catch (error) {
@@ -1707,10 +1797,21 @@ export default function App() {
           <ScrollRegion className="hub-session-scroll" data-chat-scroll-region="">
             {!workspace && activeSessionId === null ? (
               <>
-                <WorkspaceGate
+                {/* H08: two first-class entry modes — conversation (managed
+                    independent session, no repository required) and project
+                    (aggregates a directory, its worktrees and sessions). */}
+                <StartupGate
                   busy={busy || workspaceCreating}
-                  onChooseProject={() => void selectWorkspace()}
-                  onCreateSession={() => void createIndependentSession()}
+                  entryMode={entryMode}
+                  onAddProject={() => void addProject()}
+                  onCreateConversation={() => void createIndependentSession()}
+                  onDeleteProject={(project) => void removeProject(project)}
+                  onEntryModeChange={changeEntryMode}
+                  onOpenProject={openProject}
+                  onRefreshProjects={() => void refreshProjects()}
+                  projectWorktrees={projectWorktrees}
+                  projects={projects}
+                  projectsSupported={projectsSupported}
                 />
                 {/* R17: 失败通知经时间线可见，即便尚未选择工作区。 */}
                 {timeline.length > 0 ? (

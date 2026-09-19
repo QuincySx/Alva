@@ -63,6 +63,12 @@ const bridge = vi.hoisted(() => {
       listModelRoutes: vi.fn(),
       getDefaultModelRoute: vi.fn(),
       setDefaultModelRoute: vi.fn(),
+      hasTauriRuntime: vi.fn(() => false),
+      listProjects: vi.fn(async () => []),
+      createProject: vi.fn(),
+      deleteProject: vi.fn(async () => undefined),
+      setSessionProject: vi.fn(async () => undefined),
+      discoverProjectWorktrees: vi.fn(async () => ({ code: "not_git_repository" })),
       listHubSessions: vi.fn(async () => state.sessions),
       getHubSession: vi.fn(async () => state.detail),
       addSessionMemory: vi.fn(
@@ -383,22 +389,22 @@ describe("App integration", () => {
   it("renders the empty surface before any session or event", async () => {
     render(<App />);
     expect(
-      await screen.findByText("How would you like to start?"),
+      await screen.findByText("How would you like to work?"),
     ).toBeInTheDocument();
     expect(screen.queryByText("No workspace")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create independent session" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Select project" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New conversation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Browse projects" })).toBeInTheDocument();
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
-    ).toEqual(["Project", "Independent session"]);
-    expect(screen.getByText("Recommended").parentElement).toHaveTextContent("Project");
+    ).toEqual(["Conversation", "Projects"]);
+    expect(screen.getByText("Recommended").parentElement).toHaveTextContent("Projects");
   });
 
   it("creates an isolated workspace and returns to the mode gate for the next session", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Create independent session" }));
+    await user.click(await screen.findByRole("button", { name: "New conversation" }));
     expect(bridge.fns.createSessionWorkspace).toHaveBeenCalledTimes(1);
     // UI07/UI08: independent sessions surface a friendly label; the raw
     // session directory stays out of the persistent composer footer.
@@ -406,7 +412,7 @@ describe("App integration", () => {
     expect(screen.queryByText(/alva-session-1/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "New session" }));
-    expect(await screen.findByText("How would you like to start?")).toBeInTheDocument();
+    expect(await screen.findByText("How would you like to work?")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run with alva" })).toBeDisabled();
     expect(bridge.fns.createSessionWorkspace).toHaveBeenCalledTimes(1);
   });
@@ -423,7 +429,7 @@ describe("App integration", () => {
     };
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Select project" }));
+    await user.click(await screen.findByRole("button", { name: "New conversation" }));
     const composer = await screen.findByLabelText("Message");
     await waitFor(() => expect(composer).toHaveFocus());
     // Keyboard-only continuation: typing works without re-focusing anything.
@@ -783,7 +789,6 @@ describe("App integration", () => {
 
   it("runs a prompt through the composer once a workspace is chosen", async () => {
     const user = userEvent.setup();
-    bridge.fns.chooseWorkspace.mockResolvedValue("/tmp/proj");
     bridge.fns.runHubPrompt.mockResolvedValue({
       product_session_id: "ps-new",
       result: "4",
@@ -800,9 +805,9 @@ describe("App integration", () => {
     };
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Select project" }));
+    await user.click(await screen.findByRole("button", { name: "New conversation" }));
     expect(
-      (await screen.findAllByText((text) => text.includes("proj"))).length,
+      (await screen.findAllByText((text) => text.includes("Independent session"))).length,
     ).toBeGreaterThan(0);
 
     const composer = screen.getByLabelText("Message");
@@ -812,7 +817,7 @@ describe("App integration", () => {
     expect(bridge.fns.runHubPrompt).toHaveBeenCalledWith(
       {
         prompt: "what is 2+2?",
-        workspace: "/tmp/proj",
+        workspace: "/tmp/alva-session-1",
         engine_id: "alva",
         product_session_id: null,
         permission_profile: "workspace_write",
@@ -856,7 +861,7 @@ describe("App integration", () => {
     };
 
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "Select project" }));
+    await user.click(await screen.findByRole("button", { name: "New conversation" }));
     await user.type(screen.getByLabelText("Message"), "lead prompt");
     await user.click(screen.getByRole("button", { name: "Run with alva" }));
     const runToken = bridge.fns.runHubPrompt.mock.calls[0][2] as string;

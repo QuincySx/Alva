@@ -162,7 +162,38 @@ export interface HubSessionSummary {
   last_result: string | null;
   permission_profile: PermissionProfile;
   include_full_transcript: boolean;
+  /** Owning Project (H04); null/absent surfaces in conversation mode. */
+  project_id?: string | null;
 }
+
+export interface ProjectSummary {
+  project_id: string;
+  display_name: string;
+  workspace_path: string;
+  workspace_canonical: string;
+  created_at: number;
+  updated_at: number;
+  session_count: number;
+}
+
+export interface WorktreeInfo {
+  path: string;
+  head: string | null;
+  /** Git branch ref (e.g. "refs/heads/main") — NOT an EngineBranch. */
+  branch: string | null;
+  detached: boolean;
+  bare: boolean;
+  is_main_worktree: boolean;
+  locked: string | null;
+  prunable: string | null;
+  managed_by_hub: boolean;
+  exists_on_disk: boolean;
+}
+
+export type WorktreeDiscoveryState =
+  | { code: "not_git_repository" }
+  | { code: "missing_directory"; path: string }
+  | { code: "git"; detail: string };
 
 export interface StoredTurn {
   turn_id: string;
@@ -474,6 +505,11 @@ import {
 
 const hasTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/** True when the desktop IPC surface (projects, worktrees, runs) exists. */
+export function hasTauriRuntime(): boolean {
+  return hasTauri;
+}
 // Dev-only: ?demo=1 shows deterministic data so wireframe/vision review
 // can inspect a DATA state without the Tauri runtime. Never active in
 // production (hasTauri bypasses every branch).
@@ -659,6 +695,56 @@ export async function listHubSessions(): Promise<HubSessionSummary[]> {
   if (HTTP) return await httpJson<HubSessionSummary[]>("/api/sessions", undefined, "GET");
   if (!hasTauri) return [];
   return await invoke<HubSessionSummary[]>("list_hub_sessions");
+}
+
+// ---- H04/H05: projects + read-only worktree discovery ----------------------
+
+export async function listProjects(): Promise<ProjectSummary[]> {
+  if (DEMO || !hasTauri) return [];
+  return await invoke<ProjectSummary[]>("list_projects");
+}
+
+export async function createProject(
+  workspacePath: string,
+  displayName?: string,
+): Promise<ProjectSummary> {
+  if (!hasTauri) {
+    throw new Error("Projects require the ALVA Hub desktop runtime.");
+  }
+  return await invoke<ProjectSummary>("create_project", {
+    workspacePath,
+    displayName: displayName ?? null,
+  });
+}
+
+export async function renameProject(projectId: string, displayName: string): Promise<void> {
+  if (!hasTauri) throw new Error("Projects require the ALVA Hub desktop runtime.");
+  await invoke("rename_project", { projectId, displayName });
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  if (!hasTauri) throw new Error("Projects require the ALVA Hub desktop runtime.");
+  await invoke("delete_project", { projectId });
+}
+
+export async function setSessionProject(
+  productSessionId: string,
+  projectId: string | null,
+): Promise<void> {
+  if (!hasTauri) throw new Error("Projects require the ALVA Hub desktop runtime.");
+  await invoke("set_session_project", { productSessionId, projectId });
+}
+
+/** Inner state is a product STATE (not-git / missing directory), not a throw. */
+export async function discoverProjectWorktrees(
+  workspacePath: string,
+): Promise<WorktreeInfo[] | WorktreeDiscoveryState> {
+  if (!hasTauri) return { code: "git", detail: "worktree discovery requires the desktop runtime" };
+  const result = await invoke<WorktreeInfo[] | WorktreeDiscoveryState>(
+    "discover_project_worktrees",
+    { workspacePath },
+  );
+  return result;
 }
 
 export async function getHubSession(
