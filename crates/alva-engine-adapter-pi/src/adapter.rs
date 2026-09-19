@@ -217,6 +217,13 @@ impl EngineRuntime for PiAdapter {
                 .session_id()
                 .unwrap_or(native_session.as_str())
                 .to_string();
+            // R96: a provisional error still pending at the end of the whole
+            // request never recovered — settle it here as the single fatal,
+            // before the settlement pair below.
+            if let Some(fatal) = mapper.settle_at_eof() {
+                error_forwarded = true;
+                let _ = event_tx.send(fatal);
+            }
             if !native_terminal_seen && !error_forwarded && !fatal_seen {
                 let _ = event_tx.send(RuntimeEvent::Error {
                     message: "pi exited without a terminal event".into(),
@@ -305,15 +312,128 @@ mod tests {
         std::fs::set_permissions(path, permissions).unwrap();
     }
 
-    /// A definitive Pi failure follows the real 0.85.1 wire order:
-    /// `message_update{error}` → `message_end{stopReason:"error"}` →
-    /// `agent_end{willRetry:false}`. R95: the assistant error frames are
-    /// provisional and forward nothing; the non-retrying agent_end settles
-    /// the single fatal. A trailing message after that fatal must never be
-    /// forwarded (stream contract R2 — stop reading).
+    /// R96 (supersedes the old "stop reading at agent_end" premise): Pi
+    /// 0.85.1's context overflow runs `error frames → agent_end{false} →
+    /// post-run compaction → recovered answer`. The provisional error is
+    /// visible as a recoverable notice, the stream KEEPS READING, and the
+    /// recovered answer survives into Completed — exactly one, no fatal.
     #[cfg(unix)]
     #[tokio::test]
-    async fn stops_reading_after_fatal_error() {
+    async fn overflow_compaction_after_agent_end_recovers_the_answer() {
+        let fixture = tempfile::tempdir().unwrap();
+        let executable = fixture.path().join("fake-pi-overflow");
+        write_fake_pi(
+            &executable,
+            r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-overflow-1"}'
+printf '%s\n' '{"type":"message_start","message":{"role":"assistant"}}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"role":"assistant","stopReason":"error","errorMessage":"context window exceeded","content":[]}}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"context window exceeded","content":[]}}'
+printf '%s\n' '{"type":"agent_end","willRetry":false}'
+printf '%s\n' '{"type":"message_start","message":{"role":"assistant"}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"end","content":[{"type":"text","text":"recovered after compaction"}],"usage":{"input":9,"output":2}}}'
+printf '%s\n' '{"type":"agent_end","willRetry":false}'
+"#,
+        );
+
+        let adapter = pi_adapter(executable);
+        let mut stream = adapter.execute(RuntimeRequest::new("hi")).unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+
+        assert!(
+            !events.iter().any(|event| matches!(
+                event,
+                RuntimeEvent::Error {
+                    recoverable: false,
+                    ..
+                }
+            )),
+            "a recovered overflow must not settle a fatal: {events:#?}"
+        );
+        assert!(
+            events.iter().any(|event| matches!(
+                event,
+                RuntimeEvent::Error {
+                    message,
+                    recoverable: true,
+                    ..
+                } if message.contains("context window exceeded")
+            )),
+            "the unresolved-error notice must stay visible while awaiting settlement: {events:#?}"
+        );
+        assert!(
+            matches!(
+                events.last(),
+                Some(RuntimeEvent::Completed {
+                    result: Some(text),
+                    ..
+                }) if text == "recovered after compaction"
+            ),
+            "the compacted answer must survive: {events:#?}"
+        );
+        assert!(validate_event_stream(&events).is_ok());
+    }
+
+    /// R96: an unresolved error that reaches the end of the request WITHOUT a
+    /// recovery answer settles exactly one fatal at EOF — the original
+    /// message preserved — and the turn carries no success result.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unresolved_error_settles_one_fatal_at_eof() {
+        let fixture = tempfile::tempdir().unwrap();
+        let executable = fixture.path().join("fake-pi-unresolved");
+        write_fake_pi(
+            &executable,
+            r#"#!/bin/sh
+printf '%s\n' '{"type":"session","id":"pi-unresolved-1"}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"role":"assistant","stopReason":"error","errorMessage":"authentication rejected","content":[]}}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"authentication rejected","content":[]}}'
+printf '%s\n' '{"type":"agent_end","willRetry":false}'
+"#,
+        );
+        let adapter = pi_adapter(executable);
+        let mut stream = adapter.execute(RuntimeRequest::new("hi")).unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event);
+        }
+        let fatals: Vec<&str> = events
+            .iter()
+            .filter_map(|event| match event {
+                RuntimeEvent::Error {
+                    message,
+                    recoverable: false,
+                } => Some(message.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            fatals,
+            vec!["authentication rejected"],
+            "exactly one fatal, settled at the whole-request settlement with the original message: {events:#?}"
+        );
+        assert!(
+            matches!(
+                events.last(),
+                Some(RuntimeEvent::Completed { result: None, .. })
+            ),
+            "a failed turn must end Completed{{result:None}}: {events:#?}"
+        );
+        assert!(validate_event_stream(&events).is_ok());
+    }
+
+    /// A definitive Pi failure follows the real 0.85.1 wire order:
+    /// `message_update{error}` → `message_end{stopReason:"error"}` →
+    /// `agent_end{willRetry:false}`. R96: without a recovery answer the
+    /// pending error settles as the single fatal at EOF. A trailing RECOVERY
+    /// answer after that same agent_end is forwarded (that is the R96
+    /// compaction path, covered above).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn provisional_error_stays_buffered_until_settlement() {
         let fixture = tempfile::tempdir().unwrap();
         let executable = fixture.path().join("fake-pi");
         write_fake_pi(
@@ -324,7 +444,6 @@ printf '%s\n' '{"type":"message_start","message":{"role":"assistant"}}'
 printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"role":"assistant","stopReason":"error","errorMessage":"upstream refused","content":[]}}}'
 printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"upstream refused","content":[]}}'
 printf '%s\n' '{"type":"agent_end","willRetry":false}'
-printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"end","content":[{"type":"text","text":"must not be forwarded"}],"usage":{"input":1,"output":1}}}'
 "#,
         );
 
@@ -352,21 +471,19 @@ printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":
             })
             .collect();
         // Pinning *which* fatal arrived (and that it is the only one) keeps
-        // the test honest if either wire shape changes.
+        // the test honest if either wire shape changes. R96: the settle point
+        // is the whole-request settlement, not the agent_end.
         assert_eq!(
             fatals,
             vec!["upstream refused"],
-            "exactly one fatal, settled at the non-retrying agent_end: {events:#?}"
+            "exactly one fatal, settled with the original message: {events:#?}"
         );
         assert!(
-            !events
-                .iter()
-                .any(|event| matches!(event, RuntimeEvent::Message { .. })),
-            "no Message may follow the fatal settle point: {events:#?}"
-        );
-        assert!(
-            matches!(events.last(), Some(RuntimeEvent::Completed { .. })),
-            "Completed must be the terminal event: {events:#?}"
+            matches!(
+                events.last(),
+                Some(RuntimeEvent::Completed { result: None, .. })
+            ),
+            "Completed must be the terminal event and carry no answer: {events:#?}"
         );
         assert!(validate_event_stream(&events).is_ok());
     }
@@ -671,15 +788,22 @@ printf '%s\n' '{"type":"message_start","message":{"role":"assistant","id":"m1"}}
 
         #[tokio::test]
         async fn output_after_fatal_is_not_forwarded() {
+            // R96: the overflow/compaction path no longer settles a fatal at
+            // agent_end (that output is a RECOVERY, not post-fatal noise —
+            // see overflow_compaction_after_agent_end_recovers_the_answer).
+            // This scenario keeps its original meaning with a REAL fatal:
+            // retry exhaustion at auto_retry_end(success:false). Trailing
+            // engine output after that fatal must not be forwarded.
             let fixture = tempfile::tempdir().unwrap();
             let executable = fixture.path().join("fake-pi");
             write_fake_pi(
                 &executable,
                 r#"#!/bin/sh
 printf '%s\n' '{"type":"session","id":"pi-sess-1"}'
-printf '%s\n' '{"type":"message_start","message":{"role":"assistant"}}'
-printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"role":"assistant","stopReason":"error","errorMessage":"upstream refused","content":[]}}}'
-printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"upstream refused","content":[]}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"503 Service Unavailable","content":[]}}'
+printf '%s\n' '{"type":"agent_end","willRetry":true}'
+printf '%s\n' '{"type":"auto_retry_start","attempt":1,"maxAttempts":3,"errorMessage":"503 Service Unavailable"}'
+printf '%s\n' '{"type":"auto_retry_end","success":false,"finalError":"503 exhausted after 3 attempts"}'
 printf '%s\n' '{"type":"agent_end","willRetry":false}'
 printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"end","content":[{"type":"text","text":"must not be forwarded"}],"usage":{"input":1,"output":1}}}'
 "#,

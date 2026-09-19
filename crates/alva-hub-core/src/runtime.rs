@@ -751,7 +751,7 @@ impl HubRuntime {
                 return Err(error.into());
             }
         };
-        let failed_handoff_rollback = previous_session.zip(handoff_context_used);
+        let mut failed_handoff_rollback = previous_session.zip(handoff_context_used);
         // R90: whether THIS claim injected the handoff preamble — captured
         // before the rollback pair consumes the context.
         let handoff_turn = failed_handoff_rollback.is_some();
@@ -974,21 +974,31 @@ impl HubRuntime {
             }
             if !saw_completed {
                 saw_fatal_error = true;
-                let engine_session_id = mark_session_failed(&sessions, &output_session_id, my_seq)
-                    // R93: handoff 失败轮的会话表身份已在 fatal 时清除，
-                    // 合成终态对改用本流观察到的 native id，其余路径不变。
-                    .or_else(|| if handoff_turn { native_id.clone() } else { None })
-                    .unwrap_or_else(|| {
-                        // No native session id exists when the engine never sent
-                        // SessionStarted. The empty string is the honest value —
-                        // downstream guards on `!is_empty()` — but it must not be
-                        // silent, or a missing id looks like a downstream bug.
-                        tracing::warn!(
-                            product_session_id = %output_session_id,
-                            "synthesizing terminal pair with no native engine session id"
-                        );
-                        String::new()
-                    });
+                // R97: 失败状态释放与 handoff 身份恢复在同一临界区完成，
+                // 且都发生在合成终态对消费者可见之前。旧序（先发终态、后
+                // 恢复身份）留有窗口：消费者在 Error 可见后立即认领下一
+                // 轮，会 resume 仍然存储的失败 native id；迟到的恢复又因
+                // claim_seq 更新被跳过，死 id 从此滞留。
+                let engine_session_id = settle_synthetic_failure(
+                    &sessions,
+                    &output_session_id,
+                    my_seq,
+                    failed_handoff_rollback.take(),
+                )
+                // R93: handoff 失败轮的会话表身份已在 fatal 时清除，
+                // 合成终态对改用本流观察到的 native id，其余路径不变。
+                .or_else(|| if handoff_turn { native_id.clone() } else { None })
+                .unwrap_or_else(|| {
+                    // No native session id exists when the engine never sent
+                    // SessionStarted. The empty string is the honest value —
+                    // downstream guards on `!is_empty()` — but it must not be
+                    // silent, or a missing id looks like a downstream bug.
+                    tracing::warn!(
+                        product_session_id = %output_session_id,
+                        "synthesizing terminal pair with no native engine session id"
+                    );
+                    String::new()
+                });
                 if output_open {
                     let _ = event_tx.send(HubEvent {
                         product_session_id: output_session_id.clone(),
@@ -1017,6 +1027,9 @@ impl HubRuntime {
                 clear_rejected_resume_session(&sessions, &output_session_id, my_seq);
             }
             if saw_fatal_error {
+                // R97: handoff 回滚已在 settle_synthetic_failure 的同一临界
+                // 区内完成（take() 已消费）；这里只剩无合成终态的显式 fatal
+                // 路径（引擎自身发出 Completed 的失败流）。
                 if let Some((previous, context)) = failed_handoff_rollback {
                     restore_failed_handoff(
                         &sessions,
@@ -1326,6 +1339,56 @@ fn mark_session_failed(
     }
     session.status = HubSessionStatus::Failed;
     session.engine_session_id.clone()
+}
+
+/// R97: release the retryable Failed state AND restore the handoff identity
+/// in ONE critical section, and do it BEFORE the synthetic terminal pair
+/// becomes visible to the consumer. The previous two-step order opened a
+/// window where the session was already Failed (a consumer retry could claim
+/// it) while the failed native id was still stored — the retry resumed the
+/// dead id, and the late `restore_failed_handoff` then skipped itself on the
+/// claim_seq guard, leaving the poisoned id in place forever.
+///
+/// Returns the failed turn's native session id for the synthetic Completed
+/// (the same contract as `mark_session_failed`), or None when the claim was
+/// lost. `None` stored id stays None — the caller's R93 fallback supplies the
+/// stream-observed id for handoff turns.
+fn settle_synthetic_failure(
+    sessions: &RwLock<HashMap<ProductSessionId, HubSession>>,
+    product_session_id: &ProductSessionId,
+    my_seq: u64,
+    rollback: Option<(HubSession, String)>,
+) -> Option<String> {
+    let mut sessions = sessions
+        .write()
+        .expect("Hub session registry lock poisoned");
+    {
+        let session = sessions.get_mut(product_session_id)?;
+        if session.claim_seq != my_seq {
+            return None;
+        }
+        session.status = HubSessionStatus::Failed;
+    }
+    let native_id = sessions
+        .get(product_session_id)
+        .and_then(|session| session.engine_session_id.clone());
+    if let Some((mut previous, context)) = rollback {
+        let Some(failed) = sessions.get(product_session_id) else {
+            return native_id;
+        };
+        previous.stream_hard_violations = failed.stream_hard_violations;
+        previous.stream_soft_warnings = failed.stream_soft_warnings;
+        previous.last_stream_violation = failed.last_stream_violation.clone();
+        previous.claim_seq = failed.claim_seq;
+        previous.cancel_token = failed.cancel_token.clone();
+        previous.pending_handoff_context = Some(context);
+        // The turn failed; never restore the rollback's stale terminal status
+        // (ticket 07) — a fatal turn must be observable as Failed, not
+        // Completed.
+        previous.status = HubSessionStatus::Failed;
+        sessions.insert(product_session_id.clone(), previous);
+    }
+    native_id
 }
 
 /// Drop a rejected native session id after a failed resume turn so the next
@@ -2480,6 +2543,165 @@ mod tests {
         );
         assert!(!final_state.pending_handoff);
         assert_eq!(target.requests.lock().unwrap().len(), 2);
+    }
+
+    /// R97: 无显式 Error 的 `SessionStarted → EOF`（合成 fatal 路径）在
+    /// handoff 轮上必须先于合成终态可见就完成身份恢复。旧序把
+    /// mark_failed（发布 Failed、保留 native id）与 restore_failed_handoff
+    /// 分成两个临界区，中间夹着合成终态的发送：消费者在 Error 可见后立即
+    /// 认领下一轮时，会 resume 仍存储的失败 native id，而迟到的恢复又因
+    /// claim_seq 更新被跳过。现在同一临界区（settle_synthetic_failure）
+    /// 先恢复身份再发布终态：Failed 可观察的那一刻 resume 身份必为 None，
+    /// 重试拿到 banner 恰好一次，新轮正常落定。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn synthetic_fatal_eof_handoff_settles_identity_before_the_retry_window() {
+        struct EofHandoffEngine {
+            turn: AtomicUsize,
+            requests: Mutex<Vec<RuntimeRequest>>,
+        }
+        #[async_trait]
+        impl EngineRuntime for EofHandoffEngine {
+            fn execute(
+                &self,
+                request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                let n = self.turn.fetch_add(1, Ordering::SeqCst);
+                self.requests.lock().unwrap().push(request);
+                let session_id = format!("native-{n}");
+                let started = stream::iter(vec![RuntimeEvent::SessionStarted {
+                    session_id: session_id.clone(),
+                    model: None,
+                    tools: vec![],
+                }]);
+                if n == 0 {
+                    // 首个 handoff 轮：SessionStarted 后直接 EOF——无
+                    // Completed、无显式 Error，走合成终态路径。
+                    Ok(Box::pin(started))
+                } else {
+                    Ok(Box::pin(started.chain(stream::iter(vec![
+                        RuntimeEvent::Completed {
+                            session_id,
+                            result: Some("recovered".into()),
+                            usage: None,
+                        },
+                    ]))))
+                }
+            }
+
+            async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            fn capabilities(&self) -> RuntimeCapabilities {
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: false,
+                    permission_callback: false,
+                    resume: true,
+                    cancel: true,
+                }
+            }
+        }
+
+        let target = Arc::new(EofHandoffEngine {
+            turn: AtomicUsize::new(0),
+            requests: Mutex::new(Vec::new()),
+        });
+        let hub = HubRuntime::new();
+        hub.register_engine("source", Arc::new(FakeEngine::new()))
+            .unwrap();
+        hub.register_engine("target", target.clone()).unwrap();
+
+        let first: Vec<_> = hub
+            .execute(HubRequest::new("source", RuntimeRequest::new("start")))
+            .unwrap()
+            .collect()
+            .await;
+        let pid = first[0].product_session_id.clone();
+        hub.switch_engine(&pid, "target").unwrap();
+
+        // 首个 handoff 轮：合成 fatal 路径，一次性收满事件流。
+        let failed: Vec<_> = hub
+            .execute(
+                HubRequest::new("target", RuntimeRequest::new("first attempt"))
+                    .resume(pid.clone())
+                    .with_handoff_context("R97_UNIQUE_MARKER"),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        assert!(
+            failed.iter().any(|event| matches!(
+                &event.event,
+                RuntimeEvent::Error {
+                    message,
+                    recoverable: false,
+                } if message == SYNTHETIC_TERMINAL_MESSAGE
+            )),
+            "a SessionStarted→EOF stream must surface the synthetic fatal: {failed:#?}"
+        );
+        // R93 投影不变：合成终态携带本流观察到的 native id，且不带结果。
+        assert!(
+            matches!(
+                failed.last().map(|hub_event| &hub_event.event),
+                Some(RuntimeEvent::Completed {
+                    session_id,
+                    result: None,
+                    ..
+                }) if session_id == "native-0"
+            ),
+            "the synthetic terminal keeps the stream-observed native id: {failed:#?}"
+        );
+        // Failed 可观察的那一刻，身份必须已经恢复（同一临界区）：
+        let settled = hub.session(&pid).unwrap();
+        assert_eq!(settled.status, HubSessionStatus::Failed);
+        assert!(
+            settled.engine_session_id.is_none(),
+            "the failed native id must not remain stored once Failed is observable (R97)"
+        );
+        assert!(settled.pending_handoff, "the banner stays pending for the retry");
+
+        // 紧随其后的重试：resume=None、banner 恰好一次、正常落定。
+        let retried: Vec<_> = hub
+            .execute(
+                HubRequest::new("target", RuntimeRequest::new("second attempt"))
+                    .resume(pid.clone()),
+            )
+            .unwrap()
+            .collect()
+            .await;
+        assert!(matches!(
+            retried.last().unwrap().event,
+            RuntimeEvent::Completed { .. }
+        ));
+        {
+            let requests = target.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert!(
+                requests[1].resume_session.is_none(),
+                "the synthetic-fatal handoff native id must not be resumed: {:?}",
+                requests[1].resume_session
+            );
+            assert_eq!(
+                requests[1].prompt.matches("R97_UNIQUE_MARKER").count(),
+                1,
+                "the retry must carry the banner exactly once: {}",
+                requests[1].prompt
+            );
+        }
+        let after_retry = hub.session(&pid).unwrap();
+        assert_eq!(after_retry.status, HubSessionStatus::Completed);
+        assert!(!after_retry.pending_handoff);
+        assert_eq!(after_retry.engine_session_id.as_deref(), Some("native-1"));
     }
 
     /// R93: EOF 已到达的失败 handoff 重试同样必须 resume=None——与窗口内

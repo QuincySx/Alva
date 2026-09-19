@@ -46,6 +46,19 @@ impl EventMapper {
         self.failed
     }
 
+    /// R96: settle a still-pending error at the END of the whole request
+    /// (process EOF). A pending error that survived to settlement — no
+    /// compacted/retried answer ever arrived — becomes the single fatal, with
+    /// the original message preserved. Returns the fatal to forward, if any.
+    pub fn settle_at_eof(&mut self) -> Option<RuntimeEvent> {
+        let message = self.pending_error.take()?;
+        self.failed = true;
+        Some(RuntimeEvent::Error {
+            message,
+            recoverable: false,
+        })
+    }
+
     pub fn map(&mut self, event: PiEvent) -> Vec<RuntimeEvent> {
         match event {
             PiEvent::Session { id, .. } => {
@@ -109,6 +122,10 @@ impl EventMapper {
                 final_error,
             } => {
                 self.failed = true;
+                // R96: 耗尽即定性。待定错误在此被 auto_retry_end 的唯一
+                // fatal 消费；若残留到 EOF，settle_at_eof 会再升一个 fatal，
+                // 违反 R2（fatal 之后只允许 Completed）。
+                self.pending_error = None;
                 vec![RuntimeEvent::Error {
                     message: final_error.unwrap_or_else(|| "Pi retry failed".into()),
                     recoverable: false,
@@ -116,14 +133,20 @@ impl EventMapper {
             }
             PiEvent::AgentEnd { will_retry: true } => Vec::new(),
             PiEvent::AgentEnd { will_retry: false } => {
-                // R95: 原生终态。最后一条 assistant 消息若仍停留在未恢复
-                // 的错误上（重试耗尽后不再重试 / 不可重试错误），此刻才
-                // 定性：唯一 fatal + failed。正常终态不产生事件。
-                if let Some(message) = self.pending_error.take() {
-                    self.failed = true;
+                // R95: 原生终态。R96: agent_end(willRetry:false) 携带未决
+                // 错误不再立即定性——Pi 0.85.1 的 context overflow 走
+                // agent_end(false) → post-run 压缩 → 继续产出恢复答案，
+                // 在这里升 fatal 会杀掉合法恢复。改为外发一条可恢复提示
+                // （用户可见"未定性，等待结算"），未决错误保持待定；唯一
+                // fatal 推迟到完整请求的 settlement（EOF，见 settle_at_eof）
+                // 或 auto_retry_end(success:false)（既有路径）。正常终态
+                // 不产生事件。
+                if let Some(message) = self.pending_error.clone() {
                     vec![RuntimeEvent::Error {
-                        message,
-                        recoverable: false,
+                        message: format!(
+                            "Pi ended the turn with an unresolved error, awaiting settlement: {message}"
+                        ),
+                        recoverable: true,
                     }]
                 } else {
                     Vec::new()
@@ -295,11 +318,12 @@ mod tests {
         ));
     }
 
-    /// R95: 单个 assistant 错误在 agent_end 之前不得外发 fatal——真实
-    /// 时序里错误之后还有 willRetry 决定。不可重试终态在 agent_end(false)
-    /// 处定性为唯一 fatal。
+    /// R95/R96: 单个 assistant 错误在 agent_end 之前不得外发 fatal——真实
+    /// 时序里错误之后还有 willRetry 决定；overflow 场景 agent_end(false)
+    /// 之后还有压缩恢复。因此 agent_end(false) 只外发可恢复提示，唯一
+    /// fatal 由 settle_at_eof 在完整请求结算时定性（R96）。
     #[test]
-    fn provisional_assistant_error_defers_to_agent_end() {
+    fn provisional_assistant_error_defers_settlement_to_eof() {
         let mut mapper = EventMapper::new();
         let _ = mapper.map(PiEvent::Session {
             id: "pi-1".into(),
@@ -333,19 +357,45 @@ mod tests {
                 .is_empty(),
             "message_end(error) must not settle the turn either"
         );
-        let settled = mapper.map(PiEvent::AgentEnd {
-            will_retry: false,
-        });
-        assert_eq!(settled.len(), 1, "the definitive end settles exactly one event");
-        assert!(matches!(
-            &settled[0],
-            RuntimeEvent::Error {
-                message,
-                recoverable: false,
-                ..
-            } if message == "503 Service Unavailable"
-        ));
+        let agent_end = mapper.map(PiEvent::AgentEnd { will_retry: false });
+        assert!(
+            !agent_end.iter().any(|event| matches!(
+                event,
+                RuntimeEvent::Error {
+                    recoverable: false,
+                    ..
+                }
+            )),
+            "agent_end(false) must not settle a fatal while recovery may follow: {agent_end:#?}"
+        );
+        assert!(
+            agent_end.iter().any(|event| matches!(
+                event,
+                RuntimeEvent::Error {
+                    recoverable: true,
+                    ..
+                }
+            )),
+            "the unresolved state stays visible as a recoverable notice: {agent_end:#?}"
+        );
+        assert!(!mapper.failed());
+        let settled = mapper.settle_at_eof();
+        assert!(
+            matches!(
+                &settled,
+                Some(RuntimeEvent::Error {
+                    message,
+                    recoverable: false,
+                    ..
+                }) if message == "503 Service Unavailable"
+            ),
+            "EOF settlement promotes the pending error to the single fatal: {settled:#?}"
+        );
         assert!(mapper.failed());
+        assert!(
+            mapper.settle_at_eof().is_none(),
+            "settlement is one-shot"
+        );
     }
 
     /// R95: error → agent_end(true) → 重试成功 → agent_end(false) 全程无
