@@ -888,7 +888,7 @@ describe("App integration", () => {
     });
 
     expect(screen.queryByText("worker prompt")).not.toBeInTheDocument();
-    expect(await screen.findByText("lead prompt")).toBeInTheDocument();
+    expect((await screen.findAllByText("lead prompt")).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("button", { name: "Starting engine" })).toBeDisabled();
 
     act(() => {
@@ -1846,8 +1846,11 @@ describe("App integration", () => {
     });
     await waitFor(() => expect(bridge.fns.getHubSession).toHaveBeenCalledTimes(2));
     expect((await screen.findAllByText("BUILD_OK_TEXT")).length).toBeGreaterThanOrEqual(1);
-    await waitFor(() => {
-      expect(screen.queryAllByText(/execute_shell/)).toHaveLength(0);
-    });
+    // H09 (H02 migration of R42): the completed tool row STAYS on the
+    // central axis — settled history is not hidden from the reading flow.
+    // R30's lasting guarantee is that the transcript messages were never
+    // unmounted along the way.
+    expect(screen.queryAllByText(/execute_shell/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("BUILD_OK_TEXT").length).toBeGreaterThanOrEqual(1);
   });
 });

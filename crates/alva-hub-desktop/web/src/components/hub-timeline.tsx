@@ -68,13 +68,21 @@ export function HubTimeline({
   onSwitchBack,
 }: HubTimelineProps) {
   const { locale, localize, t } = useI18n();
-  const [openHandoffs, setOpenHandoffs] = useState<Record<number, boolean>>({});
+  // H09: expand/collapse state is keyed by the entry's STABLE id (H20 model)
+  // — never an array index, so a replayed/inserted entry can no longer
+  // inherit another card's expanded state.
+  const [openHandoffs, setOpenHandoffs] = useState<Record<string, boolean>>({});
   const [openActivities, setOpenActivities] = useState<Record<string, boolean>>({});
 
-  const toggleHandoff = (index: number) => {
+  const entryKey = (entry: HubTimelineEvent, index: number): string =>
+    "id" in entry && typeof entry.id === "string"
+      ? entry.id
+      : `${entry.product_session_id}-${entry.item_id ?? index}`;
+
+  const toggleHandoff = (key: string) => {
     setOpenHandoffs((current) => ({
       ...current,
-      [index]: !current[index],
+      [key]: !current[key],
     }));
   };
 
@@ -88,13 +96,14 @@ export function HubTimeline({
   return (
     <section aria-label={t("chat.executionInInspector")} aria-live="polite" className="timeline">
       {execution.map((entry, index) => {
-          const actKey = `${entry.product_session_id}-${index}-act`;
+          const cardKey = entryKey(entry, index);
+          const actKey = `${cardKey}-act`;
           const isActOpen = Boolean(openActivities[actKey]);
 
           return (
             <article
               className={`timeline-card timeline-${entry.status}`}
-              key={`${entry.product_session_id}-${index}`}
+              key={cardKey}
             >
               {/* Execution Header */}
               <div className="timeline-meta">
@@ -254,11 +263,11 @@ export function HubTimeline({
                   </Button>
                   {entry.fallback.handoff ? (
                     <Button
-                      onClick={() => toggleHandoff(index)}
+                      onClick={() => toggleHandoff(cardKey)}
                       size="small"
                       variant="ghost"
                     >
-                      {openHandoffs[index]
+                      {openHandoffs[cardKey]
                         ? t("timeline.hideHandoff")
                         : t("timeline.viewHandoff")}
                     </Button>
@@ -267,7 +276,7 @@ export function HubTimeline({
               ) : null}
 
               {/* Handoff View Details */}
-              {entry.fallback?.handoff && openHandoffs[index] ? (
+              {entry.fallback?.handoff && openHandoffs[cardKey] ? (
                 <div className="handoff-view">
                   <strong>
                     {t("timeline.handoffKind", {

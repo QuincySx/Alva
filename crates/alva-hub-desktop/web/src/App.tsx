@@ -830,14 +830,11 @@ export default function App() {
   const attemptIsLive =
     activeSessionId !== null && cancellableSessionId === activeSessionId;
 
-  // R42: the chat column carries no execution swim lane. Tool activity rows
-  // (events with an `activity` payload) live in the Inspector's execution
-  // overview, where each summary locates its persisted record; the main
-  // column keeps messages, approvals, and terminal action cards.
-  const chatColumnEvents = useMemo(
-    () => timeline.filter((event) => !event.activity),
-    [timeline],
-  );
+  // H09: the central reading axis carries the FULL projected timeline —
+  // messages, tool activity, approvals and status in one list. (The former
+  // R42 filter that hid tool rows in the Workbench was migrated per H02.)
+  // Inspector keeps its per-attempt drill-down; nothing is removed from the
+  // record, only shown where the work happens.
 
   const latest = timeline.at(-1);
   const statusLabel = useMemo(
@@ -1837,29 +1834,21 @@ export default function App() {
               events={timeline}
               streaming={attemptIsLive}
             />
-            {/* 执行/控制视图只在确有未落定内容时渲染：运行中、待审批、或
-                失败/中断/回退等需要动作与原因的事件；完成的执行细节（含
-                终态后残留的 running 工具标记）归 Inspector。 R42: 工具活动
-                行不再进入主聊天列——它们在 Inspector 的执行概览中。 */}
-            {(attemptIsLive ||
-              approvalGroups.some((g) => g.members.length > 0) ||
-              timeline.some((event) =>
-                ["failed", "interrupted", "exhausted", "permission_required", "fallback", "queued"].includes(
-                  event.status,
-                ),
-              )) ? (
-              <HubTimeline
-                activeSessionId={activeSessionId}
-                answeredPermissions={answeredPermissions}
-                attemptIsLive={attemptIsLive}
-                events={chatColumnEvents}
-                onAnswerPermission={(productSessionId, requestId, allow) =>
-                  void answerPermission(productSessionId, requestId, allow)
-                }
-                onStop={() => void stopActiveAttempt()}
-                onSwitchBack={(source) => void switchBack(source)}
-              />
-            ) : null}
+            {/* H09 (H02 迁移决策): 工具调用/结果、审批与状态回到中央阅读轴，
+                与消息同一时间线——收拢（折叠/摘要）只是未来展示策略，权威
+                记录不丢；窗口化由 ChatTranscript/BoundedList 承担。完成的
+                执行细节仍可在 Inspector 钻取。 */}
+            <HubTimeline
+              activeSessionId={activeSessionId}
+              answeredPermissions={answeredPermissions}
+              attemptIsLive={attemptIsLive}
+              events={timeline}
+              onAnswerPermission={(productSessionId, requestId, allow) =>
+                void answerPermission(productSessionId, requestId, allow)
+              }
+              onStop={() => void stopActiveAttempt()}
+              onSwitchBack={(source) => void switchBack(source)}
+            />
             </>
             )}
           </ScrollRegion>
