@@ -24,6 +24,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { HubComposer } from "./components/hub-composer";
+import { mergeEntry, projectHistory, toEntry, type TimelineEntry } from "./session/timeline-model";
 import { EngineReadinessPanel } from "./components/engine-readiness-panel";
 import { FallbackPolicyPanel } from "./components/fallback-policy-panel";
 import { ModelPicker, type HubModelRoute } from "./components/model-picker";
@@ -465,59 +466,16 @@ export function statusLabelFor(
   }
 }
 
+/**
+ * Legacy entry point kept for tests and the perf harness — the actual merge
+ * semantic lives in session/timeline-model (H20) and is the SAME one used by
+ * history replay; this wrapper no longer owns semantics.
+ */
 export function mergeLiveTimeline(
   current: HubTimelineEvent[],
   event: HubTimelineEvent,
 ): HubTimelineEvent[] {
-  // R29: live events arrive without `role`; derive it from the status so the
-  // transcript keeps owning the item after a terminal merge flips the status
-  // away from assistant_message/user_message.
-  const derivedRole: HubTimelineEvent["role"] = event.status === "user_message"
-    ? "user"
-    : event.status === "assistant_message"
-      ? "assistant"
-      : undefined;
-  const observed: HubTimelineEvent = {
-    ...event,
-    role: event.role ?? derivedRole,
-    started_at: event.started_at ?? event.created_at,
-  };
-  if (!event.item_id) return [...current, observed];
-  const index = current.findIndex(
-    (candidate) =>
-      candidate.product_session_id === event.product_session_id &&
-      candidate.item_id === event.item_id,
-  );
-  if (index < 0) return [...current, observed];
-  const next = [...current];
-  const previous = current[index];
-  // R29: a terminal event merging into the assistant's message item carries a
-  // status caption, NOT prose — it must never replace text the user was
-  // already reading. Status drives the visuals; the body keeps whatever was
-  // there (streamed or restored history).
-  // R40: that body preservation is limited to real message items — decided
-  // by the ITEM's role, not by the incoming status. Execution and control
-  // items (tool activities, fallback/exhaustion cards) merge with the
-  // NEWEST body: after a ToolEnd the card must read "failed"/"completed",
-  // not the stale "running" caption from its start event, and an exhaustion
-  // card must show the final reason rather than the fallback text.
-  const messageItem = previous.role === "user" || previous.role === "assistant";
-  const base = {
-    ...previous,
-    ...event,
-    role: previous.role ?? derivedRole,
-    started_at: previous.started_at ?? previous.created_at ?? event.created_at,
-  };
-  if (messageItem) {
-    next[index] = event.status === "assistant_message"
-      ? { ...base, message: `${previous.message ?? ""}${event.message ?? ""}` }
-      : { ...base, message: previous.message || event.message || null };
-  } else {
-    // The newest state's body wins wholesale; when the newest event carries
-    // no body the card shows none instead of a stale caption.
-    next[index] = { ...base, message: event.message ?? null };
-  }
-  return next;
+  return mergeEntry(current.map(toEntry), event);
 }
 
 export default function App() {
@@ -548,7 +506,7 @@ export default function App() {
   const [workspaceKind, setWorkspaceKind] = useState<WorkspaceKind | null>(null);
   const [workspaceCreating, setWorkspaceCreating] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [timeline, setTimeline] = useState<HubTimelineEvent[]>([]);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   // Drawer handoff expansion (by handoff_id) for the full cross-engine
   // envelope: memory, skills, MCP pointers and filtered transcript.
   const [sessions, setSessions] = useState<HubSessionSummary[]>([]);
@@ -681,7 +639,7 @@ export default function App() {
         const belongsToVisibleSession =
           event.product_session_id === activeSessionRef.current;
         if (belongsToVisibleSession) {
-          setTimeline((current) => mergeLiveTimeline(current, event));
+          setTimeline((current) => mergeEntry(current, event));
         }
         if (belongsToVisibleSession && event.status === "running") {
           setCancellableSessionId(event.product_session_id);
@@ -1064,7 +1022,7 @@ export default function App() {
     setAnsweredPermissions({});
     setPendingEngine(detail.pending_switch?.target.engine_id ?? null);
     setFallbackPolicy(detail.fallback_policy);
-    setTimeline(projectTimeline(detail, locale));
+    setTimeline(projectHistory(detail, (projected) => projectTimeline(projected, locale)));
     setCancellableSessionId(
       detail.session.status === "running" && detail.session.engine_session_id
         ? detail.session.product_session_id
@@ -1212,15 +1170,12 @@ export default function App() {
   }
 
   function appendLocalFailure(error: unknown) {
-    setTimeline((current) => [
-      ...current,
-      {
-        status: "failed",
-        engine_id: engine,
-        product_session_id: "setup",
-        message: localizeSystem(error instanceof Error ? error.message : String(error)),
-      },
-    ]);
+    setTimeline((current) => mergeEntry(current, {
+      status: "failed",
+      engine_id: engine,
+      product_session_id: "setup",
+      message: localizeSystem(error instanceof Error ? error.message : String(error)),
+    }));
   }
 
   async function setTranscriptSharing_backend(enabled: boolean) {

@@ -10,11 +10,21 @@ import "./index.css";
 
 const uiLab = import.meta.env.DEV && new URLSearchParams(window.location.search).get("ui-lab") === "1";
 const UiLab = import.meta.env.DEV ? lazy(() => import("./ui-lab")) : null;
+// H19/H21 evidence harness: URL-gated (works in production builds), never
+// linked from product surfaces.
+const perf = new URLSearchParams(window.location.search).get("perf") === "1";
+const PerfHarness = lazy(() => import("./perf/perf-harness"));
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <I18nProvider>
-      {uiLab && UiLab ? <Suspense fallback={null}><UiLab /></Suspense> : <App />}
+      {perf ? (
+        <Suspense fallback={null}><PerfHarness /></Suspense>
+      ) : uiLab && UiLab ? (
+        <Suspense fallback={null}><UiLab /></Suspense>
+      ) : (
+        <App />
+      )}
     </I18nProvider>
   </React.StrictMode>,
 );

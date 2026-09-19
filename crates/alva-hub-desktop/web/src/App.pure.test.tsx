@@ -268,12 +268,21 @@ describe("mergeLiveTimeline", () => {
       item_id: "assistant-1",
     };
 
+    // H20: merged entries carry the model's identity/attribution fields on
+    // top of the legacy event shape; the streamed body must survive the
+    // terminal merge without duplication.
     expect(mergeLiveTimeline([streamed], completed)).toEqual([
       {
         ...completed,
         role: "assistant",
         started_at: 100,
         message: "Hello world",
+        id: "ps-1::assistant-1",
+        itemId: "assistant-1",
+        turnId: null,
+        attemptId: "assistant-1",
+        toolId: null,
+        kind: "message",
       },
     ]);
   });
