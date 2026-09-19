@@ -3002,4 +3002,135 @@ mod tests {
         assert_eq!(ids[2], "list-a");
         let _ = (first, second);
     }
+
+    // ---- H04: Project aggregate -------------------------------------------
+
+    fn temp_dir() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    #[test]
+    fn project_persists_across_restart_without_sessions() {
+        let database = temp_dir();
+        let workspace = temp_dir();
+        let path = workspace.path();
+        let database_path = database.path().join("hub.db");
+
+        let project_id = {
+            let store = HubStore::open(&database_path).unwrap();
+            let project = store
+                .create_project(path.to_str().unwrap(), Some("My Project"))
+                .unwrap();
+            assert_eq!(project.display_name, "My Project");
+            assert_eq!(project.session_count, 0);
+            project.project_id
+            // store dropped — restart boundary
+        };
+
+        let store = reopen(&database_path);
+        let projects = store.list_projects().unwrap();
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].project_id, project_id);
+        assert_eq!(projects[0].display_name, "My Project");
+        assert_eq!(projects[0].session_count, 0);
+    }
+
+    #[test]
+    fn duplicate_paths_and_aliases_converge_on_one_project() {
+        let database = temp_dir();
+        let workspace = temp_dir();
+        let store = HubStore::open(database.path().join("hub.db")).unwrap();
+
+        let first = store
+            .create_project(workspace.path().to_str().unwrap(), None)
+            .unwrap();
+        // Trailing slash + explicit name: same canonical directory.
+        let with_slash = format!("{}/", workspace.path().display());
+        let second = store.create_project(&with_slash, Some("Alias")).unwrap();
+        assert_eq!(first.project_id, second.project_id);
+        // The user's original display name is preserved, not overwritten.
+        assert_eq!(second.display_name, first.display_name);
+        assert_eq!(store.list_projects().unwrap().len(), 1);
+
+        // Rejects a nonexistent directory.
+        assert!(store.create_project("/does/not/exist", None).is_err());
+        // On unix a symlink alias pointing at the SAME directory converges.
+        #[cfg(unix)]
+        {
+            let link_parent = temp_dir();
+            let link = link_parent.path().join("link");
+            std::os::unix::fs::symlink(workspace.path(), &link).unwrap();
+            let aliased = store.create_project(link.to_str().unwrap(), None).unwrap();
+            assert_eq!(aliased.project_id, first.project_id);
+            assert_eq!(store.list_projects().unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn delete_project_detaches_sessions_and_keeps_history() {
+        let database = temp_dir();
+        let workspace = temp_dir();
+        let store = HubStore::open(database.path().join("hub.db")).unwrap();
+        let project = store
+            .create_project(workspace.path().to_str().unwrap(), None)
+            .unwrap();
+
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        store
+            .prepare_new_turn(
+                "session-in-project",
+                workspace.path(),
+                "hello",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store
+            .set_session_project("session-in-project", Some(&project.project_id))
+            .unwrap();
+        assert_eq!(
+            store
+                .get_session("session-in-project")
+                .unwrap()
+                .unwrap()
+                .session
+                .project_id
+                .as_deref(),
+            Some(project.project_id.as_str())
+        );
+
+        store.delete_project(&project.project_id).unwrap();
+        // Session survives with history and its own workspace; project gone.
+        let session = store.get_session("session-in-project").unwrap().unwrap();
+        assert_eq!(session.session.project_id, None);
+        assert_eq!(session.turns.len(), 1);
+        assert!(store.list_projects().unwrap().is_empty());
+        assert!(store.delete_project(&project.project_id).is_err());
+        // Detaching an unknown session is a named error, not a silent no-op.
+        assert!(store
+            .set_session_project("missing-session", None)
+            .is_err());
+        assert!(store
+            .set_session_project("session-in-project", Some("missing-project"))
+            .is_err());
+    }
+
+    #[test]
+    fn legacy_sessions_read_back_without_a_project() {
+        let database = temp_dir();
+        let workspace = temp_dir();
+        let store = HubStore::open(database.path().join("hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        store
+            .prepare_new_turn(
+                "legacy-session",
+                workspace.path(),
+                "before projects existed",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        let session = store.list_sessions().unwrap().into_iter().next().unwrap();
+        assert_eq!(session.project_id, None);
+    }
 }

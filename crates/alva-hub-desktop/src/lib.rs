@@ -19,6 +19,7 @@ mod run;
 mod session_workspace;
 mod store;
 mod worktree;
+pub mod worktree_discovery;
 
 pub use alva::{build_engine, build_engine_for_target, build_engine_for_target_with_inspector};
 pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
@@ -59,9 +60,9 @@ pub use run::{
 pub use session_workspace::{create_managed_session_workspace, WorkspaceBinding, WorkspaceKind};
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
-    HubStore, PendingSwitch, SideEffectEvidence, StoredAttempt, StoredBranch, StoredTimelineEvent,
-    StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim, TeamRunDetail,
-    TeamWorker, TranscriptTurn, WorkerLifecycle, WorkerTask,
+    HubStore, PendingSwitch, ProjectSummary, SideEffectEvidence, StoredAttempt, StoredBranch,
+    StoredTimelineEvent, StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim,
+    TeamRunDetail, TeamWorker, TranscriptTurn, WorkerLifecycle, WorkerTask,
 };
 pub use worktree::{
     adopt_into_workspace, adoption_preview, create_worker_worktree, discard_worktree,

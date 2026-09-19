@@ -41,6 +41,9 @@ pub struct HubSessionSummary {
     pub permission_profile: PermissionProfile,
     /// Whether handoffs may attach the full (still filtered) transcript.
     pub include_full_transcript: bool,
+    /// Owning Project, when the session was created in (or attached to)
+    /// project mode. NULL sessions surface in conversation mode (H08).
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -150,7 +153,7 @@ impl super::HubStore {
                                WHERE t.product_session_id = hs.product_session_id
                                ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
                             hs.permission_profile, hs.include_full_transcript,
-                            hs.workspace_kind
+                            hs.workspace_kind, hs.project_id
                        FROM hub_sessions hs
                        JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
                       ORDER BY hs.updated_at DESC, hs.product_session_id ASC",

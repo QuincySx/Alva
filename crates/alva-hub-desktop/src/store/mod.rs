@@ -23,6 +23,7 @@ mod branch;
 mod db;
 mod handoff;
 mod orchestration;
+mod projects;
 mod team;
 mod turn;
 
@@ -36,6 +37,7 @@ pub use handoff::{
     HandoffCompletedWork, HandoffKind, HandoffPackage, HandoffPendingWork, McpSnapshot,
     SkillSnapshot, TranscriptTurn,
 };
+pub use projects::ProjectSummary;
 pub use team::{TaskClaim, TeamRunDetail, TeamWorker, WorkerLifecycle, WorkerTask};
 pub(crate) use turn::PreparedTurn;
 pub use turn::{
@@ -43,7 +45,7 @@ pub use turn::{
     StoredTurn, StoredUsage,
 };
 
-pub(crate) const SCHEMA_VERSION: i64 = 17;
+pub(crate) const SCHEMA_VERSION: i64 = 18;
 pub(crate) const STATUS_RUNNING: &str = "running";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_FAILED: &str = "failed";
@@ -478,7 +480,7 @@ pub(crate) fn query_session(
                        WHERE t.product_session_id = hs.product_session_id
                        ORDER BY t.created_at DESC, t.rowid DESC LIMIT 1),
                     hs.permission_profile, hs.include_full_transcript,
-                    hs.workspace_kind
+                    hs.workspace_kind, hs.project_id
                FROM hub_sessions hs
                JOIN engine_branches eb ON eb.branch_id = hs.active_branch_id
               WHERE hs.product_session_id = ?1",
@@ -511,6 +513,7 @@ pub(crate) fn decode_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<HubSes
             rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, error.into())
         })?,
         include_full_transcript: row.get(12)?,
+        project_id: row.get(14)?,
     })
 }
 

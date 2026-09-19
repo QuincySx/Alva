@@ -373,6 +373,29 @@ pub(super) fn initialize_schema_and_recover(
             .map_err(|error| format!("migrate Hub database to schema 17: {error}"))?;
     }
 
+    if schema_version < 18 {
+        // H04: the Project aggregate. Purely additive — a new table plus a
+        // nullable session column — so pre-18 builds refuse the schema via
+        // the version gate without losing data, and legacy sessions read
+        // back unchanged with a NULL project.
+        transaction
+            .execute_batch(
+                "CREATE TABLE projects (
+                   project_id TEXT PRIMARY KEY,
+                   display_name TEXT NOT NULL,
+                   workspace_path TEXT NOT NULL,
+                   workspace_canonical TEXT NOT NULL UNIQUE,
+                   created_at INTEGER NOT NULL,
+                   updated_at INTEGER NOT NULL
+                 );
+                 ALTER TABLE hub_sessions
+                   ADD COLUMN project_id TEXT REFERENCES projects(project_id);
+                 CREATE INDEX idx_hub_sessions_project
+                   ON hub_sessions(project_id);",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 18: {error}"))?;
+    }
+
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)

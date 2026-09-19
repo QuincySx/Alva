@@ -15,12 +15,13 @@ use alva_engine_runtime::{EngineRuntime, PermissionDecision};
 use alva_hub_core::{HubRuntime, ProductSessionId};
 use alva_hub_desktop::{
     build_engine_for_target_with_inspector, create_managed_session_workspace,
-    diagnose_provider_inference, discover_provider_models, permission_eligibility, probe_readiness,
-    run_persisted_with_target, EngineEligibility, EngineReadiness, EngineTarget, FallbackPolicy,
-    HubInspectionSnapshot, HubInspectorService, HubSessionDetail, HubSessionSummary, HubStore,
-    ModelRoute, PermissionProfile, PermissionRouter, ProviderCatalog, ProviderDiagnosticResult,
-    ProviderProfile, RunOutcome, RunRequest, SaveProviderProfile, SwitchOutcome, SystemProbe,
-    TaskClaim, TimelineEvent, TimelineStatus, WorkspaceBinding,
+    diagnose_provider_inference, discover_provider_models, discover_worktrees,
+    permission_eligibility, probe_readiness, run_persisted_with_target, EngineEligibility,
+    EngineReadiness, EngineTarget, FallbackPolicy, HubInspectionSnapshot, HubInspectorService,
+    HubSessionDetail, HubSessionSummary, HubStore, ModelRoute, PermissionProfile,
+    PermissionRouter, ProjectSummary, ProviderCatalog, ProviderDiagnosticResult, ProviderProfile,
+    RunOutcome, RunRequest, SaveProviderProfile, SwitchOutcome, SystemProbe, TaskClaim,
+    TimelineEvent, TimelineStatus, WorktreeDiscoveryError, WorktreeInfo, WorkspaceBinding,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -1421,6 +1422,63 @@ fn create_session_workspace(state: State<'_, DesktopState>) -> Result<WorkspaceB
     create_managed_session_workspace(&state.session_workspace_root)
 }
 
+// ---- H04/H05: project aggregation + read-only worktree discovery ----------
+
+#[tauri::command]
+fn list_projects(state: State<'_, DesktopState>) -> Result<Vec<ProjectSummary>, String> {
+    state.store.list_projects()
+}
+
+#[tauri::command]
+fn create_project(
+    state: State<'_, DesktopState>,
+    workspace_path: String,
+    display_name: Option<String>,
+) -> Result<ProjectSummary, String> {
+    state
+        .store
+        .create_project(&workspace_path, display_name.as_deref())
+}
+
+#[tauri::command]
+fn rename_project(
+    state: State<'_, DesktopState>,
+    project_id: String,
+    display_name: String,
+) -> Result<(), String> {
+    state.store.rename_project(&project_id, &display_name)
+}
+
+/// Forgets a Project. Sessions are detached, never deleted; the directory on
+/// disk is never touched.
+#[tauri::command]
+fn delete_project(state: State<'_, DesktopState>, project_id: String) -> Result<(), String> {
+    state.store.delete_project(&project_id)
+}
+
+#[tauri::command]
+fn set_session_project(
+    state: State<'_, DesktopState>,
+    product_session_id: String,
+    project_id: Option<String>,
+) -> Result<(), String> {
+    state
+        .store
+        .set_session_project(&product_session_id, project_id.as_deref())
+}
+
+/// Read-only worktree listing for a project's workspace. The inner Result is
+/// a product STATE (not-git / missing directory are visible states), so the
+/// UI can present them without treating a non-Git project as a failure.
+#[tauri::command]
+fn discover_project_worktrees(
+    state: State<'_, DesktopState>,
+    workspace_path: String,
+) -> Result<Result<Vec<WorktreeInfo>, WorktreeDiscoveryError>, String> {
+    let path = PathBuf::from(workspace_path);
+    Ok(discover_worktrees(&path, Some(&state.worktree_root)))
+}
+
 #[tauri::command]
 fn list_hub_sessions(state: State<'_, DesktopState>) -> Result<Vec<HubSessionSummary>, String> {
     state.store.list_sessions()
@@ -1553,6 +1611,12 @@ fn main() {
             discover_models_for_provider,
             test_model_route,
             create_session_workspace,
+            list_projects,
+            create_project,
+            rename_project,
+            delete_project,
+            set_session_project,
+            discover_project_worktrees,
             list_hub_sessions,
             get_hub_session,
             get_hub_inspection,
