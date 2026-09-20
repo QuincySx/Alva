@@ -1651,6 +1651,109 @@ describe("App integration", () => {
     });
   }
 
+  // R88: 挂起的 loadSession 在更新导航意图之后返回，不得安装过期会话。
+  it("ignores a stale session load resolved after a newer navigation intent (R88)", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [{
+      product_session_id: "ps-a",
+      workspace: "/tmp/a",
+      last_prompt: "A sidebar prompt",
+      engine_id: "alva",
+      status: "completed",
+    }];
+    let resolveA: (detail: HubSessionDetail) => void = () => undefined;
+    bridge.fns.getHubSession.mockImplementation(
+      () =>
+        new Promise<HubSessionDetail>((resolve) => {
+          resolveA = resolve;
+        }),
+    );
+
+    render(<App />);
+    await user.click(await screen.findByText("A sidebar prompt"));
+    // 更新的导航意图：New session。
+    await user.click(await screen.findByRole("button", { name: "New session" }));
+    resolveA({
+      ...detailFixture(),
+      session: { ...detailFixture().session, product_session_id: "ps-a" },
+    });
+    // Flush the pending continuation deterministically (no sleeps).
+    await act(async () => {});
+    await act(async () => {});
+    // 过期响应不得重新安装 A：入口面保持原样（composer 常驻会话页，
+    // 不作为安装判据）。
+    expect(screen.getByText("How would you like to work?")).toBeInTheDocument();
+  });
+
+  // R89: 迟到的终态刷新不得把 A 的详情写进当前 B 的视图。
+  it("keeps a stale terminal refresh out of the current session's details (R89)", async () => {
+    const user = userEvent.setup();
+    const detailA = detailFixture();
+    detailA.session = { ...detailA.session, product_session_id: "ps-a" };
+    detailA.turns = [{
+      turn_id: "a-turn", prompt: "A detailed turn title", result: "A result",
+      error: null, status: "completed", created_at: 100, completed_at: 200,
+      attempts: [],
+    }];
+    const detailB = detailFixture();
+    detailB.session = { ...detailB.session, product_session_id: "ps-b" };
+    detailB.turns = [{
+      turn_id: "b-turn", prompt: "B detailed turn title", result: "B result",
+      error: null, status: "completed", created_at: 300, completed_at: 400,
+      attempts: [],
+    }];
+    bridge.state.sessions = [
+      { product_session_id: "ps-a", workspace: "/tmp/a", last_prompt: "A sidebar prompt", engine_id: "alva", status: "completed" },
+      { product_session_id: "ps-b", workspace: "/tmp/b", last_prompt: "B sidebar prompt", engine_id: "alva", status: "completed" },
+    ];
+    // A 的第一次加载立即返回；终态刷新（第二次 ps-a 调用）受控挂起。
+    let refreshA: (detail: HubSessionDetail) => void = () => undefined;
+    bridge.fns.getHubSession.mockImplementation((sessionId: string) => {
+      if (sessionId === "ps-a") {
+        return Promise.resolve(detailA);
+      }
+      return Promise.resolve(detailB);
+    });
+
+    render(<App />);
+    await user.click(await screen.findByText("A sidebar prompt"));
+    await waitFor(() =>
+      expect(screen.getAllByText("A detailed turn title").length).toBeGreaterThanOrEqual(1),
+    );
+
+    // A 活跃时终态事件到达 → 触发详情刷新（第二次调用，受控挂起）。
+    let releaseRefresh: ((detail: HubSessionDetail) => void) | null = null;
+    bridge.fns.getHubSession.mockImplementation((sessionId: string) => {
+      if (sessionId === "ps-a" && releaseRefresh === null) {
+        return new Promise<HubSessionDetail>((resolve) => {
+          releaseRefresh = resolve;
+        });
+      }
+      return sessionId === "ps-a" ? Promise.resolve(detailA) : Promise.resolve(detailB);
+    });
+    emitLive({
+      product_session_id: "ps-a",
+      engine_id: "alva",
+      status: "completed",
+      message: "done",
+      item_id: "a-turn:assistant",
+    });
+    await waitFor(() => expect(releaseRefresh).not.toBeNull());
+
+    // 切到 B（立即加载）。
+    await user.click(await screen.findByText("B sidebar prompt"));
+    await waitFor(() =>
+      expect(screen.getAllByText("B detailed turn title").length).toBeGreaterThanOrEqual(1),
+    );
+
+    // A 的迟到刷新返回——不得覆盖 B 的详情标题。
+    releaseRefresh?.(detailA);
+    await act(async () => {});
+    await act(async () => {});
+    expect(screen.queryByText("A detailed turn title")).not.toBeInTheDocument();
+    expect(screen.getAllByText("B detailed turn title").length).toBeGreaterThanOrEqual(1);
+  });
+
   it("keeps user question and answer visible after a live completed event (R29)", async () => {
     const user = userEvent.setup();
     bridge.state.sessions = [{

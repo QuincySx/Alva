@@ -622,6 +622,10 @@ export default function App() {
   // Logic value: the session the long-lived timeline listener should refresh
   // (reading state there would capture a stale closure).
   const activeSessionRef = useRef<string | null>(null);
+  // R88: monotonic load-request sequence. Every navigation intent (open a
+  // session, start a new one) bumps it; a loadSession response may only
+  // install when it is still the LATEST request.
+  const sessionLoadSeqRef = useRef(0);
   // Only events carrying the explicit new-run correlation token may claim
   // the first live product id. Background workers never receive this token.
   const pendingNewRunTokenRef = useRef<string | null>(null);
@@ -964,8 +968,11 @@ export default function App() {
   }
 
   function startNewSession() {
+    // R88: a new-session intent invalidates any in-flight session load.
+    sessionLoadSeqRef.current += 1;
     setWorkspace("");
     setWorkspaceKind(null);
+    setActiveProjectId(null);
     resetSessionSurface();
     void loadGlobalFallbackPolicy().catch(appendLocalFailure);
   }
@@ -1073,7 +1080,12 @@ export default function App() {
   }
 
   async function loadSession(productSessionId: string) {
+    // R88: the response may install only while it is still the latest
+    // navigation request — a slow A resolved after "New session" or after B
+    // was opened must never reinstall A.
+    const requestId = ++sessionLoadSeqRef.current;
     const detail = await getHubSession(productSessionId);
+    if (requestId !== sessionLoadSeqRef.current) return;
     if (!detail) throw new Error("This Hub session no longer exists.");
     setActiveSessionId(detail.session.product_session_id);
     activeSessionRef.current = detail.session.product_session_id;
@@ -1113,7 +1125,10 @@ export default function App() {
     teamLeadRef.current = detail.session.product_session_id;
     // A worker id from the previous run must never survive into this one.
     setDispatchWorkerId(null);
-    setTeamRun(await getTeamRunForLead(detail.session.product_session_id));
+    const teamRun = await getTeamRunForLead(detail.session.product_session_id);
+    // R88: a newer navigation may have started while the team fetch ran.
+    if (requestId !== sessionLoadSeqRef.current) return;
+    setTeamRun(teamRun);
   }
 
   /// Append a memory entry and reflect the fresh list on the open session.
