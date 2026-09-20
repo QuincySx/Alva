@@ -70,7 +70,7 @@ const bridge = vi.hoisted(() => {
       setSessionProject: vi.fn(async () => undefined),
       discoverProjectWorktrees: vi.fn(async () => ({ code: "not_git_repository" })),
       listHubSessions: vi.fn(async () => state.sessions),
-      getHubSession: vi.fn(async () => state.detail),
+      getHubSession: vi.fn(async (_sessionId: string) => state.detail),
       addSessionMemory: vi.fn(
         async (_productSessionId: string, entry: string) => {
           if (state.detail) {
@@ -1709,7 +1709,6 @@ describe("App integration", () => {
       { product_session_id: "ps-b", workspace: "/tmp/b", last_prompt: "B sidebar prompt", engine_id: "alva", status: "completed" },
     ];
     // A 的第一次加载立即返回；终态刷新（第二次 ps-a 调用）受控挂起。
-    let refreshA: (detail: HubSessionDetail) => void = () => undefined;
     bridge.fns.getHubSession.mockImplementation((sessionId: string) => {
       if (sessionId === "ps-a") {
         return Promise.resolve(detailA);
@@ -1724,9 +1723,11 @@ describe("App integration", () => {
     );
 
     // A 活跃时终态事件到达 → 触发详情刷新（第二次调用，受控挂起）。
-    let releaseRefresh: ((detail: HubSessionDetail) => void) | null = null;
+    let releaseRefresh: (detail: HubSessionDetail) => void = () => undefined;
+    let refreshControlled = false;
     bridge.fns.getHubSession.mockImplementation((sessionId: string) => {
-      if (sessionId === "ps-a" && releaseRefresh === null) {
+      if (sessionId === "ps-a" && !refreshControlled) {
+        refreshControlled = true;
         return new Promise<HubSessionDetail>((resolve) => {
           releaseRefresh = resolve;
         });
@@ -1740,7 +1741,7 @@ describe("App integration", () => {
       message: "done",
       item_id: "a-turn:assistant",
     });
-    await waitFor(() => expect(releaseRefresh).not.toBeNull());
+    await waitFor(() => expect(refreshControlled).toBe(true));
 
     // 切到 B（立即加载）。
     await user.click(await screen.findByText("B sidebar prompt"));
@@ -1749,7 +1750,7 @@ describe("App integration", () => {
     );
 
     // A 的迟到刷新返回——不得覆盖 B 的详情标题。
-    releaseRefresh?.(detailA);
+    releaseRefresh(detailA);
     await act(async () => {});
     await act(async () => {});
     expect(screen.queryByText("A detailed turn title")).not.toBeInTheDocument();
