@@ -17,7 +17,7 @@
 | H05 | ✅ 只读发现交付 | `e4a91a8c` worktree_discovery.rs |
 | H08 | ✅ 两模式入口交付 | `5d6ac7d3` StartupGate + App 接线 |
 | H09 | ✅ 核心交付 | `4b946a79` R42 迁移：工具调用/结果、审批、状态与消息同轴展示；HubTimeline 键改 H20 稳定 id；条件挂载取消（终态后执行历史仍在轴上）。**未竟部分**：滚动跟随/回底与审批的实测在真实 Tauri 内待 H18；工具输出的全文分块（>限额 blob 全文可达）未做 |
-| H15 | ✅ 6/9 交付 | R78 `16fb6c75`、R77+R86-http `65d58265`、R91 `f5fdf081`、R86-desktop `73289ba9`（+lib re-export `1a50ce95`）、R85 `2dd8edea`、R84 `467064d4`；**R87/R88/R89 未做**（见下） |
+| H15 | ✅ 9/9 交付 | R78 `16fb6c75`、R77+R86-http `65d58265`、R91 `f5fdf081`、R86-desktop `73289ba9`、R85 `2dd8edea`、R84 `467064d4`（+lib re-export `1a50ce95`）、R88 `5c658718`、R89 `e6fc3a13`、R87 `638d0d54` |
 | H16 | ✅ R96/R97 修复 | `0c98f529` |
 | K01 | ✅ 检查执行（pass，见下） | 本次运行记录 |
 | H03/H06/H07/H10-H14/H17/H18 | ⏸ 未开始 | 见"未完成与原因" |
@@ -110,13 +110,15 @@
 - **R85**（`2dd8edea`）：hibernate_worker 不再吞掉一切 stop Err 后无条件删句柄——复用 `release_worker_runtime` 的保留语义（无运行=正常清理；真实 cancel 失败=保留可停句柄+告警）。失败语义：生命周期已 Hibernated（不认领新任务），在途运行仍可 Stop。
 - **R84**（`467064d4`）：execute_session_run 对任意 outcome 无条件按 pid 清 active_hubs/审批——被拒的重复 Run 剥掉在跑 A 的控制面。修复 = 仅 outcome Ok（真正认领并流过）才做兜底清理；认领前拒绝不动现场。
 - 附带修复（`1a50ce95`）：H05 提交漏了 lib 根 re-export，bin 目标自那时起未编过（--lib 测试不覆盖 bin）——本次 bin check 暴露后修复。
-- **R87/R88/R89 未做（诚实声明）**：R87 触及 fallback 授权路径（用户强杀 vs 真实 crash 的区分需要取消事实在 run.rs fallback loop 的权威接线 + 双引擎反例），R88/R89 需要受控 Promise 的前端竞态夹具。三者均需完整红-绿批次，不宜在本会话尾部赶工；实现要点已记录于本文件（R87：fallback 决策点查询 attempt_cancelled 事实且 created_at ≥ 本 attempt started_at → 判用户停止，优先于分类器；R88：loadSession 以请求序号/会话 token 门控安装；R89：终态刷新回调在响应到达时二次校验 activeSessionRef）。
-- 回归基线：hub-core 51/51、hub-server 7/7、hub-desktop lib 184 中 180 绿（4 个失败为既有的 real-codex/claude CLI 环境测试，与本批改动无关，修改前即如此）。
-
+- **R88**（`5c658718`）：挂起的 loadSession 在更新导航意图后返回会重开旧会话。修复 = `sessionLoadSeqRef` 单调序号门控每次安装（会话/workspace/project/route/profile/timeline/detail），startNewSession 也推进序号；team fetch 返回后二次校验。红测用受控 Promise：过期响应重装 A（gate 消失）在旧代码下失败、新代码通过。教训记录：waitFor 断言不得咬初始态（第一版红测因此未咬住，用 act 冲刷后修正）；测试尾部恢复共享 mock 防止实现泄漏（泄漏曾打红 8 个 R29/R30 回归）。
+- **R89**（`e6fc3a13`）：终态/详情刷新在事件到达时校验归属、响应落地只查组件存活——A 的迟到刷新把 B 的 sessionDetail（标题/memory/分支/Inspector）整体替换。修复 = 响应到达时对 `activeSessionRef` 二次校验；worker 驱动的 team 刷新同样钉住 lead。红测：受控 A 刷新在切到 B 后落地，旧代码覆盖 B 标题（红），新代码保持（绿）。
+- **R87**（`638d0d54`）：claude cancel-grace 强杀文案被分类 Crash 并触发自动 fallback。修复 = fallback 循环在继续连续性链之前查询本 attempt 的取消事实（`attempt_has_cancel_fact`，经 attempt 的 started_at 绑定）；有事实即中断链——用户要它停，后继引擎绝不能被启动；无事实的真实 crash 仍照常 fallback（既有 fallback-chain 测试保持绿）。红证：禁用守卫时 `user_stop_grace_kill_never_falls_back` 失败（builds==2，第二个引擎被真实构建）；启用后 builds==1、单 attempt。
+- 附带修复（`1a50ce95`）：H05 提交漏了 lib 根 re-export，bin 目标自那时起未编过（--lib 测试不覆盖 bin）——本次 bin check 暴露后修复。
+- 回归基线：hub-core 51/51、hub-server 7/7、hub-desktop lib 185 项中仅 4 个 real-codex/claude CLI 环境测试失败（需真实二进制与凭证，改动前即失败，按测试内建守卫报错）；vitest 131/131。
 ## 未完成与原因（不掩盖）
 
 1. **H09 收尾（小尾巴）**：中央轴合并（R42 迁移、稳定键、取消条件挂载）已交付（`4b946a79`）；剩余为真实 Tauri 内的滚动跟随/审批实测（归 H18）与大输出的分块全文可达（现由窗口化+滚动保证可达，分块未做）。
-2. **H15 剩余三张（R87/R88/R89）**：见 H15 节的诚实声明与实现要点。
+2. **H15 已全部交付（9/9）**：R87/R88/R89 于本轮补齐，红绿证据见 H15 节。
 3. **H03/H06/H07/H10-H14/H17/H18 未开始**：依赖 H03 结构方案的用户确认（H03 卡明确"经用户确认后才大面积落地"）与 H09 完成态；H18 真实 Tauri 验收必须在这些卡之后。
 4. **Tauri 生产壳实测**：性能与主流程均在同引擎 headed Chromium 取证；真实 webview 内复测列入 H18。
 5. 全局快捷键、主题、hub-server 端点补齐：H17/H18 范围。
