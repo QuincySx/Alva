@@ -20,7 +20,40 @@
 | H15 | ✅ 9/9 交付 | R78 `16fb6c75`、R77+R86-http `65d58265`、R91 `f5fdf081`、R86-desktop `73289ba9`、R85 `2dd8edea`、R84 `467064d4`（+lib re-export `1a50ce95`）、R88 `5c658718`、R89 `e6fc3a13`、R87 `638d0d54` |
 | H16 | ✅ R96/R97 修复 | `0c98f529` |
 | K01 | ✅ 检查执行（pass，见下） | 本次运行记录 |
-| H03/H06/H07/H10-H14/H17/H18 | ⏸ 未开始 | 见"未完成与原因" |
+| H06 | ✅ 创建/删除连接闭环交付（2026-09-21 会话） | `09d56d41` |
+| H07 | ✅ 路由身份证据测试交付（2026-09-21 会话） | `a11583de` |
+| H03 | ⏸ 方案已交付，**待用户确认决策点**（2026-09-21 会话） | `14228492` IA-PLAN.md |
+| H10-H14/H17/H18 | ⏸ 未开始（H10-H14/H17 依赖 H03 确认后批次 B1-B5；H18 依赖其后） | 见"未完成与原因" |
+
+## 2026-09-21 会话（接力：验证既有交付 + H06/H07/H03）
+
+- **基线复验（当前 HEAD）**：vitest 131/131（修复 tsc 后 134/134）；hub-desktop lib 181+4 已知 real-CLI 环境失败（与 H15 记录一致，非回归）；K01 结论无需重跑（本会话 kernel/agent-core 零改动）。
+- **tsc 回归修复**（`5adc60f0`）：R89 测试（e6fc3a13）引入 4 个 tsc 错误（未用变量、mock 参数类型、null 收窄），vitest 用 esbuild 转译不查类型所以运行时全绿掩盖了回归。修复纯类型卫生，运行时语义不变。**教训：EXECUTION.md 此前"H08 时 tsc 干净"的结论在后续 commit 后失效——tsc 检查应列入每批验证命令。**
+
+### H06 — Provider 创建/删除闭环（`09d56d41`）
+
+- 探查结论（子代理全量盘点）：兼容矩阵（route_planner 单一权威+契约测试）、订阅/API 分离呈现、凭证闭环（0600+DTO 只出 bool+红acted 诊断）、保存/编辑/重启测试**已达标**；缺口是 create 不存在（前端 Add modal 用假 id 调 save 必然报错——假入口）、delete 完全不存在（H06 验收明确要求删除测试）。
+- 交付：`ProviderCatalog::create`（后端分配 id `{kind}`/`{kind}-2` 与内置无冲突；订阅 kind 拒绝；kind 白名单与 planner 矩阵契约测试互锁）+ `ProviderCatalog::delete`（内置 starter/managed 拒删；default_target 指向被删连接时显式清除；会话历史保留 provider_id、路由投影不可用）+ DTO `deletable` 由后端裁定 + Tauri 命令 + hub-server HTTP（POST /api/providers/create、DELETE /api/providers/:id）+ bridge + Add modal 走真实 create + 协议选择 + 删除确认弹窗 + preset 过期预置模型表删除（脱节问题）+ 创建失败弹窗内如实报错。
+- 测试：Rust providers 19/19（4 新增）；vitest 134/134（3 新增：真实 seam 创建、失败不假成功、删除确认+内置无删除入口）；hub-server 7/7；tsc 干净。
+- **H06 未竟（如实列出，需用户决策或后续卡）**：
+  1. **Claude 产品路径是 CLI print 适配器（engine_wiring.rs:342-417），不是卡面写的"Claude Code SDK"**。切换到 Node Agent SDK 桥是架构级变更（运行时依赖、认证面、装配全变），未获授权不擅自重写——需用户决策：接受 CLI print 路径（修改 SPEC 措辞）还是立项 SDK 桥卡。
+  2. typed AuthSource/Subscription 枚举未做（现仍字符串 kind + managed/target_uses_api 接缝；UI 分开呈现已达标）。若 H02 术语要求 typed 字段，另立小卡。
+  3. 同一协议多连接（多账号）仍不支持（catalog 每 kind 一连接）；V1 未要求，登记为已知限制。
+
+### H07 — 发任务选择执行组合并锁定实际路由（`a11583de`）
+
+- 现状核查：链路保证已存在——run seam 用持久化 `prepared.target` 装配（run.rs:243-247）、`run_hub_prompt` 强制新会话显式目标/显式默认路由且 `canonical_available_route` 拒不可用（main.rs:168-206）、恢复会话禁止覆盖钉定路由、同名模型按 provider 区分与未知模型不发明控件已有 picker 测试。**未发现需要修的缺陷**；缺的是把验收矩阵钉死的证据测试。
+- 交付两个证据测试：
+  - `selected_route_identity_reaches_the_engine_request_with_cwd`：同一请求内断言 build_engine 收到逐字段选中目标 + 假引擎 RuntimeRequest 的 canonical cwd/prompt + branch 快照完整身份（provider/account_source/billing_route/reasoning_effort）。
+  - `later_route_changes_never_rewrite_recorded_attempts`：A 运行后新会话选 B，重启后 A 的 branch 仍 A；带 B 恢复 A 仍按 A 装配（observed 序列 A,B,A）——当前选择状态永远不能改写历史。
+- 测试：lib 187 通过 + 4 已知环境失败。
+- 未竟：真实 Tauri 内 composer→请求 的端到端复测归 H18（本卡证据层为 run seam 假引擎捕获，与 H18 桌面壳验收互补不重复）。
+
+### H03 — IA 结构方案（`14228492`，待确认）
+
+- 交付 `IA-PLAN.md`：终态页面清单 P0-P8、中央轴结构确认保留、两模式补强项、搜索重定义、Workbench 左右 token 方案（默认保持右侧+可逆开关）、设置/次级页诚实化规则、B1-B6 落地批次、§10 事实索引（全部 文件:行号）。
+- **4 个决策点待用户确认**（IA-PLAN.md §9）：①工具区默认位置；②⌘K 实现还是删假徽标；③"当前项目"行做否；④Automations/Extensions 保留结构+诚实化还是整页降级。
+- 按卡验收要求，确认前不实施大面积改动；H10-H14/H17 在 B1-B5 批次内跟随。
 
 每卡证据（命令 + 结果摘录）：
 
@@ -115,10 +148,11 @@
 - **R87**（`638d0d54`）：claude cancel-grace 强杀文案被分类 Crash 并触发自动 fallback。修复 = fallback 循环在继续连续性链之前查询本 attempt 的取消事实（`attempt_has_cancel_fact`，经 attempt 的 started_at 绑定）；有事实即中断链——用户要它停，后继引擎绝不能被启动；无事实的真实 crash 仍照常 fallback（既有 fallback-chain 测试保持绿）。红证：禁用守卫时 `user_stop_grace_kill_never_falls_back` 失败（builds==2，第二个引擎被真实构建）；启用后 builds==1、单 attempt。
 - 附带修复（`1a50ce95`）：H05 提交漏了 lib 根 re-export，bin 目标自那时起未编过（--lib 测试不覆盖 bin）——本次 bin check 暴露后修复。
 - 回归基线：hub-core 51/51、hub-server 7/7、hub-desktop lib 185 项中仅 4 个 real-codex/claude CLI 环境测试失败（需真实二进制与凭证，改动前即失败，按测试内建守卫报错）；vitest 131/131。
-## 未完成与原因（不掩盖）
+## 未完成与原因（不掩盖，2026-09-21 更新）
 
-1. **H09 收尾（小尾巴）**：中央轴合并（R42 迁移、稳定键、取消条件挂载）已交付（`4b946a79`）；剩余为真实 Tauri 内的滚动跟随/审批实测（归 H18）与大输出的分块全文可达（现由窗口化+滚动保证可达，分块未做）。
-2. **H15 已全部交付（9/9）**：R87/R88/R89 于本轮补齐，红绿证据见 H15 节。
-3. **H03/H06/H07/H10-H14/H17/H18 未开始**：依赖 H03 结构方案的用户确认（H03 卡明确"经用户确认后才大面积落地"）与 H09 完成态；H18 真实 Tauri 验收必须在这些卡之后。
-4. **Tauri 生产壳实测**：性能与主流程均在同引擎 headed Chromium 取证；真实 webview 内复测列入 H18。
-5. 全局快捷键、主题、hub-server 端点补齐：H17/H18 范围。
+1. **H03 方案待确认（当前闸门）**：IA-PLAN.md 已交付（`14228492`），4 个决策点等用户选择（§9）；确认前不实施大面积 UI 落地。H10-H14/H17 按 B1-B5 批次跟随。
+2. **H09 收尾（小尾巴）**：中央轴合并已交付（`4b946a79`）；剩余为真实 Tauri 内的滚动跟随/审批实测（归 H18）与大输出的分块全文可达（现由窗口化+滚动保证可达，分块未做）。
+3. **H06 未竟（需用户决策）**：① Claude 产品路径是 CLI print 而非卡面"Claude Code SDK"——SDK 桥是架构级变更，未授权不擅自重写，需决策（接受 CLI 现状改 SPEC 措辞 / 立项 SDK 桥卡）；② typed AuthSource 枚举未做（登记）；③ 同协议多账号多连接不支持（V1 未要求，登记）。
+4. **H07 未竟**：真实 Tauri 内 composer→请求端到端复测归 H18（本卡为 run seam 假引擎证据层，互补不重复）。
+5. **H18 真实 Tauri 全流程验收未开始**：依赖 H03 确认 + B1-B5。性能与主流程证据目前均来自同引擎 headed Chromium + CDP；真实 webview 复测是其核心内容。
+6. 4 个 real-codex/claude CLI 测试因缺真实二进制/凭证持续失败（改动前即如此，非回归）。
