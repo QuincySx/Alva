@@ -1229,7 +1229,7 @@ async fn stop_hub_attempt(
 }
 
 async fn stop_attempt_inner(
-    app: &AppHandle,
+    _app: &AppHandle,
     state: &DesktopState,
     product_session_id: String,
 ) -> Result<(), String> {
@@ -1247,33 +1247,35 @@ async fn stop_attempt_inner(
         .get(&product_session_id)
         .cloned()
         .ok_or("The running attempt is not owned by this app instance.")?;
-    state
+    // R91: 被停 attempt 的身份在 await cancel 之前捕获——与 R77 的 HTTP
+    // 语义一致。同分支 resume 会铸造新 attempt，attempt（而非 branch）才
+    // 是 Stop 的身份。
+    let stop_attempt = state
         .store
-        .record_attempt_cancelled(&product_session_id, "User stopped the attempt")?;
+        .running_attempt_id(&product_session_id)?
+        .unwrap_or_default();
+    state
+        .permission_router
+        .clear_session(&product_session_id);
     // The stopped attempt's approvals die with it — clear them before the
     // cancel so a stale Allow can no longer reach the cancelled session.
-    state.permission_router.clear_session(&product_session_id);
-    // Route through the live HubRuntime: it reaches the running engine via its
-    // RunHandle (ticket 13) and releases the Hub claim when no native session
-    // has started yet (ticket 08/10) instead of failing the stop.
+    // R51/R91: nothing is recorded before the cancel — a failed cancel must
+    // not leave a cancelled terminal behind.
     hub.cancel(&ProductSessionId::from_existing(&product_session_id))
         .await
         .map_err(|error| error.to_string())?;
-    if let Err(error) = app.emit(
-        "hub_timeline",
-        TimelineEvent {
-            status: TimelineStatus::Interrupted,
-            engine_id: detail.session.engine_id,
-            product_session_id,
-            created_at: timeline_now_ms(),
-            message: Some("User stopped the attempt".to_string()),
-            item_id: None,
-            activity: None,
-            permission_request: None,
-        },
-    ) {
-        tracing::warn!(%error, "failed to emit Hub cancel event");
-    }
+    // R91: 取消事实绑定被停的 attempt。cancel ack 到来时该 attempt 已终态
+    // 或已被取代（迟到 ack），则不写事实——不与真实终态冲突。
+    state
+        .store
+        .record_attempt_cancelled_bound(
+            &product_session_id,
+            &stop_attempt,
+            "User stopped the attempt",
+        )?;
+    // R91: 此处不再广播 Interrupted——run seam 在引擎流真实结束时结算唯一
+    // 终态（与 R65 后的 HTTP 语义一致）。抢先广播会在自然 Completed/Failed
+    // 之上追加互相冲突的取消终态，UI 文案声称"已退出"时流可能仍在输出。
     Ok(())
 }
 
