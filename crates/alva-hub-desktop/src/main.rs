@@ -1254,25 +1254,27 @@ async fn stop_attempt_inner(
         .store
         .running_attempt_id(&product_session_id)?
         .unwrap_or_default();
-    state
-        .permission_router
-        .clear_session(&product_session_id);
-    // The stopped attempt's approvals die with it — clear them before the
-    // cancel so a stale Allow can no longer reach the cancelled session.
+    // R86: 审批路由不得在 cancel 之前清除——cancel 失败时原权限请求仍须
+    // 可回答，运行不得在丢掉审批路由后悬挂。清理只发生在取消事实成功写入
+    // （该轮确由本次 Stop 终止）之后。
     // R51/R91: nothing is recorded before the cancel — a failed cancel must
     // not leave a cancelled terminal behind.
     hub.cancel(&ProductSessionId::from_existing(&product_session_id))
         .await
         .map_err(|error| error.to_string())?;
     // R91: 取消事实绑定被停的 attempt。cancel ack 到来时该 attempt 已终态
-    // 或已被取代（迟到 ack），则不写事实——不与真实终态冲突。
-    state
-        .store
-        .record_attempt_cancelled_bound(
-            &product_session_id,
-            &stop_attempt,
-            "User stopped the attempt",
-        )?;
+    // 或已被取代（迟到 ack），则不写事实、不清审批——不与真实终态冲突，
+    // 也不销毁仍等待的权限请求。
+    let cancelled = state.store.record_attempt_cancelled_bound(
+        &product_session_id,
+        &stop_attempt,
+        "User stopped the attempt",
+    )?;
+    if cancelled {
+        // The stopped attempt's approvals die with it — only now, when the
+        // cancel actually took effect on the pinned attempt.
+        state.permission_router.clear_session(&product_session_id);
+    }
     // R91: 此处不再广播 Interrupted——run seam 在引擎流真实结束时结算唯一
     // 终态（与 R65 后的 HTTP 语义一致）。抢先广播会在自然 Completed/Failed
     // 之上追加互相冲突的取消终态，UI 文案声称"已退出"时流可能仍在输出。
