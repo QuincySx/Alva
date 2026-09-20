@@ -1683,6 +1683,8 @@ describe("App integration", () => {
     // 过期响应不得重新安装 A：入口面保持原样（composer 常驻会话页，
     // 不作为安装判据）。
     expect(screen.getByText("How would you like to work?")).toBeInTheDocument();
+    // 恢复共享默认实现，避免泄漏进后续测试。
+    bridge.fns.getHubSession.mockImplementation(async () => bridge.state.detail);
   });
 
   // R89: 迟到的终态刷新不得把 A 的详情写进当前 B 的视图。
@@ -1752,6 +1754,8 @@ describe("App integration", () => {
     await act(async () => {});
     expect(screen.queryByText("A detailed turn title")).not.toBeInTheDocument();
     expect(screen.getAllByText("B detailed turn title").length).toBeGreaterThanOrEqual(1);
+    // 恢复共享默认实现，避免泄漏进后续测试。
+    bridge.fns.getHubSession.mockImplementation(async () => bridge.state.detail);
   });
 
   it("keeps user question and answer visible after a live completed event (R29)", async () => {

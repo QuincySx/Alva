@@ -680,14 +680,25 @@ export default function App() {
           )
         ) {
           setCancellableSessionId(null);
-          void getHubSession(event.product_session_id).then((detail) => {
-            if (active && detail) setSessionDetail(detail);
+          // R89: the response must still belong to the CURRENT session at
+          // arrival time — the user may have switched away while it flew.
+          const refreshedSession = event.product_session_id;
+          void getHubSession(refreshedSession).then((detail) => {
+            if (
+              active &&
+              detail &&
+              activeSessionRef.current === refreshedSession
+            ) {
+              setSessionDetail(detail);
+            }
           });
         }
         // Worker pumps finish in the background — pull the fresh queue state.
         if (belongsToVisibleSession && event.status === "worker" && teamLeadRef.current) {
-          void getTeamRunForLead(teamLeadRef.current).then((run) => {
-            if (active) setTeamRun(run);
+          // R89: same arrival-time ownership check for the team refresh.
+          const lead = teamLeadRef.current;
+          void getTeamRunForLead(lead).then((run) => {
+            if (active && teamLeadRef.current === lead) setTeamRun(run);
           });
         }
       }
