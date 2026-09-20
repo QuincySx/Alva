@@ -64,6 +64,7 @@ pub use store::{
     StoredTimelineEvent, StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim,
     TeamRunDetail, TeamWorker, TranscriptTurn, WorkerLifecycle, WorkerTask,
 };
+pub use worktree_discovery::{discover_worktrees, WorktreeDiscoveryError, WorktreeInfo};
 pub use worktree::{
     adopt_into_workspace, adoption_preview, create_worker_worktree, discard_worktree,
     supports_isolation, worktree_changes, worktree_root, AdoptionPreview, WorktreeChange,
