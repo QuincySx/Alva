@@ -823,12 +823,10 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
 
     let tx = state.events.clone();
     let stopping = state.stopping.clone();
-    // R65: 新一轮开始前清掉可能残留的 stopping marker——marker 只允许
-    // 作用于它 ack 时活跃的那一轮，不得泄漏到同 session 下一轮。
-    stopping
-        .lock()
-        .expect("stopping lock poisoned")
-        .remove(&request_product_session);
+    // R78: 这里不得按 pid 清理 stopping marker——本请求可能在认领前就被
+    // 拒绝（同 session 已在运行），删掉的是活动轮的 marker，让用户已
+    // ack 的 Stop 在该轮异常结束时丢失 Interrupted 结算。marker 的身份
+    // 约束由 R77 的分支键保证：它只能被它 ack 时活跃的那轮结算消费。
     // R65: 引擎流是否自然完成。取消结算据此决定是否追加 Interrupted。
     let run_completed_normally = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
@@ -1744,6 +1742,57 @@ mod r65_stop_integration {
         assert!(
             failed_pos < interrupted_pos,
             "Interrupted must be the single final settlement, after the Failed"
+        );
+    }
+
+    /// R78: 被拒绝的重复 Run 不得清理活动轮的 stopping marker。A 的 Stop
+    /// 已 ack、真实流仍挂起；同 pid 重复 Run 在认领前被拒绝后，A 异常结束
+    /// 时原 Stop 仍须恰好结算一次 Interrupted。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rejected_duplicate_run_preserves_the_active_stopping_marker() {
+        let server = spawn_server(vec![Step::HoldUntilKilled], false).await;
+        let sse = subscribe_sse(server.addr).await;
+        wait_for(&sse, "text/event-stream").await;
+        let ws = server.data_dir.join("workspace").display().to_string();
+        let run_task = tokio::spawn(http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, None),
+        ));
+        server.engine.started.notified().await;
+        let pid = wait_for_pid(&sse).await;
+
+        // Stop ack（cancel 直接 Ok）→ marker 落下，A 的流仍挂起。
+        let stop_task = tokio::spawn(http_post(
+            server.addr,
+            format!("/api/sessions/{pid}/stop"),
+            "{}".to_string(),
+        ));
+        server.engine.cancel_entered.notified().await;
+        server.engine.cancel_release.notify_one();
+        let (stop_status, stop_body) = stop_task.await.unwrap();
+        assert_eq!(stop_status, 200, "{stop_body}");
+
+        // 同 pid 重复 Run：必须被拒绝（already running）。
+        let (dup_status, dup_body) = http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, Some(&pid)),
+        )
+        .await;
+        assert_ne!(dup_status, 200, "duplicate run must be rejected: {dup_body}");
+
+        // 释放 A：异常结束（EOF 无终态）。原 Stop 仍须恰好结算一次
+        // Interrupted——被拒的重复 Run 不得带走它的 marker。
+        server.engine.killed.notify_one();
+        let (run_status, run_response) = run_task.await.unwrap();
+        assert_eq!(run_status, 200, "{run_response}");
+        wait_for(&sse, "\"interrupted\"").await;
+        let sse_text = sse.lock().unwrap().clone();
+        assert_eq!(
+            sse_text.matches("\"interrupted\"").count(),
+            1,
+            "the original stop must settle exactly one Interrupted despite the rejected duplicate run:\n{sse_text}"
         );
     }
 
