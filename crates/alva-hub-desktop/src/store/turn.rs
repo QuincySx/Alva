@@ -935,6 +935,89 @@ impl super::HubStore {
         Ok(())
     }
 
+    /// The session's currently RUNNING attempt id, if any (unique index
+    /// guarantees at most one).
+    pub fn running_attempt_id(&self, product_session_id: &str) -> Result<Option<String>, String> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT attempt_id FROM engine_attempts
+                  WHERE product_session_id = ?1 AND status = ?2",
+                params![product_session_id, STATUS_RUNNING],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("query running attempt: {error}"))
+    }
+
+    /// The session's most recently STARTED attempt id (running or terminal).
+    pub fn latest_attempt_id(&self, product_session_id: &str) -> Result<Option<String>, String> {
+        let connection = self.lock()?;
+        connection
+            .query_row(
+                "SELECT attempt_id FROM engine_attempts
+                  WHERE product_session_id = ?1
+                  ORDER BY started_at DESC, rowid DESC LIMIT 1",
+                params![product_session_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("query latest attempt: {error}"))
+    }
+
+    /// R77/R91: attempt-bound cancel fact. The caller pins the attempt it
+    /// observed when the stop started; the fact is written only if that SAME
+    /// attempt is still the session's running one inside this transaction
+    /// (same-branch resumes mint new attempts, so the attempt — not the
+    /// branch — is the stop identity). A superseded stop (a newer attempt
+    /// already claimed the session, or the observed attempt already reached
+    /// a terminal state) returns `Ok(false)` and writes nothing — a late
+    /// cancel acknowledgement can never stamp a cancellation onto the next
+    /// attempt.
+    pub fn record_attempt_cancelled_bound(
+        &self,
+        product_session_id: &str,
+        attempt_id: &str,
+        reason: &str,
+    ) -> Result<bool, String> {
+        let now = now_unix_ms();
+        let mut connection = self.lock()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| format!("begin Hub attempt cancel transaction: {error}"))?;
+        let session = query_session(&transaction, product_session_id)?;
+        let Some(session) = session else {
+            return Err(format!("Hub session '{product_session_id}' was not found"));
+        };
+        let running: Option<String> = transaction
+            .query_row(
+                "SELECT attempt_id FROM engine_attempts
+                  WHERE product_session_id = ?1 AND status = ?2",
+                params![product_session_id, STATUS_RUNNING],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| format!("query running attempt: {error}"))?;
+        if session.status != STATUS_RUNNING || running.as_deref() != Some(attempt_id) {
+            return Ok(false);
+        }
+        insert_switch_timeline(
+            &transaction,
+            product_session_id,
+            "attempt_cancelled",
+            &session.active_branch_id,
+            None,
+            &session.engine_id,
+            &session.engine_id,
+            reason,
+            now,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| format!("commit Hub attempt cancel: {error}"))?;
+        Ok(true)
+    }
+
     pub(crate) fn record_engine_session(
         &self,
         prepared: &PreparedTurn,

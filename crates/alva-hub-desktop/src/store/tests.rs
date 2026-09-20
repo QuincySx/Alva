@@ -3133,4 +3133,66 @@ mod tests {
         let session = store.list_sessions().unwrap().into_iter().next().unwrap();
         assert_eq!(session.project_id, None);
     }
+
+    // ---- R77/R91: attempt-bound cancel facts --------------------------------
+
+    #[test]
+    fn cancel_fact_only_writes_while_the_pinned_branch_is_active() {
+        let database = temp_dir();
+        let workspace = temp_dir();
+        let store = HubStore::open(database.path().join("hub.db")).unwrap();
+        let alva = EngineTarget::for_engine("alva").unwrap();
+        let prepared = store
+            .prepare_new_turn(
+                "stop-binding",
+                workspace.path(),
+                "first",
+                &alva,
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+
+        // The pinned attempt is still the running one: the fact writes once.
+        let running = store.running_attempt_id("stop-binding").unwrap();
+        assert_eq!(running.as_deref(), Some(prepared.attempt_id.as_str()));
+        assert!(store
+            .record_attempt_cancelled_bound(
+                "stop-binding",
+                &prepared.attempt_id,
+                "User stopped",
+            )
+            .unwrap());
+
+        // A stop that pinned a DIFFERENT attempt never stamps the
+        // cancellation onto the running one (same-branch resumes mint new
+        // attempts, so the attempt is the stop identity).
+        assert!(!store
+            .record_attempt_cancelled_bound(
+                "stop-binding",
+                "attempt-that-never-was",
+                "User stopped (stale)",
+            )
+            .unwrap());
+
+        // A settled (non-running) turn refuses a second fact — a late cancel
+        // acknowledgement after the run finished writes nothing.
+        store.finish_turn(&prepared, None, None, None, None).unwrap();
+        assert!(!store
+            .record_attempt_cancelled_bound(
+                "stop-binding",
+                &prepared.attempt_id,
+                "User stopped (late ack)",
+            )
+            .unwrap());
+        // The finished attempt is now the latest one — the run-end settlement
+        // identity query keeps answering.
+        assert_eq!(
+            store.latest_attempt_id("stop-binding").unwrap().as_deref(),
+            Some(prepared.attempt_id.as_str())
+        );
+        // Unknown session is a named error.
+        assert!(store
+            .record_attempt_cancelled_bound("missing", "a", "x")
+            .is_err());
+    }
 }

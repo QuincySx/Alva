@@ -3,7 +3,7 @@
 // OUTPUT: headless HTTP service: reuses Hub sessions, engines, Inspector, and timeline over HTTP/SSE
 // POS:    Alva Hub as a local service — one backend, many frontends.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -58,7 +58,10 @@ struct AppState {
     /// R51: sessions whose Stop was acked but whose engine stream has not
     /// ended yet. The cancelled terminal is recorded only when the run's own
     /// terminal event arrives, never on the cancel ack itself.
-    stopping: Arc<Mutex<HashSet<String>>>,
+    /// R77: keyed pid -> attempt_id — the marker belongs to the attempt that
+    /// was running when the Stop was acked, and only the run settling that
+    /// same attempt may consume it.
+    stopping: Arc<Mutex<HashMap<String, String>>>,
     permission_router: Arc<alva_hub_desktop::PermissionRouter>,
     /// R65: 集成测试注入 fake engine 的唯一接缝；生产路径恒为 None。
     #[cfg(test)]
@@ -99,7 +102,7 @@ impl AppState {
             events,
             active_engines: std::sync::Arc::new(Mutex::new(std::collections::HashMap::new())),
             active_hubs: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            stopping: Arc::new(Mutex::new(HashSet::new())),
+            stopping: Arc::new(Mutex::new(HashMap::new())),
             permission_router: Arc::new(alva_hub_desktop::PermissionRouter::new()),
             #[cfg(test)]
             test_engine_factory: None,
@@ -605,9 +608,20 @@ async fn stop_attempt(
                 .into_response()
         }
     };
-    // The stopped attempt's approvals die with it — clear them before the
-    // cancel so a stale Allow can no longer reach the cancelled session.
-    state.permission_router.clear_session(&id);
+    // R77/R91: 取消事实绑定"Stop 发起时正在运行的 attempt"——身份必须在
+    // await cancel 之前捕获。cancel 返回时若该 attempt 已不是运行中的那个
+    //（A 已完成且 B 已认领——同分支 resume 也会铸造新 attempt——或 A 已终
+    // 态），则本次迟到的 ack 什么都不写、不插 marker、不发 stopping 事件
+    // ——B 的审批与运行完全不受旧 Stop 影响。
+    let stop_attempt = match state.store.running_attempt_id(&id) {
+        Ok(attempt) => attempt.unwrap_or_default(),
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e })))
+                .into_response();
+        }
+    };
+    // R86: 审批路由不得在 cancel 之前清除——cancel 失败时原权限请求仍须
+    // 可回答。清理只发生在取消事实成功写入（该轮确由本次 Stop 终止）之后。
     // R51: nothing is recorded before the cancel — a failed cancel must not
     // leave a cancelled terminal behind.
     if let Err(e) = hub.cancel(&ProductSessionId::from_existing(&id)).await {
@@ -617,23 +631,37 @@ async fn stop_attempt(
         )
             .into_response();
     }
-    // R65: 取消事实在 cancel 成功后立刻落库——此时会话仍 running，是
-    // record_attempt_cancelled 唯一能成功的窗口（run 结束时 finish_turn
-    // 已把它置为终态）。失败必须上抛给调用方，不得静默成功。
-    if let Err(e) = state.store.record_attempt_cancelled(&id, "User stopped") {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
-        )
-            .into_response();
+    match state.store.record_attempt_cancelled_bound(&id, &stop_attempt, "User stopped") {
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e })),
+            )
+                .into_response();
+        }
+        Ok(false) => {
+            // Superseded: the observed attempt already settled or a newer
+            // attempt owns the session.
+            return Json(json!({ "ok": true, "stopping": false, "superseded": true }))
+                .into_response();
+        }
+        Ok(true) => {}
     }
+    // The stopped attempt's approvals die with it — only now, when the cancel
+    // actually took effect on the pinned attempt (R86).
+    state.permission_router.clear_session(&id);
     // Cancel acked, not yet terminated: surface the stopping state now and
     // settle the cancelled projection when this run's stream really ends
-    // (the run handler, after outcome_fut).
-    state.stopping.lock().unwrap().insert(id.clone());
+    // (the run handler, after outcome_fut). R77: keyed by the pinned branch,
+    // so a later run of the same session cannot consume it.
+    state
+        .stopping
+        .lock()
+        .unwrap()
+        .insert(id.clone(), stop_attempt.clone());
     // R65: 终态抢在 ack 前落地的代际竞态——run 在 cancel await 期间结束
     // 时，active_hubs 条目已被移除、结算已（或将不带 marker）执行完毕；
-    // 此时丢弃 marker，防止它残留并被同 session 下一轮误消费。
+    // 此时丢弃 marker，防止它残留。
     if state.active_hubs.lock().unwrap().get(&id).is_none() {
         state.stopping.lock().unwrap().remove(&id);
     }
@@ -1007,10 +1035,28 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
         Ok(outcome) => outcome.product_session_id.as_str().to_string(),
         Err(_) => request_product_session.clone(),
     };
+    // R77: 只结算绑定到本 run 自己 attempt 的 marker——旧轮迟到的 marker
+    // 永远不会被新一轮误消费。
+    let run_attempt = match state.store.latest_attempt_id(&settle_session) {
+        Ok(attempt) => attempt.unwrap_or_default(),
+        Err(error) => {
+            warn!(error = %error, "could not read the settling attempt; leaving any marker untouched");
+            // Leave the marker for a later settle of the same attempt.
+            let outcome = match outcome_result {
+                Ok(outcome) => outcome,
+                Err(e) => {
+                    warn!(error = %e, "run failed");
+                    return (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response();
+                }
+            };
+            return Json(outcome).into_response();
+        }
+    };
     let was_stopping = stopping
         .lock()
         .expect("stopping lock poisoned")
-        .remove(&settle_session);
+        .remove(&settle_session)
+        .is_some_and(|marker_attempt| marker_attempt == run_attempt);
     if was_stopping && !run_completed_normally.load(std::sync::atomic::Ordering::SeqCst) {
         let _ = tx.send(WireTimelineEvent {
             event: TimelineEvent {
@@ -1238,6 +1284,9 @@ mod r65_stop_integration {
         cancel_release: Arc<tokio::sync::Notify>,
         /// HoldUntilKilled 的终止信号由测试在 stop ack 之后显式触发。
         killed: Arc<tokio::sync::Notify>,
+        /// R77: 第二轮（n>=1）启动后停在 killed gate——用于构造"迟到 cancel
+        /// ack 时 B 仍在运行"的交错。
+        second_hold: AtomicBool,
     }
 
     impl ScriptedEngine {
@@ -1256,7 +1305,14 @@ mod r65_stop_integration {
                 cancel_entered: Arc::new(tokio::sync::Notify::new()),
                 cancel_release: Arc::new(tokio::sync::Notify::new()),
                 killed: Arc::new(tokio::sync::Notify::new()),
+                second_hold: AtomicBool::new(false),
             })
+        }
+
+        /// R77: 让第二轮（n>=1）启动后停在 killed gate。
+        fn hold_second_turn(self: &Arc<Self>) -> Arc<Self> {
+            self.second_hold.store(true, Ordering::SeqCst);
+            self.clone()
         }
 
         async fn release(&self) {
@@ -1291,6 +1347,8 @@ mod r65_stop_integration {
             let session_id = format!("native-{n}");
             let steps: VecDeque<Step> = if n == 0 {
                 self.steps.lock().unwrap().drain(..).collect()
+            } else if self.second_hold.load(Ordering::SeqCst) {
+                VecDeque::from(vec![Step::HoldUntilKilled])
             } else {
                 VecDeque::from(vec![Step::CompleteNow])
             };
@@ -1365,11 +1423,23 @@ mod r65_stop_integration {
         spawn_server_gated(steps, cancel_fails, true).await
     }
 
+    /// R77: 注入预构建引擎的变体（测试需要先配置 second_hold 等开关）。
+    async fn spawn_server_with_engine(
+        _steps: Vec<Step>,
+        engine: Arc<ScriptedEngine>,
+    ) -> TestServer {
+        spawn_server_engine(engine).await
+    }
+
     async fn spawn_server_gated(
         steps: Vec<Step>,
         cancel_fails: bool,
         cancel_gates: bool,
     ) -> TestServer {
+        spawn_server_engine(ScriptedEngine::with_gates(steps, cancel_fails, cancel_gates)).await
+    }
+
+    async fn spawn_server_engine(engine: Arc<ScriptedEngine>) -> TestServer {
         let data_dir = std::env::temp_dir().join(format!(
             "alva-hub-server-r65-{}-{}",
             std::process::id(),
@@ -1418,7 +1488,6 @@ mod r65_stop_integration {
             target.provider_id = "anthropic".into();
             state.providers.set_default_target(target, None).unwrap();
         }
-        let engine = ScriptedEngine::with_gates(steps, cancel_fails, cancel_gates);
         let factory_engine = engine.clone();
         Arc::get_mut(&mut state)
             .expect("state not yet shared")
@@ -1794,6 +1863,71 @@ mod r65_stop_integration {
             1,
             "the original stop must settle exactly one Interrupted despite the rejected duplicate run:\n{sse_text}"
         );
+    }
+
+    /// R77: 迟到的 cancel ack 不得把取消事实/marker/stopping 状态写到
+    /// 同 pid 的下一轮 B 上。A 运行 → Stop 捕获 A 的 hub 后 await cancel
+    /// → A 完成 → B 开始并保持运行 → A 的 cancel 才返回 Ok。
+    #[tokio::test(flavor = "multi_thread")]
+    async fn late_cancel_ack_never_marks_the_next_attempt() {
+        let engine = ScriptedEngine::new(vec![Step::Complete], false)
+            .hold_second_turn();
+        let server = spawn_server_with_engine(vec![], engine.clone()).await;
+        let sse = subscribe_sse(server.addr).await;
+        wait_for(&sse, "text/event-stream").await;
+        let ws = server.data_dir.join("workspace").display().to_string();
+        let run_task = tokio::spawn(http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, None),
+        ));
+        engine.started.notified().await;
+        let pid = wait_for_pid(&sse).await;
+
+        // Stop：cancel 进入引擎后停在 gate。
+        let stop_task = tokio::spawn(http_post(
+            server.addr,
+            format!("/api/sessions/{pid}/stop"),
+            "{}".to_string(),
+        ));
+        engine.cancel_entered.notified().await;
+
+        // A 在 cancel 返回前自然完成。
+        engine.release().await;
+        let (run_status, run_response) = run_task.await.unwrap();
+        assert_eq!(run_status, 200, "{run_response}");
+
+        // B 在同一 pid 上开始并保持运行。
+        let second_task = tokio::spawn(http_post(
+            server.addr,
+            "/api/run".to_string(),
+            run_body(&ws, Some(&pid)),
+        ));
+        engine.started.notified().await;
+
+        // A 的 cancel 才返回 Ok——此刻 B 正在运行。
+        engine.cancel_release.notify_one();
+        let (stop_status, stop_body) = stop_task.await.unwrap();
+        assert_eq!(stop_status, 200, "{stop_body}");
+        let stop_json: serde_json::Value = serde_json::from_str(&stop_body).unwrap();
+        assert_eq!(
+            stop_json["stopping"],
+            json!(false),
+            "a superseded stop must not mark the next attempt as stopping: {stop_body}"
+        );
+        assert_eq!(
+            stop_json["superseded"],
+            json!(true),
+            "the response must say the stop was superseded: {stop_body}"
+        );
+        assert_absent(&sse, "User stopped");
+
+        // B 正常收尾：不产生旧 Stop 导致的 Interrupted。
+        engine.killed.notify_one();
+        let (second_status, second_response) = second_task.await.unwrap();
+        assert_eq!(second_status, 200, "{second_response}");
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_absent(&sse, "\"interrupted\"");
     }
 
     /// R65: cancel Err 不记取消——stop 返回 500 携带错误，无 stopping
