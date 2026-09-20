@@ -17,7 +17,7 @@
 | H05 | ✅ 只读发现交付 | `e4a91a8c` worktree_discovery.rs |
 | H08 | ✅ 两模式入口交付 | `5d6ac7d3` StartupGate + App 接线 |
 | H09 | ✅ 核心交付 | `4b946a79` R42 迁移：工具调用/结果、审批、状态与消息同轴展示；HubTimeline 键改 H20 稳定 id；条件挂载取消（终态后执行历史仍在轴上）。**未竟部分**：滚动跟随/回底与审批的实测在真实 Tauri 内待 H18；工具输出的全文分块（>限额 blob 全文可达）未做 |
-| H15 | ⏸ 未开始（见"未完成"） | — |
+| H15 | ✅ 6/9 交付 | R78 `16fb6c75`、R77+R86-http `65d58265`、R91 `f5fdf081`、R86-desktop `73289ba9`（+lib re-export `1a50ce95`）、R85 `2dd8edea`、R84 `467064d4`；**R87/R88/R89 未做**（见下） |
 | H16 | ✅ R96/R97 修复 | `0c98f529` |
 | K01 | ✅ 检查执行（pass，见下） | 本次运行记录 |
 | H03/H06/H07/H10-H14/H17/H18 | ⏸ 未开始 | 见"未完成与原因" |
@@ -99,10 +99,24 @@
 - **K01 结论：pass，未发现可复现内核缺陷 → K02 不激活（不适用）。**
 - 未跑：`cargo check --target wasm32-unknown-unknown` 单独穿透本会话未执行（ci-check-deps 已覆盖 wasm-clean 集合判定）；`wasm32-wasip2` 编译检查因 target 未安装跳过。两项均如实记录，不冒充通过。
 
+## H15 — 执行控制与异步串台缺陷（原卡逐卡）
+
+全部沿 LEGACY-MAP 钉定的原编号执行；每个原卡独立 commit；先失败反例后修复（有测试夹具的卡）。
+
+- **R78**（`16fb6c75`）：重复 Run 认领前删除活动轮 stopping marker。红测 `rejected_duplicate_run_preserves_the_active_stopping_marker` 在旧代码下零 Interrupted（wait_for 超时失败），修复（删除 pre-claim 清理）后绿；R65 全部 stop-settlement 回归保持绿。
+- **R77**（`65d58265`，含 R86 HTTP 半）：迟到 cancel ack 把取消事实/marker/stopping 事件写到同 pid 下一轮。关键认知：同分支 resume 会铸造新 attempt，**branch 不是 Stop 身份，attempt 才是**。修复 = stop 在 await cancel 前捕获 `running_attempt_id`，经 `record_attempt_cancelled_bound`（事务内核验该 attempt 仍是运行中的那个）条件写事实；superseded ack 返回 `{stopping:false, superseded:true}`，不插 marker（键改 pid→attempt）、不发事件、不清审批（R86 HTTP 半：clear 后置）。marker 只被结算同一 attempt 的 run 消费。红测 `late_cancel_ack_never_marks_the_next_attempt` 旧代码 `{stopping:true}` + B 流上出现 "User stopped"，修复后绿。
+- **R91**（`f5fdf081`）：Desktop Stop 在 await cancel 前写取消事实（cancel 失败留虚假取消），ack 后立即广播 Interrupted（与自然 Completed/Failed 冲突、UI 虚假"已退出"）。修复 = 身份预捕获 + `record_attempt_cancelled_bound` + 移除抢先广播，真实流结束时由 run seam 结算唯一终态（对齐 R65 后 HTTP 语义）。
+- **R86 desktop**（`73289ba9`）：审批路由清理由 cancel 前移到"cancel 成功且事实已写入被停 attempt"之后——cancel 失败时权限请求仍可回答；superseded 不清（不毁 B 的待审批）。
+- **R85**（`2dd8edea`）：hibernate_worker 不再吞掉一切 stop Err 后无条件删句柄——复用 `release_worker_runtime` 的保留语义（无运行=正常清理；真实 cancel 失败=保留可停句柄+告警）。失败语义：生命周期已 Hibernated（不认领新任务），在途运行仍可 Stop。
+- **R84**（`467064d4`）：execute_session_run 对任意 outcome 无条件按 pid 清 active_hubs/审批——被拒的重复 Run 剥掉在跑 A 的控制面。修复 = 仅 outcome Ok（真正认领并流过）才做兜底清理；认领前拒绝不动现场。
+- 附带修复（`1a50ce95`）：H05 提交漏了 lib 根 re-export，bin 目标自那时起未编过（--lib 测试不覆盖 bin）——本次 bin check 暴露后修复。
+- **R87/R88/R89 未做（诚实声明）**：R87 触及 fallback 授权路径（用户强杀 vs 真实 crash 的区分需要取消事实在 run.rs fallback loop 的权威接线 + 双引擎反例），R88/R89 需要受控 Promise 的前端竞态夹具。三者均需完整红-绿批次，不宜在本会话尾部赶工；实现要点已记录于本文件（R87：fallback 决策点查询 attempt_cancelled 事实且 created_at ≥ 本 attempt started_at → 判用户停止，优先于分类器；R88：loadSession 以请求序号/会话 token 门控安装；R89：终态刷新回调在响应到达时二次校验 activeSessionRef）。
+- 回归基线：hub-core 51/51、hub-server 7/7、hub-desktop lib 184 中 180 绿（4 个失败为既有的 real-codex/claude CLI 环境测试，与本批改动无关，修改前即如此）。
+
 ## 未完成与原因（不掩盖）
 
 1. **H09 收尾（小尾巴）**：中央轴合并（R42 迁移、稳定键、取消条件挂载）已交付（`4b946a79`）；剩余为真实 Tauri 内的滚动跟随/审批实测（归 H18）与大输出的分块全文可达（现由窗口化+滚动保证可达，分块未做）。
-2. **H15（R77/R78/R84-R89/R91）未开始**：这些是执行控制/异步串台缺陷族，各自需要失败反例+修复+回归的独立批次；本会话预算被 H19/H21 的两轮测量修正与 H04/H05/H08/H09/H16 主链占满。LEGACY-MAP.md 已把它们钉在唯一执行入口 H15。
+2. **H15 剩余三张（R87/R88/R89）**：见 H15 节的诚实声明与实现要点。
 3. **H03/H06/H07/H10-H14/H17/H18 未开始**：依赖 H03 结构方案的用户确认（H03 卡明确"经用户确认后才大面积落地"）与 H09 完成态；H18 真实 Tauri 验收必须在这些卡之后。
 4. **Tauri 生产壳实测**：性能与主流程均在同引擎 headed Chromium 取证；真实 webview 内复测列入 H18。
 5. 全局快捷键、主题、hub-server 端点补齐：H17/H18 范围。
