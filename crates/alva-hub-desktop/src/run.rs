@@ -1717,6 +1717,255 @@ mod tests {
         assert_eq!(branch.model_id, target.model_id);
     }
 
+    /// H07: the composer's selected combination must land in the real engine
+    /// request exactly — engine, model, provider source labels, and the
+    /// canonical cwd — not merely change a UI label.
+    #[tokio::test]
+    async fn selected_route_identity_reaches_the_engine_request_with_cwd() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        let engine = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted {
+                session_id: "route-identity-1".into(),
+                model: Some("claude-opus-4-7".into()),
+                tools: Vec::new(),
+            },
+            RuntimeEvent::Completed {
+                session_id: "route-identity-1".into(),
+                result: Some("done".into()),
+                usage: None,
+            },
+        ]));
+        let requests = engine.requests.clone();
+        let observed = Arc::new(Mutex::new(Vec::<EngineTarget>::new()));
+        let build_observed = Arc::clone(&observed);
+        let build_engine = Arc::clone(&engine);
+        let target = EngineTarget {
+            engine_id: "alva".into(),
+            model_id: "claude-opus-4-7".into(),
+            provider_id: "relay-anthropic".into(),
+            account_source: "Relay relay API key".into(),
+            billing_route: "Relay relay API usage".into(),
+            automatic_use_authorized: false,
+            required_capabilities: vec!["tools".into()],
+            reasoning_effort: Some("high".into()),
+            fast_mode: false,
+        };
+
+        let outcome = run_persisted_with_target(
+            &store,
+            move |selected, _, _| {
+                build_observed.lock().unwrap().push(selected.clone());
+                Ok(Arc::clone(&build_engine) as Arc<dyn EngineRuntime>)
+            },
+            healthy,
+            RunRequest {
+                prompt: "route identity probe".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            Some(target.clone()),
+            None,
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        // Assembly is driven by the selected target, byte for byte.
+        assert_eq!(observed.lock().unwrap().as_slice(), &[target.clone()]);
+        // The engine request carries the same canonical cwd the run claims.
+        let captured = requests.lock().unwrap();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].prompt, "route identity probe");
+        assert_eq!(
+            captured[0].working_directory.as_deref(),
+            Some(canonical_workspace(workspace.path()).unwrap().as_path())
+        );
+        drop(captured);
+
+        // The attempt snapshot records the full route identity, source
+        // labels included, so history answers "what ran, on whose account".
+        let detail = store
+            .get_session(&outcome.product_session_id)
+            .unwrap()
+            .unwrap();
+        let branch = detail
+            .branches
+            .iter()
+            .find(|branch| branch.branch_id == detail.session.active_branch_id)
+            .unwrap();
+        assert_eq!(branch.engine_id, "alva");
+        assert_eq!(branch.model_id, "claude-opus-4-7");
+        assert_eq!(branch.provider_id, "relay-anthropic");
+        assert_eq!(branch.account_source, "Relay relay API key");
+        assert_eq!(branch.billing_route, "Relay relay API usage");
+        assert_eq!(branch.reasoning_effort.as_deref(), Some("high"));
+        assert!(!branch.fast_mode);
+    }
+
+    /// H07: changing the default route (or the picker's current selection)
+    /// after a send must never rewrite recorded history — and resuming an
+    /// older session still assembles with the route that was pinned when it
+    /// ran, not whatever is selected now.
+    #[tokio::test]
+    async fn later_route_changes_never_rewrite_recorded_attempts() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let database = data_dir.path().join("alva-hub.db");
+        let store = crate::HubStore::open(&database).unwrap();
+        let observed = Arc::new(Mutex::new(Vec::<EngineTarget>::new()));
+        let build_observed = Arc::clone(&observed);
+
+        let route_a = EngineTarget {
+            engine_id: "alva".into(),
+            model_id: "claude-opus-4-7".into(),
+            provider_id: "anthropic".into(),
+            account_source: "Anthropic API key".into(),
+            billing_route: "Anthropic API usage".into(),
+            automatic_use_authorized: false,
+            required_capabilities: vec![],
+            reasoning_effort: None,
+            fast_mode: false,
+        };
+        let route_b = EngineTarget {
+            engine_id: "alva".into(),
+            model_id: "gpt-5.4".into(),
+            provider_id: "openai-responses".into(),
+            account_source: "OpenAI API key".into(),
+            billing_route: "OpenAI API usage".into(),
+            automatic_use_authorized: false,
+            required_capabilities: vec![],
+            reasoning_effort: None,
+            fast_mode: false,
+        };
+
+        let make_engine = |session_id: &str, result: &str| {
+            Arc::new(FakeEngine::new(vec![
+                RuntimeEvent::SessionStarted {
+                    session_id: session_id.into(),
+                    model: None,
+                    tools: Vec::new(),
+                },
+                RuntimeEvent::Completed {
+                    session_id: session_id.into(),
+                    result: Some(result.into()),
+                    usage: None,
+                },
+            ]))
+        };
+
+        let first_engine = make_engine("route-history-a", "session A result");
+        let first_engine_for_build = Arc::clone(&first_engine);
+        let first = run_persisted_with_target(
+            &store,
+            move |selected, _, _| {
+                build_observed.lock().unwrap().push(selected.clone());
+                Ok(Arc::clone(&first_engine_for_build) as Arc<dyn EngineRuntime>)
+            },
+            healthy,
+            RunRequest {
+                prompt: "session A".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            Some(route_a.clone()),
+            None,
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        // The user's next send picks a different combination (the "new
+        // default"). Session A's records must not follow.
+        let second_engine = make_engine("route-history-b", "session B result");
+        let second_engine_for_build = Arc::clone(&second_engine);
+        let build_observed_b = Arc::clone(&observed);
+        let _second = run_persisted_with_target(
+            &store,
+            move |selected, _, _| {
+                build_observed_b.lock().unwrap().push(selected.clone());
+                Ok(Arc::clone(&second_engine_for_build) as Arc<dyn EngineRuntime>)
+            },
+            healthy,
+            RunRequest {
+                prompt: "session B".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            Some(route_b.clone()),
+            None,
+            |_| {},
+        )
+        .await
+        .unwrap();
+
+        drop(store);
+        let reopened = reopen(&database);
+        let detail_a = reopened
+            .get_session(&first.product_session_id)
+            .unwrap()
+            .unwrap();
+        let branch_a = detail_a
+            .branches
+            .iter()
+            .find(|branch| branch.branch_id == detail_a.session.active_branch_id)
+            .unwrap();
+        assert_eq!(branch_a.provider_id, "anthropic");
+        assert_eq!(branch_a.model_id, "claude-opus-4-7");
+        assert_eq!(branch_a.account_source, "Anthropic API key");
+
+        // Resuming session A assembles with its pinned route even when the
+        // caller supplies a different selected target: recorded history is
+        // the authority, not the current picker state.
+        let resume_engine = make_engine("route-history-a", "session A resumed");
+        let resume_requests = resume_engine.requests.clone();
+        let resume_engine_for_build = Arc::clone(&resume_engine);
+        let build_observed_resume = Arc::clone(&observed);
+        let resumed = run_persisted_with_target(
+            &reopened,
+            move |selected, _, _| {
+                build_observed_resume.lock().unwrap().push(selected.clone());
+                Ok(Arc::clone(&resume_engine_for_build) as Arc<dyn EngineRuntime>)
+            },
+            healthy,
+            RunRequest {
+                prompt: "continue session A".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: Some(first.product_session_id.clone()),
+                permission_profile: None,
+            },
+            Some(route_b.clone()),
+            None,
+            |_| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(resumed.product_session_id, first.product_session_id);
+        assert_eq!(
+            resumed.result.as_deref(),
+            Some("session A resumed"),
+            "resume must keep the pinned route instead of honoring the newer selection"
+        );
+        assert_eq!(
+            resume_requests.lock().unwrap()[0].resume_session.as_deref(),
+            Some("route-history-a")
+        );
+
+        // Every build saw the route that belongs to it: A, B, then A again.
+        assert_eq!(
+            observed.lock().unwrap().as_slice(),
+            &[route_a.clone(), route_b.clone(), route_a.clone()],
+        );
+    }
+
     /// Engine whose cancel() closes the stream, so a hub-routed stop ends the
     /// run quickly under a real clock (unlike ScriptedEngine's no-op cancel).
     struct DropOnCancelEngine {
