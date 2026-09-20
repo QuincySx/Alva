@@ -392,9 +392,6 @@ async fn execute_session_run(
         },
     )
     .await;
-    // The run seam already removed its hub entry; clear any leftovers and
-    // stale permission routes for this session (replaces the old registry
-    // drain — no global engine table remains, ticket 13 batch 4).
     if !session_key.is_empty() {
         state.active_hubs.lock().unwrap().remove(&session_key);
         state.permission_router.clear_session(&session_key);
@@ -642,18 +639,13 @@ async fn hibernate_worker(
     let hibernated = state
         .store
         .set_worker_lifecycle(&worker_id, alva_hub_desktop::WorkerLifecycle::Hibernated)?;
-    // Best-effort: a worker with nothing running has no runtime to release.
-    if let Err(error) = stop_attempt_inner(&app, &state, worker.worker_session_id.clone()).await {
-        tracing::debug!(%error, worker = %worker_id, "no live worker runtime to release");
-    }
-    state
-        .active_hubs
-        .lock()
-        .unwrap()
-        .remove(&worker.worker_session_id);
-    state
-        .permission_router
-        .clear_session(&worker.worker_session_id);
+    debug_assert_eq!(hibernated.worker_session_id, worker.worker_session_id);
+    // R85: 复用 release_worker_runtime 的保留语义——"没有运行中的任务"是
+    // 预期路径（正常清理）；引擎 cancel 真实失败时保留可达的 hub 句柄与
+    // 审批路由并如实告警，不得把活着的运行交给无主状态。失败后的语义：
+    // 生命周期已 Hibernated（队列不再被认领），但该次运行仍可 Stop，直到
+    // 一次成功的取消完成清理。
+    release_worker_runtime(&app, &state, &hibernated.worker_session_id).await;
     Ok(hibernated)
 }
 
