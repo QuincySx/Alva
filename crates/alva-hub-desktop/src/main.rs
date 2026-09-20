@@ -392,7 +392,11 @@ async fn execute_session_run(
         },
     )
     .await;
-    if !session_key.is_empty() {
+    // R84: 只有本调用真正认领并流过一轮（outcome Ok——认领前的拒绝，例如
+    // already running，以 Err 返回）才允许清理残留控制面。无条件按 pid
+    // 清除会把仍在运行的 A 的 Stop 路由与审批入口一并剥掉。认领后的自身
+    // 清理由 run seam 的代际移除负责，这里的兜底只在 Ok 时安全。
+    if outcome.is_ok() && !session_key.is_empty() {
         state.active_hubs.lock().unwrap().remove(&session_key);
         state.permission_router.clear_session(&session_key);
     }
