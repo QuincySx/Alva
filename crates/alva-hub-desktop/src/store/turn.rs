@@ -1018,6 +1018,42 @@ impl super::HubStore {
         Ok(true)
     }
 
+    /// R87: whether the user stopped THIS attempt — an `attempt_cancelled`
+    /// fact recorded at or after the attempt started. The fallback loop
+    /// consults this before continuing a continuity chain: a user Stop
+    /// (including an adapter's cancel-grace kill) outranks the failure
+    /// classification.
+    pub fn attempt_has_cancel_fact(
+        &self,
+        product_session_id: &str,
+        attempt_id: &str,
+    ) -> Result<bool, String> {
+        let connection = self.lock()?;
+        let started_at: Option<i64> = connection
+            .query_row(
+                "SELECT started_at FROM engine_attempts WHERE attempt_id = ?1",
+                [attempt_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("query attempt '{attempt_id}': {error}"))?;
+        let Some(started_at) = started_at else {
+            return Ok(false);
+        };
+        connection
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM timeline_events
+                    WHERE product_session_id = ?1
+                      AND kind = 'attempt_cancelled'
+                      AND created_at >= ?2
+                 )",
+                params![product_session_id, started_at],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|error| format!("query cancel fact: {error}"))
+    }
+
     pub(crate) fn record_engine_session(
         &self,
         prepared: &PreparedTurn,

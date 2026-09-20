@@ -299,6 +299,15 @@ where
     let mut considered = vec![prepared.target.clone()];
     let mut cycle_log: Vec<String> = Vec::new();
     while let Some(class) = execution.fallback_class() {
+        // R87: 取消意图优先于连续性策略。用户 Stop（含适配器 cancel grace
+        // 强杀——其文案会被分类为 Crash）写入的 attempt_cancelled 事实一旦
+        // 存在，本 attempt 的失败不再自动 fallback；后继引擎绝不能因为
+        // "用户要它停"而被启动。
+        if store
+            .attempt_has_cancel_fact(&prepared.product_session_id, &prepared.attempt_id)?
+        {
+            break;
+        }
         let failure_reason = execution
             .terminal_error
             .clone()
@@ -3824,6 +3833,134 @@ mod tests {
         assert!(reopened
             .record_attempt_cancelled(&product_session_id, "again")
             .is_err());
+    }
+
+    /// R87: 用户 Stop 触发适配器 cancel-grace 强杀时，强杀文案（真实
+    /// claude 适配器产出）会被分类为 Crash——但取消事实优先：绝不自动
+    /// fallback，后继引擎一次都不能被构建。
+    #[tokio::test]
+    async fn user_stop_grace_kill_never_falls_back() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
+        // Claude 已被授权 fallback——用户 Stop 依然绝不能落到它。
+        store
+            .set_global_fallback_policy(vec![authorized_claude()])
+            .unwrap();
+
+        struct GraceKillEngine {
+            cancelled: Arc<tokio::sync::Notify>,
+            builds: Arc<std::sync::atomic::AtomicUsize>,
+        }
+        #[async_trait]
+        impl EngineRuntime for GraceKillEngine {
+            fn execute(
+                &self,
+                _request: RuntimeRequest,
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+                let cancelled = Arc::clone(&self.cancelled);
+                let (sender, receiver) = tokio::sync::mpsc::channel(4);
+                tokio::spawn(async move {
+                    let _ = sender.send(session_started("kill-native")).await;
+                    cancelled.notified().await;
+                    // 真实 claude 适配器的 cancel-grace 强杀文案。
+                    let _ = sender
+                        .send(RuntimeEvent::Error {
+                            message: "claude bridge did not stop within cancel grace; killed"
+                                .into(),
+                            recoverable: false,
+                        })
+                        .await;
+                    let _ = sender
+                        .send(RuntimeEvent::Completed {
+                            session_id: "kill-native".into(),
+                            result: None,
+                            usage: None,
+                        })
+                        .await;
+                });
+                Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(receiver)))
+            }
+
+            async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
+                self.cancelled.notify_one();
+                Ok(())
+            }
+
+            async fn respond_permission(
+                &self,
+                _session_id: &str,
+                _request_id: &str,
+                _decision: PermissionDecision,
+            ) -> Result<(), RuntimeError> {
+                Ok(())
+            }
+
+            fn capabilities(&self) -> RuntimeCapabilities {
+                RuntimeCapabilities {
+                    streaming: true,
+                    tool_control: false,
+                    permission_callback: false,
+                    resume: true,
+                    cancel: true,
+                }
+            }
+        }
+
+        let builds = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let engine = Arc::new(GraceKillEngine {
+            cancelled: Arc::new(tokio::sync::Notify::new()),
+            builds: Arc::clone(&builds),
+        });
+        let run_engine = Arc::clone(&engine);
+        let run_builds = Arc::clone(&builds);
+        let run_store = store.clone();
+        let run = tokio::spawn(async move {
+            run_persisted(
+                &run_store,
+                move |_: &crate::store::EngineTarget, _: &str, _| {
+                    run_builds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(Arc::clone(&run_engine) as Arc<dyn EngineRuntime>)
+                },
+                healthy,
+                RunRequest {
+                    prompt: "long work".into(),
+                    workspace: workspace.path().to_path_buf(),
+                    engine_id: "alva".into(),
+                    product_session_id: None,
+                    permission_profile: None,
+                },
+                |_| {},
+            )
+            .await
+        });
+
+        let product_session_id = loop {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            let sessions = store.list_sessions().unwrap();
+            if let Some(session) = sessions.first() {
+                if session.engine_session_id.is_some() && session.status == "running" {
+                    break session.product_session_id.clone();
+                }
+            }
+        };
+
+        // Stop：先落取消事实（与 R91 的 Desktop/HTTP Stop 顺序一致），再取消。
+        store
+            .record_attempt_cancelled(&product_session_id, "User stopped the attempt")
+            .unwrap();
+        engine.cancel("kill-native").await.unwrap();
+
+        let outcome = run.await.unwrap().unwrap();
+        assert!(outcome.failed);
+        // 后继引擎绝不能被构建/执行。
+        assert_eq!(
+            builds.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "a user-stopped grace kill must never build a fallback engine"
+        );
+        let detail = store.get_session(&product_session_id).unwrap().unwrap();
+        assert_eq!(detail.turns[0].attempts.len(), 1);
     }
 
     #[tokio::test]
