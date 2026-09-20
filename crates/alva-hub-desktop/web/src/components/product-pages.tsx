@@ -48,6 +48,7 @@ import type {
   ProviderDiagnosticResult,
   ProviderProfile,
   SaveProviderProfile,
+  CreateProviderProfile,
 } from "../bridge";
 import { useI18n, type LanguagePreference } from "../i18n";
 import { ProviderSettings } from "./provider-settings";
@@ -273,6 +274,8 @@ export function SettingsPage({
   providers,
   providersLoading,
   onSaveProvider,
+  onCreateProvider,
+  onDeleteProvider,
   onSetDefaultProvider,
   onDiscoverProviderModels,
   onTestProviderRoute,
@@ -282,6 +285,8 @@ export function SettingsPage({
   providers: ProviderProfile[];
   providersLoading: boolean;
   onSaveProvider: (provider: SaveProviderProfile) => Promise<void>;
+  onCreateProvider: (provider: CreateProviderProfile) => Promise<ProviderProfile>;
+  onDeleteProvider: (id: string) => Promise<void>;
   onSetDefaultProvider: (target: EngineTarget) => Promise<void>;
   onDiscoverProviderModels: (providerId: string) => Promise<ProviderDiagnosticResult>;
   onTestProviderRoute: (target: EngineTarget) => Promise<ProviderDiagnosticResult>;
@@ -457,6 +462,8 @@ export function SettingsPage({
             loading={providersLoading}
             onDiscover={onDiscoverProviderModels}
             onSave={onSaveProvider}
+            onCreate={onCreateProvider}
+            onDelete={onDeleteProvider}
             onSetDefault={onSetDefaultProvider}
             onTestRoute={onTestProviderRoute}
             providers={providers}

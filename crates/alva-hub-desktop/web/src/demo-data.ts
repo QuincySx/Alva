@@ -149,6 +149,7 @@ export function demoProviderProfiles(): ProviderProfile[] {
       endpoint_editable: false,
       managed: true,
       max_output_tokens: 8192,
+      deletable: false,
       supported_engines: ["claude"],
       models: [
         { id: "engine-default", display_name: "默认模型", enabled: true, registry_id: null, context_window: null, capabilities: [], supported_engines: ["claude"] },
@@ -166,6 +167,7 @@ export function demoProviderProfiles(): ProviderProfile[] {
       endpoint_editable: false,
       managed: true,
       max_output_tokens: 8192,
+      deletable: false,
       supported_engines: ["codex"],
       models: [
         { id: "engine-default", display_name: "默认模型", enabled: true, registry_id: null, context_window: null, capabilities: [], supported_engines: ["codex"] },
@@ -183,6 +185,7 @@ export function demoProviderProfiles(): ProviderProfile[] {
       endpoint_editable: false,
       managed: false,
       max_output_tokens: 8192,
+      deletable: false,
       supported_engines: ["alva", "claude", "pi"],
       models: [{ id: "claude-opus-4-7", display_name: "Claude Opus 4.7", enabled: true, registry_id: "claude-opus-4-7", context_window: 200000, capabilities: ["reasoning"], supported_engines: ["alva", "claude", "pi"] }],
     },
@@ -197,6 +200,7 @@ export function demoProviderProfiles(): ProviderProfile[] {
       endpoint_editable: false,
       managed: false,
       max_output_tokens: 8192,
+      deletable: false,
       supported_engines: ["alva", "codex", "pi"],
       models: [{ id: "gpt-5.4", display_name: "GPT-5.4", enabled: true, registry_id: "gpt-5.4", context_window: 200000, capabilities: ["reasoning"], supported_engines: ["alva", "codex", "pi"] }],
     },

@@ -127,6 +127,8 @@ import {
   setSessionFallbackPolicy,
   setTranscriptSharing,
   saveModelProvider,
+  createModelProvider,
+  deleteModelProvider,
   stopHubAttempt,
   switchHubEngine,
   testModelRoute,
@@ -148,6 +150,7 @@ import {
   type ProjectSummary,
   type ProviderProfile,
   type SaveProviderProfile,
+  type CreateProviderProfile,
   type WorkspaceKind,
 } from "./bridge";
 import { localizeProductText, localizeSystemText, useI18n, type Locale, type Translate } from "./i18n";
@@ -1258,6 +1261,17 @@ export default function App() {
     await refreshProviders(workspace || null);
   }
 
+  async function createProvider(provider: CreateProviderProfile) {
+    const created = await createModelProvider(provider, workspace || null);
+    await refreshProviders(workspace || null);
+    return created;
+  }
+
+  async function deleteProvider(id: string) {
+    await deleteModelProvider(id, workspace || null);
+    await refreshProviders(workspace || null);
+  }
+
   async function setDefaultProviderRoute(target: EngineTarget) {
     const saved = await setDefaultModelRoute(target, workspace || null);
     setDefaultRoute(saved);
@@ -2045,6 +2059,8 @@ export default function App() {
             defaultTarget={defaultRoute?.target ?? null}
             onDiscoverProviderModels={discoverProviderModels}
             onSaveProvider={saveProvider}
+            onCreateProvider={createProvider}
+            onDeleteProvider={deleteProvider}
             onSetDefaultProvider={setDefaultProviderRoute}
             onTestProviderRoute={testProviderRoute}
             providers={providers}

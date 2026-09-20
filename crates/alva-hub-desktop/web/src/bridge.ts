@@ -98,6 +98,8 @@ export interface ProviderProfile {
   managed: boolean;
   max_output_tokens: number;
   supported_engines: string[];
+  /** Backend honors delete for this connection (user-created API providers). */
+  deletable: boolean;
   models: ProviderModel[];
 }
 
@@ -108,6 +110,15 @@ export interface SaveProviderProfile {
   enabled: boolean;
   api_key: string | null;
   clear_api_key: boolean;
+  max_output_tokens: number;
+  models: ProviderModel[];
+}
+
+export interface CreateProviderProfile {
+  kind: string;
+  display_name: string;
+  base_url: string;
+  api_key: string | null;
   max_output_tokens: number;
   models: ProviderModel[];
 }
@@ -533,7 +544,7 @@ const HTTP_BASE =
 async function httpJson<T>(
   path: string,
   body?: unknown,
-  method: "GET" | "POST" = "POST",
+  method: "GET" | "POST" | "DELETE" = "POST",
 ): Promise<T> {
   const res = await fetch(`${HTTP_BASE}${path}`, {
     method,
@@ -644,6 +655,30 @@ export async function saveModelProvider(
   if (HTTP) return await httpJson<ProviderProfile>("/api/providers", provider);
   if (!hasTauri) throw new Error("Provider settings require the ALVA Hub desktop runtime.");
   return await invoke<ProviderProfile>("save_model_provider", { provider, workspace });
+}
+
+export async function createModelProvider(
+  provider: CreateProviderProfile,
+  workspace: string | null,
+): Promise<ProviderProfile> {
+  if (HTTP) return await httpJson<ProviderProfile>("/api/providers/create", provider);
+  if (!hasTauri) throw new Error("Provider settings require the ALVA Hub desktop runtime.");
+  return await invoke<ProviderProfile>("create_model_provider", { provider, workspace });
+}
+
+export async function deleteModelProvider(
+  id: string,
+  workspace: string | null,
+): Promise<ProviderProfile> {
+  if (HTTP) {
+    return await httpJson<ProviderProfile>(
+      `/api/providers/${encodeURIComponent(id)}`,
+      undefined,
+      "DELETE",
+    );
+  }
+  if (!hasTauri) throw new Error("Provider settings require the ALVA Hub desktop runtime.");
+  return await invoke<ProviderProfile>("delete_model_provider", { id, workspace });
 }
 
 export async function listModelRoutes(workspace: string | null): Promise<ModelRoute[]> {

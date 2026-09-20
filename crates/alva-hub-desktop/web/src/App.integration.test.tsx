@@ -60,6 +60,8 @@ const bridge = vi.hoisted(() => {
       switchHubEngine: vi.fn(),
       listModelProviders: vi.fn(),
       saveModelProvider: vi.fn(),
+      createModelProvider: vi.fn(),
+      deleteModelProvider: vi.fn(async () => undefined),
       listModelRoutes: vi.fn(),
       getDefaultModelRoute: vi.fn(),
       setDefaultModelRoute: vi.fn(),

@@ -20,7 +20,8 @@ use alva_hub_desktop::{
     EngineReadiness, EngineTarget, FallbackPolicy, HubInspectionSnapshot, HubInspectorService,
     HubSessionDetail, HubSessionSummary, HubStore, ModelRoute, PermissionProfile,
     PermissionRouter, ProjectSummary, ProviderCatalog, ProviderDiagnosticResult, ProviderProfile,
-    RunOutcome, RunRequest, SaveProviderProfile, SwitchOutcome, SystemProbe, TaskClaim,
+    RunOutcome, RunRequest, SaveProviderProfile, CreateProviderProfile, SwitchOutcome, SystemProbe,
+    TaskClaim,
     TimelineEvent, TimelineStatus, WorktreeDiscoveryError, WorktreeInfo, WorkspaceBinding,
 };
 use serde::{Deserialize, Serialize};
@@ -1329,6 +1330,28 @@ fn save_model_provider(
 }
 
 #[tauri::command]
+fn create_model_provider(
+    state: State<'_, DesktopState>,
+    provider: CreateProviderProfile,
+    workspace: Option<String>,
+) -> Result<ProviderProfile, String> {
+    state
+        .providers
+        .create(provider, workspace.as_deref().map(std::path::Path::new))
+}
+
+#[tauri::command]
+fn delete_model_provider(
+    state: State<'_, DesktopState>,
+    id: String,
+    workspace: Option<String>,
+) -> Result<ProviderProfile, String> {
+    state
+        .providers
+        .delete(&id, workspace.as_deref().map(std::path::Path::new))
+}
+
+#[tauri::command]
 fn list_model_routes(
     state: State<'_, DesktopState>,
     workspace: Option<String>,
@@ -1605,6 +1628,8 @@ fn main() {
             switch_hub_engine,
             list_model_providers,
             save_model_provider,
+            create_model_provider,
+            delete_model_provider,
             list_model_routes,
             get_default_model_route,
             set_default_model_route,

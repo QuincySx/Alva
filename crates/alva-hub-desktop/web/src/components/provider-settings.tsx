@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type {
+  CreateProviderProfile,
   DiscoveredProviderModel,
   EngineTarget,
   ModelRoute,
@@ -49,7 +50,6 @@ interface ProviderPreset {
   kind: "openai" | "anthropic" | "gemini";
   baseUrl: string;
   placeholderKey: string;
-  defaultModels: Array<{ id: string; name: string }>;
 }
 
 const PROVIDER_PRESETS: ProviderPreset[] = [
@@ -59,12 +59,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     kind: "openai",
     baseUrl: "https://api.openai.com/v1",
     placeholderKey: "sk-proj-...",
-    defaultModels: [
-      { id: "gpt-4o", name: "GPT-4o" },
-      { id: "gpt-4o-mini", name: "GPT-4o mini" },
-      { id: "o1", name: "o1" },
-      { id: "o3-mini", name: "o3-mini" },
-    ],
   },
   {
     id: "anthropic",
@@ -72,11 +66,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     kind: "anthropic",
     baseUrl: "https://api.anthropic.com",
     placeholderKey: "sk-ant-...",
-    defaultModels: [
-      { id: "claude-3-7-sonnet-20250219", name: "Claude 3.7 Sonnet" },
-      { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet" },
-      { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku" },
-    ],
   },
   {
     id: "deepseek",
@@ -84,10 +73,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     kind: "openai",
     baseUrl: "https://api.deepseek.com/v1",
     placeholderKey: "sk-...",
-    defaultModels: [
-      { id: "deepseek-chat", name: "DeepSeek-V3" },
-      { id: "deepseek-reasoner", name: "DeepSeek-R1" },
-    ],
   },
   {
     id: "siliconflow",
@@ -95,11 +80,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     kind: "openai",
     baseUrl: "https://api.siliconflow.cn/v1",
     placeholderKey: "sk-...",
-    defaultModels: [
-      { id: "deepseek-ai/DeepSeek-V3", name: "DeepSeek-V3" },
-      { id: "deepseek-ai/DeepSeek-R1", name: "DeepSeek-R1" },
-      { id: "Qwen/Qwen2.5-72B-Instruct", name: "Qwen 2.5 72B" },
-    ],
   },
   {
     id: "ollama",
@@ -107,11 +87,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     kind: "openai",
     baseUrl: "http://127.0.0.1:11434/v1",
     placeholderKey: "ollama (不需要密钥)",
-    defaultModels: [
-      { id: "qwen2.5-coder:32b", name: "Qwen 2.5 Coder 32B" },
-      { id: "deepseek-r1:32b", name: "DeepSeek-R1 32B" },
-      { id: "llama3.3:70b", name: "Llama 3.3 70B" },
-    ],
   },
   {
     id: "openrouter",
@@ -119,11 +94,6 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     kind: "openai",
     baseUrl: "https://openrouter.ai/api/v1",
     placeholderKey: "sk-or-...",
-    defaultModels: [
-      { id: "anthropic/claude-3.7-sonnet", name: "Claude 3.7 Sonnet" },
-      { id: "deepseek/deepseek-r1", name: "DeepSeek R1" },
-      { id: "openai/gpt-4o", name: "GPT-4o" },
-    ],
   },
 ];
 
@@ -133,6 +103,8 @@ export function ProviderSettings({
   defaultTarget,
   loading,
   onSave,
+  onCreate,
+  onDelete,
   onSetDefault,
   onDiscover,
   onTestRoute,
@@ -142,6 +114,8 @@ export function ProviderSettings({
   defaultTarget: EngineTarget | null;
   loading: boolean;
   onSave: (provider: SaveProviderProfile) => Promise<void>;
+  onCreate: (provider: CreateProviderProfile) => Promise<ProviderProfile>;
+  onDelete: (id: string) => Promise<void>;
   onSetDefault: (target: EngineTarget) => Promise<void>;
   onDiscover: (providerId: string) => Promise<ProviderDiagnosticResult>;
   onTestRoute: (target: EngineTarget) => Promise<ProviderDiagnosticResult>;
@@ -170,7 +144,11 @@ export function ProviderSettings({
   const [newCustomName, setNewCustomName] = useState("");
   const [newEndpoint, setNewEndpoint] = useState("https://api.openai.com/v1");
   const [newApiKey, setNewApiKey] = useState("");
+  const [newCustomKind, setNewCustomKind] = useState("openai-chat");
   const [addingProvider, setAddingProvider] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [deletingProvider, setDeletingProvider] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const discoveryToken = useRef(0);
   const draftRef = useRef<ProviderProfile | null>(null);
@@ -380,53 +358,67 @@ export function ProviderSettings({
     }
   }
 
+  // Presets only carry connection convenience (name, endpoint, key
+  // placeholder). The backend assigns the id and the protocol matrix decides
+  // engine compatibility — the UI neither invents ids nor pre-seeds model
+  // lists that drift from the backend catalog. Models start empty and come
+  // from discovery or manual entry, then save().
+  const CREATE_KIND_BY_PRESET: Record<string, string> = {
+    openai: "openai-chat",
+    anthropic: "anthropic",
+    gemini: "gemini",
+  };
+
   async function handleCreateNewProvider() {
     const preset = PROVIDER_PRESETS.find((p) => p.id === newPreset);
-    const id = newPreset === "custom" ? `custom-${Date.now()}` : `${newPreset}-${Date.now()}`;
-    const name = newPreset === "custom" ? (newCustomName.trim() || "Custom Provider") : (preset?.name ?? "Provider");
-    const baseUrl = newPreset === "custom" ? newEndpoint.trim() : (preset?.baseUrl ?? newEndpoint.trim());
-    const models = preset
-      ? preset.defaultModels.map((m) => ({
-          id: m.id,
-          display_name: m.name,
-          enabled: true,
-          registry_id: null,
-          context_window: null,
-          capabilities: [],
-          supported_engines: ["alva", "claude", "codex", "pi"],
-        }))
-      : [
-          {
-            id: "default-model",
-            display_name: "Default Model",
-            enabled: true,
-            registry_id: null,
-            context_window: null,
-            capabilities: [],
-            supported_engines: ["alva", "claude", "codex", "pi"],
-          },
-        ];
+    const kind =
+      newPreset === "custom"
+        ? newCustomKind
+        : (CREATE_KIND_BY_PRESET[newPreset] ?? "openai-chat");
+    const name =
+      newPreset === "custom"
+        ? newCustomName.trim() || "Custom Provider"
+        : (preset?.name ?? "Provider");
+    const baseUrl =
+      newPreset === "custom" ? newEndpoint.trim() : (preset?.baseUrl ?? newEndpoint.trim());
 
     setAddingProvider(true);
+    setAddError(null);
     try {
-      await onSave({
-        id,
+      const created = await onCreate({
+        kind,
         display_name: name,
         base_url: baseUrl,
-        enabled: true,
         api_key: newApiKey.trim() ? newApiKey.trim() : null,
-        clear_api_key: false,
         max_output_tokens: 8192,
-        models,
+        models: [],
       });
       setAddModalOpen(false);
-      setSelectedId(id);
+      setSelectedId(created.id);
       setNewApiKey("");
       setNewCustomName("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setAddError(err instanceof Error ? err.message : String(err));
     } finally {
       setAddingProvider(false);
+    }
+  }
+
+  async function handleDeleteProvider() {
+    if (!draft?.deletable) return;
+    const id = draft.id;
+    setDeletingProvider(true);
+    setError(null);
+    try {
+      await onDelete(id);
+      setShowDeleteConfirm(false);
+      // Fall back to the first surviving provider once the refreshed
+      // catalog lands; the draft syncs through the selection effect.
+      setSelectedId("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeletingProvider(false);
     }
   }
 
@@ -471,6 +463,13 @@ export function ProviderSettings({
             }
           >
             <div className="hub-form-stack" style={{ marginTop: "12px" }}>
+              {addError ? (
+                <Notice
+                  heading={t("provider.createFailed")}
+                  description={localizeDiagnostic(addError)}
+                  tone="danger"
+                />
+              ) : null}
               <FieldFrame label={locale === "zh-CN" ? "选择厂商预设" : "Provider Preset"}>
                 <SelectField
                   ariaLabel="Provider Preset"
@@ -494,6 +493,26 @@ export function ProviderSettings({
                       placeholder="e.g. My Private vLLM"
                       value={newCustomName}
                       onChange={(e) => setNewCustomName(e.target.value)}
+                    />
+                  </FieldFrame>
+                  <FieldFrame
+                    label={locale === "zh-CN" ? "协议" : "Protocol"}
+                    description={
+                      locale === "zh-CN"
+                        ? "决定兼容的引擎；官方订阅由各自 CLI 登录管理，不在此创建。"
+                        : "Decides engine compatibility; official subscriptions are managed by their CLI logins."
+                    }
+                  >
+                    <SelectField
+                      ariaLabel="Provider Protocol"
+                      value={newCustomKind}
+                      onValueChange={setNewCustomKind}
+                      options={[
+                        { value: "openai-chat", label: "OpenAI Chat Completions" },
+                        { value: "openai-responses", label: "OpenAI Responses" },
+                        { value: "anthropic", label: "Anthropic Messages" },
+                        { value: "gemini", label: "Google Gemini" },
+                      ]}
                     />
                   </FieldFrame>
                   <FieldFrame label={locale === "zh-CN" ? "API Base URL 端点" : "Base URL"}>
@@ -630,8 +649,41 @@ export function ProviderSettings({
                 }
               />
             ) : null}
+            {draft.deletable ? (
+              <Button
+                variant="ghost"
+                size="small"
+                leadingIcon={<Trash2 aria-hidden="true" size={14} />}
+                disabled={deletingProvider}
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                {t("provider.deleteProvider")}
+              </Button>
+            ) : null}
           </div>
         </header>
+
+        <DialogRoot open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <DialogContent
+            title={t("provider.deleteConfirmTitle")}
+            description={t("provider.deleteConfirmDescription")}
+          >
+            <div className="hub-dialog-actions" style={{ marginTop: "16px" }}>
+              <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={deletingProvider}
+                onClick={() => void handleDeleteProvider()}
+              >
+                {deletingProvider
+                  ? (locale === "zh-CN" ? "删除中…" : "Deleting…")
+                  : t("provider.deleteProvider")}
+              </Button>
+            </div>
+          </DialogContent>
+        </DialogRoot>
 
         {/* Credentials & Connection Section */}
         {draft.managed ? (

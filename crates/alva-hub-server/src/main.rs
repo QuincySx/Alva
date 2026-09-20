@@ -14,7 +14,7 @@ use axum::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse, Response,
     },
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use include_dir::{include_dir, Dir};
@@ -26,8 +26,8 @@ use alva_hub_core::ProductSessionId;
 use alva_hub_desktop::{
     build_engine_for_target_with_inspector, permission_eligibility, probe_readiness,
     run_persisted_with_target, ActiveHubs, EngineTarget, HubInspectorService, HubStore,
-    PermissionProfile, ProviderCatalog, RunRequest, SaveProviderProfile, SystemProbe,
-    TimelineEvent, TimelineStatus,
+    PermissionProfile, ProviderCatalog, RunRequest, SaveProviderProfile, CreateProviderProfile,
+    SystemProbe, TimelineEvent, TimelineStatus,
 };
 use alva_llm_provider::ProviderConfig;
 
@@ -244,6 +244,30 @@ async fn save_provider(
 ) -> impl IntoResponse {
     match state.providers.save(provider, None) {
         Ok(saved) => Json(saved).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// POST /api/providers/create — create a user-defined API connection (same
+/// shape as Tauri `create_model_provider`). The catalog assigns the id.
+async fn create_provider(
+    State(state): State<Arc<AppState>>,
+    Json(provider): Json<CreateProviderProfile>,
+) -> impl IntoResponse {
+    match state.providers.create(provider, None) {
+        Ok(created) => Json(created).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+/// DELETE /api/providers/:id — delete a user-created connection (same shape
+/// as Tauri `delete_model_provider`).
+async fn delete_provider(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match state.providers.delete(&id, None) {
+        Ok(removed) => Json(removed).into_response(),
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
     }
 }
@@ -1206,7 +1230,12 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/sessions", get(list_sessions))
         .route("/api/sessions/:id", get(get_session))
         .route("/api/sessions/:id/inspection", get(get_inspection))
-        .route("/api/providers", get(list_providers).post(save_provider))
+        .route(
+            "/api/providers",
+            get(list_providers).post(save_provider),
+        )
+        .route("/api/providers/create", post(create_provider))
+        .route("/api/providers/:id", delete(delete_provider))
         .route("/api/routes", get(list_routes))
         .route(
             "/api/default-route",

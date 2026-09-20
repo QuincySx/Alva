@@ -40,8 +40,8 @@ pub use provider_diagnostics::{
     ProviderDiagnosticResult,
 };
 pub use providers::{
-    ModelRoute, ProviderCatalog, ProviderModel, ProviderModelOptions, ProviderProfile,
-    SaveProviderProfile,
+    CreateProviderProfile, ModelRoute, ProviderCatalog, ProviderModel, ProviderModelOptions,
+    ProviderProfile, SaveProviderProfile,
 };
 pub use readiness::{
     capability_labels, classify_engine, is_executable_file, probe_readiness, read_cli_version,

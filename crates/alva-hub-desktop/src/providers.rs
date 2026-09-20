@@ -17,6 +17,21 @@ use crate::provider_plane::{PlannedModelRoute, RoutePlanner, RoutePlanningInput}
 use crate::store::EngineTarget;
 
 const CATALOG_VERSION: u32 = 1;
+/// Third-party API protocol kinds a user may create connections for. Official
+/// CLI subscriptions (`claude-subscription` / `codex-subscription`) stay
+/// managed by their native logins. Keep in lockstep with the RoutePlanner
+/// matrix; `create_kinds_stay_inside_the_planner_matrix` fails if they drift.
+const CREATE_API_PROVIDER_KINDS: &[&str] =
+    &["anthropic", "openai-responses", "openai-chat", "gemini"];
+/// Built-in starter connections that can be disabled but never deleted.
+const BUILTIN_PROVIDER_IDS: &[&str] = &[
+    "claude-cli",
+    "codex-cli",
+    "anthropic",
+    "openai-responses",
+    "openai-compatible",
+    "gemini",
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderModel {
@@ -53,6 +68,10 @@ pub struct ProviderProfile {
     pub managed: bool,
     pub max_output_tokens: u32,
     pub supported_engines: Vec<String>,
+    /// Whether the catalog will delete this connection. Built-in starters and
+    /// externally managed subscriptions report `false` so the UI never offers
+    /// a delete action the backend would refuse.
+    pub deletable: bool,
     pub models: Vec<ProviderModel>,
 }
 
@@ -67,6 +86,19 @@ pub struct SaveProviderProfile {
     #[serde(default)]
     pub clear_api_key: bool,
     pub max_output_tokens: u32,
+    pub models: Vec<ProviderModel>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct CreateProviderProfile {
+    pub kind: String,
+    pub display_name: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub max_output_tokens: u32,
+    #[serde(default)]
     pub models: Vec<ProviderModel>,
 }
 
@@ -260,6 +292,97 @@ impl ProviderCatalog {
             provider.api_key = api_key.trim().to_string();
         }
         let result = public_profile(provider);
+        self.persist_state(&next)?;
+        *state = next;
+        Ok(result)
+    }
+
+    /// Create a user-defined third-party API connection. The catalog assigns
+    /// the id so the UI can never collide with a built-in starter, and
+    /// official CLI subscriptions are refused: they are managed by their
+    /// native logins, not by provider credentials.
+    pub fn create(
+        &self,
+        input: CreateProviderProfile,
+        _workspace: Option<&Path>,
+    ) -> Result<ProviderProfile, String> {
+        let display_name = input.display_name.trim().to_string();
+        if display_name.is_empty() {
+            return Err("provider name must not be empty".into());
+        }
+        if !CREATE_API_PROVIDER_KINDS.contains(&input.kind.as_str()) {
+            return Err(format!(
+                "provider kind '{}' cannot be created here; official subscriptions are managed by their CLI logins",
+                input.kind
+            ));
+        }
+        if input.max_output_tokens == 0 {
+            return Err("max output tokens must be greater than zero".into());
+        }
+        let base_url = normalize_endpoint(&input.base_url);
+        validate_endpoint(&base_url)?;
+        let mut state = self.lock()?;
+        let mut next = state.clone();
+        let id = unique_provider_id(&input.kind, &next.providers);
+        let mut provider = StoredProviderProfile {
+            id: id.clone(),
+            display_name,
+            kind: input.kind,
+            base_url,
+            enabled: true,
+            api_key: input
+                .api_key
+                .map(|key| key.trim().to_string())
+                .unwrap_or_default(),
+            custom_headers: HashMap::new(),
+            requires_api_key: true,
+            endpoint_editable: true,
+            managed: false,
+            max_output_tokens: input.max_output_tokens,
+            supported_engines: Vec::new(),
+            models: Vec::new(),
+        };
+        provider.models = normalize_models(input.models, &provider.id, &provider.kind);
+        let result = public_profile(&provider);
+        next.providers.push(provider);
+        self.persist_state(&next)?;
+        *state = next;
+        Ok(result)
+    }
+
+    /// Delete a user-created connection and return the removed profile.
+    /// Built-in starters are rejected (disable instead); managed
+    /// subscriptions belong to their CLI logins. A default route pointing at
+    /// the deleted provider is cleared explicitly, while session history
+    /// keeps its stored provider id and projects as unavailable.
+    pub fn delete(&self, id: &str, _workspace: Option<&Path>) -> Result<ProviderProfile, String> {
+        let mut state = self.lock()?;
+        let mut next = state.clone();
+        let index = next
+            .providers
+            .iter()
+            .position(|provider| provider.id == id)
+            .ok_or_else(|| format!("provider '{id}' was not found"))?;
+        let provider = &next.providers[index];
+        if provider.managed {
+            return Err(format!(
+                "provider '{id}' is managed by an external configuration and cannot be deleted"
+            ));
+        }
+        if BUILTIN_PROVIDER_IDS.contains(&provider.id.as_str()) {
+            return Err(format!(
+                "provider '{id}' is a built-in connection; disable it instead of deleting it"
+            ));
+        }
+        let removed = next.providers.remove(index);
+        if next
+            .default_target
+            .as_ref()
+            .is_some_and(|target| target.provider_id == removed.id)
+        {
+            next.default_target = None;
+        }
+        let result = public_profile(&removed);
         self.persist_state(&next)?;
         *state = next;
         Ok(result)
@@ -514,6 +637,7 @@ fn public_profile(provider: &StoredProviderProfile) -> ProviderProfile {
         managed: provider.managed,
         max_output_tokens: provider.max_output_tokens,
         supported_engines,
+        deletable: !provider.managed && !BUILTIN_PROVIDER_IDS.contains(&provider.id.as_str()),
         models,
     }
 }
@@ -851,6 +975,19 @@ fn is_loopback_host(host: &str) -> bool {
 
 fn normalize_endpoint(endpoint: &str) -> String {
     endpoint.trim().trim_end_matches('/').to_string()
+}
+
+/// Derive a collision-free id for a new user connection: `{kind}`, then
+/// `{kind}-2`, `{kind}-3`, … Built-in ids are always present in the state, so
+/// a user connection can never shadow them.
+fn unique_provider_id(kind: &str, existing: &[StoredProviderProfile]) -> String {
+    let mut candidate = kind.to_string();
+    let mut suffix = 2;
+    while existing.iter().any(|provider| provider.id == candidate) {
+        candidate = format!("{kind}-{suffix}");
+        suffix += 1;
+    }
+    candidate
 }
 
 fn normalize_models(
@@ -1329,6 +1466,175 @@ mod tests {
             .unwrap();
         assert_eq!(config.api_key, "synthetic-secret");
         assert_eq!(config.model, "test-model");
+    }
+
+    fn created_openai_chat(key: Option<&str>) -> CreateProviderProfile {
+        CreateProviderProfile {
+            kind: "openai-chat".into(),
+            display_name: "Relay relay".into(),
+            base_url: "https://relay.example.com/v1".into(),
+            api_key: key.map(str::to_string),
+            max_output_tokens: 4096,
+            models: vec![ProviderModel {
+                id: "relay-mini".into(),
+                display_name: "Relay Mini".into(),
+                enabled: true,
+                registry_id: None,
+                context_window: Some(64_000),
+                capabilities: vec![],
+                supported_engines: vec![],
+                runtime_options: BTreeMap::new(),
+            }],
+        }
+    }
+
+    #[test]
+    fn create_kinds_stay_inside_the_planner_matrix() {
+        let planner = RoutePlanner::bundled();
+        for kind in CREATE_API_PROVIDER_KINDS {
+            assert!(
+                planner.compatible_engines(kind).is_some(),
+                "create kind '{kind}' must exist in the route planner protocol matrix"
+            );
+            assert!(
+                !matches!(*kind, "claude-subscription" | "codex-subscription"),
+                "official subscriptions are managed and must never be creatable"
+            );
+        }
+    }
+
+    #[test]
+    fn create_persists_user_connection_across_reopen() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("providers.json");
+        let catalog = ProviderCatalog::open(&path).unwrap();
+        let created = catalog
+            .create(created_openai_chat(Some("synthetic-secret")), None)
+            .unwrap();
+        assert_eq!(created.id, "openai-chat");
+        assert!(created.deletable);
+        assert!(created.api_key_configured);
+        assert!(created.endpoint_editable);
+        assert!(!created.managed);
+        // Kind-driven engine projection from the single planner authority.
+        assert_eq!(created.supported_engines, ["alva", "pi"]);
+        assert!(!serde_json::to_string(&created)
+            .unwrap()
+            .contains("synthetic-secret"));
+
+        let reopened = ProviderCatalog::open(&path).unwrap();
+        let listed = reopened.list(None).unwrap();
+        let persisted = listed
+            .iter()
+            .find(|provider| provider.id == created.id)
+            .expect("user-created connection must survive reopen");
+        assert!(persisted.api_key_configured);
+        assert!(persisted.deletable);
+        let route = reopened
+            .routes(None)
+            .unwrap()
+            .into_iter()
+            .find(|route| route.target.model_id == "relay-mini")
+            .expect("created model plans routes");
+        assert!(route.available);
+        let config = reopened
+            .resolve_target(&route.target, directory.path())
+            .unwrap()
+            .expect("API-backed route resolves provider config");
+        assert_eq!(config.api_key, "synthetic-secret");
+    }
+
+    #[test]
+    fn create_assigns_collision_free_ids_and_rejects_invalid_input() {
+        let directory = tempfile::tempdir().unwrap();
+        let catalog = ProviderCatalog::open(directory.path().join("providers.json")).unwrap();
+        let first = catalog
+            .create(created_openai_chat(None), None)
+            .unwrap();
+        let mut second = created_openai_chat(None);
+        second.display_name = "Second relay".into();
+        let second = catalog.create(second, None).unwrap();
+        assert_eq!(first.id, "openai-chat");
+        assert_eq!(second.id, "openai-chat-2");
+
+        let mut subscription = created_openai_chat(None);
+        subscription.kind = "claude-subscription".into();
+        assert!(catalog
+            .create(subscription, None)
+            .unwrap_err()
+            .contains("managed by their CLI logins"));
+        let mut unknown_kind = created_openai_chat(None);
+        unknown_kind.kind = "aliyun-panguboard".into();
+        assert!(catalog.create(unknown_kind, None).is_err());
+
+        let mut empty_name = created_openai_chat(None);
+        empty_name.display_name = "   ".into();
+        assert!(catalog.create(empty_name, None).is_err());
+        let mut zero_tokens = created_openai_chat(None);
+        zero_tokens.max_output_tokens = 0;
+        assert!(catalog.create(zero_tokens, None).is_err());
+        let mut bad_endpoint = created_openai_chat(None);
+        bad_endpoint.base_url = "https://".into();
+        assert!(catalog.create(bad_endpoint, None).is_err());
+        let mut plain_http = created_openai_chat(None);
+        plain_http.base_url = "http://relay.example.com/v1".into();
+        assert!(catalog.create(plain_http, None).is_err());
+    }
+
+    #[test]
+    fn delete_removes_user_connection_and_clears_dangling_default_target() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("providers.json");
+        let catalog = ProviderCatalog::open(&path).unwrap();
+        let created = catalog
+            .create(created_openai_chat(Some("synthetic-secret")), None)
+            .unwrap();
+        let route = catalog
+            .routes(None)
+            .unwrap()
+            .into_iter()
+            .find(|route| route.target.provider_id == created.id)
+            .unwrap();
+        assert!(route.available);
+        catalog
+            .set_default_target(route.target.clone(), None)
+            .unwrap();
+        assert!(catalog.default_target(None).unwrap().is_some());
+
+        // Built-in starters and managed subscriptions refuse deletion.
+        assert!(catalog
+            .delete("anthropic", None)
+            .unwrap_err()
+            .contains("built-in connection"));
+        assert!(catalog
+            .delete("claude-cli", None)
+            .unwrap_err()
+            .contains("managed by an external configuration"));
+        assert!(catalog.delete("missing-provider", None).is_err());
+
+        let removed = catalog.delete(&created.id, None).unwrap();
+        assert_eq!(removed.id, created.id);
+        // The dangling default target is cleared explicitly, not left
+        // projecting a permanently unavailable route.
+        assert!(catalog.default_target(None).unwrap().is_none());
+        assert!(catalog
+            .routes(None)
+            .unwrap()
+            .iter()
+            .all(|route| route.target.provider_id != created.id));
+        assert!(!catalog
+            .list(None)
+            .unwrap()
+            .iter()
+            .any(|provider| provider.id == created.id));
+
+        let reopened = ProviderCatalog::open(&path).unwrap();
+        assert!(reopened.default_target(None).unwrap().is_none());
+        assert!(!reopened
+            .list(None)
+            .unwrap()
+            .iter()
+            .any(|provider| provider.id == created.id));
     }
 
     #[test]

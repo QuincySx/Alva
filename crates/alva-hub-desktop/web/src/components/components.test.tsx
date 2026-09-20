@@ -5,7 +5,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { EngineTarget, HubSessionSummary, ModelRoute, ProviderDiagnosticResult, ProviderProfile, TimelineEvent } from "../bridge";
+import type { EngineTarget, HubSessionSummary, ModelRoute, ProviderDiagnosticResult, ProviderProfile, CreateProviderProfile, TimelineEvent } from "../bridge";
 import { I18nProvider } from "../i18n";
 import { demoDetail, demoInspection } from "../demo-data";
 import { UIProvider } from "../ui";
@@ -58,6 +58,7 @@ const provider: ProviderProfile = {
   requires_api_key: true,
   endpoint_editable: false,
   managed: false,
+  deletable: false,
   max_output_tokens: 8192,
   supported_engines: ["alva"],
   models: [{
@@ -672,6 +673,8 @@ describe("Hub domain components", () => {
           loading={false}
           onDiscover={vi.fn()}
           onSave={onSave}
+          onCreate={vi.fn()}
+          onDelete={vi.fn()}
           onSetDefault={vi.fn()}
           onTestRoute={vi.fn()}
           providers={[provider]}
@@ -717,6 +720,8 @@ describe("Hub domain components", () => {
           loading={false}
           onDiscover={vi.fn()}
           onSave={vi.fn()}
+          onCreate={vi.fn()}
+          onDelete={vi.fn()}
           onSetDefault={onSetDefault}
           onTestRoute={vi.fn()}
           providers={[provider]}
@@ -738,6 +743,8 @@ describe("Hub domain components", () => {
           loading={false}
           onDiscover={vi.fn()}
           onSave={vi.fn()}
+          onCreate={vi.fn()}
+          onDelete={vi.fn()}
           onSetDefault={vi.fn()}
           onTestRoute={vi.fn()}
           providers={[provider]}
@@ -768,6 +775,8 @@ describe("Hub domain components", () => {
           loading={false}
           onDiscover={onDiscover}
           onSave={onSave}
+          onCreate={vi.fn()}
+          onDelete={vi.fn()}
           onSetDefault={vi.fn()}
           onTestRoute={vi.fn()}
           providers={[provider]}
@@ -804,6 +813,8 @@ describe("Hub domain components", () => {
           loading={false}
           onDiscover={onDiscover}
           onSave={vi.fn()}
+          onCreate={vi.fn()}
+          onDelete={vi.fn()}
           onSetDefault={vi.fn()}
           onTestRoute={vi.fn()}
           providers={[provider]}
@@ -846,6 +857,8 @@ describe("Hub domain components", () => {
           loading={false}
           onDiscover={vi.fn()}
           onSave={vi.fn()}
+          onCreate={vi.fn()}
+          onDelete={vi.fn()}
           onSetDefault={vi.fn()}
           onTestRoute={onTestRoute}
           providers={[provider]}
@@ -858,6 +871,131 @@ describe("Hub domain components", () => {
     await waitFor(() => expect(onTestRoute).toHaveBeenCalledWith(route.target));
     expect(screen.getByText("Connection test passed")).toBeInTheDocument();
     expect(screen.getByText(/34 ms/)).toBeInTheDocument();
+  });
+
+  const createdConnection: ProviderProfile = {
+    id: "openai-chat",
+    display_name: "Relay relay",
+    kind: "openai-chat",
+    base_url: "https://relay.example.com/v1",
+    enabled: true,
+    api_key_configured: true,
+    requires_api_key: true,
+    endpoint_editable: true,
+    managed: false,
+    deletable: true,
+    max_output_tokens: 8192,
+    supported_engines: ["alva", "pi"],
+    models: [],
+  };
+
+  function settingsProps(overrides: {
+    onCreate?: (provider: CreateProviderProfile) => Promise<ProviderProfile>;
+    onDelete?: (id: string) => Promise<void>;
+    providers: ProviderProfile[];
+  }) {
+    return {
+      defaultTarget: null as EngineTarget | null,
+      loading: false,
+      onDiscover: vi.fn(),
+      onSave: vi.fn(),
+      onCreate: overrides.onCreate ?? vi.fn(),
+      onDelete: overrides.onDelete ?? vi.fn(),
+      onSetDefault: vi.fn(),
+      onTestRoute: vi.fn(),
+      providers: overrides.providers,
+      routes: [] as ModelRoute[],
+    };
+  }
+
+  it("creates a connection through the backend create seam and selects the assigned id (H06)", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(createdConnection);
+    const { rerender } = render(
+      <UIProvider>
+        <ProviderSettings {...settingsProps({ onCreate, providers: [provider] })} />
+      </UIProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add Provider" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByPlaceholderText("sk-proj-..."), "synthetic-key");
+    await user.click(within(dialog).getByRole("button", { name: "Add Provider" }));
+    // Presets only carry connection convenience; the id and engine matrix are
+    // the backend's decision and models start empty (discovery is the real path).
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith({
+        kind: "openai-chat",
+        display_name: "OpenAI",
+        base_url: "https://api.openai.com/v1",
+        api_key: "synthetic-key",
+        max_output_tokens: 8192,
+        models: [],
+      }),
+    );
+
+    // The refreshed catalog lands with the backend-assigned profile.
+    rerender(
+      <UIProvider>
+        <ProviderSettings
+          {...settingsProps({ onCreate, providers: [createdConnection, provider] })}
+        />
+      </UIProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Relay relay" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Delete connection" })).toBeInTheDocument();
+    expect(screen.getByText("0 models")).toBeInTheDocument();
+  });
+
+  it("reports provider creation failures inside the dialog without fake success (H06)", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi
+      .fn()
+      .mockRejectedValue(new Error("provider endpoint must use HTTPS or loopback HTTP"));
+    render(
+      <UIProvider>
+        <ProviderSettings {...settingsProps({ onCreate, providers: [provider] })} />
+      </UIProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add Provider" }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Add Provider" }));
+    expect(await within(dialog).findByText("Provider was not created")).toBeInTheDocument();
+    expect(within(dialog).getByText(/HTTPS or loopback/)).toBeInTheDocument();
+    // The dialog stays open with the action still available — no fake success.
+    expect(within(dialog).getByRole("button", { name: "Add Provider" })).toBeInTheDocument();
+    expect(onCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("deletes a user-created connection after confirmation and offers no delete for built-ins (H06)", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <UIProvider>
+        <ProviderSettings {...settingsProps({ onDelete, providers: [createdConnection, provider] })} />
+      </UIProvider>,
+    );
+    expect(screen.getByRole("button", { name: "Delete connection" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Delete connection" }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete connection" }));
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith("openai-chat"));
+
+    // The refreshed catalog drops the connection; selection falls back to the
+    // built-in starter, which exposes no delete action.
+    rerender(
+      <UIProvider>
+        <ProviderSettings {...settingsProps({ onDelete, providers: [provider] })} />
+      </UIProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Anthropic" })).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("button", { name: "Delete connection" })).not.toBeInTheDocument();
   });
 
   it("submits the composer on Enter but preserves Shift+Enter", () => {
@@ -913,6 +1051,8 @@ describe("Hub domain components", () => {
           defaultTarget={null}
           onDiscoverProviderModels={vi.fn()}
           onSaveProvider={vi.fn()}
+          onCreateProvider={vi.fn()}
+          onDeleteProvider={vi.fn()}
           onSetDefaultProvider={vi.fn()}
           onTestProviderRoute={vi.fn()}
           providers={[]}
