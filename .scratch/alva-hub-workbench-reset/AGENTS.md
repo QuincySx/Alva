@@ -14,3 +14,4 @@
 |---|---|
 | TASKS.md | 21 张 Hub 工作卡与 2 张条件化 Kernel 卡，含中央展示性能门槛 |
 | HANDOFF.md | 可直接交给执行 Agent 的指令 |
+| EXECUTION.md | 逐卡历史与接手修正证据；最新修正优先于历史完成标记 |

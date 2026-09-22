@@ -1,5 +1,48 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-09-22 Review 剩余两项修复
+
+- 本轮关闭原 5 项 review 中剩余的工具顺序和长列表定位，不代表下方产品 backlog 全完成。
+- `a029555d`：工具首次观测时间/序号写入 side-effect evidence，ToolEnd 不覆盖；live DTO 与历史共用元数据并以 attempt 隔离工具 ID。反向完成、同毫秒、逆字典 ID、跨 attempt 重复 ID、旧 JSON 和 SQLite reopen 均有回归。旧数据只能保留已存数组次序，不能恢复从未保存的时间。
+- `0de6fe52`：有界列表统一负责 follow 与测量补偿；初始化先定位 scroll owner，尺寸变化导致的 scroll clamp 不取消跟随，避免同步重复布局循环。所有事件共享窗口，工具摘要默认展示。
+- `ea44cadd`：将前批已通过测试的项目/工作树选择独立提交；可用工作树用于新任务 cwd，不改写历史会话工作区。
+- 验证：Hub lib 串行 **194 passed / 5 filtered**（跳过真实机器/凭证探测），前端 **140 passed**，TypeScript + Vite build pass。
+- 真实浏览器通过内置浏览器控制验证：100/1000/10000 条初始底部误差不超过 0.5px；10000 条挂载 11 行；resize、jump、session switch、stream 完成继续跟随；向上阅读同一 key 的 offset 从 -686.890625px 到 -686.890625px，stream 完成不漂移。不是 Tauri WKWebView 性能验收。
+- Playwright runner 的 `npm exec` 被一次性包执行保护拦截，未重试/绕过该命令；改用已提供的内置浏览器 UI 验证。`windowing.spec.ts` 已补精确底部、resize/jump 与真实行锚点断言，但本轮不声称该 runner 执行通过。
+- 仍不在本轮关闭范围：全文分块、相同文本 delta 协议、真实文件/Git/终端/浏览器工具、完整桌面性能和真实订阅验收。Kernel/agent-core 零改动。
+
+## 2026-09-22 Review 后半批修复（本批仅 3/5 项）
+
+- 范围：SDK cwd 信任边界、配置 argv 泄漏、SDK readiness 误报；未动滚动定位和历史排序。
+- SDK 只从用户级 Hub runtime 安装目录解析，校验 manifest 身份/版本结构与绝对入口、拒绝 symlink/Unix 不安全权限/与任务目录交叠；探测不 import 包。装配与 readiness/veto 使用同一解析器。
+- SDK 缺失或非法以 `dependency_unavailable` 明确阻止启动；修复入口给出受管安装位置，不自动安装或退回项目/全局 SDK。真实供应商 SDK 兼容性及账号仍未验收。
+- 配置从 argv 改走 version=1 的私有 stdin 首帧，写入完成才允许控制消息；8MiB 上限、宿主 2s 写入超时、bridge 10s 初始化超时。
+- 提交：`864b5b36`（私有 stdin 初始化）与 `9ad16d32`（受管 SDK pin/readiness）。均仅本地提交，先前 UI 改动不在其中。
+- 验证：Claude adapter 原有 102 项通过，新增私有初始化测试单独 1/1 通过；Hub lib 串行 **193 passed / 5 filtered**，SDK assembly 专项 **7 passed**，readiness 纯测试 **15 passed / 6 filtered**（不运行机器凭证探测）；前端关联测试 **50 passed**，`tsc -b` pass。假 SDK 无网络调用，假 key + 30 万字符正文完整到达且 argv 只有 Node/脚本。
+- 不隐瞒失败：Hub lib 并行曾 **192 passed / 1 failed**，失败为 `session_workspace_kind_persists_across_reopen` 数据库重开锁占用；随后串行 193/193 通过。本批未改 DB 锁实现，不宣称解决该并行不稳定性。
+
+## 2026-09-22 接手修正（优先于下方历史完成声明）
+
+用户确认由当前 Agent 接手未完成实现。基线 `3fd7ed08`，以下变更正在工作区中，尚未完成全产品验收：
+
+- H09/H21：修复消息列表与工具列表分离、工具默认折叠、工具 DOM 不受窗口约束的问题。消息/工具/审批/状态共享一个有界列表；工具参数与结果默认展示。动态高度使用 ResizeObserver，支持锚点补偿与卸载清理。
+- H05/H08：首页与左栏显示项目的真实工作树，可将有效工作树选为下一会话 cwd；缺失/bare/prunable 工作树禁用，历史会话目录不被改写。尚未完成项目下会话分组的最终信息架构验收。
+- H06：产品 Claude 装配由 Light print 改为既有 Full SDK adapter；Default 权限回调、持久化 session、默认不加载项目 setting sources，unrestricted 才 bypass。补装配权限测试；安装修复指引不再将 Node 缺失误修成安装 Light CLI。SDK package readiness 与真实账号调用仍未验收。
+- 回归：Hub lib `cargo test --offline -p alva-hub-desktop --lib -- --skip real_` **188 passed / 5 filtered**；前端 `tsc -b` pass，vitest **137 passed**；Chromium `tests/windowing.spec.ts` **2 passed**（新增统计全部行，不只消息）。不是 macOS WKWebView 性能验收，没有真实计费调用。
+- Kernel/agent-core 本批零改动，不扩大 K01 的历史验证结论。
+- 补充验证：工作树选择独立测试 **1 passed**（前端累计 138）；Claude adapter 的 fake SDK / permission / cancel / session-cleanup 测试 **34 passed**，没有真实账号调用。
+
+### 明确未收口，不得标完成
+
+1. H09 全文：当前工具输入/输出沿用后端 2000 字符摘要上限，缺耐久全文分块读取；不能以取消折叠冒充全文可达。
+2. H20 事件协议：工具跨 attempt 身份与持久化顺序已在 `a029555d` 修复；同内容 delta 去重仍会误伤合法重复片段，需要单独完成完整事件协议，不能以工具回归冒充全部收口。
+3. H06 SDK readiness：受管依赖探测与 fake-SDK 产品链路已在 `9ad16d32` 修复；真实供应商 SDK/账号端到端仍未验收。
+4. H10/H11：真实文件树、受限文件预览、实际 Git status/diff 尚未接线。
+5. H12/H13：隔离浏览器、真实终端仍未接线；不把禁用占位当可用功能。
+6. H14/H17/H18：Inspector 整合、次级页面、真实桌面端到端与性能验收仍待完成。
+
+下方勾选项属于先前执行者的历史记录，不构成本轮全量验收。
+
 - 目录：`.scratch/alva-hub-workbench-reset/`；执行 Agent 会话，2026-09-20。
 - 基线：`764864da`（TASKS.md 规划基线）。分支 `refactor/kernel-boundary`。
 - 签名说明：1Password 签名代理在本会话中途持续返回 "failed to fill whole buffer"，自 `9079abfe` 起的提交以 `--no-gpg-sign` 落库；此前 `a250cb9d`/`b0a649e0` 为签名提交。
