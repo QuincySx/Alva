@@ -17,6 +17,7 @@ use crate::protocol::{BridgeMessage, BridgeOutbound};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTROL_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const MAX_INITIAL_CONFIG_BYTES: usize = 8 * 1024 * 1024;
 
 /// Configuration for spawning the Node bridge child process.
 pub(crate) struct BridgeSpawnConfig {
@@ -61,9 +62,13 @@ impl BridgeProcess {
     /// Spawn the bridge. The returned control handle is safe to clone and use
     /// while `recv()` awaits stdout.
     pub(crate) async fn spawn(config: BridgeSpawnConfig) -> Result<Self, RuntimeError> {
+        if config.config_json.len() > MAX_INITIAL_CONFIG_BYTES {
+            return Err(RuntimeError::ProtocolError(
+                "Bridge configuration exceeds size limit".into(),
+            ));
+        }
         let mut cmd = Command::new(&config.node_path);
         cmd.arg(&config.script_path)
-            .arg(&config.config_json)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -88,10 +93,25 @@ impl BridgeProcess {
             .ok_or_else(|| RuntimeError::ProcessError("Failed to capture stdout".into()))?;
         monitor_stderr(child.stderr.take());
 
+        // The private pipe, never argv, carries prompts and credentials.
+        // Finish initialization before publishing the control writer so a
+        // concurrent cancel/permission response cannot become the first frame.
+        let mut stdin = BufWriter::new(stdin);
+        timeout(CONTROL_WRITE_TIMEOUT, async {
+            stdin
+                .write_all(b"{\"type\":\"initialize\",\"version\":1,\"config\":")
+                .await?;
+            stdin.write_all(config.config_json.as_bytes()).await?;
+            stdin.write_all(b"}\n").await?;
+            stdin.flush().await
+        })
+        .await
+        .map_err(|_| RuntimeError::ProcessError("Bridge initialization timed out".into()))??;
+
         Ok(Self {
             child,
             control: BridgeControl {
-                stdin: Arc::new(Mutex::new(BufWriter::new(stdin))),
+                stdin: Arc::new(Mutex::new(stdin)),
             },
             stdout_lines: BufReader::new(stdout).lines(),
         })

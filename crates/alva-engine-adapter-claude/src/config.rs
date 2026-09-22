@@ -115,7 +115,7 @@ pub struct SandboxConfig {
 }
 
 /// Permission mode for the Claude engine session.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PermissionMode {
     #[default]
@@ -139,7 +139,7 @@ impl PermissionMode {
     }
 }
 
-/// Serializable config sent to the bridge script as JSON via process arg.
+/// Serializable config sent in the private stdin initialization frame, never argv.
 #[derive(Debug, Serialize)]
 pub(crate) struct BridgeConfig {
     pub prompt: String,

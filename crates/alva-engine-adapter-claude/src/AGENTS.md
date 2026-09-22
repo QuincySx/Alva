@@ -7,13 +7,13 @@
 - **Full**（`ClaudeAdapter`）— Node bridge + `@anthropic-ai/claude-agent-sdk`（cindy 完整 harness）
 - **Light**（`ClaudePrintAdapter`）— `claude -p --output-format stream-json`（对标 `codex exec --json`）
 
-Hub 通过 `--claude-mode light|full` 选择；两种模式共用 `EventMapper`（print 线格式 ≈ SDK 消息）。
+Hub CLI 可通过 `--claude-mode light|full` 选择；Hub Desktop 产品装配使用 Full SDK，交互审批经 SDK callback 回到用户。两种模式共用 `EventMapper`（print 线格式 ≈ SDK 消息）。Full descriptor 的运行时依赖是 Node.js 20+ 与 SDK 包，而不是 Light CLI。
 
 ## 逻辑
 
 ### Full（SDK）
 1. `ClaudeAdapter::new()` 接收 `ClaudeAdapterConfig`，构建适配器实例。
-2. `execute()` 部署 bridge JS，spawn Node 子进程，双工 stdin/stdout JSON-line。
+2. `execute()` 部署 bridge JS，spawn Node 子进程，双工 stdin/stdout JSON-line；首帧为 version=1 的 initialize 配置，随后才发布控制 writer。配置上限 8MiB、写入超时 2 秒；密钥/正文不进 argv，bridge 等初始化至多 10 秒。
 3. `BridgeProcess` + control task：cancel/permission 与 stdout 读并行。
 4. `EventMapper`：`BridgeMessage` → `RuntimeEvent`（含 idle watchdog）。
 5. 权限：`permission_request` → `respond_permission` → stdin 回传。
@@ -53,6 +53,7 @@ Hub 通过 `--claude-mode light|full` 选择；两种模式共用 `EventMapper`�
 | ClaudePrintProcess | print_process.rs | `claude -p` 子进程生命周期 |
 | BridgeProcess / BridgeControl | process.rs | Node.js 双工生命周期 |
 | bridge | bridge.rs | bridge 脚本部署 |
+| Bridge protocol script | ../bridge/ | 首帧初始化、SDK 加载、权限与事件 JSON-line 桥 |
 | ClaudeAdapterConfig | config.rs | Full 模式配置 |
 | EventMapper | mapping.rs | BridgeMessage/SdkMessage → RuntimeEvent（两模式共用） |
 | BridgeMessage / SdkMessage | protocol.rs | 线格式类型 |

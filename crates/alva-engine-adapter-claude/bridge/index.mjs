@@ -5,7 +5,7 @@
 // bridge/index.mjs — Embedded in alva-engine-adapter-claude, written to cache at runtime.
 //
 // Protocol:
-//   stdin  (Rust → Bridge): JSON-line control messages
+//   stdin  (Rust → Bridge): versioned initialize frame, then JSON-line controls
 //   stdout (Bridge → Rust): JSON-line events
 //
 // Rust process ←→ this script ←→ Claude Agent SDK ←→ Claude Code subprocess
@@ -16,8 +16,14 @@ import { createRequire } from "module";
 import path from "path";
 import { pathToFileURL } from "url";
 
-// Config is passed as the first CLI argument (JSON string).
-const config = JSON.parse(process.argv[2] || "{}");
+// Never accept configuration in argv: it contains credentials and prompts.
+let config;
+let initialize;
+const configured = new Promise((resolve) => { initialize = resolve; });
+const initializationTimer = setTimeout(() => {
+  emit("error", { message: "Bridge initialization timed out" });
+  process.exit(1);
+}, 10000);
 
 // --- stdout emitter ---
 function emit(type, data = {}) {
@@ -30,6 +36,20 @@ let abortController = new AbortController();
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 rl.on("line", (line) => {
+  if (!config) {
+    try {
+      const frame = JSON.parse(line);
+      if (frame.type !== "initialize" || frame.version !== 1 ||
+          !frame.config || typeof frame.config !== "object" || Array.isArray(frame.config)) throw new Error();
+      config = frame.config;
+      clearTimeout(initializationTimer);
+      initialize();
+    } catch {
+      emit("error", { message: "Invalid bridge initialization" });
+      process.exit(1);
+    }
+    return;
+  }
   let msg;
   try { msg = JSON.parse(line); } catch { return; }
 
@@ -324,7 +344,7 @@ async function main() {
   emit("done");
 }
 
-main().catch((error) => {
+configured.then(main).catch((error) => {
   // The host only receives stable category text. Never reflect Node paths,
   // import URLs, or error strings which can expose machine/user information.
   emit("error", {

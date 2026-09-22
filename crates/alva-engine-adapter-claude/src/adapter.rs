@@ -118,8 +118,8 @@ impl ClaudeAdapter {
                 supports_custom_http_headers: true,
             },
             install_metadata: InstallMetadata {
-                required_binary: Some("claude".into()),
-                install_hint: Some("native claude code install".into()),
+                required_binary: Some("node".into()),
+                install_hint: Some("Node.js 20+ and @anthropic-ai/claude-agent-sdk".into()),
             },
         }
     }
@@ -1306,6 +1306,34 @@ export function query() {
                 .any(|e| matches!(e, RuntimeEvent::Completed { result: Some(text), .. } if text == "fake answer")),
             "normal run must surface the fake SDK result text: {events:?}"
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn private_initialization_keeps_large_prompt_and_fake_key_out_of_argv() {
+        let _environment_lock = node_environment_lock().lock().await;
+        if node_missing() { panic!("Node is required for the private initialization regression test"); }
+        let workspace = fake_sdk_workspace(r#"
+export function query({ prompt, options }) {
+  if (process.argv.length !== 2) throw new Error('configuration leaked to argv');
+  if (prompt.length !== 300000 || options.env.ANTHROPIC_API_KEY !== 'synthetic-private-pipe-canary') {
+    throw new Error('initialization was lost');
+  }
+  return (async function* () {
+    yield { type: 'system', subtype: 'init', session_id: 'private-init', model: 'fake', tools: [] };
+    yield { type: 'result', subtype: 'success', result: 'private-init-ok', duration_ms: 1, num_turns: 1, usage: {} };
+  })();
+}
+"#).await;
+        let adapter = ClaudeAdapter::new(ClaudeAdapterConfig {
+            sdk_package_path: Some(workspace.path().join("node_modules/@anthropic-ai/claude-agent-sdk/index.js").to_string_lossy().into_owned()),
+            api_key: Some("synthetic-private-pipe-canary".into()),
+            ..Default::default()
+        });
+        let events = alva_engine_runtime::collect_stream(&adapter,
+            RuntimeRequest::new("x".repeat(300000)).with_cwd(workspace.path())).await.unwrap();
+        assert!(events.iter().any(|event| matches!(event,
+            RuntimeEvent::Completed { result: Some(text), .. } if text == "private-init-ok")), "{events:?}");
+        assert!(!events.iter().any(|event| matches!(event, RuntimeEvent::Error { .. })), "{events:?}");
     }
 
     #[tokio::test(flavor = "current_thread")]
