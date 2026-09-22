@@ -4,9 +4,9 @@
 // POS:    H20 data contract. Display components consume entries and never see
 //         raw store rows, so a future fold/summary strategy stays a display
 //         policy and cannot rewrite the authority record. Identity is
-//         canonical (`session::item`), never an array index; ordering is a
-//         pure function of (created_at, kind, id) so a replay and a live
-//         stream of the same facts converge to the same list.
+//         scoped by session and, for tools, attempt. Tool ordering uses the
+//         durable first-observation clock/sequence, never completion or ID
+//         spelling. Legacy journals retain their evidence array order.
 
 import type { HubSessionDetail } from "../bridge";
 import type { HubTimelineEvent } from "../components/hub-timeline";
@@ -79,6 +79,7 @@ export function toEntry(event: HubTimelineEvent): TimelineEntry {
   } else if (event.activity) {
     kind = "activity";
     toolId = itemId;
+    attemptId = event.activity.attempt_id ?? null;
   } else if (event.status === "permission_required") {
     kind = "control";
   } else if (itemId) {
@@ -90,7 +91,9 @@ export function toEntry(event: HubTimelineEvent): TimelineEntry {
   return {
     ...event,
     role: event.role,
-    id: `${event.product_session_id}::${itemId ?? synthesizedIdentity(event)}`,
+    id: event.activity?.attempt_id
+      ? JSON.stringify([event.product_session_id, event.activity.attempt_id, itemId ?? synthesizedIdentity(event)])
+      : `${event.product_session_id}::${itemId ?? synthesizedIdentity(event)}`,
     itemId,
     turnId,
     attemptId,
@@ -104,14 +107,17 @@ export function toEntry(event: HubTimelineEvent): TimelineEntry {
  *  the same tick, then canonical id as the final stable tiebreak. */
 export function entrySortKey(entry: TimelineEntry): [number, number, string] {
   const kindWeight = entry.kind === "activity" ? 0 : entry.kind === "control" ? 1 : 2;
-  return [entry.created_at ?? 0, kindWeight, entry.id];
+  return [entry.activity?.first_seen_at ?? entry.started_at ?? entry.created_at ?? 0, kindWeight, entry.id];
 }
 
 export function sortEntries(entries: TimelineEntry[]): TimelineEntry[] {
   return [...entries].sort((left, right) => {
     const a = entrySortKey(left);
     const b = entrySortKey(right);
-    return a[0] - b[0] || a[1] - b[1] || (a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : 0);
+    const toolOrder = left.kind === "activity" && right.kind === "activity"
+      && left.attemptId === right.attemptId
+      ? (left.activity?.sequence ?? 0) - (right.activity?.sequence ?? 0) : 0;
+    return a[0] - b[0] || a[1] - b[1] || toolOrder || (a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : 0);
   });
 }
 
@@ -152,6 +158,14 @@ function mergeEntryAncestry(previous: TimelineEntry, incoming: TimelineEntry): T
     kind: previous.kind,
     role: derivedRole,
     started_at: previous.started_at ?? previous.created_at ?? incoming.created_at,
+    activity: incoming.activity ? {
+      ...incoming.activity,
+      first_seen_at: previous.activity?.first_seen_at ?? incoming.activity.first_seen_at,
+      sequence: previous.activity?.sequence ?? incoming.activity.sequence,
+      path: incoming.activity.path ?? previous.activity?.path ?? null,
+      tool_input: incoming.activity.tool_input ?? previous.activity?.tool_input,
+      tool_output: incoming.activity.tool_output ?? previous.activity?.tool_output,
+    } : previous.activity,
   };
   const messageItem = base.kind === "message";
   if (!messageItem) {

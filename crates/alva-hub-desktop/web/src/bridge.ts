@@ -57,10 +57,15 @@ export interface TimelineEvent {
 }
 
 export interface TimelineActivity {
+  attempt_id?: string | null;
+  first_seen_at?: number | null;
+  sequence?: number | null;
   tool_name: string;
   succeeded: boolean | null;
   duration_ms: number | null;
   path: string | null;
+  tool_input?: string | null;
+  tool_output?: string | null;
 }
 
 export interface RunRequest {
@@ -226,6 +231,8 @@ export interface StoredUsage {
 }
 
 export interface SideEffectEvidence {
+  first_seen_at?: number | null;
+  sequence?: number | null;
   tool_call_id: string;
   tool_name: string;
   succeeded: boolean | null;

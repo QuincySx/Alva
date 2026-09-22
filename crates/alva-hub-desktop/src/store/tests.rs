@@ -1,3 +1,6 @@
+// INPUT: HubStore lifecycle APIs and isolated SQLite fixtures
+// OUTPUT: Durable session, attempt, tool-order and orchestration regressions
+// POS: Product persistence contract tests including crash recovery and legacy evidence.
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -240,6 +243,82 @@ mod tests {
     }
 
     #[test]
+    fn tool_first_observation_survives_completion_and_reopen() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let database = root.path().join("tool-order.db");
+        let store = HubStore::open(&database).unwrap();
+        let prepared = store
+            .prepare_new_turn(
+                "tool-order",
+                workspace.path(),
+                "tools",
+                &EngineTarget::for_engine("alva").unwrap(),
+                PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        for (id, sequence) in [("tool_z", 0), ("tool_a", 1)] {
+            store
+                .record_side_effect(
+                    &prepared,
+                    SideEffectEvidence {
+                        tool_call_id: id.into(),
+                        tool_name: "read_file".into(),
+                        first_seen_at: Some(100),
+                        sequence: Some(sequence),
+                        succeeded: None,
+                        duration_ms: None,
+                        path: None,
+                        tool_input: Some("input".into()),
+                        tool_output: None,
+                    },
+                )
+                .unwrap();
+        }
+        for id in ["tool_a", "tool_z"] {
+            store
+                .record_side_effect(
+                    &prepared,
+                    SideEffectEvidence {
+                        tool_call_id: id.into(),
+                        tool_name: "read_file".into(),
+                        first_seen_at: Some(999),
+                        sequence: Some(999),
+                        succeeded: Some(true),
+                        duration_ms: Some(5),
+                        path: None,
+                        tool_input: None,
+                        tool_output: Some("output".into()),
+                    },
+                )
+                .unwrap();
+        }
+        drop(store);
+        let store = reopen(&database);
+        let detail = store.get_session("tool-order").unwrap().unwrap();
+        let effects = &detail.turns[0].attempts[0].side_effects;
+        assert_eq!(
+            effects
+                .iter()
+                .map(|e| e.tool_call_id.as_str())
+                .collect::<Vec<_>>(),
+            ["tool_z", "tool_a"]
+        );
+        for (sequence, effect) in effects.iter().enumerate() {
+            assert_eq!(effect.first_seen_at, Some(100));
+            assert_eq!(effect.sequence, Some(sequence as u64));
+            assert_eq!(effect.tool_input.as_deref(), Some("input"));
+            assert_eq!(effect.tool_output.as_deref(), Some("output"));
+        }
+        let legacy: SideEffectEvidence = serde_json::from_str(
+            r#"{"tool_call_id":"legacy","tool_name":"read","succeeded":true,"duration_ms":1}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.first_seen_at, None);
+        assert_eq!(legacy.sequence, None);
+    }
+
+    #[test]
     fn reopening_repairs_an_abandoned_attempt_and_preserves_evidence() {
         let root = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();
@@ -262,6 +341,8 @@ mod tests {
                 &prepared,
                 SideEffectEvidence {
                     tool_call_id: "tool-1".into(),
+                    first_seen_at: None,
+                    sequence: None,
                     tool_name: "write_file".into(),
                     succeeded: None,
                     duration_ms: Some(12),
@@ -1544,6 +1625,8 @@ mod tests {
                 &worker_turn,
                 SideEffectEvidence {
                     tool_call_id: "t1".into(),
+                    first_seen_at: None,
+                    sequence: None,
                     tool_name: "write_file".into(),
                     succeeded: Some(true),
                     duration_ms: Some(10),
@@ -1724,6 +1807,8 @@ mod tests {
                 &first_turn,
                 SideEffectEvidence {
                     tool_call_id: "t-first".into(),
+                    first_seen_at: None,
+                    sequence: None,
                     tool_name: "write_file".into(),
                     succeeded: Some(true),
                     duration_ms: Some(5),
@@ -1750,6 +1835,8 @@ mod tests {
                 &second_turn,
                 SideEffectEvidence {
                     tool_call_id: "t-second".into(),
+                    first_seen_at: None,
+                    sequence: None,
                     tool_name: "write_file".into(),
                     succeeded: Some(true),
                     duration_ms: Some(5),
@@ -2307,6 +2394,8 @@ mod tests {
                 &evidence_turn,
                 SideEffectEvidence {
                     tool_call_id: "t-live".into(),
+                    first_seen_at: None,
+                    sequence: None,
                     tool_name: "write_file".into(),
                     succeeded: Some(true),
                     duration_ms: Some(3),
@@ -3106,9 +3195,7 @@ mod tests {
         assert!(store.list_projects().unwrap().is_empty());
         assert!(store.delete_project(&project.project_id).is_err());
         // Detaching an unknown session is a named error, not a silent no-op.
-        assert!(store
-            .set_session_project("missing-session", None)
-            .is_err());
+        assert!(store.set_session_project("missing-session", None).is_err());
         assert!(store
             .set_session_project("session-in-project", Some("missing-project"))
             .is_err());
@@ -3155,11 +3242,7 @@ mod tests {
         let running = store.running_attempt_id("stop-binding").unwrap();
         assert_eq!(running.as_deref(), Some(prepared.attempt_id.as_str()));
         assert!(store
-            .record_attempt_cancelled_bound(
-                "stop-binding",
-                &prepared.attempt_id,
-                "User stopped",
-            )
+            .record_attempt_cancelled_bound("stop-binding", &prepared.attempt_id, "User stopped",)
             .unwrap());
 
         // A stop that pinned a DIFFERENT attempt never stamps the
@@ -3175,7 +3258,9 @@ mod tests {
 
         // A settled (non-running) turn refuses a second fact — a late cancel
         // acknowledgement after the run finished writes nothing.
-        store.finish_turn(&prepared, None, None, None, None).unwrap();
+        store
+            .finish_turn(&prepared, None, None, None, None)
+            .unwrap();
         assert!(!store
             .record_attempt_cancelled_bound(
                 "stop-binding",

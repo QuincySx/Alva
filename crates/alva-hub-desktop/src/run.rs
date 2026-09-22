@@ -98,10 +98,16 @@ pub struct TimelineEvent {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct TimelineActivity {
+    pub attempt_id: Option<String>,
+    pub first_seen_at: i64,
+    pub sequence: u64,
     pub tool_name: String,
     pub succeeded: Option<bool>,
     pub duration_ms: Option<u64>,
     pub path: Option<String>,
+    /// Same bounded, redacted text used by durable side-effect evidence.
+    pub tool_input: Option<String>,
+    pub tool_output: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -303,9 +309,7 @@ where
         // 强杀——其文案会被分类为 Crash）写入的 attempt_cancelled 事实一旦
         // 存在，本 attempt 的失败不再自动 fallback；后继引擎绝不能因为
         // "用户要它停"而被启动。
-        if store
-            .attempt_has_cancel_fact(&prepared.product_session_id, &prepared.attempt_id)?
-        {
+        if store.attempt_has_cancel_fact(&prepared.product_session_id, &prepared.attempt_id)? {
             break;
         }
         let failure_reason = execution
@@ -728,6 +732,7 @@ where
     // so the window always applies — a doomed attempt must not wait forever
     // on an approval nobody can answer anymore.
     let mut open_tools: HashSet<String> = HashSet::new();
+    let mut tool_observations: HashMap<String, (i64, u64)> = HashMap::new();
     let mut delta_message_ids: HashSet<String> = HashSet::new();
     let mut last_assistant_message_id: Option<String> = None;
     let mut permission_pending = false;
@@ -921,11 +926,15 @@ where
                 });
             }
             RuntimeEvent::ToolStart { id, name, input } => {
+                let sequence = tool_observations.len() as u64;
+                let (first_seen_at, sequence) = *tool_observations
+                    .entry(id.clone())
+                    .or_insert_with(|| (now_unix_ms(), sequence));
                 open_tools.insert(id.clone());
                 let path = tool_input_path(&input);
-                let tool_input = Some(crate::store::bounded_text(
+                let tool_input = Some(crate::store::bounded_text(&crate::redact::redact_text(
                     &serde_json::to_string(&input).unwrap_or_default(),
-                ));
+                )));
                 emit(TimelineEvent {
                     status: TimelineStatus::ActivityStarted,
                     engine_id: hub_event.engine_id.to_string(),
@@ -934,10 +943,15 @@ where
                     message: Some(format!("{name} running")),
                     item_id: Some(id.clone()),
                     activity: Some(TimelineActivity {
+                        attempt_id: persistence.map(|(_, prepared)| prepared.attempt_id.clone()),
+                        first_seen_at,
+                        sequence,
                         tool_name: name.clone(),
                         succeeded: None,
                         duration_ms: None,
                         path: path.clone(),
+                        tool_input: tool_input.clone(),
+                        tool_output: None,
                     }),
                     permission_request: None,
                 });
@@ -946,6 +960,8 @@ where
                         store.record_side_effect(
                             prepared,
                             SideEffectEvidence {
+                                first_seen_at: Some(first_seen_at),
+                                sequence: Some(sequence),
                                 tool_call_id: id,
                                 tool_name: name,
                                 succeeded: None,
@@ -969,7 +985,14 @@ where
                 duration_ms,
             } => {
                 open_tools.remove(&id);
+                let sequence = tool_observations.len() as u64;
+                let (first_seen_at, sequence) = *tool_observations
+                    .entry(id.clone())
+                    .or_insert_with(|| (now_unix_ms(), sequence));
                 let succeeded = !tool_result.is_error;
+                let tool_output = Some(crate::store::bounded_text(&crate::redact::redact_text(
+                    &serde_json::to_string(&tool_result).unwrap_or_default(),
+                )));
                 emit(TimelineEvent {
                     status: TimelineStatus::ActivityCompleted,
                     engine_id: hub_event.engine_id.to_string(),
@@ -982,21 +1005,25 @@ where
                     }),
                     item_id: Some(id.clone()),
                     activity: Some(TimelineActivity {
+                        attempt_id: persistence.map(|(_, prepared)| prepared.attempt_id.clone()),
+                        first_seen_at,
+                        sequence,
                         tool_name: name.clone(),
                         succeeded: Some(succeeded),
                         duration_ms,
                         path: None,
+                        tool_input: None,
+                        tool_output: tool_output.clone(),
                     }),
                     permission_request: None,
                 });
                 if let Some((store, prepared)) = persistence {
-                    let tool_output = Some(crate::store::bounded_text(
-                        &serde_json::to_string(&tool_result).unwrap_or_default(),
-                    ));
                     capture_persistence_error(
                         store.record_side_effect(
                             prepared,
                             SideEffectEvidence {
+                                first_seen_at: Some(first_seen_at),
+                                sequence: Some(sequence),
                                 tool_call_id: id,
                                 tool_name: name,
                                 succeeded: Some(succeeded),
@@ -2125,7 +2152,8 @@ mod tests {
             fn execute(
                 &self,
                 _request: RuntimeRequest,
-            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError>
+            {
                 Err(RuntimeError::NotReady("sync start failure".into()))
             }
 
@@ -2292,6 +2320,10 @@ mod tests {
         assert_eq!(attempt.side_effects.len(), 1);
         assert_eq!(attempt.side_effects[0].tool_name, "write_file");
         assert_eq!(attempt.side_effects[0].succeeded, Some(true));
+        assert!(attempt.side_effects[0]
+            .first_seen_at
+            .is_some_and(|time| time >= attempt.started_at));
+        assert_eq!(attempt.side_effects[0].sequence, Some(0));
     }
 
     #[tokio::test]
@@ -4106,7 +4138,8 @@ mod tests {
             fn execute(
                 &self,
                 _request: RuntimeRequest,
-            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError> {
+            ) -> Result<Pin<Box<dyn Stream<Item = RuntimeEvent> + Send>>, RuntimeError>
+            {
                 let cancelled = Arc::clone(&self.cancelled);
                 let (sender, receiver) = tokio::sync::mpsc::channel(4);
                 tokio::spawn(async move {
@@ -4128,7 +4161,9 @@ mod tests {
                         })
                         .await;
                 });
-                Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(receiver)))
+                Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(
+                    receiver,
+                )))
             }
 
             async fn cancel(&self, _session_id: &str) -> Result<(), RuntimeError> {
@@ -4814,9 +4849,7 @@ mod tests {
         let store = crate::HubStore::open(data_dir.path().join("alva-hub.db")).unwrap();
         let mut codex = crate::store::EngineTarget::for_engine("codex").unwrap();
         codex.automatic_use_authorized = true;
-        store
-            .set_global_fallback_policy(vec![codex])
-            .unwrap();
+        store.set_global_fallback_policy(vec![codex]).unwrap();
 
         let alva = Arc::new(FakeEngine::new(vec![RuntimeEvent::Error {
             message: "engine stream died mid-run".into(),

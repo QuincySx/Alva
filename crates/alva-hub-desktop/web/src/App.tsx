@@ -326,7 +326,7 @@ export function projectTimeline(detail: HubSessionDetail, locale: Locale = "en-U
       item_id: `${turn.turn_id}:assistant`,
     };
     const activities = turn.attempts.flatMap((attempt) =>
-      attempt.side_effects.map((effect): HubTimelineEvent => ({
+      attempt.side_effects.map((effect, index): HubTimelineEvent => ({
         status: effect.succeeded === null ? "activity_started" : "activity_completed",
         engine_id: attempt.engine_id,
         product_session_id: detail.session.product_session_id,
@@ -335,15 +335,18 @@ export function projectTimeline(detail: HubSessionDetail, locale: Locale = "en-U
           : effect.succeeded === true
             ? locale === "zh-CN" ? `${effect.tool_name} 已完成` : `${effect.tool_name} completed`
             : locale === "zh-CN" ? `${effect.tool_name} 运行中` : `${effect.tool_name} running`,
-        created_at: effect.duration_ms === null
-          ? attempt.started_at
-          : (attempt.completed_at ?? attempt.started_at),
+        created_at: effect.first_seen_at ?? attempt.started_at,
         item_id: effect.tool_call_id,
         activity: {
+          attempt_id: attempt.attempt_id,
+          first_seen_at: effect.first_seen_at ?? attempt.started_at,
+          sequence: effect.sequence ?? index,
           tool_name: effect.tool_name,
           succeeded: effect.succeeded,
           duration_ms: effect.duration_ms,
           path: effect.path,
+          tool_input: effect.tool_input,
+          tool_output: effect.tool_output,
         },
       })),
     );

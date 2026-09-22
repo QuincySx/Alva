@@ -69,6 +69,11 @@ pub struct StoredUsage {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SideEffectEvidence {
+    /// Product first-observation clock and attempt-local order; absent in legacy journals.
+    #[serde(default)]
+    pub first_seen_at: Option<i64>,
+    #[serde(default)]
+    pub sequence: Option<u64>,
     pub tool_call_id: String,
     pub tool_name: String,
     pub succeeded: Option<bool>,
@@ -1120,7 +1125,11 @@ impl super::HubStore {
                 .tool_output
                 .clone()
                 .or_else(|| existing.tool_output.clone());
+            let first_seen_at = existing.first_seen_at.or(evidence.first_seen_at);
+            let sequence = existing.sequence.or(evidence.sequence);
             *existing = evidence;
+            existing.first_seen_at = first_seen_at;
+            existing.sequence = sequence;
             existing.path = path;
             existing.tool_input = tool_input;
             existing.tool_output = tool_output;

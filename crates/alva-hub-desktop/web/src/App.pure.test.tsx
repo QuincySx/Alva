@@ -17,6 +17,29 @@ import {
 } from "./App";
 import type { HubSessionDetail } from "./bridge";
 import type { HubTimelineEvent } from "./components/hub-timeline";
+import { mergeEntry, projectHistory, type TimelineEntry } from "./session/timeline-model";
+
+describe("durable tool order", () => {
+  it.each([false, true])("keeps first-observation order through reverse completion (legacy=%s)", (legacy) => {
+    const detail = sampleDetail();
+    const attempt = detail.turns[0].attempts[0];
+    attempt.side_effects = ["tool_z", "tool_a"].map((id, sequence) => ({
+      tool_call_id: id, tool_name: id, succeeded: true, duration_ms: 1, path: null,
+      ...(legacy ? {} : { first_seen_at: 110, sequence }),
+    }));
+    const history = projectHistory(detail, projectTimeline).filter((entry) => entry.kind === "activity");
+    expect(history.map((entry) => entry.toolId)).toEqual(["tool_z", "tool_a"]);
+    let live: TimelineEntry[] = [];
+    for (const row of history) live = mergeEntry(live, { ...row, status: "activity_started", created_at: 110 });
+    for (const row of [...history].reverse()) live = mergeEntry(live, { ...row, created_at: 999 });
+    // A later insertion must not re-sort completed tools by completion time.
+    live = mergeEntry(live, { ...history[0], item_id: "later", created_at: 1000,
+      activity: { ...history[0].activity!, first_seen_at: 1000, sequence: 2 } });
+    expect(live.slice(0, 2).map((entry) => entry.id)).toEqual(history.map((entry) => entry.id));
+    live = mergeEntry(live, { ...history[0], activity: { ...history[0].activity!, attempt_id: "other-attempt" } });
+    expect(live.filter((entry) => entry.toolId === "tool_z")).toHaveLength(2);
+  });
+});
 
 describe("parseClaims", () => {
   it("parses the documented shorthand forms", () => {

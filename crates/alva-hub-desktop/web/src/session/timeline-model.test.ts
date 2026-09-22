@@ -18,6 +18,17 @@ import type { HubTimelineEvent } from "../components/hub-timeline";
 
 const SESSION = "ps-1";
 
+it("retains tool input and path when the completion carries only output", () => {
+  const started = mergeEntry([], liveEvent({ status: "activity_started", item_id: "call-1",
+    activity: { tool_name: "read_file", succeeded: null, duration_ms: null, path: "src/main.rs", tool_input: "arguments" },
+  }));
+  const completed = mergeEntry(started, liveEvent({ status: "activity_completed", item_id: "call-1",
+    activity: { tool_name: "read_file", succeeded: true, duration_ms: 12, path: null, tool_output: "result" },
+  }));
+  expect(completed).toHaveLength(1);
+  expect(completed[0].activity).toMatchObject({ path: "src/main.rs", tool_input: "arguments", tool_output: "result" });
+});
+
 function liveEvent(overrides: Partial<HubTimelineEvent> & { status: TimelineEvent["status"] }): TimelineEvent {
   return {
     engine_id: "alva",
