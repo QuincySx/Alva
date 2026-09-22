@@ -173,16 +173,16 @@ export default function PerfHarness() {
         <main className="ui-main-pane">
           <ContentFrame className="hub-session-frame">
             <ScrollRegion className="hub-session-scroll" data-chat-scroll-region="">
-              <ChatTranscript events={events} streaming={streaming} />
-              <HubTimeline
+              <ChatTranscript key={active} events={events} streaming={streaming}
+                renderExecution={(entry) => <HubTimeline
                 activeSessionId={active}
                 answeredPermissions={{}}
                 attemptIsLive={streaming}
-                events={events}
+                events={[entry]}
                 onAnswerPermission={() => undefined}
                 onStop={() => undefined}
                 onSwitchBack={() => undefined}
-              />
+              />} />
             </ScrollRegion>
           </ContentFrame>
         </main>

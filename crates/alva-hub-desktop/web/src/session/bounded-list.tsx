@@ -6,8 +6,8 @@
 //         unmounted history is DOM reuse policy, NOT hidden content — the
 //         full list stays in the data array and scrolling mounts any part of
 //         it. The single scroll owner stays the shared [data-chat-scroll-region]
-//         element; this component only READS it (except anchor corrections,
-//         which compensate its own mounting effects).
+//         element; this component owns measurement corrections and follow
+//         intent, distinguishing layout clamps from external scroll movement.
 //
 //         Row-level memoization belongs to the ROW component (pass a
 //         React.memo'd renderer); BoundedList only bounds how many rows exist.
@@ -81,138 +81,160 @@ export interface BoundedListProps<T> {
   /** Height estimate for not-yet-measured items (px). */
   estimate?: number;
   overscan?: number;
-  /** The shared scroll owner (read-only). */
+  /** Shared scroll element; corrections and bottom following are owned here. */
   scrollerRef: { current: HTMLElement | null };
+  followRef?: { current: boolean };
+  onFollowChange?: (following: boolean) => void;
   className?: string;
   ariaLabel?: string;
   testId?: string;
 }
 
 export function BoundedList<T>({
-  items,
-  keyOf,
-  renderItem,
-  estimate = 140,
-  overscan = 6,
-  scrollerRef,
-  className,
-  ariaLabel,
-  testId,
+  items, keyOf, renderItem, estimate = 140, overscan = 6,
+  scrollerRef, followRef, onFollowChange, className, ariaLabel, testId,
 }: BoundedListProps<T>) {
-  const [range, setRange] = useState<WindowRange>(() => ({
-    start: 0,
-    end: Math.min(items.length, overscan * 2),
-    padTop: 0,
-    padBottom: 0,
-  }));
-  const heightsRef = useRef(new Map<string, number>());
-  const rafRef = useRef<number | null>(null);
-  // Visual anchor: (key, content-space top) of the first visible item —
-  // refreshed after every correction so DOM changes (window shifts, height
-  // measures, prepends) can be compensated synchronously before paint.
-  const anchorRef = useRef<{ key: string; top: number } | null>(null);
-  const nodesRef = useRef(new Map<string, HTMLElement>());
-
+  const listRef = useRef<HTMLOListElement>(null);
+  const heights = useRef(new Map<string, number>());
+  const nodes = useRef(new Map<string, HTMLElement>());
+  const observer = useRef<ResizeObserver | null>(null);
+  const frame = useRef<number | null>(null);
+  const correctedTop = useRef<number | null>(null);
+  const correctedSize = useRef({ height: 0, total: 0 });
+  const [revision, setRevision] = useState(0);
+  const [viewport, setViewport] = useState({ top: 0, height: 0 });
+  const keys = useMemo(() => items.map(keyOf), [items, keyOf]);
   const prefix = useMemo(() => {
-    const heights = heightsRef.current;
-    const result = new Float64Array(items.length + 1);
-    for (let i = 0; i < items.length; i += 1) {
-      const measured = heights.get(keyOf(items[i], i));
-      result[i + 1] = result[i] + (measured ?? estimate);
-    }
-    return result;
-    // heightsRef is intentionally not a dependency: measures arrive via
-    // register and are folded in by the post-commit recompute below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, estimate]);
+    const sums = new Float64Array(keys.length + 1);
+    keys.forEach((key, i) => { sums[i + 1] = sums[i] + (heights.current.get(key) ?? estimate); });
+    return sums;
+  }, [keys, estimate, revision]);
+  const geometry = useRef({ keys, prefix });
+  const anchor = useRef<{ key: string; offset: number; bottom: boolean } | null>(null);
 
-  const recompute = useCallback(() => {
+  const listTop = useCallback(() => {
+    const scroller = scrollerRef.current;
+    const list = listRef.current;
+    if (!scroller || !list) return 0;
+    return list.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  }, [scrollerRef]);
+
+  const readViewport = useCallback(() => {
     const scroller = scrollerRef.current;
     if (!scroller) return;
-    const next = computeWindow(prefix, scroller.scrollTop, scroller.clientHeight, overscan);
-    setRange((current) =>
-      current.start === next.start && current.end === next.end &&
-      current.padTop === next.padTop && current.padBottom === next.padBottom
-        ? current
-        : next,
-    );
-  }, [prefix, overscan, scrollerRef]);
+    const top = Math.max(0, scroller.scrollTop - listTop());
+    setViewport((old) => Math.abs(old.top - top) < 0.5 && old.height === scroller.clientHeight
+      ? old : { top, height: scroller.clientHeight });
+    const { keys: currentKeys, prefix: sums } = geometry.current;
+    const visible = computeWindow(sums, top, scroller.clientHeight, 0).start;
+    if (currentKeys[visible]) anchor.current = {
+      key: currentKeys[visible],
+      offset: top - sums[visible],
+      bottom: followRef?.current ?? scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48,
+    };
+  }, [scrollerRef, listTop, followRef]);
 
-  const scheduleRecompute = useCallback(() => {
-    if (rafRef.current !== null) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      recompute();
+  const measure = useCallback(() => {
+    let changed = false;
+    nodes.current.forEach((node, key) => {
+      const height = node.getBoundingClientRect().height;
+      if (height > 0 && Math.abs(height - (heights.current.get(key) ?? 0)) > 0.5) {
+        heights.current.set(key, height);
+        changed = true;
+      }
     });
-  }, [recompute]);
-
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const onScroll = () => scheduleRecompute();
-    scroller.addEventListener("scroll", onScroll, { passive: true });
-    return () => scroller.removeEventListener("scroll", onScroll);
-  }, [scheduleRecompute, scrollerRef]);
-
-  // Recompute after every commit (mount, data change, measure) — cheap when
-  // nothing moved because setRange bails on identical windows.
-  useEffect(() => {
-    scheduleRecompute();
-  });
-
-  // Synchronous anchor correction before paint.
-  useLayoutEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    let best: { key: string; top: number } | null = null;
-    for (const [key, node] of nodesRef.current) {
-      const top = node.offsetTop;
-      if (top + node.offsetHeight > scroller.scrollTop && (best === null || top < best.top)) {
-        best = { key, top };
-      }
-    }
-    const anchor = anchorRef.current ?? best;
-    if (anchor) {
-      const node = nodesRef.current.get(anchor.key);
-      if (node) {
-        const delta = node.offsetTop - anchor.top;
-        if (Math.abs(delta) > 0.5) {
-          scroller.scrollTop += delta;
-        }
-        anchorRef.current = { key: anchor.key, top: node.offsetTop };
-      }
-    } else if (best) {
-      anchorRef.current = best;
-    }
-  });
-
-  const register = useCallback((key: string, node: HTMLElement | null) => {
-    if (node) {
-      nodesRef.current.set(key, node);
-      const measured = node.offsetHeight;
-      if (measured > 0) heightsRef.current.set(key, measured);
-    } else {
-      nodesRef.current.delete(key);
-    }
+    if (changed) setRevision((value) => value + 1);
   }, []);
 
-  const slice = items.slice(range.start, range.end);
+  const register = useCallback<RowRegister>((key, node) => {
+    const previous = nodes.current.get(key);
+    if (previous) observer.current?.unobserve(previous);
+    if (node) {
+      nodes.current.set(key, node);
+      observer.current?.observe(node);
+    } else nodes.current.delete(key);
+  }, []);
 
+  useLayoutEffect(() => {
+    // Resolve before the parent's trailing ref/effects: the first measured
+    // window must already know which element owns scrolling.
+    scrollerRef.current ??= listRef.current?.closest<HTMLElement>("[data-chat-scroll-region]") ?? null;
+    const scroller = scrollerRef.current;
+    const saved = anchor.current;
+    geometry.current = { keys, prefix };
+    if (scroller) {
+      if (followRef?.current ?? saved?.bottom) scroller.scrollTop = scroller.scrollHeight;
+      else if (saved) {
+        const index = keys.indexOf(saved.key);
+        if (index >= 0) scroller.scrollTop = listTop() + prefix[index] + saved.offset;
+      }
+      correctedTop.current = scroller.scrollTop;
+      correctedSize.current = { height: scroller.clientHeight, total: scroller.scrollHeight };
+    }
+    readViewport();
+    measure();
+  }, [keys, prefix, viewport.height, listTop, readViewport, measure, scrollerRef, followRef]);
+
+  useEffect(() => {
+    // Cached heights are session data, not an unbounded global history.
+    const live = new Set(keys);
+    for (const key of heights.current.keys()) if (!live.has(key)) heights.current.delete(key);
+  }, [keys]);
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const schedule = () => {
+      if (frame.current !== null) return;
+      frame.current = requestAnimationFrame(() => {
+        frame.current = null;
+        readViewport();
+      });
+    };
+    const onScroll = () => {
+      // Measurement corrections generate scroll events too. Only a movement
+      // away from our last applied position changes the user's follow intent.
+      const layoutChanged = correctedSize.current.height !== scroller.clientHeight
+        || correctedSize.current.total !== scroller.scrollHeight;
+      if (followRef && !layoutChanged && scroller.scrollTop !== correctedTop.current) {
+        followRef.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
+        onFollowChange?.(followRef.current);
+      }
+      readViewport();
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    // Dynamic row heights (streaming, wrapping, font changes) and viewport resize.
+    if (typeof ResizeObserver !== "undefined") {
+      observer.current = new ResizeObserver(() => {
+        measure();
+        if (followRef?.current) {
+          scroller.scrollTop = scroller.scrollHeight;
+          correctedTop.current = scroller.scrollTop;
+          correctedSize.current = { height: scroller.clientHeight, total: scroller.scrollHeight };
+        }
+        schedule();
+      });
+      nodes.current.forEach((node) => observer.current?.observe(node));
+      observer.current.observe(scroller);
+    }
+    schedule();
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      observer.current?.disconnect();
+      observer.current = null;
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      frame.current = null;
+    };
+  }, [measure, readViewport, scrollerRef, followRef, onFollowChange]);
+
+  const range = computeWindow(prefix, viewport.top, viewport.height || 800, overscan);
   return (
-    <ol
-      aria-label={ariaLabel}
-      className={className}
-      data-bounded-list=""
-      data-testid={testId}
-      style={{ paddingTop: range.padTop, paddingBottom: range.padBottom }}
-    >
-      {slice.map((item, index) => {
+    <ol ref={listRef} aria-label={ariaLabel} className={className}
+      data-bounded-list="" data-testid={testId}
+      style={{ paddingTop: range.padTop, paddingBottom: range.padBottom, overflowAnchor: "none" }}>
+      {items.slice(range.start, range.end).map((item, index) => {
         const absolute = range.start + index;
-        return (
-          <Fragment key={keyOf(item, absolute)}>
-            {renderItem(item, absolute, register)}
-          </Fragment>
-        );
+        return <Fragment key={keys[absolute]}>{renderItem(item, absolute, register)}</Fragment>;
       })}
     </ol>
   );

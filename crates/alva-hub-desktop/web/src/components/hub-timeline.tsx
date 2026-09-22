@@ -1,14 +1,9 @@
 // INPUT:  Projected Hub events (execution/control), permission decisions, fallback actions
-// OUTPUT: ExecutionDiagnotics — running-state execution timeline (no chat
-//         messages, no three-lane overview in the main chat)
-// POS:    R30: the main chat is a reading flow (chat-transcript). This view
-//         renders ONLY while an attempt is live or unresolved (approvals /
-//         failures); completed execution detail belongs to the Inspector.
+// OUTPUT: HubTimeline — execution/control cards with permission and fallback actions
+// POS:    Product event renderer embedded in the shared bounded reading flow
 
 import { useState } from "react";
 import {
-  ChevronDown,
-  ChevronRight,
   ShieldAlert,
   Wrench,
 } from "lucide-react";
@@ -72,7 +67,6 @@ export function HubTimeline({
   // — never an array index, so a replayed/inserted entry can no longer
   // inherit another card's expanded state.
   const [openHandoffs, setOpenHandoffs] = useState<Record<string, boolean>>({});
-  const [openActivities, setOpenActivities] = useState<Record<string, boolean>>({});
 
   const entryKey = (entry: HubTimelineEvent, index: number): string =>
     "id" in entry && typeof entry.id === "string"
@@ -86,10 +80,6 @@ export function HubTimeline({
     }));
   };
 
-  const toggleActivity = (key: string) => {
-    setOpenActivities((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
   const execution = events.filter(isExecutionEntry);
   if (execution.length === 0) return null;
 
@@ -97,8 +87,6 @@ export function HubTimeline({
     <section aria-label={t("chat.executionInInspector")} aria-live="polite" className="timeline">
       {execution.map((entry, index) => {
           const cardKey = entryKey(entry, index);
-          const actKey = `${cardKey}-act`;
-          const isActOpen = Boolean(openActivities[actKey]);
 
           return (
             <article
@@ -127,22 +115,13 @@ export function HubTimeline({
                 </p>
               )}
 
-              {/* Expandable Compact Activity Row (Tool Call) */}
+              {/* Tool facts remain visible without a disclosure click. */}
               {entry.activity ? (
                 <div
                   className="timeline-activity-row"
-                  onClick={() => toggleActivity(actKey)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      toggleActivity(actKey);
-                    }
-                  }}
                 >
                   <div className="timeline-activity-row__header">
                     <span className="timeline-activity-row__title">
-                      {isActOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       <Wrench size={13} style={{ color: "var(--color-focus)" }} />
                       <strong>{entry.activity.tool_name}</strong>
                       {entry.activity.path ? (
@@ -155,7 +134,7 @@ export function HubTimeline({
                       </small>
                     ) : null}
                   </div>
-                  {isActOpen ? (
+                  {(
                     <div className="timeline-activity-row__details">
                       <div>
                         <small>
@@ -165,8 +144,10 @@ export function HubTimeline({
                       <pre className="timeline-activity-output">
                         {entry.activity.tool_name} {entry.activity.path ?? ""}
                       </pre>
+                      {entry.activity.tool_input != null ? <pre className="timeline-activity-output" aria-label={t("timeline.toolInput")}>{entry.activity.tool_input}</pre> : null}
+                      {entry.activity.tool_output != null ? <pre className="timeline-activity-output" aria-label={t("timeline.toolOutput")}>{entry.activity.tool_output}</pre> : null}
                     </div>
-                  ) : null}
+                  )}
                 </div>
               ) : null}
 

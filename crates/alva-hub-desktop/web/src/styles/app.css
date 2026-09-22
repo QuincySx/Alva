@@ -726,6 +726,7 @@ input {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--font-size-micro);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .timeline-meta {
@@ -1152,11 +1153,15 @@ input {
 }
 
 .chat-transcript__list {
-  display: grid;
-  gap: var(--space-3);
+  display: block;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* Row spacing participates in the measured height, not an unmeasured grid gap. */
+.chat-transcript__list > li {
+  padding-bottom: var(--space-3);
 }
 
 .chat-message__meta {

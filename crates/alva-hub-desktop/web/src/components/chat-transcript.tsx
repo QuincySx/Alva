@@ -1,4 +1,4 @@
-// INPUT:  Projected Hub entries (user/assistant messages), i18n, clipboard
+// INPUT:  Ordered Hub entries, optional execution renderer, i18n, clipboard
 // OUTPUT: ChatTranscript — the always-visible message reading flow with safe
 //         Markdown rendering, per-codeblock copy, follow/jump-to-bottom, and
 //         a bounded mounted window (H21)
@@ -6,13 +6,11 @@
 //         are memoized per entry so a streaming delta re-renders only the
 //         tail item; history outside the window unmounts as a DOM policy —
 //         the full list stays in the data array and is fully reachable by
-//         scrolling. This component renders messages only and never unmounts
-//         them on terminal events.
+//         scrolling. With an execution renderer every event shares one window.
 
 import {
   memo,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -198,38 +196,25 @@ function CodeBlock({ code, language }: { code: string; language: string | null }
 // ---------------------------------------------------------------------------
 
 /** Was the scroll pinned near the bottom the last time the user scrolled? */
-function isPinnedToBottom(element: HTMLElement): boolean {
-  return element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-}
-
 export interface ChatTranscriptProps {
   events: HubTimelineEvent[];
   /** The live stream may still be appending deltas to the last message. */
   streaming: boolean;
+  /** Product-owned actions stay outside the list/Markdown implementation. */
+  renderExecution?: (entry: HubTimelineEvent) => ReactNode;
 }
 
-export function ChatTranscript({ events, streaming }: ChatTranscriptProps) {
+export function ChatTranscript({ events, streaming, renderExecution }: ChatTranscriptProps) {
   const { t } = useI18n();
-  const messages = useMemo(() => events.filter(isMessageEntry), [events]);
+  const messages = useMemo(() => renderExecution ? events : events.filter(isMessageEntry), [events, renderExecution]);
   const scrollerRef = useRef<HTMLElement | null>(null);
   const [pinned, setPinned] = useState(true);
-
-  // Follow the stream while pinned; preserve the reading position otherwise.
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (scroller && pinned) {
-      scroller.scrollTop = scroller.scrollHeight;
-    }
-  }, [messages, pinned]);
-
-  const onScroll = useCallback(() => {
-    const scroller = scrollerRef.current;
-    if (scroller) setPinned(isPinnedToBottom(scroller));
-  }, []);
+  const followRef = useRef(true);
 
   const jumpToBottom = useCallback(() => {
     const scroller = scrollerRef.current;
     if (scroller) {
+      followRef.current = true;
       scroller.scrollTop = scroller.scrollHeight;
       setPinned(true);
     }
@@ -245,7 +230,12 @@ export function ChatTranscript({ events, streaming }: ChatTranscriptProps) {
         items={messages}
         keyOf={entryKey}
         renderItem={(entry, index, rowRegister) => (
-          <ChatMessageRow
+          !isMessageEntry(entry) && renderExecution ? <ExecutionRow
+            entry={entry}
+            index={index}
+            register={rowRegister}
+            renderExecution={renderExecution}
+          /> : <ChatMessageRow
             entry={entry}
             index={index}
             register={rowRegister}
@@ -253,6 +243,8 @@ export function ChatTranscript({ events, streaming }: ChatTranscriptProps) {
           />
         )}
         scrollerRef={scrollerRef}
+        followRef={followRef}
+        onFollowChange={setPinned}
         testId="chat-transcript-list"
       />
       {!pinned ? (
@@ -275,7 +267,6 @@ export function ChatTranscript({ events, streaming }: ChatTranscriptProps) {
           const region = node.closest("[data-chat-scroll-region]");
           if (region) {
             const element = region as HTMLElement;
-            element.onscroll = onScroll;
             scrollerRef.current = element;
           }
         }
@@ -283,6 +274,18 @@ export function ChatTranscript({ events, streaming }: ChatTranscriptProps) {
     </div>
   );
 }
+
+const ExecutionRow = memo(function ExecutionRow({
+  entry, index, register, renderExecution,
+}: {
+  entry: HubTimelineEvent;
+  index: number;
+  register: RowRegister;
+  renderExecution: (entry: HubTimelineEvent) => ReactNode;
+}) {
+  const rowRef = useRowRef(register, entryKey(entry, index));
+  return <li ref={rowRef} data-entry-key={entryKey(entry, index)} data-status={entry.status}>{renderExecution(entry)}</li>;
+});
 
 // ---------------------------------------------------------------------------
 // Memoized message row (H21): a streaming delta re-renders ONLY this item
@@ -319,6 +322,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
     <li
       className={`chat-message chat-message--${isUser ? "user" : "assistant"}`}
       data-status={entry.status}
+      data-entry-key={key}
       ref={rowRef}
     >
       <div className="chat-message__meta">

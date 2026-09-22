@@ -7,6 +7,24 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("H21 bounded transcript window", () => {
+  for (const count of [100, 1000, 10000]) {
+    test(`opens ${count} entries at the measured bottom and follows resize`, async ({ page }) => {
+      await page.goto(`/?perf=1&n=${count}&seed=20260920`);
+      const gap = () => page.locator("[data-chat-scroll-region]").evaluate((region) =>
+        region.scrollHeight - region.scrollTop - region.clientHeight);
+      await expect.poll(gap).toBeLessThan(3);
+      await page.waitForTimeout(500);
+      await expect.poll(gap).toBeLessThan(3);
+      await expect(page.locator(".chat-jump")).toHaveCount(0);
+      await page.setViewportSize({ width: 900, height: 600 });
+      await expect.poll(gap).toBeLessThan(3);
+      await page.locator("[data-chat-scroll-region]").evaluate((region) => { region.scrollTop -= 1500; });
+      await expect(page.locator(".chat-jump")).toBeVisible();
+      await page.locator(".chat-jump").click();
+      await expect.poll(gap).toBeLessThan(3);
+      await expect(page.locator(".chat-jump")).toHaveCount(0);
+    });
+  }
   test("mounts a bounded slice of a 1000-entry session and still reaches every part by scrolling", async ({ page }) => {
     await page.goto("/?perf=1&n=1000&seed=20260920");
     const list = page.getByTestId("chat-transcript-list");
@@ -18,6 +36,9 @@ test.describe("H21 bounded transcript window", () => {
 
     const mounted = await page.locator(".chat-message").count();
     expect(mounted).toBeLessThan(120); // bounded — not all ~250 messages
+    // Count ALL rows: message-only checks miss an unbounded tool timeline.
+    expect(await list.locator(":scope > li").count()).toBeLessThan(120);
+    expect(await page.locator(".timeline-card").count()).toBeLessThan(120);
 
     // Every part of history remains reachable: jump to top, count grows stays bounded.
     await page.evaluate(() => {
@@ -27,6 +48,7 @@ test.describe("H21 bounded transcript window", () => {
     await page.waitForTimeout(400);
     const mountedAtTop = await page.locator(".chat-message").count();
     expect(mountedAtTop).toBeLessThan(120);
+    expect(await list.locator(":scope > li").count()).toBeLessThan(120);
     const firstMessageVisible = await page.locator(".chat-message").first().isVisible();
     expect(firstMessageVisible).toBe(true);
   });
@@ -42,18 +64,22 @@ test.describe("H21 bounded transcript window", () => {
     await page.waitForTimeout(300);
     const anchorText = await page.evaluate(() => {
       const region = document.querySelector("[data-chat-scroll-region]") as HTMLElement;
-      const message = document.elementFromPoint(700, 120)?.closest(".chat-message");
+      const message = [...document.querySelectorAll<HTMLElement>("[data-entry-key]")]
+        .find((row) => row.getBoundingClientRect().bottom > region.getBoundingClientRect().top);
       return {
-        scrollTop: region.scrollTop,
-        anchor: message?.querySelector(".chat-message__body")?.textContent?.slice(0, 40) ?? null,
+        key: message?.dataset.entryKey,
+        offset: message ? message.getBoundingClientRect().top - region.getBoundingClientRect().top : null,
       };
     });
+    expect(anchorText.key).toBeTruthy();
     await page.waitForTimeout(1500); // several stream deltas
-    const after = await page.evaluate(() => {
+    const after = await page.evaluate((key) => {
       const region = document.querySelector("[data-chat-scroll-region]") as HTMLElement;
-      return { scrollTop: region.scrollTop };
-    });
-    expect(Math.abs(after.scrollTop - anchorText.scrollTop)).toBeLessThan(4);
+      const row = [...document.querySelectorAll<HTMLElement>("[data-entry-key]")].find((row) => row.dataset.entryKey === key);
+      return row ? row.getBoundingClientRect().top - region.getBoundingClientRect().top : null;
+    }, anchorText.key);
+    expect(after).not.toBeNull();
+    expect(Math.abs(after! - anchorText.offset!)).toBeLessThan(4);
     // Stream settled: terminal state arrived without losing the anchor.
     await page.waitForFunction(() => document.documentElement.dataset.streamState === "done", null, { timeout: 20000 });
   });

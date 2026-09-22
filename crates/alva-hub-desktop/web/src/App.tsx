@@ -1878,21 +1878,18 @@ export default function App() {
             <ChatTranscript
               events={timeline}
               streaming={attemptIsLive}
-            />
-            {/* H09 (H02 迁移决策): 工具调用/结果、审批与状态回到中央阅读轴，
-                与消息同一时间线——收拢（折叠/摘要）只是未来展示策略，权威
-                记录不丢；窗口化由 ChatTranscript/BoundedList 承担。完成的
-                执行细节仍可在 Inspector 钻取。 */}
-            <HubTimeline
+              key={activeSessionId ?? workspace}
+              renderExecution={(entry) => <HubTimeline
               activeSessionId={activeSessionId}
               answeredPermissions={answeredPermissions}
               attemptIsLive={attemptIsLive}
-              events={timeline}
+              events={[entry]}
               onAnswerPermission={(productSessionId, requestId, allow) =>
                 void answerPermission(productSessionId, requestId, allow)
               }
               onStop={() => void stopActiveAttempt()}
               onSwitchBack={(source) => void switchBack(source)}
+              />}
             />
             </>
             )}

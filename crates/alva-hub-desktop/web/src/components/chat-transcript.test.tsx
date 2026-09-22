@@ -36,6 +36,23 @@ function renderTranscript(events: HubTimelineEvent[], streaming = false) {
 }
 
 describe("ChatTranscript Markdown rendering", () => {
+  it("keeps messages and execution in one ordered bounded list", () => {
+    const events = [
+      message({ role: "user", status: "user_message", message: "first", item_id: "u" }),
+      message({ status: "activity_completed", message: "tool result", item_id: "t" }),
+      message({ message: "last", item_id: "a" }),
+    ];
+    const { container } = render(<UIProvider><I18nProvider>
+      <div data-chat-scroll-region="">
+        <ChatTranscript events={events} streaming={false} renderExecution={(entry) => <span>{entry.message}</span>} />
+      </div>
+    </I18nProvider></UIProvider>);
+    const rows = container.querySelectorAll("[data-bounded-list] > li");
+    expect(rows).toHaveLength(3);
+    expect(rows[0].textContent).toContain("first");
+    expect(rows[1].textContent).toContain("tool result");
+    expect(rows[2].textContent).toContain("last");
+  });
   it("keeps raw < > & quote characters and never parses injected HTML", () => {
     const { container } = renderTranscript([
       message({

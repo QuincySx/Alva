@@ -1,3 +1,6 @@
+// INPUT: HubTimeline and synthetic tool/permission events
+// OUTPUT: Visible tool payload and localized approval regression tests
+// POS: Central execution cards must expose safe tool details without a disclosure click
 // R76：工具自述的效果说明是运行期事实，任何 locale 都必须原样出现在审批卡上；
 // 静态 UI 文案（标题/标签/按钮）本地化，不吞掉未收录英文说明；空说明不编造效果。
 import { render, cleanup } from "@testing-library/react";
@@ -7,6 +10,19 @@ import { I18nProvider } from "../i18n";
 import { HubTimeline, type HubTimelineEvent } from "./hub-timeline";
 
 afterEach(cleanup);
+
+it("shows tool arguments and output immediately as inert text", () => {
+  const { container } = renderCard("en-US", {
+    status: "activity_completed", engine_id: "alva", product_session_id: "session-r76",
+    message: null,
+    activity: { tool_name: "read_file", succeeded: true, path: "src/main.rs", duration_ms: 12,
+      tool_input: '{"path":"src/main.rs"}', tool_output: '<script>unsafe()</script>result' },
+  });
+  expect(container.textContent).toContain('{"path":"src/main.rs"}');
+  expect(container.textContent).toContain('<script>unsafe()</script>result');
+  expect(container.querySelector("script")).toBeNull();
+  expect(container.querySelector("[aria-expanded]")).toBeNull();
+});
 
 const EFFECT_SUMMARY = "publishes the draft post to the production blog";
 
