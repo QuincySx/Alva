@@ -547,7 +547,7 @@ mod tests {
             .finish_turn(&prepared, Some("alva-native"), Some("done"), None, None)
             .unwrap();
 
-        for engine_id in ["claude", "codex"] {
+        for engine_id in ["codex", "pi"] {
             let target = EngineTarget::for_engine(engine_id).unwrap();
             let error = store
                 .request_engine_switch("product-gated-switch", &target, "user insisted")
@@ -2432,8 +2432,7 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let store = HubStore::open(root.path().join("alva-hub.db")).unwrap();
         let alva = EngineTarget::for_engine("alva").unwrap();
-        // An interactive session: only alva can honour it (claude/codex can
-        // merely weaken it), per the adapter mapping contract.
+        // Codex cannot preserve interactive approvals; ALVA and Claude SDK can.
         let lead = store
             .prepare_new_turn(
                 "perm-lead",
@@ -2449,7 +2448,7 @@ mod tests {
 
         // Creating a worker is NOT a way around the profile.
         let refused = store
-            .create_team_run("perm-lead", &EngineTarget::for_engine("claude").unwrap())
+            .create_team_run("perm-lead", &EngineTarget::for_engine("codex").unwrap())
             .unwrap_err();
         assert!(refused.contains("cannot honour"), "{refused}");
 

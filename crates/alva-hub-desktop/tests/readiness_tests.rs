@@ -51,6 +51,7 @@ impl EngineProbe for FakeProbe {
 fn healthy_facts(binary: &str, version: &str) -> EngineProbeFacts {
     EngineProbeFacts {
         binary_path: Some(binary.to_string()),
+        dependency_error: None,
         searched_locations: vec!["PATH".to_string()],
         version: Some(Ok(version.to_string())),
         capabilities: vec!["streaming".to_string(), "cancel".to_string()],
@@ -134,7 +135,14 @@ fn system_probe_matches_the_real_machine() {
                 );
             }
             id => {
-                let located = locate_on_path(id);
+                let binary = blueprint(id).and_then(|entry| entry.descriptor.as_ref()
+                    .and_then(|descriptor| descriptor.install_metadata.required_binary.clone()))
+                    .unwrap_or_else(|| id.to_string());
+                let located = locate_on_path(&binary);
+                if entry.reasons.iter().any(|reason| matches!(reason, ReadinessReason::DependencyUnavailable { .. })) {
+                    assert_eq!(entry.status, ReadinessStatus::Missing);
+                    continue;
+                }
                 match (entry.binary_path.is_some(), located) {
                     (false, None) => {
                         assert_eq!(entry.status, ReadinessStatus::Missing);
@@ -211,7 +219,7 @@ fn incompatible_version_reports_found_and_minimum() {
         readiness.reasons,
         vec![ReadinessReason::VersionIncompatible {
             found: "0.2.9".to_string(),
-            minimum: "1.0.0".to_string(),
+            minimum: "20.0.0".to_string(),
         }]
     );
     assert_eq!(readiness.version.as_deref(), Some("0.2.9"));
@@ -263,10 +271,10 @@ fn alva_without_provider_key_reports_provider_key_missing() {
 
 #[test]
 fn healthy_engine_reports_version_capabilities_and_stream_health() {
-    let readiness = classify_engine("claude", healthy_facts("/usr/local/bin/claude", "1.2.3"));
+    let readiness = classify_engine("claude", healthy_facts("/usr/local/bin/node", "22.0.0"));
     assert_eq!(readiness.status, ReadinessStatus::Healthy);
     assert!(readiness.reasons.is_empty());
-    assert_eq!(readiness.version.as_deref(), Some("1.2.3"));
+    assert_eq!(readiness.version.as_deref(), Some("22.0.0"));
     assert_eq!(readiness.authenticated, Some(true));
     assert_eq!(readiness.stream_health, StreamHealth::Ok);
     assert!(readiness.capabilities.contains(&"streaming".to_string()));
@@ -274,7 +282,7 @@ fn healthy_engine_reports_version_capabilities_and_stream_health() {
 
 #[test]
 fn failing_stream_marks_engine_unhealthy_with_last_failure() {
-    let mut facts = healthy_facts("/usr/local/bin/claude", "1.2.3");
+    let mut facts = healthy_facts("/usr/local/bin/node", "22.0.0");
     facts.stream_health = StreamHealth::Failing;
     facts.last_stream_failure = Some("stream ended before Completed".to_string());
     let readiness = classify_engine("claude", facts);
@@ -380,16 +388,24 @@ mod system_probe {
     }
 
     fn probe(bin: &Path, home: &Path) -> SystemProbe {
-        SystemProbe::new(None, None)
+        SystemProbe::new(None, Some(bin.to_path_buf()))
             .with_search_paths(vec![bin.to_path_buf()])
             .with_home_dir(home.to_path_buf())
+    }
+
+    fn install_fake_sdk(home: &Path) {
+        let package = home.join(".local/share/alva-hub/runtimes/claude/node_modules/@anthropic-ai/claude-agent-sdk");
+        fs::create_dir_all(&package).unwrap();
+        fs::write(package.join("package.json"), r#"{"name":"@anthropic-ai/claude-agent-sdk","version":"1.0.0","main":"sdk.mjs"}"#).unwrap();
+        fs::write(package.join("sdk.mjs"), "throw new Error('readiness must not import');").unwrap();
     }
 
     #[test]
     fn discovers_installed_clis_and_reports_missing_ones_with_locations() {
         let bin = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        install_fake_cli(bin.path(), "claude", "2.0.14 (Claude Code)");
+        install_fake_cli(bin.path(), "node", "v22.0.0");
+        install_fake_sdk(home.path());
         fs::create_dir_all(home.path().join(".claude")).unwrap();
         fs::write(home.path().join(".claude/.credentials.json"), "{}").unwrap();
 
@@ -399,7 +415,7 @@ mod system_probe {
             .find(|engine| engine.engine_id == "claude")
             .unwrap();
         assert_eq!(claude.status, ReadinessStatus::Healthy);
-        assert_eq!(claude.version.as_deref(), Some("2.0.14 (Claude Code)"));
+        assert_eq!(claude.version.as_deref(), Some("v22.0.0"));
         assert_eq!(claude.authenticated, Some(true));
         assert!(claude.capabilities.contains(&"streaming".to_string()));
 
@@ -421,13 +437,13 @@ mod system_probe {
         let blocked_bin = tempfile::tempdir().unwrap();
         let working_bin = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        install_fake_cli(blocked_bin.path(), "claude", "blocked");
+        install_fake_cli(blocked_bin.path(), "node", "blocked");
         fs::set_permissions(
-            blocked_bin.path().join("claude"),
+            blocked_bin.path().join("node"),
             fs::Permissions::from_mode(0o644),
         )
         .unwrap();
-        install_fake_cli(working_bin.path(), "claude", "2.0.14 (Claude Code)");
+        install_fake_cli(working_bin.path(), "node", "v22.0.0");
 
         let facts = SystemProbe::new(None, None)
             .with_search_paths(vec![
@@ -439,9 +455,9 @@ mod system_probe {
 
         assert_eq!(
             facts.binary_path.as_deref(),
-            Some(working_bin.path().join("claude").to_str().unwrap())
+            Some(working_bin.path().join("node").to_str().unwrap())
         );
-        assert_eq!(facts.version, Some(Ok("2.0.14 (Claude Code)".into())));
+        assert_eq!(facts.version, Some(Ok("v22.0.0".into())));
     }
 
     #[test]
@@ -499,7 +515,8 @@ mod system_probe {
         assert_eq!(probe(bin.path(), home.path()).quick_veto("codex"), None);
 
         // claude present with unknown auth (keychain) is not vetoed.
-        install_fake_cli(bin.path(), "claude", "2.0.14 (Claude Code)");
+        install_fake_cli(bin.path(), "node", "v22.0.0");
+        install_fake_sdk(home.path());
         assert_eq!(probe(bin.path(), home.path()).quick_veto("claude"), None);
 
         // A configured third-party provider replaces subscription auth,
@@ -525,7 +542,8 @@ mod system_probe {
         let bin = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();
-        install_fake_cli(bin.path(), "claude", "2.0.14 (Claude Code)");
+        install_fake_cli(bin.path(), "node", "v22.0.0");
+        install_fake_sdk(home.path());
         install_fake_cli(bin.path(), "codex", "codex-cli 0.44.0");
 
         let list = |root: &Path| {

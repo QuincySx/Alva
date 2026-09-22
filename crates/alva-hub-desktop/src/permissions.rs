@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use alva_engine_adapter_claude::ClaudePrintPermissionMode;
+use alva_engine_adapter_claude::PermissionMode as ClaudeSdkPermissionMode;
 use alva_engine_adapter_codex::CodexSandboxMode;
 use alva_engine_runtime::{EngineRuntime, PermissionDecision, PermissionRelation};
 use serde::{Deserialize, Serialize};
@@ -63,7 +63,7 @@ pub enum EnforcementRelation {
 pub enum EngineEnforcement {
     /// Alva routes PermissionRequest/PermissionDecision to the Hub user.
     InteractiveCallbacks,
-    ClaudePrintMode(ClaudePrintPermissionMode),
+    ClaudeSdkMode(ClaudeSdkPermissionMode),
     CodexSandbox(CodexSandboxMode),
     PiReadOnly,
     PiUnrestricted,
@@ -644,13 +644,13 @@ mod tests {
                 PermissionProfile::Unrestricted,
                 Some((Stricter, EngineEnforcement::InteractiveCallbacks)),
             ),
-            ("claude", PermissionProfile::Interactive, None),
+            ("claude", PermissionProfile::Interactive, Some((Equivalent, EngineEnforcement::ClaudeSdkMode(ClaudeSdkPermissionMode::Default)))),
             (
                 "claude",
                 PermissionProfile::WorkspaceWrite,
                 Some((
                     Stricter,
-                    EngineEnforcement::ClaudePrintMode(ClaudePrintPermissionMode::AcceptEdits),
+                    EngineEnforcement::ClaudeSdkMode(ClaudeSdkPermissionMode::Default),
                 )),
             ),
             (
@@ -658,8 +658,8 @@ mod tests {
                 PermissionProfile::Unrestricted,
                 Some((
                     Equivalent,
-                    EngineEnforcement::ClaudePrintMode(
-                        ClaudePrintPermissionMode::BypassPermissions,
+                    EngineEnforcement::ClaudeSdkMode(
+                        ClaudeSdkPermissionMode::BypassPermissions,
                     ),
                 )),
             ),
@@ -751,7 +751,9 @@ mod tests {
         );
         assert!(report[0].eligible);
         assert_eq!(report[0].relation, Some(EnforcementRelation::Equivalent));
-        for ineligible in &report[1..] {
+        assert!(report[1].eligible);
+        assert_eq!(report[1].relation, Some(EnforcementRelation::Equivalent));
+        for ineligible in &report[2..] {
             assert!(!ineligible.eligible);
             assert!(ineligible.relation.is_none());
             assert!(ineligible.detail.contains("cannot preserve or tighten"));

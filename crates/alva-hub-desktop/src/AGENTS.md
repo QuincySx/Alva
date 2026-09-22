@@ -63,6 +63,7 @@
 | Inspector bridge | `inspection.rs` | 共享 native repository、session 树归属校验、RunRecord/raw durable record 稳定 DTO 投影 |
 | Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、自动 fallback 循环、带产品时钟的事件投影与结果 |
 | Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
+| Managed SDK installation | `sdk_installation.rs` | 产品运行时目录的包身份/版本/入口校验，拒绝符号链接、Unix 异主及组/其他用户可写路径、工作区交叠；不执行包代码 |
 | Permission contract | `permissions.rs` | PermissionProfile、adapter 映射资格契约、eligibility DTO 与 PermissionRouter |
 | Provider plane | `provider_plane/` | 版本化模型身份、显式 binding 校验、per-engine override 与纯路由规划 |
 | Provider catalog | `providers.rs` | Hub 多供应商连接配置、backend-validated model binding、私密凭证与 route DTO 投影 |
@@ -77,6 +78,11 @@
 | Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness/Inspector command 和 timestamp-preserving event bridge |
 
 ## 引擎注册表与编排策略（R-tickets 17/18）
+
+### 2026-09-22 产品接线修正（覆盖上文旧 Claude print 描述）
+
+- Desktop Claude 使用 `ClaudeAdapter` Full SDK，interactive 与 workspace_write 都走 Default 权限回调（后者更严格），仅 unrestricted 使用 BypassPermissions；resume 保留持久化 SDK session，默认不加载工作区 setting sources。
+- Claude binary/version 检查针对 Node.js 20+；SDK 固定为 `$HOME/.local/share/alva-hub/runtimes/claude/node_modules/@anthropic-ai/claude-agent-sdk`，用户显式安装已审查版本后使用。assembly、readiness、fallback veto 共用只读解析并传绝对入口；从 package.json 的 exports/import 或 main 读取入口，不从项目、cwd 或 npm global 搜索。缺失/非法 SDK 返回 `dependency_unavailable` + Missing；不以 Node 存在冒充 SDK 就绪。此校验只保证安装边界与入口结构，SDK 真实账号/版本行为仍待端到端验收。
 
 - `engine_registry.rs` + `engine_wiring.rs`：引擎注册表是权限门、就绪分类与装配的唯一查询点。每个引擎一份 `EngineBlueprint`（descriptor、readiness spec、probe/veto/enforcement/build 闭包）；内建四引擎的名字只出现在 `engine_wiring.rs` 一个装配点。注册新引擎 = 注册新 blueprint，三模块零改动（R17）。
 - `store/orchestration.rs`：团队队列领取**策略**（生命周期门、冲突检测、FIFO 公平预留）为纯函数 `decide_claim`；`store/team.rs::claim_next_worker_task` 是记账层——读库、组装 `ClaimInputs`、按 `ClaimDecision` 落库（R18）。

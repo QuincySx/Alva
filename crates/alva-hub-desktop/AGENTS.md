@@ -68,6 +68,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Engine assembly | `src/alva.rs` | 为 workspace 构造 ALVA、Claude Code、Codex 或 Pi adapter，并投影统一第三方 ProviderConfig |
 | Inspector bridge | `src/inspection.rs` | 共享 Alva SessionRepository、校验 product/native session 归属并投影稳定递归 Inspector DTO |
 | Engine readiness | `src/readiness.rs` | 只读 probe、结构化 readiness 分类与 dashboard DTO |
+| SDK installation | `src/sdk_installation.rs` | Hub 受管 SDK 入口校验，与 task workspace 隔离，由 assembly/probe/veto 共同消费 |
 | Permission contract | `src/permissions.rs` | session PermissionProfile、adapter 映射资格与 PermissionRouter |
 | Provider plane | `src/provider_plane/` | 版本化模型身份、显式 binding 校验、per-engine override 与无 I/O 路由规划 |
 | Provider catalog | `src/providers.rs` | Provider 连接配置、backend-validated model binding、私密凭证与 route DTO 投影 |

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use alva_engine_adapter_alva::{AlvaAdapter, CatalogBaseAgentFactory, SessionRepository};
 use alva_engine_adapter_claude::{
-    ClaudePrintAdapter, ClaudePrintConfig, ClaudePrintPermissionMode,
+    ClaudeAdapter, ClaudeAdapterConfig, PermissionMode as ClaudeSdkPermissionMode,
 };
 use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig, CodexSandboxMode};
 use alva_engine_adapter_pi::{
@@ -82,15 +82,15 @@ fn require_no_custom_headers(provider: &ProviderConfig, engine_name: &str) -> Re
 fn claude_config(
     target: &EngineTarget,
     provider: Option<ProviderConfig>,
-    permission_mode: ClaudePrintPermissionMode,
-    workspace: &Path,
-) -> Result<ClaudePrintConfig, String> {
-    let mut config = ClaudePrintConfig {
-        default_cwd: Some(workspace.to_path_buf()),
+    permission_mode: ClaudeSdkPermissionMode,
+    _workspace: &Path,
+) -> Result<ClaudeAdapterConfig, String> {
+    let mut config = ClaudeAdapterConfig {
         model: explicit_model(target),
         effort: target.reasoning_effort.clone(),
         permission_mode,
-        ..ClaudePrintConfig::default()
+        persist_session: Some(true),
+        ..ClaudeAdapterConfig::default()
     };
     if let Some(provider) = provider {
         require_direct_provider(&provider, "anthropic", "Claude Code")?;
@@ -101,6 +101,19 @@ fn claude_config(
             .env
             .insert("ANTHROPIC_API_KEY".into(), provider.api_key);
     }
+    Ok(config)
+}
+
+fn claude_sdk_entry(home: Option<&Path>, workspace: &Path) -> Result<std::path::PathBuf, String> {
+    crate::sdk_installation::managed_sdk_entry(
+        home.ok_or("User home unavailable for the managed SDK installation")?, workspace,
+        Path::new(".local/share/alva-hub/runtimes/claude/node_modules/@anthropic-ai/claude-agent-sdk"),
+        "@anthropic-ai/claude-agent-sdk",
+    )
+}
+
+fn pin_claude_sdk(mut config: ClaudeAdapterConfig, home: Option<&Path>, workspace: &Path) -> Result<ClaudeAdapterConfig, String> {
+    config.sdk_package_path = Some(claude_sdk_entry(home, workspace)?.to_string_lossy().into_owned());
     Ok(config)
 }
 
@@ -280,6 +293,7 @@ pub fn builtin_blueprints() -> Vec<EngineBlueprint> {
                 let (stream_health, last_stream_failure) = probe.stream_evidence("alva");
                 EngineProbeFacts {
                     binary_path: Some("built-in".to_string()),
+                    dependency_error: None,
                     searched_locations: Vec::new(),
                     version: Some(Ok(env!("CARGO_PKG_VERSION").to_string())),
                     // Mirrors AlvaAdapter::capabilities(); building the real
@@ -341,30 +355,37 @@ pub fn builtin_blueprints() -> Vec<EngineBlueprint> {
         },
         EngineBlueprint {
             engine_id: "claude".into(),
-            descriptor: Some(alva_engine_adapter_claude::ClaudePrintAdapter::descriptor()),
+            descriptor: Some(ClaudeAdapter::descriptor()),
             readiness: ReadinessSpec {
-                display_name: "Claude Code".into(),
-                minimum_version: "1.0.0".into(),
-                default_auth_remedy: "Run `claude` once in a terminal to sign in.".into(),
+                display_name: "Claude Code SDK".into(),
+                minimum_version: "20.0.0".into(),
+                default_auth_remedy: "Install @anthropic-ai/claude-agent-sdk and sign in to Claude Code, or configure an API provider.".into(),
                 auth_kind: AuthKind::CliLogin,
             },
             probe: Arc::new(|probe: &SystemProbe| {
-                let native = probe.file_marker_auth(
+                let native = if probe.provider_authenticated_for("claude").is_some() { None } else { probe.file_marker_auth(
                     ".claude/.credentials.json",
                     ".claude.json",
                     "oauthAccount",
-                );
-                probe.cli_facts(
+                ) };
+                let mut facts = probe.cli_facts(
                     "claude",
-                    "claude",
-                    caps(ClaudePrintAdapter::new(ClaudePrintConfig::default()).capabilities()),
+                    "node",
+                    caps(ClaudeAdapter::new(ClaudeAdapterConfig::default()).capabilities()),
                     native,
-                )
+                );
+                facts.dependency_error = claude_sdk_entry(
+                    probe.home_dir().map(|path| path.as_path()), &probe.workspace_path(),
+                ).err();
+                facts
             }),
             quick_veto: Arc::new(|probe: &SystemProbe, uses_provider_api| {
-                if probe.locate("claude").is_none() {
-                    return Some("engine binary not found".to_string());
+                if probe.locate("node").is_none() {
+                    return Some("Claude Agent SDK requires Node.js".to_string());
                 }
+                if let Err(error) = claude_sdk_entry(
+                    probe.home_dir().map(|path| path.as_path()), &probe.workspace_path(),
+                ) { return Some(error); }
                 if uses_provider_api {
                     return None;
                 }
@@ -377,32 +398,30 @@ pub fn builtin_blueprints() -> Vec<EngineBlueprint> {
                     .then(|| format!("not signed in — run `login` in a terminal to sign in."))
             }),
             enforcement: Some(Arc::new(|profile| match profile {
-                PermissionProfile::Interactive => Err(format!(
-                    "claude cannot preserve or tighten the session permission profile \
-                     '{}': the claude CLI runs non-interactively and cannot route permission \
-                     approvals to you; its closest mappings auto-deny (dontAsk) or \
-                     auto-allow (acceptEdits), which weakens or silently rewrites the profile",
-                    profile.as_str()
-                )),
+                PermissionProfile::Interactive => Ok(EnforcementPlan {
+                    relation: EnforcementRelation::Equivalent,
+                    enforcement: EngineEnforcement::ClaudeSdkMode(ClaudeSdkPermissionMode::Default),
+                    summary: "Claude Agent SDK routes tool permission requests to the Hub user".into(),
+                }),
                 PermissionProfile::WorkspaceWrite => Ok(EnforcementPlan {
                     relation: EnforcementRelation::Stricter,
-                    enforcement: EngineEnforcement::ClaudePrintMode(
-                        ClaudePrintPermissionMode::AcceptEdits,
+                    enforcement: EngineEnforcement::ClaudeSdkMode(
+                        ClaudeSdkPermissionMode::Default,
                     ),
                     summary:
-                        "acceptEdits auto-accepts only file edits; other side effects are denied"
+                        "Claude Agent SDK uses approval callbacks, including for file edits"
                             .into(),
                 }),
                 PermissionProfile::Unrestricted => Ok(EnforcementPlan {
                     relation: EnforcementRelation::Equivalent,
-                    enforcement: EngineEnforcement::ClaudePrintMode(
-                        ClaudePrintPermissionMode::BypassPermissions,
+                    enforcement: EngineEnforcement::ClaudeSdkMode(
+                        ClaudeSdkPermissionMode::BypassPermissions,
                     ),
                     summary: "bypassPermissions auto-allows everything".into(),
                 }),
             })),
             build: Arc::new(|args: &EngineBuildArgs| {
-                let EngineEnforcement::ClaudePrintMode(permission_mode) = args.plan.enforcement
+                let EngineEnforcement::ClaudeSdkMode(permission_mode) = args.plan.enforcement
                 else {
                     return Err("Claude route resolved to a non-Claude enforcement".into());
                 };
@@ -412,7 +431,9 @@ pub fn builtin_blueprints() -> Vec<EngineBlueprint> {
                     permission_mode,
                     args.workspace,
                 )?;
-                Ok(Arc::new(ClaudePrintAdapter::new(config)))
+                let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+                let config = pin_claude_sdk(config, home.as_deref(), args.workspace)?;
+                Ok(Arc::new(ClaudeAdapter::new(config)))
             }),
         },
         EngineBlueprint {
@@ -567,7 +588,7 @@ mod assembly_tests {
     fn build_engine_fails_closed_for_weaken_only_combinations() {
         let workspace = tempfile::tempdir().unwrap();
         let history = tempfile::tempdir().unwrap();
-        for engine_id in ["claude", "codex"] {
+        for engine_id in ["codex", "pi"] {
             let error = match build_engine(
                 engine_id,
                 PermissionProfile::Interactive,
@@ -585,10 +606,87 @@ mod assembly_tests {
     }
 
     #[test]
+    fn claude_product_assembly_uses_sdk_permission_callbacks() {
+        let workspace = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let config = claude_config(
+            &EngineTarget::for_engine("claude").unwrap(), None,
+            ClaudeSdkPermissionMode::Default, workspace.path(),
+        ).unwrap();
+        assert_eq!(config.permission_mode, ClaudeSdkPermissionMode::Default);
+        assert_eq!(config.persist_session, Some(true));
+        assert!(config.setting_sources.is_empty());
+        assert!(pin_claude_sdk(config.clone(), Some(home.path()), workspace.path()).is_err());
+        let package = home.path().join(".local/share/alva-hub/runtimes/claude/node_modules/@anthropic-ai/claude-agent-sdk");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(package.join("package.json"), r#"{"name":"@anthropic-ai/claude-agent-sdk","version":"1.0.0","main":"sdk.mjs"}"#).unwrap();
+        std::fs::write(package.join("sdk.mjs"), "throw new Error('probe must not import');").unwrap();
+        let config = pin_claude_sdk(config, Some(home.path()), workspace.path()).unwrap();
+        assert_eq!(config.sdk_package_path.as_deref(), package.canonicalize().unwrap().join("sdk.mjs").to_str());
+        assert!(ClaudeAdapter::new(config).capabilities().permission_callback);
+    }
+
+    #[test]
+    fn sdk_missing_is_reported_and_vetoed_even_with_node_and_provider_auth() {
+        let home = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let bin = tempfile::tempdir().unwrap();
+        let node = bin.path().join(if cfg!(windows) { "node.exe" } else { "node" });
+        std::fs::write(&node, "").unwrap();
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let probe = SystemProbe::new(None, Some(workspace.path().into()))
+            .with_home_dir(home.path().into()).with_search_paths(vec![bin.path().into()])
+            .with_provider_authenticated("claude", true);
+        let error = probe.quick_veto_for_target("claude", true).expect("missing SDK must veto API route");
+        assert!(error.contains("Managed SDK"));
+        let facts = (crate::engine_registry::blueprint("claude").unwrap().probe)(&probe);
+        assert_eq!(facts.dependency_error.as_deref(), Some(error.as_str()));
+        let report = crate::readiness::classify_engine("claude", EngineProbeFacts {
+            binary_path: Some(node.to_string_lossy().into_owned()),
+            version: Some(Ok("22.0.0".into())), authenticated: Some(true),
+            dependency_error: Some(error), ..Default::default()
+        });
+        assert_eq!(report.status, crate::readiness::ReadinessStatus::Missing);
+        assert!(matches!(&report.reasons[0], crate::readiness::ReadinessReason::DependencyUnavailable { .. }));
+    }
+
+    #[tokio::test]
+    async fn pinned_product_sdk_ignores_a_hostile_workspace_package() {
+        use tokio_stream::StreamExt;
+        let home = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let trusted = home.path().join(".local/share/alva-hub/runtimes/claude/node_modules/@anthropic-ai/claude-agent-sdk");
+        let hostile = workspace.path().join("node_modules/@anthropic-ai/claude-agent-sdk");
+        for package in [&trusted, &hostile] {
+            std::fs::create_dir_all(package).unwrap();
+            std::fs::write(package.join("package.json"), r#"{"name":"@anthropic-ai/claude-agent-sdk","version":"1.0.0","main":"sdk.mjs"}"#).unwrap();
+        }
+        std::fs::write(hostile.join("sdk.mjs"), "throw new Error('project SDK must never load');").unwrap();
+        std::fs::write(trusted.join("sdk.mjs"), r#"
+export function query() { return (async function* () {
+  yield { type: 'system', subtype: 'init', session_id: 'trusted-sdk', model: 'fake', tools: [] };
+  yield { type: 'result', subtype: 'success', result: 'trusted-sdk-ok', duration_ms: 1, num_turns: 1, usage: {} };
+})(); }
+"#).unwrap();
+        let config = claude_config(&EngineTarget::for_engine("claude").unwrap(),
+            Some(direct_provider("anthropic")), ClaudeSdkPermissionMode::Default, workspace.path()).unwrap();
+        let config = pin_claude_sdk(config, Some(home.path()), workspace.path()).unwrap();
+        let adapter = ClaudeAdapter::new(config);
+        let events: Vec<_> = adapter.execute(alva_engine_runtime::RuntimeRequest::new("synthetic test").with_cwd(workspace.path()))
+            .unwrap().collect().await;
+        assert!(events.iter().any(|event| matches!(event,
+            alva_engine_runtime::RuntimeEvent::Completed { result: Some(text), .. } if text == "trusted-sdk-ok")), "{events:?}");
+        assert!(!events.iter().any(|event| matches!(event, alva_engine_runtime::RuntimeEvent::Error { .. })), "{events:?}");
+    }
+
+    #[test]
     fn eligible_cli_engines_assemble_with_profile_mapping() {
         let workspace = tempfile::tempdir().unwrap();
         let history = tempfile::tempdir().unwrap();
-        for engine_id in ["claude", "codex"] {
+        for engine_id in ["codex"] {
             for profile in [
                 PermissionProfile::WorkspaceWrite,
                 PermissionProfile::Unrestricted,
@@ -614,7 +712,7 @@ mod assembly_tests {
         let claude = claude_config(
             &claude_target,
             Some(direct_provider("anthropic")),
-            alva_engine_adapter_claude::ClaudePrintPermissionMode::AcceptEdits,
+            ClaudeSdkPermissionMode::Default,
             workspace.path(),
         )
         .unwrap();
@@ -708,7 +806,7 @@ mod assembly_tests {
         assert!(claude_config(
             &claude_target,
             Some(direct_provider("openai-responses")),
-            alva_engine_adapter_claude::ClaudePrintPermissionMode::AcceptEdits,
+            ClaudeSdkPermissionMode::Default,
             workspace.path(),
         )
         .unwrap_err()

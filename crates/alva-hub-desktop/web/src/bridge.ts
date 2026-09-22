@@ -479,6 +479,7 @@ export type ReadinessReason =
   | { code: "binary_not_found"; searched: string[] }
   | { code: "version_unreadable"; detail: string }
   | { code: "version_incompatible"; found: string; minimum: string }
+  | { code: "dependency_unavailable"; detail: string }
   | { code: "unauthenticated"; remedy: string }
   | { code: "provider_key_missing"; remedy: string }
   | { code: "stream_failing"; last_failure: string };

@@ -17,6 +17,7 @@ mod redact;
 mod repair;
 mod run;
 mod session_workspace;
+mod sdk_installation;
 mod store;
 mod worktree;
 pub mod worktree_discovery;

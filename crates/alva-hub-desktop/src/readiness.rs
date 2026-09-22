@@ -69,6 +69,7 @@ pub struct ReadinessSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
 pub enum ReadinessReason {
+    DependencyUnavailable { detail: String },
     BinaryNotFound { searched: Vec<String> },
     VersionUnreadable { detail: String },
     VersionIncompatible { found: String, minimum: String },
@@ -81,6 +82,7 @@ impl ReadinessReason {
     /// Human-readable one-liner for timeline facts (fallback skip reasons).
     pub fn describe(&self) -> String {
         match self {
+            ReadinessReason::DependencyUnavailable { detail } => detail.clone(),
             ReadinessReason::BinaryNotFound { .. } => "engine binary not found".to_string(),
             ReadinessReason::VersionUnreadable { detail } => {
                 format!("engine version unreadable: {detail}")
@@ -120,6 +122,7 @@ pub struct EngineReadiness {
 /// classification happens in [`classify_engine`].
 #[derive(Debug, Clone, Default)]
 pub struct EngineProbeFacts {
+    pub dependency_error: Option<String>,
     pub binary_path: Option<String>,
     pub searched_locations: Vec<String>,
     pub version: Option<Result<String, String>>,
@@ -165,6 +168,11 @@ pub fn classify_engine(engine_id: &str, facts: EngineProbeFacts) -> EngineReadin
         reasons.push(ReadinessReason::BinaryNotFound {
             searched: facts.searched_locations.clone(),
         });
+        return finish(spec, engine_id, facts, ReadinessStatus::Missing, reasons);
+    }
+
+    if let Some(detail) = &facts.dependency_error {
+        reasons.push(ReadinessReason::DependencyUnavailable { detail: detail.clone() });
         return finish(spec, engine_id, facts, ReadinessStatus::Missing, reasons);
     }
 
@@ -460,6 +468,7 @@ impl SystemProbe {
         let (stream_health, last_stream_failure) = self.stream_evidence(engine_id);
         EngineProbeFacts {
             binary_path: Some(binary.display().to_string()),
+            dependency_error: None,
             searched_locations: self.searched_locations(),
             version: Some(read_cli_version(&binary)),
             capabilities,

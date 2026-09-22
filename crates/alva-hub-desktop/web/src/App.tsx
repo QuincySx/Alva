@@ -158,6 +158,8 @@ import { localizeProductText, localizeSystemText, useI18n, type Locale, type Tra
 export function describeReadinessReason(reason: ReadinessReason, locale: Locale = "en-US"): string {
   const zh = locale === "zh-CN";
   switch (reason.code) {
+    case "dependency_unavailable":
+      return zh ? `运行时依赖不可用：${reason.detail}` : `Runtime dependency unavailable: ${reason.detail}`;
     case "binary_not_found":
       return zh ? `未安装 — 已搜索 ${reason.searched.join(", ") || "PATH"}。` : `Not installed — searched ${reason.searched.join(", ") || "PATH"}.`;
     case "version_unreadable":

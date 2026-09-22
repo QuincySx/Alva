@@ -61,6 +61,18 @@ fn docs_url(engine_id: &str) -> Option<&'static str> {
 pub fn repair_plan(readiness: &EngineReadiness) -> Vec<RepairAction> {
     let engine_id = readiness.engine_id.as_str();
     let mut actions = Vec::new();
+    // The SDK bridge's executable is Node, not the light-mode Claude CLI.
+    // Installing/upgrading claude-code cannot repair a missing/old Node.
+    if engine_id == "claude" && matches!(readiness.status, ReadinessStatus::Missing | ReadinessStatus::Incompatible) {
+        return vec![RepairAction {
+            engine_id: engine_id.into(),
+            kind: if readiness.status == ReadinessStatus::Missing { RepairKind::Install } else { RepairKind::Upgrade },
+            title: "Install Node.js 20+; install @anthropic-ai/claude-agent-sdk with npm --prefix \"$HOME/.local/share/alva-hub/runtimes/claude\" install --save-exact @anthropic-ai/claude-agent-sdk@<reviewed-version>; then refresh".into(),
+            command: None,
+            url: docs_url(engine_id).map(String::from),
+            one_click: false,
+        }];
+    }
     match readiness.status {
         ReadinessStatus::Healthy | ReadinessStatus::Unhealthy => {}
         ReadinessStatus::Missing => {
@@ -291,7 +303,6 @@ mod tests {
     #[test]
     fn missing_npm_engines_get_a_one_click_install() {
         for (engine, package) in [
-            ("claude", "@anthropic-ai/claude-code"),
             ("codex", "@openai/codex"),
             ("pi", "@earendil-works/pi-coding-agent"),
         ] {
@@ -310,11 +321,11 @@ mod tests {
 
     #[test]
     fn incompatible_engines_get_a_one_click_upgrade_with_minimum_named() {
-        let plan = repair_plan(&readiness_for("claude", installed("0.2.0", Some(true))));
+        let plan = repair_plan(&readiness_for("codex", installed("0.2.0", Some(true))));
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].kind, RepairKind::Upgrade);
         assert!(plan[0].one_click);
-        assert!(plan[0].title.contains("1.0.0"));
+        assert!(plan[0].title.contains(&readiness_for("codex", missing()).minimum_version));
         assert!(plan[0]
             .command
             .as_deref()
@@ -323,7 +334,7 @@ mod tests {
 
     #[test]
     fn unauthenticated_engines_get_guided_auth_never_one_click() {
-        let claude = repair_plan(&readiness_for("claude", installed("2.0.0", Some(false))));
+        let claude = repair_plan(&readiness_for("claude", installed("22.0.0", Some(false))));
         assert_eq!(claude[0].kind, RepairKind::Authenticate);
         assert!(!claude[0].one_click);
 
@@ -343,7 +354,17 @@ mod tests {
 
     #[test]
     fn healthy_engines_need_no_repair() {
-        assert!(repair_plan(&readiness_for("claude", installed("2.0.0", Some(true)))).is_empty());
+        assert!(repair_plan(&readiness_for("claude", installed("22.0.0", Some(true)))).is_empty());
+    }
+
+    #[test]
+    fn sdk_runtime_repair_never_installs_the_light_cli_as_a_node_fix() {
+        let readiness = readiness_for("claude", missing());
+        let plan = repair_plan(&readiness);
+        assert_eq!(plan.len(), 1);
+        assert!(!plan[0].one_click);
+        assert!(plan[0].title.contains("Node.js"));
+        assert!(repair_argv(&readiness, RepairKind::Install).is_err());
     }
 
     #[test]

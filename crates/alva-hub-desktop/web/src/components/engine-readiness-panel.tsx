@@ -25,6 +25,8 @@ export interface EngineReadinessPanelProps {
 
 function summarizeReason(reason: EngineReadiness["reasons"][number], t: Translate): string {
   switch (reason.code) {
+    case "dependency_unavailable":
+      return t("readiness.install");
     case "binary_not_found":
       return t("readiness.install");
     case "version_unreadable":

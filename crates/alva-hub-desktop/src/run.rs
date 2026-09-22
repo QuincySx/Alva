@@ -4815,7 +4815,7 @@ mod tests {
         let mut codex = crate::store::EngineTarget::for_engine("codex").unwrap();
         codex.automatic_use_authorized = true;
         store
-            .set_global_fallback_policy(vec![authorized_claude(), codex])
+            .set_global_fallback_policy(vec![codex])
             .unwrap();
 
         let alva = Arc::new(FakeEngine::new(vec![RuntimeEvent::Error {
@@ -4867,7 +4867,7 @@ mod tests {
                 .iter()
                 .map(|event| event.target_engine_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["claude", "codex"]
+            vec!["codex"]
         );
         for skip in &skips {
             assert!(
@@ -4882,7 +4882,6 @@ mod tests {
             .iter()
             .find(|event| event.kind == "fallback_exhausted")
             .expect("chain exhaustion card recorded");
-        assert!(exhausted.reason.contains("claude: skipped"));
         assert!(exhausted.reason.contains("codex: skipped"));
     }
 

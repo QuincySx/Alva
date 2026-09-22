@@ -46,6 +46,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 - 保存 fallback target 前必须展示 model/provider、账号来源、账单路径与自动使用授权；手动 switch 不改变授权。
 - interrupted 会话保持可选择、可继续，不能伪装成 running 或普通 completed。
 - readiness 原因渲染结构化 reason code，不透传 stderr 文本；Refresh 只读，不改任何配置。
+- `dependency_unavailable` 表示运行时安装缺失或不安全，详情显示后端固定说明、摘要引导安装；不能当普通登录错误。
 - 基础视觉与交互决策以 `docs/adr/0006-hub-tauri-ui-system.md` 为准；不得恢复旧 GPUI 产品 UI 路线。
 - 所有交互必须键盘可达、focus 可见并满足 WCAG AA；中英文 fixture 不得破版。
 
