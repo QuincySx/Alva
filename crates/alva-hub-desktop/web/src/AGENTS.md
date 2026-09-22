@@ -9,7 +9,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 ## 逻辑
 
 1. `bridge` 创建独立会话 workspace 或选择项目 workspace、提交/恢复 prompt、请求手动 engine switch、global/session fallback policy 与 engine readiness，并读取持久化 session。
-2. `App` 的新会话中央入口把“项目”放在第一位并标为推荐，项目模式打开目录选择器；“独立会话”作为第二选项向 Desktop 请求专属受管目录。Sidebar 不放 Workspace 入口，避免与中央创建流程重复。随后 App 管理 session list、EngineBranch、fallback chain、switch queue、历史 Turn/Attempt 和用户输入。
+2. `StartupGate` 提供对话与项目两种入口；对话创建专属受管目录，项目显示持久化项目及只读发现的工作树。`App` 与 Sidebar 可选择有效工作树作为下一会话 cwd，缺失/bare/prunable 工作树不可启动；不迁移已有会话、不隐式创建仓库。随后 App 管理 session list、EngineBranch、fallback chain、switch queue、历史 Turn/Attempt 和用户输入。
 2.1. Settings 的 provider 连接先保存到后端私有 catalog，再通过 IPC 做远程模型发现或 exact route 的最小推理测试；同一连接由后端按协议自动派生 ALVA/Claude Code/Codex/Pi route，web 只拿脱敏的发现候选与 non-authoritative registry binding preview，用户逐项或批量确认后才进入 draft，Save 时后端重新校验 binding，随后才成为 Composer route。
 2.2. `i18n` 是产品文案入口：默认简体中文，支持 English 与跟随系统，选择持久化到本地 WebView；领域组件使用 typed message key，不在组件内按语言写条件分支。
 3. `App` 的 Engines dashboard 展示每个 engine 的版本/能力/auth/stream health 与结构化不可用原因；Composer 保留全部已配置 route，可用项在前，不可用项在底部独立分组并显示具体原因；可用 route 的悬浮选项面板只展示后端按 provider × model × engine 声明的 reasoning 档位与 Fast 能力，未知模型不猜测选项、不展示 Fast，选择写回真实 EngineTarget。
@@ -80,6 +80,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | ChatTranscript | `components/chat-transcript.tsx` | 中央消息/工具/审批/状态共享一个有界窗口；消息使用安全 Markdown、代码复制与跟随/回底，execution renderer 消费非消息行 |
 | Timeline | `components/hub-timeline.tsx` | 中央执行行与 Workbench 执行概览；工具参数/输出默认展开，审批/失败/fallback 动作保留；大输出目前仍受后端摘要上限约束，不代表全文验收 |
 | Session projection/window | `session/` | 稳定条目合并与动态高度虚拟窗口；ResizeObserver 测量、阅读锚点补偿、会话卸载清理 |
+| Startup selection tests | `components/startup-gate.test.tsx` | 工作树选择准确传递 cwd，缺失/bare/prunable 目录禁用 |
 | Engine Inspector | `components/engine-inspector.tsx` | 稳定 durable snapshot 的运行/轮次/LLM/Tool/Middleware/raw record 视图、实时刷新和递归 Agent 页栈 |
 | Session details | `components/session-details.tsx` | 会话记忆、分支、尝试、handoff envelope 与引擎诊断 |
 | Engine readiness | `components/engine-readiness-panel.tsx` | 引擎健康、能力、修复计划与官方指引入口 |

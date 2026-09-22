@@ -1057,8 +1057,13 @@ export default function App() {
     }
   }
 
-  function openProject(project: ProjectSummary) {
-    setWorkspace(project.workspace_path);
+  function openProject(project: ProjectSummary, worktreePath?: string) {
+    // Choosing an existing worktree is an explicit new-task cwd choice,
+    // never a mutation of the current conversation's stored workspace.
+    if (worktreePath && !projectWorktrees[project.project_id]?.worktrees.some(
+      (tree) => tree.path === worktreePath && tree.exists_on_disk && !tree.bare && tree.prunable === null,
+    )) return;
+    setWorkspace(worktreePath ?? project.workspace_path);
     setWorkspaceKind("project");
     setActiveProjectId(project.project_id);
     resetSessionSurface();
@@ -1649,6 +1654,30 @@ export default function App() {
           sessionQuery={sessionQuery}
           sessions={filteredSessions}
           totalSessionCount={sessions.length}
+          projectNavigation={entryMode === "project" ? (
+            <section aria-label={t("startup.worktrees")} className="hub-sidebar__projects">
+              {projects.map((project) => (
+                <div key={project.project_id}>
+                  <Button disabled={busy} variant="ghost" size="small"
+                    onClick={() => { openProject(project); setActivePage("conversation"); }}>
+                    {project.display_name}
+                  </Button>
+                  <ul>
+                    {(projectWorktrees[project.project_id]?.worktrees ?? []).map((tree) => (
+                      <li key={tree.path}>
+                        <Button disabled={busy || !tree.exists_on_disk || tree.bare || tree.prunable !== null}
+                          variant={workspace === tree.path ? "secondary" : "ghost"} size="small"
+                          title={tree.path}
+                          onClick={() => { openProject(project, tree.path); setActivePage("conversation"); }}>
+                          {tree.branch?.replace(/^refs\/heads\//, "") ?? tree.head?.slice(0, 8) ?? t("startup.worktree")}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </section>
+          ) : undefined}
         />
         <button
           aria-hidden={!narrowSidebarOpen}

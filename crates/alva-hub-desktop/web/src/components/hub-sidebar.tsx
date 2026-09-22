@@ -3,6 +3,7 @@
 // POS:    Left product rail composed only from ALVA UI primitives
 
 import { Blocks, MessageSquarePlus, Search, Settings, Workflow } from "lucide-react";
+import type { ReactNode } from "react";
 import type { HubSessionSummary } from "../bridge";
 import { useI18n } from "../i18n";
 import type { HubPage } from "./product-pages";
@@ -32,6 +33,7 @@ export interface HubSidebarProps {
   totalSessionCount: number;
   activePage: HubPage;
   onNavigate: (page: HubPage) => void;
+  projectNavigation?: ReactNode;
 }
 
 export function HubSidebar({
@@ -47,6 +49,7 @@ export function HubSidebar({
   totalSessionCount,
   activePage,
   onNavigate,
+  projectNavigation,
   narrowOpen,
   onNarrowNavigate,
 }: HubSidebarProps & { narrowOpen?: boolean; onNarrowNavigate?: () => void }) {
@@ -105,6 +108,7 @@ export function HubSidebar({
           onChange={(event) => onSessionQueryChange(event.target.value)}
         />
       </div>
+      {projectNavigation}
       <NavGroup
         className="hub-sidebar__sessions"
         count={

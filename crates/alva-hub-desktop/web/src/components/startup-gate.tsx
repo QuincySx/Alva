@@ -28,7 +28,7 @@ export interface StartupGateProps {
   projectWorktrees: Record<string, ProjectWorktreeState>;
   projectsSupported: boolean;
   onEntryModeChange: (mode: EntryMode) => void;
-  onOpenProject: (project: ProjectSummary) => void;
+  onOpenProject: (project: ProjectSummary, worktreePath?: string) => void;
   onAddProject: () => void;
   onDeleteProject: (project: ProjectSummary) => void;
   onRefreshProjects: () => void;
@@ -181,6 +181,20 @@ export function StartupGate({
                         {t("startup.sessionCount", { count: project.session_count })}
                         {worktreeLine ? ` · ${worktreeLine}` : ""}
                       </small>
+                      <ul aria-label={t("startup.worktrees")}>
+                        {(projectWorktrees[project.project_id]?.worktrees ?? []).map((tree) => (
+                          <li key={tree.path}>
+                            <Button size="small" variant="ghost"
+                              disabled={busy || !tree.exists_on_disk || tree.bare || tree.prunable !== null}
+                              onClick={() => onOpenProject(project, tree.path)}>
+                              {tree.branch?.replace(/^refs\/heads\//, "") ?? tree.head?.slice(0, 8) ?? t("startup.worktree")}
+                              {tree.managed_by_hub ? " · Hub" : ""}
+                            </Button>
+                            <code>{tree.path}</code>
+                            {!tree.exists_on_disk ? <small>{t("startup.missingWorktree")}</small> : null}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                     <div className="hub-startup-projects__actions">
                       <Button
