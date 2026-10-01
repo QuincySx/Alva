@@ -1,5 +1,12 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-01 继续实施 · 消息片段协议
+
+- 移除“正文相等就是重复”的启发式；新 live DTO 在共享产品 emit 层携带 attempt-scoped stream_id + UTF-16 offset，Tauri/SSE 不各自生成序号。相同正文不同位置保留，同位置重发去重，乱序片段等缺口补齐，终态不因迟到片段复活；跨 attempt 的相同 native message ID 分开。
+- 旧事件无 position 时按到达顺序追加，不能猜测是否重发。普通 native ID 的 assistant_message 正确归类消息，不落入 control 卡。
+- 验证：Hub lib 串行 **195 passed / 5 filtered**；前端 **143 passed**；Desktop + Server `cargo check --all-targets` pass；TypeScript/Vite build pass。无真实账号/计费调用。
+- 边界：完整耐久消息日志、断线补页与全产品验收仍未完成；工具全文分块另一个提交实施。
+
 ## 2026-09-22 Review 剩余两项修复
 
 - 本轮关闭原 5 项 review 中剩余的工具顺序和长列表定位，不代表下方产品 backlog 全完成。

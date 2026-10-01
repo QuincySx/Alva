@@ -14,6 +14,8 @@ import type { HubTimelineEvent } from "../components/hub-timeline";
 export type EntryKind = "message" | "activity" | "control";
 
 export interface TimelineEntry extends HubTimelineEvent {
+  /** Only out-of-order fragments are buffered; the normal path stores no log. */
+  readonly pendingText?: Readonly<Record<number, string>>;
   /** Canonical cross-restart identity: `${product_session_id}::${identity}`
    *  where identity is the engine item id, or a deterministic synthesis from
    *  the event facts when the engine sent none. Never an array index. */
@@ -70,7 +72,7 @@ export function toEntry(event: HubTimelineEvent): TimelineEntry {
   let turnId: string | null = null;
   let attemptId: string | null = null;
   let toolId: string | null = null;
-  if (event.role === "user" || event.role === "assistant") {
+  if (event.role === "user" || event.role === "assistant" || event.status === "assistant_message" || event.message_position) {
     kind = "message";
     turnId = turnMatch ? turnMatch[1] : null;
   } else if (turnMatch) {
@@ -90,8 +92,10 @@ export function toEntry(event: HubTimelineEvent): TimelineEntry {
   }
   return {
     ...event,
-    role: event.role,
-    id: event.activity?.attempt_id
+    role: event.role ?? (event.status === "assistant_message" || event.message_position ? "assistant" : undefined),
+    id: event.message_position
+      ? JSON.stringify([event.product_session_id, "message", event.message_position.stream_id, itemId])
+      : event.activity?.attempt_id
       ? JSON.stringify([event.product_session_id, event.activity.attempt_id, itemId ?? synthesizedIdentity(event)])
       : `${event.product_session_id}::${itemId ?? synthesizedIdentity(event)}`,
     itemId,
@@ -129,14 +133,17 @@ export function sortEntries(entries: TimelineEntry[]): TimelineEntry[] {
  * updates status only (R29). Activity/control items: the newest body wins
  * wholesale so tool cards and failure cards never show stale captions (R40).
  *
- * Duplicate delivery of the same fact (late event, reconnect backfill) merges
- * into the same entry instead of duplicating it.
+ * Positioned message fragments dedupe by offset and buffer gaps. Legacy
+ * messages without positions append verbatim: equal text is not evidence of
+ * redelivery. A complete durable message journal is a separate contract.
  */
 export function mergeEntry(current: TimelineEntry[], incoming: HubTimelineEvent): TimelineEntry[] {
   const observed = toEntry(incoming);
   const index = current.findIndex((candidate) => candidate.id === observed.id);
   if (index < 0) {
-    return sortEntries([...current, observed]);
+    const initialized = observed.message_position && observed.status === "assistant_message"
+      ? { ...observed, ...mergePositionedText("", undefined, observed) } : observed;
+    return sortEntries([...current, initialized]);
   }
   const merged = mergeEntryAncestry(current[index], observed);
   const next = [...current];
@@ -172,14 +179,40 @@ function mergeEntryAncestry(previous: TimelineEntry, incoming: TimelineEntry): T
     return { ...base, message: incoming.message ?? null };
   }
   if (incoming.status === "assistant_message") {
-    // Append streaming deltas — but a redelivery whose text equals the whole
-    // current body is a duplicate of the same fact, not a delta (H20: late /
-    // duplicate events must not corrupt the body).
-    const delta = incoming.message ?? "";
-    const duplicate = delta === "" || delta === (previous.message ?? "");
-    return { ...base, message: duplicate ? previous.message : `${previous.message ?? ""}${delta}` };
+    const text = incoming.message_position
+      ? mergePositionedText(previous.message ?? "", previous.pendingText, incoming)
+      : { message: `${previous.message ?? ""}${incoming.message ?? ""}` };
+    // Late fragments may fill a gap after termination, but cannot resurrect it.
+    const terminal = ["completed", "failed", "interrupted"].includes(previous.status);
+    return { ...base, ...text, status: terminal ? previous.status : base.status };
   }
   return { ...base, message: previous.message || incoming.message || null };
+}
+
+/** A duplicate has the same position, not the same text. Retain gaps until
+ * their missing fragment arrives, including before the first visible text. */
+function mergePositionedText(
+  message: string,
+  pending: TimelineEntry["pendingText"],
+  incoming: TimelineEntry,
+): Pick<TimelineEntry, "message" | "pendingText"> {
+  const offset = incoming.message_position!.offset;
+  if (!Number.isSafeInteger(offset) || offset < message.length || offset < 0) {
+    return { message, pendingText: pending };
+  }
+  const text = incoming.message ?? "";
+  if (offset > message.length) {
+    return { message, pendingText: pending?.[offset] !== undefined ? pending : { ...pending, [offset]: text } };
+  }
+  message += text;
+  if (!pending) return { message };
+  const remaining = { ...pending };
+  while (remaining[message.length] !== undefined) {
+    const fragment = remaining[message.length];
+    delete remaining[message.length];
+    message += fragment;
+  }
+  return { message, pendingText: Object.keys(remaining).length ? remaining : undefined };
 }
 
 /** Project the durable record into display entries with the same identity and

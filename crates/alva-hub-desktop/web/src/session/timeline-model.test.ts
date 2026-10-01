@@ -101,11 +101,50 @@ describe("mergeEntry — the one merge semantic", () => {
     expect(entries[0].message).toBe("crashed");
   });
 
-  it("dedupes duplicate delivery of the same fact", () => {
-    let entries = [entryOf({ status: "assistant_message", role: "assistant", message: "done", created_at: 10, item_id: "t1:assistant" })];
-    entries = mergeEntry(entries, liveEvent({ status: "assistant_message", message: "done", created_at: 10, item_id: "t1:assistant" }) as HubTimelineEvent);
+  it("dedupes duplicate delivery by position, never by text", () => {
+    const event = liveEvent({ status: "assistant_message", message: "done", created_at: 10, item_id: "native-id",
+      message_position: { stream_id: "attempt-1", offset: 0 } });
+    let entries = mergeEntry([], event);
+    entries = mergeEntry(entries, { ...event });
     expect(entries).toHaveLength(1);
     expect(entries[0].message).toBe("done");
+  });
+
+  it("retains identical consecutive legacy deltas even in the same millisecond", () => {
+    const event = liveEvent({ status: "assistant_message", message: "哈", created_at: 10, item_id: "native-id" });
+    const entries = mergeEntry(mergeEntry([], event), { ...event });
+    expect(entries[0].message).toBe("哈哈");
+    expect(entries[0].kind).toBe("message");
+    expect(entries[0].role).toBe("assistant");
+  });
+
+  it("fills reordered Unicode fragments and ignores earlier redelivery after later text", () => {
+    const fragment = (offset: number, message: string) => liveEvent({
+      status: "assistant_message", message, item_id: "native-id",
+      message_position: { stream_id: "attempt-1", offset },
+    });
+    let entries = mergeEntry([], fragment(4, "好"));
+    entries = mergeEntry(entries, fragment(2, "🙂"));
+    entries = mergeEntry(entries, fragment(4, "好"));
+    expect(entries[0].message).toBe("");
+    entries = mergeEntry(entries, fragment(0, "🙂"));
+    expect(entries[0].message).toBe("🙂🙂好");
+    expect(entries[0].pendingText).toBeUndefined();
+    entries = mergeEntry(entries, fragment(2, "🙂"));
+    expect(entries[0].message).toBe("🙂🙂好");
+    entries = mergeEntry(entries, { ...fragment(0, "new"), message_position: { stream_id: "attempt-2", offset: 0 } });
+    expect(entries).toHaveLength(2);
+  });
+
+  it("does not resurrect a terminal message when its missing fragment arrives", () => {
+    const event = liveEvent({status: "assistant_message", message: "a", item_id: "native-id",
+      message_position: { stream_id: "attempt-1", offset: 0 }});
+    let entries = mergeEntry([], event);
+    entries = mergeEntry(entries, { ...event, message: "c", message_position: { stream_id: "attempt-1", offset: 2 } });
+    entries = mergeEntry(entries, { ...event, status: "failed", message: "error" });
+    entries = mergeEntry(entries, { ...event, message: "b", message_position: { stream_id: "attempt-1", offset: 1 } });
+    expect(entries[0].message).toBe("abc");
+    expect(entries[0].status).toBe("failed");
   });
 
   it("never merges parallel tools that share a tool name", () => {

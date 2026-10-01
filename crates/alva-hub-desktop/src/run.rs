@@ -81,6 +81,9 @@ pub struct PermissionRequestInfo {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct TimelineEvent {
+    /// Attempt-scoped message position, preserved identically by Tauri and SSE.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_position: Option<MessagePosition>,
     pub status: TimelineStatus,
     pub engine_id: String,
     pub product_session_id: String,
@@ -94,6 +97,13 @@ pub struct TimelineEvent {
     pub activity: Option<TimelineActivity>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_request: Option<PermissionRequestInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct MessagePosition {
+    pub stream_id: String,
+    /// UTF-16 code units, matching JavaScript string indexing (including emoji).
+    pub offset: usize,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -431,6 +441,7 @@ where
             )),
             item_id: Some(prepared.attempt_id.clone()),
             activity: None,
+            message_position: None,
             permission_request: None,
         });
         execution = match built {
@@ -494,6 +505,7 @@ where
             message: Some(summary),
             item_id: Some(prepared.attempt_id.clone()),
             activity: None,
+            message_position: None,
             permission_request: None,
         });
     }
@@ -525,6 +537,7 @@ where
         message: Some(message.clone()),
         item_id: Some(prepared.attempt_id.clone()),
         activity: None,
+        message_position: None,
         permission_request: None,
     });
     ExecutedTurn {
@@ -655,6 +668,41 @@ where
     F: FnMut(TimelineEvent) + Send,
 {
     let product_id = product_session_id.as_str().to_string();
+    let stream_id = persistence
+        .map(|(_, prepared)| prepared.attempt_id.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let mut message_offsets = HashMap::<String, usize>::new();
+    let emit = &mut |mut event: TimelineEvent| {
+        if let Some(id) = event.item_id.as_ref() {
+            if event.status == TimelineStatus::AssistantMessage {
+                let offset = message_offsets.entry(id.clone()).or_default();
+                event.message_position = Some(MessagePosition {
+                    stream_id: stream_id.clone(),
+                    offset: *offset,
+                });
+                *offset += event
+                    .message
+                    .as_deref()
+                    .unwrap_or_default()
+                    .encode_utf16()
+                    .count();
+            } else if let Some(offset) = message_offsets.get(id) {
+                // Keep terminal status attached to the very same message row.
+                if matches!(
+                    event.status,
+                    TimelineStatus::Completed
+                        | TimelineStatus::Failed
+                        | TimelineStatus::Interrupted
+                ) {
+                    event.message_position = Some(MessagePosition {
+                        stream_id: stream_id.clone(),
+                        offset: *offset,
+                    });
+                }
+            }
+        }
+        emit(event);
+    };
     emit(TimelineEvent {
         status: TimelineStatus::UserMessage,
         engine_id: engine_id.to_string(),
@@ -663,6 +711,7 @@ where
         message: Some(prompt.clone()),
         item_id: persistence.map(|(_, prepared)| format!("{}:user", prepared.turn_id)),
         activity: None,
+        message_position: None,
         permission_request: None,
     });
     let runtime_request = RuntimeRequest::new(prompt)
@@ -704,6 +753,7 @@ where
                 message: Some(message.clone()),
                 item_id: None,
                 activity: None,
+                message_position: None,
                 permission_request: None,
             });
             return ExecutedTurn {
@@ -755,6 +805,7 @@ where
                             message: Some(message.clone()),
                             item_id: persistence.map(|(_, prepared)| prepared.attempt_id.clone()),
                             activity: None,
+                            message_position: None,
                             permission_request: None,
                         });
                         failure_class = Some(FailureClass::Stall);
@@ -818,6 +869,7 @@ where
                             message: Some(format!("'{tool_name}' is waiting for your approval")),
                             item_id: Some(request_id.clone()),
                             activity: None,
+                            message_position: None,
                             permission_request: Some(PermissionRequestInfo {
                                 request_id,
                                 tool_name,
@@ -839,6 +891,7 @@ where
                             )),
                             item_id: Some(request_id),
                             activity: None,
+                            message_position: None,
                             permission_request: None,
                         });
                     }
@@ -856,6 +909,7 @@ where
                             message: Some(message.clone()),
                             item_id: persistence.map(|(_, prepared)| prepared.attempt_id.clone()),
                             activity: None,
+                            message_position: None,
                             permission_request: None,
                         });
                         terminal_error = Some(message);
@@ -880,6 +934,7 @@ where
                             message: None,
                             item_id: persistence.map(|(_, prepared)| prepared.turn_id.clone()),
                             activity: None,
+                            message_position: None,
                             permission_request: None,
                         });
                     }
@@ -903,6 +958,7 @@ where
                             message: Some(text),
                             item_id: Some(id),
                             activity: None,
+                            message_position: None,
                             permission_request: None,
                         });
                     }
@@ -922,6 +978,7 @@ where
                     message: Some(text),
                     item_id: Some(id),
                     activity: None,
+                    message_position: None,
                     permission_request: None,
                 });
             }
@@ -953,6 +1010,7 @@ where
                         tool_input: tool_input.clone(),
                         tool_output: None,
                     }),
+                    message_position: None,
                     permission_request: None,
                 });
                 if let Some((store, prepared)) = persistence {
@@ -1015,6 +1073,7 @@ where
                         tool_input: None,
                         tool_output: tool_output.clone(),
                     }),
+                    message_position: None,
                     permission_request: None,
                 });
                 if let Some((store, prepared)) = persistence {
@@ -1053,6 +1112,7 @@ where
                         message: Some(message.clone()),
                         item_id: persistence.map(|(_, prepared)| prepared.attempt_id.clone()),
                         activity: None,
+                        message_position: None,
                         permission_request: None,
                     });
                     failure_class = Some(classify_failure(&message));
@@ -1079,6 +1139,7 @@ where
                         persistence.map(|(_, prepared)| format!("{}:assistant", prepared.turn_id))
                     }),
                     activity: None,
+                    message_position: None,
                     permission_request: None,
                 });
                 break;
@@ -1137,6 +1198,7 @@ fn capture_persistence_error<F>(
                 message: Some(message.clone()),
                 item_id: None,
                 activity: None,
+                message_position: None,
                 permission_request: None,
             });
             *terminal_error = Some(message);
@@ -1430,6 +1492,8 @@ mod tests {
             .filter(|event| event.status == TimelineStatus::AssistantMessage)
             .collect::<Vec<_>>();
         assert_eq!(streamed.len(), 2);
+        assert_eq!(streamed[0].message_position.as_ref().unwrap().offset, 0);
+        assert_eq!(streamed[1].message_position.as_ref().unwrap().offset, 6);
         assert!(streamed
             .iter()
             .all(|event| event.item_id.as_deref() == Some("assistant-1")));
@@ -1438,6 +1502,10 @@ mod tests {
             .find(|event| event.status == TimelineStatus::Completed)
             .unwrap();
         assert_eq!(completed.item_id.as_deref(), Some("assistant-1"));
+        assert_eq!(
+            completed.message_position.as_ref().unwrap().stream_id,
+            streamed[0].message_position.as_ref().unwrap().stream_id
+        );
         let completed_activity = timeline
             .iter()
             .find(|event| event.status == TimelineStatus::ActivityCompleted)
@@ -1446,6 +1514,55 @@ mod tests {
         assert_eq!(completed_activity.tool_name, "read_file");
         assert_eq!(completed_activity.succeeded, Some(true));
         assert_eq!(completed_activity.duration_ms, Some(12));
+    }
+
+    #[tokio::test]
+    async fn identical_unicode_deltas_have_distinct_utf16_positions() {
+        let workspace = tempfile::tempdir().unwrap();
+        let engine = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::MessageDelta {
+                id: "native".into(),
+                delta: StreamEvent::TextDelta {
+                    text: "🙂".into()
+                },
+            },
+            RuntimeEvent::MessageDelta {
+                id: "native".into(),
+                delta: StreamEvent::TextDelta {
+                    text: "🙂".into()
+                },
+            },
+            RuntimeEvent::Completed {
+                session_id: "native-session".into(),
+                result: Some("🙂🙂".into()),
+                usage: None,
+            },
+        ]));
+        let mut timeline = Vec::new();
+        run_once(
+            engine,
+            RunRequest {
+                prompt: "repeat".into(),
+                workspace: workspace.path().to_path_buf(),
+                engine_id: "alva".into(),
+                product_session_id: None,
+                permission_profile: None,
+            },
+            |event| timeline.push(event),
+        )
+        .await
+        .unwrap();
+        let messages: Vec<_> = timeline
+            .iter()
+            .filter(|event| event.status == TimelineStatus::AssistantMessage)
+            .collect();
+        assert_eq!(messages.len(), 2);
+        let first = messages[0].message_position.as_ref().unwrap();
+        let second = messages[1].message_position.as_ref().unwrap();
+        assert_eq!((first.offset, second.offset), (0, 2));
+        assert_eq!(first.stream_id, second.stream_id);
+        let wire = serde_json::to_value(messages[1]).unwrap();
+        assert_eq!(wire["message_position"]["offset"], 2);
     }
 
     #[tokio::test]

@@ -1008,6 +1008,7 @@ fn ensure_worker_pump(app: AppHandle, worker_id: String) {
                                         message: Some(format!("Waiting on {summary}")),
                                         item_id: Some(task.task_id.clone()),
                                         activity: None,
+                                        message_position: None,
                                         permission_request: None,
                                     },
                                 );
@@ -1068,6 +1069,7 @@ async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
                 message: None,
                 item_id: Some(task.task_id.clone()),
                 activity: None,
+                message_position: None,
                 permission_request: None,
             },
         ) {
@@ -1144,6 +1146,7 @@ async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
                     message: Some(summary),
                     item_id: Some(task.task_id.clone()),
                     activity: None,
+                    message_position: None,
                     permission_request: None,
                 },
             ) {

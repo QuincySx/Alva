@@ -45,6 +45,8 @@ export interface PermissionRequestInfo {
 }
 
 export interface TimelineEvent {
+  /** Position of a fragment in one attempt-scoped message, in UTF-16 units. */
+  message_position?: { stream_id: string; offset: number } | null;
   status: TimelineStatus;
   engine_id: string;
   product_session_id: string;

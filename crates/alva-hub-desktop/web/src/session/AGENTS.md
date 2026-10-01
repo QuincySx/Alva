@@ -14,7 +14,7 @@
 - 会话切换由父级 key 隔离缓存；窗口测试必须统计全部行，不能只数消息。
 - 工具按 attempt 隔离身份，使用持久化 first_seen_at/sequence 排序；旧记录使用 attempt 起点与 evidence 数组次序，不伪造缺失的时间。
 - BoundedList 是测量补偿与 follow 意图的唯一拥有者，布局尺寸变化引起的 scroll clamp 不退出跟随；会话切换重置跟随。
-- 相同文本 delta 去重仍需独立审查，不能因工具排序通过宣称完整事件协议验收。
+- 消息片段以 `message_position.stream_id` 隔离 attempt，以 UTF-16 offset 拼接/去重；乱序片段等缺口补齐，不用文本相等判断重发，终态不因迟到片段复活。无 position 的旧事件只按到达顺序追加，不能猜测重复。完整消息历史/断线补页仍须独立交付。
 
 ## 业务域清单
 | 名称 | 文件 | 职责 |
