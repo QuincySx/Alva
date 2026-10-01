@@ -79,6 +79,18 @@ describe("toEntry identity", () => {
 });
 
 describe("mergeEntry — the one merge semantic", () => {
+  it("retains input and output full-text references through tool completion", () => {
+    const input = { content_id: "input", total_bytes: 3000, chunk_count: 1 };
+    const output = { content_id: "output", total_bytes: 40000, chunk_count: 3 };
+    const started = liveEvent({ status: "activity_started", item_id: "call-full", activity: {
+      tool_name: "read_file", succeeded: null, duration_ms: null, path: null, tool_input_ref: input,
+    } });
+    const entries = mergeEntry(mergeEntry([], started), { ...started, status: "activity_completed", activity: {
+      ...started.activity!, succeeded: true, tool_input_ref: null, tool_output_ref: output,
+    } });
+    expect(entries[0].activity?.tool_input_ref).toEqual(input);
+    expect(entries[0].activity?.tool_output_ref).toEqual(output);
+  });
   it("appends streaming deltas to the same assistant item", () => {
     let entries = [entryOf({ status: "assistant_message", role: "assistant", message: "Hel", created_at: 10, item_id: "t1:assistant" })];
     entries = mergeEntry(entries, liveEvent({ status: "assistant_message", message: "lo w", created_at: 11, item_id: "t1:assistant" }) as HubTimelineEvent);

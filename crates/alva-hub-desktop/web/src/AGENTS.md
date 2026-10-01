@@ -78,7 +78,9 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Sidebar | `components/hub-sidebar.tsx` | 产品导航、会话搜索与持久会话列表，不承载 Workspace 创建/切换 |
 | Topbar | `components/hub-topbar.tsx` | 对话标题、状态、详情与右侧工作台入口 |
 | ChatTranscript | `components/chat-transcript.tsx` | 中央消息/工具/审批/状态共享一个有界窗口；消息使用安全 Markdown、代码复制与跟随/回底，execution renderer 消费非消息行 |
-| Timeline | `components/hub-timeline.tsx` | 中央执行行与 Workbench 执行概览；工具参数/输出默认展开，审批/失败/fallback 动作保留；大输出目前仍受后端摘要上限约束，不代表全文验收 |
+| Timeline | `components/hub-timeline.tsx` | 中央执行行与 Workbench 执行概览；工具参数/输出默认展示，审批/失败/fallback 动作保留，全文引用透传有界分页组件 |
+| Tool content | `components/tool-content.tsx` | 自动读首块、前后翻页、失败重试；只持有当前块，旧记录明确标注摘要 |
+| Tool content tests | `components/tool-content.test.tsx` | 分页不累积 DOM、惰性 HTML 文本、迟到响应隔离、失败重试与旧记录提示 |
 | Session projection/window | `session/` | 稳定条目合并与动态高度虚拟窗口；ResizeObserver 测量、阅读锚点补偿、会话卸载清理 |
 | Startup selection tests | `components/startup-gate.test.tsx` | 工作树选择准确传递 cwd，缺失/bare/prunable 目录禁用 |
 | Engine Inspector | `components/engine-inspector.tsx` | 稳定 durable snapshot 的运行/轮次/LLM/Tool/Middleware/raw record 视图、实时刷新和递归 Agent 页栈 |

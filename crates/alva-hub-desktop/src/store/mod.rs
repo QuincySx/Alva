@@ -25,6 +25,7 @@ mod handoff;
 mod orchestration;
 mod projects;
 mod team;
+mod tool_content;
 mod turn;
 
 pub use branch::{
@@ -39,13 +40,15 @@ pub use handoff::{
 };
 pub use projects::ProjectSummary;
 pub use team::{TaskClaim, TeamRunDetail, TeamWorker, WorkerLifecycle, WorkerTask};
+pub use tool_content::{ToolContentChunk, ToolContentRef};
+pub(crate) use tool_content::ToolContentKind;
 pub(crate) use turn::PreparedTurn;
 pub use turn::{
     HubSessionDetail, HubSessionSummary, SideEffectEvidence, StoredAttempt, StoredTimelineEvent,
     StoredTurn, StoredUsage,
 };
 
-pub(crate) const SCHEMA_VERSION: i64 = 18;
+pub(crate) const SCHEMA_VERSION: i64 = 19;
 pub(crate) const STATUS_RUNNING: &str = "running";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_FAILED: &str = "failed";

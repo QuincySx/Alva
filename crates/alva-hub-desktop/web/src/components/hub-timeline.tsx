@@ -10,6 +10,7 @@ import {
 import type { EngineTarget, HandoffPackage, TimelineEvent } from "../bridge";
 import { Button } from "../ui";
 import { localizeSystemText, useI18n } from "../i18n";
+import { ToolContent } from "./tool-content";
 
 export type PermissionAnswer = "allowed" | "denied" | "expired";
 
@@ -144,8 +145,12 @@ export function HubTimeline({
                       <pre className="timeline-activity-output">
                         {entry.activity.tool_name} {entry.activity.path ?? ""}
                       </pre>
-                      {entry.activity.tool_input != null ? <pre className="timeline-activity-output" aria-label={t("timeline.toolInput")}>{entry.activity.tool_input}</pre> : null}
-                      {entry.activity.tool_output != null ? <pre className="timeline-activity-output" aria-label={t("timeline.toolOutput")}>{entry.activity.tool_output}</pre> : null}
+                      <ToolContent key={`input:${entry.activity.tool_input_ref?.content_id ?? "legacy"}`}
+                        sessionId={entry.product_session_id} content={entry.activity.tool_input_ref}
+                        preview={entry.activity.tool_input} label={t("timeline.toolInput")} />
+                      <ToolContent key={`output:${entry.activity.tool_output_ref?.content_id ?? "legacy"}`}
+                        sessionId={entry.product_session_id} content={entry.activity.tool_output_ref}
+                        preview={entry.activity.tool_output} label={t("timeline.toolOutput")} />
                     </div>
                   )}
                 </div>

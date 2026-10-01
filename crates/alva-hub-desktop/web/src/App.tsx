@@ -347,6 +347,8 @@ export function projectTimeline(detail: HubSessionDetail, locale: Locale = "en-U
           path: effect.path,
           tool_input: effect.tool_input,
           tool_output: effect.tool_output,
+          tool_input_ref: effect.tool_input_ref,
+          tool_output_ref: effect.tool_output_ref,
         },
       })),
     );

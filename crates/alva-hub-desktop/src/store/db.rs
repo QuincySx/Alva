@@ -396,6 +396,28 @@ pub(super) fn initialize_schema_and_recover(
             .map_err(|error| format!("migrate Hub database to schema 18: {error}"))?;
     }
 
+    if schema_version < 19 {
+        transaction
+            .execute_batch(
+                "CREATE TABLE tool_contents (
+                content_id TEXT PRIMARY KEY,
+                attempt_id TEXT NOT NULL REFERENCES engine_attempts(attempt_id),
+                tool_call_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK(kind IN ('input', 'output')),
+                total_bytes INTEGER NOT NULL,
+                chunk_count INTEGER NOT NULL
+             );
+             CREATE INDEX idx_tool_contents_attempt ON tool_contents(attempt_id);
+             CREATE TABLE tool_content_chunks (
+                content_id TEXT NOT NULL REFERENCES tool_contents(content_id),
+                chunk_index INTEGER NOT NULL,
+                body TEXT NOT NULL,
+                PRIMARY KEY(content_id, chunk_index)
+             );",
+            )
+            .map_err(|error| format!("migrate Hub database to schema 19: {error}"))?;
+    }
+
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)

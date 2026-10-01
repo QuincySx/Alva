@@ -59,6 +59,8 @@ export interface TimelineEvent {
 }
 
 export interface TimelineActivity {
+  tool_input_ref?: ToolContentRef | null;
+  tool_output_ref?: ToolContentRef | null;
   attempt_id?: string | null;
   first_seen_at?: number | null;
   sequence?: number | null;
@@ -233,6 +235,8 @@ export interface StoredUsage {
 }
 
 export interface SideEffectEvidence {
+  tool_input_ref?: ToolContentRef | null;
+  tool_output_ref?: ToolContentRef | null;
   first_seen_at?: number | null;
   sequence?: number | null;
   tool_call_id: string;
@@ -255,6 +259,17 @@ export interface StoredAttempt {
   side_effects: SideEffectEvidence[];
   started_at: number;
   completed_at: number | null;
+}
+
+export interface ToolContentRef {
+  content_id: string;
+  total_bytes: number;
+  chunk_count: number;
+}
+
+export interface ToolContentChunk extends ToolContentRef {
+  chunk_index: number;
+  text: string;
 }
 
 export interface HandoffCompletedWork {
@@ -806,6 +821,23 @@ export async function getHubSession(
   return await invoke<HubSessionDetail | null>("get_hub_session", {
     productSessionId,
   });
+}
+
+export async function getHubToolContent(
+  productSessionId: string, contentId: string, chunkIndex: number,
+): Promise<ToolContentChunk> {
+  if (HTTP) {
+    return await httpJson<ToolContentChunk>(
+      `/api/sessions/${encodeURIComponent(productSessionId)}/tool-content/${encodeURIComponent(contentId)}?chunk=${chunkIndex}`,
+      undefined, "GET",
+    );
+  }
+  if (!hasTauri) throw new Error("Tool content requires the ALVA Hub runtime.");
+  const chunk = await invoke<ToolContentChunk | null>("get_hub_tool_content", {
+    productSessionId, contentId, chunkIndex,
+  });
+  if (!chunk) throw new Error("Tool content not found.");
+  return chunk;
 }
 
 export async function getHubInspection(

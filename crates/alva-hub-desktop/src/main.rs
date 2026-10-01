@@ -1535,6 +1535,19 @@ async fn get_hub_inspection(
 }
 
 #[tauri::command]
+async fn get_hub_tool_content(
+    state: State<'_, DesktopState>,
+    product_session_id: String,
+    content_id: String,
+    chunk_index: usize,
+) -> Result<Option<alva_hub_desktop::ToolContentChunk>, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store.read_tool_content(&product_session_id, &content_id, chunk_index)
+    }).await.map_err(|_| "tool content reader unavailable".to_string())?
+}
+
+#[tauri::command]
 fn add_session_memory(
     state: State<'_, DesktopState>,
     product_session_id: String,
@@ -1648,6 +1661,7 @@ fn main() {
             list_hub_sessions,
             get_hub_session,
             get_hub_inspection,
+            get_hub_tool_content,
             add_session_memory,
             get_global_fallback_policy,
             set_global_fallback_policy,

@@ -172,6 +172,8 @@ function mergeEntryAncestry(previous: TimelineEntry, incoming: TimelineEntry): T
       path: incoming.activity.path ?? previous.activity?.path ?? null,
       tool_input: incoming.activity.tool_input ?? previous.activity?.tool_input,
       tool_output: incoming.activity.tool_output ?? previous.activity?.tool_output,
+      tool_input_ref: incoming.activity.tool_input_ref ?? previous.activity?.tool_input_ref,
+      tool_output_ref: incoming.activity.tool_output_ref ?? previous.activity?.tool_output_ref,
     } : previous.activity,
   };
   const messageItem = base.kind === "message";

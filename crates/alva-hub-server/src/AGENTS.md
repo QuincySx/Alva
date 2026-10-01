@@ -13,6 +13,7 @@
    SSE 原样保留产品 `message_position`（attempt scope + UTF-16 offset），不另造片段序号或按正文去重。
 3. Stop（R51/R65）：cancel 成功后立即持久化取消事实（失败上抛 500，不静默）；SSE 的 Interrupted 终态由 run handler 在 outcome（真实流结束）后统一结算——`stopping` marker 新一轮开始时清理、ack 后 run 已结束则丢弃，不泄漏到同 session 下一轮；引擎自然完成的取消不追加 Interrupted。
 4. Inspector handler 按 product session 读取 durable native snapshot，wire shape 与 Tauri command 一致。
+   `/api/sessions/:id/tool-content/:content_id?chunk=N` 复用 HubStore，blocking worker 中读取一块 ≤16 KiB 已脱敏正文；越权/缺失均为 404。
 5. 未命中 API 的请求落到内嵌 React 静态资源。
 
 ## 约束

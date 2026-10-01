@@ -205,6 +205,22 @@ struct InspectionQuery {
     native_session_id: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+struct ToolContentQuery { #[serde(default)] chunk: usize }
+
+async fn get_tool_content(
+    State(state): State<Arc<AppState>>,
+    Path((session_id, content_id)): Path<(String, String)>,
+    Query(query): Query<ToolContentQuery>,
+) -> impl IntoResponse {
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || store.read_tool_content(&session_id, &content_id, query.chunk)).await {
+        Ok(Ok(Some(chunk))) => Json(chunk).into_response(),
+        Ok(Ok(None)) => (StatusCode::NOT_FOUND, Json(json!({"error":"tool content not found"}))).into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"tool content unavailable"}))).into_response(),
+    }
+}
+
 /// GET /api/sessions/:id/inspection — stable Hub Inspector projection over
 /// the authoritative Alva native record repository.
 async fn get_inspection(
@@ -1232,6 +1248,7 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/sessions", get(list_sessions))
         .route("/api/sessions/:id", get(get_session))
         .route("/api/sessions/:id/inspection", get(get_inspection))
+        .route("/api/sessions/:id/tool-content/:content_id", get(get_tool_content))
         .route(
             "/api/providers",
             get(list_providers).post(save_provider),
@@ -1293,6 +1310,8 @@ mod r65_stop_integration {
     /// turn 0 的流脚本；turn ≥1 一律立即 Started + Completed。
     #[derive(Clone)]
     enum Step {
+        /// Synthetic tool output for the durable full-text transport contract.
+        ToolOutput(String),
         /// gate 放行后发 fatal Error。
         Fatal(String),
         /// gate 放行后发 Completed。
@@ -1389,6 +1408,12 @@ mod r65_stop_integration {
                 yield started_event(session_id.clone());
                 for step in steps {
                     match step {
+                        Step::ToolOutput(text) => {
+                            yield RuntimeEvent::ToolStart { id: "tool-body".into(), name: "read_file".into(), input: json!({"path":"fixture.txt"}) };
+                            yield RuntimeEvent::ToolEnd { id: "tool-body".into(), name: "read_file".into(), result: serde_json::from_value(json!({
+                                "content": [{"type":"text","text":text}], "is_error": false
+                            })).unwrap(), duration_ms: Some(1) };
+                        }
                         Step::CompleteNow => {
                             yield completed_event(session_id.clone());
                         }
@@ -1663,6 +1688,48 @@ mod r65_stop_integration {
             .unwrap_or_default()
             .to_string();
         (status, body)
+    }
+
+    async fn http_get(addr: std::net::SocketAddr, path: &str) -> (u16, serde_json::Value) {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream.write_all(format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        let mut raw = String::new();
+        stream.read_to_string(&mut raw).await.unwrap();
+        let status = raw.split_whitespace().nth(1).unwrap().parse().unwrap();
+        let body = raw.split_once("\r\n\r\n").unwrap().1;
+        (status, serde_json::from_str(body).unwrap())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tool_full_text_is_paged_and_session_scoped_over_http() {
+        let text = format!("{}END", "🙂工具正文".repeat(10_000));
+        let server = spawn_server_gated(vec![Step::ToolOutput(text.clone()), Step::CompleteNow], false, false).await;
+        let events = subscribe_sse(server.addr).await;
+        let workspace = server.data_dir.join("workspace");
+        let (status, body) = http_post(server.addr, "/api/run".into(), run_body(workspace.to_str().unwrap(), None)).await;
+        assert_eq!(status, 200, "{body}");
+        let outcome: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let session = outcome["product_session_id"].as_str().unwrap();
+        wait_for(&events, "tool_output_ref").await;
+        let (status, detail) = http_get(server.addr, &format!("/api/sessions/{session}")).await;
+        assert_eq!(status, 200);
+        assert!(detail.to_string().len() < 20_000);
+        let reference = &detail["turns"][0]["attempts"][0]["side_effects"][0]["tool_output_ref"];
+        let id = reference["content_id"].as_str().unwrap();
+        let count = reference["chunk_count"].as_u64().unwrap();
+        assert!(count > 1);
+        let mut full = String::new();
+        for index in 0..count {
+            let (status, chunk) = http_get(server.addr, &format!("/api/sessions/{session}/tool-content/{id}?chunk={index}")).await;
+            assert_eq!(status, 200);
+            let part = chunk["text"].as_str().unwrap();
+            assert!(part.len() <= 16 * 1024);
+            full.push_str(part);
+        }
+        let result: serde_json::Value = serde_json::from_str(&full).unwrap();
+        assert_eq!(result["content"][0]["text"].as_str(), Some(text.as_str()));
+        assert_eq!(http_get(server.addr, &format!("/api/sessions/not-owner/tool-content/{id}")).await.0, 404);
+        assert_eq!(http_get(server.addr, &format!("/api/sessions/{session}/tool-content/{id}?chunk={count}")).await.0, 404);
     }
 
     fn run_body(workspace: &str, product_session_id: Option<&str>) -> String {

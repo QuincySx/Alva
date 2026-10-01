@@ -263,6 +263,8 @@ mod tests {
                     &prepared,
                     SideEffectEvidence {
                         tool_call_id: id.into(),
+                        tool_input_ref: None,
+                        tool_output_ref: None,
                         tool_name: "read_file".into(),
                         first_seen_at: Some(100),
                         sequence: Some(sequence),
@@ -281,6 +283,8 @@ mod tests {
                     &prepared,
                     SideEffectEvidence {
                         tool_call_id: id.into(),
+                        tool_input_ref: None,
+                        tool_output_ref: None,
                         tool_name: "read_file".into(),
                         first_seen_at: Some(999),
                         sequence: Some(999),
@@ -341,6 +345,8 @@ mod tests {
                 &prepared,
                 SideEffectEvidence {
                     tool_call_id: "tool-1".into(),
+                    tool_input_ref: None,
+                    tool_output_ref: None,
                     first_seen_at: None,
                     sequence: None,
                     tool_name: "write_file".into(),
@@ -1625,6 +1631,8 @@ mod tests {
                 &worker_turn,
                 SideEffectEvidence {
                     tool_call_id: "t1".into(),
+                    tool_input_ref: None,
+                    tool_output_ref: None,
                     first_seen_at: None,
                     sequence: None,
                     tool_name: "write_file".into(),
@@ -1807,6 +1815,8 @@ mod tests {
                 &first_turn,
                 SideEffectEvidence {
                     tool_call_id: "t-first".into(),
+                    tool_input_ref: None,
+                    tool_output_ref: None,
                     first_seen_at: None,
                     sequence: None,
                     tool_name: "write_file".into(),
@@ -1835,6 +1845,8 @@ mod tests {
                 &second_turn,
                 SideEffectEvidence {
                     tool_call_id: "t-second".into(),
+                    tool_input_ref: None,
+                    tool_output_ref: None,
                     first_seen_at: None,
                     sequence: None,
                     tool_name: "write_file".into(),
@@ -2394,6 +2406,8 @@ mod tests {
                 &evidence_turn,
                 SideEffectEvidence {
                     tool_call_id: "t-live".into(),
+                    tool_input_ref: None,
+                    tool_output_ref: None,
                     first_seen_at: None,
                     sequence: None,
                     tool_name: "write_file".into(),

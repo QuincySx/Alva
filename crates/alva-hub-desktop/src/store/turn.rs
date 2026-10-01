@@ -1,5 +1,5 @@
 // INPUT:  session/turn/attempt rows in the Hub SQLite schema
-// OUTPUT: session summary/detail DTOs, PreparedTurn, session/turn/attempt lifecycle methods on HubStore
+// OUTPUT: session/attempt DTOs with tool-content references, lifecycle and atomic side-effect merging
 // POS:    session timeline persistence cluster of the Hub store.
 
 use std::path::{Path, PathBuf};
@@ -67,8 +67,12 @@ pub struct StoredUsage {
     pub num_turns: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SideEffectEvidence {
+    #[serde(default)]
+    pub tool_input_ref: Option<super::ToolContentRef>,
+    #[serde(default)]
+    pub tool_output_ref: Option<super::ToolContentRef>,
     /// Product first-observation clock and attempt-local order; absent in legacy journals.
     #[serde(default)]
     pub first_seen_at: Option<i64>,
@@ -1085,6 +1089,7 @@ impl super::HubStore {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn record_side_effect(
         &self,
         prepared: &PreparedTurn,
@@ -1094,61 +1099,82 @@ impl super::HubStore {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| format!("begin side-effect evidence transaction: {error}"))?;
-        let encoded = transaction
-            .query_row(
-                "SELECT side_effects_json FROM engine_attempts
-                      WHERE attempt_id = ?1 AND status = ?2",
-                params![prepared.attempt_id, STATUS_RUNNING],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| format!("read side-effect evidence: {error}"))?
-            .ok_or_else(|| {
-                format!(
-                    "Hub engine attempt '{}' was not in running state",
-                    prepared.attempt_id
-                )
-            })?;
-        let mut evidence_list: Vec<SideEffectEvidence> = serde_json::from_str(&encoded)
-            .map_err(|error| format!("decode side-effect evidence: {error}"))?;
-        if let Some(existing) = evidence_list
-            .iter_mut()
-            .find(|item| item.tool_call_id == evidence.tool_call_id)
-        {
-            // ToolEnd updates carry no path/input; keep what ToolStart saw. Merge input/output.
-            let path = evidence.path.clone().or_else(|| existing.path.clone());
-            let tool_input = evidence
-                .tool_input
-                .clone()
-                .or_else(|| existing.tool_input.clone());
-            let tool_output = evidence
-                .tool_output
-                .clone()
-                .or_else(|| existing.tool_output.clone());
-            let first_seen_at = existing.first_seen_at.or(evidence.first_seen_at);
-            let sequence = existing.sequence.or(evidence.sequence);
-            *existing = evidence;
-            existing.first_seen_at = first_seen_at;
-            existing.sequence = sequence;
-            existing.path = path;
-            existing.tool_input = tool_input;
-            existing.tool_output = tool_output;
-        } else {
-            evidence_list.push(evidence);
-        }
-        let encoded = serde_json::to_string(&evidence_list)
-            .map_err(|error| format!("serialize side-effect evidence: {error}"))?;
-        transaction
-            .execute(
-                "UPDATE engine_attempts SET side_effects_json = ?2
-                      WHERE attempt_id = ?1 AND status = ?3",
-                params![prepared.attempt_id, encoded, STATUS_RUNNING],
-            )
-            .map_err(|error| format!("persist side-effect evidence: {error}"))?;
+        record_side_effect_in(&transaction, prepared, evidence)?;
         transaction
             .commit()
             .map_err(|error| format!("commit side-effect evidence: {error}"))
     }
+}
+
+pub(super) fn record_side_effect_in(
+    transaction: &Transaction<'_>,
+    prepared: &PreparedTurn,
+    evidence: SideEffectEvidence,
+) -> Result<SideEffectEvidence, String> {
+    let encoded = transaction
+        .query_row(
+            "SELECT side_effects_json FROM engine_attempts
+                      WHERE attempt_id = ?1 AND status = ?2",
+            params![prepared.attempt_id, STATUS_RUNNING],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| format!("read side-effect evidence: {error}"))?
+        .ok_or_else(|| {
+            format!(
+                "Hub engine attempt '{}' was not in running state",
+                prepared.attempt_id
+            )
+        })?;
+    let mut evidence_list: Vec<SideEffectEvidence> = serde_json::from_str(&encoded)
+        .map_err(|error| format!("decode side-effect evidence: {error}"))?;
+    let merged = if let Some(existing) = evidence_list
+        .iter_mut()
+        .find(|item| item.tool_call_id == evidence.tool_call_id)
+    {
+        // ToolEnd updates carry no path/input; keep what ToolStart saw. Merge input/output.
+        let path = evidence.path.clone().or_else(|| existing.path.clone());
+        let tool_input = evidence
+            .tool_input
+            .clone()
+            .or_else(|| existing.tool_input.clone());
+        let tool_output = evidence
+            .tool_output
+            .clone()
+            .or_else(|| existing.tool_output.clone());
+        let first_seen_at = existing.first_seen_at.or(evidence.first_seen_at);
+        let sequence = existing.sequence.or(evidence.sequence);
+        let tool_input_ref = evidence
+            .tool_input_ref
+            .clone()
+            .or_else(|| existing.tool_input_ref.clone());
+        let tool_output_ref = evidence
+            .tool_output_ref
+            .clone()
+            .or_else(|| existing.tool_output_ref.clone());
+        *existing = evidence;
+        existing.first_seen_at = first_seen_at;
+        existing.sequence = sequence;
+        existing.path = path;
+        existing.tool_input = tool_input;
+        existing.tool_output = tool_output;
+        existing.tool_input_ref = tool_input_ref;
+        existing.tool_output_ref = tool_output_ref;
+        existing.clone()
+    } else {
+        evidence_list.push(evidence.clone());
+        evidence
+    };
+    let encoded = serde_json::to_string(&evidence_list)
+        .map_err(|error| format!("serialize side-effect evidence: {error}"))?;
+    transaction
+        .execute(
+            "UPDATE engine_attempts SET side_effects_json = ?2
+                      WHERE attempt_id = ?1 AND status = ?3",
+            params![prepared.attempt_id, encoded, STATUS_RUNNING],
+        )
+        .map_err(|error| format!("persist side-effect evidence: {error}"))?;
+    Ok(merged)
 }
 
 #[allow(clippy::too_many_arguments)]

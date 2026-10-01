@@ -75,7 +75,8 @@
 | Worktree isolation | `worktree.rs` | 受管 git worktree、adoption 预览与丢弃 |
 | Engine repair | `repair.rs` | readiness→RepairAction 映射、一键安装 allowlist 执行器 |
 | SQLite store | `store/` | `db.rs` storage kernel；`mod.rs` 共享数据访问层与 `pub(crate)` 常量/helper；`branch.rs`/`handoff.rs`/`team.rs`/`turn.rs` 各持久化簇；`tests.rs` 全量测试。covering workspace kind、identity、模型选项、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
-| Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness/Inspector command 和 timestamp-preserving event bridge |
+| Tool content | `store/tool_content.rs` | 原子保存脱敏全文与 evidence 引用，UTF-8 分块、会话归属读取及回归 |
+| Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness/Inspector/工具正文 command 和 timestamp-preserving event bridge |
 
 ## 引擎注册表与编排策略（R-tickets 17/18）
 
@@ -83,7 +84,7 @@
 
 - Desktop Claude 使用 `ClaudeAdapter` Full SDK，interactive 与 workspace_write 都走 Default 权限回调（后者更严格），仅 unrestricted 使用 BypassPermissions；resume 保留持久化 SDK session，默认不加载工作区 setting sources。
 - Claude binary/version 检查针对 Node.js 20+；SDK 固定为 `$HOME/.local/share/alva-hub/runtimes/claude/node_modules/@anthropic-ai/claude-agent-sdk`，用户显式安装已审查版本后使用。assembly、readiness、fallback veto 共用只读解析并传绝对入口；从 package.json 的 exports/import 或 main 读取入口，不从项目、cwd 或 npm global 搜索。缺失/非法 SDK 返回 `dependency_unavailable` + Missing；不以 Node 存在冒充 SDK 就绪。此校验只保证安装边界与入口结构，SDK 真实账号/版本行为仍待端到端验收。
-- `run::TimelineActivity` 提供脱敏的 `tool_input`/`tool_output`，ToolStart/ToolEnd 同步投影到 live DTO 与 side-effect evidence。当前 `bounded_text` 的 2000 字符摘要不是全文存储；全文分块卡仍未完成。
+- `TimelineActivity` 的 `tool_input`/`tool_output` 是 2000 字符摘要，对应 `_ref` 指向 schema 19 耐久全文。blocking worker 内整体脱敏后，正文块与 evidence 原子提交，再发送 live DTO。每块 ≤16 KiB UTF-8、单正文 ≤64 MiB，超限/失败明确报错；Tauri/HTTP 复用按 session 归属校验的读取 API。旧摘要无引用，不补造丢失内容。
 - 工具 live DTO 与 side-effect evidence 共用首次观测的 `first_seen_at`/attempt-local `sequence`；完成时不可覆盖，live DTO 携带 attempt_id 隔离重复 tool ID。旧 evidence JSON 默认缺省，新字段无需改 SQL schema；无法追溯旧记录未保存的精确时间。
 - Assistant 片段在 execute_turn 的统一 emit 边界附加 `MessagePosition`：stream_id 是 attempt ID（非持久 seam 使用随机 ID），offset 是每个 native message 的 UTF-16 长度。重复文本不同 offset 不合并，终态保留同一 message scope；Tauri/SSE 原样传递。这是 live 投影协议，不是完整事件日志/断线恢复能力。
 

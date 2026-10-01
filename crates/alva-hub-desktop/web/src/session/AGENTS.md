@@ -9,6 +9,7 @@
 
 ## 约束
 - 虚拟化只卸载 DOM，不删除权威数据；全文保存能力由后端负责。
+- 工具全文引用在实时合并与历史投影中保留；分页正文不进入 timeline entries，避免窗口外累积大块文本。
 - 行必须注册最外层尺寸；单一外部 scroll owner，不新增嵌套主滚动区。
 - ResizeObserver、scroll listener 与 animation frame 必须随卸载清理。
 - 会话切换由父级 key 隔离缓存；窗口测试必须统计全部行，不能只数消息。

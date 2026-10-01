@@ -1,5 +1,5 @@
 // INPUT:  alva_engine_runtime, alva_hub_core, HubStore, serde, tokio_stream
-// OUTPUT: multi-engine run seams, delta/full handoff injection, Attempt capture, shared-clock timeline DTOs
+// OUTPUT: multi-engine run seams, Attempt capture, positioned messages and durable tool-content references
 // POS:    Highest product seam for durable Hub Desktop branch execution, native-resume recovery, and product timeline projection.
 
 use std::collections::{HashMap, HashSet};
@@ -18,6 +18,7 @@ use crate::readiness::capability_labels;
 use crate::session_workspace::workspace_kind_for_path;
 use crate::store::{
     now_unix_ms, EngineTarget, HubStore, PreparedTurn, SideEffectEvidence, StoredUsage,
+    ToolContentKind, ToolContentRef,
 };
 
 /// No-activity window after which an armed watchdog declares a stall. The
@@ -108,6 +109,8 @@ pub struct MessagePosition {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct TimelineActivity {
+    pub tool_input_ref: Option<ToolContentRef>,
+    pub tool_output_ref: Option<ToolContentRef>,
     pub attempt_id: Option<String>,
     pub first_seen_at: i64,
     pub sequence: u64,
@@ -989,9 +992,33 @@ where
                     .or_insert_with(|| (now_unix_ms(), sequence));
                 open_tools.insert(id.clone());
                 let path = tool_input_path(&input);
-                let tool_input = Some(crate::store::bounded_text(&crate::redact::redact_text(
-                    &serde_json::to_string(&input).unwrap_or_default(),
-                )));
+                let evidence = match record_tool_text(
+                    persistence,
+                    SideEffectEvidence {
+                        first_seen_at: Some(first_seen_at),
+                        sequence: Some(sequence),
+                        tool_call_id: id.clone(),
+                        tool_name: name.clone(),
+                        path,
+                        ..Default::default()
+                    },
+                    ToolContentKind::Input,
+                    serde_json::to_string(&input).unwrap_or_default(),
+                )
+                .await
+                {
+                    Ok(evidence) => evidence,
+                    Err(error) => {
+                        capture_persistence_error(
+                            Err(error),
+                            &mut terminal_error,
+                            &product_id,
+                            engine_id,
+                            emit,
+                        );
+                        continue;
+                    }
+                };
                 emit(TimelineEvent {
                     status: TimelineStatus::ActivityStarted,
                     engine_id: hub_event.engine_id.to_string(),
@@ -1006,35 +1033,15 @@ where
                         tool_name: name.clone(),
                         succeeded: None,
                         duration_ms: None,
-                        path: path.clone(),
-                        tool_input: tool_input.clone(),
-                        tool_output: None,
+                        path: evidence.path,
+                        tool_input: evidence.tool_input,
+                        tool_output: evidence.tool_output,
+                        tool_input_ref: evidence.tool_input_ref,
+                        tool_output_ref: evidence.tool_output_ref,
                     }),
                     message_position: None,
                     permission_request: None,
                 });
-                if let Some((store, prepared)) = persistence {
-                    capture_persistence_error(
-                        store.record_side_effect(
-                            prepared,
-                            SideEffectEvidence {
-                                first_seen_at: Some(first_seen_at),
-                                sequence: Some(sequence),
-                                tool_call_id: id,
-                                tool_name: name,
-                                succeeded: None,
-                                duration_ms: None,
-                                path,
-                                tool_input,
-                                tool_output: None,
-                            },
-                        ),
-                        &mut terminal_error,
-                        &product_id,
-                        engine_id,
-                        emit,
-                    );
-                }
             }
             RuntimeEvent::ToolEnd {
                 id,
@@ -1048,9 +1055,34 @@ where
                     .entry(id.clone())
                     .or_insert_with(|| (now_unix_ms(), sequence));
                 let succeeded = !tool_result.is_error;
-                let tool_output = Some(crate::store::bounded_text(&crate::redact::redact_text(
-                    &serde_json::to_string(&tool_result).unwrap_or_default(),
-                )));
+                let evidence = match record_tool_text(
+                    persistence,
+                    SideEffectEvidence {
+                        first_seen_at: Some(first_seen_at),
+                        sequence: Some(sequence),
+                        tool_call_id: id.clone(),
+                        tool_name: name.clone(),
+                        succeeded: Some(succeeded),
+                        duration_ms,
+                        ..Default::default()
+                    },
+                    ToolContentKind::Output,
+                    serde_json::to_string(&tool_result).unwrap_or_default(),
+                )
+                .await
+                {
+                    Ok(evidence) => evidence,
+                    Err(error) => {
+                        capture_persistence_error(
+                            Err(error),
+                            &mut terminal_error,
+                            &product_id,
+                            engine_id,
+                            emit,
+                        );
+                        continue;
+                    }
+                };
                 emit(TimelineEvent {
                     status: TimelineStatus::ActivityCompleted,
                     engine_id: hub_event.engine_id.to_string(),
@@ -1069,35 +1101,15 @@ where
                         tool_name: name.clone(),
                         succeeded: Some(succeeded),
                         duration_ms,
-                        path: None,
-                        tool_input: None,
-                        tool_output: tool_output.clone(),
+                        path: evidence.path,
+                        tool_input: evidence.tool_input,
+                        tool_output: evidence.tool_output,
+                        tool_input_ref: evidence.tool_input_ref,
+                        tool_output_ref: evidence.tool_output_ref,
                     }),
                     message_position: None,
                     permission_request: None,
                 });
-                if let Some((store, prepared)) = persistence {
-                    capture_persistence_error(
-                        store.record_side_effect(
-                            prepared,
-                            SideEffectEvidence {
-                                first_seen_at: Some(first_seen_at),
-                                sequence: Some(sequence),
-                                tool_call_id: id,
-                                tool_name: name,
-                                succeeded: Some(succeeded),
-                                duration_ms,
-                                path: None,
-                                tool_input: None,
-                                tool_output,
-                            },
-                        ),
-                        &mut terminal_error,
-                        &product_id,
-                        engine_id,
-                        emit,
-                    );
-                }
             }
             RuntimeEvent::Error {
                 message,
@@ -1176,6 +1188,34 @@ where
         usage,
         failure_class,
     }
+}
+
+async fn record_tool_text(
+    persistence: Option<(&HubStore, &PreparedTurn)>,
+    mut evidence: SideEffectEvidence,
+    kind: ToolContentKind,
+    raw: String,
+) -> Result<SideEffectEvidence, String> {
+    if let Some((store, prepared)) = persistence {
+        let store = store.clone();
+        let prepared = prepared.clone();
+        // Full-document redaction and SQLite writes must not block the async
+        // runtime's UI/permission/other-session tasks.
+        return tokio::task::spawn_blocking(move || {
+            store.record_tool_side_effect(&prepared, evidence, kind, &raw)
+        })
+        .await
+        .map_err(|_| "tool content writer unavailable".to_string())?;
+    }
+    // Non-persistent diagnostic seam explicitly has no durable full-text ref.
+    let preview = Some(crate::store::bounded_text(&crate::redact::redact_text(
+        &raw,
+    )));
+    match kind {
+        ToolContentKind::Input => evidence.tool_input = preview,
+        ToolContentKind::Output => evidence.tool_output = preview,
+    }
+    Ok(evidence)
 }
 
 fn capture_persistence_error<F>(
@@ -2441,6 +2481,20 @@ mod tests {
             .first_seen_at
             .is_some_and(|time| time >= attempt.started_at));
         assert_eq!(attempt.side_effects[0].sequence, Some(0));
+        let input = attempt.side_effects[0].tool_input_ref.as_ref().unwrap();
+        let output = attempt.side_effects[0].tool_output_ref.as_ref().unwrap();
+        assert!(store
+            .read_tool_content(&outcome.product_session_id, &input.content_id, 0)
+            .unwrap()
+            .unwrap()
+            .text
+            .contains("changed.txt"));
+        assert!(store
+            .read_tool_content(&outcome.product_session_id, &output.content_id, 0)
+            .unwrap()
+            .unwrap()
+            .text
+            .contains("written"));
     }
 
     #[tokio::test]

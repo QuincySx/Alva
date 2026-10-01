@@ -25,10 +25,12 @@ describe("durable tool order", () => {
     const attempt = detail.turns[0].attempts[0];
     attempt.side_effects = ["tool_z", "tool_a"].map((id, sequence) => ({
       tool_call_id: id, tool_name: id, succeeded: true, duration_ms: 1, path: null,
+      tool_output_ref: { content_id: `body-${id}`, total_bytes: 20000, chunk_count: 2 },
       ...(legacy ? {} : { first_seen_at: 110, sequence }),
     }));
     const history = projectHistory(detail, projectTimeline).filter((entry) => entry.kind === "activity");
     expect(history.map((entry) => entry.toolId)).toEqual(["tool_z", "tool_a"]);
+    expect(history[0].activity?.tool_output_ref?.content_id).toBe("body-tool_z");
     let live: TimelineEntry[] = [];
     for (const row of history) live = mergeEntry(live, { ...row, status: "activity_started", created_at: 110 });
     for (const row of [...history].reverse()) live = mergeEntry(live, { ...row, created_at: 999 });

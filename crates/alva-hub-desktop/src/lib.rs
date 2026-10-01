@@ -63,7 +63,7 @@ pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, PendingSwitch, ProjectSummary, SideEffectEvidence, StoredAttempt, StoredBranch,
     StoredTimelineEvent, StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim,
-    TeamRunDetail, TeamWorker, TranscriptTurn, WorkerLifecycle, WorkerTask,
+    TeamRunDetail, TeamWorker, ToolContentChunk, ToolContentRef, TranscriptTurn, WorkerLifecycle, WorkerTask,
 };
 pub use worktree_discovery::{discover_worktrees, WorktreeDiscoveryError, WorktreeInfo};
 pub use worktree::{
