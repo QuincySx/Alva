@@ -10,6 +10,7 @@ export type LanguagePreference = Locale | "system";
 const STORAGE_KEY = "alva-hub.language";
 
 const en = {
+  "timeline.recoveryFailed": "Message history could not be synchronized. Retrying automatically…",
   "git.title": "Git worktree (read only)",
   "git.error": "Git inspection unavailable or changed. Refresh to retry.",
   "git.notRepository": "This workspace is not a Git worktree",
@@ -768,6 +769,7 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const zh: Record<MessageKey, string> = {
+  "timeline.recoveryFailed": "消息历史同步失败，正在自动重试…",
   "git.title": "Git 工作树（只读）",
   "git.error": "Git 检查不可用或文件已变化，请刷新重试。",
   "git.notRepository": "当前目录不是 Git 工作树",

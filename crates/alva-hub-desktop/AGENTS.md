@@ -76,6 +76,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Workspace files | `src/workspace_files.rs` | 会话 cwd 绑定的真实只读目录/文本预览，敏感路径及符号链接隔离、有界响应，Tauri/HTTP 同构 |
 | Workspace Git | `src/workspace_git.rs` | 真实工作树只读 status/diff，绝不以 EngineBranch 或工具结果推断 Git 状态 |
 | Session store | `src/store/` | 私有 SQLite（`db.rs` storage kernel + `mod.rs` 共享数据层 + `branch.rs`/`handoff.rs`/`team.rs`/`turn.rs`/`tests.rs` 持久化簇）covering workspace kind、policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
+| Message recovery | `src/store/message_journal.rs` | schema 20 可见 assistant 全文与有界游标补页，复用消息位置协议并对齐崩溃修复终态 |
 | Tauri entry | `src/main.rs` | workspace 创建、运行/切换/Inspector IPC、event emission 与 Desktop runtime |
 | Crate facade | `src/lib.rs` | 对 Tauri 层和测试暴露产品类型 |
 | Web frontend | `web/` | React/Vite/TypeScript workspace、composer、三泳道 timeline 与递归 Inspector 页栈 |

@@ -1,5 +1,5 @@
 // INPUT:  alva_engine_runtime, alva_hub_core, HubStore, serde, tokio_stream
-// OUTPUT: multi-engine run seams, Attempt capture, positioned messages and durable tool-content references
+// OUTPUT: multi-engine run seams, Attempt capture, durable positioned messages and tool-content references
 // POS:    Highest product seam for durable Hub Desktop branch execution, native-resume recovery, and product timeline projection.
 
 use std::collections::{HashMap, HashSet};
@@ -675,6 +675,7 @@ where
         .map(|(_, prepared)| prepared.attempt_id.clone())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let mut message_offsets = HashMap::<String, usize>::new();
+    let journal_error = Mutex::new(None::<String>);
     let emit = &mut |mut event: TimelineEvent| {
         if let Some(id) = event.item_id.as_ref() {
             if event.status == TimelineStatus::AssistantMessage {
@@ -689,6 +690,8 @@ where
                     .unwrap_or_default()
                     .encode_utf16()
                     .count();
+            } else if matches!(event.status, TimelineStatus::Completed) && !message_offsets.contains_key(id) && event.message.is_some() {
+                event.message_position = Some(MessagePosition { stream_id: stream_id.clone(), offset: 0 });
             } else if let Some(offset) = message_offsets.get(id) {
                 // Keep terminal status attached to the very same message row.
                 if matches!(
@@ -702,6 +705,20 @@ where
                         offset: *offset,
                     });
                 }
+            }
+        }
+        if let Some((store, prepared)) = persistence {
+            let mut failure = journal_error.lock().expect("journal error lock poisoned");
+            if failure.is_none() {
+                if let Err(error) = store.append_message_event(prepared, &event) {
+                    *failure = Some(error);
+                }
+            }
+            if failure.is_some() && (event.message_position.is_some() || event.status == TimelineStatus::Completed) {
+                event.status = TimelineStatus::Failed;
+                event.message = Some("Message history could not be saved; this attempt is not durable.".into());
+                event.message_position = None;
+                event.item_id = Some(prepared.attempt_id.clone());
             }
         }
         emit(event);
@@ -1177,6 +1194,10 @@ where
             .remove(&product_id);
     }
 
+    if let Some(error) = journal_error.into_inner().expect("journal error lock poisoned") {
+        terminal_error.get_or_insert(error);
+    }
+
     ExecutedTurn {
         outcome: RunOutcome {
             product_session_id: product_id,
@@ -1554,6 +1575,30 @@ mod tests {
         assert_eq!(completed_activity.tool_name, "read_file");
         assert_eq!(completed_activity.succeeded, Some(true));
         assert_eq!(completed_activity.duration_ms, Some(12));
+    }
+
+    #[tokio::test]
+    async fn streamed_messages_are_durable_before_live_delivery() {
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(workspace.path().join("private/hub.db")).unwrap();
+        let engine = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::MessageDelta { id: "native".into(), delta: StreamEvent::TextDelta { text: "🙂".into() } },
+            RuntimeEvent::MessageDelta { id: "native".into(), delta: StreamEvent::TextDelta { text: "🙂".into() } },
+            RuntimeEvent::Completed { session_id: "native-session".into(), result: Some("🙂🙂".into()), usage: None },
+        ]));
+        let outcome = run_persisted(&store, single_engine(engine), healthy,
+            RunRequest { prompt: "repeat".into(), workspace: workspace.path().to_path_buf(), engine_id: "alva".into(), product_session_id: None, permission_profile: None },
+            |event| {
+                if event.message_position.is_some() {
+                    assert!(!store.message_journal_page(&event.product_session_id, 0, None).unwrap().records.is_empty());
+                }
+            }).await.unwrap();
+        let page = store.message_journal_page(&outcome.product_session_id, 0, None).unwrap();
+        assert_eq!(page.records.len(), 3);
+        assert_eq!(page.records[0].event["message_position"]["offset"], 0);
+        assert_eq!(page.records[1].event["message_position"]["offset"], 2);
+        assert_eq!(page.records[2].event["message_position"]["offset"], 4);
+        assert!(page.records.iter().all(|record| record.attempt_status == "completed"));
     }
 
     #[tokio::test]

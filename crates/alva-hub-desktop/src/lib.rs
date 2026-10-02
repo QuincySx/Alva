@@ -63,7 +63,7 @@ pub use run::{
 pub use session_workspace::{create_managed_session_workspace, WorkspaceBinding, WorkspaceKind};
 pub use store::{
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
-    HubStore, PendingSwitch, ProjectSummary, SideEffectEvidence, StoredAttempt, StoredBranch,
+    HubStore, MessageJournalPage, MessageJournalRecord, PendingSwitch, ProjectSummary, SideEffectEvidence, StoredAttempt, StoredBranch,
     StoredTimelineEvent, StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim,
     TeamRunDetail, TeamWorker, ToolContentChunk, ToolContentRef, TranscriptTurn, WorkerLifecycle, WorkerTask,
 };

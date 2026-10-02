@@ -142,7 +142,9 @@ export function mergeEntry(current: TimelineEntry[], incoming: HubTimelineEvent)
   const index = current.findIndex((candidate) => candidate.id === observed.id);
   if (index < 0) {
     const initialized = observed.message_position && observed.status === "assistant_message"
-      ? { ...observed, ...mergePositionedText("", undefined, observed) } : observed;
+      ? { ...observed, ...mergePositionedText("", undefined, observed) }
+      : observed.message_position && observed.message_position.offset > 0
+        ? { ...observed, message: null } : observed;
     return sortEntries([...current, initialized]);
   }
   const merged = mergeEntryAncestry(current[index], observed);

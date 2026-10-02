@@ -418,6 +418,17 @@ pub(super) fn initialize_schema_and_recover(
             .map_err(|error| format!("migrate Hub database to schema 19: {error}"))?;
     }
 
+    if schema_version < 20 {
+        transaction.execute_batch(
+            "CREATE TABLE message_journal (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                attempt_id TEXT NOT NULL REFERENCES engine_attempts(attempt_id),
+                event_json TEXT NOT NULL
+             );
+             CREATE INDEX idx_message_journal_attempt ON message_journal(attempt_id, sequence);"
+        ).map_err(|error| format!("migrate Hub database to schema 20: {error}"))?;
+    }
+
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)

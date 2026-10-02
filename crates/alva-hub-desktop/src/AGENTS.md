@@ -78,6 +78,7 @@
 | Engine repair | `repair.rs` | readiness→RepairAction 映射、一键安装 allowlist 执行器 |
 | SQLite store | `store/` | `db.rs` storage kernel；`mod.rs` 共享数据访问层与 `pub(crate)` 常量/helper；`branch.rs`/`handoff.rs`/`team.rs`/`turn.rs` 各持久化簇；`tests.rs` 全量测试。covering workspace kind、identity、模型选项、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
 | Tool content | `store/tool_content.rs` | 原子保存脱敏全文与 evidence 引用，UTF-8 分块、会话归属读取及回归 |
+| Message journal | `store/message_journal.rs` | schema 20 耐久 assistant 文本，发送前保存、游标分页、attempt 终态对齐；旧 Turn 摘要继续作为无日志记录的兼容路径 |
 | Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness/Inspector/工具正文 command 和 timestamp-preserving event bridge |
 
 ## 引擎注册表与编排策略（R-tickets 17/18）
@@ -88,7 +89,7 @@
 - Claude binary/version 检查针对 Node.js 20+；SDK 固定为 `$HOME/.local/share/alva-hub/runtimes/claude/node_modules/@anthropic-ai/claude-agent-sdk`，用户显式安装已审查版本后使用。assembly、readiness、fallback veto 共用只读解析并传绝对入口；从 package.json 的 exports/import 或 main 读取入口，不从项目、cwd 或 npm global 搜索。缺失/非法 SDK 返回 `dependency_unavailable` + Missing；不以 Node 存在冒充 SDK 就绪。此校验只保证安装边界与入口结构，SDK 真实账号/版本行为仍待端到端验收。
 - `TimelineActivity` 的 `tool_input`/`tool_output` 是 2000 字符摘要，对应 `_ref` 指向 schema 19 耐久全文。blocking worker 内整体脱敏后，正文块与 evidence 原子提交，再发送 live DTO。每块 ≤16 KiB UTF-8、单正文 ≤64 MiB，超限/失败明确报错；Tauri/HTTP 复用按 session 归属校验的读取 API。旧摘要无引用，不补造丢失内容。
 - 工具 live DTO 与 side-effect evidence 共用首次观测的 `first_seen_at`/attempt-local `sequence`；完成时不可覆盖，live DTO 携带 attempt_id 隔离重复 tool ID。旧 evidence JSON 默认缺省，新字段无需改 SQL schema；无法追溯旧记录未保存的精确时间。
-- Assistant 片段在 execute_turn 的统一 emit 边界附加 `MessagePosition`：stream_id 是 attempt ID（非持久 seam 使用随机 ID），offset 是每个 native message 的 UTF-16 长度。重复文本不同 offset 不合并，终态保留同一 message scope；Tauri/SSE 原样传递。这是 live 投影协议，不是完整事件日志/断线恢复能力。
+- Assistant 片段在 execute_turn 的统一 emit 边界附加 `MessagePosition`：stream_id 是 attempt ID（非持久 seam 使用随机 ID），offset 是每个 native message 的 UTF-16 长度。重复文本不同 offset 不合并，终态保留同一 message scope；Tauri/SSE 原样传递。schema 20 在同一边界发送前保存可见 assistant 文本，Tauri/HTTP 提供固定高水位分页；失败显式使 attempt 失败。工具/审批/协作事实仍使用各自现有耐久表，不宣称所有 raw adapter 事件均入日志。
 
 - `engine_registry.rs` + `engine_wiring.rs`：引擎注册表是权限门、就绪分类与装配的唯一查询点。每个引擎一份 `EngineBlueprint`（descriptor、readiness spec、probe/veto/enforcement/build 闭包）；内建四引擎的名字只出现在 `engine_wiring.rs` 一个装配点。注册新引擎 = 注册新 blueprint，三模块零改动（R17）。
 - `store/orchestration.rs`：团队队列领取**策略**（生命周期门、冲突检测、FIFO 公平预留）为纯函数 `decide_claim`；`store/team.rs::claim_next_worker_task` 是记账层——读库、组装 `ClaimInputs`、按 `ClaimDecision` 落库（R18）。

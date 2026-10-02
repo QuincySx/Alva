@@ -841,6 +841,13 @@ export async function getHubToolContent(
 }
 
 export interface WorkspaceEntry { name: string; path: string; kind: "file" | "directory" | "symlink" | "unavailable" }
+export interface MessageJournalRecord { sequence: number; turn_id: string; attempt_status: string; event: TimelineEvent }
+export interface MessageJournalPage { records: MessageJournalRecord[]; next_cursor: number; through: number; has_more: boolean }
+export async function getHubMessagePage(productSessionId: string, after: number, through?: number): Promise<MessageJournalPage> {
+  if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/messages?after=${after}${through === undefined ? "" : `&through=${through}`}`, undefined, "GET");
+  if (!hasTauri) return { records: [], next_cursor: after, through: after, has_more: false };
+  return invoke("get_hub_messages", { productSessionId, after, through: through ?? null });
+}
 export interface WorkspaceDirectory { path: string; entries: WorkspaceEntry[]; truncated: boolean }
 export interface WorkspacePreview { path: string; kind: "text" | "binary"; text: string | null; total_bytes: number; truncated: boolean }
 

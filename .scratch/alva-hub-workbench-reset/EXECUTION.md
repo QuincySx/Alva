@@ -1,5 +1,12 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 自主迭代 · H20 消息耐久补页
+
+- schema 20 新建可见 assistant 文本日志；沿现有 attempt/消息/UTF-16 offset 协议，在 live 发送前事务保存，16 KiB UTF-8 分块，不再只依赖 Turn 结果摘要。仅有 Completed(result) 的 provider 同样完整保存。写失败使 attempt 失败，不假装耐久成功。
+- Tauri/HTTP 提供会话隔离的 128 条游标页，固定 through 高水位，一条游标边界重放用于观察终态。前端初次打开及每 2 秒补页，实时重叠去重、旧会话迟到结果丢弃、崩溃后已读消息也同步 interrupted；只替换有日志 Turn 的摘要，旧记录不能补造丢失片段。
+- 验证：Hub lib 串行 207 项通过/6 filtered（当时 real_ 过滤误含新合成 worktree 测试，已改名；该测试此前独立通过）；随后新增发送前持久化回归 1 项通过。前端 159 项通过，HTTP 9 项通过，双端 all-target check、生产 build 通过。4MB Unicode 多页重开、缺口补齐、重复回放、terminal 先到与切会话均覆盖。
+- 这是可见 assistant 消息的耐久恢复，不是所有 raw adapter 事件日志；工具、审批、协作继续使用各自已有记录。私有消息不自动加入跨引擎 handoff；尚未声称持久化每片段的真实桌面延迟预算通过。
+
 ## 2026-10-02 自主迭代 · H11 真实 Git
 
 - Git 页绑定已存 session cwd，读取真实 Git branch（非 EngineBranch）、staged/unstaged/untracked、选中文件 diff；Review 单独保留工具执行记录。终态 detail revision 与手动 Refresh 都触发重读。

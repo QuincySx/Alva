@@ -87,6 +87,7 @@ const bridge = vi.hoisted(() => {
           updated_at: 0,
         }),
       ),
+      getHubMessagePage: vi.fn(async (_id: string, after: number) => ({ records: [], next_cursor: after, through: after, has_more: false })),
       setGlobalFallbackPolicy: vi.fn(
         async (_targets: EngineTarget[]): Promise<FallbackPolicy> => ({
           targets: [],

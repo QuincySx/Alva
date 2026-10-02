@@ -211,6 +211,17 @@ struct ToolContentQuery { #[serde(default)] chunk: usize }
 #[derive(serde::Deserialize)]
 struct WorkspacePathQuery { #[serde(default)] path: String }
 
+#[derive(serde::Deserialize)]
+struct MessageQuery { #[serde(default)] after: i64, through: Option<i64> }
+
+async fn get_messages(State(state): State<Arc<AppState>>, Path(session): Path<String>, Query(query): Query<MessageQuery>) -> Response {
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || store.message_journal_page(&session, query.after, query.through)).await {
+        Ok(Ok(page)) => Json(page).into_response(),
+        _ => (StatusCode::BAD_REQUEST, Json(json!({"error":"message history unavailable"}))).into_response(),
+    }
+}
+
 async fn workspace_git_status(State(state): State<Arc<AppState>>, Path(session): Path<String>) -> Response {
     match alva_hub_desktop::workspace_git_status(&state.store, &session).await {
         Ok(result) => Json(result).into_response(),
@@ -1289,6 +1300,7 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/sessions/:id", get(get_session))
         .route("/api/sessions/:id/inspection", get(get_inspection))
         .route("/api/sessions/:id/tool-content/:content_id", get(get_tool_content))
+        .route("/api/sessions/:id/messages", get(get_messages))
         .route("/api/sessions/:id/workspace/files", get(workspace_files))
         .route("/api/sessions/:id/workspace/file", get(workspace_file))
         .route("/api/sessions/:id/workspace/git", get(workspace_git_status))
@@ -1774,6 +1786,12 @@ mod r65_stop_integration {
         assert_eq!(status, 200);
         assert_eq!(diff["text"], "真实 file");
         assert_eq!(http_get(server.addr, &format!("{base}/git/diff?path=hello.txt&area=staged")).await.0, 400);
+        let (status, messages) = http_get(server.addr, &format!("/api/sessions/{session}/messages")).await;
+        assert_eq!(status, 200);
+        assert!(!messages["records"].as_array().unwrap().is_empty());
+        assert!(messages["records"].as_array().unwrap().iter().all(|record| record["event"]["product_session_id"] == session));
+        assert!(http_get(server.addr, "/api/sessions/not-owner/messages").await.1["records"].as_array().unwrap().is_empty());
+        assert_eq!(http_get(server.addr, &format!("/api/sessions/{session}/messages?after=-1")).await.0, 400);
     }
 
     #[tokio::test(flavor = "multi_thread")]

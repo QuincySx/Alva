@@ -31,6 +31,7 @@ import { ModelPicker, type HubModelRoute } from "./components/model-picker";
 import { HubSidebar } from "./components/hub-sidebar";
 import { StartupGate, type EntryMode, type ProjectWorktreeState } from "./components/startup-gate";
 import { ChatTranscript } from "./components/chat-transcript";
+import { useMessageReplay } from "./session/message-replay";
 import {
   HubTimeline,
   type HubTimelineEvent,
@@ -643,6 +644,9 @@ export default function App() {
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const previousWorkspaceRef = useRef(workspace);
 
+  const [messageReplayRevision, setMessageReplayRevision] = useState(0);
+  const messageRecoveryFailed = useMessageReplay(activeSessionId, messageReplayRevision, setTimeline);
+
   // R34: after a workspace is chosen — gate project/independent pick or a
   // session opened from the sidebar — focus returns to the input so a
   // keyboard-only flow can continue with typing instead of tab hunting.
@@ -1141,6 +1145,7 @@ export default function App() {
     setPendingEngine(detail.pending_switch?.target.engine_id ?? null);
     setFallbackPolicy(detail.fallback_policy);
     setTimeline(projectHistory(detail, (projected) => projectTimeline(projected, locale)));
+    setMessageReplayRevision((value) => value + 1);
     setCancellableSessionId(
       detail.session.status === "running" && detail.session.engine_session_id
         ? detail.session.product_session_id
@@ -1906,6 +1911,7 @@ export default function App() {
             {/* R29/R30: 消息阅读流常驻——用户问题与回答从流式到终态始终可读，
                 不按运行状态卸载；Markdown/代码复制/滚动跟随由 ChatTranscript
                 承担。 */}
+            {messageRecoveryFailed ? <Notice tone="warning" heading={t("timeline.recoveryFailed")} /> : null}
             <ChatTranscript
               events={timeline}
               streaming={attemptIsLive}

@@ -213,7 +213,9 @@ fn parse_status(
             index: (record[0] as char).to_string(),
             worktree: (record[1] as char).to_string(),
         });
-        if files.len() > 2000 { return Err("Git status exceeds the 2000 path limit".into()); }
+        if files.len() > 2000 {
+            return Err("Git status exceeds the 2000 path limit".into());
+        }
     }
     Ok((files, hidden))
 }
@@ -327,7 +329,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn real_worktrees_have_independent_staged_unstaged_and_untracked_views() {
+    async fn worktrees_have_independent_staged_unstaged_and_untracked_views() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("repo");
         std::fs::create_dir(&root).unwrap();
@@ -451,9 +453,20 @@ mod tests {
         session(&store, "nested", &root.join("nested"));
         let status = workspace_git_status(&store, "nested").await.unwrap();
         assert_eq!(status.files.len(), 3);
-        assert!(status.files.iter().any(|file| file.path == "gone" && file.worktree == "D"));
-        assert!(workspace_git_diff(&store, "nested", "binary", GitDiffArea::Unstaged).await.unwrap().text.contains("Binary files"));
-        let diff = workspace_git_diff(&store, "nested", "[literal]", GitDiffArea::Unstaged).await.unwrap();
+        assert!(status
+            .files
+            .iter()
+            .any(|file| file.path == "gone" && file.worktree == "D"));
+        assert!(
+            workspace_git_diff(&store, "nested", "binary", GitDiffArea::Unstaged)
+                .await
+                .unwrap()
+                .text
+                .contains("Binary files")
+        );
+        let diff = workspace_git_diff(&store, "nested", "[literal]", GitDiffArea::Unstaged)
+            .await
+            .unwrap();
         assert!(diff.text.contains("+after"));
         assert!(!diff.text.contains("Binary files"));
     }

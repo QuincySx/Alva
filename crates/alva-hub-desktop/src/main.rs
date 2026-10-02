@@ -1535,6 +1535,15 @@ async fn get_hub_inspection(
 }
 
 #[tauri::command]
+async fn get_hub_messages(
+    state: State<'_, DesktopState>, product_session_id: String, after: i64, through: Option<i64>,
+) -> Result<alva_hub_desktop::MessageJournalPage, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.message_journal_page(&product_session_id, after, through))
+        .await.map_err(|_| "message reader unavailable".to_string())?
+}
+
+#[tauri::command]
 async fn get_hub_git_status(
     state: State<'_, DesktopState>, product_session_id: String,
 ) -> Result<alva_hub_desktop::WorkspaceGitStatus, String> {
@@ -1698,6 +1707,7 @@ fn main() {
             read_hub_workspace_file,
             get_hub_git_status,
             get_hub_git_diff,
+            get_hub_messages,
             add_session_memory,
             get_global_fallback_policy,
             set_global_fallback_policy,

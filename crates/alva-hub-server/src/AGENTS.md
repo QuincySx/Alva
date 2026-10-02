@@ -17,6 +17,7 @@
 5. 未命中 API 的请求落到内嵌 React 静态资源。
 6. `/api/sessions/:id/workspace/files?path=` 与 `/workspace/file?path=` 在 blocking worker 内调用共享只读文件服务；cwd 仅从 session 取，错误不泄露宿主路径，敏感文件和链接不可穿透。
 7. `/api/sessions/:id/workspace/git` 与 `/workspace/git/diff?path=&area=staged|unstaged|untracked` 调用共享有界 Git reader，HTTP 不接受任意 cwd，也不提供写入操作。
+8. `/api/sessions/:id/messages?after=&through=` 是会话隔离的 128 条消息页；through 固定一次追赶范围，after 边界重放一条用于终态更新，不是独立事件身份。前端按 message_position 去重，不将 SSE 丢包当不可恢复历史。
 
 ## 约束
 
