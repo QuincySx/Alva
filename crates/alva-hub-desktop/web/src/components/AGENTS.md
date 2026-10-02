@@ -25,6 +25,7 @@
 | provider-settings.tsx / engine-readiness-panel.tsx | Provider 配置和引擎就绪状态 |
 | engine-inspector.tsx / session-details.tsx | 诊断记录与产品会话详情 |
 | workbench-tools.tsx | 工作台页组合 |
+| workspace-files.tsx / workspace-files.test.tsx | 真实文件目录导航、受限只读预览、刷新重试与会话隔离回归；按 session/workspace key 重新挂载 |
 | fallback-policy-panel.tsx / team-panel.tsx | fallback 和团队操作 |
 | product-pages.tsx | 设置、插件、自动化等次级页面 |
 | *.test.tsx | 确定性组件交互与协议回归 |

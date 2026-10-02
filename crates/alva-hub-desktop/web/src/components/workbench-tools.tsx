@@ -7,7 +7,6 @@ import {
   Bot,
   CheckCircle2,
   CircleDot,
-  FileCode2,
   FolderTree,
   GitBranch,
   Globe2,
@@ -17,6 +16,7 @@ import {
 import type { HubSessionDetail, StoredAttempt, TeamRunDetail, WorkerTask } from "../bridge";
 import type { HubTimelineEvent } from "./hub-timeline";
 import { EngineInspectorPanel, type EngineInspectorPanelProps } from "./engine-inspector";
+import { WorkspaceFiles } from "./workspace-files";
 import { localizeSystemText, useI18n } from "../i18n";
 import {
   Badge,
@@ -31,42 +31,12 @@ import {
 
 export function FilesTool({ detail }: { detail: HubSessionDetail | null }) {
   const { t } = useI18n();
-  const files = useMemo(
-    () => Array.from(new Set(detail?.turns.flatMap((turn) => turn.attempts.flatMap((attempt) => attempt.side_effects.map((effect) => effect.path).filter((path): path is string => Boolean(path)))) ?? [])),
-    [detail],
-  );
-  return files.length === 0 ? (
-    <EmptyState icon={<FolderTree size={18} />} title={t("tool.noChangedFiles")} description={t("tool.noChangedFilesDescription")} />
-  ) : (
-    <PanelSection heading={t("tool.changedFiles")} meta={`${files.length}`}>
-      {files.map((file) => <ListRow heading={file.split("/").at(-1) ?? file} description={file} key={file} leading={<FileCode2 size={16} />} />)}
-    </PanelSection>
-  );
-}
-
-function changedFiles(detail: HubSessionDetail | null) {
-  return Array.from(new Set(detail?.turns.flatMap((turn) => turn.attempts.flatMap((attempt) => attempt.side_effects.map((effect) => effect.path).filter((path): path is string => Boolean(path)))) ?? []));
+  return detail ? <WorkspaceFiles key={`${detail.session.product_session_id}:${detail.session.workspace}`}
+    sessionId={detail.session.product_session_id} /> : <EmptyState icon={<FolderTree size={18} />} title={t("files.noSession")} />;
 }
 
 export function TextBrowserTool({ detail }: { detail: HubSessionDetail | null }) {
-  const { t } = useI18n();
-  const files = useMemo(() => changedFiles(detail), [detail]);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const activeFile = selectedFile && files.includes(selectedFile) ? selectedFile : files[0] ?? null;
-  return (
-    <div className="hub-text-browser">
-      <PanelSection heading={t("tool.projectFiles")} meta={`${files.length}`}>
-        {files.length === 0 ? <EmptyState icon={<FileCode2 size={18} />} title={t("tool.noPreview")} description={t("tool.noPreviewDescription")} /> : files.map((file) => (
-          <ListRow heading={file.split("/").at(-1) ?? file} description={file} key={file} leading={<FileCode2 size={16} />} onClick={() => setSelectedFile(file)} />
-        ))}
-      </PanelSection>
-      <PanelSection heading={activeFile?.split("/").at(-1) ?? t("tool.textPreview")} description={activeFile ?? t("tool.chooseFile")}>
-        {/* R53: nothing reads the file here — claiming a connected preview was a
-            fake connection. State the gap instead of inventing content. */}
-        <EmptyState icon={<FileCode2 size={18} />} title={t("tool.previewNotWiredTitle")} description={activeFile ? t("tool.previewNotWired", { file: activeFile }) : t("tool.noFileSelected")} />
-      </PanelSection>
-    </div>
-  );
+  return <FilesTool detail={detail} />;
 }
 
 export function GitTool({ detail }: { detail: HubSessionDetail | null }) {

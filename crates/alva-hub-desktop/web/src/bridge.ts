@@ -840,6 +840,22 @@ export async function getHubToolContent(
   return chunk;
 }
 
+export interface WorkspaceEntry { name: string; path: string; kind: "file" | "directory" | "symlink" | "unavailable" }
+export interface WorkspaceDirectory { path: string; entries: WorkspaceEntry[]; truncated: boolean }
+export interface WorkspacePreview { path: string; kind: "text" | "binary"; text: string | null; total_bytes: number; truncated: boolean }
+
+export async function listHubWorkspaceFiles(productSessionId: string, path: string): Promise<WorkspaceDirectory> {
+  if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/workspace/files?path=${encodeURIComponent(path)}`, undefined, "GET");
+  if (!hasTauri) throw new Error("Workspace browsing requires the Hub runtime.");
+  return invoke("list_hub_workspace_files", { productSessionId, path });
+}
+
+export async function readHubWorkspaceFile(productSessionId: string, path: string): Promise<WorkspacePreview> {
+  if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/workspace/file?path=${encodeURIComponent(path)}`, undefined, "GET");
+  if (!hasTauri) throw new Error("Workspace preview requires the Hub runtime.");
+  return invoke("read_hub_workspace_file", { productSessionId, path });
+}
+
 export async function getHubInspection(
   productSessionId: string,
   nativeSessionId?: string | null,

@@ -73,6 +73,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Provider plane | `src/provider_plane/` | 版本化模型身份、显式 binding 校验、per-engine override 与无 I/O 路由规划 |
 | Provider catalog | `src/providers.rs` | Provider 连接配置、backend-validated model binding、私密凭证与 route DTO 投影 |
 | Session workspace | `src/session_workspace.rs` | owner-only 独立会话目录创建与 project/session workspace kind |
+| Workspace files | `src/workspace_files.rs` | 会话 cwd 绑定的真实只读目录/文本预览，敏感路径及符号链接隔离、有界响应，Tauri/HTTP 同构 |
 | Session store | `src/store/` | 私有 SQLite（`db.rs` storage kernel + `mod.rs` 共享数据层 + `branch.rs`/`handoff.rs`/`team.rs`/`turn.rs`/`tests.rs` 持久化簇）covering workspace kind、policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
 | Tauri entry | `src/main.rs` | workspace 创建、运行/切换/Inspector IPC、event emission 与 Desktop runtime |
 | Crate facade | `src/lib.rs` | 对 Tauri 层和测试暴露产品类型 |

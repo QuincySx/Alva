@@ -15,6 +15,7 @@
 4. Inspector handler 按 product session 读取 durable native snapshot，wire shape 与 Tauri command 一致。
    `/api/sessions/:id/tool-content/:content_id?chunk=N` 复用 HubStore，blocking worker 中读取一块 ≤16 KiB 已脱敏正文；越权/缺失均为 404。
 5. 未命中 API 的请求落到内嵌 React 静态资源。
+6. `/api/sessions/:id/workspace/files?path=` 与 `/workspace/file?path=` 在 blocking worker 内调用共享只读文件服务；cwd 仅从 session 取，错误不泄露宿主路径，敏感文件和链接不可穿透。
 
 ## 约束
 

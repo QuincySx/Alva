@@ -69,6 +69,7 @@
 | Provider catalog | `providers.rs` | Hub 多供应商连接配置、backend-validated model binding、私密凭证与 route DTO 投影 |
 | Provider diagnostics | `provider_diagnostics.rs` | API 模型发现、非权威 binding preview、canonical 最小推理测试与脱敏 DTO |
 | Session workspace | `session_workspace.rs` | 独立会话专属目录创建、私有权限与 project/session 分类 |
+| Workspace files | `workspace_files.rs` | 从已存 session cwd 读取真实目录与只读文本预览；capability-relative 逐层 no-follow，复用敏感路径规则，目录 2000 项/预览 256 KiB 上限，HTTP/Tauri 共用 |
 | Failure matrix | `failure.rs` | terminal 失败 FailureClass 稳定分类与 fallback 资格规则 |
 | Handoff filter | `redact.rs` | 跨 engine 敏感内容过滤与 adapter-private 元数据剥离 |
 | Resource claims | `claims.rs` | 共享工作区 ResourceClaim 冲突代数 |

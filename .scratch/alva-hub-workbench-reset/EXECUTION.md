@@ -1,5 +1,12 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 自主迭代 · H10 真实 Files/Text
+
+- 已保存会话的 cwd 是唯一根，Tauri/HTTP 共用只读服务；Files/Text 从真实目录导航并读取 UTF-8 文本，不再以工具记录推测文件。尚未创建会话时明确提示先打开会话。
+- capability-relative 逐层 no-follow，复用 SensitivePathFilter 并隐藏元数据/认证目录；特殊文件、二进制、失效路径均明确拒绝或标注。列表 2000 项、预览 256 KiB，超限提示而非伪装完整；原文件不修改。
+- 验证：文件服务 4 项、HTTP 文件集成 1 项通过；前端全套 151 项通过；Desktop/Server all-target check 与 TypeScript/Vite build 通过。首次 TS 检查暴露 Notice 缺 heading 与多余 import，已修复并复测。
+- UI 覆盖目录进入/返回、惰性 HTML 文本、限额提示、失败刷新、迟到旧会话隔离。未声称真实 Tauri 视觉验收；后续与 Git/主流程一起验收。
+
 ## 2026-10-01 继续实施 · 工具全文分块
 
 - schema 19 新增不可变工具正文引用与 UTF-8 安全分块（每块至多 16KiB）；完整正文先脱敏，再与 side-effect evidence 在同一事务落盘，timeline/history 仅携带摘要和引用。单份原文上限 64MiB，超限明确失败，不静默截断。

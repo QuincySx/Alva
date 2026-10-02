@@ -1535,6 +1535,24 @@ async fn get_hub_inspection(
 }
 
 #[tauri::command]
+async fn list_hub_workspace_files(
+    state: State<'_, DesktopState>, product_session_id: String, path: String,
+) -> Result<alva_hub_desktop::WorkspaceDirectory, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || alva_hub_desktop::list_workspace_files(&store, &product_session_id, &path))
+        .await.map_err(|_| "workspace reader unavailable".to_string())?
+}
+
+#[tauri::command]
+async fn read_hub_workspace_file(
+    state: State<'_, DesktopState>, product_session_id: String, path: String,
+) -> Result<alva_hub_desktop::WorkspacePreview, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || alva_hub_desktop::read_workspace_file(&store, &product_session_id, &path))
+        .await.map_err(|_| "workspace reader unavailable".to_string())?
+}
+
+#[tauri::command]
 async fn get_hub_tool_content(
     state: State<'_, DesktopState>,
     product_session_id: String,
@@ -1662,6 +1680,8 @@ fn main() {
             get_hub_session,
             get_hub_inspection,
             get_hub_tool_content,
+            list_hub_workspace_files,
+            read_hub_workspace_file,
             add_session_memory,
             get_global_fallback_policy,
             set_global_fallback_policy,

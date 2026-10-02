@@ -12,6 +12,9 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+alva-agent-security = { path = "../alva-agent-security" }
+cap-std = "3.4.5"
+cap-fs-ext = "3.4.5"
 alva-engine-adapter-alva = { path = "../alva-engine-adapter-alva" }
 alva-engine-adapter-claude = { path = "../alva-engine-adapter-claude" }
 alva-engine-adapter-codex = { path = "../alva-engine-adapter-codex" }
@@ -32,6 +35,9 @@ tokio-stream = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 async-trait = "0.1"

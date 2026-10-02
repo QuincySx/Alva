@@ -208,6 +208,29 @@ struct InspectionQuery {
 #[derive(serde::Deserialize)]
 struct ToolContentQuery { #[serde(default)] chunk: usize }
 
+#[derive(serde::Deserialize)]
+struct WorkspacePathQuery { #[serde(default)] path: String }
+
+async fn workspace_files(
+    State(state): State<Arc<AppState>>, Path(session): Path<String>, Query(query): Query<WorkspacePathQuery>,
+) -> Response {
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || alva_hub_desktop::list_workspace_files(&store, &session, &query.path)).await {
+        Ok(Ok(result)) => Json(result).into_response(),
+        _ => (StatusCode::BAD_REQUEST, Json(json!({"error":"workspace directory unavailable"}))).into_response(),
+    }
+}
+
+async fn workspace_file(
+    State(state): State<Arc<AppState>>, Path(session): Path<String>, Query(query): Query<WorkspacePathQuery>,
+) -> Response {
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || alva_hub_desktop::read_workspace_file(&store, &session, &query.path)).await {
+        Ok(Ok(result)) => Json(result).into_response(),
+        _ => (StatusCode::BAD_REQUEST, Json(json!({"error":"workspace preview unavailable"}))).into_response(),
+    }
+}
+
 async fn get_tool_content(
     State(state): State<Arc<AppState>>,
     Path((session_id, content_id)): Path<(String, String)>,
@@ -1249,6 +1272,8 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/sessions/:id", get(get_session))
         .route("/api/sessions/:id/inspection", get(get_inspection))
         .route("/api/sessions/:id/tool-content/:content_id", get(get_tool_content))
+        .route("/api/sessions/:id/workspace/files", get(workspace_files))
+        .route("/api/sessions/:id/workspace/file", get(workspace_file))
         .route(
             "/api/providers",
             get(list_providers).post(save_provider),
@@ -1698,6 +1723,27 @@ mod r65_stop_integration {
         let status = raw.split_whitespace().nth(1).unwrap().parse().unwrap();
         let body = raw.split_once("\r\n\r\n").unwrap().1;
         (status, serde_json::from_str(body).unwrap())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn workspace_files_use_the_saved_session_directory_over_http() {
+        let server = spawn_server_gated(vec![Step::CompleteNow], false, false).await;
+        let workspace = server.data_dir.join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(workspace.join("hello.txt"), "真实 file").unwrap();
+        let (status, body) = http_post(server.addr, "/api/run".into(), run_body(workspace.to_str().unwrap(), None)).await;
+        assert_eq!(status, 200, "{body}");
+        let outcome: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let session = outcome["product_session_id"].as_str().unwrap();
+        let base = format!("/api/sessions/{session}/workspace");
+        let (status, listing) = http_get(server.addr, &format!("{base}/files")).await;
+        assert_eq!(status, 200);
+        assert!(listing["entries"].as_array().unwrap().iter().any(|entry| entry["name"] == "hello.txt"));
+        let (status, preview) = http_get(server.addr, &format!("{base}/file?path=hello.txt")).await;
+        assert_eq!(status, 200);
+        assert_eq!(preview["text"], "真实 file");
+        assert_eq!(http_get(server.addr, &format!("{base}/file?path=..%2Foutside")).await.0, 400);
+        assert_eq!(http_get(server.addr, "/api/sessions/unknown/workspace/files").await.0, 400);
     }
 
     #[tokio::test(flavor = "multi_thread")]

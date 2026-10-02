@@ -10,6 +10,17 @@ export type LanguagePreference = Locale | "system";
 const STORAGE_KEY = "alva-hub.language";
 
 const en = {
+  "files.title": "Workspace files (read only)",
+  "files.protected": "Protected files are hidden. Symbolic links cannot be opened.",
+  "files.loading": "Loading…",
+  "files.error": "Unavailable or protected. Check the directory and refresh to retry.",
+  "files.empty": "No visible files in this directory",
+  "files.blocked": "Not available for preview",
+  "files.listLimit": "Directory listing limited to 2,000 entries.",
+  "files.previewLimit": "Preview limited to the first 256 KiB; the original file is unchanged.",
+  "files.bytes": "{bytes} bytes",
+  "files.binary": "Binary or non-UTF-8 file — text preview unavailable",
+  "files.noSession": "Open a session to browse its saved workspace",
   "brand.tagline": "One project. Every engine.",
   "nav.primary": "Primary navigation",
   "nav.newSession": "New session",
@@ -745,6 +756,17 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const zh: Record<MessageKey, string> = {
+  "files.title": "工作目录文件（只读）",
+  "files.protected": "敏感文件已隐藏，符号链接不可打开。",
+  "files.loading": "加载中…",
+  "files.error": "路径不可用或受保护。请检查目录并刷新重试。",
+  "files.empty": "此目录没有可见文件",
+  "files.blocked": "不可预览",
+  "files.listLimit": "目录列表最多展示 2,000 项。",
+  "files.previewLimit": "仅预览前 256 KiB，原文件未被修改。",
+  "files.bytes": "{bytes} 字节",
+  "files.binary": "二进制或非 UTF-8 文件，无法文本预览",
+  "files.noSession": "打开会话后浏览其已保存的工作目录",
   "brand.tagline": "一个项目，协同所有引擎。",
   "nav.primary": "主导航",
   "nav.newSession": "新建会话",
