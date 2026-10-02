@@ -15,6 +15,8 @@ tauri-build = { version = "2", features = [] }
 alva-agent-security = { path = "../alva-agent-security" }
 cap-std = "3.4.5"
 cap-fs-ext = "3.4.5"
+base64 = "0.22"
+sha2 = "0.10"
 alva-engine-adapter-alva = { path = "../alva-engine-adapter-alva" }
 alva-engine-adapter-claude = { path = "../alva-engine-adapter-claude" }
 alva-engine-adapter-codex = { path = "../alva-engine-adapter-codex" }

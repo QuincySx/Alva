@@ -1,5 +1,5 @@
 // INPUT:  Hub Desktop engine, provider, workspace, run, store, and collaboration sub-modules
-// OUTPUT: engine/provider/workspace/Skills/automation/tool-settings/MCP and durable orchestration APIs
+// OUTPUT: engine/provider/workspace/Skills/automation/MCP, reference-first input files and durable orchestration APIs
 // POS:    Hub Desktop multi-engine library facade shared by Tauri IPC and product tests.
 
 mod alva;
@@ -63,11 +63,12 @@ pub use repair::{
 };
 pub use run::{
     run_once, run_persisted, run_persisted_with_target, run_persisted_with_automation, ActiveHubs, MessagePosition, RunOutcome,
-    RunRequest, TimelineActivity, TimelineEvent, TimelineStatus,
+    RunRequest, TimelineActivity, TimelineEvent, TimelineStatus, run_persisted_with_input_attachments,
 };
 pub use session_workspace::{create_managed_session_workspace, WorkspaceBinding, WorkspaceKind};
 pub use store::{
     Automation, AutomationAction,
+    validate_input_attachments, InputAttachment, InputAttachmentRef, InputAttachmentContent,
     HubToolSettings, ToolComponent, ManagedMcpServer, ToolSettingsAction,
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, MessageJournalPage, MessageJournalRecord, PendingSwitch, ProjectSummary, SideEffectEvidence, StoredAttempt, StoredBranch,

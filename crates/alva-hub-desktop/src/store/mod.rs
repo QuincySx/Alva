@@ -1,5 +1,5 @@
 // INPUT:  rusqlite, serde, filesystem paths, UUID/time primitives
-// OUTPUT: HubStore, local automations/ALVA tool settings and durable orchestration DTOs
+// OUTPUT: HubStore, automations/ALVA tool settings, session input-file DTOs and durable orchestration DTOs
 // POS:    Hub Desktop-private multi-engine state machine, authorization snapshots, and crash repair owner.
 
 use std::fs::File;
@@ -29,6 +29,7 @@ mod projects;
 mod team;
 mod tool_content;
 mod message_journal;
+mod input_attachments;
 mod turn;
 
 pub use branch::{
@@ -47,6 +48,7 @@ pub use projects::ProjectSummary;
 pub use team::{TaskClaim, TeamRunDetail, TeamWorker, WorkerLifecycle, WorkerTask};
 pub use tool_content::{ToolContentChunk, ToolContentRef};
 pub use message_journal::{MessageJournalPage, MessageJournalRecord};
+pub use input_attachments::{validate_input_attachments, InputAttachment, InputAttachmentRef, InputAttachmentContent};
 pub(crate) use tool_content::ToolContentKind;
 pub(crate) use turn::PreparedTurn;
 pub use turn::{
@@ -54,7 +56,7 @@ pub use turn::{
     StoredTurn, StoredUsage,
 };
 
-pub(crate) const SCHEMA_VERSION: i64 = 22;
+pub(crate) const SCHEMA_VERSION: i64 = 23;
 pub(crate) const STATUS_RUNNING: &str = "running";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_FAILED: &str = "failed";

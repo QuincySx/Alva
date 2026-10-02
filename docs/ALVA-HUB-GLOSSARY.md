@@ -90,6 +90,30 @@ Parked does not mean archived, deleted, failed, or currently running.
 
 ## Turns and Attempts
 
+### Input attachment
+
+A user-selected file bound to one Turn and saved as a session artifact. It is
+not automatically model context or permission to read another host path. The
+model gets a file reference and chooses relevant searches/reads according to
+the user's task; history retains the upload independently of what it reads.
+
+Avoid: “upload” when naming the durable object; upload is the input action.
+
+### Session artifact
+
+Content owned by a HubSession and referenced rather than automatically loaded
+into model context. Uploads, retained tool results and searchable history use
+the same reference-first principle: discover relevant material, retrieve a
+bounded excerpt, then include only that excerpt in the current reasoning.
+
+### Message module
+
+A structured part of a user-visible message or tool result presented by a
+Hub-owned renderer, such as a table, chart, or diagram. The module's data is
+not executable code and its renderer is not an SDK Plugin.
+
+Avoid: “plugin message” when it could be confused with an agent Plugin.
+
 ### Turn
 
 One user instruction and all automatic EngineAttempts used to complete it.

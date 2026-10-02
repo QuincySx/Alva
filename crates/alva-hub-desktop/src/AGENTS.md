@@ -15,6 +15,7 @@ ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，
 2.1. `session_workspace` 只在用户明确选择“独立会话”后，于 Desktop app-data 创建 owner-only 专属目录和受管标记；项目模式继续使用用户选择的 Workspace，受管目录不隐式清理。
 2.2. `workspace_skills` 只列出 session 已存 cwd 内的技能文件，复用协议 parser 与 capability-relative no-follow。生态源只读；新建/编辑仅 `.alva/skills/user`，不覆盖创建目标，保存需匹配源 revision；macOS/Linux 归档/恢复用原子 no-replace 移动，保留资源。已有 enable-list 的全局名字及未知字段保留，损坏/超限配置拒绝创建，不热改运行中 Agent。
 2.3. `store/automation` 持久化暂停优先的间隔配置与 revision；启用只能确认已展示的 branch/EngineTarget，路由变化需编辑后再授权。`run_persisted_with_automation` 与 resumed Turn 同事务认领，自动化不走 fallback、TeamRun 或独立自动审批。入口每 10 秒查询 due、最多 4 个并行；busy/missed tick 延后、成功后等完整间隔、失败/Stop 暂停。启动重置未执行的钟，中断执行暂停，不补跑；隔离 QA 可保存暂停配置但不能启用，pump 关闭。
+2.4. schema 23 Turn 附件保存原始 BLOB 与 session cwd 中的新副本，每文件 20 MiB/每 Turn 40 MiB/8 文件。`run_persisted_with_input_attachments` 仅给模型文件引用/处理清单，user_message 保留原始指令；保存失败使 Turn 明确失败。no-follow/create-new 不覆盖项目文件，类型是签名探测，当前未压缩/转码/抽帧/分析；Tauri/HTTP 预览以 session JOIN 校验归属。详细引用优先政策见 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md；通用工具/MCP/历史检索仍待实施。
 3. `run` 创建或恢复 active branch 的 product/native session 映射；parked return 注入 delta，native resume 失效时原子升级完整 handoff 再 fresh 执行。
 4. SessionStarted/ToolEnd 增量落盘，Completed 原子提交 Attempt usage 与 Turn 终态；Alva adapter 的真实 ToolExecution duration 穿透到 side-effect evidence。
 5. 运行中 switch 持久化为 queued；终态或启动 crash repair 后再原子应用。
@@ -86,6 +87,7 @@ ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，
 | Engine repair | `repair.rs` | readiness→RepairAction 映射、一键安装 allowlist 执行器 |
 | SQLite store | `store/` | `db.rs` storage kernel；`mod.rs` 共享数据访问层与 `pub(crate)` 常量/helper；`branch.rs`/`handoff.rs`/`team.rs`/`turn.rs` 各持久化簇；`tests.rs` 全量测试。covering workspace kind、identity、模型选项、FallbackPolicy snapshot、branch watermark/switch/handoff/timeline、Turn/Attempt 与崩溃修复 |
 | Tool content | `store/tool_content.rs` | 原子保存脱敏全文与 evidence 引用，UTF-8 分块、会话归属读取及回归 |
+| Input attachments | `store/input_attachments.rs` | schema 23 原字节/限额、私有 BLOB/会话文件副本、处理清单、仅引用 prompt 与归属预览；不执行媒体处理 |
 | Message journal | `store/message_journal.rs` | schema 20 耐久 assistant 文本，发送前保存、游标分页、attempt 终态对齐；旧 Turn 摘要继续作为无日志记录的兼容路径 |
 | Local automations | `store/automation.rs` | schema 21 真实 CRUD、限额/乐观冲突、授权固定路由、原子认领和终态/restart 恢复；10 项无账号回归 |
 | ALVA tool settings | `store/tool_settings.rs` | schema 22 真实能力开关与 stdio MCP 暂停优先 CRUD、授权/revision 及运行 snapshot |

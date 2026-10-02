@@ -1,5 +1,5 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: Desktop IPC for workspace/Skills/automation/ALVA tools/MCP/run/Inspector with execution guards and schedule pump
+// OUTPUT: Desktop IPC for workspace/Skills/automation/MCP/run/Inspector and session-owned attachment bytes/references
 // POS:    Tauri 2 entrypoint, user-authorized multi-engine Desktop state owner, and product event bridge.
 
 #![cfg_attr(
@@ -16,7 +16,7 @@ use alva_hub_core::{HubRuntime, ProductSessionId};
 use alva_hub_desktop::{
     build_engine_for_target_with_settings, create_managed_session_workspace,
     diagnose_provider_inference, discover_provider_models, discover_worktrees,
-    permission_eligibility, probe_readiness, run_persisted_with_automation, EngineEligibility,
+    permission_eligibility, probe_readiness, run_persisted_with_input_attachments, EngineEligibility,
     EngineReadiness, EngineTarget, FallbackPolicy, HubInspectionSnapshot, HubInspectorService,
     HubSessionDetail, HubSessionSummary, HubStore, ModelRoute, PermissionProfile,
     PermissionRouter, ProjectSummary, ProviderCatalog, ProviderDiagnosticResult, ProviderProfile,
@@ -176,6 +176,7 @@ async fn run_hub_prompt(
     request: RunRequest,
     selected_target: Option<EngineTarget>,
     run_token: Option<String>,
+    attachments: Option<Vec<alva_hub_desktop::InputAttachment>>,
 ) -> Result<RunOutcome, String> {
     let selected_target = if request.product_session_id.is_none() {
         if run_token
@@ -211,7 +212,7 @@ async fn run_hub_prompt(
         None
     };
     let (workspace, _engine_id) = state.execution_target(&request)?;
-    execute_session_run(app, &state, workspace, request, selected_target, run_token, None).await
+    execute_session_run(app, &state, workspace, request, selected_target, run_token, None, attachments.unwrap_or_default()).await
 }
 
 #[derive(Clone, Serialize)]
@@ -219,6 +220,7 @@ struct DesktopTimelineEvent {
     #[serde(flatten)]
     event: TimelineEvent,
     run_token: Option<String>,
+    attachments: Vec<alva_hub_desktop::InputAttachmentRef>,
 }
 
 /// The one execution wiring user prompts, schedules and team dispatches go
@@ -231,6 +233,7 @@ async fn execute_session_run(
     selected_target: Option<EngineTarget>,
     run_token: Option<String>,
     automation_id: Option<&str>,
+    attachments: Vec<alva_hub_desktop::InputAttachment>,
 ) -> Result<RunOutcome, String> {
     let history_dir = state.history_dir.clone();
     let inspector = state.inspector.clone();
@@ -269,7 +272,8 @@ async fn execute_session_run(
         .store
         .is_autonomous_scope(&session_key)
         .unwrap_or(false);
-    let outcome = run_persisted_with_automation(
+    let attachment_store = state.store.clone();
+    let outcome = run_persisted_with_input_attachments(
         &state.store,
         move |target, product_session_id, permission_profile| {
             let provider_config = build_providers.resolve_target(target, &workspace)?;
@@ -308,6 +312,7 @@ async fn execute_session_run(
         selected_target,
         Some(active_hubs),
         automation_id,
+        attachments,
         move |event| {
             if let Some(info) = &event.permission_request {
                 // The live-engines entry is the adapter currently streaming
@@ -393,6 +398,9 @@ async fn execute_session_run(
             if let Err(error) = app.emit(
                 "hub_timeline",
                 DesktopTimelineEvent {
+                    attachments: attachment_store.input_attachments_for_message(&event).unwrap_or_else(|error| {
+                        tracing::warn!(%error, "input attachment metadata unavailable"); Vec::new()
+                    }),
                     event,
                     run_token: run_token.clone(),
                 },
@@ -1120,7 +1128,7 @@ async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
         product_session_id: Some(worker.worker_session_id.clone()),
         permission_profile: None,
     };
-    let outcome = execute_session_run(app.clone(), &state, workspace, request, None, None, None).await;
+    let outcome = execute_session_run(app.clone(), &state, workspace, request, None, None, None, Vec::new()).await;
     let finished = match outcome {
         Ok(outcome) => state.store.finish_worker_task(
             &task.task_id,
@@ -1669,6 +1677,15 @@ async fn get_hub_tool_content(
 }
 
 #[tauri::command]
+async fn get_hub_input_attachment(
+    state: State<'_, DesktopState>, product_session_id: String, attachment_id: String,
+) -> Result<Option<alva_hub_desktop::InputAttachmentContent>, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.read_input_attachment(&product_session_id, &attachment_id))
+        .await.map_err(|_| "Attachment reader unavailable".to_string())?
+}
+
+#[tauri::command]
 async fn get_hub_tool_settings(state: State<'_, DesktopState>) -> Result<alva_hub_desktop::HubToolSettings, String> {
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || store.tool_settings()).await.map_err(|_| "Tool settings unavailable".to_string())?
@@ -1758,7 +1775,7 @@ fn isolated_ui_directory(args: impl IntoIterator<Item = std::ffi::OsString>) -> 
 fn isolated_ui_command(command: &str) -> bool {
     matches!(command,
         "hub_browser" | "hub_terminal" | "list_hub_sessions" | "get_hub_session"
-        | "get_hub_tool_content" | "list_hub_workspace_files" | "read_hub_workspace_file"
+        | "get_hub_tool_content" | "get_hub_input_attachment" | "list_hub_workspace_files" | "read_hub_workspace_file"
         | "get_hub_git_status" | "get_hub_git_diff" | "get_hub_messages" | "get_hub_inspection"
         | "list_hub_workspace_skills" | "hub_workspace_skill"
         | "list_hub_automations" | "hub_automation"
@@ -1810,7 +1827,7 @@ fn start_automation_pump(app: AppHandle) {
                         PathBuf::from(state.store.get_session(&schedule.product_session_id).ok().flatten().map(|detail| detail.session.workspace).unwrap_or_default()),
                         RunRequest { prompt: schedule.prompt, workspace: PathBuf::new(), engine_id: schedule.target.engine_id,
                             product_session_id: Some(schedule.product_session_id), permission_profile: None },
-                        None, None, Some(&id)).await;
+                        None, None, Some(&id), Vec::new()).await;
                     if let Err(error) = &result {
                         let _ = state.store.fail_unclaimed_automation(&id, schedule.revision, error);
                     }
@@ -1925,6 +1942,7 @@ fn main() {
             get_hub_session,
             get_hub_inspection,
             get_hub_tool_content,
+            get_hub_input_attachment,
             list_hub_workspace_files,
             read_hub_workspace_file,
             list_hub_workspace_skills,

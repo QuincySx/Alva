@@ -1,6 +1,5 @@
-// INPUT:  alva-hub-desktop (HubStore, ProviderCatalog, run_persisted_with_automation,
-//         build_engine_for_target, SystemProbe, DTOs), axum, tokio
-// OUTPUT: HTTP/SSE service with durable workspace/automation/ALVA capability/MCP/Inspector APIs
+// INPUT:  alva-hub-desktop (HubStore, reference-first run seam, engine assembly and DTOs), axum, tokio
+// OUTPUT: HTTP/SSE workspace/automation/MCP/Inspector APIs and session-owned 20 MiB attachment transport
 // POS:    Alva Hub as a local service — one backend, many frontends.
 
 use std::collections::{HashMap, HashSet};
@@ -8,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -25,7 +24,7 @@ use tracing::{info, warn};
 use alva_hub_core::ProductSessionId;
 use alva_hub_desktop::{
     build_engine_for_target_with_settings, permission_eligibility, probe_readiness,
-    run_persisted_with_automation, ActiveHubs, EngineTarget, HubInspectorService, HubStore,
+    run_persisted_with_input_attachments, ActiveHubs, EngineTarget, HubInspectorService, HubStore,
     PermissionProfile, ProviderCatalog, RunRequest, SaveProviderProfile, CreateProviderProfile,
     SystemProbe, TimelineEvent, TimelineStatus,
 };
@@ -147,6 +146,8 @@ struct RunBody {
     permission_profile: Option<PermissionProfile>,
     #[serde(default)]
     run_token: Option<String>,
+    #[serde(default)]
+    attachments: Vec<alva_hub_desktop::InputAttachment>,
 }
 
 /// Flattened timeline event for the browser, matching the Tauri
@@ -156,6 +157,7 @@ struct WireTimelineEvent {
     #[serde(flatten)]
     event: TimelineEvent,
     run_token: Option<String>,
+    attachments: Vec<alva_hub_desktop::InputAttachmentRef>,
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +244,7 @@ async fn execute_automation(state: Arc<AppState>, id: &str) {
     let workspace = state.store.get_session(&schedule.product_session_id).ok().flatten().map(|detail| detail.session.workspace);
     let response = execute_run(state.clone(), RunBody {
         prompt: schedule.prompt, workspace, engine_id: Some(schedule.target.engine_id), product_session_id: Some(schedule.product_session_id),
-        selected_target: None, permission_profile: None, run_token: None,
+        selected_target: None, permission_profile: None, run_token: None, attachments: Vec::new(),
     }, Some(id)).await;
     if !response.status().is_success() {
         let _ = state.store.fail_unclaimed_automation(id, schedule.revision, "Automation could not start; inspect the session, edit and enable again.");
@@ -372,6 +374,17 @@ async fn get_tool_content(
         Ok(Ok(Some(chunk))) => Json(chunk).into_response(),
         Ok(Ok(None)) => (StatusCode::NOT_FOUND, Json(json!({"error":"tool content not found"}))).into_response(),
         _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"tool content unavailable"}))).into_response(),
+    }
+}
+
+async fn get_input_attachment(
+    State(state): State<Arc<AppState>>, Path((session, attachment)): Path<(String, String)>,
+) -> Response {
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || store.read_input_attachment(&session, &attachment)).await {
+        Ok(Ok(Some(file))) => Json(file).into_response(),
+        Ok(Ok(None)) => (StatusCode::NOT_FOUND, Json(json!({"error":"Attachment unavailable"}))).into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Attachment unavailable"}))).into_response(),
     }
 }
 
@@ -872,6 +885,7 @@ async fn stop_attempt(
             permission_request: None,
         },
         run_token: None,
+        attachments: Vec::new(),
     });
     Json(json!({ "ok": true, "stopping": true })).into_response()
 }
@@ -1069,7 +1083,7 @@ async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<
         Ok(settings) => settings,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Tool settings unavailable"}))).into_response(),
     };
-    let outcome_fut = run_persisted_with_automation(
+    let outcome_fut = run_persisted_with_input_attachments(
         &state.store,
         {
             let providers = providers.clone();
@@ -1125,6 +1139,7 @@ async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<
         // the same Hub control plane the Tauri product uses.
         Some(state.active_hubs.as_ref()),
         automation_id,
+        body.attachments,
         {
             let tx = tx.clone();
             let run_token = run_token.clone();
@@ -1221,6 +1236,9 @@ async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<
                     // 由 run handler 在 outcome（真实流结束）之后统一结算。
                 }
                 let wire = WireTimelineEvent {
+                    attachments: autonomy_store.input_attachments_for_message(&event).unwrap_or_else(|error| {
+                        warn!(%error, "input attachment metadata unavailable"); Vec::new()
+                    }),
                     event: event.clone(),
                     run_token: run_token.clone(),
                 };
@@ -1287,6 +1305,7 @@ async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<
                 permission_request: None,
             },
             run_token: run_token.clone(),
+            attachments: Vec::new(),
         });
     }
 
@@ -1428,6 +1447,7 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/sessions/:id", get(get_session))
         .route("/api/sessions/:id/inspection", get(get_inspection))
         .route("/api/sessions/:id/tool-content/:content_id", get(get_tool_content))
+        .route("/api/sessions/:id/attachments/:attachment_id", get(get_input_attachment))
         .route("/api/sessions/:id/messages", get(get_messages))
         .route("/api/sessions/:id/workspace/files", get(workspace_files))
         .route("/api/sessions/:id/workspace/file", get(workspace_file))
@@ -1445,7 +1465,7 @@ fn build_app(state: Arc<AppState>) -> Router {
             "/api/default-route",
             get(get_default_route).post(set_default_route),
         )
-        .route("/api/run", post(run))
+        .route("/api/run", post(run).layer(DefaultBodyLimit::max(64 * 1024 * 1024)))
         .route("/api/events", get(events))
         .route(
             "/api/fallback-policy",
@@ -2016,6 +2036,59 @@ mod r65_stop_integration {
         assert!(messages["records"].as_array().unwrap().iter().all(|record| record["event"]["product_session_id"] == session));
         assert!(http_get(server.addr, "/api/sessions/not-owner/messages").await.1["records"].as_array().unwrap().is_empty());
         assert_eq!(http_get(server.addr, &format!("/api/sessions/{session}/messages?after=-1")).await.0, 400);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn text_attachments_round_trip_over_http_and_remain_session_scoped() {
+        let server = spawn_server_gated(vec![Step::CompleteNow], false, false).await;
+        let workspace = server.data_dir.join("workspace");
+        let mut body: serde_json::Value = serde_json::from_str(&run_body(workspace.to_str().unwrap(), None)).unwrap();
+        body["attachments"] = json!([{"name":"资料.txt","text":"你好\n<script>inert</script>"}]);
+        let (status, response) = http_post(server.addr, "/api/run".into(), body.to_string()).await;
+        assert_eq!(status, 200, "{response}");
+        let outcome: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let session = outcome["product_session_id"].as_str().unwrap();
+        let (status, detail) = http_get(server.addr, &format!("/api/sessions/{session}")).await;
+        assert_eq!(status, 200);
+        let attachment = detail["turns"][0]["attachments"][0]["attachment_id"].as_str().unwrap();
+        let relative = detail["turns"][0]["attachments"][0]["path"].as_str().unwrap();
+        assert_eq!(std::fs::read_to_string(workspace.join(relative)).unwrap(), "你好\n<script>inert</script>");
+        let endpoint = format!("/api/sessions/{session}/attachments/{attachment}");
+        assert_eq!(http_get(server.addr, &endpoint).await.1["text"], "你好\n<script>inert</script>");
+        assert_eq!(http_get(server.addr, &format!("/api/sessions/other/attachments/{attachment}")).await.0, 404);
+        body["attachments"] = json!([{"name":"../outside", "text":"not saved"}]);
+        assert_ne!(http_post(server.addr, "/api/run".into(), body.to_string()).await.0, 200);
+        assert_eq!(server.engine.turn.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn twenty_mib_binary_upload_has_durable_provenance_without_inline_body() {
+        use base64::Engine;
+        let server = spawn_server_gated(vec![Step::CompleteNow], false, false).await;
+        let workspace = server.data_dir.join("workspace");
+        let mut bytes = vec![0_u8; 20 * 1024 * 1024];
+        bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n"); // Signature fixture, not a valid/decoded image claim.
+        let mut body: serde_json::Value = serde_json::from_str(&run_body(workspace.to_str().unwrap(), None)).unwrap();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        body["attachments"] = json!([{"name":"photo.png","data_base64":encoded}]);
+        let (status, response) = http_post(server.addr, "/api/run".into(), body.to_string()).await;
+        assert_eq!(status, 200, "{response}");
+        let outcome: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let session = outcome["product_session_id"].as_str().unwrap();
+        let detail = http_get(server.addr, &format!("/api/sessions/{session}")).await.1;
+        let file = &detail["turns"][0]["attachments"][0];
+        assert!(file.get("data_base64").is_none());
+        assert_eq!(file["content_type"], "image/png");
+        assert_eq!(file["total_bytes"], bytes.len());
+        assert_eq!(file["processing"]["delivered_to_model"], false);
+        assert_eq!(file["processing"]["delivery_scope"], "upload_prompt");
+        assert_eq!(file["processing"]["compression_applied"], false);
+        assert_eq!(std::fs::read(workspace.join(file["path"].as_str().unwrap())).unwrap(), bytes);
+        let attachment = file["attachment_id"].as_str().unwrap();
+        let stored = http_get(server.addr, &format!("/api/sessions/{session}/attachments/{attachment}")).await.1;
+        assert_eq!(stored["data_base64"], encoded);
+        assert_eq!(stored["processing"], file["processing"]);
+        assert_eq!(http_get(server.addr, &format!("/api/sessions/other/attachments/{attachment}")).await.0, 404);
     }
 
     #[tokio::test(flavor = "multi_thread")]

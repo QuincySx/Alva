@@ -54,7 +54,8 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 
 ## 约束
 - ALVA 能力/MCP 是 Hub 私有全局 snapshot，仅后续 ALVA run 消费，不冒充跨 engine 工具政策。安全 substrate 不可关闭，不加载外部 MCP/AEP；MCP 新增/编辑重新禁用。一次性测试显式确认后绑定已存 session cwd，结束回收，不伪造实时状态；隔离 QA 可保存但禁启用/测试。`alva-protocol-mcp` 直接依赖仅用于 native stdio diagnostics，已登记边界闸。
-- `alva-agent-security` 的直接依赖仅用于 Files/Text、Git 与工作区 Skills 文件管理的 `SensitivePathFilter` 路径防护，复用统一规则；`alva-protocol-skill` 仅用于 canonical SKILL.md parser。用途在 `scripts/ci-check-deps.sh` 显式登记，不扩张 kernel/agent-core、不改变 SDK→产品或原生入口→engine 的禁止边界。
+- `alva-agent-security` 的直接依赖仅用于 Files/Text、Git、工作区 Skills 与附件名的 `SensitivePathFilter` 路径防护，复用统一规则；`alva-protocol-skill` 仅用于 canonical SKILL.md parser。用途在 `scripts/ci-check-deps.sh` 显式登记，不扩张 kernel/agent-core、不改变 SDK→产品或原生入口→engine 的禁止边界。
+- 上传采取引用优先：原字节保存到 schema 23 BLOB/session cwd 新副本，模型仅拿文件引用和明确处理清单，单文件 20 MiB/总 40 MiB/8 文件；本地图片/视频预览不算模型输入，当前无额外压缩/抽帧。所有工具/MCP/历史的统一方向与未完成项见 ADR-0011 和 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md，不用 UI 正文分页冒充模型侧引用控制。
 - **`EngineTarget.required_capabilities` 承载两套词表**，定义在 `readiness.rs`：`ENGINE_CAPABILITIES`（5 词，`capability_labels` 的穷尽产出，降级 veto 只比对这些）与 `MODEL_CAPABILITIES`（`images`/`vision`/`tools`，provider 组装读回用）。新增词汇改那两个常量，并保持 `capability_labels` 与 `ENGINE_CAPABILITIES` 同步（有测试钉死）。两表之外的词由 `validate_engine_target` 拒绝——引擎永远无法"提供"模型词，把它算进 missing 会让降级目标被永久静默否决。
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。
@@ -84,6 +85,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | User browser | `src/user_browser.rs` | Desktop-only 独立临时 WebView，不与 Agent 浏览器共用；HTTP(S) 导航/后退/前进/刷新/关闭，拒绝 Hub IPC、特权 URL、弹窗和下载；按会话/标签生命周期清理 |
 | Session store | `src/store/` | 私有 SQLite（`db.rs` storage kernel + `mod.rs` 共享数据层 + `branch.rs`/`handoff.rs`/`team.rs`/`turn.rs`/`tests.rs` 持久化簇）covering workspace kind、policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
 | Message recovery | `src/store/message_journal.rs` | schema 20 可见 assistant 全文与有界游标补页，复用消息位置协议并对齐崩溃修复终态 |
+| Input attachments | `src/store/input_attachments.rs` | schema 23 原字节与处理清单/引用保存、会话文件副本和授权历史预览，不自动送模型 |
 | Local automations | `src/store/automation.rs` | 暂停优先的 interval CRUD/revision、普通会话固定路由、原子 Turn 认领、忙/漏过跳过、终态与重启暂停；产品入口 pump 最多 4 个并行，不经过 kernel |
 | ALVA capabilities / MCP | `src/store/tool_settings.rs` / `src/mcp_diagnostics.rs` | schema-22 catalog 配置、stdio MCP 授权/CRUD/一次性连接测试；不安装程序，不导入凭据 |
 | Tauri entry | `src/main.rs` | workspace 创建、运行/切换/Inspector IPC、event emission 与 Desktop runtime |

@@ -230,6 +230,8 @@ let agent = BaseAgent::builder()
 | `docs/ALVA-HUB-UI-GLOSSARY.md` | Hub Tauri UI 的 Token / Control / Region / Surface / Domain / Page 与验收词汇。 |
 | `docs/ALVA-HUB-UI-WIREFRAMES.md` | Cindy 参考图转七张统一总层架的区域、滚动、停靠与 Overlay 规范。 |
 | `docs/ALVA-HUB-UI-MOTION.md` | Hub 组件动效频率、目的、时长、曲线、实现与减弱动效规范。 |
+| `docs/ALVA-HUB-MESSAGE-MODULES.md` | 可信 Hub 消息 renderer 注册、版本化纯数据模块与原文 fallback。 |
+| `docs/ALVA-HUB-CONTEXT-RETRIEVAL.md` | ADR-0011 引用优先：所有工具/文件/MCP/历史按需检索与媒体处理来源说明；实现状态分开记录。 |
 | `docs/adr/` | Hub Desktop-first、可逆多引擎 fallback、Cindy Orca 风格协作的架构决策记录。 |
 | `Cargo.toml` | Rust workspace，管理 44 个 crate。 |
 | `alva-bus-lint` | CI lint binary：扫 `#[bus_cap]` trait 的跨 crate 类型表面，配合 `docs/BUS-RULES.md` 防止 bus 退化为 God Object。 |
@@ -276,6 +278,8 @@ session 里不会出现 Steering 变体，这个 match 分支永远不会命中�
 5. 工具输出，可删，只保留 pass/fail 结论
 
 ## Hub 产品 UI（alva-hub-desktop）
+
+Hub 上下文贯彻引用优先（ADR-0011）：文件/媒体、所有大工具结果、MCP 目录和历史应先持久化，模型只拿小索引/引用，再按任务有界检索。具体当前实现/未完成项见 `docs/ALVA-HUB-CONTEXT-RETRIEVAL.md`；不得把 UI 分页当作模型端控制。上传当前保存原字节、20 MiB/文件和 40 MiB/8 文件每轮，明确原始哈希/处理/投递范围；无压缩/抽帧就明确注明未做，不冒充媒体理解。政策在产品/Plugin/Middleware 实施，不向 kernel/agent-core 增加功能。
 
 外观偏好与工作区 Skills 文件管理属于 Hub 产品层：主题/密度/减弱动效保存在 WebView，
 技能目录绑定已保存 session cwd，复用协议 parser，仅受管项目文件可写与可恢复归档，

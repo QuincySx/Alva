@@ -1,5 +1,5 @@
 // INPUT:  session/turn/attempt rows in the Hub SQLite schema
-// OUTPUT: session/attempt DTOs, resumed turns with atomic automation claims, lifecycle and side-effect merging
+// OUTPUT: session/attempt DTOs with attachment refs, resumed turns/automation claims, lifecycle and side-effect merging
 // POS:    session timeline persistence cluster of the Hub store.
 
 use std::path::{Path, PathBuf};
@@ -48,6 +48,7 @@ pub struct HubSessionSummary {
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct StoredTurn {
+    pub attachments: Vec<super::InputAttachmentRef>,
     pub turn_id: String,
     pub prompt: String,
     pub result: Option<String>,
@@ -196,6 +197,7 @@ impl super::HubStore {
         let rows = statement
             .query_map([product_session_id], |row| {
                 Ok(StoredTurn {
+                    attachments: Vec::new(),
                     turn_id: row.get(0)?,
                     prompt: row.get(1)?,
                     result: row.get(2)?,
@@ -212,6 +214,7 @@ impl super::HubStore {
             .map_err(|error| format!("decode Hub turn history: {error}"))?;
         drop(statement);
         for turn in &mut turns {
+            turn.attachments = super::input_attachments::query_attachment_refs(&connection, &turn.turn_id)?;
             turn.attempts = query_attempts(&connection, &turn.turn_id)?;
         }
         let branches = query_branches(&connection, product_session_id)?;

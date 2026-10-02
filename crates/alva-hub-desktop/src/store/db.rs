@@ -449,6 +449,14 @@ pub(super) fn initialize_schema_and_recover(
             revision INTEGER NOT NULL, config_json TEXT NOT NULL
         );").map_err(|error| format!("migrate Hub database to schema 22: {error}"))?;
     }
+    if schema_version < 23 {
+        transaction.execute_batch("CREATE TABLE input_attachments (
+            attachment_id TEXT PRIMARY KEY, turn_id TEXT NOT NULL REFERENCES turns(turn_id),
+            ordinal INTEGER NOT NULL, name TEXT NOT NULL, total_bytes INTEGER NOT NULL,
+            body BLOB NOT NULL, relative_path TEXT NOT NULL, content_type TEXT NOT NULL,
+            processing_json TEXT NOT NULL, UNIQUE(turn_id, ordinal)
+        ); CREATE INDEX input_attachments_turn ON input_attachments(turn_id);").map_err(|_| "migrate Hub input attachments")?;
+    }
     // No replay of missed ticks. An interrupted execution requires explicit
     // re-authorization; an idle enabled schedule waits one full interval.
     transaction.execute(

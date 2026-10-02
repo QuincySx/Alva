@@ -13,6 +13,7 @@ linked product specification and current crate documentation.
 | [0005](./0005-typed-durable-session-records.md) | Accepted | Keep one AgentSession while separating typed durable records, live state, and telemetry. |
 | [0006](./0006-hub-tauri-ui-system.md) | Accepted | Build the Hub UI as a strict Tauri/React component system aligned to Cindy's structure and interaction. |
 | [0007](./0007-agent-hub-abstraction-alignment.md) | Accepted | Introduce a swappable agent-loop interface; move Hub toward DSH's strengths selectively without cloning Cordis. |
+| [0011](./0011-reference-first-context.md) | Accepted | Store files, MCP results and history; expose references and retrieve bounded relevant excerpts, not whole payloads. |
 
 The complete V1 scope and acceptance scenarios live in
 [ALVA-HUB-V1.md](../ALVA-HUB-V1.md).

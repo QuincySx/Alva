@@ -471,7 +471,7 @@ mod tests {
         store
             .lock()
             .unwrap()
-            .execute_batch("DROP TABLE tool_settings; PRAGMA user_version = 21;")
+            .execute_batch("DROP TABLE input_attachments; DROP TABLE tool_settings; PRAGMA user_version = 21;")
             .unwrap();
         drop(store);
         let store = HubStore::open(data.path().join("hub.db")).unwrap();

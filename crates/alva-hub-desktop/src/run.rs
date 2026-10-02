@@ -1,5 +1,5 @@
 // INPUT:  alva_engine_runtime, alva_hub_core, HubStore, serde, tokio_stream
-// OUTPUT: multi-engine and atomically claimed automation run seams, Attempt capture and durable positioned messages/tool references
+// OUTPUT: multi-engine/automation/reference-first attachment run seams, Attempt capture and durable positioned messages/tool references
 // POS:    Highest product seam for durable Hub Desktop branch execution, native-resume recovery, and product timeline projection.
 
 use std::collections::{HashMap, HashSet};
@@ -227,6 +227,27 @@ pub async fn run_persisted_with_automation<F, B, H>(
     selected_target: Option<EngineTarget>,
     hub_sink: Option<&ActiveHubs>,
     automation_id: Option<&str>,
+    emit: F,
+) -> Result<RunOutcome, String>
+where
+    F: FnMut(TimelineEvent) + Send,
+    B: Fn(&EngineTarget, &str, PermissionProfile) -> Result<Arc<dyn EngineRuntime>, String>,
+    H: Fn(&EngineTarget) -> Option<String>,
+{
+    run_persisted_with_input_attachments(store, build_engine, health_veto, request, selected_target, hub_sink, automation_id, Vec::new(), emit).await
+}
+
+/// Explicit product input files; scheduled runs cannot silently acquire files.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_persisted_with_input_attachments<F, B, H>(
+    store: &HubStore,
+    build_engine: B,
+    health_veto: H,
+    request: RunRequest,
+    selected_target: Option<EngineTarget>,
+    hub_sink: Option<&ActiveHubs>,
+    automation_id: Option<&str>,
+    attachments: Vec<crate::InputAttachment>,
     mut emit: F,
 ) -> Result<RunOutcome, String>
 where
@@ -235,6 +256,10 @@ where
     H: Fn(&EngineTarget) -> Option<String>,
 {
     validate_prompt(&request.prompt)?;
+    crate::validate_input_attachments(&attachments)?;
+    if automation_id.is_some() && !attachments.is_empty() {
+        return Err("Automations cannot upload input attachments".into());
+    }
     if automation_id.is_some() && (request.product_session_id.is_none() || selected_target.is_some()) {
         return Err("Automations only resume their pinned ordinary session".into());
     }
@@ -285,6 +310,10 @@ where
         )?
     };
 
+    if let Err(error) = store.save_input_attachments(&prepared, &attachments) {
+        store.finish_turn(&prepared, None, None, Some(&error), None)?;
+        return Err(error);
+    }
     let mut prepared = prepared;
     let mut execution = match build_engine(
         &prepared.target,
@@ -646,6 +675,10 @@ where
         )
         .map_err(|error| error.to_string())?;
     }
+    let user_input = match store.prompt_with_input_attachments(prepared, user_prompt) {
+        Ok(input) => input,
+        Err(error) => return Ok(start_failure_execution(prepared, error, emit)),
+    };
     let prompt = prepared
         .handoff
         .as_ref()
@@ -653,10 +686,16 @@ where
             format!(
                 "{}\n\n<current-user-instruction>\n{}\n</current-user-instruction>",
                 handoff.render_for_engine(),
-                user_prompt
+                user_input
             )
         })
-        .unwrap_or_else(|| user_prompt.to_string());
+        .unwrap_or(user_input);
+    let mut emit_input = |mut event: TimelineEvent| {
+        // Product history shows the user's instruction, not internal handoff
+        // material or the attachment transport representation.
+        if event.status == TimelineStatus::UserMessage { event.message = Some(user_prompt.to_string()); }
+        emit(event);
+    };
     Ok(execute_turn(
         &hub,
         product_session_id,
@@ -665,7 +704,7 @@ where
         &prepared.target.engine_id,
         Some((store, prepared)),
         hub_sink,
-        emit,
+        &mut emit_input,
     )
     .await)
 }
@@ -1544,6 +1583,34 @@ mod tests {
             Some(workspace.path().canonicalize().unwrap().as_path())
         );
         assert!(requests[0].options.streaming);
+    }
+
+    #[tokio::test]
+    async fn input_attachments_are_searchable_files_not_automatic_model_context() {
+        let workspace = tempfile::tempdir().unwrap();
+        let store = HubStore::open(workspace.path().join("private/hub.db")).unwrap();
+        let engine = Arc::new(FakeEngine::new(vec![
+            RuntimeEvent::SessionStarted { session_id: "native".into(), model: None, tools: vec![] },
+            RuntimeEvent::Completed { session_id: "native".into(), result: Some("done".into()), usage: None },
+        ]));
+        let requests = engine.requests.clone();
+        let mut events = Vec::new();
+        let outcome = run_persisted_with_input_attachments(
+            &store, move |_, _, _| Ok(engine.clone()), healthy,
+            RunRequest { prompt: "Review the file".into(), workspace: workspace.path().into(), engine_id: "alva".into(), product_session_id: None, permission_profile: None },
+            None, None, None, vec![crate::InputAttachment { name: "notes.txt".into(), text: "actual file text".into(), ..Default::default() }],
+            |event| events.push(event),
+        ).await.unwrap();
+        assert!(!outcome.failed);
+        assert!(!requests.lock().unwrap()[0].prompt.contains("actual file text"));
+        let user = events.iter().find(|event| event.status == TimelineStatus::UserMessage).unwrap();
+        assert_eq!(user.message.as_deref(), Some("Review the file"));
+        let refs = store.input_attachments_for_message(user).unwrap();
+        assert_eq!(refs.len(), 1);
+        assert!(requests.lock().unwrap()[0].prompt.contains(&refs[0].path));
+        assert_eq!(std::fs::read_to_string(workspace.path().join(&refs[0].path)).unwrap(), "actual file text");
+        assert_eq!(store.read_input_attachment(&outcome.product_session_id, &refs[0].attachment_id).unwrap().unwrap().text.as_deref(), Some("actual file text"));
+        assert!(!workspace.path().join("notes.txt").exists());
     }
 
     #[tokio::test]
