@@ -36,6 +36,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 23. 动效遵守 `docs/ALVA-HUB-UI-MOTION.md`：高频导航无位移，交互动画可中断、低于 300ms，并支持 reduced motion。
 24. 组件只提供 composition、slots 与有限 typed variants；仅支持 default/compact 两档密度，页面不得手写控件高度。
 25. 页面完成必须同时通过确定性 fixture 与真实 store/Tauri command；视觉 review 使用 reference/linework/current 三联图。
+26. Settings 的 Inspector 操作打开真实 Workbench 页；⌘/Ctrl K/N/B 连接搜索/新会话/工作台，Esc 只在无覆盖层的中央对话停止当前会话。Stop ack 不是终态，真实 terminal event 才收起可取消状态；未接通的独立 Workbench 窗口与扩展样例明确不可用。
 
 ## 约束
 
@@ -57,7 +58,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | React entry | `main.tsx` | 挂载应用 |
 | Vite types | `vite-env.d.ts` | `import.meta.env` 与开发 UI Lab 环境类型 |
 | I18N | `i18n.tsx` | 简体中文主语言、英文回退、系统语言解析、持久化偏好与 typed 翻译函数 |
-| Product UI | `App.tsx` | 新会话 workspace mode、engine selector、permission profile、fallback、composer、timeline 与 permission card |
+| Product UI | `App.tsx` | 新会话 workspace mode、engine selector、permission profile、fallback、composer、timeline、permission card 与上下文限定快捷键 |
 | IPC bridge | `bridge.ts` | workspace 创建/选择与 run/switch/policy/readiness/session/permission/Inspector 的 Tauri/HTTP 封装及稳定 DTO |
 | Style entry | `index.css` | 按 tokens → primitives → domain → app 顺序装配全部样式 |
 | Design tokens | `styles/tokens.css` | ALVA 颜色、间距、圆角、阴影和动效唯一来源 |
@@ -91,7 +92,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Team panel | `components/team-panel.tsx` | Worker 生命周期、任务队列、worktree adoption、资源声明与自治开关 |
 | Component tests | `components/components.test.tsx` | Composer、模型选择器、shared-clock timeline 与 Inspector 子 Agent 回退回归 |
 | Timeline tests | `components/hub-timeline.test.tsx` | 审批卡工具名/资源/效果说明同屏与多语言保留回归（R76） |
-| Product pages | `components/product-pages.tsx` | 自动化、插件/技能、设置与搜索共享页面体系 |
+| Product pages | `components/product-pages.tsx` | 自动化、插件/技能样例与设置/搜索共享页面体系；无后端的操作标明不可用，Inspector 经 callback 打开工作台 |
 | Workbench tools | `components/workbench-tools.tsx` | Files、Text、Git、Review、Agent、产品 Attempt + native Inspector、Tasks、Usage、Chrome、Terminal 标签内容 |
 | Workspace files | `components/workspace-files.tsx` | Files/Text 真实只读目录导航与 UTF-8 预览；会话切换 key 隔离迟到响应，刷新重试、二进制/受限/限额明确提示 |
 | Workspace Git | `components/workspace-git.tsx` | 真实 Git 分支/status/diff，三种变更区分、任务终态快照刷新与手动刷新；Review 继续展示执行证据，非 Git 状态 |

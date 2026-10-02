@@ -1,5 +1,14 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 自主迭代 · H17 真实动作与次级页收口
+
+- Settings 的无效 Inspector 本地开关改为打开真实 Workbench Inspector；⌘/Ctrl K/N/B 接通搜索/新会话/工作台。Esc 仅停止无覆盖层的中央当前对话，不抢 Inspector 返回、工作台输入、菜单或对话框键盘行为。
+- Stop 在请求期间按会话去重；迟到失败只显示到原会话，取消 ack 不冒充终态、不关闭新会话或同会话续跑的 Stop。新增 A→B 迟到 ack、同 session resumed run 与键盘范围回归。
+- 未接通的独立 Workbench 窗口 disabled 并说明原因；插件/技能样例明确为 preview/not available，安装/注册仍 disabled，不以 `Available` 伪装 registry。Files/Text 按容器宽度排列，浏览器按钮可换行；没有改 Tokens/primitive 状态或新增页面断点。
+- 验证：前端 **172 passed / 16 files**；TypeScript/Vite 生产 build pass。首次新增 Inspector 测试暴露完整 bridge mock 缺导出，补齐；插件按钮测试的文案断言写错，修正为实际 accessible name。以上为测试夹具修正，不删除或弱化产品断言。
+- 最终跨端回归：Desktop lib **214 passed / 5 filtered**（显式不运行 real_/system_probe 账号/机器测试），Desktop bin 隔离模式 **2 passed**，Hub HTTP **9 passed**；Desktop + Server `cargo check --all-targets` pass。保留已有 Rust/React 警告与 Vite 大 chunk 警告，不为清警告修改无关模块。
+- 原生 GUI 受 AX 权限错误阻塞后，用户于 2026-10-02 明确“暂时不方便，做你能做的”；本批不再请求权限或绕过权限，也不宣称 WKWebView 窄窗口/键盘/性能验收已通过。
+
 ## 2026-10-02 原生发现的缺陷 · Worktree IPC
 
 - 真实 Tauri 项目页将已有 Git 项目误报为 `Git 发现失败：undefined`。原因是 command 返回嵌套 `Result<Result<Vec<_>, State>, String>`，Tauri 成功 body 实为 `{"Ok":[...]}`，与 web 数组/state 契约不符；mock 直接返回数组所以未检出。

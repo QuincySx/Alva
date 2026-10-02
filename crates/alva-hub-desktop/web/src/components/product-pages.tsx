@@ -1,4 +1,4 @@
-// INPUT:  React local state, ALVA UI facade, and Lucide icons
+// INPUT:  React local state, product callbacks, ALVA UI facade, and Lucide icons
 // OUTPUT: Automations, extensions, settings, and search product pages
 // POS:    Deterministic Hub product surfaces above the shared UI component system
 
@@ -188,6 +188,9 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
         description={t("extension.description")}
         title={t("extension.title")}
       />
+      <Notice tone="info" heading={t("pages.extensions.previewTitle")}>
+        {t("pages.extensions.registerUnavailable")}
+      </Notice>
       <div className="hub-product-toolbar">
         <TabsRoot onValueChange={setTab} value={tab}>
           <TabsList aria-label={t("extension.type")}>
@@ -212,7 +215,7 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
                 <div className="hub-extension-card__heading">
                   <span><Icon aria-hidden="true" size={18} /></span>
                   <div><strong>{extension.name}</strong><small>{extension.kind === "plugin" ? t("extension.plugin") : t("extension.skill")}</small></div>
-                  <Badge tone={isInstalled ? "success" : "neutral"}>{isInstalled ? t("common.installed") : t("common.available")}</Badge>
+                  <Badge tone={isInstalled ? "success" : "neutral"}>{isInstalled ? t("common.installed") : t("pages.extensions.previewUnavailable")}</Badge>
                 </div>
                 <p>{extension.description}</p>
                 <div className="hub-extension-card__actions">
@@ -244,8 +247,8 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
           {selectedExtension ? (
             <SettingsGroup heading={t("extension.availability")}>
               <SettingsRow
-                control={<Badge tone={installed.has(selectedExtension.id) ? "success" : "neutral"}>{installed.has(selectedExtension.id) ? t("common.installed") : t("common.available")}</Badge>}
-                description={t("extension.activationDescription")}
+                control={<Badge tone={installed.has(selectedExtension.id) ? "success" : "neutral"}>{installed.has(selectedExtension.id) ? t("common.installed") : t("pages.extensions.previewUnavailable")}</Badge>}
+                description={t("pages.extensions.registerUnavailable")}
                 heading={selectedExtension.kind === "plugin" ? t("extension.plugin") : t("extension.skill")}
               />
             </SettingsGroup>
@@ -279,6 +282,7 @@ export function SettingsPage({
   onSetDefaultProvider,
   onDiscoverProviderModels,
   onTestProviderRoute,
+  onOpenInspector,
   routes,
 }: {
   defaultTarget: EngineTarget | null;
@@ -290,13 +294,13 @@ export function SettingsPage({
   onSetDefaultProvider: (target: EngineTarget) => Promise<void>;
   onDiscoverProviderModels: (providerId: string) => Promise<ProviderDiagnosticResult>;
   onTestProviderRoute: (target: EngineTarget) => Promise<ProviderDiagnosticResult>;
+  onOpenInspector?: () => void;
   routes: ModelRoute[];
 }) {
   const { preference, setPreference, t } = useI18n();
   const [section, setSection] = useState<(typeof settingsSections)[number]>("general");
   const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">("dark");
   const [compact, setCompact] = useState(false);
-  const [inspector, setInspector] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [workerLimit, setWorkerLimit] = useState("4");
   const [resourceTier, setResourceTier] = useState("balanced");
@@ -603,7 +607,7 @@ export function SettingsPage({
           </SettingsGroup>
         ) : section === "experiments" ? (
           <SettingsGroup heading={t("settings.developerSurfaces")} description={t("settings.developerDescription")}>
-            <SettingsRow heading={t("settings.agentInspector")} description={t("settings.agentInspectorDescription")} control={<Switch checked={inspector} label={t("settings.showInspector")} onCheckedChange={(checked) => setInspector(checked === true)} />} />
+            <SettingsRow heading={t("settings.agentInspector")} description={t("settings.agentInspectorDescription")} control={<Button disabled={!onOpenInspector} onClick={onOpenInspector}>{t("settings.openInspector")}</Button>} />
             <SettingsRow heading={t("settings.uiLab")} description={t("settings.uiLabDescription")} control={<Badge>{t("settings.developmentOnly")}</Badge>} />
           </SettingsGroup>
         ) : (

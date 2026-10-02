@@ -1,5 +1,5 @@
 /* INPUT:  ALVA tokens and Hub domain component class names */
-/* OUTPUT: Chat composer plus catalog-and-flyout model picker composition */
+/* OUTPUT: Chat composer, model picker and container-sized Workbench tools */
 /* POS:    Domain styling above primitives and below page-specific layout */
 
 .hub-composer-wrap {
@@ -284,13 +284,14 @@
 .hub-metric-grid small { color: var(--color-text-subtle); }
 .hub-browser-toolbar,
 .hub-terminal-input { display: flex; align-items: center; gap: 8px; }
-.hub-text-browser { display: grid; min-height: 0; flex: 1; grid-template-columns: minmax(180px, .7fr) minmax(260px, 1.3fr); gap: 12px; }
-.hub-text-browser > .ui-panel-section { min-height: 0; }
+.hub-browser-toolbar { flex-wrap: wrap; min-width: 0; }
+.hub-browser-toolbar .ui-input { flex: 1; min-width: 0; }
+.hub-text-browser { display: grid; min-height: 0; flex: 1; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.hub-text-browser > .ui-panel-section { min-height: 0; min-width: 0; }
 .hub-text-preview { min-height: 260px; margin: 0; overflow: auto; border-radius: var(--radius-sm); padding: 12px; background: var(--color-code-bg); color: var(--color-code-text); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
 .hub-terminal-output { min-height: 280px; margin: 0; border-radius: var(--radius-sm); padding: 12px; background: var(--color-code-bg); color: var(--color-code-text); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
 .hub-terminal-input .ui-input { flex: 1; }
 @media (max-width: 760px) {
-  .hub-text-browser { grid-template-columns: 1fr; }
   .hub-settings-frame { grid-template-columns: 1fr; }
   .hub-settings-nav { overflow-x: auto; flex-direction: row; border-right: 0; border-bottom: 1px solid var(--color-border); padding: 8px; }
   .hub-settings-nav .ui-nav-item { width: auto; flex: none; }

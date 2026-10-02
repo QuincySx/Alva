@@ -1,5 +1,5 @@
 // INPUT:  React hooks, bridge workspace/run/timeline/session functions
-// OUTPUT: session/project onboarding, engine selection, durable branches, composer, timestamp-preserving timeline projection
+// OUTPUT: session/project onboarding, engine selection, durable timeline, composer and context-scoped navigation/Stop actions
 // POS:    Primary Hub Desktop product surface for reversible, user-authorized engine sessions.
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -640,6 +640,7 @@ export default function App() {
   // Only events carrying the explicit new-run correlation token may claim
   // the first live product id. Background workers never receive this token.
   const pendingNewRunTokenRef = useRef<string | null>(null);
+  const stopInFlightRef = useRef(new Set<string>());
   // R34: the composer input is the keyboard home of the conversation page.
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const previousWorkspaceRef = useRef(workspace);
@@ -1532,14 +1533,43 @@ export default function App() {
   }
 
   async function stopActiveAttempt() {
-    if (!activeSessionId) return;
+    if (!activeSessionId || stopInFlightRef.current.has(activeSessionId)) return;
+    const session = activeSessionId;
+    stopInFlightRef.current.add(session);
     try {
-      await stopHubAttempt(activeSessionId);
-      setCancellableSessionId(null);
+      await stopHubAttempt(session);
+      // Acknowledgement only means cancellation was requested. The real
+      // terminal event owns the Stop gate, including a resumed same-session run.
     } catch (error) {
-      appendLocalFailure(error);
+      if (activeSessionRef.current === session) appendLocalFailure(error);
+    } finally {
+      stopInFlightRef.current.delete(session);
     }
   }
+
+  // Documented navigation shortcuts are real actions. Escape only stops the
+  // visible conversation, never an open overlay or workbench input/navigation.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || event.repeat || event.altKey) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+      const key = event.key.toLowerCase();
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey) {
+        if (key === "k") { event.preventDefault(); setActivePage("search"); }
+        else if (key === "b") { event.preventDefault(); setWorkbenchOpen((open) => !open); }
+        else if (key === "n" && !busy && !workspaceCreating) {
+          event.preventDefault(); startNewSession(); setActivePage("conversation"); setNarrowSidebarOpen(false);
+        }
+      } else if (key === "escape" && !event.metaKey && !event.ctrlKey && !event.shiftKey
+        && activePage === "conversation" && !detailsOpen && !narrowSidebarOpen
+        && cancellableSessionId === activeSessionId && activeSessionId
+        && !(event.target instanceof Element && event.target.closest(".hub-workbench"))) {
+        event.preventDefault(); void stopActiveAttempt();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activePage, activeSessionId, busy, cancellableSessionId, detailsOpen, narrowSidebarOpen, workspaceCreating, defaultRoute]);
 
   async function switchBack(source: EngineTarget) {
     const route = modelRoutes.find(
@@ -1752,8 +1782,8 @@ export default function App() {
                 {!sidebarWindow ? (
                   <IconButton
                     icon={<ExternalLink aria-hidden="true" size={15} />}
-                    label={t("workbench.openSeparateWindow")}
-                    onClick={() => window.open(`${window.location.pathname}#/sidebar-window`, "_blank", "width=1200,height=900")}
+                    disabled
+                    label={t("workbench.separateWindowUnsupported")}
                     variant="ghost"
                   />
                 ) : null}
@@ -2095,6 +2125,7 @@ export default function App() {
           <ExtensionsPage onStartChat={() => setActivePage("conversation")} />
         ) : activePage === "settings" ? (
           <SettingsPage
+            onOpenInspector={() => { setActivePage("conversation"); openWorkbenchTool("inspector"); }}
             defaultTarget={defaultRoute?.target ?? null}
             onDiscoverProviderModels={discoverProviderModels}
             onSaveProvider={saveProvider}

@@ -7,7 +7,7 @@
 // is opened. These tests therefore drive the real openSession path instead of
 // injecting a synthetic payload through the listener.
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -73,6 +73,7 @@ const bridge = vi.hoisted(() => {
       discoverProjectWorktrees: vi.fn(async () => ({ code: "not_git_repository" })),
       listHubSessions: vi.fn(async () => state.sessions),
       getHubSession: vi.fn(async (_sessionId: string) => state.detail),
+      getHubInspection: vi.fn(async () => null),
       addSessionMemory: vi.fn(
         async (_productSessionId: string, entry: string) => {
           if (state.detail) {
@@ -387,6 +388,99 @@ describe("App integration", () => {
     // clearAllMocks does not reset implementations — pin the shared default
     // so file order can't leak a populated group set into unrelated tests.
     bridge.fns.getPermissionGroups.mockResolvedValue([]);
+  });
+
+  it("connects documented search, workbench and new-session shortcuts without engine execution", async () => {
+    render(<App />);
+    await screen.findByText("How would you like to work?");
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(await screen.findByRole("textbox", { name: "Search Hub" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+    expect(document.querySelector(".ui-workbench-region")).toHaveAttribute("aria-hidden", "false");
+    fireEvent.keyDown(window, { key: "b", ctrlKey: true });
+    expect(document.querySelector(".ui-workbench-region")).toHaveAttribute("aria-hidden", "true");
+    fireEvent.keyDown(window, { key: "n", metaKey: true });
+    expect(await screen.findByText("How would you like to work?")).toBeInTheDocument();
+    expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
+  });
+
+  it("opens the real Inspector from settings rather than a local-only toggle", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: /Experiments/ }));
+    await user.click(screen.getByRole("button", { name: "Open Inspector" }));
+    expect(await screen.findByRole("tab", { name: "Inspector" })).toHaveAttribute("data-state", "active");
+    expect(document.querySelector(".ui-workbench-region")).toHaveAttribute("aria-hidden", "false");
+  });
+
+  it("Escape does not cancel from settings or workbench, but stops the visible conversation once", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [{ product_session_id: "ps-1", workspace: "/tmp/proj", last_prompt: "Keyboard stop fixture", engine_id: "claude", status: "running" }];
+    bridge.state.detail = detailFixture();
+    let finish!: () => void;
+    bridge.fns.stopHubAttempt.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<App />);
+    await user.click(await screen.findByText("Keyboard stop fixture"));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(bridge.fns.stopHubAttempt).not.toHaveBeenCalled();
+    await user.click(screen.getByText("Keyboard stop fixture"));
+    await user.click(screen.getByRole("button", { name: "Open workbench" }));
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Agent" }), { key: "Escape" });
+    expect(bridge.fns.stopHubAttempt).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Escape" });
+    expect(bridge.fns.stopHubAttempt).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+  });
+
+  it("a late Stop acknowledgement for A never disables Stop in session B", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [
+      { product_session_id: "ps-1", workspace: "/tmp/proj", last_prompt: "Stop session A", engine_id: "claude", status: "running" },
+      { product_session_id: "ps-2", workspace: "/tmp/proj", last_prompt: "Stop session B", engine_id: "claude", status: "running" },
+    ];
+    bridge.state.detail = detailFixture();
+    let finish!: () => void;
+    bridge.fns.stopHubAttempt.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<App />);
+    await user.click(await screen.findByText("Stop session A"));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Escape" });
+    expect(bridge.fns.stopHubAttempt).toHaveBeenCalledWith("ps-1");
+    bridge.state.detail = {
+      ...detailFixture(),
+      session: { ...detailFixture().session, product_session_id: "ps-2", last_prompt: "Stop session B" },
+    };
+    await user.click(screen.getByText("Stop session B"));
+    await act(async () => finish());
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Escape" });
+    expect(bridge.fns.stopHubAttempt).toHaveBeenCalledTimes(2);
+    expect(bridge.fns.stopHubAttempt).toHaveBeenLastCalledWith("ps-2");
+  });
+
+  it("does not offer an unwired separate Workbench window", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open workbench" }));
+    expect(screen.getByRole("button", { name: "Separate Workbench window is not supported yet" })).toBeDisabled();
+  });
+
+  it("a Stop acknowledgement is not a terminal event for a resumed same-session run", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [{ product_session_id: "ps-1", workspace: "/tmp/proj", last_prompt: "Resumed stop fixture", engine_id: "claude", status: "running" }];
+    bridge.state.detail = detailFixture();
+    let finish!: () => void;
+    bridge.fns.stopHubAttempt.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<App />);
+    await user.click(await screen.findByText("Resumed stop fixture"));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Escape" });
+    act(() => {
+      for (const listener of bridge.listeners) listener({ product_session_id: "ps-1", item_id: "run-next", status: "running", engine_id: "claude", created_at: 200, message: null, activity: null });
+    });
+    await act(async () => finish());
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), { key: "Escape" });
+    expect(bridge.fns.stopHubAttempt).toHaveBeenCalledTimes(2);
   });
 
   it("renders the empty surface before any session or event", async () => {

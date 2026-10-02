@@ -12,6 +12,7 @@
 - `ToolContent` 由调用者按 content_id 加 key；每个挂载实例只保留当前块，翻页替换正文，不累积全文。
 - 同会话/内容/页的请求匹配后才展示，卸载与会话切换丢弃迟到结果；失败可重试，无全文引用的旧记录明确标注摘要。
 - 正文仅为 React 文本节点，不执行 HTML；默认读首块，不用工具级折叠隐藏事实。
+- 次级页面动作必须消费真实 callback 或明确 disabled；插件样例不是安装目录，不声称可用或已安装。Files/Text 列按所在容器宽度自动排列，浏览器操作可换行，不独立定义页面断点。
 
 ## 业务域清单
 | 文件 | 职责 |
@@ -30,5 +31,5 @@
 | workspace-terminal.tsx / workspace-terminal.test.tsx | 用户直接操作的逐行 PTY；显式启动、生命周期清理、不模拟 HTTP 执行，后台轮询不清掉输入失败提示 |
 | workspace-browser.tsx / workspace-browser.test.tsx | 独立临时用户浏览器的原生导航控件；显式打开、真实 loading/慢加载提示、关闭重开、迟到打开回收；调用者按 session key 隔离，HTTP 不支持 |
 | fallback-policy-panel.tsx / team-panel.tsx | fallback 和团队操作 |
-| product-pages.tsx | 设置、插件、自动化等次级页面 |
+| product-pages.tsx | 设置、插件/自动化样例与搜索；真实 Inspector 导航，未接通能力明确不可用 |
 | *.test.tsx | 确定性组件交互与协议回归 |

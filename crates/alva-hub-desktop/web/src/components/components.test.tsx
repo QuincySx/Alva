@@ -15,7 +15,7 @@ import { HubSidebar } from "./hub-sidebar";
 import { HubTimeline } from "./hub-timeline";
 import { ModelPicker, type HubModelRoute } from "./model-picker";
 import { ProviderSettings } from "./provider-settings";
-import { SettingsPage } from "./product-pages";
+import { ExtensionsPage, SettingsPage } from "./product-pages";
 import { InspectorTool } from "./workbench-tools";
 
 const routes: HubModelRoute[] = [
@@ -1103,6 +1103,21 @@ describe("Hub domain components", () => {
     expect(screen.getByRole("switch", { name: "Use compact density" })).toBeDisabled();
     expect(screen.getByRole("switch", { name: "Reduce motion" })).toBeDisabled();
     expect(screen.getByText(/operating system/i)).toBeInTheDocument();
+  });
+
+  it("Inspector settings without a navigation callback cannot pretend to enable it", () => {
+    renderSettings("Experiments");
+    expect(screen.getByRole("button", { name: "Open Inspector" })).toBeDisabled();
+    expect(screen.queryByRole("switch", { name: "Show Agent Inspector" })).not.toBeInTheDocument();
+  });
+
+  it("extension samples are explicitly unavailable, not an installed or live catalog", () => {
+    render(<I18nProvider><ExtensionsPage onStartChat={vi.fn()} /></I18nProvider>);
+    expect(screen.getByText("Extension catalog preview")).toBeInTheDocument();
+    expect(screen.getAllByText("Preview — not available")).toHaveLength(2);
+    expect(screen.queryByText("Available")).not.toBeInTheDocument();
+    expect(screen.queryByText("Installed")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Install is not supported yet/ }).every((button) => button.hasAttribute("disabled"))).toBe(true);
   });
 
   it("tools section disables fake toggles and shows MCP as not wired (R32)", () => {
