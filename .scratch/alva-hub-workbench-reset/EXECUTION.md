@@ -1,5 +1,11 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 自主迭代 · H14 耐久 Inspector 补验
+
+- 使用真实临时 HubStore + Alva SessionRepository，不调用模型；保存 typed LLM/Tool 与 ChildSessionLinked，flush 后销毁 repository 并重开，经正式 `HubInspectorService` 读取根/子/孙 Agent。
+- 精确比对 durable record_id/seq/payload、shared LLM 指标、父子关系和 branch 归属；另一个 Hub 会话不能读取该子树。缺失 product、缺失 native record 与 Claude unsupported 明确报错，并验证不会查询时创建不存在的记录。
+- `cargo test -p alva-hub-desktop --lib inspection::tests -- --test-threads=1` **3 passed / 218 filtered**；两项为新增真实 store 桥接回归，一项为已有投影回归。生产行为未改，不把这些测试替代原生 Inspector 页面/焦点/性能验收。
+
 ## 2026-10-02 最终依赖闸检查 · 安全规则复用
 
 - `ci-check-deps.sh` 首次最终复跑失败：H10 引入的 `alva-agent-security` 用于 Files/Text 和 Git 的统一 `SensitivePathFilter`，但漏同步 Desktop 的明确依赖 allowlist。Rule 17/18/19 均通过；失败是这个单一未登记直接依赖，不是反向 SDK 边界违规。

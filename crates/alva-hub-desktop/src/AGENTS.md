@@ -60,7 +60,7 @@
 |---|---|---|
 | Crate facade | `lib.rs` | 导出 run seam 与 DTO |
 | Engine assembly | `alva.rs` | 统一 ProviderConfig 到 ALVA、Claude Code、Codex、Pi 的 route-aware 安全装配 |
-| Inspector bridge | `inspection.rs` | 共享 native repository、session 树归属校验、RunRecord/raw durable record 稳定 DTO 投影 |
+| Inspector bridge | `inspection.rs` | 共享 native repository、session 树归属校验、RunRecord/raw durable record 稳定 DTO 投影；真实 SQLite flush/reopen 的递归与跨 Hub 隔离回归 |
 | Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、自动 fallback 循环、带产品时钟的事件投影与结果 |
 | Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
 | Managed SDK installation | `sdk_installation.rs` | 产品运行时目录的包身份/版本/入口校验，拒绝符号链接、Unix 异主及组/其他用户可写路径、工作区交叠；不执行包代码 |

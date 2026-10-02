@@ -246,7 +246,202 @@ fn projection_event(record: &SessionRecord) -> SessionEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alva_kernel_abi::{EventEmitter, SessionEvent};
+    use alva_kernel_abi::{ConversationLog, EventEmitter, RecordValue, SessionEvent, SessionStore};
+
+    fn bind_native_session(
+        store: &HubStore,
+        workspace: &Path,
+        product: &str,
+        engine: &str,
+        native: &str,
+    ) -> String {
+        let target = crate::EngineTarget::for_engine(engine).unwrap();
+        let prepared = store
+            .prepare_new_turn(
+                product,
+                workspace,
+                "Inspector fixture",
+                &target,
+                crate::PermissionProfile::WorkspaceWrite,
+            )
+            .unwrap();
+        store.record_engine_session(&prepared, native).unwrap();
+        store
+            .finish_turn(&prepared, Some(native), Some("done"), None, None)
+            .unwrap();
+        prepared.branch_id
+    }
+
+    #[tokio::test]
+    async fn durable_inspection_reopens_recursive_records_with_product_ownership() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = HubStore::open(directory.path().join("hub.db")).unwrap();
+        let branch =
+            bind_native_session(&store, directory.path(), "product-a", "alva", "native-root");
+        bind_native_session(
+            &store,
+            directory.path(),
+            "product-b",
+            "alva",
+            "unrelated-root",
+        );
+        let service = HubInspectorService::open(directory.path()).unwrap();
+        let repository = service.repository();
+        let root = repository.open_session("native-root", None).await.unwrap();
+        root.append_records(vec![
+            event(0, "run_start", 1_000, serde_json::json!({})),
+            event(0, "iteration_start", 1_010, serde_json::json!({})),
+            event(0, "llm_call_start", 1_020, serde_json::json!({})),
+            event(
+                0,
+                "llm_stream_summary",
+                1_060,
+                serde_json::json!({"time_to_first_output_ms": 8}),
+            ),
+            event(
+                0,
+                "llm_call_end",
+                1_070,
+                serde_json::json!({"input_tokens": 3, "output_tokens": 2}),
+            ),
+            event(0, "iteration_end", 1_080, serde_json::json!({})),
+            event(0, "run_end", 1_090, serde_json::json!({})),
+        ])
+        .await
+        .unwrap();
+        let child = root
+            .create_child_session("root-run", "spawn-child")
+            .await
+            .unwrap()
+            .unwrap();
+        let child_id = child.session_id().to_string();
+        child
+            .append_records(vec![SessionRecord::execution(
+                "tool_intent",
+                EventEmitter::runtime(),
+                ExecutionRecord::Intent {
+                    operation_id: "read-1".into(),
+                    operation: "read".into(),
+                    input: RecordValue::Inline {
+                        value: serde_json::json!({"path": "hello.txt"}),
+                    },
+                },
+            )])
+            .await
+            .unwrap();
+        let grandchild = child
+            .create_child_session("child-run", "spawn-grandchild")
+            .await
+            .unwrap()
+            .unwrap();
+        let grandchild_id = grandchild.session_id().to_string();
+        grandchild
+            .append_records(vec![event(0, "run_start", 2_000, serde_json::json!({}))])
+            .await
+            .unwrap();
+        let unrelated = repository
+            .open_session("unrelated-root", None)
+            .await
+            .unwrap();
+        unrelated
+            .append_records(vec![event(0, "run_start", 3_000, serde_json::json!({}))])
+            .await
+            .unwrap();
+        root.flush().await.unwrap();
+        child.flush().await.unwrap();
+        grandchild.flush().await.unwrap();
+        let expected_root = repository.records("native-root").unwrap();
+        let expected_child = repository.records(&child_id).unwrap();
+        drop((root, child, grandchild, unrelated, repository, service));
+
+        let reopened = HubInspectorService::open(directory.path()).unwrap();
+        let snapshot = reopened.inspect(&store, "product-a", None).await.unwrap();
+        assert_eq!(snapshot.branch_id, branch);
+        assert_eq!(snapshot.native_session_id, "native-root");
+        assert!(!snapshot.live);
+        assert_eq!(snapshot.high_water_seq, expected_root.last().unwrap().seq);
+        assert_eq!(snapshot.children.len(), 1);
+        assert_eq!(snapshot.children[0].child_session_id, child_id);
+        assert_eq!(snapshot.children[0].spawn_tool_call_id, "spawn-child");
+        assert_eq!(
+            snapshot.run.turns[0].llm_call.time_to_first_output_ms,
+            Some(8)
+        );
+        assert_eq!(snapshot.records.len(), expected_root.len());
+        for (actual, expected) in snapshot.records.iter().zip(&expected_root) {
+            assert_eq!(actual.record_id, expected.record_id);
+            assert_eq!(actual.seq, expected.seq);
+            assert_eq!(
+                actual.payload,
+                serde_json::to_value(&expected.payload).unwrap()
+            );
+        }
+        let snapshot = reopened
+            .inspect(&store, "product-a", Some(&child_id))
+            .await
+            .unwrap();
+        assert_eq!(snapshot.parent_session_id.as_deref(), Some("native-root"));
+        assert_eq!(
+            snapshot.records[0].payload,
+            serde_json::to_value(&expected_child[0].payload).unwrap()
+        );
+        assert_eq!(snapshot.children[0].child_session_id, grandchild_id);
+        let snapshot = reopened
+            .inspect(&store, "product-a", Some(&grandchild_id))
+            .await
+            .unwrap();
+        assert_eq!(
+            snapshot.parent_session_id.as_deref(),
+            Some(child_id.as_str())
+        );
+        assert_eq!(snapshot.root_native_session_id, "native-root");
+        assert!(reopened
+            .inspect(&store, "product-a", Some("unrelated-root"))
+            .await
+            .unwrap_err()
+            .contains("does not belong"));
+        assert!(reopened
+            .inspect(&store, "product-b", Some(&child_id))
+            .await
+            .unwrap_err()
+            .contains("does not belong"));
+    }
+
+    #[tokio::test]
+    async fn missing_or_unsupported_inspection_never_creates_native_records() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = HubStore::open(directory.path().join("hub.db")).unwrap();
+        let service = HubInspectorService::open(directory.path()).unwrap();
+        bind_native_session(
+            &store,
+            directory.path(),
+            "missing-records",
+            "alva",
+            "not-created",
+        );
+        bind_native_session(
+            &store,
+            directory.path(),
+            "unsupported",
+            "claude",
+            "claude-native",
+        );
+        assert!(service
+            .inspect(&store, "missing-product", None)
+            .await
+            .is_err());
+        assert!(service
+            .inspect(&store, "missing-records", None)
+            .await
+            .is_err());
+        assert!(service
+            .inspect(&store, "unsupported", None)
+            .await
+            .unwrap_err()
+            .contains("no full native Inspector"));
+        assert!(!service.repository().contains("not-created").unwrap());
+        assert!(!service.repository().contains("claude-native").unwrap());
+    }
 
     fn event(seq: u64, kind: &str, timestamp: i64, data: serde_json::Value) -> SessionRecord {
         let mut event = SessionEvent::new_runtime(kind);
