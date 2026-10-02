@@ -96,6 +96,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Workspace files | `components/workspace-files.tsx` | Files/Text 真实只读目录导航与 UTF-8 预览；会话切换 key 隔离迟到响应，刷新重试、二进制/受限/限额明确提示 |
 | Workspace Git | `components/workspace-git.tsx` | 真实 Git 分支/status/diff，三种变更区分、任务终态快照刷新与手动刷新；Review 继续展示执行证据，非 Git 状态 |
 | Native terminal | `components/workspace-terminal.tsx` | 显式 Open 后才创建 PTY，输入/Ctrl-C/resize/退出/关闭；按会话 key 卸载清理且迟到 open 也关闭，HTTP 明示不支持 |
+| User browser | `components/workspace-browser.tsx` | 显式打开独立临时原生窗口，地址/导航/刷新/显示/关闭控件；轮询窗口事实，不伪造 Agent 自动化、iframe 或加载成功 |
 | UI Lab | `ui-lab.tsx` | 开发/test-only 确定性组件与页面状态展台 |
 | Visual config | `../playwright.config.ts` | 1440×900 Chrome 截图环境与 Vite 生命周期 |
 | Visual tests | `../tests/visual.spec.ts` | 七张总层架和模型弹层的真实浏览器回归 |

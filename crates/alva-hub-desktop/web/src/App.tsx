@@ -1766,7 +1766,7 @@ export default function App() {
             {openWorkbenchTools.includes("inspector") ? <TabsContent className="hub-workbench__content" forceMount value="inspector"><WorkbenchPage><InspectorTool detail={sessionDetail} events={timeline} /></WorkbenchPage></TabsContent> : null}
             {openWorkbenchTools.includes("tasks") ? <TabsContent className="hub-workbench__content" forceMount value="tasks"><WorkbenchPage><TasksTool run={teamRun} /></WorkbenchPage></TabsContent> : null}
             {openWorkbenchTools.includes("usage") ? <TabsContent className="hub-workbench__content" forceMount value="usage"><WorkbenchPage><UsageTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
-            {openWorkbenchTools.includes("browser") ? <TabsContent className="hub-workbench__content" forceMount value="browser"><WorkbenchPage><BrowserTool /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("browser") ? <TabsContent className="hub-workbench__content" forceMount value="browser"><WorkbenchPage><BrowserTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
             {openWorkbenchTools.includes("text") ? <TabsContent className="hub-workbench__content" forceMount value="text"><WorkbenchPage><TextBrowserTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
             {openWorkbenchTools.includes("git") ? <TabsContent className="hub-workbench__content" forceMount value="git"><WorkbenchPage><GitTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
             {openWorkbenchTools.includes("terminal") ? <TabsContent className="hub-workbench__content" forceMount value="terminal"><WorkbenchPage><TerminalTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}

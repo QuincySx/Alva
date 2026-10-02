@@ -1,5 +1,12 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 自主迭代 · H12 独立用户浏览器
+
+- Desktop 显式打开独立 incognito 原生窗口，地址/后退/前进/刷新/显示/关闭控制连接真实 WebView；session+随机 handle 绑定，最多 4 个，关标签/切会话/主窗销毁清理，迟到 Open 回收。不是 Agent 自动化浏览器，HTTP 模式明确不支持。
+- 仅允许 HTTP(S)，拒绝凭证 URL、file/data/javascript/tauri、产品资源及开发主窗口来源；拒绝弹窗与下载。普通应用命令额外在全局 invoke 边界校验 main 标签（Tauri 普通应用命令默认不限 capability），core/plugin capability 仍只赋予 main；没有远端 capability。
+- 按原生导航/加载回调显示地址与 loading，20 秒慢加载明确提示；实际网络错误由原生页面显示，不以超时冒充加载失败或成功。未声称禁止系统级浏览器权限提示或所有远端页面行为。
+- 验证：URL/IPC 身份及 handle 归属 2 项通过；前端全套 164 项、Hub lib 213 项/5 filtered、Desktop all-target check 与生产 build 通过。真实原生窗口交互验收随后执行。
+
 ## 2026-10-02 自主迭代 · H13 原生逐行 PTY
 
 - macOS/Linux Desktop 显式 Open 后创建真实 `/bin/sh +m -i` PTY，cwd 仅来自已存 session；清空继承环境，不加载 login profile。逐行输入、Ctrl-C、行列 resize、退出码、关闭/重开可用，不宣称支持 vim 等全屏模拟器。HTTP/非 Unix 明示不支持。

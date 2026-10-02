@@ -17,6 +17,7 @@ import { EngineInspectorPanel, type EngineInspectorPanelProps } from "./engine-i
 import { WorkspaceFiles } from "./workspace-files";
 import { WorkspaceGit } from "./workspace-git";
 import { WorkspaceTerminal } from "./workspace-terminal";
+import { WorkspaceBrowser } from "./workspace-browser";
 import { localizeSystemText, useI18n } from "../i18n";
 import {
   Badge,
@@ -26,7 +27,6 @@ import {
   ListRow,
   Notice,
   PanelSection,
-  TextField,
 } from "../ui";
 
 export function FilesTool({ detail }: { detail: HubSessionDetail | null }) {
@@ -498,20 +498,9 @@ export function UsageTool({ detail }: { detail: HubSessionDetail | null }) {
   );
 }
 
-export function BrowserTool() {
+export function BrowserTool({ detail }: { detail: HubSessionDetail | null }) {
   const { t } = useI18n();
-  // R53: nothing loads here — no WebView bridge exists behind this panel.
-  // Present the disabled capability honestly instead of a fake "ready" state.
-  const [url, setUrl] = useState("");
-  return (
-    <PanelSection description={t("tool.browserDescription")} heading={t("workbench.browser")}>
-      <EmptyState icon={<Globe2 size={18} />} title={t("tool.browserNotWiredTitle")} description={t("tool.browserNotWired")} />
-      <div className="hub-browser-toolbar">
-        <TextField aria-label={t("tool.browserAddress")} disabled value={url} onChange={(event) => setUrl(event.target.value)} />
-        <Button disabled leadingIcon={<Globe2 size={14} />} size="small">{t("common.open")}</Button>
-      </div>
-    </PanelSection>
-  );
+  return detail ? <WorkspaceBrowser key={detail.session.product_session_id} sessionId={detail.session.product_session_id} /> : <EmptyState icon={<Globe2 size={18} />} title={t("files.noSession")} />;
 }
 
 export function TerminalTool({ detail }: { detail: HubSessionDetail | null }) {

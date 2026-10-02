@@ -1,5 +1,5 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: binary with workspace/run/switch/session/policy/Inspector IPC and timestamped timeline events over the crash-repaired Hub store
+// OUTPUT: binary with workspace/run/switch/Inspector IPC, isolated user browser/PTY and timestamped timeline events
 // POS:    Tauri 2 entrypoint, user-authorized multi-engine Desktop state owner, and product event bridge.
 
 #![cfg_attr(
@@ -35,6 +35,7 @@ fn timeline_now_ms() -> i64 {
 }
 
 struct DesktopState {
+    browsers: Arc<alva_hub_desktop::UserBrowserManager>,
     terminals: Arc<alva_hub_desktop::TerminalManager>,
     store: HubStore,
     providers: ProviderCatalog,
@@ -1536,6 +1537,25 @@ async fn get_hub_inspection(
 }
 
 #[tauri::command]
+async fn hub_browser(
+    app: AppHandle, state: State<'_, DesktopState>, request: BrowserRequest,
+) -> Result<serde_json::Value, String> {
+    match request {
+        BrowserRequest::Open { session, url } => state.browsers.open(&app, &state.store, &session, &url).map(serde_json::Value::String),
+        BrowserRequest::Read { session, id } => state.browsers.read(&session, &id).and_then(|value| serde_json::to_value(value).map_err(|_| "browser response unavailable".into())),
+        BrowserRequest::Control { session, id, operation, url } => state.browsers.action(&app, &session, &id, &operation, url.as_deref()).map(|_| serde_json::Value::Null),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+enum BrowserRequest {
+    Open { session: String, url: String },
+    Read { session: String, id: String },
+    Control { session: String, id: String, operation: String, url: Option<String> },
+}
+
+#[tauri::command]
 async fn hub_terminal(
     window: tauri::WebviewWindow, state: State<'_, DesktopState>, request: TerminalRequest,
 ) -> Result<serde_json::Value, String> {
@@ -1693,6 +1713,7 @@ fn main() {
             let inspector =
                 HubInspectorService::open(&history_dir).map_err(std::io::Error::other)?;
             app.manage(DesktopState {
+                browsers: Arc::new(alva_hub_desktop::UserBrowserManager::default()),
                 terminals: Arc::new(alva_hub_desktop::TerminalManager::default()),
                 store,
                 providers,
@@ -1713,10 +1734,19 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
-                if let Some(state) = window.try_state::<DesktopState>() { state.terminals.close_all(); }
+                if let Some(state) = window.try_state::<DesktopState>() {
+                    state.terminals.close_all();
+                    state.browsers.close_all(window.app_handle());
+                }
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(|invoke| {
+            if !alva_hub_desktop::privileged_window(invoke.message.webview_ref().label()) {
+                invoke.resolver.reject("Hub commands require the main window");
+                return true;
+            }
+            let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
+            hub_browser,
             hub_terminal,
             run_hub_prompt,
             switch_hub_engine,
@@ -1773,7 +1803,9 @@ fn main() {
             update_worker_task,
             cancel_worker_task,
             interrupt_worker
-        ])
+            ];
+            handler(invoke)
+        })
         .run(tauri::generate_context!())
         .expect("failed to run ALVA Hub Desktop");
 }
