@@ -1,5 +1,11 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 自主迭代 · H18 安全原生验收入口
+
+- 新增 debug-only `--isolated-ui-data <absolute directory>`；主 WebView 使用 incognito，Hub store/provider/history/workspace 仅用指定目录。不读取共享/legacy Provider 配置，不探测真实账号，不恢复 worker；engine 执行、安装、账号操作与付费/发现请求在 invoke 边界拒绝。正常启动仍使用原 app-data。
+- `examples/native_ui_fixture.rs` 在显式空目录构造双 Git worktree 和真实产品 store（注入确定性 engine double，保存 assistant 与工具全文），附浏览器测试页；Git 不使用用户/系统配置、hook、远端或 push。
+- 已在真实 Tauri/WKWebView 读取完成会话、Markdown 代码、耐久 assistant 与 5 页工具正文。发现项目 worktree 的嵌套 Result 传输缺陷，待下一独立修复。此记录不是全桌面验收通过声明。
+
 ## 2026-10-02 自主迭代 · H12 独立用户浏览器
 
 - Desktop 显式打开独立 incognito 原生窗口，地址/后退/前进/刷新/显示/关闭控制连接真实 WebView；session+随机 handle 绑定，最多 4 个，关标签/切会话/主窗销毁清理，迟到 Open 回收。不是 Agent 自动化浏览器，HTTP 模式明确不支持。

@@ -85,3 +85,4 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Desktop config | `tauri.conf.json` / `capabilities/` | window、build 与最小权限配置 |
 | Presentation assets | `icons/` | walking-skeleton 暂用的 Alva 图标 |
 | Acceptance matrix | `ACCEPTANCE.md` | 18 条 V1 scenario → 证据映射与剩余缺口 |
+| Native UI fixtures | `examples/` | 空目录内构造确定性 store、双工作树及浏览器页面；配合 debug-only 隔离 UI 数据参数，无账号/真实引擎访问 |

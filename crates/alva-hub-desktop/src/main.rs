@@ -35,6 +35,8 @@ fn timeline_now_ms() -> i64 {
 }
 
 struct DesktopState {
+    /// Debug-only UI QA: private data, no ambient providers/auth probes or engine execution.
+    isolated_ui: bool,
     browsers: Arc<alva_hub_desktop::UserBrowserManager>,
     terminals: Arc<alva_hub_desktop::TerminalManager>,
     store: HubStore,
@@ -1172,6 +1174,7 @@ async fn get_repair_plan(
     state: State<'_, DesktopState>,
     workspace: Option<String>,
 ) -> Result<Vec<alva_hub_desktop::RepairAction>, String> {
+    if state.isolated_ui { return Ok(Vec::new()); }
     let probe =
         provider_backed_probe(&state.store, &state.providers, workspace.map(PathBuf::from))?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -1361,6 +1364,7 @@ fn list_model_routes(
     state: State<'_, DesktopState>,
     workspace: Option<String>,
 ) -> Result<Vec<ModelRoute>, String> {
+    if state.isolated_ui { return Ok(Vec::new()); }
     effective_model_routes(&state.store, &state.providers, workspace.map(PathBuf::from))
 }
 
@@ -1369,6 +1373,7 @@ fn get_default_model_route(
     state: State<'_, DesktopState>,
     workspace: Option<String>,
 ) -> Result<Option<ModelRoute>, String> {
+    if state.isolated_ui { return Ok(None); }
     let workspace = workspace.map(PathBuf::from);
     let Some(default) = state.providers.default_target(workspace.as_deref())? else {
         return Ok(None);
@@ -1676,6 +1681,7 @@ async fn get_engine_readiness(
     state: State<'_, DesktopState>,
     workspace: Option<String>,
 ) -> Result<Vec<EngineReadiness>, String> {
+    if state.isolated_ui { return Ok(Vec::new()); }
     // The probe copies its store evidence up front, so the slow CLI probing
     // (`--version` child processes) runs off the IPC thread.
     let probe =
@@ -1685,7 +1691,44 @@ async fn get_engine_readiness(
         .map_err(|error| format!("engine readiness probe task failed: {error}"))
 }
 
+/// A debug build can inspect deterministic UI fixtures without consulting the
+/// user's account stores. Never changes HOME or the normal product data root.
+fn isolated_ui_directory(args: impl IntoIterator<Item = std::ffi::OsString>) -> Result<Option<PathBuf>, String> {
+    let mut args = args.into_iter();
+    let Some(flag) = args.next() else { return Ok(None); };
+    if flag != "--isolated-ui-data" {
+        return if args.any(|argument| argument == "--isolated-ui-data") {
+            Err("isolated UI flag must be the first argument".into())
+        } else { Ok(None) };
+    }
+    if !cfg!(debug_assertions) {
+        return Err("Only debug builds accept --isolated-ui-data <absolute directory>".into());
+    }
+    let directory = args.next().map(PathBuf::from).ok_or("isolated UI directory is required")?;
+    if !directory.is_absolute() || args.next().is_some() {
+        return Err("isolated UI requires exactly one absolute directory".into());
+    }
+    Ok(Some(directory))
+}
+
+fn isolated_ui_command(command: &str) -> bool {
+    matches!(command,
+        "hub_browser" | "hub_terminal" | "list_hub_sessions" | "get_hub_session"
+        | "get_hub_tool_content" | "list_hub_workspace_files" | "read_hub_workspace_file"
+        | "get_hub_git_status" | "get_hub_git_diff" | "get_hub_messages" | "get_hub_inspection"
+        | "list_model_providers" | "list_model_routes" | "get_default_model_route"
+        | "get_engine_readiness" | "get_repair_plan" | "get_permission_eligibility" | "get_global_fallback_policy"
+        | "get_permission_groups" | "get_team_run_for_lead" | "list_projects" | "create_project"
+        | "rename_project" | "delete_project" | "discover_project_worktrees"
+        | "create_session_workspace" | "set_session_project")
+}
+
 fn main() {
+    let isolated_directory = isolated_ui_directory(std::env::args_os().skip(1)).expect("invalid Hub startup arguments");
+    let mut context = tauri::generate_context!();
+    if isolated_directory.is_some() {
+        for window in &mut context.config_mut().app.windows { window.incognito = true; }
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -1698,21 +1741,24 @@ fn main() {
         // Official-guidance links must actually open from the packaged app:
         // a bare <a target="_blank"> does nothing inside a wry webview.
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
+        .setup(move |app| {
+            let isolated_ui = isolated_directory.is_some();
+            let data_dir = match isolated_directory.clone() { Some(directory) => directory, None => app.path().app_data_dir()? };
             let store =
                 HubStore::open(data_dir.join("alva-hub.db")).map_err(std::io::Error::other)?;
-            let shared_provider_config = app.path().home_dir()?.join(".alva").join("config.json");
-            let providers = ProviderCatalog::open_with_shared_and_legacy_config(
-                data_dir.join("model-providers.json"),
-                shared_provider_config,
-            )
+            let providers = if isolated_ui {
+                ProviderCatalog::open(data_dir.join("model-providers.json"))
+            } else {
+                let shared_provider_config = app.path().home_dir()?.join(".alva").join("config.json");
+                ProviderCatalog::open_with_shared_and_legacy_config(data_dir.join("model-providers.json"), shared_provider_config)
+            }
             .map_err(std::io::Error::other)?;
-            let queued_workers = store.active_workers_with_queued_tasks().unwrap_or_default();
+            let queued_workers = if isolated_ui { Vec::new() } else { store.active_workers_with_queued_tasks().unwrap_or_default() };
             let history_dir = data_dir.join("alva-history");
             let inspector =
                 HubInspectorService::open(&history_dir).map_err(std::io::Error::other)?;
             app.manage(DesktopState {
+                isolated_ui,
                 browsers: Arc::new(alva_hub_desktop::UserBrowserManager::default()),
                 terminals: Arc::new(alva_hub_desktop::TerminalManager::default()),
                 store,
@@ -1725,6 +1771,9 @@ fn main() {
                 session_workspace_root: data_dir.join("session-workspaces"),
                 permission_router: Arc::new(PermissionRouter::new()),
             });
+            if isolated_ui {
+                if let Some(window) = app.get_webview_window("main") { window.set_title("ALVA Hub · isolated UI QA")?; }
+            }
             // Durable queues survive restarts: resume a pump for every worker
             // that still has queued work.
             for worker_id in queued_workers {
@@ -1743,6 +1792,10 @@ fn main() {
         .invoke_handler(|invoke| {
             if !alva_hub_desktop::privileged_window(invoke.message.webview_ref().label()) {
                 invoke.resolver.reject("Hub commands require the main window");
+                return true;
+            }
+            if invoke.message.webview_ref().state::<DesktopState>().isolated_ui && !isolated_ui_command(invoke.message.command()) {
+                invoke.resolver.reject("Engine execution and account operations are disabled in isolated UI QA");
                 return true;
             }
             let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
@@ -1806,6 +1859,33 @@ fn main() {
             ];
             handler(invoke)
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("failed to run ALVA Hub Desktop");
+}
+
+#[cfg(test)]
+mod isolated_ui_tests {
+    use super::*;
+
+    #[test]
+    fn isolated_mode_is_explicit_and_uses_only_an_absolute_override() {
+        assert_eq!(isolated_ui_directory(Vec::new()).unwrap(), None);
+        let parse = |args: &[&str]| isolated_ui_directory(args.iter().map(std::ffi::OsString::from));
+        assert!(parse(&["--isolated-ui-data"]).is_err());
+        assert!(parse(&["--isolated-ui-data", "relative"]).is_err());
+        assert_eq!(parse(&["--unknown", "/tmp/ui-qa"]).unwrap(), None);
+        assert!(parse(&["--unknown", "--isolated-ui-data", "/tmp/ui-qa"]).is_err());
+        assert!(parse(&["--isolated-ui-data", "/tmp/ui-qa", "extra"]).is_err());
+        if cfg!(debug_assertions) { assert_eq!(parse(&["--isolated-ui-data", "/tmp/ui-qa"]).unwrap(), Some(PathBuf::from("/tmp/ui-qa"))); }
+    }
+
+    #[test]
+    fn isolated_ui_never_starts_engines_or_account_mutations() {
+        for command in ["run_hub_prompt", "dispatch_worker_task", "run_engine_repair", "test_model_route", "discover_models_for_provider", "save_model_provider", "switch_hub_engine"] {
+            assert!(!isolated_ui_command(command));
+        }
+        assert!(isolated_ui_command("get_hub_messages"));
+        assert!(isolated_ui_command("hub_terminal"));
+        assert!(isolated_ui_command("hub_browser"));
+    }
 }

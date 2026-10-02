@@ -15,7 +15,7 @@
 4. SessionStarted/ToolEnd 增量落盘，Completed 原子提交 Attempt usage 与 Turn 终态；Alva adapter 的真实 ToolExecution duration 穿透到 side-effect evidence。
 5. 运行中 switch 持久化为 queued；终态或启动 crash repair 后再原子应用。
 6. runtime events 与 switch facts 被投影为稳定 timeline states；每个 TimelineEvent 在产品创建点取得统一 `created_at`，所有 engine 共用一个产品时间轴，UI 不读取 adapter-native clock。
-7. `main` 从 Tauri app-data 初始化 store，并暴露运行、切换、列表和详情 IPC。
+7. `main` 从 Tauri app-data 初始化 store，并暴露运行、切换、列表和详情 IPC。debug-only `--isolated-ui-data <absolute path>` 使用独立数据与临时主 WebView，关闭共享 Provider/账号探测、worker 恢复及 engine/账号操作；专用于无真实账号的 UI 验证，正常启动路径不变。
 7.1. `inspection` 持有与 Alva adapter 共享的 `SessionRepository`，按 HubSession/EngineBranch 校验 native session 必须是根或可达子孙，再把 `EngineInspector` snapshot 投影为稳定 `HubInspectionSnapshot`；`main::get_hub_inspection` 只暴露该 DTO，非 Alva engine truthful unsupported。
 8. `main` 暴露全局与单 session fallback policy IPC；自动使用必须来自当前 session snapshot 的明确授权。
 9. `readiness` 用只读 `EngineProbe` facts（PATH 发现、`--version`、凭证存在性、attempt 历史）分类 ALVA/Claude Code/Codex/Pi 的结构化 EngineReadiness；target-aware fast veto 对 API-backed CLI route 仍要求 binary，但不再错误要求该 CLI 的私有订阅登录。
