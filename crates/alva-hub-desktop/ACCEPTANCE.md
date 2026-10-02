@@ -1,5 +1,113 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Current workbench delivery — 2026-10-02
+
+This section is the current evidence ledger. Older V1 scenarios below are
+retained as historical evidence, not renewed claims about today's packaged
+GUI, real accounts, or performance. Automated, native-PTY, HTTP, and
+WKWebView evidence are deliberately separate.
+
+Environment: macOS 27.0 arm64, rustc 1.98.1, Node v24.19.0. All new commits
+are local and unsigned (command-scoped signing override after the existing
+1Password failure); nothing was pushed. Existing user edits were preserved.
+
+| Area | Implemented and verified | Still outstanding |
+|---|---|---|
+| H09/H20 conversation | Attempt-scoped UTF-16 positions; duplicate/late fragments; schema-20 durable visible assistant journal; session-scoped cursor recovery; crash terminal repair | Production WKWebView latency/scrolling matrix; old unstored fragments cannot be reconstructed |
+| H09 tool body | Schema-19 atomic redaction + immutable UTF-8 chunks; Tauri/HTTP paging; page-only UI retention, retry and stale-response isolation | Full native paging flow; legacy previews have no recoverable full body; per-body cap is 64 MiB, not a total-database quota |
+| H10 Files/Text | Real persisted cwd, no-follow capability-relative opens, existing SensitivePathFilter, bounded text/binary/permission states | Native multilingual and narrow-container visual pass |
+| H11 Git | Real worktree branch/status/diff, staged/unstaged/untracked, literal/NUL paths, independent linked worktrees, read-only limits | Native UI refresh after a real task; no new Git write actions |
+| H12 user browser | Explicit session-owned incognito native window; navigation/reload/history/close; HTTP(S)-only URL policy and no Hub IPC/popups/downloads | Native navigation/error/close lifecycle interaction pass; HTTP is explicitly unsupported |
+| H13 terminal | Real Unix PTY tests for cwd/input/resize/Ctrl-C/exit/reopen/group cleanup; bounded output and session ownership | Native UI lifecycle pass; line-oriented, not a fullscreen emulator or security sandbox; HTTP is unsupported |
+| H14 Inspector | Real SQLite flush/reopen preserves typed records and recursive child/grandchild ownership; product/attempt detail, unsupported and missing states | Native recursive page/focus/keyboard pass; no non-Alva internal trace is invented |
+| H17 secondary pages | Real Inspector navigation and scoped shortcuts; unavailable actions explicitly disabled; extension samples labelled previews; usage unknown rather than invented | Native keyboard/narrow/multilingual visual pass; automation/extension registry/SSH backends remain unavailable |
+| K01 boundaries | Dependency firewall, bus surface, wasm32 clean set and host full link pass; SDK/kernel implementation unchanged | wasm32-wasip2 target is not installed, explicitly skipped |
+
+### Reproducible automated checks
+
+From the repository root:
+
+```sh
+cargo test -p alva-hub-desktop --lib -- --test-threads=1 \
+  --skip real_claude_runs_and_completes_a_turn \
+  --skip real_codex_runs_and_completes_a_turn \
+  --skip real_codex_receives_a_fallback_after_engine_failure \
+  --skip real_codex_worker_task_executes_and_closes_with_result
+cargo test -p alva-hub-desktop --bin alva-hub-desktop -- --test-threads=1
+cargo test -p alva-hub-server -- --test-threads=1
+cargo check -p alva-hub-desktop -p alva-hub-server --all-targets
+bash scripts/ci-check-deps.sh
+```
+
+Results: **217 lib tests / 4 explicitly filtered real-account tests**,
+**2 bin tests**, **9 HTTP tests**, all-target check pass. The dependency
+firewall initially exposed the missing declaration of Desktop's direct
+SensitivePathFilter dependency; its single intended use was documented and
+the gate rerun successfully. No Rule 17/18/19 was removed. The final script
+also passed bus lint, wasm32-unknown-unknown checks and host linking;
+wasm32-wasip2 was skipped because the target is absent.
+
+Target precision: this checkout's Rule 18 loop checks `alva-app-cli` and
+`alva-app-gpui`; `alva-app-tauri` is not a Cargo workspace member here.
+The script's success is not claimed as a check of that absent target, and
+this work did not rename or migrate the separate native product entry.
+
+In `crates/alva-hub-desktop/web`: `npm test -- --reporter=dot` reports
+**172 tests / 16 files**, and `npm run build` passes TypeScript/Vite.
+Existing React act/controlled-state, Rust unused-item and large-bundle
+warnings remain. This iteration made no real provider or paid SDK calls,
+installed no new runtime, and did not rerun a blocked one-off Playwright
+package command. Unit tests are not claimed as visual or performance proof.
+
+### Native evidence and deferred acceptance
+
+The debug fixture uses real private stores and two local Git worktrees,
+but only a deterministic EngineRuntime double. A real Tauri/WKWebView
+window displayed the completed conversation, Markdown/code and first
+16-KiB tool page with a five-page pager. The preserved
+[partial native screenshot](../../.scratch/alva-hub-workbench-reset/native-before-worktree-fix.png)
+is from **before** the worktree IPC correction, not a final acceptance image.
+That native pass found the nested-Result worktree response defect, fixed in
+`f179468f` and pinned by a serde IPC contract test.
+
+After rebuilding, native automation could no longer read the window due
+to macOS AX permission errors. The user explicitly deferred permission
+repair on 2026-10-02 (“暂时不方便，做你能做的”). No bypass was attempted.
+The full project → task → approval/stop → diff → resume → restart flow,
+native browser/terminal/Inspector interaction, multilingual/narrow-window
+review and production WKWebView performance budgets **remain unaccepted**.
+Earlier Chromium traces are not WKWebView measurements; per-fragment SQLite
+write latency introduced by the durable journal has not been measured there.
+Real Claude SDK/Codex/Pi/provider-account tests require separate authority.
+
+To resume **account-free** native QA later, use three terminals from the repo:
+
+```sh
+# Terminal 1: fresh explicit fixture directory, then the isolated desktop
+hub_qa_dir=$(mktemp -d /tmp/alva-hub-ui.XXXXXX)
+cargo run -p alva-hub-desktop --example native_ui_fixture -- "$hub_qa_dir"
+cargo run -p alva-hub-desktop --bin alva-hub-desktop -- \
+  --isolated-ui-data "$hub_qa_dir/data"
+
+# Terminal 2: application UI at the configured development origin
+cd crates/alva-hub-desktop/web
+npm run dev -- --host 127.0.0.1 --port 1421
+
+# Terminal 3, optional: browser fixture pages (use Terminal 1's printed path)
+python3 -m http.server 1437 --bind 127.0.0.1 --directory <fixture-root>/pages
+```
+
+Start the UI server before launching the desktop. The isolate flag is
+debug-only: it disables ambient provider/account probes, worker recovery,
+engine execution and account mutations at the invoke boundary. Browser and
+PTY controls remain explicit user actions. The completed QA app and local
+servers were stopped; fixture data was retained, not deleted. H18/H21 are
+not marked complete by this handoff.
+
+---
+
+## Historical V1 evidence
+
 Maps every scenario in `docs/ALVA-HUB-V1.md` §17 to its evidence. Two kinds
 of evidence exist and they are **not** interchangeable:
 

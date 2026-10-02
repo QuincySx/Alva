@@ -1,5 +1,14 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 当前交付与暂缓汇总
+
+- 本轮自主迭代提交：Files `405e1309`、Git `457ce28c`、消息日志 `a71144f8`、PTY `a9d422c6`、浏览器 `5d10d7e8`、隔离原生 fixture `a0839db1`、Worktree IPC `f179468f`、次级动作/快捷键 `d08d297c`、安全依赖闸 `fdc5a0e8`、耐久 Inspector 补验 `7f0cffea`。全部本地未 push，单命令关闭签名；不改 Git 持久配置。
+- 最终 lib 改用四个真实 CLI/账号测试的精确 skip，不误过滤合成回归：**217 passed / 4 filtered**；bin **2 passed**；HTTP **9 passed**；UI **172 passed / 16 files**；all-target check/生产 web build/依赖及 bus/wasm32 闸门通过。wasm32-wasip2 未安装，明确跳过。
+- target 精度：当前 Cargo workspace/Rule 18 实际存在并检查的是 `alva-app-cli`/`alva-app-gpui`，未列 `alva-app-tauri`；不将脚本绿标冒充不存在 target 的检查，也不在 Hub 任务中迁移独立原生入口。
+- 正式 `crates/alva-hub-desktop/ACCEPTANCE.md` 首节记录当下范围、命令、环境、account-free 原生入口与暂缓列表。原生截图另存 `native-before-worktree-fix.png`，只证明部分读取，不冒充修复后全流程验收。
+- 用户暂不方便处理 AX 权限，本轮未再请求或绕过；真实 SDK/账号和计费仍未授权执行。完整 WKWebView 主流程、窄窗口/多语言/键盘、性能预算与每片段 SQLite latency 未验，不标 H18/H21 完成。历史 Chromium 证据不迁移成 WKWebView 成绩。
+- 仅关闭本轮显式启动的 QA app 与本地 Vite/fixture-page 服务（1421/1437 已无监听）；不删除 fixture 或用户工作树/目录。已有 CONTEXT.md 和不相关 untracked 改动保留。
+
 ## 2026-10-02 自主迭代 · H14 耐久 Inspector 补验
 
 - 使用真实临时 HubStore + Alva SessionRepository，不调用模型；保存 typed LLM/Tool 与 ChildSessionLinked，flush 后销毁 repository 并重开，经正式 `HubInspectorService` 读取根/子/孙 Agent。
@@ -117,11 +126,11 @@
 ### 明确未收口，不得标完成
 
 1. H09 全文：2026-10-01 已实现新记录的耐久全文分块与分页读取；旧记录仍只有已存摘要，真实 Tauri 全流程验收未完成。
-2. H20 事件协议：工具跨 attempt 身份与持久化顺序已在 `a029555d` 修复；同内容 delta 已在 `579fbe46` 改为 stream/offset 协议。完整耐久消息日志与断线补页仍待收口。
+2. H20 事件协议：工具身份/顺序、stream/offset、schema-20 可见 assistant 日志与断线补页均已实施并有回归；真实桌面持久化延迟与长会话性能仍待验。
 3. H06 SDK readiness：受管依赖探测与 fake-SDK 产品链路已在 `9ad16d32` 修复；真实供应商 SDK/账号端到端仍未验收。
-4. H10/H11：真实文件树、受限文件预览、实际 Git status/diff 尚未接线。
-5. H12/H13：隔离浏览器、真实终端仍未接线；不把禁用占位当可用功能。
-6. H14/H17/H18：Inspector 整合、次级页面、真实桌面端到端与性能验收仍待完成。
+4. H10/H11：真实文件树/预览与 Git status/diff 已接线并通过后端/HTTP/UI 回归；原生 UI 全流程验收待完成。
+5. H12/H13：隔离用户浏览器与真实逐行 PTY 已接线，安全/lifecycle 回归通过；原生整段窗口交互仍待验，HTTP 明示 unsupported。
+6. H14/H17/H18：Inspector 耐久桥接/递归和次级页动作已补验/修复；原生端到端、焦点/窄窗/键盘、生产 WKWebView 性能及真实账号验收仍待完成。
 
 下方勾选项属于先前执行者的历史记录，不构成本轮全量验收。
 
