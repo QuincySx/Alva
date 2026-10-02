@@ -1,4 +1,4 @@
-// INPUT:  React, ReactDOM, App, index.css
+// INPUT:  React, ReactDOM, App, appearance/i18n providers, index.css
 // OUTPUT: mounted Hub Desktop React application
 // POS:    Browser entrypoint for the Tauri main window.
 
@@ -6,6 +6,7 @@ import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { I18nProvider } from "./i18n";
+import { AppearanceProvider } from "./appearance";
 import "./index.css";
 
 const uiLab = import.meta.env.DEV && new URLSearchParams(window.location.search).get("ui-lab") === "1";
@@ -21,7 +22,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       {perf ? (
         <Suspense fallback={null}><PerfHarness /></Suspense>
       ) : uiLab && UiLab ? (
-        <Suspense fallback={null}><UiLab /></Suspense>
+        <AppearanceProvider><Suspense fallback={null}><UiLab /></Suspense></AppearanceProvider>
       ) : (
         <App />
       )}

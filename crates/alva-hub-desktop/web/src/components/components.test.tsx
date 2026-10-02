@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { EngineTarget, HubSessionSummary, ModelRoute, ProviderDiagnosticResult, ProviderProfile, CreateProviderProfile, TimelineEvent } from "../bridge";
 import { I18nProvider } from "../i18n";
+import { AppearanceProvider } from "../appearance";
 import { demoDetail, demoInspection } from "../demo-data";
 import { UIProvider } from "../ui";
 import { HubComposer } from "./hub-composer";
@@ -1046,7 +1047,7 @@ describe("Hub domain components", () => {
 
   function renderSettings(sectionLabel: string) {
     render(
-      <I18nProvider>
+      <I18nProvider><AppearanceProvider>
         <SettingsPage
           defaultTarget={null}
           onDiscoverProviderModels={vi.fn()}
@@ -1059,7 +1060,7 @@ describe("Hub domain components", () => {
           providersLoading={false}
           routes={[]}
         />
-      </I18nProvider>,
+      </AppearanceProvider></I18nProvider>,
     );
     fireEvent.click(screen.getByRole("button", { name: new RegExp(sectionLabel, "i") }));
   }
@@ -1096,13 +1097,19 @@ describe("Hub domain components", () => {
 
   // ── R32: production settings/extensions carry no fake state ──────────────
 
-  it("appearance options that do nothing are disabled (R32)", () => {
+  it("appearance controls apply and persist real global preferences", () => {
     renderSettings("General");
-    expect(screen.getByRole("button", { name: "Light" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "System" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Use compact density" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Reduce motion" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Light" }));
+    expect(screen.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    fireEvent.click(screen.getByRole("switch", { name: "Use compact density" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Reduce motion" }));
+    expect(document.documentElement).toHaveAttribute("data-density", "compact");
+    expect(document.documentElement).toHaveAttribute("data-reduced-motion", "true");
+    expect(JSON.parse(localStorage.getItem("alva-hub.appearance.v1")!)).toEqual({ version: 1, theme: "light", compact: true, reduceMotion: true });
+    expect(screen.getByRole("button", { name: "System" })).not.toBeDisabled();
     expect(screen.getByText(/operating system/i)).toBeInTheDocument();
+    localStorage.removeItem("alva-hub.appearance.v1");
   });
 
   it("Inspector settings without a navigation callback cannot pretend to enable it", () => {

@@ -12,6 +12,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 2. `StartupGate` 提供对话与项目两种入口；对话创建专属受管目录，项目显示持久化项目及只读发现的工作树。`App` 与 Sidebar 可选择有效工作树作为下一会话 cwd，缺失/bare/prunable 工作树不可启动；不迁移已有会话、不隐式创建仓库。随后 App 管理 session list、EngineBranch、fallback chain、switch queue、历史 Turn/Attempt 和用户输入。
 2.1. Settings 的 provider 连接先保存到后端私有 catalog，再通过 IPC 做远程模型发现或 exact route 的最小推理测试；同一连接由后端按协议自动派生 ALVA/Claude Code/Codex/Pi route，web 只拿脱敏的发现候选与 non-authoritative registry binding preview，用户逐项或批量确认后才进入 draft，Save 时后端重新校验 binding，随后才成为 Composer route。
 2.2. `i18n` 是产品文案入口：默认简体中文，支持 English 与跟随系统，选择持久化到本地 WebView；领域组件使用 typed message key，不在组件内按语言写条件分支。
+2.3. `appearance` 在应用级装配持久化外观偏好：深色/浅色/实时跟随系统、default/compact 全局 Tokens 与减弱动效；OS 无障碍偏好不能被应用关闭。设置修改立即生效，存储失败可见，不声称重启后保留；卸载清理媒体/跨窗口监听与根属性。
 3. `App` 的 Engines dashboard 展示每个 engine 的版本/能力/auth/stream health 与结构化不可用原因；Composer 保留全部已配置 route，可用项在前，不可用项在底部独立分组并显示具体原因；可用 route 的悬浮选项面板只展示后端按 provider × model × engine 声明的 reasoning 档位与 Fast 能力，未知模型不猜测选项、不展示 Fast，选择写回真实 EngineTarget。
 4. 自动 fallback 以非阻塞 `fallback` timeline card 呈现 source→target、原因与 handoff 摘要；skip 复用 fallback 投影，链路耗尽以 `exhausted` card 展示全 cycle 终态（live event 与持久化 fact 同一投影）。
 5. fallback card 携带 Stop / Switch back / View handoff 控件：Stop 仅在运行中可用，Switch back 在已回源时禁用，View handoff 展开结构化 HandoffPackage；`attempt_cancelled` fact 投影为 cancelled card。
@@ -58,6 +59,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | React entry | `main.tsx` | 挂载应用 |
 | Vite types | `vite-env.d.ts` | `import.meta.env` 与开发 UI Lab 环境类型 |
 | I18N | `i18n.tsx` | 简体中文主语言、英文回退、系统语言解析、持久化偏好与 typed 翻译函数 |
+| Appearance | `appearance.tsx` / `appearance.test.tsx` | 全局主题、密度与可访问动效的持久化/跨窗口同步、保存失败和 AA 色彩/居中契约回归 |
 | Product UI | `App.tsx` | 新会话 workspace mode、engine selector、permission profile、fallback、composer、timeline、permission card 与上下文限定快捷键 |
 | IPC bridge | `bridge.ts` | workspace 创建/选择与 run/switch/policy/readiness/session/permission/Inspector 的 Tauri/HTTP 封装及稳定 DTO |
 | Style entry | `index.css` | 按 tokens → primitives → domain → app 顺序装配全部样式 |
@@ -92,7 +94,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Team panel | `components/team-panel.tsx` | Worker 生命周期、任务队列、worktree adoption、资源声明与自治开关 |
 | Component tests | `components/components.test.tsx` | Composer、模型选择器、shared-clock timeline 与 Inspector 子 Agent 回退回归 |
 | Timeline tests | `components/hub-timeline.test.tsx` | 审批卡工具名/资源/效果说明同屏与多语言保留回归（R76） |
-| Product pages | `components/product-pages.tsx` | 自动化、插件/技能样例与设置/搜索共享页面体系；无后端的操作标明不可用，Inspector 经 callback 打开工作台 |
+| Product pages | `components/product-pages.tsx` | 自动化、插件/技能样例与设置/搜索共享页面体系；真实外观偏好与 Inspector 导航，无后端的操作标明不可用 |
 | Workbench tools | `components/workbench-tools.tsx` | Files、Text、Git、Review、Agent、产品 Attempt + native Inspector、Tasks、Usage、Chrome、Terminal 标签内容 |
 | Workspace files | `components/workspace-files.tsx` | Files/Text 真实只读目录导航与 UTF-8 预览；会话切换 key 隔离迟到响应，刷新重试、二进制/受限/限额明确提示 |
 | Workspace Git | `components/workspace-git.tsx` | 真实 Git 分支/status/diff，三种变更区分、任务终态快照刷新与手动刷新；Review 继续展示执行证据，非 Git 状态 |

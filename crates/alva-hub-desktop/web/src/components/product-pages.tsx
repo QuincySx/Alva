@@ -1,4 +1,4 @@
-// INPUT:  React local state, product callbacks, ALVA UI facade, and Lucide icons
+// INPUT:  React local state, appearance/i18n preferences, product callbacks, ALVA UI facade, and Lucide icons
 // OUTPUT: Automations, extensions, settings, and search product pages
 // POS:    Deterministic Hub product surfaces above the shared UI component system
 
@@ -52,6 +52,7 @@ import type {
 } from "../bridge";
 import { useI18n, type LanguagePreference } from "../i18n";
 import { ProviderSettings } from "./provider-settings";
+import { useAppearance } from "../appearance";
 
 export type HubPage = "conversation" | "automations" | "extensions" | "settings" | "search";
 
@@ -299,9 +300,7 @@ export function SettingsPage({
 }) {
   const { preference, setPreference, t } = useI18n();
   const [section, setSection] = useState<(typeof settingsSections)[number]>("general");
-  const [themeMode, setThemeMode] = useState<"dark" | "light" | "system">("dark");
-  const [compact, setCompact] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const { theme: themeMode, compact, reduceMotion, persistenceFailed, update: updateAppearance } = useAppearance();
   const [workerLimit, setWorkerLimit] = useState("4");
   const [resourceTier, setResourceTier] = useState("balanced");
   const [gitSnapshot, setGitSnapshot] = useState(true);
@@ -369,8 +368,7 @@ export function SettingsPage({
               </div>
             </div>
 
-            {/* Appearance Settings — R32: 浅色/系统主题、全局密度、减弱动效
-                开关都没有真实实现；诚实禁用并说明真实行为。 */}
+            {persistenceFailed ? <Notice tone="warning" role="status" heading={t("settings.appearanceSaveFailed")} /> : null}
             <SettingsGroup heading={t("settings.appearance")} description={t("settings.appearanceDescription")}>
               <SettingsRow
                 heading={t("settings.themeTitle")}
@@ -378,33 +376,34 @@ export function SettingsPage({
                 control={
                   <div style={{ display: "flex", gap: "6px" }}>
                     <Button
-                      disabled
+                      aria-pressed={themeMode === "light"}
                       size="small"
                       variant={themeMode === "light" ? "primary" : "ghost"}
-                      onClick={() => setThemeMode("light")}
+                      onClick={() => updateAppearance({ theme: "light" })}
                     >
                       {t("pages.settings.themeLight")}
                     </Button>
                     <Button
+                      aria-pressed={themeMode === "dark"}
                       size="small"
                       variant={themeMode === "dark" ? "primary" : "ghost"}
-                      onClick={() => setThemeMode("dark")}
+                      onClick={() => updateAppearance({ theme: "dark" })}
                     >
                       {t("pages.settings.themeDark")}
                     </Button>
                     <Button
-                      disabled
+                      aria-pressed={themeMode === "system"}
                       size="small"
                       variant={themeMode === "system" ? "primary" : "ghost"}
-                      onClick={() => setThemeMode("system")}
+                      onClick={() => updateAppearance({ theme: "system" })}
                     >
                       {t("pages.settings.themeSystem")}
                     </Button>
                   </div>
                 }
               />
-              <SettingsRow heading={t("settings.density")} description={t("settings.densityDescriptionTruthful")} control={<Switch checked={compact} disabled label={t("settings.useCompact")} onCheckedChange={(checked) => setCompact(checked === true)} />} />
-              <SettingsRow heading={t("settings.reduceMotion")} description={t("settings.reduceMotionDescriptionTruthful")} control={<Switch checked={reducedMotion} disabled label={t("settings.reduceMotion")} onCheckedChange={(checked) => setReducedMotion(checked === true)} />} />
+              <SettingsRow heading={t("settings.density")} description={t("settings.densityDescriptionTruthful")} control={<Switch checked={compact} label={t("settings.useCompact")} onCheckedChange={(checked) => updateAppearance({ compact: checked === true })} />} />
+              <SettingsRow heading={t("settings.reduceMotion")} description={t("settings.reduceMotionDescriptionTruthful")} control={<Switch checked={reduceMotion} label={t("settings.reduceMotion")} onCheckedChange={(checked) => updateAppearance({ reduceMotion: checked === true })} />} />
             </SettingsGroup>
 
             {/* Language Settings */}

@@ -3,6 +3,7 @@
 // POS:    Primary Hub Desktop product surface for reversible, user-authorized engine sessions.
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { AppearanceProvider } from "./appearance";
 import {
   Bot,
   ExternalLink,
@@ -497,6 +498,10 @@ export function mergeLiveTimeline(
 }
 
 export default function App() {
+  return <AppearanceProvider><HubApp /></AppearanceProvider>;
+}
+
+function HubApp() {
   const { locale, localize, t } = useI18n();
   const localizedProfileLabel: Record<PermissionProfile, string> = {
     interactive: t("permission.interactive"),

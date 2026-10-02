@@ -31,5 +31,5 @@
 | workspace-terminal.tsx / workspace-terminal.test.tsx | 用户直接操作的逐行 PTY；显式启动、生命周期清理、不模拟 HTTP 执行，后台轮询不清掉输入失败提示 |
 | workspace-browser.tsx / workspace-browser.test.tsx | 独立临时用户浏览器的原生导航控件；显式打开、真实 loading/慢加载提示、关闭重开、迟到打开回收；调用者按 session key 隔离，HTTP 不支持 |
 | fallback-policy-panel.tsx / team-panel.tsx | fallback 和团队操作 |
-| product-pages.tsx | 设置、插件/自动化样例与搜索；真实 Inspector 导航，未接通能力明确不可用 |
+| product-pages.tsx | 设置、插件/自动化样例与搜索；真实外观偏好/Inspector 导航，未接通能力明确不可用 |
 | *.test.tsx | 确定性组件交互与协议回归 |

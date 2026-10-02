@@ -11,6 +11,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    // Keep raw token/style sources available for appearance contract tests.
+    css: { include: [/styles\/(tokens|primitives)\.css/] },
     include: ["src/**/*.test.{ts,tsx}"],
   },
 });

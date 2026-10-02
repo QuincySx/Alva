@@ -20,7 +20,7 @@ are local and unsigned (command-scoped signing override after the existing
 | H12 user browser | Explicit session-owned incognito native window; navigation/reload/history/close; HTTP(S)-only URL policy and no Hub IPC/popups/downloads | Native navigation/error/close lifecycle interaction pass; HTTP is explicitly unsupported |
 | H13 terminal | Real Unix PTY tests for cwd/input/resize/Ctrl-C/exit/reopen/group cleanup; bounded output and session ownership | Native UI lifecycle pass; line-oriented, not a fullscreen emulator or security sandbox; HTTP is unsupported |
 | H14 Inspector | Real SQLite flush/reopen preserves typed records and recursive child/grandchild ownership; product/attempt detail, unsupported and missing states | Native recursive page/focus/keyboard pass; no non-Alva internal trace is invented |
-| H17 secondary pages | Real Inspector navigation and scoped shortcuts; unavailable actions explicitly disabled; extension samples labelled previews; usage unknown rather than invented | Native keyboard/narrow/multilingual visual pass; automation/extension registry/SSH backends remain unavailable |
+| H17 secondary pages | Real Inspector navigation and scoped shortcuts; persisted light/dark/live-system theme, global compact density and app/OS reduced motion; storage failures visible; unavailable actions explicitly disabled; extension samples labelled previews; usage unknown rather than invented | Native theme/keyboard/narrow/multilingual visual pass; automation/extension registry/SSH backends remain unavailable |
 | K01 boundaries | Dependency firewall, bus surface, wasm32 clean set and host full link pass; SDK/kernel implementation unchanged | wasm32-wasip2 target is not installed, explicitly skipped |
 
 ### Reproducible automated checks
@@ -53,11 +53,20 @@ The script's success is not claimed as a check of that absent target, and
 this work did not rename or migrate the separate native product entry.
 
 In `crates/alva-hub-desktop/web`: `npm test -- --reporter=dot` reports
-**172 tests / 16 files**, and `npm run build` passes TypeScript/Vite.
+**185 tests / 17 files**, and `npm run build` passes TypeScript/Vite.
 Existing React act/controlled-state, Rust unused-item and large-bundle
 warnings remain. This iteration made no real provider or paid SDK calls,
 installed no new runtime, and did not rerun a blocked one-off Playwright
 package command. Unit tests are not claimed as visual or performance proof.
+
+Appearance additionally has 13 dedicated regressions: reload persistence,
+live system theme, OS accessibility precedence, invalid/oversized preferences,
+visible storage failure/retry, cross-window updates and StrictMode cleanup.
+Light foreground tokens meet AA contrast against the tested normal, hover,
+active and inset backgrounds. Root density tokens affect Controls/Surfaces
+without reducing text size. Reduced motion removes displacement but preserves
+dialog centering, switch state and spinner progress; this is a source/behavior
+contract, not native visual acceptance.
 
 ### Native evidence and deferred acceptance
 

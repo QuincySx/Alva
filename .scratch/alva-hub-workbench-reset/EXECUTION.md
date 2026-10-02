@@ -1,5 +1,11 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 功能补全 · H17 真实外观
+
+- 应用级 AppearanceProvider 接通浅色/深色/实时系统主题、全局 default/compact Tokens、应用减弱动效；OS 无障碍偏好不能被关闭。偏好有版本校验、限额、跨窗口同步、重启恢复与卸载清理；保存失败仍可立即应用，但显示失败，不冒充持久化成功。
+- 浅色语义 palette 与 tooltip/badge/品牌文字适配；密度不缩文字；去除位移动画时保留弹窗居中、开关/折叠状态和 spinner。没有修改 kernel/agent-core，没有新依赖或账号调用。
+- UI **185 passed / 17 files**，其中外观独立 **13 项**；TypeScript/Vite 生产构建通过。浅色前景对正常/hover/active/inset 背景 AA 契约通过。真实 WKWebView 主题/视觉验收仍暂缓，源码和 jsdom 不冒充原生截图。
+
 ## 2026-10-02 当前交付与暂缓汇总
 
 - 本轮自主迭代提交：Files `405e1309`、Git `457ce28c`、消息日志 `a71144f8`、PTY `a9d422c6`、浏览器 `5d10d7e8`、隔离原生 fixture `a0839db1`、Worktree IPC `f179468f`、次级动作/快捷键 `d08d297c`、安全依赖闸 `fdc5a0e8`、耐久 Inspector 补验 `7f0cffea`。全部本地未 push，单命令关闭签名；不改 Git 持久配置。

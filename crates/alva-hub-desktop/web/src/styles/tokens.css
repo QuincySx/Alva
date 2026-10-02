@@ -1,4 +1,4 @@
-/* INPUT:  ALVA visual language and operating-system color preference */
+/* INPUT:  ALVA visual language and root appearance preference attributes */
 /* OUTPUT: Semantic color, type, spacing, radius, shadow, and motion tokens */
 /* POS:    Single source of truth for all Hub component styling */
 /*
@@ -40,6 +40,11 @@
   --color-focus: #8f91ff;
   --color-code-bg: #0c0d0f;
   --color-code-text: #c8cad0;
+  --color-tooltip: #2c2d33;
+  --color-accent-badge: #b8b9ff;
+  --color-accent-badge-bg: rgba(143, 145, 255, 0.13);
+  --color-switch-thumb: #ffffff;
+  --color-surface-accented: #171b23;
 
   /* ── Status roles ────────────────────────────────────────
    * Each status owns a foreground / background / border triplet so business
@@ -89,6 +94,8 @@
   --control-lg: 42px;
   --row-compact: 40px;
   --row-comfortable: 52px;
+  --row-surface: 64px;
+  --panel-heading: 56px;
   --sidebar-width: 256px;
   --workbench-width: 440px;
   --content-width: 840px;
@@ -139,4 +146,59 @@
   --red: var(--color-danger);
   --amber: var(--color-warning);
   --radius: var(--radius-md);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-canvas: #f7f8fa;
+  --color-sidebar: #f0f1f4;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #eceef2;
+  --color-surface-hover: #e5e8ef;
+  --color-surface-active: #d9dde6;
+  --color-overlay: rgba(24, 27, 32, 0.32);
+  --color-border: rgba(24, 27, 32, 0.14);
+  --color-border-strong: rgba(24, 27, 32, 0.26);
+  --color-text: #181b20;
+  --color-text-muted: #545963;
+  --color-text-subtle: #565c67;
+  --color-accent: #20242c;
+  --color-accent-hover: #363d49;
+  --color-accent-foreground: #ffffff;
+  --color-focus: #585dc9;
+  --color-code-bg: #edf0f5;
+  --color-code-text: #303744;
+  --color-tooltip: #ffffff;
+  --color-accent-badge: #4549a4;
+  --color-accent-badge-bg: rgba(88, 93, 201, 0.1);
+  --color-surface-accented: #edf2f9;
+  --color-success: #156a3f;
+  --color-success-bg: rgba(21, 106, 63, 0.08);
+  --color-success-border: rgba(21, 106, 63, 0.32);
+  --color-warning: #805609;
+  --color-warning-bg: rgba(128, 86, 9, 0.08);
+  --color-warning-border: rgba(128, 86, 9, 0.32);
+  --color-danger: #ac2933;
+  --color-danger-bg: rgba(172, 41, 51, 0.08);
+  --color-danger-bg-hover: rgba(172, 41, 51, 0.16);
+  --color-danger-border: rgba(172, 41, 51, 0.32);
+  --accent-soft: rgba(32, 36, 44, 0.08);
+  --shadow-popover: 0 14px 44px rgba(24, 27, 32, 0.14);
+  --shadow-raised: 0 10px 28px rgba(24, 27, 32, 0.1);
+  --shadow-dialog: 0 24px 80px rgba(24, 27, 32, 0.22);
+}
+
+:root[data-density="compact"] {
+  --space-2: 6px;
+  --space-3: 10px;
+  --space-4: 14px;
+  --space-5: 20px;
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 36px;
+  --row-compact: 36px;
+  --row-comfortable: 44px;
+  --row-surface: 56px;
+  --panel-heading: 48px;
 }
