@@ -844,6 +844,21 @@ export interface WorkspaceEntry { name: string; path: string; kind: "file" | "di
 export interface WorkspaceDirectory { path: string; entries: WorkspaceEntry[]; truncated: boolean }
 export interface WorkspacePreview { path: string; kind: "text" | "binary"; text: string | null; total_bytes: number; truncated: boolean }
 
+export type GitDiffArea = "staged" | "unstaged" | "untracked";
+export interface GitFileStatus { path: string; original_path: string | null; index: string; worktree: string }
+export interface WorkspaceGitStatus { is_repository: boolean; branch: string | null; files: GitFileStatus[]; hidden_paths: boolean }
+export interface WorkspaceGitDiff { path: string; area: GitDiffArea; text: string; truncated: boolean }
+export async function getHubGitStatus(productSessionId: string): Promise<WorkspaceGitStatus> {
+  if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/workspace/git`, undefined, "GET");
+  if (!hasTauri) throw new Error("Git inspection requires the Hub runtime.");
+  return invoke("get_hub_git_status", { productSessionId });
+}
+export async function getHubGitDiff(productSessionId: string, path: string, area: GitDiffArea): Promise<WorkspaceGitDiff> {
+  if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/workspace/git/diff?path=${encodeURIComponent(path)}&area=${area}`, undefined, "GET");
+  if (!hasTauri) throw new Error("Git inspection requires the Hub runtime.");
+  return invoke("get_hub_git_diff", { productSessionId, path, area });
+}
+
 export async function listHubWorkspaceFiles(productSessionId: string, path: string): Promise<WorkspaceDirectory> {
   if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/workspace/files?path=${encodeURIComponent(path)}`, undefined, "GET");
   if (!hasTauri) throw new Error("Workspace browsing requires the Hub runtime.");

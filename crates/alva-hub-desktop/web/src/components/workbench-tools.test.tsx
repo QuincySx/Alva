@@ -176,7 +176,7 @@ describe("InspectorTool shared-clock execution overview (R67)", () => {
 
 // R68：Git/Review 面是"工具执行记录"，不是 Git 状态——任何成功/失败/
 // 待定的工具执行都不得使用"变更/change"词汇；空会话不推断 clean。
-import { GitTool } from "./workbench-tools";
+import { ToolExecutionRecords } from "./workbench-tools";
 import type { HubSessionDetail } from "../bridge";
 
 function gitDetail(sideEffects: import("../bridge").SideEffectEvidence[]): HubSessionDetail {
@@ -200,7 +200,7 @@ function renderGit(detail: HubSessionDetail) {
   return render(
     <UIProvider>
       <I18nProvider>
-        <GitTool detail={detail} />
+        <ToolExecutionRecords detail={detail} />
       </I18nProvider>
     </UIProvider>,
   );

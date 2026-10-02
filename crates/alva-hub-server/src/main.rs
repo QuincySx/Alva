@@ -211,6 +211,23 @@ struct ToolContentQuery { #[serde(default)] chunk: usize }
 #[derive(serde::Deserialize)]
 struct WorkspacePathQuery { #[serde(default)] path: String }
 
+async fn workspace_git_status(State(state): State<Arc<AppState>>, Path(session): Path<String>) -> Response {
+    match alva_hub_desktop::workspace_git_status(&state.store, &session).await {
+        Ok(result) => Json(result).into_response(),
+        Err(_) => (StatusCode::BAD_REQUEST, Json(json!({"error":"Git status unavailable"}))).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct GitDiffQuery { path: String, area: alva_hub_desktop::GitDiffArea }
+
+async fn workspace_git_diff(State(state): State<Arc<AppState>>, Path(session): Path<String>, Query(query): Query<GitDiffQuery>) -> Response {
+    match alva_hub_desktop::workspace_git_diff(&state.store, &session, &query.path, query.area).await {
+        Ok(result) => Json(result).into_response(),
+        Err(_) => (StatusCode::BAD_REQUEST, Json(json!({"error":"Git diff unavailable"}))).into_response(),
+    }
+}
+
 async fn workspace_files(
     State(state): State<Arc<AppState>>, Path(session): Path<String>, Query(query): Query<WorkspacePathQuery>,
 ) -> Response {
@@ -1274,6 +1291,8 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/sessions/:id/tool-content/:content_id", get(get_tool_content))
         .route("/api/sessions/:id/workspace/files", get(workspace_files))
         .route("/api/sessions/:id/workspace/file", get(workspace_file))
+        .route("/api/sessions/:id/workspace/git", get(workspace_git_status))
+        .route("/api/sessions/:id/workspace/git/diff", get(workspace_git_diff))
         .route(
             "/api/providers",
             get(list_providers).post(save_provider),
@@ -1744,6 +1763,17 @@ mod r65_stop_integration {
         assert_eq!(preview["text"], "真实 file");
         assert_eq!(http_get(server.addr, &format!("{base}/file?path=..%2Foutside")).await.0, 400);
         assert_eq!(http_get(server.addr, "/api/sessions/unknown/workspace/files").await.0, 400);
+        assert_eq!(http_get(server.addr, &format!("{base}/git")).await.1["is_repository"], false);
+        let init = std::process::Command::new("git").args(["init", "--quiet"]).current_dir(&workspace).status().unwrap();
+        assert!(init.success());
+        let (status, git) = http_get(server.addr, &format!("{base}/git")).await;
+        assert_eq!(status, 200);
+        assert_eq!(git["is_repository"], true);
+        assert!(git["files"].as_array().unwrap().iter().any(|file| file["path"] == "hello.txt" && file["index"] == "?"));
+        let (status, diff) = http_get(server.addr, &format!("{base}/git/diff?path=hello.txt&area=untracked")).await;
+        assert_eq!(status, 200);
+        assert_eq!(diff["text"], "真实 file");
+        assert_eq!(http_get(server.addr, &format!("{base}/git/diff?path=hello.txt&area=staged")).await.0, 400);
     }
 
     #[tokio::test(flavor = "multi_thread")]

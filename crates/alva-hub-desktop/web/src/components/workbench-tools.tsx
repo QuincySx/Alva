@@ -17,6 +17,7 @@ import type { HubSessionDetail, StoredAttempt, TeamRunDetail, WorkerTask } from 
 import type { HubTimelineEvent } from "./hub-timeline";
 import { EngineInspectorPanel, type EngineInspectorPanelProps } from "./engine-inspector";
 import { WorkspaceFiles } from "./workspace-files";
+import { WorkspaceGit } from "./workspace-git";
 import { localizeSystemText, useI18n } from "../i18n";
 import {
   Badge,
@@ -41,6 +42,12 @@ export function TextBrowserTool({ detail }: { detail: HubSessionDetail | null })
 
 export function GitTool({ detail }: { detail: HubSessionDetail | null }) {
   const { t } = useI18n();
+  return detail ? <WorkspaceGit key={`${detail.session.product_session_id}:${detail.session.workspace}`}
+    sessionId={detail.session.product_session_id} revision={detail.session.updated_at} /> : <EmptyState title={t("files.noSession")} />;
+}
+
+export function ToolExecutionRecords({ detail }: { detail: HubSessionDetail | null }) {
+  const { t } = useI18n();
   const effects = detail?.turns.flatMap((turn) => turn.attempts.flatMap((attempt) => attempt.side_effects)) ?? [];
   return (
     // R54: these rows are recorded TOOL executions, not a Git status. A
@@ -61,21 +68,7 @@ export function GitTool({ detail }: { detail: HubSessionDetail | null }) {
 }
 
 export function ReviewTool({ detail }: { detail: HubSessionDetail | null }) {
-  const { t } = useI18n();
-  const effects = detail?.turns.flatMap((turn) => turn.attempts.flatMap((attempt) => attempt.side_effects)) ?? [];
-  return (
-    <PanelSection description={t("tool.reviewDescription")} heading={t("workbench.review")}>
-      {effects.length === 0 ? <EmptyState title={t("tool.nothingToReview")} /> : effects.map((effect) => (
-        <ListRow
-          heading={effect.tool_name}
-          description={effect.path ?? t("tool.noPath")}
-          key={effect.tool_call_id}
-          leading={effect.succeeded === true ? <CheckCircle2 size={16} /> : effect.succeeded === false ? <CircleDot size={16} /> : <CircleDot size={16} />}
-          meta={effect.succeeded === true ? t("tool.executedRow") : effect.succeeded === false ? t("tool.failedExecution") : t("tool.pendingRow")}
-        />
-      ))}
-    </PanelSection>
-  );
+  return <ToolExecutionRecords detail={detail} />;
 }
 
 export function AgentTool({ run, onFocus }: { run: TeamRunDetail | null; onFocus: (sessionId: string) => void }) {

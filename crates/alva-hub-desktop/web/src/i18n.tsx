@@ -10,6 +10,18 @@ export type LanguagePreference = Locale | "system";
 const STORAGE_KEY = "alva-hub.language";
 
 const en = {
+  "git.title": "Git worktree (read only)",
+  "git.error": "Git inspection unavailable or changed. Refresh to retry.",
+  "git.notRepository": "This workspace is not a Git worktree",
+  "git.branch": "Git branch: {branch}",
+  "git.detached": "Detached HEAD",
+  "git.hidden": "Protected or unsupported paths are omitted; this is not a complete clean-tree assertion.",
+  "git.noVisibleChanges": "No visible changes",
+  "git.staged": "Staged",
+  "git.unstaged": "Unstaged",
+  "git.untracked": "Untracked file preview",
+  "git.emptyDiff": "No diff content (the file may have changed; refresh)",
+  "git.limit": "Diff limited to the first 256 KiB.",
   "files.title": "Workspace files (read only)",
   "files.protected": "Protected files are hidden. Symbolic links cannot be opened.",
   "files.loading": "Loading…",
@@ -756,6 +768,18 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const zh: Record<MessageKey, string> = {
+  "git.title": "Git 工作树（只读）",
+  "git.error": "Git 检查不可用或文件已变化，请刷新重试。",
+  "git.notRepository": "当前目录不是 Git 工作树",
+  "git.branch": "Git 分支：{branch}",
+  "git.detached": "分离 HEAD",
+  "git.hidden": "已省略敏感或不支持的路径，不代表整个工作树干净。",
+  "git.noVisibleChanges": "没有可见变更",
+  "git.staged": "已暂存",
+  "git.unstaged": "未暂存",
+  "git.untracked": "未跟踪文件预览",
+  "git.emptyDiff": "没有 diff 内容（文件可能已变化，请刷新）",
+  "git.limit": "仅展示前 256 KiB diff。",
   "files.title": "工作目录文件（只读）",
   "files.protected": "敏感文件已隐藏，符号链接不可打开。",
   "files.loading": "加载中…",

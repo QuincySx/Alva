@@ -1535,6 +1535,20 @@ async fn get_hub_inspection(
 }
 
 #[tauri::command]
+async fn get_hub_git_status(
+    state: State<'_, DesktopState>, product_session_id: String,
+) -> Result<alva_hub_desktop::WorkspaceGitStatus, String> {
+    alva_hub_desktop::workspace_git_status(&state.store, &product_session_id).await
+}
+
+#[tauri::command]
+async fn get_hub_git_diff(
+    state: State<'_, DesktopState>, product_session_id: String, path: String, area: alva_hub_desktop::GitDiffArea,
+) -> Result<alva_hub_desktop::WorkspaceGitDiff, String> {
+    alva_hub_desktop::workspace_git_diff(&state.store, &product_session_id, &path, area).await
+}
+
+#[tauri::command]
 async fn list_hub_workspace_files(
     state: State<'_, DesktopState>, product_session_id: String, path: String,
 ) -> Result<alva_hub_desktop::WorkspaceDirectory, String> {
@@ -1682,6 +1696,8 @@ fn main() {
             get_hub_tool_content,
             list_hub_workspace_files,
             read_hub_workspace_file,
+            get_hub_git_status,
+            get_hub_git_diff,
             add_session_memory,
             get_global_fallback_policy,
             set_global_fallback_policy,

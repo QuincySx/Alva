@@ -1,5 +1,11 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 自主迭代 · H11 真实 Git
+
+- Git 页绑定已存 session cwd，读取真实 Git branch（非 EngineBranch）、staged/unstaged/untracked、选中文件 diff；Review 单独保留工具执行记录。终态 detail revision 与手动 Refresh 都触发重读。
+- 只读命令禁用 optional locks、外部 diff/textconv/fsmonitor，清除继承 Git 环境及用户级配置；10 秒超时、status 1 MiB/2000 路径、diff 256 KiB 限额。NUL 解析保留特殊文件名，literal pathspec 防通配，rename 双端过滤敏感路径。没有新增 stage/commit/discard。
+- 验证：真实临时主仓库+linked worktree、staged/unstaged/untracked、rename、删除、二进制、嵌套 cwd、中文/空格/方括号路径、大 diff，4 项通过；HTTP 全套 9 项通过（含真实 Git 接口），前端 154 项通过，Desktop all-target check 和生产 build 通过。真实 Tauri 视觉验收后续执行。
+
 ## 2026-10-02 自主迭代 · H10 真实 Files/Text
 
 - 已保存会话的 cwd 是唯一根，Tauri/HTTP 共用只读服务；Files/Text 从真实目录导航并读取 UTF-8 文本，不再以工具记录推测文件。尚未创建会话时明确提示先打开会话。
