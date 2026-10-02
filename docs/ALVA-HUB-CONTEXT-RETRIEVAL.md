@@ -9,7 +9,7 @@
 |---|---|---|---|
 | 上传日志/文本 | 会话内文件名、字节数、相对路径 | 既有文件读取/rg；由 AI 选择相关范围 | 已实现；不会把正文拼到 prompt |
 | 图片/视频/二进制 | 文件引用 + 原始哈希/大小/处理清单 | 适合的媒体工具按需处理，产物保留来源 | 原样上传/本地预览已实现；尚未提供压缩/抽帧/分析工具 |
-| 所有工具的大结果 | 调用身份、成功/失败、耐久记录引用 | `context_retrieval` 搜索/分段读取 | Hub Desktop/server 的 ALVA BaseAgent 已实现；其他 engine 自有循环不受该策略控制 |
+| 所有工具的大结果 | 调用身份、成功/失败、耐久记录引用 | `context_retrieval` 搜索/分段读取 | Hub Desktop/server ALVA 与其 app-core 递归子树已实现；其他 engine 自有循环不受该策略控制 |
 | MCP | 简短 server 索引 + 一个 `mcp_runtime` | 有界搜索、一个选中方法契约、精确调用；结果先落盘再引用 | Hub 受管 ALVA 已实现；legacy direct-tool caller 保持兼容 |
 | 历史消息/工具记录 | 当前 native ALVA session 的稳定记录 ID | 关键词/时间/类型筛选，读取命中片段 | 模型检索已实现并覆盖压缩/重启；跨 branch/engine 的 Hub 产品历史尚未接入 |
 
@@ -53,9 +53,19 @@ blob 解压限 64 MiB、压缩输入限 65 MiB，校验大小/hash，SQL 页先�
 解压；媒体类型索引最多 16 项，每项最多 128 字节，并明确截断。
 
 覆盖当前 Desktop/server 经共同 factory 构造的 ALVA native session（包括 Hub-owned
-ALVA Worker）；不是其他 engine 的工具循环政策。SDK `agent` tool 递归子 Agent 的独立
-装配尚未继承此策略，不能宣称全部子树已覆盖。父会话检索工具即便被授予子 Agent，
-也因 execution-context session binding 不同而拒绝读取父记录。
+ALVA Worker）与 app-core `agent` tool 的递归子树；不是其他 engine 的工具循环政策。
+Plugin 初始化发布 app-level `SpawnContextPolicy`，在 repository 创建实际 child session
+后重绑 reader、middleware、首个 assembly hook 与短 prompt，而不是复制父 reader。
+ContextHooks 先于通信 assemble 投影引用并重算 token metadata；来源失败不把 raw entries
+传给下一个 assembler，锁存错误，provider middleware 明确停止请求。通信 hook 是可信
+产品代码，仍可访问 ContextHandle；不是其沙箱。未新增 child 自动压缩器或替换默认 SDK。
+
+各递归层的 schema、模板 inherit-all 与实际选择都以直接父 Agent 的工具子集为准，
+不能经再次 spawn 拿回被移除的 root host 工具；孙 Agent 默认模型继承实际父模型，
+不重新落回 root scope 保存的模型（显式 override/模板优先级不变）。空 host whitelist 下仍提供当前 child
+的有界 reader（无文件/Shell/MCP/父历史权限）；孙会话使用新的自有绑定。独立 native
+记录/typed 父子链接保留，child 可读自己的引用、压缩前历史并在重启后分段读取，父/
+兄弟/其他 child 的 record ID 均拒绝。未注册该 optional Plugin 的 caller 不被加政策。
 
 上传处理清单当前记录 `source_sha256`、原始/保存字节数、类型（签名探测，非成功
 解码声明）、`compression_applied=false`、`transcoding_applied=false`、空的

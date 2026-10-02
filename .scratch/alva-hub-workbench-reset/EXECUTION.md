@@ -1,5 +1,14 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-03 继续 · 递归子 Agent 的引用策略和直接父权限
+
+- app-core 新增 optional SpawnContextPolicy（初始化注册、bus lint max surface 2），产品 Plugin 按 repository 创建的实际 child ID 重绑自有 reader/首个 assembly hook/middleware/短提示；不依赖 engine、不给 kernel/agent-core 加政策。child/孙 scope ID 与 native session ID 不混用；空 host whitelist 仍可读自己的有界记录，不授予父历史/文件/Shell/MCP。
+- assembly 先投影后传给通信 hook，重算 token metadata；来源失败不回灌 raw entries，锁存 child-local 错误，在 provider 前停止。自有记录/error/typed 父子 link 保留，可重启检索。通信 hook 是可信装配代码，仍可访问原 ContextHandle，不冒充它的沙箱；未新增 child 自动压缩器。
+- 修复递归从 root catalog 拿回直接父被移除工具的漏洞：schema/模板 inherit-all/实际 grant 都受直接父工具集限制。默认模型也继承实际父模型而非 root scope 缓存模型；显式 override/模板优先级、security/HITL、锁、递归深度/取消/预算不变。
+- 六条新增确定性回归；最终 **344 app-core（328 lib + 16 security/lock/workspace/swap/wiring integration）、43 adapter、246 Desktop lib / 4 精确真实账号 filtered、4 bin、14 HTTP = 651 tests passed**。父→子→孙真实 BaseAgent fixture 覆盖大日志/ToolContent 图片引用、通信 assemble 顺序、自有检索、父/其他 child 隔离、原始身份及 reopen；空授权/来源失效/递归工具 schema与执行/实际模型继承均验证。首轮新测试出现错误 event 变体名与 text_content 不含 ToolResult 的 fixture 断言错误，按真实 AgentEnd/ToolResult 修正，未改变生产闸门或弱化隔离断言。
+- Desktop/server all-target check、public snapshots、依赖/bus/wasm32-unknown-unknown/host-link 闸 pass；wasip2 缺 target 显式 skipped。依据 coding/domain-modeling/git 同步三层文档及既有 ADR 的实际范围；没有 SDK/kernel/UI 修改，不重报历史 Chrome/AX/性能通过，没有真实账号/计费/外部 MCP/新增依赖或 push。用户 CONTEXT.md 和无关目录保留。
+- 仍待实施：跨 branch/engine 的 Hub 产品历史分组/检索，真实媒体压缩/转码/抽帧/按需选择投递与 receipts，以及 schema JSON-path 提取。当前不会把媒体引用宣称为模型已看过视频。
+
 ## 2026-10-03 继续 · ALVA 通用结果引用、按需 MCP 与耐久历史检索
 
 - 同一 native SessionRepository 作为 factory/adapter/Inspector/retrieval authority；Plugin/Middleware 只修改模型请求副本，>4 KiB 普通结果、ToolContent 图片、所有受管 MCP 调用结果返回记录引用，原始脱敏事件/记录/error/id 不改。投影在既有自动压缩之前；重复 call ID 不串源，来源 hash/content 校验，compaction 持久化引用不套成新引用链。blob 解压 64 MiB/压缩输入 65 MiB/hash-size fail-closed。

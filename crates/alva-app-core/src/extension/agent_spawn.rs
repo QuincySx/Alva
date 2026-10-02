@@ -1,6 +1,6 @@
-// INPUT:  alva_kernel_abi (including scope::spawn + ProviderRegistry), alva_kernel_core::run_child, alva_agent_context::scope::SpawnScopeImpl, alva_agent_context::default_context_system, alva_agent_context::ContextHooksChain, MCP alias resolver
+// INPUT:  alva_kernel_abi (including scope::spawn + ProviderRegistry), alva_kernel_core::run_child, SpawnScopeImpl, ContextHooksChain, optional SpawnContextPolicy, MCP alias resolver
 // OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentPlugin
-// POS:    AI-driven sub-agent spawning — dynamic roles, optional per-spawn model, pluggable SpawnCommunication capabilities (blackboard etc).
+// POS:    AI-driven recursive spawning with direct-parent authority, optional product context policy and communication hooks.
 
 //! Agent spawn plugin — the AI primitive for creating sub-agents.
 //!
@@ -170,8 +170,8 @@ struct SpawnInput {
     /// Tool names to grant to the sub-agent. Pick exactly what the
     /// sub-task needs from the parent's own tool set (the exact valid
     /// names are enumerated at runtime in this field's `items.enum`).
-    /// Empty means the sub-agent can only reason and spawn further
-    /// sub-agents.
+    /// Empty grants no host tools: only reasoning, recursive spawning and,
+    /// when installed, the bounded reader for its own durable context.
     #[serde(default)]
     tools: Vec<String>,
     /// Provider/model spec for this sub-agent (e.g.
@@ -216,6 +216,12 @@ struct SpawnInput {
 )]
 pub struct AgentSpawnTool {
     scope: Arc<SpawnScopeImpl>,
+    /// Recursive spawns can grant only their direct parent's actual tools,
+    /// never the root scope's original catalog. None is the root instance.
+    granted_tools: Option<Vec<Arc<dyn Tool>>>,
+    /// A per-spawn override becomes the actual parent model for grandchildren.
+    /// SpawnScope itself still carries the root model for scope bookkeeping.
+    parent_model: Option<Arc<dyn LanguageModel>>,
     /// Enforces the child scope's wall-clock budget inside `run_child_agent`.
     /// `None` falls back to `NoopSleeper` there — the budget never fires — so
     /// production assembly must inject a real sleeper (see `SubAgentPlugin`).
@@ -229,6 +235,8 @@ impl AgentSpawnTool {
     pub fn new(scope: Arc<SpawnScopeImpl>) -> Self {
         Self {
             scope,
+            granted_tools: None,
+            parent_model: None,
             sleeper: None,
             tool_timeout: crate::components::DEFAULT_SUBAGENT_TOOL_TIMEOUT,
         }
@@ -249,10 +257,34 @@ impl AgentSpawnTool {
 }
 
 impl AgentSpawnTool {
+    fn parent_tool_names(&self) -> Vec<String> {
+        match &self.granted_tools {
+            Some(tools) => tools.iter().map(|tool| tool.name().to_string()).collect(),
+            None => self.scope.parent_tool_names(),
+        }
+    }
+
+    fn tools_by_names(&self, names: &[String]) -> Vec<Arc<dyn Tool>> {
+        match &self.granted_tools {
+            Some(tools) => tools
+                .iter()
+                .filter(|tool| names.iter().any(|name| name == tool.name()))
+                .cloned()
+                .collect(),
+            None => self.scope.tools_by_names(names),
+        }
+    }
+
+    fn parent_model(&self) -> Arc<dyn LanguageModel> {
+        self.parent_model
+            .clone()
+            .unwrap_or_else(|| self.scope.model())
+    }
+
     /// Inject runtime-dependent enums:
     /// - `tools.items.enum`: exact set of tool names the parent can hand
-    ///   down (per-spawn, changes across agents). Sourced from the scope
-    ///   this tool was built against — independent of the bus.
+    ///   down (per-spawn, changes across agents). Sourced from the direct
+    ///   parent's actual grants (root: scope catalog), independent of the bus.
     /// - `comms.items.properties.kind.enum`: currently registered
     ///   `SpawnCommunication` kinds, read from the bus via
     ///   [`ToolSchemaContext::bus`]. Omitted entirely when no bus is wired
@@ -265,7 +297,7 @@ impl AgentSpawnTool {
         comm_kinds: &[String],
         templates: &[Arc<AgentTemplate>],
     ) {
-        let available_tools = self.scope.parent_tool_names();
+        let available_tools = self.parent_tool_names();
         if let Some(items) = schema
             .pointer_mut("/properties/tools/items")
             .and_then(Value::as_object_mut)
@@ -428,11 +460,11 @@ impl AgentSpawnTool {
         } else if let Some(inst) = &instance {
             inst.allowed_tools
                 .clone()
-                .unwrap_or_else(|| self.scope.parent_tool_names())
+                .unwrap_or_else(|| self.parent_tool_names())
         } else if let Some(t) = &template {
             t.allowed_tools
                 .clone()
-                .unwrap_or_else(|| self.scope.parent_tool_names())
+                .unwrap_or_else(|| self.parent_tool_names())
         } else {
             Vec::new()
         };
@@ -475,12 +507,12 @@ impl AgentSpawnTool {
                             message: format!("resolve model '{spec}': {e}"),
                         }
                     })?,
-                    None => child_scope.model(),
+                    None => self.parent_model(),
                 }
             }
             _ => match template.as_ref().and_then(|t| t.model.as_ref()) {
                 Some(mc) if !mc.model.is_empty() => build_template_model(mc),
-                _ => child_scope.model(),
+                _ => self.parent_model(),
             },
         };
 
@@ -540,13 +572,7 @@ impl AgentSpawnTool {
         // spawn calls to the parent-scoped instance, creating siblings at
         // parent-depth instead of grandchildren at child-depth — silently
         // bypassing max_depth.
-        let mut child_tools = child_scope.tools_by_names(&tool_names);
-        child_tools.push(Arc::new(AgentSpawnTool {
-            scope: child_scope.clone(),
-            // Grandchildren get the same budget enforcement as this child.
-            sleeper: self.sleeper.clone(),
-            tool_timeout: self.tool_timeout,
-        }));
+        let mut child_tools = self.tools_by_names(&tool_names);
 
         tracing::info!(
             sub_agent_task = %input.task,
@@ -555,7 +581,7 @@ impl AgentSpawnTool {
             depth = child_scope.depth(),
             parent_scope_id = %self.scope.id(),
             granted_tools = ?tool_names,
-            tool_count = child_tools.len(),
+            granted_host_tool_count = child_tools.len(),
             model_override = ?input.model,
             comm_kinds = ?input.comms.iter().map(|c| c.kind.as_str()).collect::<Vec<_>>(),
             "sub-agent spawned"
@@ -604,7 +630,29 @@ impl AgentSpawnTool {
             ))
         };
 
-        // ── ContextSystem for hooks (only when any comm attached hooks) ─
+        // Bind the optional product policy to the repository-created session,
+        // not the independently generated SpawnScope ID. Always supply its
+        // bounded own-history reader (even with an empty host-tool whitelist),
+        // replacing any inherited parent-bound reader. No host tools are added.
+        let context_binding = ctx
+            .bus()
+            .and_then(|bus| bus.get::<dyn crate::extension::spawn_context::SpawnContextPolicy>())
+            .map(|policy| policy.bind(child_session.session_id()));
+        if let Some(binding) = &context_binding {
+            child_tools.retain(|tool| tool.name() != binding.retrieval_tool.name());
+            child_tools.push(binding.retrieval_tool.clone());
+            child_hooks.insert(0, binding.assembly_hook.clone());
+        }
+        child_tools.push(Arc::new(AgentSpawnTool {
+            scope: child_scope.clone(),
+            granted_tools: Some(child_tools.clone()),
+            parent_model: Some(child_model.clone()),
+            // Grandchildren get the same budget enforcement as this child.
+            sleeper: self.sleeper.clone(),
+            tool_timeout: self.tool_timeout,
+        }));
+
+        // ── ContextSystem for policy and/or communication hooks ─────────
         let context_system: Option<Arc<ContextSystem>> = if child_hooks.is_empty() {
             None
         } else {
@@ -681,15 +729,22 @@ impl AgentSpawnTool {
                 ));
             }
         }
+        if let Some(binding) = &context_binding {
+            child_middleware.push_sorted(binding.middleware.clone());
+        }
+        let mut child_system_prompt = if system_prompt.is_empty() {
+            Vec::new()
+        } else {
+            vec![system_prompt]
+        };
+        if let Some(binding) = context_binding {
+            child_system_prompt.push(binding.system_prompt);
+        }
         // Run child agent using the shared helper, supplying the listenable session.
         let result = run_child_agent(ChildAgentParams {
             model: child_model,
             tools: child_tools,
-            system_prompt: if system_prompt.is_empty() {
-                Vec::new()
-            } else {
-                vec![system_prompt]
-            },
+            system_prompt: child_system_prompt,
             task: input.task.clone(),
             max_iterations: child_scope.max_iterations(),
             timeout: child_scope.timeout(),
@@ -1300,5 +1355,91 @@ mod tests {
             .expect("spawn by agent_type should run");
         assert!(!out.is_error, "should not error: {}", out.model_text());
         assert!(out.model_text().contains("child done"));
+    }
+
+    #[tokio::test]
+    async fn recursive_spawn_cannot_restore_root_tools_removed_from_its_parent() {
+        use alva_test::fixtures::make_tool_call_message;
+        use alva_test::mock_tool::MockTool;
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_tool_call_message("agent", serde_json::json!({
+                    "task":"try the excluded tool", "role":"grandchild", "tools":["root_only"]
+                })))
+                .with_response(make_tool_call_message("root_only", serde_json::json!({})))
+                .with_response(make_assistant_message("grandchild done"))
+                .with_response(make_assistant_message("child done")),
+        );
+        let root_tool = Arc::new(MockTool::new("root_only"));
+        let scope = Arc::new(SpawnScopeImpl::root(
+            model.clone(),
+            vec![root_tool.clone()],
+            Duration::from_secs(5),
+            6,
+            3,
+        ));
+        let tool = AgentSpawnTool::new(scope);
+        let out = tool
+            .execute(
+                serde_json::json!({"task":"spawn", "role":"child"}),
+                &TestExecutionContext {
+                    cancel: CancellationToken::new(),
+                    bus: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(!out.is_error, "{}", out.model_text());
+        assert_eq!(model.calls().len(), 4);
+        assert!(model
+            .tool_names_seen()
+            .iter()
+            .all(|names| !names.iter().any(|n| n == "root_only")));
+        assert!(root_tool.calls().is_empty());
+    }
+
+    #[test]
+    fn recursive_spawn_schema_lists_only_the_direct_parent_grants() {
+        use alva_test::mock_tool::MockTool;
+        let allowed: Arc<dyn Tool> = Arc::new(MockTool::new("allowed"));
+        let root_only: Arc<dyn Tool> = Arc::new(MockTool::new("root_only"));
+        let scope = Arc::new(SpawnScopeImpl::root(
+            Arc::new(StubModel),
+            vec![allowed.clone(), root_only],
+            Duration::from_secs(5),
+            6,
+            3,
+        ));
+        let mut tool = AgentSpawnTool::new(scope);
+        tool.granted_tools = Some(vec![allowed]);
+        let schema = tool.parameters_schema(&ToolSchemaContext::default());
+        assert_eq!(
+            schema["properties"]["tools"]["items"]["enum"],
+            serde_json::json!(["allowed"]),
+        );
+        assert!(tool.tools_by_names(&["root_only".into()]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn recursive_spawn_inherits_the_actual_parent_model_not_the_root_model() {
+        let model = Arc::new(
+            MockLanguageModel::new()
+                .with_response(make_assistant_message("from the actual parent model")),
+        );
+        let mut tool = build_spawn_tool(); // root StubModel fails every call
+        tool.parent_model = Some(model.clone());
+        let out = tool
+            .execute(
+                serde_json::json!({"task":"t", "role":"grandchild"}),
+                &TestExecutionContext {
+                    cancel: CancellationToken::new(),
+                    bus: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(!out.is_error, "{}", out.model_text());
+        assert_eq!(model.calls().len(), 1);
+        assert!(out.model_text().contains("from the actual parent model"));
     }
 }

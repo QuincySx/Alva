@@ -16,7 +16,10 @@ instructions. Explicit user authorization still gates cross-session scope.
 
 Implementation is incremental. Attachments, Hub Desktop/server ALVA large-tool
 projection, native-session history retrieval and managed single-entry MCP now
-follow this rule. Other engines' own tool loops, SDK-spawned recursive children,
-cross-engine product history and actual media-derived operations remain outside
-this first runtime delivery. The tracked acceptance plan is
+follow this rule. App-core recursive children now rebind this policy to their
+own actual durable session, before communication assembly and provider calls;
+they cannot regain removed root tools or read parent history. The optional
+inheritance contract remains in the app layer, not kernel/agent-core. Other
+engines' own tool loops, cross-engine product history and actual media-derived
+operations remain outside this delivery. The tracked acceptance plan is
 [ALVA-HUB-CONTEXT-RETRIEVAL.md](../ALVA-HUB-CONTEXT-RETRIEVAL.md).

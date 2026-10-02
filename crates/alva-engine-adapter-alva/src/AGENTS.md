@@ -20,7 +20,7 @@
 ## 约束
 - 不得构造裸 `AgentState` 或直接调用 `run_agent`；必须通过 BaseAgent factory。
 - 一个 engine session 只拥有一个 BaseAgent，不能用 `swap_session` 共享 agent 支撑并发。
-- 引用政策覆盖经 Hub factory 装配的 ALVA，包括 Hub-owned Worker，不控制外部 engine 或 SDK `agent` tool 的独立递归子装配；后者尚未继承投影，授予父 retrieval tool 也因执行 session 不同而拒绝。历史当前 native branch 范围，不冒充跨 engine 产品历史。blob 读取校验 SHA-256/尺寸，解压 ≤64 MiB、压缩输入 ≤65 MiB。
+- 引用政策覆盖经 Hub factory 装配的 ALVA（含 Hub-owned Worker）与 app-core `agent` tool 的独立递归子装配：通过初始化发布的 SpawnContextPolicy 按实际子会话 ID 重绑自有检索/首个 assembly hook/请求 middleware/短提示；空 host whitelist 仍有自有 reader，父/其他会话记录不可读。子 hook 来源失败后 provider fail-closed，即使后续 hook 删除 entries；重算投影 token metadata，不改变 raw records。通信 hooks 是可信代码，不是沙箱；不新增子会话自动压缩器，不控制外部 engine。历史当前各自 native session，不冒充跨 engine 产品历史。blob 校验 SHA-256/尺寸，解压 ≤64 MiB、压缩输入 ≤65 MiB。
 - 这是 app/product 层 crate，不能被 SDK/kernel/agent crate 反向依赖；Hub core 只依赖 `alva-engine-runtime` contract。
 - **`execute` 的每一条出口都必须发 `Error{recoverable:false}` + `Completed`**，静默 `return` / `break` 一律禁止。消费者无法区分「静默 EOF」与「引擎失联」，Hub 会替你合成兜底并可能触发付费 fallback。两条曾经违规的路径（session map 回写落空、agent 事件通道提前关闭）已各自带回归测试。
 - **`respond_permission` 必须消费 `BaseAgent::resolve_permission` 的返回值**：`false` 表示该审批已不在 pending（引擎已超时并 Block 了工具），必须回 `RuntimeError::PermissionNotFound`。返回 `Ok(())` 会让产品层把一条 `Allowed …` 写进会话审计轨迹，而那个工具实际从未执行。
@@ -31,6 +31,6 @@
 | AlvaAdapter | adapter.rs | EngineRuntime + EngineInspector：session 生命周期、审批路由、typed snapshot/live tail |
 | BaseAgentFactory / BuiltAgent | factory.rs | 每 session 组装；Catalog vs Default 两档 |
 | SessionRepository | session_repository.rs | engine-native SQLite records、atomic batch/脏修复、resume/live tail 与固定会话有界检索/引用来源校验 |
-| ContextRetrievalPlugin | context_retrieval.rs | 模型请求副本的通用结果引用、MCP typed media 排除、固定会话耐久历史搜索/分段读取与真实 Agent 回归 |
+| ContextRetrievalPlugin | context_retrieval.rs | 通用结果/MCP 媒体引用、固定会话耐久历史检索；递归子会话重新绑定与 assembly fail-closed，真实父/子/孙隔离和重启回归 |
 | EventMapper | mapping.rs | AgentEvent → RuntimeEvent；Completed 聚合最后一条助手消息的全部文本块；ToolEnd 保留真实执行 duration |
 | lib.rs | lib.rs | 重导出 adapter、factory、reference-first Plugin、repository Inspector 与稳定 run projection API |

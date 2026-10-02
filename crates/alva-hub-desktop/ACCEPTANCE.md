@@ -1,5 +1,33 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Recursive ALVA context policy and authority — 2026-10-03
+
+App-core `agent` children now bind the product reference-first policy to their
+actual repository-created session ID. Each child/grandchild gets an own-history
+reader, short policy prompt, first assembly hook and before-provider middleware;
+parent-bound readers are replaced. Missing sources latch a per-child error and
+stop the provider even if subsequent hooks remove entries. Communication hooks
+are trusted code, not sandboxed; no new child compactor or SDK policy was added.
+Empty host-tool grants still allow bounded own-history reads, not parent records.
+
+Recursive schemas, template inherit-all and execution grants now use the direct
+parent's actual tools, preventing grandchildren from regaining excluded root
+tools. Default model inheritance uses the actual parent model too. Existing
+security approvals, resource locks, cancellation/depth/budgets and typed causal
+session links remain. Real BaseAgent parent/child/grandchild tests prove large
+text/media references before communication/provider calls, explicit own reads,
+cross-session denial, durable original identities and post-reopen retrieval.
+
+This batch passes **344 app-core tests** (328 lib + 16 security/lock/workspace/
+swap/wiring integration), **43 ALVA adapter, 246 Desktop lib / 4 exact account
+tests filtered, 4 Desktop bin, 14 HTTP**: 651 tests, including six new regressions.
+Desktop/server all-target check, public snapshots, dependency/bus/wasm32/host-link
+gates pass; wasip2 is explicitly unavailable/skipped. UI, native AX/visual and
+performance evidence were not renewed. No real accounts, billing, external MCP,
+new dependencies, SDK/kernel edits or publication. Cross-branch/engine product
+history, media transformations/selection/delivery receipts and schema JSON-path
+retrieval remain outstanding; the prior runtime evidence below is historical.
+
 ## Reference-first ALVA runtime — 2026-10-03
 
 Desktop/server ALVA factories now share their native SessionRepository with a
@@ -23,11 +51,11 @@ History search/read is fixed to the current native ALVA session and its executio
 context, not cross-engine Hub history. It excludes internal provider/hook events,
 hidden reasoning and typed media bytes, with high-water pagination and explicit
 128-record/64-MiB scan, 20-hit, 2-KiB read and 16-KiB response budgets. Hub-owned
-ALVA Workers use this factory; SDK `agent` recursive children do not yet inherit
-the projection and cannot use a parent-bound retrieval tool to read parent records.
+ALVA Workers use this factory. The initial batch did not include recursive
+children; the subsequent coverage is recorded above.
 External engine loops and actual media transformation/delivery receipts remain pending.
 
-Current verification: **40 ALVA adapter, 325 app-core lib, 86 MCP protocol,
+Initial runtime verification: **40 ALVA adapter, 325 app-core lib, 86 MCP protocol,
 246 Desktop lib / 4 exact account tests filtered, 4 Desktop bin, 14 HTTP** tests
 pass. Desktop/server all-target check, new-file rustfmt, diff check, public SDK
 snapshots and dependency/bus/wasm32/host-link gates pass; wasip2 target remains
@@ -70,8 +98,8 @@ surface snapshots and dependency/bus/wasm32-unknown-unknown/host-link gates pass
 wasm32-wasip2 remains unavailable and explicitly skipped. Existing warnings and
 the >500-kB bundle warning are recorded, not treated as measured performance.
 
-Outstanding after the runtime delivery above: **recursive SDK child policy,
-cross-engine product history, actual media-derived operations and delivery receipts**.
+Outstanding after the deliveries above: **cross-engine product history,
+actual media-derived operations and delivery receipts**.
 Generic results, progressive managed MCP and native ALVA history are implemented
 within the stated scope. See ADR-0011 and docs/ALVA-HUB-CONTEXT-RETRIEVAL.md for accepted
 direction and concrete acceptance. Packaged WKWebView/AX/visual/performance

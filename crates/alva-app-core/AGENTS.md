@@ -19,6 +19,9 @@ should use `BaseAgentBuilder`, while SDK callers should use
   - `skills/` — Skill system (loader, store, injector, agent templates).
   - `extension/mcp/` — native MCP lifecycle and direct-tool compatibility,
     with opt-in single-entry progressive discovery for Hub managed servers.
+  - `extension/agent_spawn.rs` + `spawn_context.rs` — recursive direct-parent
+    tool grants and optional product-owned durable-context policy bindings;
+    child authority does not expand to root tools or parent history.
   - `environment/` — Embedded runtime management (Bun, Node, Python, Chromium).
   - `gateway/`, `base/`, `system/` — infrastructure placeholders.
   - `domain/`, `ports/`, `adapters/` — DDD layers.
@@ -44,6 +47,7 @@ should use `BaseAgentBuilder`, while SDK callers should use
 | ports/tool.rs | `src/ports/tool.rs` | SrowToolContext (ToolContext + LocalToolContext) |
 | skills/ | `src/skills/` | Skill system (loader, store, injector, templates) |
 | MCP | `src/extension/mcp/` | Native lifecycle, compatible direct tools and opt-in bounded progressive gateway; existing HITL |
+| Child context policy | `src/extension/` | Optional per-child reference/retrieval binding; direct-parent tool grants, shared security/locks and causal session links |
 | session projection | `src/session_projection.rs` | Run/turn/LLM/tool Inspector projection with TTFT and middleware hooks |
 | environment/ | `src/environment/` | Embedded runtime management |
 | domain/ | `src/domain/` | Domain models (DDD) |

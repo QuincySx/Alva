@@ -1,3 +1,6 @@
+// INPUT: SDK Plugin contract and app harness extension modules
+// OUTPUT: App plugins, registries and optional child-context binding contract
+// POS: Harness extension facade, separate from stable SDK assembly machinery.
 //! Plugin system — trait + machinery are re-exported from `alva-agent-core`.
 //!
 //! Only the built-in Plugin implementations (skills, mcp, hooks, evaluation,
@@ -25,6 +28,7 @@ mod pending;
 mod permission;
 pub mod provider_registry;
 pub mod spawn_comm_registry;
+pub mod spawn_context;
 pub mod tool_lock_registry;
 
 // Re-export built-in plugin types

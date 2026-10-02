@@ -66,5 +66,6 @@
 | Project tooling（bundled skill）| `crates/alva-app-cli/skills/project-tooling/SKILL.md` + `crates/alva-app-cli/src/bundled_skills.rs` | 项目无关：纯 markdown SKILL.md 教 agent 探测 Cargo / package.json / pyproject / go.mod 标记并跑对应 CLI（cargo --message-format=json / tsc / eslint --format=json / biome / ruff / pyright / go vet）。skills 树用 `include_dir!` 编进 alva 二进制，启动期解到 `~/.cache/alva/bundled-skills-v<X>/`，作为 SkillsPlugin 的最低优先级搜索路径加入；用户可同名 skill 覆盖。Skill 作为 App 功能的兑现路径，比单独建 Plugin 简单得多 |
 | LSP Plugin（scaffold, **deprecated**） | `extension/lsp/` | 实验性架构占位。实际诊断由 project-tooling skill 完成（agent 调对应 build CLI）。LspManager trait 留作未来 hover/references 真需要时的 hook，无活跃开发计划 |
 | Spawn Comm Registry | `extension/spawn_comm_registry.rs` | DefaultSpawnCommRegistry + SpawnCommRegistryPlugin — 可选：把空 SpawnCommunicationRegistry provide 到 bus，供其它 comm plugin（如 Blackboard）填充；不装则 `SpawnInput.comms` 必须为空 |
+| Spawn context policy | `extension/spawn_context.rs`, `extension/agent_spawn.rs` | 可选产品引用策略按实际子 AgentSession 重绑：自有 reader、首个 assembly hook、middleware/短提示；递归继承实际父模型与工具子集，不恢复 root host 工具 |
 | Blackboard Comm Plugin | `extension/blackboard_comm.rs` | BlackboardCommPlugin — 可选：从 bus 拿 `SpawnCommunicationRegistry`（需先装 SpawnCommRegistryPlugin），把 BlackboardCommunication 注册进去 |
 | 错误 | `error.rs` | EngineError / SkillError 统一错误类型 |
