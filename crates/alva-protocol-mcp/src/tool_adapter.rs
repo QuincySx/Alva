@@ -1,10 +1,11 @@
-// INPUT:  std::sync, async_trait, serde_json, alva_kernel_abi, crate::client, crate::types
+// INPUT:  std::sync, async_trait, serde_json, sha2, alva_kernel_abi, crate::client, crate::types
 // OUTPUT: McpToolAdapter, build_mcp_tools
-// POS:    Wraps individual MCP tools as alva-kernel-abi Tool trait implementations with namespaced names (mcp:server:tool).
+// POS:    MCP tool adapters with stable provider-safe aliases and explicit logical server/tool identity.
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use alva_kernel_abi::base::error::AgentError;
 use alva_kernel_abi::tool::execution::{ToolExecutionContext, ToolOutput};
@@ -15,13 +16,13 @@ use crate::types::McpToolInfo;
 
 /// Wraps a single MCP Tool as an alva-kernel-abi Tool trait implementation.
 ///
-/// Tool name format: `mcp:<server_id>:<tool_name>`
-/// This way MCP tools coexist with built-in tools in a ToolRegistry,
-/// and Agent calls them via standard tool_call mechanism without knowing MCP details.
+/// Logical identity is `mcp:<server_id>:<tool_name>` in the description.
+/// LLM-facing names use stable ASCII aliases (at most 64 bytes), because colon,
+/// dots and unbounded concatenated names are not valid across model providers.
 pub struct McpToolAdapter {
     info: McpToolInfo,
     client: Arc<McpClient>,
-    /// Cached full tool name: "mcp:<server_id>:<tool_name>"
+    /// Cached provider-safe tool alias.
     full_name: String,
     /// Cached description
     full_description: String,
@@ -29,8 +30,11 @@ pub struct McpToolAdapter {
 
 impl McpToolAdapter {
     pub fn new(info: McpToolInfo, client: Arc<McpClient>) -> Self {
-        let full_name = format!("mcp:{}:{}", info.server_id, info.tool_name);
-        let full_description = format!("[MCP:{}] {}", info.server_id, info.description);
+        let full_name = Self::tool_name(&info.server_id, &info.tool_name);
+        let full_description = format!(
+            "[MCP:{}:{}] {}",
+            info.server_id, info.tool_name, info.description
+        );
         Self {
             info,
             client,
@@ -39,9 +43,20 @@ impl McpToolAdapter {
         }
     }
 
-    /// Generate the engine-internal tool name.
+    /// Generate the stable provider-safe alias; length-prefix identities to
+    /// avoid ambiguous concatenations. The 240-bit digest fits the strictest
+    /// provider's 64-byte limit, including the reserved `mcp_` prefix.
     pub fn tool_name(server_id: &str, tool_name: &str) -> String {
-        format!("mcp:{}:{}", server_id, tool_name)
+        let mut digest = Sha256::new();
+        digest.update((server_id.len() as u64).to_be_bytes());
+        digest.update(server_id.as_bytes());
+        digest.update(tool_name.as_bytes());
+        let mut alias = String::from("mcp_");
+        for byte in &digest.finalize()[..30] {
+            use std::fmt::Write;
+            write!(alias, "{byte:02x}").expect("writing to String cannot fail");
+        }
+        alias
     }
 }
 
@@ -125,13 +140,16 @@ mod tests {
     #[test]
     fn adapter_name_is_prefixed() {
         let adapter = McpToolAdapter::new(sample_info(), make_client());
-        assert_eq!(adapter.name(), "mcp:my-server:do-stuff");
+        assert_eq!(
+            adapter.name(),
+            McpToolAdapter::tool_name("my-server", "do-stuff")
+        );
     }
 
     #[test]
     fn adapter_description_is_prefixed() {
         let adapter = McpToolAdapter::new(sample_info(), make_client());
-        assert_eq!(adapter.description(), "[MCP:my-server] Does stuff");
+        assert_eq!(adapter.description(), "[MCP:my-server:do-stuff] Does stuff");
     }
 
     #[test]
@@ -150,7 +168,20 @@ mod tests {
     #[test]
     fn tool_name_helper_format() {
         let name = McpToolAdapter::tool_name("srv", "my-tool");
-        assert_eq!(name, "mcp:srv:my-tool");
+        assert!(name.starts_with("mcp_"));
+        assert_eq!(name.len(), 64);
+        assert!(name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'));
+        assert_eq!(name, McpToolAdapter::tool_name("srv", "my-tool"));
+        assert_ne!(name, McpToolAdapter::tool_name("srv", "my_tool"));
+        assert_ne!(
+            McpToolAdapter::tool_name("a:b", "c"),
+            McpToolAdapter::tool_name("a", "b:c")
+        );
+        let long = McpToolAdapter::tool_name(&"服务".repeat(100), &"tool.name".repeat(100));
+        assert_eq!(long.len(), 64);
+        assert!(long.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'));
     }
 
     // ── build_mcp_tools ─────────────────────────────────────────────────
@@ -181,9 +212,9 @@ mod tests {
 
         let tools = build_mcp_tools(client, infos);
         assert_eq!(tools.len(), 3);
-        assert_eq!(tools[0].name(), "mcp:s1:t1");
-        assert_eq!(tools[1].name(), "mcp:s1:t2");
-        assert_eq!(tools[2].name(), "mcp:s2:t3");
+        assert_eq!(tools[0].name(), McpToolAdapter::tool_name("s1", "t1"));
+        assert_eq!(tools[1].name(), McpToolAdapter::tool_name("s1", "t2"));
+        assert_eq!(tools[2].name(), McpToolAdapter::tool_name("s2", "t3"));
     }
 
     #[test]
@@ -201,7 +232,7 @@ mod tests {
             &adapter,
             &alva_kernel_abi::ToolSchemaContext::empty(),
         );
-        assert_eq!(def.name, "mcp:my-server:do-stuff");
-        assert_eq!(def.description, "[MCP:my-server] Does stuff");
+        assert_eq!(def.name, McpToolAdapter::tool_name("my-server", "do-stuff"));
+        assert_eq!(def.description, "[MCP:my-server:do-stuff] Does stuff");
     }
 }

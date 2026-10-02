@@ -104,24 +104,33 @@ impl McpManager {
             .get_mut(server_id)
             .ok_or_else(|| SkillError::McpServerNotFound(server_id.to_string()))?;
 
-        if matches!(instance.state, McpServerState::Connected { .. }) {
+        if matches!(instance.state, McpServerState::Connected { .. })
+            && instance
+                .transport
+                .as_ref()
+                .is_some_and(|t| t.is_connected())
+        {
             return Ok(()); // Idempotent
         }
 
+        instance.transport = None;
+        instance.tools.clear();
         instance.state = McpServerState::Connecting;
 
         let mut transport = self.factory.create(&instance.config);
         let connect_result = tokio::time::timeout(
             std::time::Duration::from_secs(instance.config.connect_timeout_secs as u64),
-            transport.connect(),
+            async {
+                transport.connect().await?;
+                transport.list_tools().await
+            },
         )
         .await
         .map_err(|_| SkillError::McpConnectTimeout(server_id.to_string()))
         .and_then(|r| r.map_err(SkillError::from));
 
         match connect_result {
-            Ok(()) => {
-                let tools = transport.list_tools().await?;
+            Ok(tools) => {
                 let tool_count = tools.len();
                 instance.tools = tools;
                 instance.state = McpServerState::Connected { tool_count };
@@ -157,6 +166,7 @@ impl McpManager {
             .read()
             .await
             .values()
+            .filter(|inst| inst.transport.as_ref().is_some_and(|t| t.is_connected()))
             .flat_map(|inst| inst.tools.clone())
             .collect()
     }
@@ -191,7 +201,18 @@ impl McpManager {
             .read()
             .await
             .iter()
-            .map(|(id, inst)| (id.clone(), inst.state.clone()))
+            .map(|(id, inst)| {
+                let state = if matches!(inst.state, McpServerState::Connected { .. })
+                    && !inst.transport.as_ref().is_some_and(|t| t.is_connected())
+                {
+                    McpServerState::Failed {
+                        reason: "MCP transport closed; start a new run to reconnect".into(),
+                    }
+                } else {
+                    inst.state.clone()
+                };
+                (id.clone(), state)
+            })
             .collect()
     }
 
@@ -221,6 +242,103 @@ impl McpManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    struct FixtureFactory {
+        connected: Arc<AtomicBool>,
+        fail_list: Arc<AtomicBool>,
+        starts: Arc<AtomicUsize>,
+    }
+    struct FixtureTransport {
+        connected: Arc<AtomicBool>,
+        fail_list: Arc<AtomicBool>,
+    }
+    impl McpTransportFactory for FixtureFactory {
+        fn create(&self, _: &McpServerConfig) -> Box<dyn McpTransport> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            Box::new(FixtureTransport {
+                connected: self.connected.clone(),
+                fail_list: self.fail_list.clone(),
+            })
+        }
+    }
+    #[async_trait::async_trait]
+    impl McpTransport for FixtureTransport {
+        async fn connect(&mut self) -> Result<(), McpError> {
+            self.connected.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+        async fn disconnect(&mut self) -> Result<(), McpError> {
+            self.connected.store(false, Ordering::SeqCst);
+            Ok(())
+        }
+        fn is_connected(&self) -> bool {
+            self.connected.load(Ordering::SeqCst)
+        }
+        async fn list_tools(&self) -> Result<Vec<McpToolInfo>, McpError> {
+            if self.fail_list.load(Ordering::SeqCst) {
+                return Err(McpError::Transport("Fixture catalog failure".into()));
+            }
+            Ok(vec![McpToolInfo {
+                server_id: "fixture".into(),
+                tool_name: "echo".into(),
+                description: "Fixture".into(),
+                input_schema: serde_json::json!({"type":"object"}),
+            }])
+        }
+        async fn call_tool(&self, _: &str, arguments: Value) -> Result<Value, McpError> {
+            Ok(arguments)
+        }
+    }
+
+    #[tokio::test]
+    async fn closed_transport_reconnects_and_failed_discovery_clears_old_tools() {
+        let connected = Arc::new(AtomicBool::new(false));
+        let fail_list = Arc::new(AtomicBool::new(false));
+        let starts = Arc::new(AtomicUsize::new(0));
+        let manager = McpManager::new(Arc::new(FixtureFactory {
+            connected: connected.clone(),
+            fail_list: fail_list.clone(),
+            starts: starts.clone(),
+        }));
+        manager
+            .register(McpServerConfig {
+                id: "fixture".into(),
+                display_name: "Fixture".into(),
+                transport: alva_protocol_mcp::types::McpTransportConfig::Stdio {
+                    command: "/not-executed".into(),
+                    args: vec![],
+                    env: Default::default(),
+                },
+                auto_connect: true,
+                connect_timeout_secs: 1,
+            })
+            .await;
+        manager.connect("fixture").await.unwrap();
+        manager.connect("fixture").await.unwrap();
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        assert_eq!(manager.list_all_tools().await.len(), 1);
+        connected.store(false, Ordering::SeqCst);
+        assert!(manager.list_all_tools().await.is_empty());
+        assert!(matches!(
+            manager.server_states().await["fixture"],
+            McpServerState::Failed { .. }
+        ));
+        fail_list.store(true, Ordering::SeqCst);
+        assert!(manager.connect("fixture").await.is_err());
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
+        assert!(manager.list_all_tools().await.is_empty());
+        assert!(matches!(
+            manager.server_states().await["fixture"],
+            McpServerState::Failed { .. }
+        ));
+        fail_list.store(false, Ordering::SeqCst);
+        manager.connect("fixture").await.unwrap();
+        assert_eq!(starts.load(Ordering::SeqCst), 3);
+        assert_eq!(manager.list_all_tools().await.len(), 1);
+        manager.disconnect("fixture").await.unwrap();
+        assert!(manager.list_all_tools().await.is_empty());
+    }
 
     #[tokio::test]
     async fn disconnected_manager_constructs_and_exposes_no_tools() {

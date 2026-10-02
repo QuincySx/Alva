@@ -31,7 +31,7 @@ pub struct AgentTemplate {
     pub mcp_servers: McpSet,
 
     /// Allowed tool name list (None = use all registered tools)
-    /// Note: MCP tool names use format "mcp:<server_id>:<tool_name>"
+    /// MCP aliases or exact logical "mcp:<server_id>:<tool_name>" names are accepted.
     #[serde(default)]
     pub allowed_tools: Option<Vec<String>>,
 

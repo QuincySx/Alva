@@ -1,4 +1,4 @@
-// INPUT:  std::collections, std::sync, crate::extension::mcp::runtime, crate::extension::skills::{injector, store, skill_domain}, crate::error
+// INPUT:  std::collections, std::sync, crate::extension::mcp::{runtime, tool_adapter}, crate::extension::skills::{injector, store, skill_domain}, crate::error
 // OUTPUT: AgentTemplateService, AgentTemplateInstance
 // POS:    Instantiates AgentTemplate into runtime config: merged skills, system prompt, MCP servers, and tool whitelist.
 use std::collections::HashSet;
@@ -143,14 +143,21 @@ impl AgentTemplateService {
     }
 
     /// Build allowed_tools whitelist
-    /// MCP tool naming format: `mcp:<server_id>:<tool_name>`
+    /// Emit registered aliases; accept legacy exact `mcp:server:tool` names.
     async fn build_allowed_tools(
         &self,
         template: &AgentTemplate,
         mcp_server_ids: &[String],
     ) -> Option<Vec<String>> {
         if let Some(explicit_tools) = &template.allowed_tools {
-            return Some(explicit_tools.clone());
+            return Some(
+                explicit_tools
+                    .iter()
+                    .map(|name| {
+                        crate::extension::mcp::tool_adapter::McpToolAdapter::resolve_tool_name(name)
+                    })
+                    .collect(),
+            );
         }
 
         // If there are MCP Servers, dynamically build list including MCP tools
@@ -166,7 +173,12 @@ impl AgentTemplateService {
             .await
             .iter()
             .filter(|t| mcp_server_ids.contains(&t.server_id))
-            .map(|t| format!("mcp:{}:{}", t.server_id, t.tool_name))
+            .map(|t| {
+                crate::extension::mcp::tool_adapter::McpToolAdapter::tool_name(
+                    &t.server_id,
+                    &t.tool_name,
+                )
+            })
             .collect();
 
         if mcp_tools.is_empty() {

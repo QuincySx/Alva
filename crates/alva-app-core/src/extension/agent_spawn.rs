@@ -1,4 +1,4 @@
-// INPUT:  alva_kernel_abi (including scope::spawn + ProviderRegistry), alva_kernel_core::run_child, alva_agent_context::scope::SpawnScopeImpl, alva_agent_context::default_context_system, alva_agent_context::ContextHooksChain
+// INPUT:  alva_kernel_abi (including scope::spawn + ProviderRegistry), alva_kernel_core::run_child, alva_agent_context::scope::SpawnScopeImpl, alva_agent_context::default_context_system, alva_agent_context::ContextHooksChain, MCP alias resolver
 // OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentPlugin
 // POS:    AI-driven sub-agent spawning — dynamic roles, optional per-spawn model, pluggable SpawnCommunication capabilities (blackboard etc).
 
@@ -436,6 +436,12 @@ impl AgentSpawnTool {
         } else {
             Vec::new()
         };
+        let tool_names: Vec<String> = tool_names
+            .into_iter()
+            .map(|name| {
+                crate::extension::mcp::tool_adapter::McpToolAdapter::resolve_tool_name(&name)
+            })
+            .collect();
 
         // Build child scope — spawn_child() enforces the depth limit.
         let child_config = ChildScopeConfig::new(&role).with_system_prompt(&system_prompt);

@@ -202,8 +202,7 @@ pub static COMPONENTS: &[ComponentMeta] = &[
     ComponentMeta {
         id: "mcp",
         label: "MCP",
-        description: "Model Context Protocol servers — dynamically adds many tools; biggest accuracy impact. \
-NOTE: no transport implementation is bundled yet — enabling this currently yields zero tools.",
+        description: "Model Context Protocol servers — native stdio tool discovery/calls; SSE is not implemented.",
         category: "ext",
         default_on: false,
         kind: ComponentKind::Plugin,

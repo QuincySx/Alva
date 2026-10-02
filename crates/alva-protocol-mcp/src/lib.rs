@@ -1,5 +1,5 @@
 // INPUT:  (none)
-// OUTPUT: pub mod client, config, elicitation, error, prompts, resources, tool_adapter, transport, transport_sse, types
+// OUTPUT: MCP client/config/types/tool adapter and native bounded stdio transport (SSE remains configuration-only)
 // POS:    Crate root for alva-protocol-mcp — MCP client library.
 //! # alva-protocol-mcp
 //!
@@ -25,5 +25,7 @@ pub mod prompts;
 pub mod resources;
 pub mod tool_adapter;
 pub mod transport;
+#[cfg(not(target_family = "wasm"))]
+pub mod transport_stdio;
 pub mod transport_sse;
 pub mod types;

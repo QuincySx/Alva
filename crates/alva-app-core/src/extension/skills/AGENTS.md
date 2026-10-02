@@ -11,6 +11,7 @@ alva-app-core 的 Skill 子系统，提供三级渐进式加载（元数据/指�
 - SKILL.md 使用 YAML frontmatter + Markdown body 格式
 - Skill 名称 kebab-case，最长 64 字符
 - Bundled Skill 不可卸载
+- AgentTemplateService 输出已注册的 provider-safe MCP alias，兼容显式 `mcp:server:tool`；不展开 wildcard 权限。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |

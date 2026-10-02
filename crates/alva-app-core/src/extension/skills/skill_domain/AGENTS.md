@@ -10,6 +10,7 @@
 ## 约束
 - 纯数据类型，无 I/O
 - 所有类型 Serialize/Deserialize
+- AgentTemplate 的 MCP allowed_tools 支持 exact logical name 或注册 alias；运行时由服务/派生路径转换，不在纯 DTO 执行发现或授权。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |

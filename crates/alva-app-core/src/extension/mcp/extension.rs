@@ -1,3 +1,6 @@
+// INPUT: MCP config/manager/stdio transport, Plugin registrar
+// OUTPUT: McpPlugin with file-discovered or explicit server configuration
+// POS: MCP tool integration with native stdio transport and truthful unsupported SSE failures
 //! McpPlugin — discovers and exposes tools from MCP servers.
 
 use std::path::PathBuf;
@@ -14,29 +17,37 @@ use crate::extension::mcp::config::McpConfig;
 use crate::extension::mcp::runtime::{McpManager, McpTransportFactory};
 use crate::extension::mcp::tool_adapter::build_mcp_tools;
 use crate::extension::mcp::tools::McpRuntimeTool;
-use crate::extension::{Plugin, Registrar};
+use crate::extension::{LateContext, Plugin, Registrar};
 
-/// Stub transport factory used when no real MCP transport implementation is
-/// available.  Creates transports that immediately fail on connect, so the
-/// extension degrades gracefully (tools from unreachable servers are simply
-/// omitted).
-struct StubTransportFactory;
+/// Native stdio transport factory. Unsupported transports fail visibly.
+struct NativeTransportFactory {
+    cwd: Option<PathBuf>,
+}
 
-impl McpTransportFactory for StubTransportFactory {
-    fn create(&self, _config: &alva_protocol_mcp::types::McpServerConfig) -> Box<dyn McpTransport> {
+impl McpTransportFactory for NativeTransportFactory {
+    fn create(&self, config: &alva_protocol_mcp::types::McpServerConfig) -> Box<dyn McpTransport> {
+        #[cfg(not(target_family = "wasm"))]
+        if matches!(
+            config.transport,
+            alva_protocol_mcp::types::McpTransportConfig::Stdio { .. }
+        ) {
+            return Box::new(alva_protocol_mcp::transport_stdio::StdioTransport::new(
+                config.clone(),
+                self.cwd.clone(),
+            ));
+        }
         Box::new(StubTransport)
     }
 }
 
-/// A transport that always fails — used as a placeholder until real stdio/SSE
-/// transports are wired in.
+/// Unsupported SSE/wasm transport: never reports a fake connection.
 struct StubTransport;
 
 #[async_trait]
 impl McpTransport for StubTransport {
     async fn connect(&mut self) -> Result<(), McpError> {
         Err(McpError::Transport(
-            "no real MCP transport implementation available yet".into(),
+            "MCP SSE transport is not implemented; use native stdio".into(),
         ))
     }
     async fn disconnect(&mut self) -> Result<(), McpError> {
@@ -66,9 +77,12 @@ impl McpTransport for StubTransport {
 ///    [`McpToolAdapter`](crate::extension::mcp::tool_adapter::McpToolAdapter).
 /// 4. Provides an [`McpRuntimeTool`] for runtime server management.
 ///
-/// All errors are caught and logged — MCP failures never prevent agent startup.
+/// Discovery failures are logged and startup continues without MCP tools.
+/// If tools are registered, final assembly requires the harness SecurityGuard.
 pub struct McpPlugin {
     config_paths: Vec<PathBuf>,
+    servers: Vec<alva_protocol_mcp::types::McpServerConfig>,
+    cwd: Option<PathBuf>,
 }
 
 impl McpPlugin {
@@ -76,7 +90,23 @@ impl McpPlugin {
     ///
     /// Typically called with `[paths.global_mcp_config(), paths.project_mcp_config()]`.
     pub fn new(config_paths: Vec<PathBuf>) -> Self {
-        Self { config_paths }
+        Self {
+            config_paths,
+            servers: vec![],
+            cwd: None,
+        }
+    }
+
+    /// Product-owned snapshot. Never discovers ambient/global config files.
+    pub fn from_servers(
+        servers: Vec<alva_protocol_mcp::types::McpServerConfig>,
+        cwd: PathBuf,
+    ) -> Self {
+        Self {
+            config_paths: vec![],
+            servers,
+            cwd: Some(cwd),
+        }
     }
 }
 
@@ -105,6 +135,34 @@ impl Plugin for McpPlugin {
         };
         r.tools(tools);
     }
+
+    async fn try_finalize(
+        &self,
+        cx: &LateContext,
+    ) -> Result<Vec<Arc<dyn Tool>>, alva_kernel_abi::AgentError> {
+        let tools: Vec<_> = cx
+            .tools
+            .iter()
+            .filter(|t| t.name().starts_with("mcp_"))
+            .collect();
+        if tools.is_empty() {
+            return Ok(vec![]);
+        }
+        let guard = cx
+            .bus
+            .get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>()
+            .ok_or_else(|| alva_kernel_abi::AgentError::ToolError {
+                tool_name: "mcp".into(),
+                message: "MCP tools require the harness SecurityGuard".into(),
+            })?;
+        let mut guard = guard.lock().await;
+        // Never trust server-provided readOnly/destructive annotations to grant
+        // authority. MCP calls (including the meta-tool escape path) use HITL.
+        for tool in tools {
+            guard.add_dangerous_tool(tool.name());
+        }
+        Ok(vec![])
+    }
 }
 
 impl McpPlugin {
@@ -121,16 +179,18 @@ impl McpPlugin {
             }
         }
 
-        if merged.servers.is_empty() {
+        if merged.servers.is_empty() && self.servers.is_empty() {
             tracing::debug!("MCP: no servers configured — skipping");
             return Ok(vec![]);
         }
 
-        tracing::info!("MCP: {} server(s) configured", merged.servers.len());
+        let configured = merged.servers.len() + self.servers.len();
+        tracing::info!("MCP: {} server(s) configured", configured);
 
-        // 2. Create manager with stub factory (will be replaced with real
-        //    transport implementations later).
-        let factory: Arc<dyn McpTransportFactory> = Arc::new(StubTransportFactory);
+        // 2. Create manager with native transports.
+        let factory: Arc<dyn McpTransportFactory> = Arc::new(NativeTransportFactory {
+            cwd: self.cwd.clone(),
+        });
         let manager = Arc::new(McpManager::new(factory));
 
         // 3. Register all servers.
@@ -138,21 +198,27 @@ impl McpPlugin {
         for cfg in &server_configs {
             manager.register(cfg.clone()).await;
         }
+        for cfg in &self.servers {
+            manager.register(cfg.clone()).await;
+        }
 
         // 4. Auto-connect servers that have auto_connect = true.
-        let errors = manager.connect_auto().await;
+        // Bound total assembly time as well as each server's own timeout.
+        // Cancellation drops the manager and its owned server processes.
+        let errors =
+            tokio::time::timeout(std::time::Duration::from_secs(60), manager.connect_auto())
+                .await
+                .map_err(|_| McpError::Transport("MCP startup budget exceeded".into()))?;
         for (id, err) in &errors {
             tracing::warn!("MCP: server '{id}' auto-connect failed: {err}");
         }
 
         // 5. Discover tools from connected servers.
         let tool_infos = manager.list_all_tools().await;
-        if !merged.servers.is_empty() && tool_infos.is_empty() {
+        if tool_infos.is_empty() {
             tracing::warn!(
-                configured_servers = merged.servers.len(),
-                "MCP: servers are configured but ZERO tools were discovered — no working \
-                 transport implementation is bundled yet (stdio/SSE are stubs), so the mcp \
-                 component currently cannot expose any tools"
+                configured_servers = configured,
+                "MCP: no tools discovered; inspect mcp_runtime server states"
             );
         }
         tracing::info!(
