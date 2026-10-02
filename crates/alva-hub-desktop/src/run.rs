@@ -874,6 +874,25 @@ where
             stream.next().await
         };
         let Some(hub_event) = next else {
+            // A pre-start Stop abandons the Hub claim and drops its stream,
+            // without a native Completed event. EOF is not success and this
+            // product-level stop must never spend a fallback account.
+            if terminal_error.is_none() {
+                let message = "Hub turn stopped before completion".to_string();
+                emit(TimelineEvent {
+                    status: TimelineStatus::Failed,
+                    engine_id: engine_id.to_string(),
+                    product_session_id: product_id.clone(),
+                    created_at: now_unix_ms(),
+                    message: Some(message.clone()),
+                    item_id: persistence.map(|(_, prepared)| prepared.attempt_id.clone()),
+                    activity: None,
+                    message_position: None,
+                    permission_request: None,
+                });
+                failure_class = Some(FailureClass::Other);
+                terminal_error = Some(message);
+            }
             break;
         };
         // Only events that evidence the approval was resolved clear the
@@ -4358,6 +4377,112 @@ mod tests {
         assert!(reopened
             .record_attempt_cancelled(&product_session_id, "again")
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn regression_stop_before_native_start_is_not_success_and_never_falls_back() {
+        let workspace = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let database = data_dir.path().join("alva-hub.db");
+        let store = crate::HubStore::open(&database).unwrap();
+        store
+            .set_global_fallback_policy(vec![authorized_claude()])
+            .unwrap();
+        let hubs = Arc::new(ActiveHubs::default());
+        let builds = Arc::new(Mutex::new(Vec::new()));
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let run = tokio::spawn({
+            let store = store.clone();
+            let hubs = hubs.clone();
+            let builds = builds.clone();
+            let timeline = timeline.clone();
+            async move {
+                run_persisted_with_target(
+                    &store,
+                    move |target: &EngineTarget, _: &str, _| {
+                        builds.lock().unwrap().push(target.engine_id.clone());
+                        Ok(Arc::new(ScriptedEngine {
+                            script: vec![],
+                            hold_open_at_end: true,
+                        }) as Arc<dyn EngineRuntime>)
+                    },
+                    healthy,
+                    RunRequest {
+                        prompt: "stop during plugin assembly".into(),
+                        workspace: workspace.path().to_path_buf(),
+                        engine_id: "alva".into(),
+                        product_session_id: None,
+                        permission_profile: None,
+                    },
+                    None,
+                    Some(&hubs),
+                    move |event| timeline.lock().unwrap().push(event),
+                )
+                .await
+            }
+        });
+        let (product_id, hub) = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if let Some((id, hub)) = hubs.lock().unwrap().iter().next() {
+                    break (id.clone(), hub.clone());
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the control plane must be available before native startup");
+        let detail = store.get_session(&product_id).unwrap().unwrap();
+        assert!(detail.session.engine_session_id.is_none());
+        let attempt_id = store.running_attempt_id(&product_id).unwrap().unwrap();
+        // Same order as Tauri/HTTP Stop: pin the attempt, accept cancel, then
+        // write the fact only while this attempt remains running.
+        hub.cancel(&ProductSessionId::from_existing(&product_id))
+            .await
+            .unwrap();
+        assert!(store
+            .record_attempt_cancelled_bound(&product_id, &attempt_id, "User stopped the attempt")
+            .unwrap());
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), run)
+            .await
+            .expect("startup Stop must settle promptly")
+            .unwrap()
+            .unwrap();
+        assert!(
+            outcome.failed,
+            "an abandoned startup must not report successful completion"
+        );
+        assert!(outcome.result.is_none());
+        assert_eq!(builds.lock().unwrap().as_slice(), ["alva"]);
+        assert!(hubs.lock().unwrap().is_empty());
+        let detail = store.get_session(&product_id).unwrap().unwrap();
+        assert_eq!(detail.session.status, "failed");
+        assert_eq!(detail.turns[0].attempts.len(), 1);
+        assert_eq!(detail.turns[0].attempts[0].status, "failed");
+        assert_eq!(
+            timeline
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|event| matches!(
+                    event.status,
+                    TimelineStatus::Failed | TimelineStatus::Completed | TimelineStatus::Interrupted
+                ))
+                .map(|event| event.status)
+                .collect::<Vec<_>>(),
+            [TimelineStatus::Failed]
+        );
+        drop(store);
+        let reopened = crate::HubStore::open(&database).unwrap();
+        let detail = reopened.get_session(&product_id).unwrap().unwrap();
+        assert_eq!(detail.session.status, "failed");
+        assert_eq!(
+            detail
+                .timeline_events
+                .iter()
+                .filter(|event| event.kind == "attempt_cancelled")
+                .count(),
+            1
+        );
     }
 
     /// R87: 用户 Stop 触发适配器 cancel-grace 强杀时，强杀文案（真实

@@ -682,7 +682,12 @@ function HubApp() {
         if (belongsToVisibleSession) {
           setTimeline((current) => mergeEntry(current, event));
         }
-        if (belongsToVisibleSession && event.status === "running") {
+        // ALVA drops pending factory/MCP assembly when Hub abandons its
+        // pre-start stream. Other engines still wait for their native start.
+        if (belongsToVisibleSession && (
+          event.status === "running" ||
+          (event.status === "user_message" && event.engine_id === "alva")
+        )) {
           setCancellableSessionId(event.product_session_id);
         }
         // A new approval request may merge with others: refresh the cards.

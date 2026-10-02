@@ -13,7 +13,7 @@ are local and unsigned (command-scoped signing override after the existing
 
 | Area | Implemented and verified | Still outstanding |
 |---|---|---|
-| H09/H20 conversation | Attempt-scoped UTF-16 positions; duplicate/late fragments; schema-20 durable visible assistant journal; session-scoped cursor recovery; crash terminal repair | Production WKWebView latency/scrolling matrix; old unstored fragments cannot be reconstructed |
+| H09/H20 conversation | Attempt-scoped UTF-16 positions; duplicate/late fragments; schema-20 durable visible assistant journal; session-scoped cursor recovery; crash terminal repair; ALVA foreground startup Stop disposes pending assembly, and incomplete Hub EOF fails without fallback | Production WKWebView latency/scrolling matrix; old unstored fragments cannot be reconstructed; other engines still require native start for UI Stop |
 | H09 tool body | Schema-19 atomic redaction + immutable UTF-8 chunks; Tauri/HTTP paging; page-only UI retention, retry and stale-response isolation | Full native paging flow; legacy previews have no recoverable full body; per-body cap is 64 MiB, not a total-database quota |
 | H10 Files/Text | Real persisted cwd, no-follow capability-relative opens, existing SensitivePathFilter, bounded text/binary/permission states | Native multilingual and narrow-container visual pass |
 | H11 Git | Real worktree branch/status/diff, staged/unstaged/untracked, literal/NUL paths, independent linked worktrees, read-only limits | Native UI refresh after a real task; no new Git write actions |
@@ -37,15 +37,18 @@ cargo test -p alva-hub-desktop --bin alva-hub-desktop -- --test-threads=1
 cargo test -p alva-hub-server -- --test-threads=1
 cargo test -p alva-protocol-mcp -- --test-threads=1
 cargo test -p alva-app-core --lib -- --test-threads=1
-cargo test -p alva-engine-adapter-alva -- --test-threads=1
+cargo test -p alva-hub-core -p alva-engine-adapter-alva -- --test-threads=1
 cargo check -p alva-hub-desktop -p alva-hub-server --all-targets
 bash scripts/ci-check-deps.sh
 bash scripts/public-surface.sh
 ```
 
-Results: **238 lib tests / 4 explicitly filtered real-account tests**,
-**4 bin tests**, **12 HTTP tests**, **85 MCP protocol tests**, **323 app-core
-lib tests**, **32 ALVA adapter tests**, all-target check pass. The dependency
+Latest startup-Stop pass: **341 Rust tests** comprising **239 Desktop lib
+tests / 4 explicitly filtered real-account tests**, **4 bin tests**, **12 HTTP
+tests**, **51 Hub core tests** and **35 ALVA adapter tests**; all-target check
+passes. The preceding MCP corrective pass additionally verified **85 MCP
+protocol tests** and **323 app-core lib tests**; these two packages were not
+rerun in the startup-Stop pass. The dependency
 firewall initially exposed the missing declaration of Desktop's direct
 SensitivePathFilter dependency; its single intended use was documented and
 the gate rerun successfully. No Rule 17/18/19 was removed. The final script
@@ -58,9 +61,9 @@ The script's success is not claimed as a check of that absent target, and
 this work did not rename or migrate the separate native product entry.
 
 In `crates/alva-hub-desktop/web`: `npm test -- --reporter=dot` reports
-**209 tests / 20 files**, and `npm run build` passes TypeScript/Vite.
-These frontend results belong to the preceding feature delivery; the MCP
-corrective pass changed no UI code and did not rerun frontend or native QA.
+**210 tests / 20 files**, and `npm run build` passes TypeScript/Vite, both
+rerun in the startup-Stop pass. The preceding MCP corrective pass changed
+no UI code; neither pass renewed native GUI acceptance.
 Existing React act/controlled-state, Rust unused-item and large-bundle
 warnings remain. This iteration made no real provider or paid SDK calls,
 installed no new runtime, and did not rerun a blocked one-off Playwright
@@ -153,6 +156,20 @@ restores service; busy RPC snapshots remain nonblocking. An existing harness
 regression additionally pins closed-transport call rejection. Templates with a
 declared but unavailable MCP set keep an explicit empty whitelist instead of
 silently inheriting all parent tools. No SDK kernel or agent-core code changed.
+
+The startup-Stop pass adds five red-to-green regressions: cancelling ALVA
+during factory assembly drops the pending build before model calls; dropping
+the startup stream releases assembly/session ownership; dropping a running
+stream interrupts a permanently pending model and permits a fresh-token
+resume. The product seam uses real private SQLite and an authorized fallback
+double to prove pre-native-start Stop is failed, not successful, with no
+fallback assembly and a durable cancellation fact after reopen. The App
+regression enables Stop only after the correlated foreground ALVA user
+message, ignores foreign worker tokens, and retains control until the real
+terminal rather than the cancel acknowledgement. Other engines still wait
+for running; restored pre-start sessions are not newly enabled. No runtime
+event/schema/public SDK changes, real account calls or native GUI claims
+were introduced.
 
 ### Native evidence and deferred acceptance
 

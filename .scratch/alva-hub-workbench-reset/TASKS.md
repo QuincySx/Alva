@@ -4,9 +4,9 @@
 
 ## 当前阶段 · 2026-10-02
 
-- H09/H20：消息位置协议、耐久正文/断线补页和工具全文分页已实施；旧记录不能恢复未保存的正文，原生吞吐与滚动预算待验。
+- H09/H15/H20：消息位置协议、耐久正文/断线补页和工具全文分页已实施；补齐当前窗口 ALVA 启动期 Stop，取消/consumer 关闭中断组装和 pending 模型，resume 不继承取消。无 Completed 的 Hub EOF 不再假成功、不 fallback，5 条新反例先红后绿。其他 engine/恢复的启动期会话未扩展提前 Stop；旧记录不能恢复未保存的正文，原生吞吐与滚动预算待验。
 - H10–H13：真实 Files/Text、Git、隔离用户浏览器与逐行 PTY 已接线；只读/限额/会话归属与生命周期的后端、HTTP（适用项）和 UI 回归通过，原生整段交互待验。
-- H14/H17：耐久 Inspector/真实导航与快捷键、持久化外观、工作区 Skills、schema-21 本地 interval 自动化、schema-22 ALVA 能力与本地 stdio MCP 管理已实现（UI 209 为前批证据；本轮复跑 lib 238、bin 4、HTTP 12、协议 85、app-core lib 323、ALVA adapter 32 及 all-target 构建通过）。MCP 修复重复注册、发现超时/失败/取消、失效连接与模板空白名单，8 条新反例先失败后通过。自动化默认暂停、固定路由/不 fallback、不补跑；MCP 新增/编辑禁用、启用/一次性测试确认宿主权限、真实发现/调用走 HITL。内置 Plugins 页替换样例，不冒充第三方安装器。远程 MCP/auth、第三方插件安装 registry、Worker 调优、SSH/IM 未接通；用户明确先补业务、不做美观，原生交互待验，不将 H17 全部标完。
+- H14/H17：耐久 Inspector/真实导航与快捷键、持久化外观、工作区 Skills、schema-21 本地 interval 自动化、schema-22 ALVA 能力与本地 stdio MCP 管理已实现（最新复跑 UI 210、Desktop lib 239 / 4 精确真实账号 filtered、bin 4、HTTP 12、Hub core 51、ALVA adapter 35 及生产 web/all-target 构建通过；协议 85、app-core lib 323 为前批证据）。MCP 修复重复注册、发现超时/失败/取消、失效连接与模板空白名单，8 条新反例先失败后通过。自动化默认暂停、固定路由/不 fallback、不补跑；MCP 新增/编辑禁用、启用/一次性测试确认宿主权限、真实发现/调用走 HITL。内置 Plugins 页替换样例，不冒充第三方安装器。远程 MCP/auth、第三方插件安装 registry、Worker 调优、SSH/IM 未接通；用户明确先补业务、不做美观，原生交互待验，不将 H17 全部标完。
 - H18/H21：真实 Tauri 已做隔离 fixture 的部分读取并发现/修复 worktree IPC 缺陷；AX 错误阻塞后用户明确暂缓权限处理。完整原生主流程、视觉/键盘和生产性能预算仍待验收，不降预算、不标完成。
 - H06/H07：已有 route/fake-SDK 合约证据保留；真实供应商 SDK/账号、付费调用未执行。H03 的大结构决策不擅自定案，工具区继续沿既有右侧规范。
 - K01/K02：最终依赖/bus/wasm32 闸门通过；Kernel/agent-core 零实现修改，未确认新内核缺陷，不激活 K02。wasm32-wasip2 target 未安装，明确跳过。

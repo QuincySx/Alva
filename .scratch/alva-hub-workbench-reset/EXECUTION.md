@@ -1,5 +1,13 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 修复 · H09/H15 ALVA 启动期 Stop 与真实终态
+
+- 每轮 ALVA 使用独立取消 token；尚无 BaseAgent 时也接受 cancel，factory/MCP 组装与取消/consumer 关闭竞争，丢弃 pending build 后不再调用模型。运行期 stream 被丢弃也会取消永远 pending 的模型，drain/flush 后释放 running；同一会话 resume 使用新 token，正常 SessionStarted 仍在真实组装完成后产生。
+- Hub 原生 SessionStarted 前 Stop 会 abandon claim；此前无 Completed EOF 被误结算成功，现明确 Failed/Other 且不启动已授权 fallback。使用真实私有 SQLite 重开验证终态与一次取消事实；未改 store schema、kernel/agent-core 或 runtime event 合约。
+- 当前窗口提交的 ALVA 对话收到匹配的 user_message 后即可 Stop，外来 worker/run_token 不抢身份；ack 不清掉 Stop，实际 terminal 才清理。其他 engine 仍等 running；未扩展恢复的启动期会话控制，不改布局/外观/动效。
+- **5 条新回归先红后绿**：adapter 3、产品 run seam 1、App 1。完整复跑 **341 Rust passed**（51 Hub core、35 ALVA adapter、239 Desktop lib / 4 精确真实账号 filtered、4 bin、12 HTTP）与 **210 UI / 20 files**；TypeScript/Vite build、Desktop/server all-target check、diff check、公开符号快照、依赖/bus/wasm32-unknown-unknown/full host link 全通过。wasm32-wasip2 缺 target 明确跳过；85 protocol/323 app-core 是前批证据，本轮未复跑。
+- 无真实账号、付费模型、用户 MCP 服务调用或新增依赖；原生 AX/视觉/性能验收保持暂缓。同步三层文档与 ACCEPTANCE，保留用户 CONTEXT.md/不相关文件，仅本地提交，不 push。
+
 ## 2026-10-02 修复 · H17 MCP 生命周期与模板工具限制
 
 - 用户“修复”后复查已有 MCP 管线：protocol client 与 app harness 的同 config 重复注册不再清掉连接；实际配置改变仍替换。protocol 握手/目录发现共用 timeout，目录失败进入 Failed；两层 connect 被取消均回到无连接状态，不残留 Connecting。

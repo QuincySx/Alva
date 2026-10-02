@@ -1028,7 +1028,7 @@ describe("App integration", () => {
 
     expect(screen.queryByText("worker prompt")).not.toBeInTheDocument();
     expect((await screen.findAllByText("lead prompt")).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole("button", { name: "Starting engine" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop current run" })).toBeEnabled();
 
     act(() => {
       bridge.listeners.forEach((callback) =>
@@ -1079,6 +1079,48 @@ describe("App integration", () => {
         failed: false,
       });
     });
+  });
+
+  it("allows Stop during correlated ALVA startup and waits for the terminal event", async () => {
+    const user = userEvent.setup();
+    let finishRun!: (outcome: { product_session_id: string; result: null; failed: boolean }) => void;
+    bridge.fns.runHubPrompt.mockImplementationOnce(() => new Promise((resolve) => { finishRun = resolve; }));
+    bridge.fns.stopHubAttempt.mockResolvedValueOnce(undefined);
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "New conversation" }));
+    await user.type(screen.getByLabelText("Message"), "slow MCP startup");
+    await user.click(screen.getByRole("button", { name: "Run with alva" }));
+    const runToken = bridge.fns.runHubPrompt.mock.calls[0][2] as string;
+    expect(screen.getByRole("button", { name: "Starting engine" })).toBeDisabled();
+    act(() => {
+      for (const listener of bridge.listeners) listener({
+        product_session_id: "worker", status: "user_message", engine_id: "alva",
+        message: "background work", item_id: "worker:user", run_token: "foreign-run",
+      });
+    });
+    expect(screen.getByRole("button", { name: "Starting engine" })).toBeDisabled();
+    act(() => {
+      for (const listener of bridge.listeners) listener({
+        product_session_id: "ps-startup", status: "user_message", engine_id: "alva",
+        message: "slow MCP startup", item_id: "startup:user", run_token: runToken,
+      });
+    });
+    await user.click(await screen.findByRole("button", { name: "Stop current run" }));
+    expect(bridge.fns.stopHubAttempt).toHaveBeenCalledWith("ps-startup");
+    expect(screen.getByRole("button", { name: "Stop current run" })).toBeEnabled();
+    act(() => {
+      for (const listener of bridge.listeners) listener({
+        product_session_id: "ps-startup", status: "failed", engine_id: "alva",
+        message: "Hub turn stopped before completion", item_id: "startup-attempt", run_token: runToken,
+      });
+    });
+    expect(screen.getByRole("button", { name: "Starting engine" })).toBeDisabled();
+    bridge.state.detail = {
+      ...detailFixture(),
+      session: { ...detailFixture().session, product_session_id: "ps-startup", engine_id: "alva", active_branch_id: "b-alva", engine_session_id: null, status: "failed" },
+    };
+    await act(async () => finishRun({ product_session_id: "ps-startup", result: null, failed: true }));
+    expect(screen.queryByRole("button", { name: "Stop current run" })).toBeNull();
   });
 
   it("creates a team run on the selected worker engine", async () => {
