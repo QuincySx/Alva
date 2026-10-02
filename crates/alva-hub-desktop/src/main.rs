@@ -22,7 +22,7 @@ use alva_hub_desktop::{
     PermissionRouter, ProjectSummary, ProviderCatalog, ProviderDiagnosticResult, ProviderProfile,
     RunOutcome, RunRequest, SaveProviderProfile, CreateProviderProfile, SwitchOutcome, SystemProbe,
     TaskClaim,
-    TimelineEvent, TimelineStatus, WorktreeDiscoveryError, WorktreeInfo, WorkspaceBinding,
+    TimelineEvent, TimelineStatus, WorkspaceBinding,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -1507,9 +1507,9 @@ fn set_session_project(
 fn discover_project_worktrees(
     state: State<'_, DesktopState>,
     workspace_path: String,
-) -> Result<Result<Vec<WorktreeInfo>, WorktreeDiscoveryError>, String> {
+) -> Result<alva_hub_desktop::WorktreeDiscoveryReply, String> {
     let path = PathBuf::from(workspace_path);
-    Ok(discover_worktrees(&path, Some(&state.worktree_root)))
+    Ok(discover_worktrees(&path, Some(&state.worktree_root)).into())
 }
 
 #[tauri::command]

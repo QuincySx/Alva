@@ -69,7 +69,7 @@ pub use store::{
     StoredTimelineEvent, StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim,
     TeamRunDetail, TeamWorker, ToolContentChunk, ToolContentRef, TranscriptTurn, WorkerLifecycle, WorkerTask,
 };
-pub use worktree_discovery::{discover_worktrees, WorktreeDiscoveryError, WorktreeInfo};
+pub use worktree_discovery::{discover_worktrees, WorktreeDiscoveryError, WorktreeDiscoveryReply, WorktreeInfo};
 pub use workspace_files::{list_workspace_files, read_workspace_file, WorkspaceDirectory, WorkspaceEntry, WorkspacePreview};
 pub use workspace_git::{workspace_git_status, workspace_git_diff, GitDiffArea, GitFileStatus, WorkspaceGitStatus, WorkspaceGitDiff};
 pub use terminal::{TerminalManager, TerminalSnapshot};

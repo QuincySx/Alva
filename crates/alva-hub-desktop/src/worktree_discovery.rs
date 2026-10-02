@@ -1,5 +1,5 @@
 // INPUT:  a project workspace path
-// OUTPUT: read-only discovery of the repository's existing git worktrees
+// OUTPUT: read-only worktree discovery and unwrapped WorktreeDiscoveryReply IPC DTO
 // POS:    H05. Projects aggregate the worktrees the USER already has; this
 //         module only ever runs read-only git plumbing, never add/remove/
 //         prune/lock. Hub-managed worker worktrees (worktree.rs, hub/worker-*)
@@ -40,6 +40,21 @@ pub enum WorktreeDiscoveryError {
     /// project). The UI offers a repair path; discovery never guesses.
     MissingDirectory { path: String },
     Git { detail: String },
+}
+
+/// The IPC success body is an array or a structured product state, never a
+/// nested Rust Result's externally tagged {"Ok": ...}/{"Err": ...} envelope.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum WorktreeDiscoveryReply {
+    Worktrees(Vec<WorktreeInfo>),
+    State(WorktreeDiscoveryError),
+}
+
+impl From<Result<Vec<WorktreeInfo>, WorktreeDiscoveryError>> for WorktreeDiscoveryReply {
+    fn from(result: Result<Vec<WorktreeInfo>, WorktreeDiscoveryError>) -> Self {
+        match result { Ok(worktrees) => Self::Worktrees(worktrees), Err(state) => Self::State(state) }
+    }
 }
 
 impl WorktreeDiscoveryError {
@@ -338,5 +353,15 @@ mod tests {
         let missing = plain.path().join("does-not-exist");
         let error = discover_worktrees(&missing, None).unwrap_err();
         assert!(matches!(error, WorktreeDiscoveryError::MissingDirectory { .. }));
+    }
+
+    #[test]
+    fn ipc_reply_is_an_array_or_structured_state_without_result_wrapping() {
+        let success = WorktreeDiscoveryReply::from(Ok(Vec::new()));
+        assert_eq!(serde_json::to_value(success).unwrap(), serde_json::json!([]));
+        let missing = WorktreeDiscoveryReply::from(Err(WorktreeDiscoveryError::MissingDirectory { path: "/tmp/missing-fixture".into() }));
+        assert_eq!(serde_json::to_value(missing).unwrap(), serde_json::json!({ "code": "missing_directory", "path": "/tmp/missing-fixture" }));
+        let plain = WorktreeDiscoveryReply::from(Err(WorktreeDiscoveryError::NotGitRepository));
+        assert_eq!(serde_json::to_value(plain).unwrap(), serde_json::json!({ "code": "not_git_repository" }));
     }
 }

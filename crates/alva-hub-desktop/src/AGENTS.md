@@ -73,6 +73,7 @@
 | Workspace Git | `workspace_git.rs` | 当前 worktree 的只读 status/diff；NUL 路径解析、staged/unstaged/untracked 分离，敏感 rename 双端过滤；禁外部 diff/textconv/fsmonitor，10 秒/1 MiB status/2000 路径/256 KiB diff 限额 |
 | User terminal | `terminal.rs` | macOS/Linux 原生 PTY，显式用户启动；session+随机 handle 所有权，最多 4 个实例，256 KiB 输出；关闭回收 owned shell group/thread，先清进程组再 reap 防 PID 复用误杀；不属于 Agent 审批/命令日志 |
 | User browser | `user_browser.rs` | 独立临时原生窗口，session+随机 handle 绑定、最多 4 个；HTTP(S) 导航，拒绝特权来源/凭证 URL/弹窗/下载；普通应用 IPC 由 main 全局窗口身份守卫拒绝，core/plugin capability 仍仅 main |
+| Worktree discovery | `worktree_discovery.rs` | 已有工作树只读发现及数组/结构化 state 的 untagged IPC DTO；不得把嵌套 Result 的 Ok/Err 包装传给前端 |
 | Failure matrix | `failure.rs` | terminal 失败 FailureClass 稳定分类与 fallback 资格规则 |
 | Handoff filter | `redact.rs` | 跨 engine 敏感内容过滤与 adapter-private 元数据剥离 |
 | Resource claims | `claims.rs` | 共享工作区 ResourceClaim 冲突代数 |

@@ -1,5 +1,11 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 原生发现的缺陷 · Worktree IPC
+
+- 真实 Tauri 项目页将已有 Git 项目误报为 `Git 发现失败：undefined`。原因是 command 返回嵌套 `Result<Result<Vec<_>, State>, String>`，Tauri 成功 body 实为 `{"Ok":[...]}`，与 web 数组/state 契约不符；mock 直接返回数组所以未检出。
+- 改为 `WorktreeDiscoveryReply` untagged DTO；command 外层错误保留、产品 state 为带 code 对象，正常结果为数组。新增实际 serde JSON 边界回归，7 项 discovery 测试通过，Desktop/example build 通过。
+- 后续原生重验当前被 Orca Computer Use 的 macOS AX 读取错误阻塞（权限报告 granted，但无法读取窗口）。已请用户重新切换授权，不绕过权限、不声称全原生验收通过。
+
 ## 2026-10-02 自主迭代 · H18 安全原生验收入口
 
 - 新增 debug-only `--isolated-ui-data <absolute directory>`；主 WebView 使用 incognito，Hub store/provider/history/workspace 仅用指定目录。不读取共享/legacy Provider 配置，不探测真实账号，不恢复 worker；engine 执行、安装、账号操作与付费/发现请求在 invoke 边界拒绝。正常启动仍使用原 app-data。
