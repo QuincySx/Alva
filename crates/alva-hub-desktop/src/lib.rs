@@ -1,5 +1,5 @@
 // INPUT:  Hub Desktop engine, provider, workspace, run, store, and collaboration sub-modules
-// OUTPUT: engine/provider/workspace/Skills/automation/MCP, reference-first input files and durable orchestration APIs
+// OUTPUT: engine/provider/workspace/Skills/automation/MCP, root-bound product context/media Plugin recipe and durable orchestration APIs
 // POS:    Hub Desktop multi-engine library facade shared by Tauri IPC and product tests.
 
 mod alva;
@@ -8,6 +8,8 @@ pub mod engine_registry;
 mod engine_wiring;
 mod failure;
 mod inspection;
+mod hub_context;
+mod hub_media;
 mod mcp_diagnostics;
 pub mod permissions;
 mod provider_diagnostics;
@@ -28,7 +30,8 @@ mod terminal;
 mod user_browser;
 pub mod worktree_discovery;
 
-pub use alva::{build_engine, build_engine_for_target, build_engine_for_target_with_inspector, build_engine_for_target_with_settings};
+pub use alva::{build_engine, build_engine_for_target, build_engine_for_target_with_inspector, build_engine_for_target_with_settings, build_engine_for_target_with_context};
+pub use hub_context::HubContextPluginFactory;
 pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
 pub use engine_registry::{
     blueprint, register as register_engine_blueprint, registered_engine_ids, EngineBlueprint,

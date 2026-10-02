@@ -21,6 +21,7 @@
 9. `/api/sessions/:id/workspace/skills` GET/POST 复用共享 WorkspaceSkillsManager，blocking worker 中读目录/源文档或执行用户明确的创建/编辑/归档/恢复；不接受任意 workspace，不调用 engine。测试构造器显式关闭共享/legacy catalog 读取，只使用临时假配置。
 10. `/api/automations` GET/POST 复用共享 schema-21 CRUD/授权判断；只有 production main 在监听启动后运行 10 秒 pump，最多 4 并行，并沿同一个 execute_run/SSE/审批/Stop 通道认领执行。paused-first、不自动 fallback、不补跑，不另起领域状态机；HTTP fixture 不自动启动 pump。认领前拒绝不能消费另一活动 Attempt 的 stopping marker。
 11. `/api/run` 专用 64 MiB HTTP 请求上限，复用共享附件 validation（原字节 20 MiB/40 MiB/8 文件）和引用 prompt；其他 routes 不扩大 body 上限。`/api/sessions/:id/attachments/:attachment_id` 在 blocking worker 中按 session JOIN 读耐久 BLOB；缺失/越权 404，不接收宿主文件路径。live/history 仅引用及处理清单，媒体预览不自动成为模型输入；真实 HTTP 20 MiB 二进制边界回归使用本地替身。
+12. 认领后的 engine builder 传同一个 HubStore/product_session_id 给共同 ALVA Plugin 配方，覆盖分支恢复与 fallback；`hub_context` 检索本会话跨 engine 可见记录，`hub_media` 仅显式处理/选择并走现有审批与固定模型声明。其他 engine 不消费 ALVA Plugin；没有第二套 HTTP 检索数据库或媒体状态机，也未新增派生预览 endpoint。
 
 ## 约束
 - `/api/tool-settings` GET/POST 复用 schema-22 capability/MCP CRUD/revision；每轮固定 snapshot 注入共同 assembly。`/api/tool-settings/mcp-test` 确认后绑定已存 session cwd 做一次 stdio 测试与回收，无模型调用；不接受 arbitrary cwd、env/header。

@@ -1,5 +1,56 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Scoped product history and selected media — 2026-10-03
+
+Production Desktop/server ALVA roots now receive a Plugin recipe bound after
+Turn claim to the actual native session and the existing HubStore. `hub_context`
+searches this HubSession's saved visible user/assistant/tool/error records across
+branches/engines, grouped by Turn/Attempt; literal/time/type/identity filters,
+fixed high-water pagination, cross-fragment/chunk matches, source SHA and UTF-8
+excerpts are verified. It explicitly lists/reads uploaded text. Limits are 128
+logical sources/64 MiB scanned, 3 hits, 512-byte excerpts and 4 KiB responses.
+No duplicate history DB, global/other HubSession/Worker/parent scope, hidden
+reasoning or recovery of external CLI bodies never saved by the product.
+
+Schema 24 preserves original uploads and independently saves hashed media
+derivatives and delivery receipts. `hub_media` uses the installed fixed native
+decoder with explicit existing HITL, bounded original-byte read-only snapshots,
+clean environment/protocol/demuxer/output/time limits and kill/reap cancellation.
+Images/frames are lossy JPEG <=512px/256 KiB; 1–4 frames use uniform or requested
+times with actual decoded timestamps and reasons. Video transcode is silent,
+<=60s/720px/5fps/8 MiB; codec/range/metadata/color/fps losses are explicit.
+macOS memory protection is sampled 512 MiB RSS, not a hard OS sandbox; Linux
+2 GiB address-space limits are implemented but not exercised on this macOS host.
+
+Only an explicit selection of 1–2 derived JPEGs may enter one declared
+image-capable root model request, after normal projection/compaction. Originals,
+video/audio and unselected frames are not attached. Provenance includes hashes,
+method/version/dimensions/actual timestamps and the actual model/backend.
+The conversation retains references. Receipts distinguish prepared, attempted,
+response and unknown acceptance after errors/interruption; no automatic replay.
+Response is not proof of visual understanding. Byte caps are not exact provider
+multimodal-token budgets. Unknown image capability fails without submission.
+
+Current verification: **258 Desktop lib / 4 exact account tests filtered, 4 bin,
+43 ALVA adapter, 14 HTTP, 156 llm-wire = 475 passed**, including 12 new regressions;
+one existing llm-wire documentation example is ignored. Full serial Desktop
+suite, real catalog factory/normal AllowOnce/model-request fixtures and local
+ffmpeg 9.0.2 synthetic image/video processing passed. No user media/accounts or
+paid provider calls. Desktop/server all-target check passes with 29 existing
+warnings; new-file rustfmt/diff check/public snapshots/dependency/bus/
+wasm32-unknown-unknown/full host-link gates pass. wasip2 target is unavailable
+and explicitly skipped. Only the four named `real_claude`/`real_codex` account
+integrations are filtered; synthetic `real_alva` regressions are run.
+
+UI/Chrome/native AX/visual/performance evidence was not renewed. Dedicated
+derived-media preview API/UI, real-provider media acceptance, audio transcription,
+scene detection, schema JSON-path retrieval, exact multimodal budgeting and
+external-engine loop policies remain pending. Three-layer docs and ADR-0011
+record this boundary; kernel/agent-core and public SDK contracts are unchanged.
+Only cached workspace dependencies are reused. User CONTEXT.md/unrelated files
+are preserved; no downloads, external MCP calls or publication. Prior evidence
+below remains historical, not renewed by this backend iteration.
+
 ## Recursive ALVA context policy and authority — 2026-10-03
 
 App-core `agent` children now bind the product reference-first policy to their

@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use alva_engine_runtime::{EngineRuntime, PermissionDecision};
 use alva_hub_core::{HubRuntime, ProductSessionId};
 use alva_hub_desktop::{
-    build_engine_for_target_with_settings, create_managed_session_workspace,
+    build_engine_for_target_with_context, create_managed_session_workspace,
     diagnose_provider_inference, discover_provider_models, discover_worktrees,
     permission_eligibility, probe_readiness, run_persisted_with_input_attachments, EngineEligibility,
     EngineReadiness, EngineTarget, FallbackPolicy, HubInspectionSnapshot, HubInspectorService,
@@ -273,11 +273,12 @@ async fn execute_session_run(
         .is_autonomous_scope(&session_key)
         .unwrap_or(false);
     let attachment_store = state.store.clone();
+    let context_store = state.store.clone();
     let outcome = run_persisted_with_input_attachments(
         &state.store,
         move |target, product_session_id, permission_profile| {
             let provider_config = build_providers.resolve_target(target, &workspace)?;
-            let engine = build_engine_for_target_with_settings(
+            let engine = build_engine_for_target_with_context(
                 target,
                 provider_config,
                 permission_profile,
@@ -285,6 +286,8 @@ async fn execute_session_run(
                 &history_dir,
                 &inspector,
                 &tool_settings,
+                &context_store,
+                product_session_id,
             )?;
             // The engine is registered into the run seam's own HubRuntime
             // (published via the active_hubs sink); keep a run-scoped clone

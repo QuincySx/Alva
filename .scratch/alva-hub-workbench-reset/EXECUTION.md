@@ -1,5 +1,14 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-03 继续 · 产品历史检索与真实媒体处理/选中投递
+
+- Desktop/server 在 Turn 认领后，以现有 HubStore/实际 native root 装配 SessionPluginFactory；hub_context 检索当前 HubSession 已保存的跨 branch/engine 可见 user/assistant/tool/error，按 Turn/Attempt/engine/status 分组，含失败原因/时间/ID 筛选。五来源固定高水位、跨 message 片段/tool 块、源 SHA、有界 UTF-8 读取；128 逻辑来源/64 MiB scan、3 命中、512-byte excerpt、4 KiB response。文件列表只读索引，文字附件须显式查询原 BLOB；无全局/其他产品会话/Worker/父 scope、hidden reasoning 或外部 CLI 未落盘全文。
+- schema 24 保存独立派生媒体与 receipt，原附件清单/字节不改。hub_media 接真实 SecurityGuard HITL；固定安装的 ffmpeg/ffprobe、清环境、限定协议/demuxer、no-follow owner-only 只读 FD 快照、2 job 并发/时间/输出预算、取消 kill/reap。图/帧 512px/256 KiB JPEG；1–4 均匀或指定帧保存请求/实际 pts_time/理由；静音视频前最多 60s/720px/5fps/8 MiB，明确 codec/帧率/范围/元数据/颜色损失。Mac 512 MiB RSS 每 50ms sampled 不是硬沙箱；Linux 2 GiB AS 仅实现未在本机验收。
+- 只有显式选择的 1–2 派生 JPEG，在声明 images/vision 的 route 的一次请求副本中进入模型；原视频/音频/其他帧不发送，conversation 仍为引用。provenance 带源/产物 SHA、版本/尺寸/真实帧点与实际 model/backend；receipt 区分 prepared/attempted/response/unknown，正常终态及重启都不重放，响应不冒充视觉理解。字节上限不冒充 provider 精确多模态 token 上限。
+- **475 passed：258 Desktop lib / 4 精确真实账号 filtered、4 bin、43 adapter、14 HTTP、156 llm-wire**，含 12 新回归；一个既有 llm-wire 文档例子 ignored。完整串行 Desktop/真实 catalog+AllowOnce/模型替身验证零自动图→只选中图/provenance→成功/错误 receipts→下一次零重放；本机 ffmpeg 9.0.2 合成图/视频实际解码验证时间点/codec/损失/原件/越权/取消/缺工具/损坏/23→24 迁移与重启。无真实账户/计费/用户媒体调用。
+- all-target check（29 既有 warnings）、new-file rustfmt/diff check/public snapshots/依赖/bus/wasm32-unknown-unknown/full host link 全通过；wasip2 未安装显式 skipped。首轮 compile/fixture/Mac RLIMIT_AS EINVAL 修正按实际 API/pts_time/RSS 能力处理，不放宽 SDK/生产迁移闸门。新增代码/公开应用桥同步三层文档，依据 domain-modeling 更新已接受 ADR 的实际范围；未改 kernel/agent-core/CI allowlist，缓存依赖复用，无安装、用户 MCP 或 push。
+- 当前未续验 UI/Chrome/原生 AX/视觉/性能；派生媒体专门预览 API/UI、真实 provider 媒体验收、音频转录/场景检测、schema JSON-path、精确多模态预算及外部 engine 工具循环策略仍待实施。用户 CONTEXT.md/不相关目录保持。下列记录是历史，不迁移为本批验收。
+
 ## 2026-10-03 继续 · 递归子 Agent 的引用策略和直接父权限
 
 - app-core 新增 optional SpawnContextPolicy（初始化注册、bus lint max surface 2），产品 Plugin 按 repository 创建的实际 child ID 重绑自有 reader/首个 assembly hook/middleware/短提示；不依赖 engine、不给 kernel/agent-core 加政策。child/孙 scope ID 与 native session ID 不混用；空 host whitelist 仍可读自己的有界记录，不授予父历史/文件/Shell/MCP。

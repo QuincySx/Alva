@@ -1,5 +1,5 @@
 // INPUT: Native SessionRepository, Plugin registrar, middleware/ContextHooks, app-level SpawnContextPolicy
-// OUTPUT: ContextRetrievalPlugin and a session-bound context_retrieval tool
+// OUTPUT: ContextRetrievalPlugin, session-bound context_retrieval tool and visible_context_tool_text
 // POS: Hub ALVA reference-first model projection and bounded durable-history retrieval without SDK policy changes.
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -392,6 +392,18 @@ fn exclude_mcp_media(value: &mut Value) {
         }
         Value::Array(values) => values.iter_mut().for_each(exclude_mcp_media),
         _ => {}
+    }
+}
+
+/// Text retrieval view for structured tool documents. Typed media/blob/data-URI
+/// bytes are excluded; ordinary opaque text is neither decoded nor analyzed.
+pub fn visible_context_tool_text(text: &str) -> String {
+    match serde_json::from_str::<Value>(text) {
+        Ok(mut value) => {
+            exclude_mcp_media(&mut value);
+            value.to_string()
+        }
+        Err(_) => text.to_string(),
     }
 }
 

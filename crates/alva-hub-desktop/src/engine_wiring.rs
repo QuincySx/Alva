@@ -8,6 +8,7 @@
 //         else.
 //         ALVA's factory, adapter and Inspector share one native repository,
 //         including reference-first projection and session history retrieval.
+//         A claimed-session recipe adds root-bound product history/media Plugins.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -235,6 +236,7 @@ fn build_alva_engine(
     config: ProviderConfig,
     repository: Option<SessionRepository>,
     tool_settings: Option<&crate::HubToolSettings>,
+    session_plugins: Option<Arc<dyn alva_engine_adapter_alva::SessionPluginFactory>>,
 ) -> Result<Arc<dyn EngineRuntime>, String> {
     if config.api_key.is_empty() {
         return Err("no Alva provider API key configured".into());
@@ -259,6 +261,10 @@ fn build_alva_engine(
         None => SessionRepository::open(history_dir.join("alva-agent-records.db"))?,
     };
     let factory = factory.with_context_repository(repository.clone());
+    let factory = match session_plugins {
+        Some(plugins) => factory.with_session_plugins(plugins),
+        None => factory,
+    };
     Ok(Arc::new(
         AlvaAdapter::new(Arc::new(factory)).with_session_repository(repository),
     ))
@@ -358,6 +364,7 @@ pub fn builtin_blueprints() -> Vec<EngineBlueprint> {
                     provider_config,
                     args.repository.clone(),
                     args.tool_settings,
+                    args.session_plugins.clone(),
                 )
             }),
         },

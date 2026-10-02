@@ -16,6 +16,7 @@
 8. 每轮独立 cancellation token：`cancel()` 在 BaseAgent 尚未组装完成时也可取消；消费者丢弃 stream 会中断 pending factory/MCP 组装，不在后台继续调用模型。运行期取消/consumer 关闭转交已启动的 BaseAgent 并 drain 到真实终态/flush 后释放 running，resume 不继承前一轮取消；`respond_permission()` 仍路由对应 BaseAgent，修改 tool input 尚不支持。
 9. adapter 从 `alva-app-core::session_projection` 重导出 `build_run_record` / `RunRecord`，供 L7 Hub 在不绕过 adapter 依赖边界的前提下投影稳定 Inspector DTO。
 10. `with_context_repository` 使用 adapter/Inspector 的同一个 authority，为当前 native session 注入 `ContextRetrievalPlugin`：普通结果 >4 KiB、任何 ToolContent 图片、MCP 调用结果只向模型投影引用，记录/事件/error 原样保留；优先级在现有压缩之前。模型检索固定 session、128 records/64 MiB scan、20 hits/100-byte previews、2 KiB UTF-8 reads/16 KiB response；缺失/损坏明确失败，reasoning/typed media bytes 不暴露。compaction 引用验证来源而不层层套引用；重复 call ID 不串源，重启可读。
+11. `SessionPluginFactory` 是显式产品配方：每个实际 native root ID 创建 Plugin；Hub 经它绑定已认领的 HubStore/session，补跨 branch 可见历史与按需媒体。契约/Middleware 类型从此 app adapter 重导出，不给 SDK 增加业务能力，也不自动将根产品数据授权给递归子树。`visible_context_tool_text` 复用 typed 媒体字节排除规则。
 
 ## 约束
 - 不得构造裸 `AgentState` 或直接调用 `run_agent`；必须通过 BaseAgent factory。
@@ -29,7 +30,7 @@
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
 | AlvaAdapter | adapter.rs | EngineRuntime + EngineInspector：session 生命周期、审批路由、typed snapshot/live tail |
-| BaseAgentFactory / BuiltAgent | factory.rs | 每 session 组装；Catalog vs Default 两档 |
+| BaseAgentFactory / SessionPluginFactory / BuiltAgent | factory.rs | 每 session 组装；Catalog vs Default 两档，显式 root 产品 Plugin 配方 |
 | SessionRepository | session_repository.rs | engine-native SQLite records、atomic batch/脏修复、resume/live tail 与固定会话有界检索/引用来源校验 |
 | ContextRetrievalPlugin | context_retrieval.rs | 通用结果/MCP 媒体引用、固定会话耐久历史检索；递归子会话重新绑定与 assembly fail-closed，真实父/子/孙隔离和重启回归 |
 | EventMapper | mapping.rs | AgentEvent → RuntimeEvent；Completed 聚合最后一条助手消息的全部文本块；ToolEnd 保留真实执行 duration |

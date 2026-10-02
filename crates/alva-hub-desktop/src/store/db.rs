@@ -1,5 +1,5 @@
 // INPUT:  connection/schema/file-path primitives
-// OUTPUT: schema initialization/migration, instance lock, private files, attempt crash repair and no-replay schedule recovery
+// OUTPUT: schema initialization/migration, instance lock, private files, attempt repair and no-replay schedule/media-receipt recovery
 // POS:    storage kernel of the Hub store — owns Connection + file security + repair.
 
 use std::fs::{self, File, OpenOptions};
@@ -459,6 +459,19 @@ pub(super) fn initialize_schema_and_recover(
     }
     // No replay of missed ticks. An interrupted execution requires explicit
     // re-authorization; an idle enabled schedule waits one full interval.
+    if schema_version < 24 {
+        transaction.execute_batch("CREATE TABLE media_artifacts (
+            artifact_id TEXT PRIMARY KEY, attachment_id TEXT NOT NULL REFERENCES input_attachments(attachment_id),
+            body BLOB NOT NULL, content_type TEXT NOT NULL, relative_path TEXT NOT NULL,
+            processing_json TEXT NOT NULL, created_at INTEGER NOT NULL
+        ); CREATE INDEX media_artifacts_source ON media_artifacts(attachment_id);
+        CREATE TABLE media_deliveries (
+            delivery_id TEXT PRIMARY KEY, product_session_id TEXT NOT NULL REFERENCES hub_sessions(product_session_id),
+            native_session_id TEXT NOT NULL, tool_call_id TEXT NOT NULL, selection_json TEXT NOT NULL,
+            status TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );").map_err(|_| "migrate Hub media artifacts")?;
+    }
+    transaction.execute("UPDATE media_deliveries SET status=CASE WHEN status='submitted' THEN 'interrupted_unknown' ELSE 'not_submitted_interrupted' END,updated_at=?1 WHERE status IN ('submitted','prepared')",[now]).map_err(|_| "repair media delivery receipts")?;
     transaction.execute(
         "UPDATE automations SET enabled = 0, next_run_at = NULL,
              running_turn_id = NULL, last_status = 'interrupted',

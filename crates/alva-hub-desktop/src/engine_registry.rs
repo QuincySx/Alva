@@ -1,5 +1,5 @@
 // INPUT:  alva_engine_runtime::EngineDescriptor, crate::permissions, crate::readiness
-// OUTPUT: EngineBlueprint, register, blueprint, registered_engine_ids, enforcement_for
+// OUTPUT: EngineBlueprint, EngineBuildArgs (including optional session Plugin recipe), register, blueprint and enforcement_for
 // POS:    The dynamic engine registry (ticket 17). Every engine — builtin or
 //         registered later — declares ONE blueprint: its self-description, its
 //         readiness spec, its probe/veto/enforcement/build closures. The
@@ -29,6 +29,7 @@ pub struct EngineBuildArgs<'a> {
     pub history_dir: &'a Path,
     pub repository: Option<alva_engine_adapter_alva::SessionRepository>,
     pub tool_settings: Option<&'a crate::HubToolSettings>,
+    pub session_plugins: Option<Arc<dyn alva_engine_adapter_alva::SessionPluginFactory>>,
 }
 
 type ProbeFn = dyn Fn(&SystemProbe) -> EngineProbeFacts + Send + Sync;

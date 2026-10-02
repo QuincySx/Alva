@@ -30,6 +30,11 @@ mod team;
 mod tool_content;
 mod message_journal;
 mod input_attachments;
+mod context_history;
+pub(crate) use context_history::ContextRequest;
+mod media;
+pub(crate) use media::{MediaArtifact, MediaSource};
+pub(crate) use media::sha as media_sha;
 mod turn;
 
 pub use branch::{
@@ -56,7 +61,7 @@ pub use turn::{
     StoredTurn, StoredUsage,
 };
 
-pub(crate) const SCHEMA_VERSION: i64 = 23;
+pub(crate) const SCHEMA_VERSION: i64 = 24;
 pub(crate) const STATUS_RUNNING: &str = "running";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_FAILED: &str = "failed";

@@ -96,9 +96,9 @@ check_no_workspace_deps "alva-hub-cli" "alva-agent-abi|alva-app-core|alva-engine
 # drifted path normalizer means two workers writing the same file are judged
 # non-conflicting. It is a foundational ABI crate already present
 # transitively (via alva-llm-provider); this only makes the use explicit.
-# alva-agent-security is used only for SensitivePathFilter by Files/Text,
-# Git, workspace Skills and uploaded attachment names. This is a product-owned filesystem
-# boundary, not engine assembly or a new SDK feature; Rule 17 still forbids
+# alva-agent-security supplies SensitivePathFilter for Files/Text, Git, Skills
+# and attachment names, plus existing SecurityGuard HITL registration for the
+# explicit root-bound product media Plugin (no new safety policy in SDK). Rule 17 forbids
 # any reverse SDK -> product dependency.
 # alva-protocol-skill contributes only its canonical SKILL.md parser to the
 # workspace Skills editor; filesystem permissions and mutations stay in L7.

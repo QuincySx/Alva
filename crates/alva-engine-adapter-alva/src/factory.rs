@@ -1,11 +1,11 @@
 // INPUT:  app-core BaseAgent/catalog/paths/Approval/MCP plugins, RuntimeRequest, LanguageModel
-// OUTPUT: BaseAgentFactory, BuiltAgent, DefaultBaseAgentFactory, CatalogBaseAgentFactory
-// POS:    Per-session harness assembly with Hub capability/MCP snapshots and optional shared-authority reference-first retrieval.
+// OUTPUT: BaseAgentFactory, SessionPluginFactory, BuiltAgent, DefaultBaseAgentFactory, CatalogBaseAgentFactory
+// POS:    Per-session harness assembly with Hub capability/MCP snapshots and explicitly root-bound product Plugins.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use alva_app_core::extension::ApprovalPlugin;
+use alva_app_core::extension::{ApprovalPlugin, Plugin};
 use alva_app_core::{
     components::{self, ComponentContext, ComponentToggles, SkillsDiscovery},
     AlvaPaths, ApprovalRequest, BaseAgent, BaseAgentBuilder, EngineError,
@@ -32,6 +32,13 @@ pub trait BaseAgentFactory: Send + Sync {
         request: &RuntimeRequest,
         session: Arc<dyn AgentSession>,
     ) -> Result<BuiltAgent, EngineError>;
+}
+
+/// Product-owned Plugin recipe bound to the actual native root session.
+/// Unlike tools cloned for child scopes, its implementation must validate the
+/// execution session before exposing product history or artifacts.
+pub trait SessionPluginFactory: Send + Sync {
+    fn create(&self, native_session_id: &str) -> Box<dyn Plugin>;
 }
 
 /// Minimal factory input (chat + default plugins only — no tool catalog).
@@ -119,6 +126,7 @@ pub struct CatalogBaseAgentFactory {
     reasoning_effort: Option<alva_kernel_abi::ReasoningEffort>,
     managed_mcp: Option<Vec<alva_app_core::extension::skills::skill_domain::mcp::McpServerConfig>>,
     context_repository: Option<crate::SessionRepository>,
+    session_plugins: Option<Arc<dyn SessionPluginFactory>>,
 }
 
 impl CatalogBaseAgentFactory {
@@ -137,6 +145,7 @@ impl CatalogBaseAgentFactory {
             reasoning_effort: None,
             managed_mcp: None,
             context_repository: None,
+            session_plugins: None,
         }
     }
 
@@ -149,6 +158,13 @@ impl CatalogBaseAgentFactory {
     /// reference-first tool projection and session history retrieval.
     pub fn with_context_repository(mut self, repository: crate::SessionRepository) -> Self {
         self.context_repository = Some(repository);
+        self
+    }
+
+    /// Explicit product recipe; does not discover ambient plugins or grant
+    /// its root-only data access to recursive children.
+    pub fn with_session_plugins(mut self, plugins: Arc<dyn SessionPluginFactory>) -> Self {
+        self.session_plugins = Some(plugins);
         self
     }
 
@@ -254,6 +270,9 @@ impl BaseAgentFactory for CatalogBaseAgentFactory {
             builder = builder.plugin(Box::new(crate::context_retrieval::ContextRetrievalPlugin::new(
                 repository.clone(), session.session_id().to_string(),
             )));
+        }
+        if let Some(plugins) = &self.session_plugins {
+            builder = builder.plugin(plugins.create(session.session_id()));
         }
         let agent = builder.build(self.model.clone()).await?;
         agent.set_reasoning_effort(self.reasoning_effort).await;

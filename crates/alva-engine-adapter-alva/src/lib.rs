@@ -1,5 +1,5 @@
 // INPUT:  adapter, factory, context_retrieval, mapping, session_repository modules
-// OUTPUT: AlvaAdapter, BaseAgentFactory, ContextRetrievalPlugin, catalog/MCP DTOs, repository Inspector and run projection
+// OUTPUT: AlvaAdapter, root-bound SessionPluginFactory/Plugin/Middleware contracts, ContextRetrievalPlugin, catalog/MCP DTOs and repository Inspector
 // POS:    Canonical app-layer Alva engine adapter that builds complete BaseAgent sessions for Hub.
 
 mod adapter;
@@ -9,13 +9,18 @@ mod mapping;
 mod session_repository;
 
 pub use adapter::AlvaAdapter;
-pub use context_retrieval::ContextRetrievalPlugin;
+pub use context_retrieval::{visible_context_tool_text, ContextRetrievalPlugin};
+pub use alva_app_core::extension::{LateContext, Plugin, Registrar};
+pub use alva_kernel_core::{
+    middleware::{LlmCallFn, Middleware, MiddlewareError, MiddlewarePriority},
+    AgentState,
+};
 pub use adapter::{AGENT_STOPPED_PRODUCING_EVENTS, SESSION_REMOVED_WHILE_STARTING};
 pub use alva_app_core::session_projection::{build_run_record, RunRecord};
 pub use alva_app_core::components::{ComponentToggles, COMPONENTS};
 pub use alva_app_core::extension::skills::skill_domain::mcp::{McpServerConfig, McpTransportConfig};
 pub use factory::{
     BaseAgentFactory, BuiltAgent, CatalogBaseAgentFactory, DefaultBaseAgentFactory,
-    DefaultBaseAgentFactoryConfig,
+    DefaultBaseAgentFactoryConfig, SessionPluginFactory,
 };
 pub use session_repository::{RepositoryInspector, SessionRepository, SqliteAgentSession};

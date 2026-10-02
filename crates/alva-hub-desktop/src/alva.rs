@@ -1,5 +1,5 @@
-// INPUT:  Alva/Claude/Codex/Pi engine adapters, alva_engine_runtime, alva_llm_provider, permissions
-// OUTPUT: route/profile-aware assembly with shared Inspector repository and persisted ALVA capability snapshot
+// INPUT:  engine adapters, provider/profile route, claimed HubSession/HubStore and Inspector authority
+// OUTPUT: route/profile-aware assembly with ALVA capability snapshot and root-bound product context/media Plugin recipe
 // POS:    Hub Desktop engine assembly; adapters stay behind EngineRuntime and
 //         are always configured from the session permission profile.
 
@@ -63,6 +63,7 @@ pub fn build_engine_for_target(
         history_dir,
         None,
         None,
+        None,
     )
 }
 
@@ -85,6 +86,7 @@ pub fn build_engine_for_target_with_inspector(
         history_dir,
         Some(inspector.repository()),
         None,
+        None,
     )
 }
 
@@ -106,6 +108,35 @@ pub fn build_engine_for_target_with_settings(
         history_dir,
         Some(inspector.repository()),
         Some(settings),
+        None,
+    )
+}
+
+/// Product-owned context for the already claimed HubSession. Other engines
+/// ignore this ALVA Plugin recipe; no workspace/global history is scanned.
+pub fn build_engine_for_target_with_context(
+    target: &EngineTarget,
+    provider_config: Option<ProviderConfig>,
+    profile: PermissionProfile,
+    workspace: &Path,
+    history_dir: &Path,
+    inspector: &HubInspectorService,
+    settings: &crate::HubToolSettings,
+    store: &crate::HubStore,
+    product_session_id: &str,
+) -> Result<Arc<dyn EngineRuntime>, String> {
+    let image_capability = target
+        .required_capabilities
+        .iter()
+        .any(|capability| capability == "images" || capability == "vision");
+    let plugins = crate::hub_context::HubContextPluginFactory::new(
+        store.clone(), product_session_id.into(),
+    ).with_media_route(
+        image_capability, format!("{}/{}", target.provider_id, target.model_id),
+    );
+    build_engine_for_target_with_repository(
+        target, provider_config, profile, workspace, history_dir,
+        Some(inspector.repository()), Some(settings), Some(Arc::new(plugins)),
     )
 }
 
@@ -117,6 +148,7 @@ fn build_engine_for_target_with_repository(
     history_dir: &Path,
     repository: Option<SessionRepository>,
     tool_settings: Option<&crate::HubToolSettings>,
+    session_plugins: Option<Arc<dyn alva_engine_adapter_alva::SessionPluginFactory>>,
 ) -> Result<Arc<dyn EngineRuntime>, String> {
     let engine_id = target.engine_id.as_str();
     let plan = enforcement_for(engine_id, profile)?;
@@ -128,6 +160,7 @@ fn build_engine_for_target_with_repository(
         history_dir,
         repository,
         tool_settings,
+        session_plugins,
     };
     match crate::engine_registry::blueprint(engine_id) {
         Some(entry) => (entry.build)(&args),

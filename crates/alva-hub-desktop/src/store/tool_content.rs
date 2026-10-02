@@ -173,7 +173,7 @@ mod tests {
         // Only this disposable fixture is rewound to the actual v18 schema.
         connection
             .execute_batch(
-                "DROP TABLE input_attachments; DROP TABLE tool_content_chunks; DROP TABLE tool_contents; DROP TABLE message_journal; DROP TABLE automations; DROP TABLE tool_settings; PRAGMA user_version=18;",
+                "DROP TABLE media_deliveries; DROP TABLE media_artifacts; DROP TABLE input_attachments; DROP TABLE tool_content_chunks; DROP TABLE tool_contents; DROP TABLE message_journal; DROP TABLE automations; DROP TABLE tool_settings; PRAGMA user_version=18;",
             )
             .unwrap();
         drop(connection);

@@ -20,6 +20,12 @@ follow this rule. App-core recursive children now rebind this policy to their
 own actual durable session, before communication assembly and provider calls;
 they cannot regain removed root tools or read parent history. The optional
 inheritance contract remains in the app layer, not kernel/agent-core. Other
-engines' own tool loops, cross-engine product history and actual media-derived
-operations remain outside this delivery. The tracked acceptance plan is
+engines' own tool loops remain outside this delivery. The claimed HubSession now
+adds a root-bound product Plugin for cross-branch visible history and uploaded
+text retrieval, without global/Worker/parent access. Explicit native media tools
+create separately hashed derivatives; only selected bounded JPEGs enter one
+declared image-capable model request, with durable receipts and no auto-replay.
+Processing, attempted submission, provider response and understanding are not
+interchangeable evidence. Video/audio originals are not attached automatically.
+The tracked acceptance plan and remaining scope are in
 [ALVA-HUB-CONTEXT-RETRIEVAL.md](../ALVA-HUB-CONTEXT-RETRIEVAL.md).

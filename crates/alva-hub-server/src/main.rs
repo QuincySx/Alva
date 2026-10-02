@@ -23,7 +23,7 @@ use tracing::{info, warn};
 
 use alva_hub_core::ProductSessionId;
 use alva_hub_desktop::{
-    build_engine_for_target_with_settings, permission_eligibility, probe_readiness,
+    build_engine_for_target_with_context, permission_eligibility, probe_readiness,
     run_persisted_with_input_attachments, ActiveHubs, EngineTarget, HubInspectorService, HubStore,
     PermissionProfile, ProviderCatalog, RunRequest, SaveProviderProfile, CreateProviderProfile,
     SystemProbe, TimelineEvent, TimelineStatus,
@@ -1090,6 +1090,7 @@ async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<
             let workspace = workspace.clone();
             let active_engines_for_build = active_engines_for_build_cloned.clone();
             let run_claimed = run_claimed.clone();
+            let context_store = state.store.clone();
             move |target, product_session_id, profile| {
                 run_claimed.store(true, std::sync::atomic::Ordering::SeqCst);
                 #[cfg(test)]
@@ -1105,7 +1106,7 @@ async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<
                         None
                     }
                 });
-                let engine = build_engine_for_target_with_settings(
+                let engine = build_engine_for_target_with_context(
                     target,
                     provider_config,
                     profile,
@@ -1113,6 +1114,8 @@ async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<
                     &history_dir,
                     &inspector,
                     &tool_settings,
+                    &context_store,
+                    product_session_id,
                 )?;
                 active_engines_for_build
                     .lock()

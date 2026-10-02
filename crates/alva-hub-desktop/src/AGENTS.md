@@ -15,7 +15,8 @@ ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，
 2.1. `session_workspace` 只在用户明确选择“独立会话”后，于 Desktop app-data 创建 owner-only 专属目录和受管标记；项目模式继续使用用户选择的 Workspace，受管目录不隐式清理。
 2.2. `workspace_skills` 只列出 session 已存 cwd 内的技能文件，复用协议 parser 与 capability-relative no-follow。生态源只读；新建/编辑仅 `.alva/skills/user`，不覆盖创建目标，保存需匹配源 revision；macOS/Linux 归档/恢复用原子 no-replace 移动，保留资源。已有 enable-list 的全局名字及未知字段保留，损坏/超限配置拒绝创建，不热改运行中 Agent。
 2.3. `store/automation` 持久化暂停优先的间隔配置与 revision；启用只能确认已展示的 branch/EngineTarget，路由变化需编辑后再授权。`run_persisted_with_automation` 与 resumed Turn 同事务认领，自动化不走 fallback、TeamRun 或独立自动审批。入口每 10 秒查询 due、最多 4 个并行；busy/missed tick 延后、成功后等完整间隔、失败/Stop 暂停。启动重置未执行的钟，中断执行暂停，不补跑；隔离 QA 可保存暂停配置但不能启用，pump 关闭。
-2.4. schema 23 Turn 附件保存原始 BLOB 与 session cwd 中的新副本，每文件 20 MiB/每 Turn 40 MiB/8 文件。`run_persisted_with_input_attachments` 仅给模型文件引用/处理清单，user_message 保留原始指令；保存失败使 Turn 明确失败。no-follow/create-new 不覆盖项目文件，类型是签名探测，当前未压缩/转码/抽帧/分析；Tauri/HTTP 预览以 session JOIN 校验归属。共同 `engine_wiring` 为 ALVA factory 接同一个 native repository：通用大结果/工具图片/MCP 调用结果投影引用、受管 MCP 单 gateway、固定 native session 的模型历史检索；递归 child 通过 app-level policy 重绑自有 reader/assembly/middleware，不读父历史、不恢复 root host 工具。UI/Inspector 原记录不变；外部 engine/跨 branch 产品检索未覆盖，详见 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md。
+2.4. schema 23 Turn 附件保存原始 BLOB 与 session cwd 中的新副本，每文件 20 MiB/每 Turn 40 MiB/8 文件。`run_persisted_with_input_attachments` 仅给模型文件引用/处理清单，user_message 保留原始指令；保存失败使 Turn 明确失败。no-follow/create-new 不覆盖项目文件，上传只做签名探测、不自动压缩/转码/抽帧/分析；Tauri/HTTP 预览以 session JOIN 校验归属。共同 `engine_wiring` 为 ALVA factory 接同一个 native repository：通用大结果/工具图片/MCP 调用结果投影引用、受管 MCP 单 gateway、固定 native session 检索；递归 child 通过 app-level policy 重绑自有 reader/assembly/middleware，不读父历史、不恢复 root host 工具。UI/Inspector 原记录不变。
+2.5. 认领后的 HubStore/native-root 配方提供 hub_context，检索当前产品会话已存跨 branch/engine 可见记录/失败原因，并显式读取文字附件；不扫全局/其他会话/Worker/父 scope。hub_media 使用固定安装 decoder、原始 BLOB 的只读 no-follow FD 快照、限额/取消与既有 HITL，schema 24 独立保存派生图/指定或均匀视频帧/短静音视频与处理清单。只有声明 image 能力的 route，显式选中的 1–2 派生 JPEG 才附于一次压缩后的模型请求副本；receipt 保存 actual model/backend/来源 hash/真实帧点和尝试/响应/未知接受状态，原件及 conversation 引用不变、不自动重放。非 OS 沙箱、无子 Agent 产品媒体授权，外部 engine 循环/派生预览 UI/真实 provider 验收未覆盖，详见 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md。
 3. `run` 创建或恢复 active branch 的 product/native session 映射；parked return 注入 delta，native resume 失效时原子升级完整 handoff 再 fresh 执行。
 4. SessionStarted/ToolEnd 增量落盘，Completed 原子提交 Attempt usage 与 Turn 终态；Alva adapter 的真实 ToolExecution duration 穿透到 side-effect evidence。
 5. 运行中 switch 持久化为 queued；终态或启动 crash repair 后再原子应用。
@@ -65,6 +66,8 @@ ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，
 |---|---|---|
 | Crate facade | `lib.rs` | 导出 run seam 与 DTO |
 | Engine assembly | `alva.rs` | 统一 ProviderConfig 到 ALVA、Claude Code、Codex、Pi 的 route-aware 安全装配 |
+| Product context Plugin | `hub_context.rs` | 已认领 HubSession/native-root 双绑定的跨 engine 可见历史与上传文本 Tool，真实 catalog 配方回归；子 Agent 不继承父产品数据授权 |
+| Selected media | `hub_media.rs` | 显式审批的 native 解码/有界 JPEG、指定或均匀抽帧、短 silent 视频转码；核验产物后只向一次模型请求附选中图与 provenance，receipt/error/取消/不重放回归 |
 | Inspector bridge | `inspection.rs` | 共享 native repository、session 树归属校验、RunRecord/raw durable record 稳定 DTO 投影；真实 SQLite flush/reopen 的递归与跨 Hub 隔离回归 |
 | Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、自动 fallback 循环、带产品时钟的事件投影与结果 |
 | Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
@@ -89,6 +92,7 @@ ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，
 | Tool content | `store/tool_content.rs` | 原子保存脱敏全文与 evidence 引用，UTF-8 分块、会话归属读取及回归 |
 | Input attachments | `store/input_attachments.rs` | schema 23 原字节/限额、私有 BLOB/会话文件副本、处理清单、仅引用 prompt 与归属预览；不执行媒体处理 |
 | Message journal | `store/message_journal.rs` | schema 20 耐久 assistant 文本，发送前保存、游标分页、attempt 终态对齐；旧 Turn 摘要继续作为无日志记录的兼容路径 |
+| Product history / media authority | `store/context_history.rs` / `store/media.rs` | 复用权威日志跨片段/块搜索与来源 SHA，schema 24 派生字节/文件、选择快照和私有投递 receipt，源文件不改 |
 | Local automations | `store/automation.rs` | schema 21 真实 CRUD、限额/乐观冲突、授权固定路由、原子认领和终态/restart 恢复；10 项无账号回归 |
 | ALVA tool settings | `store/tool_settings.rs` | schema 22 真实能力开关与 stdio MCP 暂停优先 CRUD、授权/revision 及运行 snapshot |
 | MCP diagnostics | `mcp_diagnostics.rs` | 最多 2 并发、已存 session cwd、revision/确认核对的单次握手/目录测试与回收，无模型调用 |

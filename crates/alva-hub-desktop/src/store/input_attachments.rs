@@ -295,7 +295,7 @@ impl HubStore {
     }
 }
 
-fn attachment_directory(root: &Path, folder: &str) -> Result<Dir, String> {
+pub(crate) fn attachment_directory(root: &Path, folder: &str) -> Result<Dir, String> {
     let relative = crate::workspace_files::relative_path(folder)?;
     if !crate::workspace_files::allowed_path(root, &relative) {
         return Err("Attachment folder is protected".into());
@@ -539,7 +539,7 @@ mod tests {
         store
             .lock()
             .unwrap()
-            .execute_batch("DROP TABLE input_attachments; PRAGMA user_version=22;")
+            .execute_batch("DROP TABLE media_deliveries; DROP TABLE media_artifacts; DROP TABLE input_attachments; PRAGMA user_version=22;")
             .unwrap();
         drop(store);
         let reopened = HubStore::open(path).unwrap();

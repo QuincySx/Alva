@@ -12,6 +12,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+async-trait = "0.1"
 alva-agent-security = { path = "../alva-agent-security" }
 cap-std = "3.4.5"
 cap-fs-ext = "3.4.5"
@@ -44,7 +45,7 @@ uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
 
 [dev-dependencies]
-async-trait = "0.1"
+alva-test = { path = "../alva-test" }
 futures-core = "0.3"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }

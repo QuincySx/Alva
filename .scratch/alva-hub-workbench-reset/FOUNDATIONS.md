@@ -14,10 +14,12 @@
 ## 边界
 
 - 附件属于 Turn，只传用户选择的字节，不接收服务端宿主路径。私有 BLOB 为权威副本，session cwd 中 `.alva/sessions/<id>/attachments/` 新建唯一副本供 Agent 按需搜索/读取；不覆盖项目原有文件。支持文本/图片/视频/其他二进制上传，HTTP 专用 body cap 64 MiB，不自动把媒体/正文送给模型。
-- 处理清单含原始哈希/大小/签名类型及明确的未压缩/转码/抽帧/分析说明；delivery_scope 仅本次 upload_prompt，不假称后续工具没有读过。Hub Desktop/server ALVA 的通用大结果引用、受管 MCP 单入口渐进目录和自有 native session 的模型历史检索已实现，app-core 递归子树同样重绑自有策略，不读父历史/恢复 root host 工具；外部 engine/跨 branch 产品历史与实际媒体处理/投递仍未覆盖，详见 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md。
+- 上传清单含原始哈希/大小/签名类型及明确的未压缩/转码/抽帧/分析说明；delivery_scope 仅本次 upload_prompt，不假称后续工具没有读过。后续媒体操作独立保存派生清单/receipt，不改原始清单。Hub Desktop/server ALVA 的通用大结果引用、受管 MCP 单入口渐进目录和自有 native session 检索已实现，app-core 递归子树同样重绑自有策略，不读父历史/恢复 root host 工具。
+- 当前产品 root ALVA 的 hub_context 可按 Turn/Attempt/branch/engine/时间检索此 HubSession 已存的跨 engine 可见历史（含失败原因），显式读取文字附件；不恢复未保存的 CLI 内部记录或其他产品会话。hub_media 提供受审批的图压缩、指定/均匀抽帧、静音视频转码、处理清单及选中派生图的单请求投递；原件不覆盖、未选中媒体不发送、receipt 区分准备/请求尝试/响应/未知接受状态。只覆盖受支持格式与声明 images/vision 的 root route，不冒充媒体语义分析、外部 engine 循环策略或子 Agent 媒体授权，详见 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md。
 - 消息模块是 Hub 呈现扩展，不是 Tool trait 的 UI 自述。生产者提供数据，Hub 决定展示；不运行消息中的 HTML/JS，不加载远端 renderer，不新增 kernel/agent-core/RuntimeEvent 词汇。
 - 模块协议为 `alva.display` version 1 的 JSON envelope；持久化来源仍为既有 assistant 文本/工具全文，不维护第二份消息日志。
 - 真实账户、图像生成服务、付费模型、远程第三方插件安装不在本轮自动执行范围。原生 WKWebView 完整验收仍按已记录的 AX 暂缓，不把 Chromium 等同于原生。
+- 派生媒体专门预览端点/UI、真实 provider 媒体验收、音频转录、场景检测、schema JSON-path 提取和精确多模态 token 预算仍待实施；本地 ffmpeg fixture/模型替身不是这些验收的替代。
 
 ## 验证
 
