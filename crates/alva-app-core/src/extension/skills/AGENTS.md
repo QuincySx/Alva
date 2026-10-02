@@ -12,6 +12,7 @@ alva-app-core 的 Skill 子系统，提供三级渐进式加载（元数据/指�
 - Skill 名称 kebab-case，最长 64 字符
 - Bundled Skill 不可卸载
 - AgentTemplateService 输出已注册的 provider-safe MCP alias，兼容显式 `mcp:server:tool`；不展开 wildcard 权限。
+- 声明 MCP set 后，即便服务离线/目录为空，allowed_tools 仍为显式空白名单，不降为 None 继承全部父工具；只有完全未声明 MCP/工具限制时才保持原继承语义。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |

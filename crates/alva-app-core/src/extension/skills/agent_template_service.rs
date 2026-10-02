@@ -181,10 +181,65 @@ impl AgentTemplateService {
             })
             .collect();
 
-        if mcp_tools.is_empty() {
-            None
-        } else {
-            Some(mcp_tools)
-        }
+        // A declared MCP set remains a whitelist even when discovery is
+        // unavailable. None would silently grant all parent tools instead.
+        Some(mcp_tools)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::extension::skills::{loader::SkillLoader, skill_fs::FsSkillRepository};
+
+    #[tokio::test]
+    async fn regression_unavailable_declared_mcp_tools_do_not_remove_the_whitelist() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = Arc::new(FsSkillRepository::new(
+            dir.path().join("bundled"),
+            dir.path().join("mbb"),
+            dir.path().join("user"),
+            dir.path().join("state.json"),
+        ));
+        let service = AgentTemplateService::new(
+            Arc::new(SkillStore::new(repo.clone())),
+            Arc::new(SkillInjector::new(SkillLoader::new(repo))),
+            Arc::new(McpManager::disconnected()),
+            GlobalSkillConfig::default(),
+        );
+        let mut template: AgentTemplate = serde_json::from_value(serde_json::json!({
+            "name":"fixture", "description":"Fixture", "system_prompt_base":"Fixture",
+        }))
+        .unwrap();
+        assert!(service
+            .instantiate(&template)
+            .await
+            .unwrap()
+            .allowed_tools
+            .is_none());
+        template.mcp_servers.include.push(McpServerConfig {
+            id: "offline".into(),
+            display_name: "Offline".into(),
+            transport: alva_protocol_mcp::types::McpTransportConfig::Stdio {
+                command: "/not-executed".into(),
+                args: vec![],
+                env: Default::default(),
+            },
+            auto_connect: false,
+            connect_timeout_secs: 1,
+        });
+        let instance = service.instantiate(&template).await.unwrap();
+        assert_eq!(instance.mcp_server_ids, vec!["offline"]);
+        assert_eq!(instance.allowed_tools, Some(vec![]));
+        // Explicit ordinary tools remain usable and legacy MCP exact names
+        // still resolve, even if discovery is unavailable.
+        template.allowed_tools = Some(vec!["read_file".into(), "mcp:offline:echo".into()]);
+        assert_eq!(
+            service.instantiate(&template).await.unwrap().allowed_tools,
+            Some(vec![
+                "read_file".into(),
+                crate::extension::mcp::tool_adapter::McpToolAdapter::tool_name("offline", "echo"),
+            ])
+        );
     }
 }

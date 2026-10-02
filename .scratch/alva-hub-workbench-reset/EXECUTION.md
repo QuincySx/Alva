@@ -1,5 +1,12 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 修复 · H17 MCP 生命周期与模板工具限制
+
+- 用户“修复”后复查已有 MCP 管线：protocol client 与 app harness 的同 config 重复注册不再清掉连接；实际配置改变仍替换。protocol 握手/目录发现共用 timeout，目录失败进入 Failed；两层 connect 被取消均回到无连接状态，不残留 Connecting。
+- protocol 查询依据 transport 存活过滤失效目录并可重新连接；正在执行 RPC 的 mutex 不阻塞状态/目录快照。两层 call_tool 在 transport 失效时直接拒绝；既有 harness 重连反例追加直接调用拒绝断言。AgentTemplate 声明 MCP set 但服务离线时保留 Some([])，不再用 None 放宽为继承全部父工具；显式普通工具和旧 exact MCP alias 兼容不变。
+- **8 条新回归先红后绿**：protocol 5 条、app-core 3 条；最终完整复跑 **694 Rust passed**（85 MCP protocol、323 app-core lib、32 ALVA adapter、238 Desktop lib / 4 精确真实账号 filtered、4 bin、12 HTTP）。Desktop/server all-target check、rustfmt、diff check、public symbol snapshot 与依赖/bus/wasm32-unknown-unknown/full host link 全通过；wasm32-wasip2 缺 target 仍明确跳过，现有 unused-item/Result warnings 未在本轮扩范围处理。
+- 没有 UI 代码改动，209 UI 与 TypeScript/Vite build 仍为前批证据，本轮不冒充重验；无真实账户、付费模型或用户 MCP 服务调用。更新分形目录约束与正式 ACCEPTANCE；kernel/agent-core 零实现修改，用户 CONTEXT.md/不相关文件保留，仅本地提交不 push。原生 AX/视觉验收及远程 MCP/auth、第三方插件安装等未完成项保持原状态。
+
 ## 2026-10-02 功能补全 · H17 ALVA 能力与真实 stdio MCP
 
 - 按用户“先把底层逻辑、业务逻辑、该有的 UI UX 补上，不管美观”继续：schema 22 私有持久化真实 catalog 的 10 组能力开关，安全/审批/超时/循环保护不可关闭；每轮 Desktop/HTTP 捕获 snapshot 经 blueprint 注入 ALVA，包含 fallback，其他 engine 不受影响，不热改当前 Agent。受管空 MCP 列表不回退外部配置，AEP ambient loader 关闭；工具开关不是安全沙箱，子 Agent 工具可能独立。

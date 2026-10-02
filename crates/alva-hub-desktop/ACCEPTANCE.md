@@ -44,7 +44,7 @@ bash scripts/public-surface.sh
 ```
 
 Results: **238 lib tests / 4 explicitly filtered real-account tests**,
-**4 bin tests**, **12 HTTP tests**, **80 MCP protocol tests**, **320 app-core
+**4 bin tests**, **12 HTTP tests**, **85 MCP protocol tests**, **323 app-core
 lib tests**, **32 ALVA adapter tests**, all-target check pass. The dependency
 firewall initially exposed the missing declaration of Desktop's direct
 SensitivePathFilter dependency; its single intended use was documented and
@@ -59,6 +59,8 @@ this work did not rename or migrate the separate native product entry.
 
 In `crates/alva-hub-desktop/web`: `npm test -- --reporter=dot` reports
 **209 tests / 20 files**, and `npm run build` passes TypeScript/Vite.
+These frontend results belong to the preceding feature delivery; the MCP
+corrective pass changed no UI code and did not rerun frontend or native QA.
 Existing React act/controlled-state, Rust unused-item and large-bundle
 warnings remain. This iteration made no real provider or paid SDK calls,
 installed no new runtime, and did not rerun a blocked one-off Playwright
@@ -141,6 +143,16 @@ external packages or accounts. Store/migration, real HTTP, actual ALVA catalog
 assembly/approval and seven UI regressions verify the functional pipeline.
 The included-plugin page is not a third-party AEP installer. Visual polish was
 explicitly deferred by the user; these tests are not native visual acceptance.
+
+The corrective pass adds eight regressions, each observed failing before its
+fix: identical MCP registration preserves live connections; changed configs
+replace them; discovery shares the handshake deadline and settles failures;
+cancelled discovery leaves no stale Connecting state. Protocol catalog/state
+snapshots exclude closed transports, calls reject them, and explicit reconnect
+restores service; busy RPC snapshots remain nonblocking. An existing harness
+regression additionally pins closed-transport call rejection. Templates with a
+declared but unavailable MCP set keep an explicit empty whitelist instead of
+silently inheriting all parent tools. No SDK kernel or agent-core code changed.
 
 ### Native evidence and deferred acceptance
 
