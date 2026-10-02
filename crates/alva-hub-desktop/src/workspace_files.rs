@@ -84,7 +84,7 @@ pub(crate) fn allowed_path(root: &Path, relative: &Path) -> bool {
     true
 }
 
-fn open_directory(root: &Path, relative: &Path) -> Result<Dir, String> {
+pub(crate) fn open_directory(root: &Path, relative: &Path) -> Result<Dir, String> {
     if !allowed_path(root, relative) {
         return Err("workspace path is protected".into());
     }

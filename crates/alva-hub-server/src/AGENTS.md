@@ -18,6 +18,7 @@
 6. `/api/sessions/:id/workspace/files?path=` 与 `/workspace/file?path=` 在 blocking worker 内调用共享只读文件服务；cwd 仅从 session 取，错误不泄露宿主路径，敏感文件和链接不可穿透。
 7. `/api/sessions/:id/workspace/git` 与 `/workspace/git/diff?path=&area=staged|unstaged|untracked` 调用共享有界 Git reader，HTTP 不接受任意 cwd，也不提供写入操作。
 8. `/api/sessions/:id/messages?after=&through=` 是会话隔离的 128 条消息页；through 固定一次追赶范围，after 边界重放一条用于终态更新，不是独立事件身份。前端按 message_position 去重，不将 SSE 丢包当不可恢复历史。
+9. `/api/sessions/:id/workspace/skills` GET/POST 复用共享 WorkspaceSkillsManager，blocking worker 中读目录/源文档或执行用户明确的创建/编辑/归档/恢复；不接受任意 workspace，不调用 engine。测试构造器显式关闭共享/legacy catalog 读取，只使用临时假配置。
 
 ## 约束
 
@@ -28,4 +29,4 @@
 
 | 名称 | 文件 | 职责 |
 |---|---|---|
-| HTTP service | `main.rs` | AppState、API/SSE routes、Inspector endpoint 与静态 fallback |
+| HTTP service | `main.rs` | AppState、API/SSE routes、Inspector/工作区 Skills endpoint、独立测试配置与静态 fallback |

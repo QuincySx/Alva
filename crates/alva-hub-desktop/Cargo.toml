@@ -23,6 +23,7 @@ alva-engine-runtime = { path = "../alva-engine-runtime" }
 alva-hub-core = { path = "../alva-hub-core" }
 alva-kernel-abi = { path = "../alva-kernel-abi" }
 alva-llm-provider = { path = "../alva-llm-provider" }
+alva-protocol-skill = { path = "../alva-protocol-skill" }
 reqwest = { version = "0.12", features = ["json"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

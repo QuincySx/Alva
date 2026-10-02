@@ -20,7 +20,7 @@ are local and unsigned (command-scoped signing override after the existing
 | H12 user browser | Explicit session-owned incognito native window; navigation/reload/history/close; HTTP(S)-only URL policy and no Hub IPC/popups/downloads | Native navigation/error/close lifecycle interaction pass; HTTP is explicitly unsupported |
 | H13 terminal | Real Unix PTY tests for cwd/input/resize/Ctrl-C/exit/reopen/group cleanup; bounded output and session ownership | Native UI lifecycle pass; line-oriented, not a fullscreen emulator or security sandbox; HTTP is unsupported |
 | H14 Inspector | Real SQLite flush/reopen preserves typed records and recursive child/grandchild ownership; product/attempt detail, unsupported and missing states | Native recursive page/focus/keyboard pass; no non-Alva internal trace is invented |
-| H17 secondary pages | Real Inspector navigation and scoped shortcuts; persisted light/dark/live-system theme, global compact density and app/OS reduced motion; storage failures visible; unavailable actions explicitly disabled; extension samples labelled previews; usage unknown rather than invented | Native theme/keyboard/narrow/multilingual visual pass; automation/extension registry/SSH backends remain unavailable |
+| H17 secondary pages | Real Inspector navigation and scoped shortcuts; persisted light/dark/live-system theme, global compact density and app/OS reduced motion; real session-scoped Skills catalog, source creation/edit and recoverable archive/restore; failures visible; plugin samples labelled previews; usage unknown rather than invented | Native theme/Skills/keyboard/narrow/multilingual visual pass; automation/plugin install registry/SSH backends remain unavailable |
 | K01 boundaries | Dependency firewall, bus surface, wasm32 clean set and host full link pass; SDK/kernel implementation unchanged | wasm32-wasip2 target is not installed, explicitly skipped |
 
 ### Reproducible automated checks
@@ -39,8 +39,8 @@ cargo check -p alva-hub-desktop -p alva-hub-server --all-targets
 bash scripts/ci-check-deps.sh
 ```
 
-Results: **217 lib tests / 4 explicitly filtered real-account tests**,
-**2 bin tests**, **9 HTTP tests**, all-target check pass. The dependency
+Results: **223 lib tests / 4 explicitly filtered real-account tests**,
+**2 bin tests**, **10 HTTP tests**, all-target check pass. The dependency
 firewall initially exposed the missing declaration of Desktop's direct
 SensitivePathFilter dependency; its single intended use was documented and
 the gate rerun successfully. No Rule 17/18/19 was removed. The final script
@@ -53,7 +53,7 @@ The script's success is not claimed as a check of that absent target, and
 this work did not rename or migrate the separate native product entry.
 
 In `crates/alva-hub-desktop/web`: `npm test -- --reporter=dot` reports
-**185 tests / 17 files**, and `npm run build` passes TypeScript/Vite.
+**193 tests / 18 files**, and `npm run build` passes TypeScript/Vite.
 Existing React act/controlled-state, Rust unused-item and large-bundle
 warnings remain. This iteration made no real provider or paid SDK calls,
 installed no new runtime, and did not rerun a blocked one-off Playwright
@@ -67,6 +67,22 @@ active and inset backgrounds. Root density tokens affect Controls/Surfaces
 without reducing text size. Reduced motion removes displacement but preserves
 dialog centering, switch state and spinner progress; this is a source/behavior
 contract, not native visual acceptance.
+
+Workspace Skills uses session-persisted cwd, canonical protocol parsing,
+capability-relative no-follow file access, 128-KiB manifests and a 200-entry
+scan limit. Create never replaces an existing directory; only managed project
+files can be edited, with an optimistic source-revision check. macOS/Linux
+archive/restore uses atomic no-replace directory moves and preserves resources;
+unsupported hosts do not expose those actions. Existing project enable-lists
+keep unknown/global names and extra fields. Ecosystem files are read-only;
+global directories are intentionally not scanned and this is not a complete
+runtime registry. No remote installation or script execution is introduced.
+Six backend regressions prove real FsSkillRepository discovery, edits, state
+preservation, archive/restore, limits and traversal/symlink rejection. Seven
+UI regressions and one App integration cover actions, focus, errors, drafts and
+late session replies; real HTTP verifies create/edit/archive/restore without
+engine execution. HTTP fixtures now use an explicit private catalog instead
+of the production shared/legacy configuration constructor.
 
 ### Native evidence and deferred acceptance
 

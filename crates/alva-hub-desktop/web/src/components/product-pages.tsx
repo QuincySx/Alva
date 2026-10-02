@@ -1,6 +1,6 @@
 // INPUT:  React local state, appearance/i18n preferences, product callbacks, ALVA UI facade, and Lucide icons
 // OUTPUT: Automations, extensions, settings, and search product pages
-// POS:    Deterministic Hub product surfaces above the shared UI component system
+// POS:    Secondary Hub product surfaces above the shared UI component system
 
 import { useMemo, useState } from "react";
 import {
@@ -53,6 +53,7 @@ import type {
 import { useI18n, type LanguagePreference } from "../i18n";
 import { ProviderSettings } from "./provider-settings";
 import { useAppearance } from "../appearance";
+import { WorkspaceSkills } from "./workspace-skills";
 
 export type HubPage = "conversation" | "automations" | "extensions" | "settings" | "search";
 
@@ -131,10 +132,10 @@ export function AutomationsPage() {
   );
 }
 
-export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
+export function ExtensionsPage({ onStartChat, sessionId = null }: { onStartChat: () => void; sessionId?: string | null }) {
   const { t } = useI18n();
-  // R22: 生产目录只反映真实 registry——当前没有任何已安装扩展；样例一律
-  // installed: false，安装/注册入口禁用并说明。
+  // Plugins still have no install registry; samples are unavailable previews.
+  // The Skills tab is a separate, real workspace file-management surface.
   const extensions = [
     { id: "github", name: "GitHub", description: t("extension.githubDescription"), icon: GitBranch, installed: false, kind: "plugin" },
     { id: "maker", name: "TapTap Maker", description: t("extension.makerDescription"), icon: Sparkles, installed: false, kind: "plugin" },
@@ -159,7 +160,7 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
     <ScrollRegion className="hub-product-page">
       <PageHeader
         actions={
-          <DialogRoot open={addOpen} onOpenChange={setAddOpen}>
+          tab === "plugin" ? <DialogRoot open={addOpen} onOpenChange={setAddOpen}>
             <DialogTrigger asChild>
               <Button leadingIcon={<Plus aria-hidden="true" size={15} />}>{t("extension.add")}</Button>
             </DialogTrigger>
@@ -184,14 +185,14 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
                 </div>
               </div>
             </DialogContent>
-          </DialogRoot>
+          </DialogRoot> : undefined
         }
         description={t("extension.description")}
         title={t("extension.title")}
       />
-      <Notice tone="info" heading={t("pages.extensions.previewTitle")}>
+      {tab === "plugin" ? <Notice tone="info" heading={t("pages.extensions.previewTitle")}>
         {t("pages.extensions.registerUnavailable")}
-      </Notice>
+      </Notice> : null}
       <div className="hub-product-toolbar">
         <TabsRoot onValueChange={setTab} value={tab}>
           <TabsList aria-label={t("extension.type")}>
@@ -204,7 +205,7 @@ export function ExtensionsPage({ onStartChat }: { onStartChat: () => void }) {
           <TextField aria-label={t("extension.search")} placeholder={t("extension.searchPlaceholder")} value={query} onChange={(event) => setQuery(event.target.value)} />
         </label>
       </div>
-      {visible.length === 0 ? (
+      {tab === "skill" ? <WorkspaceSkills sessionId={sessionId} query={query} /> : visible.length === 0 ? (
         <EmptyState title={t("extension.noMatches")} description={t("extension.noMatchesDescription")} />
       ) : (
         <CardGrid>

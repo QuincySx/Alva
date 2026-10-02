@@ -38,6 +38,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 24. 组件只提供 composition、slots 与有限 typed variants；仅支持 default/compact 两档密度，页面不得手写控件高度。
 25. 页面完成必须同时通过确定性 fixture 与真实 store/Tauri command；视觉 review 使用 reference/linework/current 三联图。
 26. Settings 的 Inspector 操作打开真实 Workbench 页；⌘/Ctrl K/N/B 连接搜索/新会话/工作台，Esc 只在无覆盖层的中央对话停止当前会话。Stop ack 不是终态，真实 terminal event 才收起可取消状态；未接通的独立 Workbench 窗口与扩展样例明确不可用。
+27. Extensions 的 Skills 标签接真实 session-scoped 文件目录，不冒充全局或完整运行时 registry。可创建/编辑受管项目 SKILL.md、显式确认归档与恢复，生态源只读；保存失败保留草稿、不假报成功，session 切换丢弃迟到目录/文档。仅后续 ALVA 运行读取变更，Plugins 样例仍明确不可安装。
 
 ## 约束
 
@@ -100,6 +101,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Workspace Git | `components/workspace-git.tsx` | 真实 Git 分支/status/diff，三种变更区分、任务终态快照刷新与手动刷新；Review 继续展示执行证据，非 Git 状态 |
 | Native terminal | `components/workspace-terminal.tsx` | 显式 Open 后才创建 PTY，输入/Ctrl-C/resize/退出/关闭；按会话 key 卸载清理且迟到 open 也关闭，HTTP 明示不支持 |
 | User browser | `components/workspace-browser.tsx` | 显式打开独立临时原生窗口，地址/导航/刷新/显示/关闭控件；轮询窗口事实，不伪造 Agent 自动化、iframe 或加载成功 |
+| Workspace Skills | `components/workspace-skills.tsx` / `components/workspace-skills.test.tsx` | 真实工作区技能列表/搜索、源文档创建/编辑、冲突/失败/只读状态、归档确认/恢复与会话隔离；不联网安装样例 |
 | UI Lab | `ui-lab.tsx` | 开发/test-only 确定性组件与页面状态展台 |
 | Visual config | `../playwright.config.ts` | 1440×900 Chrome 截图环境与 Vite 生命周期 |
 | Visual tests | `../tests/visual.spec.ts` | 七张总层架和模型弹层的真实浏览器回归 |

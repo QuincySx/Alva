@@ -96,11 +96,13 @@ check_no_workspace_deps "alva-hub-cli" "alva-agent-abi|alva-app-core|alva-engine
 # drifted path normalizer means two workers writing the same file are judged
 # non-conflicting. It is a foundational ABI crate already present
 # transitively (via alva-llm-provider); this only makes the use explicit.
-# alva-agent-security is used only for SensitivePathFilter by the read-only
-# Files/Text service and Git path filtering. This is a product-owned filesystem
+# alva-agent-security is used only for SensitivePathFilter by Files/Text,
+# Git and workspace Skills path filtering. This is a product-owned filesystem
 # boundary, not engine assembly or a new SDK feature; Rule 17 still forbids
 # any reverse SDK -> product dependency.
-check_no_workspace_deps "alva-hub-desktop" "alva-agent-security|alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-adapter-pi|alva-engine-runtime|alva-hub-core|alva-kernel-abi|alva-llm-provider"
+# alva-protocol-skill contributes only its canonical SKILL.md parser to the
+# workspace Skills editor; filesystem permissions and mutations stay in L7.
+check_no_workspace_deps "alva-hub-desktop" "alva-agent-security|alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-adapter-pi|alva-engine-runtime|alva-hub-core|alva-kernel-abi|alva-llm-provider|alva-protocol-skill"
 
 # Rule 12: alva-llm-provider only depends on alva-kernel-abi
 # (was `alva-provider` — a crate that does not exist; `cargo tree` failed,

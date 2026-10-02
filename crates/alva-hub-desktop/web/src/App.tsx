@@ -2127,7 +2127,7 @@ function HubApp() {
         ) : activePage === "automations" ? (
           <AutomationsPage />
         ) : activePage === "extensions" ? (
-          <ExtensionsPage onStartChat={() => setActivePage("conversation")} />
+          <ExtensionsPage sessionId={activeSessionId} onStartChat={() => setActivePage("conversation")} />
         ) : activePage === "settings" ? (
           <SettingsPage
             onOpenInspector={() => { setActivePage("conversation"); openWorkbenchTool("inspector"); }}

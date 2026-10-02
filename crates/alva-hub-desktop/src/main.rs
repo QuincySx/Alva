@@ -1,5 +1,5 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: binary with workspace/run/switch/Inspector IPC, isolated user browser/PTY and timestamped timeline events
+// OUTPUT: binary with workspace/Skills/run/switch/Inspector IPC, isolated user browser/PTY and timestamped timeline events
 // POS:    Tauri 2 entrypoint, user-authorized multi-engine Desktop state owner, and product event bridge.
 
 #![cfg_attr(
@@ -39,6 +39,7 @@ struct DesktopState {
     isolated_ui: bool,
     browsers: Arc<alva_hub_desktop::UserBrowserManager>,
     terminals: Arc<alva_hub_desktop::TerminalManager>,
+    skills: Arc<alva_hub_desktop::WorkspaceSkillsManager>,
     store: HubStore,
     providers: ProviderCatalog,
     history_dir: PathBuf,
@@ -1631,6 +1632,26 @@ async fn read_hub_workspace_file(
 }
 
 #[tauri::command]
+async fn list_hub_workspace_skills(
+    state: State<'_, DesktopState>, product_session_id: String,
+) -> Result<alva_hub_desktop::WorkspaceSkillCatalog, String> {
+    let store = state.store.clone();
+    let skills = state.skills.clone();
+    tauri::async_runtime::spawn_blocking(move || skills.list(&store, &product_session_id))
+        .await.map_err(|_| "Skill manager unavailable".to_string())?
+}
+
+#[tauri::command]
+async fn hub_workspace_skill(
+    state: State<'_, DesktopState>, product_session_id: String, action: alva_hub_desktop::WorkspaceSkillAction,
+) -> Result<alva_hub_desktop::WorkspaceSkillDocument, String> {
+    let store = state.store.clone();
+    let skills = state.skills.clone();
+    tauri::async_runtime::spawn_blocking(move || skills.action(&store, &product_session_id, action))
+        .await.map_err(|_| "Skill manager unavailable".to_string())?
+}
+
+#[tauri::command]
 async fn get_hub_tool_content(
     state: State<'_, DesktopState>,
     product_session_id: String,
@@ -1716,6 +1737,7 @@ fn isolated_ui_command(command: &str) -> bool {
         "hub_browser" | "hub_terminal" | "list_hub_sessions" | "get_hub_session"
         | "get_hub_tool_content" | "list_hub_workspace_files" | "read_hub_workspace_file"
         | "get_hub_git_status" | "get_hub_git_diff" | "get_hub_messages" | "get_hub_inspection"
+        | "list_hub_workspace_skills" | "hub_workspace_skill"
         | "list_model_providers" | "list_model_routes" | "get_default_model_route"
         | "get_engine_readiness" | "get_repair_plan" | "get_permission_eligibility" | "get_global_fallback_policy"
         | "get_permission_groups" | "get_team_run_for_lead" | "list_projects" | "create_project"
@@ -1761,6 +1783,7 @@ fn main() {
                 isolated_ui,
                 browsers: Arc::new(alva_hub_desktop::UserBrowserManager::default()),
                 terminals: Arc::new(alva_hub_desktop::TerminalManager::default()),
+                skills: Arc::new(alva_hub_desktop::WorkspaceSkillsManager::default()),
                 store,
                 providers,
                 history_dir,
@@ -1825,6 +1848,8 @@ fn main() {
             get_hub_tool_content,
             list_hub_workspace_files,
             read_hub_workspace_file,
+            list_hub_workspace_skills,
+            hub_workspace_skill,
             get_hub_git_status,
             get_hub_git_diff,
             get_hub_messages,

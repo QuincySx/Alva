@@ -51,7 +51,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 26. V1 验收矩阵在 `ACCEPTANCE.md`：18 条 scenario 逐条映射到可执行断言或明确标注为待打包运行时验证；外部链接经 `tauri-plugin-opener`（wry webview 里裸 `<a target="_blank">` 不生效）；worktree 隔离测试在缺 git 时**响亮失败**而非静默跳过（它们是"未 adopt 的工作不进共享 workspace"的唯一证据）。
 
 ## 约束
-- `alva-agent-security` 的直接依赖仅用于只读 Files/Text 与 Git 路径的 `SensitivePathFilter`，复用统一敏感路径规则；用途在 `scripts/ci-check-deps.sh` 显式登记，不扩张 kernel/agent-core、不改变 SDK→产品或原生入口→engine 的禁止边界。
+- `alva-agent-security` 的直接依赖仅用于 Files/Text、Git 与工作区 Skills 文件管理的 `SensitivePathFilter` 路径防护，复用统一规则；`alva-protocol-skill` 仅用于 canonical SKILL.md parser。用途在 `scripts/ci-check-deps.sh` 显式登记，不扩张 kernel/agent-core、不改变 SDK→产品或原生入口→engine 的禁止边界。
 - **`EngineTarget.required_capabilities` 承载两套词表**，定义在 `readiness.rs`：`ENGINE_CAPABILITIES`（5 词，`capability_labels` 的穷尽产出，降级 veto 只比对这些）与 `MODEL_CAPABILITIES`（`images`/`vision`/`tools`，provider 组装读回用）。新增词汇改那两个常量，并保持 `capability_labels` 与 `ENGINE_CAPABILITIES` 同步（有测试钉死）。两表之外的词由 `validate_engine_target` 拒绝——引擎永远无法"提供"模型词，把它算进 missing 会让降级目标被永久静默否决。
 
 - 自动 fallback 只消费当前 session policy snapshot 中显式授权的 target；无授权则 Turn 直接失败。
@@ -76,6 +76,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Session workspace | `src/session_workspace.rs` | owner-only 独立会话目录创建与 project/session workspace kind |
 | Workspace files | `src/workspace_files.rs` | 会话 cwd 绑定的真实只读目录/文本预览，敏感路径及符号链接隔离、有界响应，Tauri/HTTP 同构 |
 | Workspace Git | `src/workspace_git.rs` | 真实工作树只读 status/diff，绝不以 EngineBranch 或工具结果推断 Git 状态 |
+| Workspace Skills | `src/workspace_skills.rs` | 绑定 session cwd 的真实项目目录/源文档管理，canonical parser、无符号链接/限额、冲突检查与可恢复归档；不扫描全局、不下载或执行脚本 |
 | Native terminal | `src/terminal.rs` | 用户显式打开的 Unix 逐行 PTY；Desktop-only、会话 cwd 绑定、有界输出和关闭回收；非全屏模拟器/非安全沙箱 |
 | User browser | `src/user_browser.rs` | Desktop-only 独立临时 WebView，不与 Agent 浏览器共用；HTTP(S) 导航/后退/前进/刷新/关闭，拒绝 Hub IPC、特权 URL、弹窗和下载；按会话/标签生命周期清理 |
 | Session store | `src/store/` | 私有 SQLite（`db.rs` storage kernel + `mod.rs` 共享数据层 + `branch.rs`/`handoff.rs`/`team.rs`/`turn.rs`/`tests.rs` 持久化簇）covering workspace kind、policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |

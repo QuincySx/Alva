@@ -44,6 +44,7 @@ struct AppState {
     providers: ProviderCatalog,
     history_dir: PathBuf,
     inspector: HubInspectorService,
+    skills: Arc<alva_hub_desktop::WorkspaceSkillsManager>,
     /// Timeline broadcast → SSE subscribers (wire shape with run_token echo).
     events: broadcast::Sender<WireTimelineEvent>,
     /// Live engines so Stop/permission routing can reach the running adapter.
@@ -80,15 +81,18 @@ struct AppState {
 
 impl AppState {
     fn new(data_dir: PathBuf) -> Result<Self, String> {
+        Self::with_shared_config(data_dir, Some(dirs_home().join(".alva").join("config.json")))
+    }
+
+    fn with_shared_config(data_dir: PathBuf, shared_config: Option<PathBuf>) -> Result<Self, String> {
         std::fs::create_dir_all(&data_dir)
             .map_err(|e| format!("create data dir {}: {e}", data_dir.display()))?;
 
         let store = HubStore::open(data_dir.join("alva-hub.db"))?;
-        let shared_config = dirs_home().join(".alva").join("config.json");
-        let providers = ProviderCatalog::open_with_shared_and_legacy_config(
-            data_dir.join("model-providers.json"),
-            shared_config,
-        )?;
+        let providers = match shared_config {
+            Some(shared) => ProviderCatalog::open_with_shared_and_legacy_config(data_dir.join("model-providers.json"), shared),
+            None => ProviderCatalog::open(data_dir.join("model-providers.json")),
+        }?;
 
         let (events, _) = broadcast::channel(1024);
 
@@ -99,6 +103,7 @@ impl AppState {
             providers,
             history_dir,
             inspector,
+            skills: Arc::new(alva_hub_desktop::WorkspaceSkillsManager::default()),
             events,
             active_engines: std::sync::Arc::new(Mutex::new(std::collections::HashMap::new())),
             active_hubs: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -256,6 +261,25 @@ async fn workspace_file(
     match tokio::task::spawn_blocking(move || alva_hub_desktop::read_workspace_file(&store, &session, &query.path)).await {
         Ok(Ok(result)) => Json(result).into_response(),
         _ => (StatusCode::BAD_REQUEST, Json(json!({"error":"workspace preview unavailable"}))).into_response(),
+    }
+}
+
+async fn workspace_skills(State(state): State<Arc<AppState>>, Path(session): Path<String>) -> Response {
+    let store = state.store.clone();
+    let skills = state.skills.clone();
+    match tokio::task::spawn_blocking(move || skills.list(&store, &session)).await {
+        Ok(Ok(result)) => Json(result).into_response(),
+        _ => (StatusCode::BAD_REQUEST, Json(json!({"error":"Workspace Skills unavailable"}))).into_response(),
+    }
+}
+
+async fn workspace_skill(State(state): State<Arc<AppState>>, Path(session): Path<String>, Json(action): Json<alva_hub_desktop::WorkspaceSkillAction>) -> Response {
+    let store = state.store.clone();
+    let skills = state.skills.clone();
+    match tokio::task::spawn_blocking(move || skills.action(&store, &session, action)).await {
+        Ok(Ok(result)) => Json(result).into_response(),
+        Ok(Err(error)) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Skill manager unavailable"}))).into_response(),
     }
 }
 
@@ -1303,6 +1327,7 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/sessions/:id/messages", get(get_messages))
         .route("/api/sessions/:id/workspace/files", get(workspace_files))
         .route("/api/sessions/:id/workspace/file", get(workspace_file))
+        .route("/api/sessions/:id/workspace/skills", get(workspace_skills).post(workspace_skill))
         .route("/api/sessions/:id/workspace/git", get(workspace_git_status))
         .route("/api/sessions/:id/workspace/git/diff", get(workspace_git_diff))
         .route(
@@ -1566,7 +1591,7 @@ mod r65_stop_integration {
         )
         .unwrap();
 
-        let mut state = Arc::new(AppState::new(data_dir.clone()).unwrap());
+        let mut state = Arc::new(AppState::with_shared_config(data_dir.clone(), None).unwrap());
         // R65: 预置 anthropic→alva 默认路由，使 /api/run 的新 run 路径
         // 通过 canonical route 检查（引擎本体由测试工厂注入）。
         state
@@ -1754,6 +1779,40 @@ mod r65_stop_integration {
         let status = raw.split_whitespace().nth(1).unwrap().parse().unwrap();
         let body = raw.split_once("\r\n\r\n").unwrap().1;
         (status, serde_json::from_str(body).unwrap())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn workspace_skills_create_edit_archive_restore_over_the_real_http_router() {
+        let server = spawn_server_gated(vec![Step::CompleteNow], false, false).await;
+        let workspace = server.data_dir.join("workspace");
+        let (status, body) = http_post(server.addr, "/api/run".into(), run_body(workspace.to_str().unwrap(), None)).await;
+        assert_eq!(status, 200, "{body}");
+        let outcome: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let session = outcome["product_session_id"].as_str().unwrap();
+        let endpoint = format!("/api/sessions/{session}/workspace/skills");
+        let content = "---\nname: review\ndescription: Review changes\n---\nRead the diff.\n";
+        let (status, body) = http_post(server.addr, endpoint.clone(), json!({"op":"create", "content":content}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        let created: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(created["path"], ".alva/skills/user/review/SKILL.md");
+        assert_eq!(created["enabled"], true);
+        assert_eq!(std::fs::read_to_string(workspace.join(created["path"].as_str().unwrap())).unwrap(), content);
+        assert_eq!(http_get(server.addr, &endpoint).await.1["skills"][0]["name"], "review");
+        let (status, body) = http_post(server.addr, endpoint.clone(), json!({"op":"save", "path":created["path"], "revision":created["revision"], "content":format!("{content}Edited.")}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        let saved: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_ne!(saved["revision"], created["revision"]);
+        assert_eq!(http_post(server.addr, endpoint.clone(), json!({"op":"archive", "path":created["path"], "revision":created["revision"]}).to_string()).await.0, 400);
+        let (status, body) = http_post(server.addr, endpoint.clone(), json!({"op":"archive", "path":saved["path"], "revision":saved["revision"]}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        let archived: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(archived["archived"], true);
+        let (status, body) = http_post(server.addr, endpoint.clone(), json!({"op":"restore", "path":archived["path"], "revision":archived["revision"]}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(http_get(server.addr, &endpoint).await.1["skills"][0]["archived"], false);
+        assert_eq!(http_post(server.addr, "/api/sessions/unknown/workspace/skills".into(), json!({"op":"create", "content":content}).to_string()).await.0, 400);
+        assert_eq!(http_post(server.addr, endpoint, json!({"op":"read", "path":"../outside/SKILL.md"}).to_string()).await.0, 400);
+        assert_eq!(server.engine.turn.load(Ordering::SeqCst), 1, "Skills actions must not invoke the engine");
     }
 
     #[tokio::test(flavor = "multi_thread")]

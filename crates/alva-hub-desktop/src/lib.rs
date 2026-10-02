@@ -1,5 +1,5 @@
 // INPUT:  Hub Desktop engine, provider, workspace, run, store, and collaboration sub-modules
-// OUTPUT: public engine/catalog/workspace plus persisted run, branch, policy, handoff, and timeline seams
+// OUTPUT: public engine/catalog/workspace/Skills plus persisted run, branch, policy, handoff, and timeline seams
 // POS:    Hub Desktop multi-engine library facade shared by Tauri IPC and product tests.
 
 mod alva;
@@ -22,6 +22,7 @@ mod store;
 mod worktree;
 mod workspace_files;
 mod workspace_git;
+mod workspace_skills;
 mod terminal;
 mod user_browser;
 pub mod worktree_discovery;
@@ -72,6 +73,7 @@ pub use store::{
 pub use worktree_discovery::{discover_worktrees, WorktreeDiscoveryError, WorktreeDiscoveryReply, WorktreeInfo};
 pub use workspace_files::{list_workspace_files, read_workspace_file, WorkspaceDirectory, WorkspaceEntry, WorkspacePreview};
 pub use workspace_git::{workspace_git_status, workspace_git_diff, GitDiffArea, GitFileStatus, WorkspaceGitStatus, WorkspaceGitDiff};
+pub use workspace_skills::{WorkspaceSkill, WorkspaceSkillAction, WorkspaceSkillCatalog, WorkspaceSkillDocument, WorkspaceSkillsManager};
 pub use terminal::{TerminalManager, TerminalSnapshot};
 pub use user_browser::{privileged_window, BrowserSnapshot, UserBrowserManager};
 pub use worktree::{

@@ -1,5 +1,5 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: workspace/run/switch/policy/readiness/Inspector plus provider discovery and persisted Hub IPC DTOs
+// OUTPUT: workspace/Skills/run/switch/policy/readiness/Inspector plus provider discovery and persisted Hub IPC DTOs
 // POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -755,6 +755,45 @@ export async function listHubSessions(): Promise<HubSessionSummary[]> {
   if (HTTP) return await httpJson<HubSessionSummary[]>("/api/sessions", undefined, "GET");
   if (!hasTauri) return [];
   return await invoke<HubSessionSummary[]>("list_hub_sessions");
+}
+
+export interface WorkspaceSkill {
+  name: string;
+  description: string;
+  path: string;
+  editable: boolean;
+  archived: boolean;
+  can_move: boolean;
+  enabled: boolean | null;
+}
+
+export interface WorkspaceSkillCatalog {
+  skills: WorkspaceSkill[];
+  warnings: number;
+  truncated: boolean;
+}
+
+export interface WorkspaceSkillDocument extends WorkspaceSkill {
+  content: string;
+  revision: string;
+}
+
+export type WorkspaceSkillAction =
+  | { op: "read"; path: string }
+  | { op: "create"; content: string }
+  | { op: "save"; path: string; content: string; revision: string }
+  | { op: "archive" | "restore"; path: string; revision: string };
+
+export async function listWorkspaceSkills(productSessionId: string): Promise<WorkspaceSkillCatalog> {
+  if (HTTP) return await httpJson<WorkspaceSkillCatalog>(`/api/sessions/${encodeURIComponent(productSessionId)}/workspace/skills`, undefined, "GET");
+  if (!hasTauri) throw new Error("Workspace Skills require the ALVA Hub runtime.");
+  return await invoke<WorkspaceSkillCatalog>("list_hub_workspace_skills", { productSessionId });
+}
+
+export async function workspaceSkillAction(productSessionId: string, action: WorkspaceSkillAction): Promise<WorkspaceSkillDocument> {
+  if (HTTP) return await httpJson<WorkspaceSkillDocument>(`/api/sessions/${encodeURIComponent(productSessionId)}/workspace/skills`, action);
+  if (!hasTauri) throw new Error("Workspace Skills require the ALVA Hub runtime.");
+  return await invoke<WorkspaceSkillDocument>("hub_workspace_skill", { productSessionId, action });
 }
 
 // ---- H04/H05: projects + read-only worktree discovery ----------------------

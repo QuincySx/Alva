@@ -23,6 +23,7 @@ import type {
   RepairAction,
   RepairResult,
   TeamRunDetail,
+  WorkspaceSkillCatalog,
 } from "./bridge";
 
 async function addWorkbenchTab(user: ReturnType<typeof userEvent.setup>, name: string) {
@@ -74,6 +75,8 @@ const bridge = vi.hoisted(() => {
       listHubSessions: vi.fn(async () => state.sessions),
       getHubSession: vi.fn(async (_sessionId: string) => state.detail),
       getHubInspection: vi.fn(async () => null),
+      listWorkspaceSkills: vi.fn(async (): Promise<WorkspaceSkillCatalog> => ({ skills: [], warnings: 0, truncated: false })),
+      workspaceSkillAction: vi.fn(),
       addSessionMemory: vi.fn(
         async (_productSessionId: string, entry: string) => {
           if (state.detail) {
@@ -388,6 +391,22 @@ describe("App integration", () => {
     // clearAllMocks does not reset implementations — pin the shared default
     // so file order can't leak a populated group set into unrelated tests.
     bridge.fns.getPermissionGroups.mockResolvedValue([]);
+    bridge.fns.listWorkspaceSkills.mockResolvedValue({ skills: [], warnings: 0, truncated: false });
+  });
+
+  it("opens real workspace Skills for the selected durable session without executing an engine", async () => {
+    const user = userEvent.setup();
+    bridge.state.sessions = [{ product_session_id: "ps-1", workspace: "/tmp/proj", last_prompt: "Skill workspace", engine_id: "claude", status: "completed" }];
+    bridge.state.detail = detailFixture();
+    bridge.fns.listWorkspaceSkills.mockResolvedValue({ skills: [{ name: "project-review", description: "Actual project instructions", path: ".alva/skills/user/project-review/SKILL.md", editable: true, archived: false, can_move: true, enabled: true }], warnings: 0, truncated: false });
+    render(<App />);
+    await user.click(await screen.findByText("Skill workspace"));
+    await user.click(screen.getByRole("button", { name: "Plugins" }));
+    await user.click(screen.getByRole("tab", { name: "Skills" }));
+    expect(await screen.findByText("Actual project instructions")).toBeInTheDocument();
+    expect(bridge.fns.listWorkspaceSkills).toHaveBeenCalledWith("ps-1");
+    expect(screen.queryByText("Extension catalog preview")).toBeNull();
+    expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
   });
 
   it("connects documented search, workbench and new-session shortcuts without engine execution", async () => {

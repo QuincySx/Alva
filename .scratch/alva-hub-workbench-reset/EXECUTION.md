@@ -1,5 +1,13 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 功能补全 · H17 工作区 Skills
+
+- Skills 标签接 session 已存 cwd 的真实文件目录，新建/编辑仅受管项目路径，生态来源只读；复用 canonical SKILL.md parser，capability-relative no-follow/限额/敏感路径防护，源 revision 冲突拒绝覆盖。保留已有 enable-list 的全局名字及额外字段，不读取全局 Skills，不冒充完整 registry。
+- 归档/恢复在 macOS/Linux 使用原子 no-replace 目录移动，资源保留；其他平台不展示此动作。下一轮 ALVA 读取，不热改正在执行的 Agent；Plugins 仍为不可安装样例，不联网拉取或执行脚本。
+- 后端新增 **6 项**，包含真正 FsSkillRepository 发现与归档恢复；UI 新增 **7 项 + 1 App 接线**；真实 HTTP 创建/编辑/归档/恢复新增 **1 项**，引擎调用计数不增加。HTTP fixture 显式独立 catalog，不走真实共享/legacy 配置构造器。
+- Desktop lib **223 passed / 4 真实账号精确 filtered**，HTTP **10 passed**，UI **193 passed / 18 files**；all-target check 与生产 web 构建通过。原生视觉/交互未冒充验收；无 kernel/agent-core 实现改动，无新外部包，协议 parser 的限定直接依赖已登记。
+- Skills 完成后的依赖闸复跑 **exit 0**：全部边界、bus、wasm32-unknown-unknown 与 host 链接通过；wasm32-wasip2 target 未安装，明确跳过。
+
 ## 2026-10-02 功能补全 · H17 真实外观
 
 - 应用级 AppearanceProvider 接通浅色/深色/实时系统主题、全局 default/compact Tokens、应用减弱动效；OS 无障碍偏好不能被关闭。偏好有版本校验、限额、跨窗口同步、重启恢复与卸载清理；保存失败仍可立即应用，但显示失败，不冒充持久化成功。

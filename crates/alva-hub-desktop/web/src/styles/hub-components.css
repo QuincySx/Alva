@@ -242,11 +242,14 @@
 .hub-template-card .ui-status-item__trailing { grid-column: 2; color: var(--color-text-subtle); font-size: var(--font-size-micro); }
 .hub-extension-card { display: grid; min-height: 156px; gap: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 16px; background: var(--color-surface); }
 .hub-extension-card__heading { display: flex; align-items: center; gap: 10px; }
-.hub-extension-card__heading > span { display: grid; width: 40px; height: 40px; flex: none; place-items: center; border-radius: var(--radius-md); background: var(--color-surface-raised); }
+.hub-extension-card__heading > span:first-child { display: grid; width: 40px; height: 40px; flex: none; place-items: center; border-radius: var(--radius-md); background: var(--color-surface-raised); }
 .hub-extension-card__heading > div { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .hub-extension-card__heading small { color: var(--color-text-subtle); text-transform: capitalize; }
 .hub-extension-card p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-caption); line-height: var(--leading-body); }
 .hub-extension-card__actions { display: flex; align-items: center; gap: 6px; margin-top: auto; }
+.hub-skill-card strong,
+.hub-skill-card small { overflow-wrap: anywhere; }
+.hub-skill-card small { text-transform: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-size-micro); }
 .hub-settings-frame { display: grid; min-height: 0; flex: 1; grid-template-columns: 220px minmax(0, 1fr); }
 .hub-settings-nav { display: flex; flex-direction: column; gap: 2px; padding: 28px 12px; border-right: 1px solid var(--color-border); background: var(--color-sidebar); }
 .hub-settings-nav .ui-nav-item { min-height: 36px; padding: 0 12px; }

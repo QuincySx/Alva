@@ -11,6 +11,7 @@
 1. `alva` 按用户选择为 workspace 构造 ALVA、Claude Code、Codex 或 Pi adapter；API-backed route 从统一 ProviderConfig 投影各 adapter 的协议配置，Claude/Codex 原生订阅仍只归各自 CLI 使用；`provider_plane` 先按版本化模型声明与纯 RoutePlanner 精确求出 provider × model × engine 能力，再投影到四种 adapter 各自入口，未知模型不猜测能力，Fast 只投影到声明支持它的 Codex route `service_tier`。
 2. `store` 在私有 SQLite 中原子保存 HubSession（含 project/session workspace kind）、global/session FallbackPolicy snapshot、多 EngineBranch（含 reasoning effort/Fast）、watermark、switch、handoff、timeline、Turn 和 Attempt；同 route 调参更新原 branch，不制造伪切换。
 2.1. `session_workspace` 只在用户明确选择“独立会话”后，于 Desktop app-data 创建 owner-only 专属目录和受管标记；项目模式继续使用用户选择的 Workspace，受管目录不隐式清理。
+2.2. `workspace_skills` 只列出 session 已存 cwd 内的技能文件，复用协议 parser 与 capability-relative no-follow。生态源只读；新建/编辑仅 `.alva/skills/user`，不覆盖创建目标，保存需匹配源 revision；macOS/Linux 归档/恢复用原子 no-replace 移动，保留资源。已有 enable-list 的全局名字及未知字段保留，损坏/超限配置拒绝创建，不热改运行中 Agent。
 3. `run` 创建或恢复 active branch 的 product/native session 映射；parked return 注入 delta，native resume 失效时原子升级完整 handoff 再 fresh 执行。
 4. SessionStarted/ToolEnd 增量落盘，Completed 原子提交 Attempt usage 与 Turn 终态；Alva adapter 的真实 ToolExecution duration 穿透到 side-effect evidence。
 5. 运行中 switch 持久化为 queued；终态或启动 crash repair 后再原子应用。
@@ -71,6 +72,7 @@
 | Session workspace | `session_workspace.rs` | 独立会话专属目录创建、私有权限与 project/session 分类 |
 | Workspace files | `workspace_files.rs` | 从已存 session cwd 读取真实目录与只读文本预览；capability-relative 逐层 no-follow，复用敏感路径规则，目录 2000 项/预览 256 KiB 上限，HTTP/Tauri 共用 |
 | Workspace Git | `workspace_git.rs` | 当前 worktree 的只读 status/diff；NUL 路径解析、staged/unstaged/untracked 分离，敏感 rename 双端过滤；禁外部 diff/textconv/fsmonitor，10 秒/1 MiB status/2000 路径/256 KiB diff 限额 |
+| Workspace Skills | `workspace_skills.rs` | 有界项目技能文件目录/源文档，真实创建/编辑/可恢复归档，保留启用状态/资源；现有 FsSkillRepository 发现回归，无全局扫描/下载/脚本执行 |
 | User terminal | `terminal.rs` | macOS/Linux 原生 PTY，显式用户启动；session+随机 handle 所有权，最多 4 个实例，256 KiB 输出；关闭回收 owned shell group/thread，先清进程组再 reap 防 PID 复用误杀；不属于 Agent 审批/命令日志 |
 | User browser | `user_browser.rs` | 独立临时原生窗口，session+随机 handle 绑定、最多 4 个；HTTP(S) 导航，拒绝特权来源/凭证 URL/弹窗/下载；普通应用 IPC 由 main 全局窗口身份守卫拒绝，core/plugin capability 仍仅 main |
 | Worktree discovery | `worktree_discovery.rs` | 已有工作树只读发现及数组/结构化 state 的 untagged IPC DTO；不得把嵌套 Result 的 Ok/Err 包装传给前端 |
