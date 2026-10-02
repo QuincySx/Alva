@@ -1,6 +1,6 @@
 // INPUT: tokio process/IO, serde_json, MCP transport/types, Unix libc
 // OUTPUT: StdioTransport with bounded handshake, tool discovery/calls and owned-process cleanup
-// POS: Native newline-delimited JSON-RPC MCP client; no shell or ambient credential inheritance
+// POS: Native newline JSON-RPC MCP client; bounded large catalogs, no shell/ambient credentials
 
 use crate::{
     error::McpError,
@@ -26,7 +26,9 @@ use tokio::{
 };
 
 const FRAME_LIMIT: usize = 1024 * 1024;
-const TOOL_LIMIT: usize = 256;
+const TOOL_LIMIT: usize = 8192;
+const CATALOG_BYTES: usize = 32 * 1024 * 1024;
+const CATALOG_PAGES: usize = 128;
 const VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 fn failure(message: &str) -> McpError {
     McpError::Transport(message.into())
@@ -290,7 +292,8 @@ impl McpTransport for StdioTransport {
         let mut names = HashSet::new();
         let mut cursors = HashSet::new();
         let mut cursor = None::<String>;
-        for _ in 0..16 {
+        let mut catalog_bytes = 0usize;
+        for _ in 0..CATALOG_PAGES {
             let page = self
                 .request(
                     "tools/list",
@@ -300,6 +303,10 @@ impl McpTransport for StdioTransport {
                         .unwrap_or(json!({})),
                 )
                 .await?;
+            catalog_bytes = catalog_bytes.saturating_add(page.to_string().len());
+            if catalog_bytes > CATALOG_BYTES {
+                return Err(failure("MCP catalog exceeds 32 MiB"));
+            }
             for item in page
                 .get("tools")
                 .and_then(Value::as_array)
@@ -397,6 +404,14 @@ for line in sys.stdin:
             result['nextCursor'] = 'page-2'
         if mode == 'repeat':
             result['nextCursor'] = 'same'
+        if mode in ['large-catalog', 'catalog-budget']:
+            offset = int(r.get('params', {}).get('cursor', '0'))
+            count = 250 if mode == 'large-catalog' else 20
+            total = 5000 if mode == 'large-catalog' else 1000
+            schema = {'type':'object', 'description':'x' * 50000} if mode == 'catalog-budget' else {'type':'object'}
+            result = {'tools':[{'name':f'tool_{i:05}', 'inputSchema':schema} for i in range(offset, min(offset+count,total))]}
+            if offset+count < total:
+                result['nextCursor'] = str(offset+count)
     elif method == 'tools/call':
         if mode == 'cancel':
             time.sleep(10)
@@ -498,6 +513,24 @@ for line in sys.stdin:
             .unwrap_err()
             .to_string();
         assert!(!error.contains("synthetic-private-value"));
+        client.disconnect().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn large_paginated_catalog_has_a_total_byte_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut client = transport("large-catalog", &dir.path().to_path_buf());
+        client.config.connect_timeout_secs = 5;
+        client.connect().await.unwrap();
+        let tools = client.list_tools().await.unwrap();
+        assert_eq!(tools.len(), 5000);
+        assert_eq!(tools[4999].tool_name, "tool_04999");
+        client.disconnect().await.unwrap();
+        let mut client = transport("catalog-budget", &dir.path().to_path_buf());
+        client.config.connect_timeout_secs = 5;
+        client.connect().await.unwrap();
+        let error = client.list_tools().await.unwrap_err().to_string();
+        assert!(error.contains("32 MiB"), "{error}");
         client.disconnect().await.unwrap();
     }
 }

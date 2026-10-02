@@ -32,7 +32,7 @@ config::McpConfigFile
 - McpToolAdapter 将 MCP 的 JSON Schema 映射为 alva-kernel-abi 的 Tool trait
 - 模型工具名是 `mcp_` + 240-bit SHA-256 alias（64 ASCII bytes）；长度前缀区分 server/tool 身份，description 保留逻辑 `mcp:server:tool`，兼容 provider 的名称字符和长度约束。
 - config 模块支持 wasm 平台（parse_json 全平台可用，文件 I/O 用 cfg gate 隔离）
-- `transport_stdio` 是 native-only newline JSON-RPC：直接 argv 启动、清空环境后仅安全 PATH/locale 与显式 env、1 MiB frame、256 tools/16 pages、有界超时/取消、Unix owned process group 回收。支持表内版本协商与 initialize → initialized → tools/list/call；不声明 sampling/elicitation，不代执行服务器的客户端请求，远端错误正文不回传。
+- `transport_stdio` 是 native-only newline JSON-RPC：直接 argv 启动、清空环境后仅安全 PATH/locale 与显式 env、1 MiB frame、8192 tools/128 pages/累计 32 MiB 目录、64 KiB 单 schema/16 KiB description、有界超时/取消、Unix owned process group 回收。支持表内版本协商与 initialize → initialized → tools/list/call；不声明 sampling/elicitation，不代执行服务器的客户端请求，远端错误正文不回传。大目录渐进投影归 harness，协议保留宿主硬预算。
 - stdio 程序具有宿主权限，不是 Agent shell 沙箱；启动授权归外层产品。SSE/Streamable HTTP 未实现，不以配置类型冒充运行能力。
 
 ## 业务域清单
