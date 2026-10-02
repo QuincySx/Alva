@@ -280,6 +280,8 @@ session 里不会出现 Steering 变体，这个 match 分支永远不会命中�
 外观偏好与工作区 Skills 文件管理属于 Hub 产品层：主题/密度/减弱动效保存在 WebView，
 技能目录绑定已保存 session cwd，复用协议 parser，仅受管项目文件可写与可恢复归档，
 不扫描全局来源、不下载或执行脚本，也不修改 kernel/agent-core 或运行中的 Agent。
+本地自动化也由 Hub 产品层持久化和调度：默认暂停，显式确认账户/计费后按间隔恢复
+普通会话，固定路由且禁用自动 fallback；不安装 OS daemon，不补跑漏过的任务。
 
 Hub 产品 UI 以 `crates/alva-hub-desktop` 的 Tauri + React 实现为准，旧 GPUI 产品 UI
 迁移方向已退役。正式架构决策见 `docs/adr/0006-hub-tauri-ui-system.md`：Cindy 负责结构与

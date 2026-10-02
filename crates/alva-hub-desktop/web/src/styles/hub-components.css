@@ -247,6 +247,9 @@
 .hub-extension-card__heading small { color: var(--color-text-subtle); text-transform: capitalize; }
 .hub-extension-card p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-caption); line-height: var(--leading-body); }
 .hub-extension-card__actions { display: flex; align-items: center; gap: 6px; margin-top: auto; }
+.hub-automation-card { min-width: 0; }
+.hub-automation-card p, .hub-automation-card strong, .hub-automation-dialog p { overflow-wrap: anywhere; }
+.hub-automation-card .hub-dialog-actions { flex-wrap: wrap; }
 .hub-skill-card strong,
 .hub-skill-card small { overflow-wrap: anywhere; }
 .hub-skill-card small { text-transform: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-size-micro); }

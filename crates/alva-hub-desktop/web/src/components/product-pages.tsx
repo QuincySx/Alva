@@ -1,12 +1,11 @@
 // INPUT:  React local state, appearance/i18n preferences, product callbacks, ALVA UI facade, and Lucide icons
-// OUTPUT: Automations, extensions, settings, and search product pages
+// OUTPUT: Real Automations re-export, workspace Skills/extensions, settings and search product pages
 // POS:    Secondary Hub product surfaces above the shared UI component system
 
 import { useMemo, useState } from "react";
 import {
   Blocks,
   Bot,
-  CalendarClock,
   Check,
   Command,
   Download,
@@ -17,7 +16,6 @@ import {
   Search,
   Settings2,
   Sparkles,
-  Workflow,
 } from "lucide-react";
 import {
   Badge,
@@ -57,80 +55,7 @@ import { WorkspaceSkills } from "./workspace-skills";
 
 export type HubPage = "conversation" | "automations" | "extensions" | "settings" | "search";
 
-interface AutomationItem {
-  id: string;
-  title: string;
-  schedule: string;
-  prompt: string;
-  enabled: boolean;
-}
-
-
-export function AutomationsPage() {
-  const { t } = useI18n();
-  // R20: 自动化调度后端尚未开放——为避免假成功，创建/启用入口禁用，
-  // 模板仅作预览；页面诚实说明当前状态。
-  const automationTemplates = [
-    ["nightly", t("automation.templateNightly"), t("automation.daily"), t("automation.templateNightlyPrompt")],
-    ["review", t("automation.templateReview"), t("automation.weekdays"), t("automation.templateReviewPrompt")],
-    ["radar", t("automation.templateRadar"), t("automation.weekly"), t("automation.templateRadarPrompt")],
-  ] as const;
-  const [automations] = useState<AutomationItem[]>([]);
-
-  return (
-    <ScrollRegion className="hub-product-page">
-      <PageHeader
-        actions={
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Badge tone="warning">
-              {t("pages.automations.schedulingUnavailable")}
-            </Badge>
-            <Button
-              disabled
-              aria-label={t("pages.automations.notYetAria")}
-              leadingIcon={<Plus aria-hidden="true" size={15} />}
-              variant="primary"
-            >
-              {t("automation.new")}
-            </Button>
-          </div>
-        }
-        description={t("automation.description")}
-        meta={
-          automations.length > 0
-            ? t("automation.configured", { count: automations.length })
-            : t("pages.automations.notYetMeta")
-        }
-        title={t("nav.automations")}
-      />
-      <EmptyState
-        icon={<Workflow aria-hidden="true" size={18} />}
-        title={t("pages.automations.notYetTitle")}
-        description={t("pages.automations.notYetDescription")}
-      />
-      <section className="hub-product-section">
-        <h3>
-          {t("automation.templates")}{" "}
-          <Badge tone="warning">
-            {t("pages.automations.previewUnavailable")}
-          </Badge>
-        </h3>
-        <CardGrid>
-          {automationTemplates.map((template) => (
-            <StatusListItem
-              className="hub-template-card"
-              description={template[3]}
-              heading={template[1]}
-              key={template[0]}
-              leading={<CalendarClock aria-hidden="true" size={18} />}
-              trailing={template[2]}
-            />
-          ))}
-        </CardGrid>
-      </section>
-    </ScrollRegion>
-  );
-}
+export { AutomationsPage } from "./automations";
 
 export function ExtensionsPage({ onStartChat, sessionId = null }: { onStartChat: () => void; sessionId?: string | null }) {
   const { t } = useI18n();

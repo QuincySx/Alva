@@ -20,7 +20,7 @@ are local and unsigned (command-scoped signing override after the existing
 | H12 user browser | Explicit session-owned incognito native window; navigation/reload/history/close; HTTP(S)-only URL policy and no Hub IPC/popups/downloads | Native navigation/error/close lifecycle interaction pass; HTTP is explicitly unsupported |
 | H13 terminal | Real Unix PTY tests for cwd/input/resize/Ctrl-C/exit/reopen/group cleanup; bounded output and session ownership | Native UI lifecycle pass; line-oriented, not a fullscreen emulator or security sandbox; HTTP is unsupported |
 | H14 Inspector | Real SQLite flush/reopen preserves typed records and recursive child/grandchild ownership; product/attempt detail, unsupported and missing states | Native recursive page/focus/keyboard pass; no non-Alva internal trace is invented |
-| H17 secondary pages | Real Inspector navigation and scoped shortcuts; persisted light/dark/live-system theme, global compact density and app/OS reduced motion; real session-scoped Skills catalog, source creation/edit and recoverable archive/restore; failures visible; plugin samples labelled previews; usage unknown rather than invented | Native theme/Skills/keyboard/narrow/multilingual visual pass; automation/plugin install registry/SSH backends remain unavailable |
+| H17 secondary pages | Real Inspector navigation and scoped shortcuts; persisted theme/density/reduced motion; session-scoped Skills create/edit/archive/restore; schema-21 local interval automations with paused-first CRUD, explicit billing review, atomic Turn claims and normal approval/Stop routing; plugin samples labelled previews | Native theme/Skills/automation/keyboard/narrow/multilingual pass; cron/daemon, MCP management, plugin install registry, global tool controls and SSH/IM remain unavailable |
 | K01 boundaries | Dependency firewall, bus surface, wasm32 clean set and host full link pass; SDK/kernel implementation unchanged | wasm32-wasip2 target is not installed, explicitly skipped |
 
 ### Reproducible automated checks
@@ -39,8 +39,8 @@ cargo check -p alva-hub-desktop -p alva-hub-server --all-targets
 bash scripts/ci-check-deps.sh
 ```
 
-Results: **223 lib tests / 4 explicitly filtered real-account tests**,
-**2 bin tests**, **10 HTTP tests**, all-target check pass. The dependency
+Results: **233 lib tests / 4 explicitly filtered real-account tests**,
+**3 bin tests**, **11 HTTP tests**, all-target check pass. The dependency
 firewall initially exposed the missing declaration of Desktop's direct
 SensitivePathFilter dependency; its single intended use was documented and
 the gate rerun successfully. No Rule 17/18/19 was removed. The final script
@@ -53,7 +53,7 @@ The script's success is not claimed as a check of that absent target, and
 this work did not rename or migrate the separate native product entry.
 
 In `crates/alva-hub-desktop/web`: `npm test -- --reporter=dot` reports
-**193 tests / 18 files**, and `npm run build` passes TypeScript/Vite.
+**202 tests / 19 files**, and `npm run build` passes TypeScript/Vite.
 Existing React act/controlled-state, Rust unused-item and large-bundle
 warnings remain. This iteration made no real provider or paid SDK calls,
 installed no new runtime, and did not rerun a blocked one-off Playwright
@@ -83,6 +83,25 @@ UI regressions and one App integration cover actions, focus, errors, drafts and
 late session replies; real HTTP verifies create/edit/archive/restore without
 engine execution. HTTP fixtures now use an explicit private catalog instead
 of the production shared/legacy configuration constructor.
+
+Local automations bind an existing ordinary HubSession and a stored branch/model/
+provider/account/billing snapshot. Create/edit is paused; enabling requires an
+explicit billing review in the UI and a matching revision/route in the store.
+Schedules use 5–10080 minute intervals, not cron/local-time calendars. The product
+pump polls every 10 seconds with four execution slots; schedule claim and Turn
+creation commit together. Each run uses the same durable execution, timeline,
+approval and Stop paths but never automatic fallback or TeamRun auto-approval.
+Busy ticks and ticks missed by at least a full interval are skipped; success
+waits one full interval, failure/Stop/route change pauses. Restart delays enabled
+idle schedules and pauses interrupted ones. No daemon runs after the application
+or headless service exits, and no missed work is replayed. Pause does not cancel
+a current Turn; open its session to Stop. Account credentials/CLI logins remain
+the currently configured account, not an immutable credential snapshot.
+Ten backend regressions include real engine doubles, no-fallback, duplicate
+claims, concurrency, limits, migration and restart. Eight UI regressions plus
+an App navigation test and real HTTP CRUD prove actual configuration writes;
+isolation rejects enable and starts no pump. A schema-18 test fixture was updated
+to actually remove post-18 tables; production migrations were not weakened.
 
 ### Native evidence and deferred acceptance
 
@@ -123,8 +142,8 @@ python3 -m http.server 1437 --bind 127.0.0.1 --directory <fixture-root>/pages
 ```
 
 Start the UI server before launching the desktop. The isolate flag is
-debug-only: it disables ambient provider/account probes, worker recovery,
-engine execution and account mutations at the invoke boundary. Browser and
+debug-only: it disables ambient provider/account probes, worker/automation pumps,
+engine execution, automation enable and account mutations. Paused schedule CRUD is allowed. Browser and
 PTY controls remain explicit user actions. The completed QA app and local
 servers were stopped; fixture data was retained, not deleted. H18/H21 are
 not marked complete by this handoff.

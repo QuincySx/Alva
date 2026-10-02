@@ -1,5 +1,5 @@
 // INPUT:  Hub Desktop engine, provider, workspace, run, store, and collaboration sub-modules
-// OUTPUT: public engine/catalog/workspace/Skills plus persisted run, branch, policy, handoff, and timeline seams
+// OUTPUT: public engine/catalog/workspace/Skills plus local automations, persisted run, branch, policy, handoff and timeline seams
 // POS:    Hub Desktop multi-engine library facade shared by Tauri IPC and product tests.
 
 mod alva;
@@ -60,11 +60,12 @@ pub use repair::{
     repair_argv, repair_plan, run_repair_command, RepairAction, RepairKind, RepairOutcome,
 };
 pub use run::{
-    run_once, run_persisted, run_persisted_with_target, ActiveHubs, MessagePosition, RunOutcome,
+    run_once, run_persisted, run_persisted_with_target, run_persisted_with_automation, ActiveHubs, MessagePosition, RunOutcome,
     RunRequest, TimelineActivity, TimelineEvent, TimelineStatus,
 };
 pub use session_workspace::{create_managed_session_workspace, WorkspaceBinding, WorkspaceKind};
 pub use store::{
+    Automation, AutomationAction,
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, MessageJournalPage, MessageJournalRecord, PendingSwitch, ProjectSummary, SideEffectEvidence, StoredAttempt, StoredBranch,
     StoredTimelineEvent, StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim,

@@ -1,6 +1,6 @@
-// INPUT:  alva-hub-desktop (HubStore, ProviderCatalog, run_persisted_with_target,
+// INPUT:  alva-hub-desktop (HubStore, ProviderCatalog, run_persisted_with_automation,
 //         build_engine_for_target, SystemProbe, DTOs), axum, tokio
-// OUTPUT: headless HTTP service: reuses Hub sessions, engines, Inspector, and timeline over HTTP/SSE
+// OUTPUT: headless HTTP service with real automations/workspace/Inspector APIs and shared execution/SSE
 // POS:    Alva Hub as a local service — one backend, many frontends.
 
 use std::collections::{HashMap, HashSet};
@@ -25,7 +25,7 @@ use tracing::{info, warn};
 use alva_hub_core::ProductSessionId;
 use alva_hub_desktop::{
     build_engine_for_target_with_inspector, permission_eligibility, probe_readiness,
-    run_persisted_with_target, ActiveHubs, EngineTarget, HubInspectorService, HubStore,
+    run_persisted_with_automation, ActiveHubs, EngineTarget, HubInspectorService, HubStore,
     PermissionProfile, ProviderCatalog, RunRequest, SaveProviderProfile, CreateProviderProfile,
     SystemProbe, TimelineEvent, TimelineStatus,
 };
@@ -169,6 +169,57 @@ async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         "service": "alva-hub-server",
         "sessions": sessions,
     }))
+}
+
+async fn list_automations(State(state): State<Arc<AppState>>) -> Response {
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || store.list_automations()).await {
+        Ok(Ok(rows)) => Json(rows).into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Automations unavailable"}))).into_response(),
+    }
+}
+
+async fn automation_action(State(state): State<Arc<AppState>>, Json(action): Json<alva_hub_desktop::AutomationAction>) -> Response {
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || store.automation_action(action)).await {
+        Ok(Ok(row)) => Json(row).into_response(),
+        Ok(Err(error)) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Automation request failed"}))).into_response(),
+    }
+}
+
+fn start_automation_pump(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        let slots = Arc::new(tokio::sync::Semaphore::new(4));
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            let due = match state.store.due_automation_ids() {
+                Ok(ids) => ids,
+                Err(error) => { warn!(%error, "automation poll failed"); continue; }
+            };
+            for id in due {
+                let Ok(permit) = slots.clone().try_acquire_owned() else { break; };
+                let state = state.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    execute_automation(state, &id).await;
+                });
+            }
+        }
+    });
+}
+
+async fn execute_automation(state: Arc<AppState>, id: &str) {
+    let Ok(schedule) = state.store.get_automation(id) else { return; };
+    let workspace = state.store.get_session(&schedule.product_session_id).ok().flatten().map(|detail| detail.session.workspace);
+    let response = execute_run(state.clone(), RunBody {
+        prompt: schedule.prompt, workspace, engine_id: Some(schedule.target.engine_id), product_session_id: Some(schedule.product_session_id),
+        selected_target: None, permission_profile: None, run_token: None,
+    }, Some(id)).await;
+    if !response.status().is_success() {
+        let _ = state.store.fail_unclaimed_automation(id, schedule.revision, "Automation could not start; inspect the session, edit and enable again.");
+    }
+    if let Err(error) = state.store.finish_automation(id, None) { warn!(%error, "automation settlement failed"); }
 }
 
 /// GET /api/sessions — durable Hub session list (same shape as the Tauri
@@ -868,6 +919,10 @@ fn canonical_available_route(
 
 /// POST /api/run — execute one product turn, streaming timeline to SSE.
 async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> impl IntoResponse {
+    execute_run(state, body, None).await
+}
+
+async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<&str>) -> Response {
     let workspace = match body.workspace {
         Some(w) => PathBuf::from(w),
         None => std::env::current_dir().unwrap_or_default(),
@@ -973,19 +1028,24 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
     // 约束由 R77 的分支键保证：它只能被它 ack 时活跃的那轮结算消费。
     // R65: 引擎流是否自然完成。取消结算据此决定是否追加 Interrupted。
     let run_completed_normally = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // A rejected scheduler tick (e.g. session busy) owns no Attempt and must
+    // not consume the live manual run's Stop marker during settlement.
+    let run_claimed = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Spawn the (potentially long) run on the runtime; emit each timeline
     // event to the broadcast channel.
     let active_engines_for_build_cloned = active_engines_for_build.clone();
     #[cfg(test)]
     let test_engine_factory = state.test_engine_factory.clone();
-    let outcome_fut = run_persisted_with_target(
+    let outcome_fut = run_persisted_with_automation(
         &state.store,
         {
             let providers = providers.clone();
             let workspace = workspace.clone();
             let active_engines_for_build = active_engines_for_build_cloned.clone();
+            let run_claimed = run_claimed.clone();
             move |target, product_session_id, profile| {
+                run_claimed.store(true, std::sync::atomic::Ordering::SeqCst);
                 #[cfg(test)]
                 if let Some(factory) = test_engine_factory.as_ref() {
                     return factory(target, product_session_id, profile);
@@ -1031,6 +1091,7 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
         // R51: publish the live per-session HubRuntime so Stop routes through
         // the same Hub control plane the Tauri product uses.
         Some(state.active_hubs.as_ref()),
+        automation_id,
         {
             let tx = tx.clone();
             let run_token = run_token.clone();
@@ -1142,6 +1203,12 @@ async fn run(State(state): State<Arc<AppState>>, Json(body): Json<RunBody>) -> i
     // engine is already registered) left the handle in the map forever. A later
     // stop on that session would then reach a dead adapter and report success.
     drop(engine_lease);
+    if !run_claimed.load(std::sync::atomic::Ordering::SeqCst) {
+        return match outcome_result {
+            Ok(outcome) => Json(outcome).into_response(),
+            Err(error) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
+        };
+    }
 
     // R65: 取消的 SSE 终态在真实流结束（outcome 就绪）之后统一结算。
     // mid-stream 的 Failed 只代表 fatal Error 事件到达，不代表引擎流
@@ -1305,12 +1372,13 @@ async fn main() -> Result<(), String> {
     let state = Arc::new(AppState::new(data_dir)?);
 
     let addr = std::env::var("ALVA_HUB_ADDR").unwrap_or_else(|_| "127.0.0.1:8790".to_string());
-    let app = build_app(state);
+    let app = build_app(state.clone());
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .map_err(|e| format!("bind {addr}: {e}"))?;
     info!("alva-hub-server listening on http://{addr}");
+    start_automation_pump(state);
     axum::serve(listener, app)
         .await
         .map_err(|e| format!("server error: {e}"))
@@ -1320,6 +1388,7 @@ async fn main() -> Result<(), String> {
 fn build_app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route("/api/automations", get(list_automations).post(automation_action))
         .route("/api/sessions", get(list_sessions))
         .route("/api/sessions/:id", get(get_session))
         .route("/api/sessions/:id/inspection", get(get_inspection))
@@ -1779,6 +1848,37 @@ mod r65_stop_integration {
         let status = raw.split_whitespace().nth(1).unwrap().parse().unwrap();
         let body = raw.split_once("\r\n\r\n").unwrap().1;
         (status, serde_json::from_str(body).unwrap())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn automation_http_crud_is_durable_paused_first_and_never_starts_an_engine() {
+        let server = spawn_server_gated(vec![Step::CompleteNow], false, false).await;
+        let workspace = server.data_dir.join("workspace");
+        let (status, body) = http_post(server.addr, "/api/run".into(), run_body(workspace.to_str().unwrap(), None)).await;
+        assert_eq!(status, 200, "{body}");
+        let outcome: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let session = outcome["product_session_id"].as_str().unwrap();
+        let (status, body) = http_post(server.addr, "/api/automations".into(), json!({"op":"create", "product_session_id":session, "title":"Review", "prompt":"Inspect only", "interval_minutes":5}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        let row: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(row["enabled"], false);
+        assert!(row["next_run_at"].is_null());
+        assert_eq!(http_get(server.addr, "/api/automations").await.1[0]["title"], "Review");
+        let (status, body) = http_post(server.addr, "/api/automations".into(), json!({"op":"set_enabled", "automation_id":row["automation_id"], "revision":row["revision"], "enabled":true}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        let enabled: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(enabled["enabled"], true);
+        assert!(enabled["next_run_at"].as_i64().unwrap() > timeline_now_ms());
+        assert_eq!(http_post(server.addr, "/api/automations".into(), json!({"op":"delete", "automation_id":row["automation_id"], "revision":row["revision"]}).to_string()).await.0, 400);
+        let (status, body) = http_post(server.addr, "/api/automations".into(), json!({"op":"update", "automation_id":row["automation_id"], "revision":enabled["revision"], "title":"Edited", "prompt":"New prompt", "interval_minutes":10}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        let edited: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(edited["enabled"], false);
+        assert!(edited["next_run_at"].is_null());
+        assert_eq!(http_post(server.addr, "/api/automations".into(), json!({"op":"delete", "automation_id":row["automation_id"], "revision":edited["revision"]}).to_string()).await.0, 200);
+        assert!(http_get(server.addr, "/api/automations").await.1.as_array().unwrap().is_empty());
+        assert_eq!(http_get(server.addr, &format!("/api/sessions/{session}")).await.1["turns"].as_array().unwrap().len(), 1);
+        assert_eq!(server.engine.turn.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test(flavor = "multi_thread")]

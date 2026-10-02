@@ -24,6 +24,7 @@ import type {
   RepairResult,
   TeamRunDetail,
   WorkspaceSkillCatalog,
+  Automation,
 } from "./bridge";
 
 async function addWorkbenchTab(user: ReturnType<typeof userEvent.setup>, name: string) {
@@ -77,6 +78,8 @@ const bridge = vi.hoisted(() => {
       getHubInspection: vi.fn(async () => null),
       listWorkspaceSkills: vi.fn(async (): Promise<WorkspaceSkillCatalog> => ({ skills: [], warnings: 0, truncated: false })),
       workspaceSkillAction: vi.fn(),
+      listAutomations: vi.fn(async (): Promise<Automation[]> => []),
+      automationAction: vi.fn(),
       addSessionMemory: vi.fn(
         async (_productSessionId: string, entry: string) => {
           if (state.detail) {
@@ -392,6 +395,7 @@ describe("App integration", () => {
     // so file order can't leak a populated group set into unrelated tests.
     bridge.fns.getPermissionGroups.mockResolvedValue([]);
     bridge.fns.listWorkspaceSkills.mockResolvedValue({ skills: [], warnings: 0, truncated: false });
+    bridge.fns.listAutomations.mockResolvedValue([]);
   });
 
   it("opens real workspace Skills for the selected durable session without executing an engine", async () => {
@@ -407,6 +411,22 @@ describe("App integration", () => {
     expect(bridge.fns.listWorkspaceSkills).toHaveBeenCalledWith("ps-1");
     expect(screen.queryByText("Extension catalog preview")).toBeNull();
     expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
+  });
+
+  it("opens durable automation configuration and navigates to its bound session without starting a run", async () => {
+    const user = userEvent.setup();
+    bridge.state.detail = detailFixture();
+    bridge.state.sessions = [{ product_session_id: "ps-1", workspace: "/tmp/proj", last_prompt: "Scheduled session", engine_id: "claude", status: "completed" }];
+    bridge.fns.listAutomations.mockResolvedValue([{ automation_id: "automation", product_session_id: "ps-1", title: "Saved interval task", prompt: "inspect", interval_minutes: 5, enabled: false, revision: 1, branch_id: "branch", target: { ...MODEL_ROUTES[1].target }, next_run_at: null, last_run_at: null, last_status: "never", last_error: null, running_turn_id: null }]);
+    render(<App />);
+    await screen.findByText("Scheduled session");
+    await user.click(screen.getByRole("button", { name: "Automations" }));
+    expect(await screen.findByText("Saved interval task")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New automation" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Open session" }));
+    await waitFor(() => expect(bridge.fns.getHubSession).toHaveBeenCalledWith("ps-1"));
+    expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
+    expect(bridge.fns.automationAction).not.toHaveBeenCalled();
   });
 
   it("connects documented search, workbench and new-session shortcuts without engine execution", async () => {

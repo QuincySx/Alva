@@ -1,5 +1,5 @@
 // INPUT:  session/turn/attempt rows in the Hub SQLite schema
-// OUTPUT: session/attempt DTOs with tool-content references, lifecycle and atomic side-effect merging
+// OUTPUT: session/attempt DTOs, resumed turns with atomic automation claims, lifecycle and side-effect merging
 // POS:    session timeline persistence cluster of the Hub store.
 
 use std::path::{Path, PathBuf};
@@ -389,6 +389,15 @@ impl super::HubStore {
         product_session_id: &str,
         prompt: &str,
     ) -> Result<PreparedTurn, String> {
+        self.prepare_resumed_turn_for_automation(product_session_id, prompt, None)
+    }
+
+    pub(crate) fn prepare_resumed_turn_for_automation(
+        &self,
+        product_session_id: &str,
+        prompt: &str,
+        automation_id: Option<&str>,
+    ) -> Result<PreparedTurn, String> {
         let turn_id = uuid::Uuid::new_v4().to_string();
         let attempt_id = uuid::Uuid::new_v4().to_string();
         let now = now_unix_ms();
@@ -398,6 +407,12 @@ impl super::HubStore {
             .map_err(|error| format!("begin Hub resume transaction: {error}"))?;
         let session = query_session(&transaction, product_session_id)?
             .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
+        if let Some(id) = automation_id {
+            if let Err(reason) = super::automation::authorize_claim(&transaction, id, &session, prompt, now) {
+                transaction.commit().map_err(|error| format!("commit automation veto: {error}"))?;
+                return Err(reason);
+            }
+        }
         if session.status == STATUS_RUNNING {
             return Err(format!(
                 "Hub session '{product_session_id}' is already running"
@@ -463,6 +478,14 @@ impl super::HubStore {
             prompt,
             now,
         )?;
+        if let Some(id) = automation_id {
+            transaction.execute(
+                "UPDATE automations SET running_turn_id = ?2, next_run_at = NULL,
+                     last_run_at = ?3, last_status = 'running', last_error = NULL,
+                     revision = revision + 1 WHERE automation_id = ?1",
+                params![id, turn_id, now],
+            ).map_err(|error| format!("claim automation turn: {error}"))?;
+        }
         if let Some(package) = &handoff {
             transaction
                 .execute(

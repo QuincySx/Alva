@@ -1,5 +1,5 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: workspace/Skills/run/switch/policy/readiness/Inspector plus provider discovery and persisted Hub IPC DTOs
+// OUTPUT: workspace/Skills/automation/run/switch/policy/readiness/Inspector plus provider discovery and persisted Hub IPC DTOs
 // POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -788,6 +788,30 @@ export async function listWorkspaceSkills(productSessionId: string): Promise<Wor
   if (HTTP) return await httpJson<WorkspaceSkillCatalog>(`/api/sessions/${encodeURIComponent(productSessionId)}/workspace/skills`, undefined, "GET");
   if (!hasTauri) throw new Error("Workspace Skills require the ALVA Hub runtime.");
   return await invoke<WorkspaceSkillCatalog>("list_hub_workspace_skills", { productSessionId });
+}
+
+export interface Automation {
+  automation_id: string; product_session_id: string; title: string; prompt: string;
+  interval_minutes: number; enabled: boolean; revision: number; branch_id: string; target: EngineTarget;
+  next_run_at: number | null; last_run_at: number | null; last_status: string;
+  last_error: string | null; running_turn_id: string | null;
+}
+export type AutomationAction =
+  | { op: "create"; product_session_id: string; title: string; prompt: string; interval_minutes: number }
+  | { op: "update"; automation_id: string; revision: number; title: string; prompt: string; interval_minutes: number }
+  | { op: "set_enabled"; automation_id: string; revision: number; enabled: boolean }
+  | { op: "delete"; automation_id: string; revision: number };
+
+export async function listAutomations(): Promise<Automation[]> {
+  if (HTTP) return httpJson<Automation[]>("/api/automations", undefined, "GET");
+  if (!hasTauri) throw new Error("Automations require the ALVA Hub runtime.");
+  return invoke<Automation[]>("list_hub_automations");
+}
+
+export async function automationAction(action: AutomationAction): Promise<Automation | null> {
+  if (HTTP) return httpJson<Automation | null>("/api/automations", action);
+  if (!hasTauri) throw new Error("Automations require the ALVA Hub runtime.");
+  return invoke<Automation | null>("hub_automation", { action });
 }
 
 export async function workspaceSkillAction(productSessionId: string, action: WorkspaceSkillAction): Promise<WorkspaceSkillDocument> {

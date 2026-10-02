@@ -1,5 +1,13 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 功能补全 · H17 本地自动化
+
+- schema 21 持久化真实 interval 配置；创建/编辑暂停，启用前显示模型/provider/账号/账单/固定权限并显式确认，revision/route 改变拒绝旧授权。普通会话专用，不经 TeamRun 自治或自动 fallback，不建立 kernel 开关。
+- Desktop 与 HTTP 沿现有执行/时间线/审批/Stop；schedule+Turn 同事务认领，每 10 秒 poll，最多 4 个并行。busy 和跨完整间隔的漏过 tick 跳过；成功后等完整间隔，失败/Stop/route change 暂停，重启不补跑。仅应用/服务运行时执行，无 daemon/cron。Pause 不取消当前 Turn，用户去 session Stop。
+- **10 后端专项、8 UI 专项 + 1 App 接线、1 HTTP CRUD、1 隔离 QA gate** 新回归。真实引擎替身证明结果/日志落盘与 duplicate claim 不执行；崩溃/fallback double 不调用第二账户。隔离模式只允许暂停配置，禁启用与 pump；未运行真实账户或付费 inference。目录请求按代际隔离，不让迟到轮询覆盖新启用状态；加载失败与保存失败分开。
+- 最终 Desktop lib **233 passed / 4 精确真实账号 filtered**、bin **3 passed**、HTTP **11 passed**、UI **202 passed / 19 files**；all-target check 与 TypeScript/Vite build 通过。旧 schema-18 fixture 残留新版 automations 表导致一次整包失败，修正 disposable fixture 后完整复跑通过；没有用 IF NOT EXISTS 放宽生产迁移。
+- 原生外观/自动化交互验收仍暂缓；插件安装 registry、MCP 管理、全局工具/Worker 调优、SSH/IM、真实账号及 WKWebView 性能仍未完成。核心 SDK 未改，用户 CONTEXT.md/不相关文件保留；本批只本地提交，不 push。
+
 ## 2026-10-02 功能补全 · H17 工作区 Skills
 
 - Skills 标签接 session 已存 cwd 的真实文件目录，新建/编辑仅受管项目路径，生态来源只读；复用 canonical SKILL.md parser，capability-relative no-follow/限额/敏感路径防护，源 revision 冲突拒绝覆盖。保留已有 enable-list 的全局名字及额外字段，不读取全局 Skills，不冒充完整 registry。

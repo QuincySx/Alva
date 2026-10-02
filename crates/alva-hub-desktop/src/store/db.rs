@@ -1,5 +1,5 @@
 // INPUT:  connection/schema/file-path primitives
-// OUTPUT: schema initialization + migration, instance lock, private file enforcement, crash repair
+// OUTPUT: schema initialization/migration, instance lock, private files, attempt crash repair and no-replay schedule recovery
 // POS:    storage kernel of the Hub store — owns Connection + file security + repair.
 
 use std::fs::{self, File, OpenOptions};
@@ -429,6 +429,32 @@ pub(super) fn initialize_schema_and_recover(
         ).map_err(|error| format!("migrate Hub database to schema 20: {error}"))?;
     }
 
+    if schema_version < 21 {
+        transaction.execute_batch(
+            "CREATE TABLE automations (
+                automation_id TEXT PRIMARY KEY,
+                product_session_id TEXT NOT NULL REFERENCES hub_sessions(product_session_id),
+                title TEXT NOT NULL, prompt TEXT NOT NULL, interval_minutes INTEGER NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1,
+                branch_id TEXT NOT NULL, target_json TEXT NOT NULL,
+                next_run_at INTEGER, last_run_at INTEGER, last_status TEXT NOT NULL DEFAULT 'never',
+                last_error TEXT, running_turn_id TEXT REFERENCES turns(turn_id)
+             );
+             CREATE INDEX idx_automations_due ON automations(enabled, next_run_at);"
+        ).map_err(|error| format!("migrate Hub database to schema 21: {error}"))?;
+    }
+    // No replay of missed ticks. An interrupted execution requires explicit
+    // re-authorization; an idle enabled schedule waits one full interval.
+    transaction.execute(
+        "UPDATE automations SET enabled = 0, next_run_at = NULL,
+             running_turn_id = NULL, last_status = 'interrupted',
+             last_error = 'Application stopped during execution; review and enable again.',
+             revision = revision + 1 WHERE running_turn_id IS NOT NULL", []
+    ).map_err(|error| format!("repair interrupted automations: {error}"))?;
+    transaction.execute(
+        "UPDATE automations SET next_run_at = ?1 + interval_minutes * 60000,
+             revision = revision + 1 WHERE enabled = 1", [now]
+    ).map_err(|error| format!("reset local automation clocks: {error}"))?;
     repair_interrupted_attempts(&transaction, now)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)

@@ -19,6 +19,7 @@
 7. `/api/sessions/:id/workspace/git` 与 `/workspace/git/diff?path=&area=staged|unstaged|untracked` 调用共享有界 Git reader，HTTP 不接受任意 cwd，也不提供写入操作。
 8. `/api/sessions/:id/messages?after=&through=` 是会话隔离的 128 条消息页；through 固定一次追赶范围，after 边界重放一条用于终态更新，不是独立事件身份。前端按 message_position 去重，不将 SSE 丢包当不可恢复历史。
 9. `/api/sessions/:id/workspace/skills` GET/POST 复用共享 WorkspaceSkillsManager，blocking worker 中读目录/源文档或执行用户明确的创建/编辑/归档/恢复；不接受任意 workspace，不调用 engine。测试构造器显式关闭共享/legacy catalog 读取，只使用临时假配置。
+10. `/api/automations` GET/POST 复用共享 schema-21 CRUD/授权判断；只有 production main 在监听启动后运行 10 秒 pump，最多 4 并行，并沿同一个 execute_run/SSE/审批/Stop 通道认领执行。paused-first、不自动 fallback、不补跑，不另起领域状态机；HTTP fixture 不自动启动 pump。认领前拒绝不能消费另一活动 Attempt 的 stopping marker。
 
 ## 约束
 
@@ -29,4 +30,4 @@
 
 | 名称 | 文件 | 职责 |
 |---|---|---|
-| HTTP service | `main.rs` | AppState、API/SSE routes、Inspector/工作区 Skills endpoint、独立测试配置与静态 fallback |
+| HTTP service | `main.rs` | AppState、API/SSE routes、Inspector/工作区 Skills/本地自动化 endpoint 和共享执行 pump、独立测试配置与静态 fallback |

@@ -2125,7 +2125,7 @@ function HubApp() {
         ) : null}
           </>
         ) : activePage === "automations" ? (
-          <AutomationsPage />
+          <AutomationsPage sessions={sessions} activeSessionId={activeSessionId} onOpenSession={(id) => void openSessionById(id)} />
         ) : activePage === "extensions" ? (
           <ExtensionsPage sessionId={activeSessionId} onStartChat={() => setActivePage("conversation")} />
         ) : activePage === "settings" ? (

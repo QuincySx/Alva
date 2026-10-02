@@ -1,5 +1,5 @@
 // INPUT:  alva_engine_runtime, alva_hub_core, HubStore, serde, tokio_stream
-// OUTPUT: multi-engine run seams, Attempt capture, durable positioned messages and tool-content references
+// OUTPUT: multi-engine and atomically claimed automation run seams, Attempt capture and durable positioned messages/tool references
 // POS:    Highest product seam for durable Hub Desktop branch execution, native-resume recovery, and product timeline projection.
 
 use std::collections::{HashMap, HashSet};
@@ -206,6 +206,27 @@ pub async fn run_persisted_with_target<F, B, H>(
     request: RunRequest,
     selected_target: Option<EngineTarget>,
     hub_sink: Option<&ActiveHubs>,
+    emit: F,
+) -> Result<RunOutcome, String>
+where
+    F: FnMut(TimelineEvent) + Send,
+    B: Fn(&EngineTarget, &str, PermissionProfile) -> Result<Arc<dyn EngineRuntime>, String>,
+    H: Fn(&EngineTarget) -> Option<String>,
+{
+    run_persisted_with_automation(store, build_engine, health_veto, request, selected_target, hub_sink, None, emit).await
+}
+
+/// Product-local scheduler variant: a due schedule is claimed atomically with
+/// the resumed Turn. Automatic schedules never cross account routes through
+/// fallback; ordinary callers pass None and retain their existing behavior.
+pub async fn run_persisted_with_automation<F, B, H>(
+    store: &HubStore,
+    build_engine: B,
+    health_veto: H,
+    request: RunRequest,
+    selected_target: Option<EngineTarget>,
+    hub_sink: Option<&ActiveHubs>,
+    automation_id: Option<&str>,
     mut emit: F,
 ) -> Result<RunOutcome, String>
 where
@@ -214,13 +235,16 @@ where
     H: Fn(&EngineTarget) -> Option<String>,
 {
     validate_prompt(&request.prompt)?;
+    if automation_id.is_some() && (request.product_session_id.is_none() || selected_target.is_some()) {
+        return Err("Automations only resume their pinned ordinary session".into());
+    }
 
     let prepared = if let Some(product_session_id) = request.product_session_id.as_deref() {
         let detail = store
             .get_session(product_session_id)?
             .ok_or_else(|| format!("Hub session '{product_session_id}' was not found"))?;
         canonical_workspace(PathBuf::from(&detail.session.workspace).as_path())?;
-        if request.engine_id != detail.session.engine_id {
+        if automation_id.is_none() && request.engine_id != detail.session.engine_id {
             return Err(format!(
                 "Hub session '{product_session_id}' is active on '{}'; switch engines before running '{}'",
                 detail.session.engine_id, request.engine_id
@@ -237,7 +261,10 @@ where
                 ));
             }
         }
-        store.prepare_resumed_turn(product_session_id, &request.prompt)?
+        match automation_id {
+            Some(id) => store.prepare_resumed_turn_for_automation(product_session_id, &request.prompt, Some(id))?,
+            None => store.prepare_resumed_turn(product_session_id, &request.prompt)?,
+        }
     } else {
         let workspace = canonical_workspace(&request.workspace)?;
         let product_session_id = ProductSessionId::new();
@@ -318,6 +345,7 @@ where
     let mut considered = vec![prepared.target.clone()];
     let mut cycle_log: Vec<String> = Vec::new();
     while let Some(class) = execution.fallback_class() {
+        if automation_id.is_some() { break; }
         // R87: 取消意图优先于连续性策略。用户 Stop（含适配器 cancel grace
         // 强杀——其文案会被分类为 Crash）写入的 attempt_cancelled 事实一旦
         // 存在，本 attempt 的失败不再自动 fallback；后继引擎绝不能因为

@@ -1,5 +1,5 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: binary with workspace/Skills/run/switch/Inspector IPC, isolated user browser/PTY and timestamped timeline events
+// OUTPUT: binary with workspace/Skills/automation/run/switch/Inspector IPC, local schedule pump and isolated user browser/PTY
 // POS:    Tauri 2 entrypoint, user-authorized multi-engine Desktop state owner, and product event bridge.
 
 #![cfg_attr(
@@ -16,7 +16,7 @@ use alva_hub_core::{HubRuntime, ProductSessionId};
 use alva_hub_desktop::{
     build_engine_for_target_with_inspector, create_managed_session_workspace,
     diagnose_provider_inference, discover_provider_models, discover_worktrees,
-    permission_eligibility, probe_readiness, run_persisted_with_target, EngineEligibility,
+    permission_eligibility, probe_readiness, run_persisted_with_automation, EngineEligibility,
     EngineReadiness, EngineTarget, FallbackPolicy, HubInspectionSnapshot, HubInspectorService,
     HubSessionDetail, HubSessionSummary, HubStore, ModelRoute, PermissionProfile,
     PermissionRouter, ProjectSummary, ProviderCatalog, ProviderDiagnosticResult, ProviderProfile,
@@ -211,7 +211,7 @@ async fn run_hub_prompt(
         None
     };
     let (workspace, _engine_id) = state.execution_target(&request)?;
-    execute_session_run(app, &state, workspace, request, selected_target, run_token).await
+    execute_session_run(app, &state, workspace, request, selected_target, run_token, None).await
 }
 
 #[derive(Clone, Serialize)]
@@ -221,7 +221,7 @@ struct DesktopTimelineEvent {
     run_token: Option<String>,
 }
 
-/// The one execution wiring both user prompts and team worker dispatches go
+/// The one execution wiring user prompts, schedules and team dispatches go
 /// through: engine registry, permission routing, health veto, event bridge.
 async fn execute_session_run(
     app: AppHandle,
@@ -230,6 +230,7 @@ async fn execute_session_run(
     request: RunRequest,
     selected_target: Option<EngineTarget>,
     run_token: Option<String>,
+    automation_id: Option<&str>,
 ) -> Result<RunOutcome, String> {
     let history_dir = state.history_dir.clone();
     let inspector = state.inspector.clone();
@@ -267,7 +268,7 @@ async fn execute_session_run(
         .store
         .is_autonomous_scope(&session_key)
         .unwrap_or(false);
-    let outcome = run_persisted_with_target(
+    let outcome = run_persisted_with_automation(
         &state.store,
         move |target, product_session_id, permission_profile| {
             let provider_config = build_providers.resolve_target(target, &workspace)?;
@@ -304,6 +305,7 @@ async fn execute_session_run(
         request,
         selected_target,
         Some(active_hubs),
+        automation_id,
         move |event| {
             if let Some(info) = &event.permission_request {
                 // The live-engines entry is the adapter currently streaming
@@ -1116,7 +1118,7 @@ async fn run_worker_task(app: &AppHandle, task: alva_hub_desktop::WorkerTask) {
         product_session_id: Some(worker.worker_session_id.clone()),
         permission_profile: None,
     };
-    let outcome = execute_session_run(app.clone(), &state, workspace, request, None, None).await;
+    let outcome = execute_session_run(app.clone(), &state, workspace, request, None, None, None).await;
     let finished = match outcome {
         Ok(outcome) => state.store.finish_worker_task(
             &task.task_id,
@@ -1738,11 +1740,65 @@ fn isolated_ui_command(command: &str) -> bool {
         | "get_hub_tool_content" | "list_hub_workspace_files" | "read_hub_workspace_file"
         | "get_hub_git_status" | "get_hub_git_diff" | "get_hub_messages" | "get_hub_inspection"
         | "list_hub_workspace_skills" | "hub_workspace_skill"
+        | "list_hub_automations" | "hub_automation"
         | "list_model_providers" | "list_model_routes" | "get_default_model_route"
         | "get_engine_readiness" | "get_repair_plan" | "get_permission_eligibility" | "get_global_fallback_policy"
         | "get_permission_groups" | "get_team_run_for_lead" | "list_projects" | "create_project"
         | "rename_project" | "delete_project" | "discover_project_worktrees"
         | "create_session_workspace" | "set_session_project")
+}
+
+#[tauri::command]
+async fn list_hub_automations(state: State<'_, DesktopState>) -> Result<Vec<alva_hub_desktop::Automation>, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.list_automations()).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn hub_automation(state: State<'_, DesktopState>, action: alva_hub_desktop::AutomationAction) -> Result<Option<alva_hub_desktop::Automation>, String> {
+    if !automation_action_allowed(state.isolated_ui, &action) {
+        return Err("Automation execution is disabled in isolated UI QA".into());
+    }
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.automation_action(action)).await.map_err(|error| error.to_string())?
+}
+
+fn automation_action_allowed(isolated_ui: bool, action: &alva_hub_desktop::AutomationAction) -> bool {
+    !isolated_ui || !matches!(action, alva_hub_desktop::AutomationAction::SetEnabled { enabled: true, .. })
+}
+
+fn start_automation_pump(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let slots = Arc::new(tokio::sync::Semaphore::new(4));
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            if app.get_webview_window("main").is_none() { break; }
+            let due = match app.state::<DesktopState>().store.due_automation_ids() {
+                Ok(ids) => ids,
+                Err(error) => { tracing::warn!(%error, "automation poll failed"); continue; }
+            };
+            for id in due {
+                let Ok(permit) = slots.clone().try_acquire_owned() else { break; };
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _permit = permit;
+                    let state = app.state::<DesktopState>();
+                    let Ok(schedule) = state.store.get_automation(&id) else { return; };
+                    let result = execute_session_run(app.clone(), &state,
+                        PathBuf::from(state.store.get_session(&schedule.product_session_id).ok().flatten().map(|detail| detail.session.workspace).unwrap_or_default()),
+                        RunRequest { prompt: schedule.prompt, workspace: PathBuf::new(), engine_id: schedule.target.engine_id,
+                            product_session_id: Some(schedule.product_session_id), permission_profile: None },
+                        None, None, Some(&id)).await;
+                    if let Err(error) = &result {
+                        let _ = state.store.fail_unclaimed_automation(&id, schedule.revision, error);
+                    }
+                    if let Err(error) = state.store.finish_automation(&id, result.as_ref().err().map(String::as_str)) {
+                        tracing::warn!(%error, "automation settlement failed");
+                    }
+                });
+            }
+        }
+    });
 }
 
 fn main() {
@@ -1802,6 +1858,7 @@ fn main() {
             for worker_id in queued_workers {
                 ensure_worker_pump(app.handle().clone(), worker_id);
             }
+            if !isolated_ui { start_automation_pump(app.handle().clone()); }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1850,6 +1907,8 @@ fn main() {
             read_hub_workspace_file,
             list_hub_workspace_skills,
             hub_workspace_skill,
+            list_hub_automations,
+            hub_automation,
             get_hub_git_status,
             get_hub_git_diff,
             get_hub_messages,
@@ -1912,5 +1971,18 @@ mod isolated_ui_tests {
         assert!(isolated_ui_command("get_hub_messages"));
         assert!(isolated_ui_command("hub_terminal"));
         assert!(isolated_ui_command("hub_browser"));
+    }
+
+    #[test]
+    fn isolated_ui_can_save_paused_schedules_but_cannot_authorize_execution() {
+        use alva_hub_desktop::AutomationAction;
+        let enable = AutomationAction::SetEnabled { automation_id: "test".into(), revision: 1, enabled: true };
+        let pause = AutomationAction::SetEnabled { automation_id: "test".into(), revision: 1, enabled: false };
+        let create = AutomationAction::Create { product_session_id: "test".into(), title: "test".into(), prompt: "test".into(), interval_minutes: 5 };
+        assert!(isolated_ui_command("hub_automation"));
+        assert!(!automation_action_allowed(true, &enable));
+        assert!(automation_action_allowed(true, &pause));
+        assert!(automation_action_allowed(true, &create));
+        assert!(automation_action_allowed(false, &enable));
     }
 }
