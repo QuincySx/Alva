@@ -20,8 +20,8 @@ are local and unsigned (command-scoped signing override after the existing
 | H12 user browser | Explicit session-owned incognito native window; navigation/reload/history/close; HTTP(S)-only URL policy and no Hub IPC/popups/downloads | Native navigation/error/close lifecycle interaction pass; HTTP is explicitly unsupported |
 | H13 terminal | Real Unix PTY tests for cwd/input/resize/Ctrl-C/exit/reopen/group cleanup; bounded output and session ownership | Native UI lifecycle pass; line-oriented, not a fullscreen emulator or security sandbox; HTTP is unsupported |
 | H14 Inspector | Real SQLite flush/reopen preserves typed records and recursive child/grandchild ownership; product/attempt detail, unsupported and missing states | Native recursive page/focus/keyboard pass; no non-Alva internal trace is invented |
-| H17 secondary pages | Real Inspector navigation and scoped shortcuts; persisted theme/density/reduced motion; session-scoped Skills create/edit/archive/restore; schema-21 local interval automations with paused-first CRUD, explicit billing review, atomic Turn claims and normal approval/Stop routing; plugin samples labelled previews | Native theme/Skills/automation/keyboard/narrow/multilingual pass; cron/daemon, MCP management, plugin install registry, global tool controls and SSH/IM remain unavailable |
-| K01 boundaries | Dependency firewall, bus surface, wasm32 clean set and host full link pass; SDK/kernel implementation unchanged | wasm32-wasip2 target is not installed, explicitly skipped |
+| H17 secondary pages | Real Inspector navigation and scoped shortcuts; persisted theme/density/reduced motion; session-scoped Skills create/edit/archive/restore; schema-21 paused-first local interval automations; schema-22 ALVA capability switches and trusted local stdio MCP CRUD/discovery/calls, shared by Desktop/HTTP; included-plugin tab replaces sample installations | Native theme/Skills/automation/MCP/keyboard/narrow/multilingual pass; cron/daemon, remote MCP/auth, third-party plugin install registry, Worker tuning and SSH/IM remain unavailable |
+| K01 boundaries | Dependency firewall, bus surface, public symbol snapshots, wasm32 clean set and host full link pass; kernel/agent-core implementation unchanged | wasm32-wasip2 target is not installed, explicitly skipped |
 
 ### Reproducible automated checks
 
@@ -35,16 +35,21 @@ cargo test -p alva-hub-desktop --lib -- --test-threads=1 \
   --skip real_codex_worker_task_executes_and_closes_with_result
 cargo test -p alva-hub-desktop --bin alva-hub-desktop -- --test-threads=1
 cargo test -p alva-hub-server -- --test-threads=1
+cargo test -p alva-protocol-mcp -- --test-threads=1
+cargo test -p alva-app-core --lib -- --test-threads=1
+cargo test -p alva-engine-adapter-alva -- --test-threads=1
 cargo check -p alva-hub-desktop -p alva-hub-server --all-targets
 bash scripts/ci-check-deps.sh
+bash scripts/public-surface.sh
 ```
 
-Results: **233 lib tests / 4 explicitly filtered real-account tests**,
-**3 bin tests**, **11 HTTP tests**, all-target check pass. The dependency
+Results: **238 lib tests / 4 explicitly filtered real-account tests**,
+**4 bin tests**, **12 HTTP tests**, **80 MCP protocol tests**, **320 app-core
+lib tests**, **32 ALVA adapter tests**, all-target check pass. The dependency
 firewall initially exposed the missing declaration of Desktop's direct
 SensitivePathFilter dependency; its single intended use was documented and
 the gate rerun successfully. No Rule 17/18/19 was removed. The final script
-also passed bus lint, wasm32-unknown-unknown checks and host linking;
+also passed bus lint, public symbol snapshots, wasm32-unknown-unknown checks and host linking;
 wasm32-wasip2 was skipped because the target is absent.
 
 Target precision: this checkout's Rule 18 loop checks `alva-app-cli` and
@@ -53,7 +58,7 @@ The script's success is not claimed as a check of that absent target, and
 this work did not rename or migrate the separate native product entry.
 
 In `crates/alva-hub-desktop/web`: `npm test -- --reporter=dot` reports
-**202 tests / 19 files**, and `npm run build` passes TypeScript/Vite.
+**209 tests / 20 files**, and `npm run build` passes TypeScript/Vite.
 Existing React act/controlled-state, Rust unused-item and large-bundle
 warnings remain. This iteration made no real provider or paid SDK calls,
 installed no new runtime, and did not rerun a blocked one-off Playwright
@@ -103,6 +108,40 @@ an App navigation test and real HTTP CRUD prove actual configuration writes;
 isolation rejects enable and starts no pump. A schema-18 test fixture was updated
 to actually remove post-18 tables; production migrations were not weakened.
 
+ALVA capability preferences use ten real component-catalog groups, not a
+parallel tool registry. Every new Desktop/HTTP run captures one persisted
+snapshot, including fallback assembly; it does not mutate a running agent or
+control Claude/Codex/Pi tools. Security, approvals, tool timeouts and loop guards
+cannot be disabled. These are availability controls, not a sandbox; child
+agents may have their own tools. Hub-managed mode excludes ambient MCP/AEP
+discovery, even when its explicit server list is empty.
+
+Managed MCP currently supports installed native stdio programs only: absolute
+executable plus literal argv, no shell parsing/install/download, inherited
+credentials, environment-secret fields or remote HTTP/SSE. Configuration is
+private schema-22 data with optimistic revisions, 32-server limits and bounded
+fields. Create/edit always disables; enable and one-shot connection tests need
+explicit host-access confirmation. Tests bind a saved session cwd, have at most
+two concurrent slots, never call a model or enable a server, and close the
+owned test process. Deleting removes only configuration, not programs or an
+already running agent's connection. Isolated UI QA permits configuration but
+rejects enable/test execution.
+
+The native transport performs real initialize/initialized, paginated tools/list
+and tools/call with 1-MiB frames, 256-tool/16-page bounds, request timeouts,
+cancellation invalidation and Unix owned-process-group cleanup. Discovery has
+per-server timeouts and a 60-second aggregate startup budget. Closed transports
+do not remain callable; reconnect failures clear obsolete tools. Direct MCP
+tools and mcp_runtime both use the existing SecurityGuard/HITL path; server
+read-only annotations grant no authority. Stable provider-safe aliases retain
+server/tool identity in descriptions and resolve exact legacy template names.
+Native fixture subprocesses prove actual handshake/discovery/call/cwd/literal
+argv, no ambient HOME, cancellation and static failure messages, without
+external packages or accounts. Store/migration, real HTTP, actual ALVA catalog
+assembly/approval and seven UI regressions verify the functional pipeline.
+The included-plugin page is not a third-party AEP installer. Visual polish was
+explicitly deferred by the user; these tests are not native visual acceptance.
+
 ### Native evidence and deferred acceptance
 
 The debug fixture uses real private stores and two local Git worktrees,
@@ -143,7 +182,7 @@ python3 -m http.server 1437 --bind 127.0.0.1 --directory <fixture-root>/pages
 
 Start the UI server before launching the desktop. The isolate flag is
 debug-only: it disables ambient provider/account probes, worker/automation pumps,
-engine execution, automation enable and account mutations. Paused schedule CRUD is allowed. Browser and
+engine execution, automation/MCP enable, MCP tests and account mutations. Paused schedule and MCP CRUD are allowed. Browser and
 PTY controls remain explicit user actions. The completed QA app and local
 servers were stopped; fixture data was retained, not deleted. H18/H21 are
 not marked complete by this handoff.

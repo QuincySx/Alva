@@ -38,7 +38,8 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 24. 组件只提供 composition、slots 与有限 typed variants；仅支持 default/compact 两档密度，页面不得手写控件高度。
 25. 页面完成必须同时通过确定性 fixture 与真实 store/Tauri command；视觉 review 使用 reference/linework/current 三联图。
 26. Settings 的 Inspector 操作打开真实 Workbench 页；⌘/Ctrl K/N/B 连接搜索/新会话/工作台，Esc 只在无覆盖层的中央对话停止当前会话。Stop ack 不是终态，真实 terminal event 才收起可取消状态；未接通的独立 Workbench 窗口与扩展样例明确不可用。
-27. Extensions 的 Skills 标签接真实 session-scoped 文件目录，不冒充全局或完整运行时 registry。可创建/编辑受管项目 SKILL.md、显式确认归档与恢复，生态源只读；保存失败保留草稿、不假报成功，session 切换丢弃迟到目录/文档。仅后续 ALVA 运行读取变更，Plugins 样例仍明确不可安装。
+27. Extensions 的 Skills 标签接真实 session-scoped 文件目录，不冒充全局或完整运行时 registry。可创建/编辑受管项目 SKILL.md、显式确认归档与恢复，生态源只读；保存失败保留草稿、不假报成功，session 切换丢弃迟到目录/文档。仅后续 ALVA 运行读取变更。
+27.1. Plugins 标签与 Settings/Tools 共享真实 ALVA catalog 能力配置和 stdio MCP 管理；不展示伪 GitHub 样例或 Installed 状态，第三方 AEP 安装明确未接入。开关使用后端 revision，失败保留事实；MCP create/edit 重新禁用，enable/test 显式确认宿主访问，删除确认只删配置。参数每行一个，不解析 shell/安装包/继承凭据；test 绑定已存 session cwd，列出工具并关闭，结果不冒充实时状态。UI 不声称配置控制其他 engine 或热改当前 Agent；安全 substrate 无关闭入口。
 28. Automations 接真实 SQLite 配置与状态：模板只预填 form，新建/编辑后暂停；启用弹窗展示 model/provider/account/billing 和固定权限，显式勾选计费授权。间隔不是 cron/本地时间，主窗口/服务关闭不运行；失败/Stop/route change 暂停，busy/missed 跳过，不补跑。暂停不代替当前 session 的 Stop；可打开对应 session 处理审批、结果和取消。轮询卸载清理，失败保留草稿与真实 revision，不伪造成功。
 
 ## 约束
@@ -96,7 +97,8 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Team panel | `components/team-panel.tsx` | Worker 生命周期、任务队列、worktree adoption、资源声明与自治开关 |
 | Component tests | `components/components.test.tsx` | Composer、模型选择器、shared-clock timeline 与 Inspector 子 Agent 回退回归 |
 | Timeline tests | `components/hub-timeline.test.tsx` | 审批卡工具名/资源/效果说明同屏与多语言保留回归（R76） |
-| Product pages | `components/product-pages.tsx` | 自动化页面 re-export、插件样例、真实项目 Skills 与设置/搜索共享页面；真实外观偏好与 Inspector 导航，无后端的操作标明不可用 |
+| Product pages | `components/product-pages.tsx` | 自动化 re-export、真实内置插件/MCP、项目 Skills 与设置/搜索；外观/Inspector 接真实 callback，缺能力明确不可用 |
+| ALVA tool settings | `components/tool-settings.tsx` / `components/tool-settings.test.tsx` | 真实 capability 开关、MCP 禁用优先 CRUD、授权测试、revision/失败草稿与迟到回复隔离；Extensions 与 Settings 共用 |
 | Workbench tools | `components/workbench-tools.tsx` | Files、Text、Git、Review、Agent、产品 Attempt + native Inspector、Tasks、Usage、Chrome、Terminal 标签内容 |
 | Workspace files | `components/workspace-files.tsx` | Files/Text 真实只读目录导航与 UTF-8 预览；会话切换 key 隔离迟到响应，刷新重试、二进制/受限/限额明确提示 |
 | Workspace Git | `components/workspace-git.tsx` | 真实 Git 分支/status/diff，三种变更区分、任务终态快照刷新与手动刷新；Review 继续展示执行证据，非 Git 状态 |

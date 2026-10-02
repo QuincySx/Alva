@@ -1,5 +1,5 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: binary with workspace/Skills/automation/run/switch/Inspector IPC, local schedule pump and isolated user browser/PTY
+// OUTPUT: Desktop IPC for workspace/Skills/automation/ALVA tools/MCP/run/Inspector with execution guards and schedule pump
 // POS:    Tauri 2 entrypoint, user-authorized multi-engine Desktop state owner, and product event bridge.
 
 #![cfg_attr(
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use alva_engine_runtime::{EngineRuntime, PermissionDecision};
 use alva_hub_core::{HubRuntime, ProductSessionId};
 use alva_hub_desktop::{
-    build_engine_for_target_with_inspector, create_managed_session_workspace,
+    build_engine_for_target_with_settings, create_managed_session_workspace,
     diagnose_provider_inference, discover_provider_models, discover_worktrees,
     permission_eligibility, probe_readiness, run_persisted_with_automation, EngineEligibility,
     EngineReadiness, EngineTarget, FallbackPolicy, HubInspectionSnapshot, HubInspectorService,
@@ -237,6 +237,7 @@ async fn execute_session_run(
     let health_store = state.store.clone();
     let health_workspace = workspace.clone();
     let build_providers = state.providers.clone();
+    let tool_settings = state.store.tool_settings()?;
     let health_providers = state.providers.clone();
     // Run-scoped engine clones for permission routing only (the router stores
     // the engine it must reach when a decision lands). Dropped when the run
@@ -272,13 +273,14 @@ async fn execute_session_run(
         &state.store,
         move |target, product_session_id, permission_profile| {
             let provider_config = build_providers.resolve_target(target, &workspace)?;
-            let engine = build_engine_for_target_with_inspector(
+            let engine = build_engine_for_target_with_settings(
                 target,
                 provider_config,
                 permission_profile,
                 &workspace,
                 &history_dir,
                 &inspector,
+                &tool_settings,
             )?;
             // The engine is registered into the run seam's own HubRuntime
             // (published via the active_hubs sink); keep a run-scoped clone
@@ -1667,6 +1669,25 @@ async fn get_hub_tool_content(
 }
 
 #[tauri::command]
+async fn get_hub_tool_settings(state: State<'_, DesktopState>) -> Result<alva_hub_desktop::HubToolSettings, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.tool_settings()).await.map_err(|_| "Tool settings unavailable".to_string())?
+}
+
+#[tauri::command]
+async fn hub_tool_settings_action(state: State<'_, DesktopState>, action: alva_hub_desktop::ToolSettingsAction) -> Result<alva_hub_desktop::HubToolSettings, String> {
+    if state.isolated_ui && action.starts_execution() { return Err("MCP execution is disabled in isolated UI QA".into()); }
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.tool_settings_action(action)).await.map_err(|_| "Tool settings unavailable".to_string())?
+}
+
+#[tauri::command]
+async fn test_hub_mcp(state: State<'_, DesktopState>, product_session_id: String, server_id: String, revision: i64, confirmed: bool) -> Result<alva_hub_desktop::McpDiagnostic, String> {
+    if state.isolated_ui { return Err("MCP execution is disabled in isolated UI QA".into()); }
+    alva_hub_desktop::probe_managed_mcp(&state.store, &product_session_id, &server_id, revision, confirmed).await
+}
+
+#[tauri::command]
 fn add_session_memory(
     state: State<'_, DesktopState>,
     product_session_id: String,
@@ -1741,6 +1762,7 @@ fn isolated_ui_command(command: &str) -> bool {
         | "get_hub_git_status" | "get_hub_git_diff" | "get_hub_messages" | "get_hub_inspection"
         | "list_hub_workspace_skills" | "hub_workspace_skill"
         | "list_hub_automations" | "hub_automation"
+        | "get_hub_tool_settings" | "hub_tool_settings_action"
         | "list_model_providers" | "list_model_routes" | "get_default_model_route"
         | "get_engine_readiness" | "get_repair_plan" | "get_permission_eligibility" | "get_global_fallback_policy"
         | "get_permission_groups" | "get_team_run_for_lead" | "list_projects" | "create_project"
@@ -1909,6 +1931,9 @@ fn main() {
             hub_workspace_skill,
             list_hub_automations,
             hub_automation,
+            get_hub_tool_settings,
+            hub_tool_settings_action,
+            test_hub_mcp,
             get_hub_git_status,
             get_hub_git_diff,
             get_hub_messages,
@@ -1965,7 +1990,7 @@ mod isolated_ui_tests {
 
     #[test]
     fn isolated_ui_never_starts_engines_or_account_mutations() {
-        for command in ["run_hub_prompt", "dispatch_worker_task", "run_engine_repair", "test_model_route", "discover_models_for_provider", "save_model_provider", "switch_hub_engine"] {
+        for command in ["run_hub_prompt", "dispatch_worker_task", "run_engine_repair", "test_model_route", "test_hub_mcp", "discover_models_for_provider", "save_model_provider", "switch_hub_engine"] {
             assert!(!isolated_ui_command(command));
         }
         assert!(isolated_ui_command("get_hub_messages"));
@@ -1984,5 +2009,17 @@ mod isolated_ui_tests {
         assert!(automation_action_allowed(true, &pause));
         assert!(automation_action_allowed(true, &create));
         assert!(automation_action_allowed(false, &enable));
+    }
+
+    #[test]
+    fn isolated_ui_mcp_configuration_cannot_authorize_execution() {
+        use alva_hub_desktop::ToolSettingsAction;
+        let enable = ToolSettingsAction::SetMcpEnabled { revision: 1, id: "fixture".into(), enabled: true, confirmed: true };
+        let disable = ToolSettingsAction::SetMcpEnabled { revision: 1, id: "fixture".into(), enabled: false, confirmed: false };
+        assert!(isolated_ui_command("hub_tool_settings_action"));
+        assert!(isolated_ui_command("get_hub_tool_settings"));
+        assert!(!isolated_ui_command("test_hub_mcp"));
+        assert!(enable.starts_execution());
+        assert!(!disable.starts_execution());
     }
 }

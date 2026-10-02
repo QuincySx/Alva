@@ -1,5 +1,5 @@
 // INPUT:  Hub Desktop engine, provider, workspace, run, store, and collaboration sub-modules
-// OUTPUT: public engine/catalog/workspace/Skills plus local automations, persisted run, branch, policy, handoff and timeline seams
+// OUTPUT: engine/provider/workspace/Skills/automation/tool-settings/MCP and durable orchestration APIs
 // POS:    Hub Desktop multi-engine library facade shared by Tauri IPC and product tests.
 
 mod alva;
@@ -8,6 +8,7 @@ pub mod engine_registry;
 mod engine_wiring;
 mod failure;
 mod inspection;
+mod mcp_diagnostics;
 pub mod permissions;
 mod provider_diagnostics;
 mod provider_plane;
@@ -27,7 +28,7 @@ mod terminal;
 mod user_browser;
 pub mod worktree_discovery;
 
-pub use alva::{build_engine, build_engine_for_target, build_engine_for_target_with_inspector};
+pub use alva::{build_engine, build_engine_for_target, build_engine_for_target_with_inspector, build_engine_for_target_with_settings};
 pub use claims::{claims_conflict, conflicting_claims, ClaimMode, ResourceClaim};
 pub use engine_registry::{
     blueprint, register as register_engine_blueprint, registered_engine_ids, EngineBlueprint,
@@ -35,6 +36,7 @@ pub use engine_registry::{
 };
 pub use failure::{classify_failure, triggers_fallback, FailureClass};
 pub use inspection::{HubInspectionRecord, HubInspectionSnapshot, HubInspectorService};
+pub use mcp_diagnostics::{probe_managed_mcp, McpDiagnostic};
 pub use permissions::{
     enforcement_for, is_stale_permission_error, permission_eligibility, permission_group_key,
     release_run_engines, EnforcementPlan, EnforcementRelation, EngineEligibility,
@@ -66,6 +68,7 @@ pub use run::{
 pub use session_workspace::{create_managed_session_workspace, WorkspaceBinding, WorkspaceKind};
 pub use store::{
     Automation, AutomationAction,
+    HubToolSettings, ToolComponent, ManagedMcpServer, ToolSettingsAction,
     EngineTarget, FallbackPolicy, HandoffKind, HandoffPackage, HubSessionDetail, HubSessionSummary,
     HubStore, MessageJournalPage, MessageJournalRecord, PendingSwitch, ProjectSummary, SideEffectEvidence, StoredAttempt, StoredBranch,
     StoredTimelineEvent, StoredTurn, StoredUsage, SwitchDisposition, SwitchOutcome, TaskClaim,

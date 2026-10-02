@@ -1,6 +1,6 @@
 // INPUT:  alva-hub-desktop (HubStore, ProviderCatalog, run_persisted_with_automation,
 //         build_engine_for_target, SystemProbe, DTOs), axum, tokio
-// OUTPUT: headless HTTP service with real automations/workspace/Inspector APIs and shared execution/SSE
+// OUTPUT: HTTP/SSE service with durable workspace/automation/ALVA capability/MCP/Inspector APIs
 // POS:    Alva Hub as a local service — one backend, many frontends.
 
 use std::collections::{HashMap, HashSet};
@@ -24,7 +24,7 @@ use tracing::{info, warn};
 
 use alva_hub_core::ProductSessionId;
 use alva_hub_desktop::{
-    build_engine_for_target_with_inspector, permission_eligibility, probe_readiness,
+    build_engine_for_target_with_settings, permission_eligibility, probe_readiness,
     run_persisted_with_automation, ActiveHubs, EngineTarget, HubInspectorService, HubStore,
     PermissionProfile, ProviderCatalog, RunRequest, SaveProviderProfile, CreateProviderProfile,
     SystemProbe, TimelineEvent, TimelineStatus,
@@ -176,6 +176,34 @@ async fn list_automations(State(state): State<Arc<AppState>>) -> Response {
     match tokio::task::spawn_blocking(move || store.list_automations()).await {
         Ok(Ok(rows)) => Json(rows).into_response(),
         _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Automations unavailable"}))).into_response(),
+    }
+}
+
+async fn get_tool_settings(State(state): State<Arc<AppState>>) -> Response {
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || store.tool_settings()).await {
+        Ok(Ok(settings)) => Json(settings).into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Tool settings unavailable"}))).into_response(),
+    }
+}
+
+async fn tool_settings_action(State(state): State<Arc<AppState>>, Json(action): Json<alva_hub_desktop::ToolSettingsAction>) -> Response {
+    let store = state.store.clone();
+    match tokio::task::spawn_blocking(move || store.tool_settings_action(action)).await {
+        Ok(Ok(settings)) => Json(settings).into_response(),
+        Ok(Err(error)) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Tool settings unavailable"}))).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct McpTestRequest { product_session_id: String, server_id: String, revision: i64, confirmed: bool }
+
+async fn test_mcp(State(state): State<Arc<AppState>>, Json(request): Json<McpTestRequest>) -> Response {
+    match alva_hub_desktop::probe_managed_mcp(&state.store, &request.product_session_id, &request.server_id, request.revision, request.confirmed).await {
+        Ok(result) => Json(result).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response(),
     }
 }
 
@@ -1037,6 +1065,10 @@ async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<
     let active_engines_for_build_cloned = active_engines_for_build.clone();
     #[cfg(test)]
     let test_engine_factory = state.test_engine_factory.clone();
+    let tool_settings = match state.store.tool_settings() {
+        Ok(settings) => settings,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Tool settings unavailable"}))).into_response(),
+    };
     let outcome_fut = run_persisted_with_automation(
         &state.store,
         {
@@ -1059,13 +1091,14 @@ async fn execute_run(state: Arc<AppState>, body: RunBody, automation_id: Option<
                         None
                     }
                 });
-                let engine = build_engine_for_target_with_inspector(
+                let engine = build_engine_for_target_with_settings(
                     target,
                     provider_config,
                     profile,
                     &workspace,
                     &history_dir,
                     &inspector,
+                    &tool_settings,
                 )?;
                 active_engines_for_build
                     .lock()
@@ -1389,6 +1422,8 @@ fn build_app(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/automations", get(list_automations).post(automation_action))
+        .route("/api/tool-settings", get(get_tool_settings).post(tool_settings_action))
+        .route("/api/tool-settings/mcp-test", post(test_mcp))
         .route("/api/sessions", get(list_sessions))
         .route("/api/sessions/:id", get(get_session))
         .route("/api/sessions/:id/inspection", get(get_inspection))
@@ -1878,6 +1913,36 @@ mod r65_stop_integration {
         assert_eq!(http_post(server.addr, "/api/automations".into(), json!({"op":"delete", "automation_id":row["automation_id"], "revision":edited["revision"]}).to_string()).await.0, 200);
         assert!(http_get(server.addr, "/api/automations").await.1.as_array().unwrap().is_empty());
         assert_eq!(http_get(server.addr, &format!("/api/sessions/{session}")).await.1["turns"].as_array().unwrap().len(), 1);
+        assert_eq!(server.engine.turn.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tool_settings_http_crud_is_optimistic_and_mcp_test_is_explicit() {
+        let server = spawn_server_gated(vec![Step::CompleteNow], false, false).await;
+        let defaults = http_get(server.addr, "/api/tool-settings").await;
+        assert_eq!(defaults.0, 200);
+        assert_eq!(defaults.1["revision"], 0);
+        let (status, body) = http_post(server.addr, "/api/tool-settings".into(), json!({"op":"set_component","id":"shell","revision":0,"enabled":false}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(http_post(server.addr, "/api/tool-settings".into(), json!({"op":"set_component","id":"permission","revision":1,"enabled":false}).to_string()).await.0, 400);
+        let config = json!({"id":"fixture","display_name":"Fixture","command":"/not/installed","args":[],"connect_timeout_secs":1,"enabled":true});
+        let (status, body) = http_post(server.addr, "/api/tool-settings".into(), json!({"op":"create_mcp","revision":1,"server":config}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["mcp_servers"][0]["enabled"], false);
+        assert_eq!(http_post(server.addr, "/api/tool-settings".into(), json!({"op":"set_mcp_enabled","revision":2,"id":"fixture","enabled":true,"confirmed":false}).to_string()).await.0, 400);
+        assert_eq!(http_post(server.addr, "/api/tool-settings/mcp-test".into(), json!({"revision":2,"server_id":"fixture","product_session_id":"missing","confirmed":false}).to_string()).await.0, 400);
+        let workspace = server.data_dir.join("workspace");
+        let (status, body) = http_post(server.addr, "/api/run".into(), run_body(workspace.to_str().unwrap(), None)).await;
+        assert_eq!(status, 200, "{body}");
+        let pid = serde_json::from_str::<serde_json::Value>(&body).unwrap()["product_session_id"].as_str().unwrap().to_string();
+        let (status, body) = http_post(server.addr, "/api/tool-settings/mcp-test".into(), json!({"revision":2,"server_id":"fixture","product_session_id":pid,"confirmed":true}).to_string()).await;
+        assert_eq!(status, 200, "{body}");
+        let diagnostic: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(diagnostic["ok"], false);
+        assert!(!body.contains("/not/installed"));
+        assert_eq!(http_post(server.addr, "/api/tool-settings".into(), json!({"op":"delete_mcp","revision":1,"id":"fixture"}).to_string()).await.0, 400);
+        assert_eq!(http_post(server.addr, "/api/tool-settings".into(), json!({"op":"delete_mcp","revision":2,"id":"fixture"}).to_string()).await.0, 200);
+        assert!(http_get(server.addr, "/api/tool-settings").await.1["mcp_servers"].as_array().unwrap().is_empty());
         assert_eq!(server.engine.turn.load(Ordering::SeqCst), 1);
     }
 

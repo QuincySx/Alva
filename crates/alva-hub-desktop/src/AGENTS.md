@@ -8,6 +8,8 @@
 
 ## 逻辑
 
+ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，每轮由 Desktop/server 经共同 blueprint 装配注入，其他引擎忽略；安全 substrate 不可关闭，不热改当前 Agent、不加载外部 MCP/AEP。新增/编辑 MCP 重新禁用，启用需确认宿主访问；`mcp_diagnostics` 仅确认后绑定已存 session cwd 做一次真实连接/目录测试并回收，不调用模型。
+
 1. `alva` 按用户选择为 workspace 构造 ALVA、Claude Code、Codex 或 Pi adapter；API-backed route 从统一 ProviderConfig 投影各 adapter 的协议配置，Claude/Codex 原生订阅仍只归各自 CLI 使用；`provider_plane` 先按版本化模型声明与纯 RoutePlanner 精确求出 provider × model × engine 能力，再投影到四种 adapter 各自入口，未知模型不猜测能力，Fast 只投影到声明支持它的 Codex route `service_tier`。
 2. `store` 在私有 SQLite 中原子保存 HubSession（含 project/session workspace kind）、global/session FallbackPolicy snapshot、多 EngineBranch（含 reasoning effort/Fast）、watermark、switch、handoff、timeline、Turn 和 Attempt；同 route 调参更新原 branch，不制造伪切换。
 2.1. `session_workspace` 只在用户明确选择“独立会话”后，于 Desktop app-data 创建 owner-only 专属目录和受管标记；项目模式继续使用用户选择的 Workspace，受管目录不隐式清理。
@@ -86,6 +88,8 @@
 | Tool content | `store/tool_content.rs` | 原子保存脱敏全文与 evidence 引用，UTF-8 分块、会话归属读取及回归 |
 | Message journal | `store/message_journal.rs` | schema 20 耐久 assistant 文本，发送前保存、游标分页、attempt 终态对齐；旧 Turn 摘要继续作为无日志记录的兼容路径 |
 | Local automations | `store/automation.rs` | schema 21 真实 CRUD、限额/乐观冲突、授权固定路由、原子认领和终态/restart 恢复；10 项无账号回归 |
+| ALVA tool settings | `store/tool_settings.rs` | schema 22 真实能力开关与 stdio MCP 暂停优先 CRUD、授权/revision 及运行 snapshot |
+| MCP diagnostics | `mcp_diagnostics.rs` | 最多 2 并发、已存 session cwd、revision/确认核对的单次握手/目录测试与回收，无模型调用 |
 | Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness/Inspector/工具正文 command 和 timestamp-preserving event bridge |
 
 ## 引擎注册表与编排策略（R-tickets 17/18）

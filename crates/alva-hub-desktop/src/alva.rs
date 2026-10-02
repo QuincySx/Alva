@@ -1,5 +1,5 @@
 // INPUT:  Alva/Claude/Codex/Pi engine adapters, alva_engine_runtime, alva_llm_provider, permissions
-// OUTPUT: build_engine(), route-aware assembly, and shared-repository Inspector assembly
+// OUTPUT: route/profile-aware assembly with shared Inspector repository and persisted ALVA capability snapshot
 // POS:    Hub Desktop engine assembly; adapters stay behind EngineRuntime and
 //         are always configured from the session permission profile.
 
@@ -62,6 +62,7 @@ pub fn build_engine_for_target(
         workspace,
         history_dir,
         None,
+        None,
     )
 }
 
@@ -83,6 +84,28 @@ pub fn build_engine_for_target_with_inspector(
         workspace,
         history_dir,
         Some(inspector.repository()),
+        None,
+    )
+}
+
+/// Hub product assembly with a single persisted ALVA capability snapshot.
+pub fn build_engine_for_target_with_settings(
+    target: &EngineTarget,
+    provider_config: Option<ProviderConfig>,
+    profile: PermissionProfile,
+    workspace: &Path,
+    history_dir: &Path,
+    inspector: &HubInspectorService,
+    settings: &crate::HubToolSettings,
+) -> Result<Arc<dyn EngineRuntime>, String> {
+    build_engine_for_target_with_repository(
+        target,
+        provider_config,
+        profile,
+        workspace,
+        history_dir,
+        Some(inspector.repository()),
+        Some(settings),
     )
 }
 
@@ -93,6 +116,7 @@ fn build_engine_for_target_with_repository(
     workspace: &Path,
     history_dir: &Path,
     repository: Option<SessionRepository>,
+    tool_settings: Option<&crate::HubToolSettings>,
 ) -> Result<Arc<dyn EngineRuntime>, String> {
     let engine_id = target.engine_id.as_str();
     let plan = enforcement_for(engine_id, profile)?;
@@ -103,6 +127,7 @@ fn build_engine_for_target_with_repository(
         workspace,
         history_dir,
         repository,
+        tool_settings,
     };
     match crate::engine_registry::blueprint(engine_id) {
         Some(entry) => (entry.build)(&args),

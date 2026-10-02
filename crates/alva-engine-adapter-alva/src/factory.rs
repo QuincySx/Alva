@@ -1,6 +1,6 @@
-// INPUT:  alva_app_core::{BaseAgent, components, paths, ApprovalPlugin}, RuntimeRequest, LanguageModel
+// INPUT:  app-core BaseAgent/catalog/paths/Approval/MCP plugins, RuntimeRequest, LanguageModel
 // OUTPUT: BaseAgentFactory, BuiltAgent, DefaultBaseAgentFactory, CatalogBaseAgentFactory
-// POS:    Per-engine-session BaseAgent construction; catalog factory matches CLI/Tauri harness depth.
+// POS:    Per-session harness assembly with optional explicit Hub capability/MCP snapshots.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -117,6 +117,7 @@ pub struct CatalogBaseAgentFactory {
     /// Component on/off map (empty → catalog defaults).
     toggles: ComponentToggles,
     reasoning_effort: Option<alva_kernel_abi::ReasoningEffort>,
+    managed_mcp: Option<Vec<alva_app_core::extension::skills::skill_domain::mcp::McpServerConfig>>,
 }
 
 impl CatalogBaseAgentFactory {
@@ -124,15 +125,16 @@ impl CatalogBaseAgentFactory {
         Self {
             model,
             default_workspace: default_workspace.into(),
-            default_system_prompt: "You are a helpful coding assistant. You have access to tools \
-                 for running shell commands, reading/writing files, and searching code. \
-                 Use tools when needed to accomplish the user's task. \
+            default_system_prompt: "You are a helpful coding assistant. Use only the tools \
+                 available in the current tool schema; capabilities may be disabled. \
+                 Use available tools when needed to accomplish the user's task. \
                  Be concise in your responses."
                 .into(),
             max_iterations: 100,
             provider_registry: None,
             toggles: ComponentToggles::default(),
             reasoning_effort: None,
+            managed_mcp: None,
         }
     }
 
@@ -153,6 +155,16 @@ impl CatalogBaseAgentFactory {
 
     pub fn with_toggles(mut self, toggles: ComponentToggles) -> Self {
         self.toggles = toggles;
+        self
+    }
+
+    /// Explicit Hub configuration; excludes ambient MCP and AEP discovery.
+    /// Empty is intentional and does not fall back to global files.
+    pub fn with_managed_mcp(
+        mut self,
+        servers: Vec<alva_app_core::extension::skills::skill_domain::mcp::McpServerConfig>,
+    ) -> Self {
+        self.managed_mcp = Some(servers);
         self
     }
 
@@ -205,16 +217,30 @@ impl BaseAgentFactory for CatalogBaseAgentFactory {
             ],
         };
 
-        let builder = components::apply_components(
+        let mut toggles = self.toggles.clone();
+        if self.managed_mcp.is_some() {
+            toggles.insert("mcp".into(), false);
+            toggles.insert("subprocess-loader".into(), false);
+        }
+        let mut builder = components::apply_components(
             BaseAgentBuilder::new()
                 .workspace(&workspace)
                 .system_prompt(&system_prompt)
                 .max_iterations(max_iterations)
                 .session(session)
                 .plugin(Box::new(approval_ext)),
-            &self.toggles,
+            &toggles,
             &ctx,
         );
+        if let Some(servers) = &self.managed_mcp {
+            if !servers.is_empty() {
+                builder =
+                    builder.plugin(Box::new(alva_app_core::extension::McpPlugin::from_servers(
+                        servers.clone(),
+                        workspace.clone(),
+                    )));
+            }
+        }
         let agent = builder.build(self.model.clone()).await?;
         agent.set_reasoning_effort(self.reasoning_effort).await;
         Ok(BuiltAgent {
@@ -359,5 +385,91 @@ mod tests {
             middleware.iter().any(|name| name.contains("tool_timeout")),
             "enforced tool timeout missing: {middleware:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn managed_capabilities_remove_tools_and_gate_real_mcp_calls() {
+        use alva_app_core::alva_protocol_mcp::types::{McpServerConfig, McpTransportConfig};
+        use alva_app_core::{SecurityDecision, SecurityGuard};
+        use alva_kernel_abi::{EffectDescription, MinimalExecutionContext};
+        let workspace = tempfile::tempdir().unwrap();
+        let server = McpServerConfig { id: "fixture".into(), display_name: "Fixture".into(), auto_connect: true, connect_timeout_secs: 5, transport: McpTransportConfig::Stdio { command: "/usr/bin/python3".into(), args: vec!["-u".into(), "-c".into(), r#"import json,sys
+for line in sys.stdin:
+ r=json.loads(line)
+ if 'id' not in r: continue
+ result={'protocolVersion':r['params']['protocolVersion'],'capabilities':{'tools':{}},'serverInfo':{'name':'fixture','version':'1'}} if r['method']=='initialize' else {'tools':[{'name':'echo','inputSchema':{'type':'object'}}]}
+ print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)
+"#.into()], env: Default::default() } };
+        let toggles = components_for_test()
+            .into_iter()
+            .map(|id| (id.to_string(), false))
+            .collect();
+        let factory =
+            CatalogBaseAgentFactory::new(Arc::new(MockLanguageModel::new()), workspace.path())
+                .with_toggles(toggles)
+                .with_managed_mcp(vec![server]);
+        let request = RuntimeRequest {
+            prompt: "fixture".into(),
+            resume_session: None,
+            system_prompt: None,
+            working_directory: None,
+            options: Default::default(),
+        };
+        let built = factory
+            .build(
+                &request,
+                Arc::new(alva_agent_core::agent_session::InMemoryAgentSession::new()),
+            )
+            .await
+            .unwrap();
+        let names = built.agent.tool_names();
+        assert!(!names
+            .iter()
+            .any(|n| n == "execute_shell" || n == "read_file"));
+        let alias = alva_app_core::alva_protocol_mcp::tool_adapter::McpToolAdapter::tool_name(
+            "fixture", "echo",
+        );
+        assert!(names.iter().any(|n| n == &alias));
+        assert!(names.iter().any(|n| n == "mcp_runtime"));
+        let guard = built
+            .agent
+            .bus()
+            .get::<tokio::sync::Mutex<SecurityGuard>>()
+            .unwrap();
+        for name in [alias.as_str(), "mcp_runtime"] {
+            assert!(matches!(
+                guard.lock().await.check_tool_call(
+                    name,
+                    &serde_json::json!({}),
+                    &MinimalExecutionContext::new(),
+                    &EffectDescription::of("External MCP")
+                ),
+                SecurityDecision::NeedHumanApproval { .. }
+            ));
+        }
+        assert!(built
+            .agent
+            .assembly_snapshot()
+            .middleware_names
+            .iter()
+            .any(|n| n.contains("security")));
+    }
+
+    #[cfg(unix)]
+    fn components_for_test() -> Vec<&'static str> {
+        // Disable path-based discovery and optional tools, but not safety.
+        vec![
+            "core",
+            "shell",
+            "web",
+            "skills",
+            "task",
+            "team",
+            "sub-agents",
+            "hooks",
+            "checkpoint",
+            "interaction",
+        ]
     }
 }

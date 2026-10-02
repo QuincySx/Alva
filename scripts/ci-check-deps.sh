@@ -102,7 +102,8 @@ check_no_workspace_deps "alva-hub-cli" "alva-agent-abi|alva-app-core|alva-engine
 # any reverse SDK -> product dependency.
 # alva-protocol-skill contributes only its canonical SKILL.md parser to the
 # workspace Skills editor; filesystem permissions and mutations stay in L7.
-check_no_workspace_deps "alva-hub-desktop" "alva-agent-security|alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-adapter-pi|alva-engine-runtime|alva-hub-core|alva-kernel-abi|alva-llm-provider|alva-protocol-skill"
+# alva-protocol-mcp contributes native stdio diagnostics only; product CRUD stays in Hub.
+check_no_workspace_deps "alva-hub-desktop" "alva-agent-security|alva-engine-adapter-alva|alva-engine-adapter-claude|alva-engine-adapter-codex|alva-engine-adapter-pi|alva-engine-runtime|alva-hub-core|alva-kernel-abi|alva-llm-provider|alva-protocol-skill|alva-protocol-mcp"
 
 # Rule 12: alva-llm-provider only depends on alva-kernel-abi
 # (was `alva-provider` — a crate that does not exist; `cargo tree` failed,

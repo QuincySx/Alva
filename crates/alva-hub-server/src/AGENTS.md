@@ -22,6 +22,7 @@
 10. `/api/automations` GET/POST 复用共享 schema-21 CRUD/授权判断；只有 production main 在监听启动后运行 10 秒 pump，最多 4 并行，并沿同一个 execute_run/SSE/审批/Stop 通道认领执行。paused-first、不自动 fallback、不补跑，不另起领域状态机；HTTP fixture 不自动启动 pump。认领前拒绝不能消费另一活动 Attempt 的 stopping marker。
 
 ## 约束
+- `/api/tool-settings` GET/POST 复用 schema-22 capability/MCP CRUD/revision；每轮固定 snapshot 注入共同 assembly。`/api/tool-settings/mcp-test` 确认后绑定已存 session cwd 做一次 stdio 测试与回收，无模型调用；不接受 arbitrary cwd、env/header。
 
 - handler 不复制 Hub 领域判断。
 - 错误响应不泄露 secret、provider response body 或 raw adapter stderr。

@@ -1,5 +1,14 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 功能补全 · H17 ALVA 能力与真实 stdio MCP
+
+- 按用户“先把底层逻辑、业务逻辑、该有的 UI UX 补上，不管美观”继续：schema 22 私有持久化真实 catalog 的 10 组能力开关，安全/审批/超时/循环保护不可关闭；每轮 Desktop/HTTP 捕获 snapshot 经 blueprint 注入 ALVA，包含 fallback，其他 engine 不受影响，不热改当前 Agent。受管空 MCP 列表不回退外部配置，AEP ambient loader 关闭；工具开关不是安全沙箱，子 Agent 工具可能独立。
+- stdio MCP 不再 stub：实际初始化、版本协商、initialized、分页工具发现/调用；直接 absolute executable + argv，清环境、不继承凭据、不安装程序。1 MiB frame、256 tools/16 pages、有界 RPC/取消、Unix owned process group 回收；单服务 timeout + 60 秒总 startup budget，失效连接重连与失败清目录。所有 direct MCP 和 mcp_runtime 接既有 HITL，不信 server readOnly 注解。
+- 模型工具名原 `mcp:server:tool` 不符合 provider 字符约束，改为统一稳定 64-byte `mcp_` hash alias，description 保留 logical identity；模板/派生路径兼容 exact 旧名，不展开 wildcard 权限。参考 [OpenAI function name 契约](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) 与 [Anthropic tool name 契约](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools)，未修改 kernel wire helper。
+- MCP create/edit 禁用、enable 显式宿主授权、revision/capacity/字段限额、delete 只删配置；一次性诊断绑定已存 session cwd，最多 2 并发，实际执行握手/发现后回收，无模型/计费/enable 写入。Desktop/HTTP 共享 store 与 probe，isolated QA 禁启用/测试。Settings/Plugins 接真实 switch/CRUD、确认、错误、保留草稿、focus restore、代际隔离与搜索；移除样例安装，不冒充外部 AEP registry。
+- 最终 **238 Desktop lib passed / 4 精确真实账号 filtered、4 bin、12 HTTP、80 MCP protocol、320 app-core lib、32 ALVA adapter、209 UI / 20 files**；TypeScript/Vite build、all-target check、依赖/bus/wasm32-unknown-unknown/host link、public symbol snapshot 全通过。wasm32-wasip2 缺 target 明确跳过。收尾发现并修正新增名称转换的 Vec 类型推导与删除样例后的 unused import；重跑完成，不删除测试或放宽生产迁移。
+- 自编 Python stdio fixture 验证真实传输/调用/cwd/无 HOME/字面 argv/超时取消与错误正文不泄漏；真实 store/迁移/HTTP/ALVA assembly+guard 回归验证功能，不接用户 MCP 服务、不运行真实账户、付费模型或下载第三方代码。原生 AX/视觉 QA 按用户授权继续暂缓；远程 MCP/auth、第三方插件安装、Worker 调优、SSH/IM 未完成。
+
 ## 2026-10-02 功能补全 · H17 本地自动化
 
 - schema 21 持久化真实 interval 配置；创建/编辑暂停，启用前显示模型/provider/账号/账单/固定权限并显式确认，revision/route 改变拒绝旧授权。普通会话专用，不经 TeamRun 自治或自动 fallback，不建立 kernel 开关。

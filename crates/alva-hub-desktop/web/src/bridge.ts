@@ -1,5 +1,5 @@
 // INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: workspace/Skills/automation/run/switch/policy/readiness/Inspector plus provider discovery and persisted Hub IPC DTOs
+// OUTPUT: typed workspace/Skills/automation/capability/MCP/run/Inspector and provider IPC/HTTP APIs
 // POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -806,6 +806,39 @@ export async function listAutomations(): Promise<Automation[]> {
   if (HTTP) return httpJson<Automation[]>("/api/automations", undefined, "GET");
   if (!hasTauri) throw new Error("Automations require the ALVA Hub runtime.");
   return invoke<Automation[]>("list_hub_automations");
+}
+
+export interface ManagedMcpServer {
+  id: string; display_name: string; command: string; args: string[];
+  connect_timeout_secs: number; enabled: boolean;
+}
+export interface HubToolSettings {
+  revision: number;
+  components: { id: string; enabled: boolean; default_enabled: boolean }[];
+  mcp_servers: ManagedMcpServer[];
+}
+export type ToolSettingsAction =
+  | { op: "set_component"; revision: number; id: string; enabled: boolean }
+  | { op: "create_mcp" | "update_mcp"; revision: number; server: ManagedMcpServer }
+  | { op: "set_mcp_enabled"; revision: number; id: string; enabled: boolean; confirmed: boolean }
+  | { op: "delete_mcp"; revision: number; id: string };
+export interface McpDiagnostic {
+  server_id: string; revision: number; ok: boolean; tools: string[]; latency_ms: number; message: string;
+}
+export async function getHubToolSettings(): Promise<HubToolSettings> {
+  if (HTTP) return httpJson<HubToolSettings>("/api/tool-settings", undefined, "GET");
+  if (!hasTauri) throw new Error("Tool settings require the ALVA Hub runtime.");
+  return invoke<HubToolSettings>("get_hub_tool_settings");
+}
+export async function hubToolSettingsAction(action: ToolSettingsAction): Promise<HubToolSettings> {
+  if (HTTP) return httpJson<HubToolSettings>("/api/tool-settings", action);
+  if (!hasTauri) throw new Error("Tool settings require the ALVA Hub runtime.");
+  return invoke<HubToolSettings>("hub_tool_settings_action", { action });
+}
+export async function testHubMcp(productSessionId: string, serverId: string, revision: number, confirmed: boolean): Promise<McpDiagnostic> {
+  if (HTTP) return httpJson<McpDiagnostic>("/api/tool-settings/mcp-test", { product_session_id: productSessionId, server_id: serverId, revision, confirmed });
+  if (!hasTauri) throw new Error("MCP testing requires the ALVA Hub runtime.");
+  return invoke<McpDiagnostic>("test_hub_mcp", { productSessionId, serverId, revision, confirmed });
 }
 
 export async function automationAction(action: AutomationAction): Promise<Automation | null> {

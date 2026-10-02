@@ -443,6 +443,12 @@ pub(super) fn initialize_schema_and_recover(
              CREATE INDEX idx_automations_due ON automations(enabled, next_run_at);"
         ).map_err(|error| format!("migrate Hub database to schema 21: {error}"))?;
     }
+    if schema_version < 22 {
+        transaction.execute_batch("CREATE TABLE tool_settings (
+            singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+            revision INTEGER NOT NULL, config_json TEXT NOT NULL
+        );").map_err(|error| format!("migrate Hub database to schema 22: {error}"))?;
+    }
     // No replay of missed ticks. An interrupted execution requires explicit
     // re-authorization; an idle enabled schedule waits one full interval.
     transaction.execute(

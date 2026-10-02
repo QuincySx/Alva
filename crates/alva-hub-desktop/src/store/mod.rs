@@ -1,5 +1,5 @@
 // INPUT:  rusqlite, serde, filesystem paths, UUID/time primitives
-// OUTPUT: HubStore plus local automation and durable branch/policy/handoff/timeline/turn/attempt DTOs
+// OUTPUT: HubStore, local automations/ALVA tool settings and durable orchestration DTOs
 // POS:    Hub Desktop-private multi-engine state machine, authorization snapshots, and crash repair owner.
 
 use std::fs::File;
@@ -21,6 +21,7 @@ use db::{
 
 mod branch;
 mod automation;
+mod tool_settings;
 mod db;
 mod handoff;
 mod orchestration;
@@ -34,6 +35,7 @@ pub use branch::{
     EngineTarget, FallbackPolicy, PendingSwitch, StoredBranch, SwitchDisposition, SwitchOutcome,
 };
 pub use automation::{Automation, AutomationAction};
+pub use tool_settings::{HubToolSettings, ToolComponent, ManagedMcpServer, ToolSettingsAction};
 // HandoffPackage 的嵌套值类型。产品代码经 HandoffPackage 构造/读取它们，
 // 仅在 redact 的构造测试里以 `crate::store::*` 全限定直接引用，故 lib 下 unused。
 #[allow(unused_imports)]
@@ -52,7 +54,7 @@ pub use turn::{
     StoredTurn, StoredUsage,
 };
 
-pub(crate) const SCHEMA_VERSION: i64 = 21;
+pub(crate) const SCHEMA_VERSION: i64 = 22;
 pub(crate) const STATUS_RUNNING: &str = "running";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_FAILED: &str = "failed";

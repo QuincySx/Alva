@@ -283,6 +283,11 @@ session 里不会出现 Steering 变体，这个 match 分支永远不会命中�
 本地自动化也由 Hub 产品层持久化和调度：默认暂停，显式确认账户/计费后按间隔恢复
 普通会话，固定路由且禁用自动 fallback；不安装 OS daemon，不补跑漏过的任务。
 
+ALVA 能力/MCP 配置同样归 Hub 私有产品层：真实 catalog 开关不包括安全 substrate，
+仅下一轮 ALVA 消费，不影响其他 engine、不加载外部现有 MCP/AEP。受管 MCP 当前仅
+原生 stdio，不安装程序或继承凭据；新增/编辑禁用，启用/测试需确认宿主访问，测试
+绑定已存 session cwd 并结束回收；MCP 工具含 meta-tool 进入既有 HITL。
+
 Hub 产品 UI 以 `crates/alva-hub-desktop` 的 Tauri + React 实现为准，旧 GPUI 产品 UI
 迁移方向已退役。正式架构决策见 `docs/adr/0006-hub-tauri-ui-system.md`：Cindy 负责结构与
 交互参考，ALVA 负责视觉语言；组件严格按 Tokens → Controls → Regions/Surfaces → Domain

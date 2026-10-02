@@ -28,6 +28,7 @@ pub struct EngineBuildArgs<'a> {
     pub workspace: &'a Path,
     pub history_dir: &'a Path,
     pub repository: Option<alva_engine_adapter_alva::SessionRepository>,
+    pub tool_settings: Option<&'a crate::HubToolSettings>,
 }
 
 type ProbeFn = dyn Fn(&SystemProbe) -> EngineProbeFacts + Send + Sync;

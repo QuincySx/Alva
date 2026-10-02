@@ -8,6 +8,7 @@
 1. `BaseAgentFactory` 在新 session 时构造一个独立 `BaseAgent`，返回 `BuiltAgent`（可选 `approval_rx`）。
 2. **`CatalogBaseAgentFactory`（Hub 产品默认）**：`apply_components` 全量 catalog + `ApprovalPlugin` + Skills/MCP 双源路径 + AGENTS.md 注入，与 CLI/Tauri 深度对齐。
 3. **`DefaultBaseAgentFactory`**：仅 default plugins，供单测与极简场景。
+3.1. Hub 用 `with_toggles` + `with_managed_mcp` 注入下一轮能力；显式空列表不回退全局 MCP，受管模式关闭外部 subprocess loader。MCP 含 meta-tool 加入 HITL，子 Agent 复用 SecurityGuard；其他 caller 保留 catalog discovery 兼容路径。
 4. `execute()` 映射 `AgentEvent` → `RuntimeEvent`；ToolExecutionStart 用 monotonic clock 计时并在 ToolEnd 保留 duration；`approval_rx` 由 session 持有，每 turn 暂借给当前事件流做 multiplex，结束后归还，避免旧 stream 长驻或截获新 turn 审批。
 5. `EngineInspector` 直接读取同一个 AgentSession 的 typed record snapshot/live tail，不复制第二份 Inspector 日志。
 6. `SessionRepository` 是唯一持久化源：typed records 原子写入 SQLite，infallible legacy append 失败会标脏并由 `flush()` 事务重建，敏感字段写盘前脱敏，大载荷转内容寻址 zstd blob。

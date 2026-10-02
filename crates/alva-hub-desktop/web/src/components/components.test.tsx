@@ -19,6 +19,8 @@ import { ProviderSettings } from "./provider-settings";
 import { ExtensionsPage, SettingsPage } from "./product-pages";
 import { InspectorTool } from "./workbench-tools";
 
+vi.mock("../bridge", async (original) => ({ ...await original<typeof import("../bridge")>(), getHubToolSettings: vi.fn(async () => ({ revision: 0, components: [{ id: "core", enabled: true, default_enabled: true }, { id: "shell", enabled: true, default_enabled: true }, { id: "browser", enabled: false, default_enabled: false }], mcp_servers: [] })) }));
+
 const routes: HubModelRoute[] = [
   {
     engineId: "alva",
@@ -1118,25 +1120,31 @@ describe("Hub domain components", () => {
     expect(screen.queryByRole("switch", { name: "Show Agent Inspector" })).not.toBeInTheDocument();
   });
 
-  it("extension samples are explicitly unavailable, not an installed or live catalog", () => {
-    render(<I18nProvider><ExtensionsPage onStartChat={vi.fn()} /></I18nProvider>);
-    expect(screen.getByText("Extension catalog preview")).toBeInTheDocument();
-    expect(screen.getAllByText("Preview — not available")).toHaveLength(2);
-    expect(screen.queryByText("Available")).not.toBeInTheDocument();
+  it("extensions manage real included plugin groups and preserve the explicit no-install boundary", async () => {
+    const start = vi.fn();
+    render(<I18nProvider><ExtensionsPage onStartChat={start} /></I18nProvider>);
+    expect(await screen.findByRole("switch", { name: "Terminal / Shell" })).not.toBeDisabled();
+    expect(screen.getByText("Included ALVA plugins and managed MCP")).toBeInTheDocument();
+    expect(screen.getAllByText(/Third-party AEP package installation/).length).toBeGreaterThan(0);
     expect(screen.queryByText("Installed")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Install is not supported yet/ }).every((button) => button.hasAttribute("disabled"))).toBe(true);
+    expect(screen.queryByText("GitHub")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search extensions" }), { target: { value: "browser" } });
+    expect(screen.getByRole("switch", { name: "Browser CDP" })).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Terminal / Shell" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Use in chat/i }));
+    expect(start).toHaveBeenCalledOnce();
   });
 
-  it("tools section disables fake toggles and shows MCP as not wired (R32)", () => {
+  it("tools section consumes persisted ALVA controls without sample MCP servers", async () => {
     renderSettings("Tools");
     // R37: switch labels follow the typed row headings.
-    expect(screen.getByRole("switch", { name: "File System" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Terminal / Shell" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Browser CDP" })).toBeDisabled();
-    // No sample MCP rows, no add-server affordance.
+    expect(await screen.findByRole("switch", { name: "File System" })).not.toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Terminal / Shell" })).not.toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Browser CDP" })).toHaveAttribute("aria-checked", "false");
     expect(screen.queryByText(/Chrome DevTools MCP/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Add MCP Server/i })).not.toBeInTheDocument();
-    expect(screen.getAllByText(/not connected to a backend/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("button", { name: /Add MCP server/i })).not.toBeDisabled();
+    expect(screen.getByText("No managed MCP servers")).toBeInTheDocument();
+    expect(screen.getByText(/Claude Code, Codex and Pi/)).toBeInTheDocument();
   });
 
   it("remote SSH page shows an honest not-implemented state (R32)", () => {

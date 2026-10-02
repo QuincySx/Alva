@@ -232,6 +232,7 @@ fn build_alva_engine(
     history_dir: &Path,
     config: ProviderConfig,
     repository: Option<SessionRepository>,
+    tool_settings: Option<&crate::HubToolSettings>,
 ) -> Result<Arc<dyn EngineRuntime>, String> {
     if config.api_key.is_empty() {
         return Err("no Alva provider API key configured".into());
@@ -244,9 +245,12 @@ fn build_alva_engine(
         .reasoning_effort
         .as_deref()
         .and_then(alva_kernel_abi::ReasoningEffort::parse);
-    let factory = CatalogBaseAgentFactory::new(model, workspace)
+    let mut factory = CatalogBaseAgentFactory::new(model, workspace)
         .with_provider_registry(provider_registry)
         .with_reasoning_effort(effort);
+    if let Some(settings) = tool_settings {
+        factory = factory.with_toggles(settings.toggles()).with_managed_mcp(settings.enabled_mcp_servers());
+    }
 
     let repository = match repository {
         Some(repository) => repository,
@@ -350,6 +354,7 @@ pub fn builtin_blueprints() -> Vec<EngineBlueprint> {
                     args.history_dir,
                     provider_config,
                     args.repository.clone(),
+                    args.tool_settings,
                 )
             }),
         },

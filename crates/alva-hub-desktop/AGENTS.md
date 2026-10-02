@@ -53,6 +53,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 27. 本地自动化以 schema 21 持久化 5–10080 分钟间隔，创建/编辑均暂停，启用前展示固定 model/provider/account/billing 与权限。仅普通已存会话可用；schedule 与 Turn 同事务认领，沿真实执行/审批/Stop 通道运行但不自动 fallback。不补跑重启或休眠漏过的 tick，会话忙时跳过，失败/Stop/路由变化后暂停；仅 Desktop 主窗口或 Hub server 运行期间调度，不安装后台服务。
 
 ## 约束
+- ALVA 能力/MCP 是 Hub 私有全局 snapshot，仅后续 ALVA run 消费，不冒充跨 engine 工具政策。安全 substrate 不可关闭，不加载外部 MCP/AEP；MCP 新增/编辑重新禁用。一次性测试显式确认后绑定已存 session cwd，结束回收，不伪造实时状态；隔离 QA 可保存但禁启用/测试。`alva-protocol-mcp` 直接依赖仅用于 native stdio diagnostics，已登记边界闸。
 - `alva-agent-security` 的直接依赖仅用于 Files/Text、Git 与工作区 Skills 文件管理的 `SensitivePathFilter` 路径防护，复用统一规则；`alva-protocol-skill` 仅用于 canonical SKILL.md parser。用途在 `scripts/ci-check-deps.sh` 显式登记，不扩张 kernel/agent-core、不改变 SDK→产品或原生入口→engine 的禁止边界。
 - **`EngineTarget.required_capabilities` 承载两套词表**，定义在 `readiness.rs`：`ENGINE_CAPABILITIES`（5 词，`capability_labels` 的穷尽产出，降级 veto 只比对这些）与 `MODEL_CAPABILITIES`（`images`/`vision`/`tools`，provider 组装读回用）。新增词汇改那两个常量，并保持 `capability_labels` 与 `ENGINE_CAPABILITIES` 同步（有测试钉死）。两表之外的词由 `validate_engine_target` 拒绝——引擎永远无法"提供"模型词，把它算进 missing 会让降级目标被永久静默否决。
 
@@ -84,6 +85,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Session store | `src/store/` | 私有 SQLite（`db.rs` storage kernel + `mod.rs` 共享数据层 + `branch.rs`/`handoff.rs`/`team.rs`/`turn.rs`/`tests.rs` 持久化簇）covering workspace kind、policy snapshot、branch/switch/handoff/timeline/Turn/Attempt 持久化与恢复 |
 | Message recovery | `src/store/message_journal.rs` | schema 20 可见 assistant 全文与有界游标补页，复用消息位置协议并对齐崩溃修复终态 |
 | Local automations | `src/store/automation.rs` | 暂停优先的 interval CRUD/revision、普通会话固定路由、原子 Turn 认领、忙/漏过跳过、终态与重启暂停；产品入口 pump 最多 4 个并行，不经过 kernel |
+| ALVA capabilities / MCP | `src/store/tool_settings.rs` / `src/mcp_diagnostics.rs` | schema-22 catalog 配置、stdio MCP 授权/CRUD/一次性连接测试；不安装程序，不导入凭据 |
 | Tauri entry | `src/main.rs` | workspace 创建、运行/切换/Inspector IPC、event emission 与 Desktop runtime |
 | Crate facade | `src/lib.rs` | 对 Tauri 层和测试暴露产品类型 |
 | Web frontend | `web/` | React/Vite/TypeScript workspace、composer、三泳道 timeline 与递归 Inspector 页栈 |

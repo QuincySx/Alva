@@ -80,6 +80,9 @@ const bridge = vi.hoisted(() => {
       workspaceSkillAction: vi.fn(),
       listAutomations: vi.fn(async (): Promise<Automation[]> => []),
       automationAction: vi.fn(),
+      getHubToolSettings: vi.fn(async () => ({ revision: 0, components: [{ id: "shell", enabled: true, default_enabled: true }], mcp_servers: [] })),
+      hubToolSettingsAction: vi.fn(),
+      testHubMcp: vi.fn(),
       addSessionMemory: vi.fn(
         async (_productSessionId: string, entry: string) => {
           if (state.detail) {

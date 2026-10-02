@@ -1,31 +1,20 @@
 // INPUT:  React local state, appearance/i18n preferences, product callbacks, ALVA UI facade, and Lucide icons
-// OUTPUT: Real Automations re-export, workspace Skills/extensions, settings and search product pages
+// OUTPUT: Real Automations, included ALVA plugins/MCP, workspace Skills, settings and search pages
 // POS:    Secondary Hub product surfaces above the shared UI component system
 
 import { useMemo, useState } from "react";
 import {
-  Blocks,
   Bot,
-  Check,
   Command,
-  Download,
   FlaskConical,
   Gauge,
-  GitBranch,
-  Plus,
   Search,
   Settings2,
-  Sparkles,
 } from "lucide-react";
 import {
   Badge,
   Button,
-  CardGrid,
-  DialogContent,
-  DialogRoot,
-  DialogTrigger,
   EmptyState,
-  FieldFrame,
   NavItem,
   Notice,
   PageHeader,
@@ -52,6 +41,7 @@ import { useI18n, type LanguagePreference } from "../i18n";
 import { ProviderSettings } from "./provider-settings";
 import { useAppearance } from "../appearance";
 import { WorkspaceSkills } from "./workspace-skills";
+import { ToolSettings } from "./tool-settings";
 
 export type HubPage = "conversation" | "automations" | "extensions" | "settings" | "search";
 
@@ -59,65 +49,11 @@ export { AutomationsPage } from "./automations";
 
 export function ExtensionsPage({ onStartChat, sessionId = null }: { onStartChat: () => void; sessionId?: string | null }) {
   const { t } = useI18n();
-  // Plugins still have no install registry; samples are unavailable previews.
-  // The Skills tab is a separate, real workspace file-management surface.
-  const extensions = [
-    { id: "github", name: "GitHub", description: t("extension.githubDescription"), icon: GitBranch, installed: false, kind: "plugin" },
-    { id: "maker", name: "TapTap Maker", description: t("extension.makerDescription"), icon: Sparkles, installed: false, kind: "plugin" },
-    { id: "review", name: t("extension.review"), description: t("extension.reviewDescription"), icon: Check, installed: false, kind: "skill" },
-    { id: "design", name: t("extension.design"), description: t("extension.designDescription"), icon: Blocks, installed: false, kind: "skill" },
-  ] as const;
   const [tab, setTab] = useState("plugin");
   const [query, setQuery] = useState("");
-  const [installed] = useState<Set<string>>(
-    () => new Set(extensions.filter((extension) => extension.installed).map((extension) => extension.id)),
-  );
-  const [selectedExtension, setSelectedExtension] = useState<(typeof extensions)[number] | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
-  const [extensionName, setExtensionName] = useState("");
-  const visible = extensions.filter(
-    (extension) =>
-      extension.kind === tab &&
-      `${extension.name} ${extension.description}`.toLowerCase().includes(query.trim().toLowerCase()),
-  );
-
   return (
     <ScrollRegion className="hub-product-page">
-      <PageHeader
-        actions={
-          tab === "plugin" ? <DialogRoot open={addOpen} onOpenChange={setAddOpen}>
-            <DialogTrigger asChild>
-              <Button leadingIcon={<Plus aria-hidden="true" size={15} />}>{t("extension.add")}</Button>
-            </DialogTrigger>
-            <DialogContent
-              description={t("pages.extensions.registerUnavailable")}
-              title={t("extension.add")}
-            >
-              <div className="hub-form-stack">
-                <FieldFrame label={t("extension.nameOrSource")}>
-                  <TextField
-                    aria-label={t("extension.nameOrSourceAria")}
-                    onChange={(event) => setExtensionName(event.target.value)}
-                    placeholder={t("extension.sourcePlaceholder")}
-                    value={extensionName}
-                  />
-                </FieldFrame>
-                <div className="hub-dialog-actions">
-                  <Button onClick={() => setAddOpen(false)} variant="ghost">{t("common.cancel")}</Button>
-                  <Button disabled variant="primary">
-                    {t("extension.register")}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </DialogRoot> : undefined
-        }
-        description={t("extension.description")}
-        title={t("extension.title")}
-      />
-      {tab === "plugin" ? <Notice tone="info" heading={t("pages.extensions.previewTitle")}>
-        {t("pages.extensions.registerUnavailable")}
-      </Notice> : null}
+      <PageHeader title={t("extension.title")} description={t("plugins.description")} actions={<Button onClick={onStartChat} variant="ghost">{t("extension.useInChat")}</Button>} />
       <div className="hub-product-toolbar">
         <TabsRoot onValueChange={setTab} value={tab}>
           <TabsList aria-label={t("extension.type")}>
@@ -130,58 +66,10 @@ export function ExtensionsPage({ onStartChat, sessionId = null }: { onStartChat:
           <TextField aria-label={t("extension.search")} placeholder={t("extension.searchPlaceholder")} value={query} onChange={(event) => setQuery(event.target.value)} />
         </label>
       </div>
-      {tab === "skill" ? <WorkspaceSkills sessionId={sessionId} query={query} /> : visible.length === 0 ? (
-        <EmptyState title={t("extension.noMatches")} description={t("extension.noMatchesDescription")} />
-      ) : (
-        <CardGrid>
-          {visible.map((extension) => {
-            const Icon = extension.icon;
-            const isInstalled = installed.has(extension.id);
-            return (
-              <article className="hub-extension-card" key={extension.id}>
-                <div className="hub-extension-card__heading">
-                  <span><Icon aria-hidden="true" size={18} /></span>
-                  <div><strong>{extension.name}</strong><small>{extension.kind === "plugin" ? t("extension.plugin") : t("extension.skill")}</small></div>
-                  <Badge tone={isInstalled ? "success" : "neutral"}>{isInstalled ? t("common.installed") : t("pages.extensions.previewUnavailable")}</Badge>
-                </div>
-                <p>{extension.description}</p>
-                <div className="hub-extension-card__actions">
-                  {isInstalled ? (
-                    <Button onClick={onStartChat} size="small" variant="ghost">{t("extension.useInChat")}</Button>
-                  ) : (
-                    <Button
-                      aria-label={t("pages.extensions.installUnsupportedAria")}
-                      disabled
-                      leadingIcon={<Download aria-hidden="true" size={14} />}
-                      size="small"
-                      title={t("pages.extensions.installUnsupportedTitle")}
-                    >
-                      {t("extension.install")}
-                    </Button>
-                  )}
-                  <Button onClick={() => setSelectedExtension(extension)} size="small" variant="ghost">{t("common.details")}</Button>
-                </div>
-              </article>
-            );
-          })}
-        </CardGrid>
-      )}
-      <DialogRoot open={selectedExtension !== null} onOpenChange={(open) => { if (!open) setSelectedExtension(null); }}>
-        <DialogContent
-          description={selectedExtension?.description}
-          title={selectedExtension?.name ?? t("extension.details")}
-        >
-          {selectedExtension ? (
-            <SettingsGroup heading={t("extension.availability")}>
-              <SettingsRow
-                control={<Badge tone={installed.has(selectedExtension.id) ? "success" : "neutral"}>{installed.has(selectedExtension.id) ? t("common.installed") : t("pages.extensions.previewUnavailable")}</Badge>}
-                description={t("pages.extensions.registerUnavailable")}
-                heading={selectedExtension.kind === "plugin" ? t("extension.plugin") : t("extension.skill")}
-              />
-            </SettingsGroup>
-          ) : null}
-        </DialogContent>
-      </DialogRoot>
+      {tab === "skill" ? <WorkspaceSkills sessionId={sessionId} query={query} /> : <>
+        <Notice tone="info" heading={t("plugins.title")} description={t("plugins.description")} />
+        <ToolSettings key={sessionId ?? "no-session"} sessionId={sessionId} query={query} />
+      </>}
     </ScrollRegion>
   );
 }
@@ -200,6 +88,7 @@ const settingsSections = [
 ] as const;
 
 export function SettingsPage({
+  sessionId = null,
   defaultTarget,
   providers,
   providersLoading,
@@ -212,6 +101,7 @@ export function SettingsPage({
   onOpenInspector,
   routes,
 }: {
+  sessionId?: string | null;
   defaultTarget: EngineTarget | null;
   providers: ProviderProfile[];
   providersLoading: boolean;
@@ -233,13 +123,6 @@ export function SettingsPage({
   // R21: 只保留真实存在的权限档（Ask / Auto Edits）；"只读计划" 无等价
   // PermissionProfile，为避免假成功已移除。持久化接线开发中。
   const [permissionMode, setPermissionMode] = useState<"ask" | "accept_edits">("ask");
-
-  // Tools toggles — R31/R32: 不可用的假开关保持禁用展示（值不再被消费）。
-  const [toolFileIo, setToolFileIo] = useState(true);
-  const [toolShell, setToolShell] = useState(true);
-  const [toolWeb, setToolWeb] = useState(true);
-  const [toolBrowser, setToolBrowser] = useState(true);
-  const [toolGit, setToolGit] = useState(true);
 
   // R37: per-section copy comes from the typed dictionary — no inline locale
   // branches in this domain component.
@@ -399,52 +282,7 @@ export function SettingsPage({
             routes={routes}
           />
         ) : section === "tools" ? (
-          <>
-            <SettingsGroup
-              heading={t("pages.settings.toolsGroup")}
-              description={t("settings.toolTogglesDescription")}
-            >
-              <SettingsRow
-                heading={t("pages.settings.toolFile")}
-                description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolFileIo} disabled label={t("pages.settings.toolFile")} onCheckedChange={(c) => setToolFileIo(c === true)} />}
-              />
-              <SettingsRow
-                heading={t("pages.settings.toolShell")}
-                description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolShell} disabled label={t("pages.settings.toolShell")} onCheckedChange={(c) => setToolShell(c === true)} />}
-              />
-              <SettingsRow
-                heading={t("pages.settings.toolWeb")}
-                description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolWeb} disabled label={t("pages.settings.toolWeb")} onCheckedChange={(c) => setToolWeb(c === true)} />}
-              />
-              <SettingsRow
-                heading={t("pages.settings.toolBrowser")}
-                description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolBrowser} disabled label={t("pages.settings.toolBrowser")} onCheckedChange={(c) => setToolBrowser(c === true)} />}
-              />
-              <SettingsRow
-                heading={t("pages.settings.toolGit")}
-                description={t("settings.truthfulNotWired")}
-                control={<Switch checked={toolGit} disabled label={t("pages.settings.toolGit")} onCheckedChange={(c) => setToolGit(c === true)} />}
-              />
-            </SettingsGroup>
-
-            {/* R32: MCP 管理未接后端——诚实呈现未接入状态，不再展示可增删
-                的样例列表（样例归属 UI Lab demo）。 */}
-            <SettingsGroup
-              heading={t("pages.settings.mcpGroup")}
-              description={t("settings.mcpNotWired")}
-            >
-              <Notice
-                description={t("settings.mcpNotWired")}
-                heading={t("settings.notWiredTitle")}
-                role="status"
-                tone="neutral"
-              />
-            </SettingsGroup>
-          </>
+          <ToolSettings key={sessionId ?? "no-session"} sessionId={sessionId} />
         ) : section === "remote" ? (
           <SettingsGroup
             heading={t("pages.settings.remoteTitle")}

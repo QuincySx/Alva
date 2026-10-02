@@ -2130,6 +2130,7 @@ function HubApp() {
           <ExtensionsPage sessionId={activeSessionId} onStartChat={() => setActivePage("conversation")} />
         ) : activePage === "settings" ? (
           <SettingsPage
+            sessionId={activeSessionId}
             onOpenInspector={() => { setActivePage("conversation"); openWorkbenchTool("inspector"); }}
             defaultTarget={defaultRoute?.target ?? null}
             onDiscoverProviderModels={discoverProviderModels}

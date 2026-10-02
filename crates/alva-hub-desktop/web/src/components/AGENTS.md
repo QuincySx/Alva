@@ -12,7 +12,7 @@
 - `ToolContent` 由调用者按 content_id 加 key；每个挂载实例只保留当前块，翻页替换正文，不累积全文。
 - 同会话/内容/页的请求匹配后才展示，卸载与会话切换丢弃迟到结果；失败可重试，无全文引用的旧记录明确标注摘要。
 - 正文仅为 React 文本节点，不执行 HTML；默认读首块，不用工具级折叠隐藏事实。
-- 次级页面动作必须消费真实 callback 或明确 disabled；插件样例不是安装目录，不声称可用或已安装。Files/Text 列按所在容器宽度自动排列，浏览器操作可换行，不独立定义页面断点。
+- 次级页面动作必须消费真实 callback 或明确 disabled；Plugins 只管理真实内置 ALVA capability/MCP，不声称存在第三方包安装目录或 Installed 状态。Files/Text 列按所在容器宽度自动排列，浏览器操作可换行，不独立定义页面断点。
 
 ## 业务域清单
 | 文件 | 职责 |
@@ -31,7 +31,8 @@
 | workspace-terminal.tsx / workspace-terminal.test.tsx | 用户直接操作的逐行 PTY；显式启动、生命周期清理、不模拟 HTTP 执行，后台轮询不清掉输入失败提示 |
 | workspace-browser.tsx / workspace-browser.test.tsx | 独立临时用户浏览器的原生导航控件；显式打开、真实 loading/慢加载提示、关闭重开、迟到打开回收；调用者按 session key 隔离，HTTP 不支持 |
 | fallback-policy-panel.tsx / team-panel.tsx | fallback 和团队操作 |
-| product-pages.tsx | 设置、插件样例与搜索、真实自动化 re-export；真实外观偏好/Inspector 导航/工作区 Skills，未接通能力明确不可用 |
+| product-pages.tsx | 设置、真实内置插件/MCP 与搜索、自动化 re-export、外观/Inspector/项目 Skills；第三方 AEP 安装明确未支持 |
+| tool-settings.tsx / tool-settings.test.tsx | catalog capability 开关、MCP 禁用优先 CRUD/宿主授权测试、失败草稿/revision/焦点与迟到回复回归 |
 | workspace-skills.tsx / workspace-skills.test.tsx | session-scoped 项目技能文件目录、源文档创建/编辑、确认归档/恢复、只读来源/失败草稿保留、迟到回复与焦点回归 |
 | automations.tsx / automations.test.tsx | 真实本地 interval 配置/状态、暂停创建/编辑、显式账户计费启用、Pause/删除确认、焦点恢复与会话导航；无 cron daemon 或默认执行 |
 | *.test.tsx | 确定性组件交互与协议回归 |
