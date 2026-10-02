@@ -1,5 +1,12 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 最终依赖闸检查 · 安全规则复用
+
+- `ci-check-deps.sh` 首次最终复跑失败：H10 引入的 `alva-agent-security` 用于 Files/Text 和 Git 的统一 `SensitivePathFilter`，但漏同步 Desktop 的明确依赖 allowlist。Rule 17/18/19 均通过；失败是这个单一未登记直接依赖，不是反向 SDK 边界违规。
+- 将此依赖及产品文件边界用途显式登记；不移除规则、不放宽其他 crate、不复制敏感路径实现。Desktop 约束同步记录这一限定用途。
+- 复跑 `bash scripts/ci-check-deps.sh` **exit 0**：全部依赖边界、bus cap surface、`wasm32-unknown-unknown` clean 集合和 `alva-host-wasm` 完整链接通过；`wasm32-wasip2` 因 target 未安装明确 SKIPPED，不安装新工具链。
+- `--skip real_` 还匹配了一个仅用 engine double 的旧 Alva resume 文本回归；已单独执行 **1 passed / 218 filtered**，没有账号访问。最终 lib 证据是 214 项批次 + 此 1 项单跑，4 个真实 CLI/账号测试未运行。
+
 ## 2026-10-02 自主迭代 · H17 真实动作与次级页收口
 
 - Settings 的无效 Inspector 本地开关改为打开真实 Workbench Inspector；⌘/Ctrl K/N/B 接通搜索/新会话/工作台。Esc 仅停止无覆盖层的中央当前对话，不抢 Inspector 返回、工作台输入、菜单或对话框键盘行为。
