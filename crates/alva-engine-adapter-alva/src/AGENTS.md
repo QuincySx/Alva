@@ -13,7 +13,7 @@
 5. `EngineInspector` 直接读取同一个 AgentSession 的 typed record snapshot/live tail，不复制第二份 Inspector 日志。
 6. `SessionRepository` 是唯一持久化源：typed records 原子写入 SQLite，infallible legacy append 失败会标脏并由 `flush()` 事务重建，敏感字段写盘前脱敏，大载荷转内容寻址 zstd blob。
 7. 同进程 idle BaseAgent 优先；running session 拒绝并发 execute。
-8. `cancel()` / `respond_permission()` 路由至对应 BaseAgent；修改 tool input 尚不支持。
+8. 每轮独立 cancellation token：`cancel()` 在 BaseAgent 尚未组装完成时也可取消；消费者丢弃 stream 会中断 pending factory/MCP 组装，不在后台继续调用模型。运行期取消/consumer 关闭转交已启动的 BaseAgent 并 drain 到真实终态/flush 后释放 running，resume 不继承前一轮取消；`respond_permission()` 仍路由对应 BaseAgent，修改 tool input 尚不支持。
 9. adapter 从 `alva-app-core::session_projection` 重导出 `build_run_record` / `RunRecord`，供 L7 Hub 在不绕过 adapter 依赖边界的前提下投影稳定 Inspector DTO。
 
 ## 约束

@@ -1,6 +1,6 @@
-// INPUT:  BaseAgentFactory, EventMapper, SessionRepository, BaseAgent, engine contracts
+// INPUT:  BaseAgentFactory, EventMapper, SessionRepository, BaseAgent, kernel cancellation, engine contracts
 // OUTPUT: AlvaAdapter implementing EngineRuntime + EngineInspector
-// POS:    Runs one independently assembled BaseAgent per engine session and exposes it through the neutral engine contract.
+// POS:    Owns per-turn assembly/cancellation of independent BaseAgent sessions behind the neutral engine contract.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -16,7 +16,7 @@ use alva_engine_runtime::{
     RuntimeEvent, RuntimeRequest,
 };
 use alva_kernel_abi::SessionStore;
-use alva_kernel_abi::{ExecutionRecord, SessionRecordPayload};
+use alva_kernel_abi::{CancellationToken, ExecutionRecord, SessionRecordPayload};
 use async_trait::async_trait;
 use futures_core::Stream;
 use tokio::sync::mpsc;
@@ -27,6 +27,7 @@ struct RuntimeSession {
     agent: Option<Arc<BaseAgent>>,
     approval_rx: Option<mpsc::UnboundedReceiver<ApprovalRequest>>,
     running: bool,
+    cancel: CancellationToken,
 }
 
 /// Canonical Hub-facing Alva engine. Each engine session owns one independent
@@ -110,6 +111,7 @@ impl EngineRuntime for AlvaAdapter {
             .clone()
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let mut cancel = CancellationToken::new();
 
         let resumed_session = if resume_id.is_some() {
             let mut sessions = self
@@ -128,6 +130,7 @@ impl EngineRuntime for AlvaAdapter {
                     .ok_or_else(|| RuntimeError::NotReady(session_id.clone()))?;
                 let approval_rx = session.approval_rx.take();
                 session.running = true;
+                session.cancel = cancel.clone();
                 Some((agent, approval_rx))
             } else {
                 // Not in this process — may rehydrate from native records below.
@@ -137,6 +140,7 @@ impl EngineRuntime for AlvaAdapter {
                         agent: None,
                         approval_rx: None,
                         running: true,
+                        cancel: cancel.clone(),
                     },
                 );
                 None
@@ -151,6 +155,7 @@ impl EngineRuntime for AlvaAdapter {
                         agent: None,
                         approval_rx: None,
                         running: true,
+                        cancel: cancel.clone(),
                     },
                 );
             None
@@ -249,7 +254,16 @@ impl EngineRuntime for AlvaAdapter {
                             )
                         };
 
-                    match factory.build(&request, durable_session).await {
+                    // Hub abandons a turn before SessionStarted by dropping
+                    // its stream. That must also drop pending plugin/MCP
+                    // assembly, rather than starting a model afterwards.
+                    let built = tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => Err(alva_app_core::EngineError::Cancelled),
+                        _ = event_tx.closed() => Err(alva_app_core::EngineError::Cancelled),
+                        built = factory.build(&request, durable_session) => built,
+                    };
+                    match built {
                         Ok(built) => {
                             let agent = Arc::new(built.agent);
                             (agent, built.approval_rx)
@@ -304,14 +318,47 @@ impl EngineRuntime for AlvaAdapter {
                 return;
             }
 
+            // Covers a cancelled idle resume or the assembly-to-prompt gap.
+            // Do not call BaseAgent::cancel before prompt: prompt installs a
+            // fresh loop token, which would lose that cancellation.
+            if cancel.is_cancelled() || event_tx.is_closed() {
+                let _ = event_tx.send(RuntimeEvent::Error {
+                    message: alva_app_core::EngineError::Cancelled.to_string(),
+                    recoverable: false,
+                });
+                let _ = event_tx.send(RuntimeEvent::Completed {
+                    session_id: session_id.clone(),
+                    result: None,
+                    usage: None,
+                });
+                if let Some(session) = sessions
+                    .lock()
+                    .expect("Alva adapter session lock poisoned")
+                    .get_mut(&session_id)
+                {
+                    session.approval_rx = approval_rx;
+                    session.running = false;
+                }
+                return;
+            }
+
             let model = agent.model_id().await;
             let tools = agent.tool_names();
             let mut events = agent.prompt_text(&request.prompt).await;
             let mut mapper = EventMapper::new(session_id.clone(), model, tools);
             let mut output_open = true;
+            let mut cancel_requested = false;
             loop {
                 tokio::select! {
                     biased;
+                    _ = cancel.cancelled(), if !cancel_requested => {
+                        cancel_requested = true;
+                        agent.cancel();
+                    }
+                    _ = event_tx.closed(), if output_open => {
+                        output_open = false;
+                        agent.cancel();
+                    }
                     approval = receive_approval(&mut approval_rx) => {
                         match approval {
                             Some(req) => {
@@ -394,16 +441,15 @@ impl EngineRuntime for AlvaAdapter {
     }
 
     async fn cancel(&self, session_id: &str) -> Result<(), RuntimeError> {
-        let agent = self
+        let cancel = self
             .sessions
             .lock()
             .expect("Alva adapter session lock poisoned")
             .get(session_id)
             .ok_or_else(|| RuntimeError::SessionNotFound(session_id.into()))?
-            .agent
-            .clone()
-            .ok_or_else(|| RuntimeError::NotReady(session_id.into()))?;
-        agent.cancel();
+            .cancel
+            .clone();
+        cancel.cancel();
         Ok(())
     }
 
@@ -681,6 +727,39 @@ mod tests {
         .await;
     }
 
+    /// Shared model fixture that signals its first call and then stays pending.
+    struct PendingForeverModel {
+        entered: Arc<tokio::sync::Semaphore>,
+    }
+
+    #[async_trait]
+    impl alva_kernel_abi::LanguageModel for PendingForeverModel {
+        async fn complete(
+            &self,
+            _messages: &[alva_kernel_abi::Message],
+            _tools: &[&dyn alva_kernel_abi::Tool],
+            _config: &alva_kernel_abi::ModelConfig,
+        ) -> Result<alva_kernel_abi::CompletionResponse, alva_kernel_abi::AgentError> {
+            self.entered.add_permits(1);
+            futures_util::future::pending().await
+        }
+
+        fn stream(
+            &self,
+            _messages: &[alva_kernel_abi::Message],
+            _tools: &[&dyn alva_kernel_abi::Tool],
+            _config: &alva_kernel_abi::ModelConfig,
+        ) -> Pin<Box<dyn futures_core::Stream<Item = alva_kernel_abi::StreamEvent> + Send>>
+        {
+            self.entered.add_permits(1);
+            Box::pin(futures_util::stream::pending())
+        }
+
+        fn model_id(&self) -> &str {
+            "pending-forever"
+        }
+    }
+
     /// R74: a mid-run cancel is the KilledMidRun contract — the terminal
     /// pair is a fatal Error (the kernel's Cancelled outcome) followed by
     /// Completed{result:None}, never a success result.
@@ -691,44 +770,6 @@ mod tests {
     /// 挂起，使取消在有界时间内收敛为 fatal + Completed{None}。
     #[tokio::test]
     async fn killed_mid_run_conforms() {
-        struct PendingForeverModel {
-            entered: Arc<tokio::sync::Semaphore>,
-        }
-
-        #[async_trait]
-        impl alva_kernel_abi::LanguageModel for PendingForeverModel {
-            async fn complete(
-                &self,
-                _messages: &[alva_kernel_abi::Message],
-                _tools: &[&dyn alva_kernel_abi::Tool],
-                _config: &alva_kernel_abi::ModelConfig,
-            ) -> Result<alva_kernel_abi::CompletionResponse, alva_kernel_abi::AgentError>
-            {
-                // The conformance path drives stream(); if complete() were
-                // ever reached this park fails the test by timeout instead
-                // of passing silently.
-                self.entered.add_permits(1);
-                futures_util::future::pending().await
-            }
-
-            fn stream(
-                &self,
-                _messages: &[alva_kernel_abi::Message],
-                _tools: &[&dyn alva_kernel_abi::Tool],
-                _config: &alva_kernel_abi::ModelConfig,
-            ) -> Pin<Box<dyn futures_core::Stream<Item = alva_kernel_abi::StreamEvent> + Send>>
-            {
-                // Signal arrival, then never yield a single event: the gate
-                // is never released by the test.
-                self.entered.add_permits(1);
-                Box::pin(futures_util::stream::pending())
-            }
-
-            fn model_id(&self) -> &str {
-                "pending-forever"
-            }
-        }
-
         let entered = Arc::new(tokio::sync::Semaphore::new(0));
         let config = DefaultBaseAgentFactoryConfig::new(
             Arc::new(PendingForeverModel {
@@ -1327,6 +1368,16 @@ mod tests {
     struct GatedFactory {
         inner: DefaultBaseAgentFactory,
         gate: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+        entered: Arc<tokio::sync::Semaphore>,
+        dropped: Arc<tokio::sync::Semaphore>,
+    }
+
+    struct DropSignal(Arc<tokio::sync::Semaphore>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            self.0.add_permits(1);
+        }
     }
 
     #[async_trait]
@@ -1338,6 +1389,8 @@ mod tests {
         ) -> Result<BuiltAgent, EngineError> {
             let gate = self.gate.lock().expect("gate lock poisoned").take();
             if let Some(gate) = gate {
+                let _drop_signal = DropSignal(self.dropped.clone());
+                self.entered.add_permits(1);
                 let _ = gate.await;
             }
             self.inner.build(request, session).await
@@ -1356,6 +1409,8 @@ mod tests {
         let adapter = AlvaAdapter::new(Arc::new(GatedFactory {
             inner: DefaultBaseAgentFactory::new(config),
             gate: Mutex::new(Some(gate)),
+            entered: Arc::new(tokio::sync::Semaphore::new(0)),
+            dropped: Arc::new(tokio::sync::Semaphore::new(0)),
         }));
 
         let mut stream = adapter.execute(RuntimeRequest::new("hello")).unwrap();
@@ -1403,6 +1458,142 @@ mod tests {
             RuntimeEvent::Completed { result: None, .. }
         ));
         assert!(validate_event_stream(&events).is_ok());
+    }
+
+    #[tokio::test]
+    async fn regression_cancel_during_assembly_drops_build_before_model_calls() {
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("hi")));
+        let entered = Arc::new(tokio::sync::Semaphore::new(0));
+        let dropped = Arc::new(tokio::sync::Semaphore::new(0));
+        let (_release, gate) = tokio::sync::oneshot::channel();
+        let adapter = AlvaAdapter::new(Arc::new(GatedFactory {
+            inner: DefaultBaseAgentFactory::new(DefaultBaseAgentFactoryConfig::new(
+                model.clone(),
+                std::env::temp_dir(),
+            )),
+            gate: Mutex::new(Some(gate)),
+            entered: entered.clone(),
+            dropped: dropped.clone(),
+        }));
+        let stream = adapter.execute(RuntimeRequest::new("hello")).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), entered.acquire())
+            .await
+            .expect("factory must start")
+            .unwrap()
+            .forget();
+        let session_id = adapter
+            .sessions
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        adapter
+            .cancel(&session_id)
+            .await
+            .expect("startup must be cancellable");
+        let events = tokio::time::timeout(Duration::from_secs(2), stream.collect::<Vec<_>>())
+            .await
+            .expect("startup cancellation must terminate without releasing the factory");
+        assert!(matches!(events.as_slice(), [
+            RuntimeEvent::Error { message, recoverable: false },
+            RuntimeEvent::Completed { result: None, .. },
+        ] if message == "Operation cancelled"));
+        assert!(validate_event_stream(&events).is_ok());
+        assert!(
+            dropped.try_acquire().is_ok(),
+            "build future must be dropped"
+        );
+        assert!(adapter.sessions.lock().unwrap().is_empty());
+        assert!(
+            model.calls().is_empty(),
+            "cancelled assembly must never call a model"
+        );
+    }
+
+    #[tokio::test]
+    async fn regression_dropped_startup_stream_releases_build_and_session() {
+        let model = Arc::new(MockLanguageModel::new().with_response(make_assistant_message("hi")));
+        let entered = Arc::new(tokio::sync::Semaphore::new(0));
+        let dropped = Arc::new(tokio::sync::Semaphore::new(0));
+        let (_release, gate) = tokio::sync::oneshot::channel();
+        let adapter = AlvaAdapter::new(Arc::new(GatedFactory {
+            inner: DefaultBaseAgentFactory::new(DefaultBaseAgentFactoryConfig::new(
+                model.clone(),
+                std::env::temp_dir(),
+            )),
+            gate: Mutex::new(Some(gate)),
+            entered: entered.clone(),
+            dropped: dropped.clone(),
+        }));
+        let stream = adapter.execute(RuntimeRequest::new("hello")).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), entered.acquire())
+            .await
+            .expect("factory must start")
+            .unwrap()
+            .forget();
+        drop(stream);
+        tokio::time::timeout(Duration::from_secs(2), dropped.acquire())
+            .await
+            .expect("a dropped consumer must cancel assembly without releasing the factory")
+            .unwrap()
+            .forget();
+        assert!(adapter.sessions.lock().unwrap().is_empty());
+        assert!(model.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn regression_dropped_running_stream_cancels_pending_model_and_can_resume() {
+        let entered = Arc::new(tokio::sync::Semaphore::new(0));
+        let config = DefaultBaseAgentFactoryConfig::new(
+            Arc::new(PendingForeverModel {
+                entered: entered.clone(),
+            }),
+            std::env::temp_dir(),
+        );
+        let adapter = AlvaAdapter::new(Arc::new(DefaultBaseAgentFactory::new(config)));
+        let mut stream = adapter.execute(RuntimeRequest::new("hello")).unwrap();
+        let session_id = match stream.next().await.unwrap() {
+            RuntimeEvent::SessionStarted { session_id, .. } => session_id,
+            other => panic!("expected session start: {other:?}"),
+        };
+        tokio::time::timeout(Duration::from_secs(2), entered.acquire())
+            .await
+            .unwrap()
+            .unwrap()
+            .forget();
+        drop(stream);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if !adapter.sessions.lock().unwrap()[&session_id].running {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("dropping the stream must stop a model that never emits output");
+        let mut request = RuntimeRequest::new("resume after cancellation");
+        request.resume_session = Some(session_id.clone());
+        let mut resumed = adapter.execute(request).unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(2), resumed.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(first, RuntimeEvent::SessionStarted { .. }),
+            "the previous turn's cancellation must not cancel the new turn"
+        );
+        adapter.cancel(&session_id).await.unwrap();
+        let rest = tokio::time::timeout(Duration::from_secs(2), resumed.collect::<Vec<_>>())
+            .await
+            .unwrap();
+        let events: Vec<_> = std::iter::once(first).chain(rest).collect();
+        alva_engine_runtime::assert_conforms_events(
+            &events,
+            alva_engine_runtime::Scenario::KilledMidRun,
+        );
     }
 
     /// A model that panics, so the BaseAgent run task dies and drops the event
