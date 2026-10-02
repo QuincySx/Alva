@@ -27,7 +27,7 @@ pub enum McpTransportConfig {
 }
 
 /// Complete configuration for a single MCP Server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpServerConfig {
     /// Unique identifier, kebab-case, e.g. "builtin-browser"
     pub id: String,

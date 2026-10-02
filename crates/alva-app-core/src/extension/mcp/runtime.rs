@@ -85,6 +85,12 @@ impl McpManager {
     /// Register MCP Server config (does not connect immediately)
     pub async fn register(&self, config: McpServerConfig) {
         let mut servers = self.servers.write().await;
+        if servers
+            .get(&config.id)
+            .is_some_and(|instance| instance.config == config)
+        {
+            return;
+        }
         servers.insert(
             config.id.clone(),
             McpServerInstance {
@@ -115,7 +121,9 @@ impl McpManager {
 
         instance.transport = None;
         instance.tools.clear();
-        instance.state = McpServerState::Connecting;
+        // The map write lock hides the in-progress attempt. Cancellation must
+        // leave no stale Connecting state after dropping the new transport.
+        instance.state = McpServerState::Disconnected;
 
         let mut transport = self.factory.create(&instance.config);
         let connect_result = tokio::time::timeout(
@@ -188,6 +196,9 @@ impl McpManager {
             .transport
             .as_ref()
             .ok_or_else(|| SkillError::McpNotConnected(server_id.to_string()))?;
+        if !transport.is_connected() {
+            return Err(SkillError::McpNotConnected(server_id.to_string()));
+        }
 
         transport
             .call_tool(tool_name, arguments)
@@ -247,11 +258,13 @@ mod tests {
     struct FixtureFactory {
         connected: Arc<AtomicBool>,
         fail_list: Arc<AtomicBool>,
+        stall_list: Arc<AtomicBool>,
         starts: Arc<AtomicUsize>,
     }
     struct FixtureTransport {
         connected: Arc<AtomicBool>,
         fail_list: Arc<AtomicBool>,
+        stall_list: Arc<AtomicBool>,
     }
     impl McpTransportFactory for FixtureFactory {
         fn create(&self, _: &McpServerConfig) -> Box<dyn McpTransport> {
@@ -259,6 +272,7 @@ mod tests {
             Box::new(FixtureTransport {
                 connected: self.connected.clone(),
                 fail_list: self.fail_list.clone(),
+                stall_list: self.stall_list.clone(),
             })
         }
     }
@@ -276,6 +290,9 @@ mod tests {
             self.connected.load(Ordering::SeqCst)
         }
         async fn list_tools(&self) -> Result<Vec<McpToolInfo>, McpError> {
+            if self.stall_list.load(Ordering::SeqCst) {
+                return std::future::pending().await;
+            }
             if self.fail_list.load(Ordering::SeqCst) {
                 return Err(McpError::Transport("Fixture catalog failure".into()));
             }
@@ -299,6 +316,7 @@ mod tests {
         let manager = McpManager::new(Arc::new(FixtureFactory {
             connected: connected.clone(),
             fail_list: fail_list.clone(),
+            stall_list: Arc::new(AtomicBool::new(false)),
             starts: starts.clone(),
         }));
         manager
@@ -324,6 +342,12 @@ mod tests {
             manager.server_states().await["fixture"],
             McpServerState::Failed { .. }
         ));
+        assert!(matches!(
+            manager
+                .call_tool("fixture", "echo", serde_json::json!({}))
+                .await,
+            Err(SkillError::McpNotConnected(_))
+        ));
         fail_list.store(true, Ordering::SeqCst);
         assert!(manager.connect("fixture").await.is_err());
         assert_eq!(starts.load(Ordering::SeqCst), 2);
@@ -337,6 +361,80 @@ mod tests {
         assert_eq!(starts.load(Ordering::SeqCst), 3);
         assert_eq!(manager.list_all_tools().await.len(), 1);
         manager.disconnect("fixture").await.unwrap();
+        assert!(manager.list_all_tools().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn regression_same_config_registration_preserves_live_connection() {
+        let starts = Arc::new(AtomicUsize::new(0));
+        let manager = McpManager::new(Arc::new(FixtureFactory {
+            connected: Arc::new(AtomicBool::new(false)),
+            fail_list: Arc::new(AtomicBool::new(false)),
+            stall_list: Arc::new(AtomicBool::new(false)),
+            starts: starts.clone(),
+        }));
+        let config = McpServerConfig {
+            id: "fixture".into(),
+            display_name: "Fixture".into(),
+            transport: alva_protocol_mcp::types::McpTransportConfig::Stdio {
+                command: "/not-executed".into(),
+                args: vec![],
+                env: Default::default(),
+            },
+            auto_connect: true,
+            connect_timeout_secs: 1,
+        };
+        manager.register(config.clone()).await;
+        manager.connect("fixture").await.unwrap();
+        manager.register(config.clone()).await;
+        assert_eq!(
+            manager.server_states().await["fixture"],
+            McpServerState::Connected { tool_count: 1 }
+        );
+        manager.connect("fixture").await.unwrap();
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        assert_eq!(manager.list_all_tools().await.len(), 1);
+        let mut changed = config;
+        changed.connect_timeout_secs += 1;
+        manager.register(changed).await;
+        assert_eq!(
+            manager.server_states().await["fixture"],
+            McpServerState::Disconnected
+        );
+        assert!(manager.list_all_tools().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn regression_cancelled_discovery_does_not_leave_connecting() {
+        let manager = McpManager::new(Arc::new(FixtureFactory {
+            connected: Arc::new(AtomicBool::new(false)),
+            fail_list: Arc::new(AtomicBool::new(false)),
+            stall_list: Arc::new(AtomicBool::new(true)),
+            starts: Arc::new(AtomicUsize::new(0)),
+        }));
+        manager
+            .register(McpServerConfig {
+                id: "fixture".into(),
+                display_name: "Fixture".into(),
+                transport: alva_protocol_mcp::types::McpTransportConfig::Stdio {
+                    command: "/not-executed".into(),
+                    args: vec![],
+                    env: Default::default(),
+                },
+                auto_connect: true,
+                connect_timeout_secs: 1,
+            })
+            .await;
+        assert!(tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            manager.connect("fixture")
+        )
+        .await
+        .is_err());
+        assert_eq!(
+            manager.server_states().await["fixture"],
+            McpServerState::Disconnected
+        );
         assert!(manager.list_all_tools().await.is_empty());
     }
 

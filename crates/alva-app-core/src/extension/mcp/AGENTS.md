@@ -15,6 +15,7 @@
 - `McpPlugin::from_servers` 接已授权 snapshot/cwd，不发现外部配置；native stdio 真连接，SSE/wasm 显式 unsupported。`try_finalize` 将全部 MCP 工具及 meta-tool 加入既有 SecurityGuard 的 HITL 集合，无 guard 时 fail-closed，不相信 server read-only 注解。
 - 单 server 握手及发现受配置 timeout 限制，全部自动连接有 60 秒 assembly budget；已关闭 transport 不伪装 Connected，显式重新连接会清理旧工具。
 - 握手与工具目录共用连接超时；目录失败也进入 Failed，不遗留 Connecting。取消关闭的 transport 不投影成 Connected 或列为可用工具。
+- 完全相同 config 的重复注册保留现有连接/目录；配置真正改变才替换。取消 connect 不遗留 Connecting，关闭的 transport 在调用前拒绝，不以旧目录冒充可用。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |

@@ -21,6 +21,19 @@ struct McpServerInstance {
     tools: Vec<McpToolInfo>,
 }
 
+impl McpServerInstance {
+    fn is_connected(&self) -> bool {
+        if !matches!(self.state, McpServerState::Connected { .. }) {
+            return false;
+        }
+        self.transport.as_ref().is_some_and(|transport| {
+            // A busy RPC owns this mutex. Keep its last connected state until
+            // it settles; catalog/state reads must not wait for slow calls.
+            transport.try_lock().map_or(true, |t| t.is_connected())
+        })
+    }
+}
+
 /// Factory trait: creates transport layer based on McpServerConfig.
 pub trait McpTransportFactory: Send + Sync {
     fn create(&self, config: &McpServerConfig) -> Box<dyn McpTransport>;
@@ -47,6 +60,12 @@ impl McpClient {
     /// Register MCP Server config (does not connect immediately).
     pub async fn register(&self, config: McpServerConfig) {
         let mut servers = self.servers.write().await;
+        if servers
+            .get(&config.id)
+            .is_some_and(|instance| instance.config == config)
+        {
+            return;
+        }
         servers.insert(
             config.id.clone(),
             McpServerInstance {
@@ -66,24 +85,30 @@ impl McpClient {
             .get_mut(server_id)
             .ok_or_else(|| McpError::ServerNotFound(server_id.to_string()))?;
 
-        if matches!(instance.state, McpServerState::Connected { .. }) {
+        if instance.is_connected() {
             return Ok(()); // Idempotent
         }
 
-        instance.state = McpServerState::Connecting;
+        instance.transport = None;
+        instance.tools.clear();
+        // This write lock prevents observing an in-progress attempt. Keep a
+        // truthful no-connection state if the connect future is cancelled.
+        instance.state = McpServerState::Disconnected;
 
         let mut transport = self.factory.create(&instance.config);
         let connect_result = tokio::time::timeout(
             std::time::Duration::from_secs(instance.config.connect_timeout_secs as u64),
-            transport.connect(),
+            async {
+                transport.connect().await?;
+                transport.list_tools().await
+            },
         )
         .await
         .map_err(|_| McpError::ConnectTimeout(server_id.to_string()))
         .and_then(|r| r);
 
         match connect_result {
-            Ok(()) => {
-                let tools = transport.list_tools().await?;
+            Ok(tools) => {
                 let tool_count = tools.len();
                 instance.tools = tools;
                 instance.state = McpServerState::Connected { tool_count };
@@ -119,6 +144,7 @@ impl McpClient {
             .read()
             .await
             .values()
+            .filter(|inst| inst.is_connected())
             .flat_map(|inst| inst.tools.clone())
             .collect()
     }
@@ -150,6 +176,9 @@ impl McpClient {
         // servers read lock released here.
 
         let t = transport.lock().await;
+        if !t.is_connected() {
+            return Err(McpError::NotConnected(server_id.to_string()));
+        }
         t.call_tool(tool_name, arguments).await
     }
 
@@ -159,7 +188,18 @@ impl McpClient {
             .read()
             .await
             .iter()
-            .map(|(id, inst)| (id.clone(), inst.state.clone()))
+            .map(|(id, inst)| {
+                let state = if matches!(inst.state, McpServerState::Connected { .. })
+                    && !inst.is_connected()
+                {
+                    McpServerState::Failed {
+                        reason: "MCP transport closed; reconnect before calling tools".into(),
+                    }
+                } else {
+                    inst.state.clone()
+                };
+                (id.clone(), state)
+            })
             .collect()
     }
 
@@ -200,6 +240,8 @@ mod tests {
         connected: AtomicBool,
         tools: Vec<McpToolInfo>,
         fail_connect: bool,
+        fail_list: bool,
+        stall_list: bool,
     }
 
     impl MockTransport {
@@ -208,6 +250,8 @@ mod tests {
                 connected: AtomicBool::new(false),
                 tools,
                 fail_connect: false,
+                fail_list: false,
+                stall_list: false,
             }
         }
 
@@ -216,6 +260,8 @@ mod tests {
                 connected: AtomicBool::new(false),
                 tools: vec![],
                 fail_connect: true,
+                fail_list: false,
+                stall_list: false,
             }
         }
     }
@@ -240,6 +286,12 @@ mod tests {
         }
 
         async fn list_tools(&self) -> Result<Vec<McpToolInfo>, McpError> {
+            if self.stall_list {
+                return std::future::pending().await;
+            }
+            if self.fail_list {
+                return Err(McpError::Transport("fixture discovery failure".into()));
+            }
             Ok(self.tools.clone())
         }
 
@@ -257,6 +309,8 @@ mod tests {
     struct MockFactory {
         tools: Vec<McpToolInfo>,
         fail_connect: bool,
+        fail_list: bool,
+        stall_list: bool,
     }
 
     impl MockFactory {
@@ -264,6 +318,8 @@ mod tests {
             Self {
                 tools,
                 fail_connect: false,
+                fail_list: false,
+                stall_list: false,
             }
         }
 
@@ -271,6 +327,8 @@ mod tests {
             Self {
                 tools: vec![],
                 fail_connect: true,
+                fail_list: false,
+                stall_list: false,
             }
         }
     }
@@ -280,7 +338,10 @@ mod tests {
             if self.fail_connect {
                 Box::new(MockTransport::failing())
             } else {
-                Box::new(MockTransport::new(self.tools.clone()))
+                let mut transport = MockTransport::new(self.tools.clone());
+                transport.fail_list = self.fail_list;
+                transport.stall_list = self.stall_list;
+                Box::new(transport)
             }
         }
     }
@@ -309,6 +370,137 @@ mod tests {
     }
 
     // ── Tests ───────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn regression_same_config_registration_preserves_live_connection() {
+        let client = McpClient::new(Arc::new(MockFactory::new(vec![sample_tool(
+            "srv1", "echo",
+        )])));
+        let config = make_config("srv1", true);
+        client.register(config.clone()).await;
+        client.connect("srv1").await.unwrap();
+        client.register(config.clone()).await;
+        assert_eq!(
+            client.server_states().await["srv1"],
+            McpServerState::Connected { tool_count: 1 }
+        );
+        assert_eq!(client.list_all_tools().await.len(), 1);
+        client
+            .call_tool("srv1", "echo", serde_json::json!({}))
+            .await
+            .unwrap();
+        let mut changed = config;
+        changed.connect_timeout_secs += 1;
+        client.register(changed).await;
+        assert_eq!(
+            client.server_states().await["srv1"],
+            McpServerState::Disconnected
+        );
+        assert!(client.list_all_tools().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn regression_discovery_failure_settles_failed_state() {
+        let mut factory = MockFactory::new(vec![]);
+        factory.fail_list = true;
+        let client = McpClient::new(Arc::new(factory));
+        client.register(make_config("srv1", true)).await;
+        assert!(client.connect("srv1").await.is_err());
+        assert!(matches!(
+            client.server_states().await["srv1"],
+            McpServerState::Failed { .. }
+        ));
+        assert!(client.list_all_tools().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn regression_discovery_shares_the_connection_timeout() {
+        let mut factory = MockFactory::new(vec![]);
+        factory.stall_list = true;
+        let client = McpClient::new(Arc::new(factory));
+        let mut config = make_config("srv1", true);
+        config.connect_timeout_secs = 1;
+        client.register(config).await;
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(1500),
+            client.connect("srv1"),
+        )
+        .await;
+        assert!(matches!(result, Ok(Err(McpError::ConnectTimeout(_)))));
+        assert!(matches!(
+            client.server_states().await["srv1"],
+            McpServerState::Failed { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn regression_cancelled_discovery_does_not_leave_connecting() {
+        let mut factory = MockFactory::new(vec![]);
+        factory.stall_list = true;
+        let client = McpClient::new(Arc::new(factory));
+        client.register(make_config("srv1", true)).await;
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), client.connect("srv1"))
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            client.server_states().await["srv1"],
+            McpServerState::Disconnected
+        );
+        assert!(client.list_all_tools().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn regression_closed_transport_is_hidden_rejected_and_reconnected() {
+        let client = McpClient::new(Arc::new(MockFactory::new(vec![sample_tool(
+            "srv1", "echo",
+        )])));
+        client.register(make_config("srv1", true)).await;
+        client.connect("srv1").await.unwrap();
+        let transport = client.servers.read().await["srv1"]
+            .transport
+            .as_ref()
+            .unwrap()
+            .clone();
+        // While an RPC owns the transport, catalog/state snapshots must not
+        // block or misclassify a healthy busy connection as disconnected.
+        let mut active = transport.lock().await;
+        assert_eq!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(50),
+                client.list_all_tools()
+            )
+            .await
+            .unwrap()
+            .len(),
+            1
+        );
+        assert!(matches!(
+            client.server_states().await["srv1"],
+            McpServerState::Connected { .. }
+        ));
+        // Simulate the transport closing independently of the client map.
+        active.disconnect().await.unwrap();
+        drop(active);
+        assert!(client.list_all_tools().await.is_empty());
+        assert!(matches!(
+            client.server_states().await["srv1"],
+            McpServerState::Failed { .. }
+        ));
+        assert!(matches!(
+            client
+                .call_tool("srv1", "echo", serde_json::json!({}))
+                .await,
+            Err(McpError::NotConnected(_))
+        ));
+        client.connect("srv1").await.unwrap();
+        assert_eq!(client.list_all_tools().await.len(), 1);
+        client
+            .call_tool("srv1", "echo", serde_json::json!({}))
+            .await
+            .unwrap();
+    }
 
     #[tokio::test]
     async fn new_client_has_no_servers() {

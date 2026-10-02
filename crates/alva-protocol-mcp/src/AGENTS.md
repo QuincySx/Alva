@@ -27,6 +27,7 @@ config::McpConfigFile
 
 ## 约束
 - McpClient 管理多个 server 连接，每个 server 独立生命周期
+- 完全相同的 server config 重复注册不丢连接/工具；真正配置变化才替换。握手和工具发现共用 connect timeout；失败变 Failed，取消不残留 Connecting，失效 transport 不显示工具或接受调用且可重连。忙碌 RPC 的状态/目录查询保持上次连接状态、不等其 mutex。
 - McpTransport 是 async trait，实现者需处理底层 I/O
 - McpToolAdapter 将 MCP 的 JSON Schema 映射为 alva-kernel-abi 的 Tool trait
 - 模型工具名是 `mcp_` + 240-bit SHA-256 alias（64 ASCII bytes）；长度前缀区分 server/tool 身份，description 保留逻辑 `mcp:server:tool`，兼容 provider 的名称字符和长度约束。
