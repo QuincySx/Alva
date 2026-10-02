@@ -35,6 +35,7 @@ fn timeline_now_ms() -> i64 {
 }
 
 struct DesktopState {
+    terminals: Arc<alva_hub_desktop::TerminalManager>,
     store: HubStore,
     providers: ProviderCatalog,
     history_dir: PathBuf,
@@ -1535,6 +1536,35 @@ async fn get_hub_inspection(
 }
 
 #[tauri::command]
+async fn hub_terminal(
+    window: tauri::WebviewWindow, state: State<'_, DesktopState>, request: TerminalRequest,
+) -> Result<serde_json::Value, String> {
+    if window.label() != "main" { return Err("terminal commands require the main window".into()); }
+    let manager = state.terminals.clone();
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        use TerminalRequest::*;
+        match request {
+            Open { session, rows, columns } => manager.open(&store, &session, rows, columns).map(serde_json::Value::String),
+            Read { session, id } => manager.read(&session, &id).and_then(|value| serde_json::to_value(value).map_err(|_| "terminal response unavailable".into())),
+            Write { session, id, input } => manager.write(&session, &id, &input).map(|_| serde_json::Value::Null),
+            Resize { session, id, rows, columns } => manager.resize(&session, &id, rows, columns).map(|_| serde_json::Value::Null),
+            Close { session, id } => manager.close(&session, &id).map(|_| serde_json::Value::Null),
+        }
+    }).await.map_err(|_| "terminal service unavailable".to_string())?
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+enum TerminalRequest {
+    Open { session: String, rows: u16, columns: u16 },
+    Read { session: String, id: String },
+    Write { session: String, id: String, input: String },
+    Resize { session: String, id: String, rows: u16, columns: u16 },
+    Close { session: String, id: String },
+}
+
+#[tauri::command]
 async fn get_hub_messages(
     state: State<'_, DesktopState>, product_session_id: String, after: i64, through: Option<i64>,
 ) -> Result<alva_hub_desktop::MessageJournalPage, String> {
@@ -1663,6 +1693,7 @@ fn main() {
             let inspector =
                 HubInspectorService::open(&history_dir).map_err(std::io::Error::other)?;
             app.manage(DesktopState {
+                terminals: Arc::new(alva_hub_desktop::TerminalManager::default()),
                 store,
                 providers,
                 history_dir,
@@ -1680,7 +1711,13 @@ fn main() {
             }
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Some(state) = window.try_state::<DesktopState>() { state.terminals.close_all(); }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
+            hub_terminal,
             run_hub_prompt,
             switch_hub_engine,
             list_model_providers,

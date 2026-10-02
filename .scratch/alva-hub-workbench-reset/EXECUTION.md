@@ -1,5 +1,11 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-02 自主迭代 · H13 原生逐行 PTY
+
+- macOS/Linux Desktop 显式 Open 后创建真实 `/bin/sh +m -i` PTY，cwd 仅来自已存 session；清空继承环境，不加载 login profile。逐行输入、Ctrl-C、行列 resize、退出码、关闭/重开可用，不宣称支持 vim 等全屏模拟器。HTTP/非 Unix 明示不支持。
+- session + 随机 handle 防迟到 close 杀新终端；最多 4 实例，输出环形缓存 256 KiB，输入 16 KiB；切会话/关标签/主窗销毁清理。清理先 kill owned process group 再 reap（waitid WNOWAIT 保留 PID 身份），回收 reader thread；终端是用户直接授权的 shell，不是安全沙箱或 Agent 审批通道，用户主动脱离进程组不在管理范围。
+- 验证：真实 PTY 2 项覆盖 cwd、输入、resize、Ctrl-C、exit7、重开、跨会话拒绝、后台 sleep 进程组回收及输出上界；前端 161 项通过，生产 build 和 Desktop all-target check 通过。首次编译发现 macOS openpty 参数需要 mutable pointer，已修复并实测。
+
 ## 2026-10-02 自主迭代 · H20 消息耐久补页
 
 - schema 20 新建可见 assistant 文本日志；沿现有 attempt/消息/UTF-16 offset 协议，在 live 发送前事务保存，16 KiB UTF-8 分块，不再只依赖 Turn 结果摘要。仅有 Completed(result) 的 provider 同样完整保存。写失败使 attempt 失败，不假装耐久成功。

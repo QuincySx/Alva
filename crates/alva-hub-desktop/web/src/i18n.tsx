@@ -10,6 +10,20 @@ export type LanguagePreference = Locale | "system";
 const STORAGE_KEY = "alva-hub.language";
 
 const en = {
+  "terminal.title": "Native line-mode terminal",
+  "terminal.boundary": "Your commands run directly in this session’s workspace, outside Agent approvals. No login profile or inherited credentials. Full-screen terminal apps are not supported.",
+  "terminal.unsupported": "Terminal requires the macOS/Linux Hub desktop app; unavailable over HTTP.",
+  "terminal.error": "Terminal operation failed. Inspect the output before retrying; input may have been partially sent.",
+  "terminal.open": "Open terminal",
+  "terminal.close": "Close terminal",
+  "terminal.rows": "Terminal rows",
+  "terminal.columns": "Terminal columns",
+  "terminal.resize": "Resize PTY",
+  "terminal.output": "Terminal output",
+  "terminal.input": "Command input",
+  "terminal.send": "Send command",
+  "terminal.limit": "Only the latest 256 KiB of terminal output is retained.",
+  "terminal.exited": "Process exited ({code}). Close and reopen to start a new shell.",
   "timeline.recoveryFailed": "Message history could not be synchronized. Retrying automatically…",
   "git.title": "Git worktree (read only)",
   "git.error": "Git inspection unavailable or changed. Refresh to retry.",
@@ -769,6 +783,20 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const zh: Record<MessageKey, string> = {
+  "terminal.title": "原生逐行终端",
+  "terminal.boundary": "命令由你直接在本会话目录执行，不经过 Agent 审批。不加载登录配置、不继承凭据环境；不支持全屏终端应用。",
+  "terminal.unsupported": "终端需要 macOS/Linux Hub 桌面应用，HTTP 端不支持。",
+  "terminal.error": "终端操作失败。输入可能已部分发送，请检查输出后再重试。",
+  "terminal.open": "打开终端",
+  "terminal.close": "关闭终端",
+  "terminal.rows": "终端行数",
+  "terminal.columns": "终端列数",
+  "terminal.resize": "调整 PTY 尺寸",
+  "terminal.output": "终端输出",
+  "terminal.input": "命令输入",
+  "terminal.send": "发送命令",
+  "terminal.limit": "仅保留最近 256 KiB 终端输出。",
+  "terminal.exited": "进程已退出（{code}），关闭后可重新打开。",
   "timeline.recoveryFailed": "消息历史同步失败，正在自动重试…",
   "git.title": "Git 工作树（只读）",
   "git.error": "Git 检查不可用或文件已变化，请刷新重试。",

@@ -22,6 +22,7 @@ mod store;
 mod worktree;
 mod workspace_files;
 mod workspace_git;
+mod terminal;
 pub mod worktree_discovery;
 
 pub use alva::{build_engine, build_engine_for_target, build_engine_for_target_with_inspector};
@@ -70,6 +71,7 @@ pub use store::{
 pub use worktree_discovery::{discover_worktrees, WorktreeDiscoveryError, WorktreeInfo};
 pub use workspace_files::{list_workspace_files, read_workspace_file, WorkspaceDirectory, WorkspaceEntry, WorkspacePreview};
 pub use workspace_git::{workspace_git_status, workspace_git_diff, GitDiffArea, GitFileStatus, WorkspaceGitStatus, WorkspaceGitDiff};
+pub use terminal::{TerminalManager, TerminalSnapshot};
 pub use worktree::{
     adopt_into_workspace, adoption_preview, create_worker_worktree, discard_worktree,
     supports_isolation, worktree_changes, worktree_root, AdoptionPreview, WorktreeChange,

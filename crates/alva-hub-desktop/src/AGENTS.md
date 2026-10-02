@@ -71,6 +71,7 @@
 | Session workspace | `session_workspace.rs` | 独立会话专属目录创建、私有权限与 project/session 分类 |
 | Workspace files | `workspace_files.rs` | 从已存 session cwd 读取真实目录与只读文本预览；capability-relative 逐层 no-follow，复用敏感路径规则，目录 2000 项/预览 256 KiB 上限，HTTP/Tauri 共用 |
 | Workspace Git | `workspace_git.rs` | 当前 worktree 的只读 status/diff；NUL 路径解析、staged/unstaged/untracked 分离，敏感 rename 双端过滤；禁外部 diff/textconv/fsmonitor，10 秒/1 MiB status/2000 路径/256 KiB diff 限额 |
+| User terminal | `terminal.rs` | macOS/Linux 原生 PTY，显式用户启动；session+随机 handle 所有权，最多 4 个实例，256 KiB 输出；关闭回收 owned shell group/thread，先清进程组再 reap 防 PID 复用误杀；不属于 Agent 审批/命令日志 |
 | Failure matrix | `failure.rs` | terminal 失败 FailureClass 稳定分类与 fallback 资格规则 |
 | Handoff filter | `redact.rs` | 跨 engine 敏感内容过滤与 adapter-private 元数据剥离 |
 | Resource claims | `claims.rs` | 共享工作区 ResourceClaim 冲突代数 |

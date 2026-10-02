@@ -1769,7 +1769,7 @@ export default function App() {
             {openWorkbenchTools.includes("browser") ? <TabsContent className="hub-workbench__content" forceMount value="browser"><WorkbenchPage><BrowserTool /></WorkbenchPage></TabsContent> : null}
             {openWorkbenchTools.includes("text") ? <TabsContent className="hub-workbench__content" forceMount value="text"><WorkbenchPage><TextBrowserTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
             {openWorkbenchTools.includes("git") ? <TabsContent className="hub-workbench__content" forceMount value="git"><WorkbenchPage><GitTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
-            {openWorkbenchTools.includes("terminal") ? <TabsContent className="hub-workbench__content" forceMount value="terminal"><WorkbenchPage><TerminalTool /></WorkbenchPage></TabsContent> : null}
+            {openWorkbenchTools.includes("terminal") ? <TabsContent className="hub-workbench__content" forceMount value="terminal"><WorkbenchPage><TerminalTool detail={sessionDetail} /></WorkbenchPage></TabsContent> : null}
             {openWorkbenchTools.includes("engines") ? <TabsContent className="hub-workbench__content" forceMount value="engines">
               <WorkbenchPage>
                 <EngineReadinessPanel

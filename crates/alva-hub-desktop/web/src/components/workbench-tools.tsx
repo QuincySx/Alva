@@ -10,14 +10,13 @@ import {
   FolderTree,
   GitBranch,
   Globe2,
-  Play,
-  TerminalSquare,
 } from "lucide-react";
 import type { HubSessionDetail, StoredAttempt, TeamRunDetail, WorkerTask } from "../bridge";
 import type { HubTimelineEvent } from "./hub-timeline";
 import { EngineInspectorPanel, type EngineInspectorPanelProps } from "./engine-inspector";
 import { WorkspaceFiles } from "./workspace-files";
 import { WorkspaceGit } from "./workspace-git";
+import { WorkspaceTerminal } from "./workspace-terminal";
 import { localizeSystemText, useI18n } from "../i18n";
 import {
   Badge,
@@ -515,16 +514,7 @@ export function BrowserTool() {
   );
 }
 
-export function TerminalTool() {
+export function TerminalTool({ detail }: { detail: HubSessionDetail | null }) {
   const { t } = useI18n();
-  // R53: the native terminal adapter is not wired in — typed commands were
-  // echoed back as "queued" without ever running. Keep the surface disabled
-  // and say so.
-  const [command, setCommand] = useState("");
-  return (
-    <PanelSection description={t("tool.terminalDescription")} heading={t("workbench.terminal")}>
-      <pre className="hub-terminal-output">{[t("tool.terminalWelcome"), t("tool.terminalNotWired")].join("\n")}</pre>
-      <div className="hub-terminal-input"><TerminalSquare size={16} /><TextField aria-label={t("tool.terminalCommand")} disabled value={command} onChange={(event) => setCommand(event.target.value)} /><Button aria-label={t("tool.runCommand")} disabled size="icon"><Play size={14} /></Button></div>
-    </PanelSection>
-  );
+  return detail ? <WorkspaceTerminal key={`${detail.session.product_session_id}:${detail.session.workspace}`} sessionId={detail.session.product_session_id} /> : <EmptyState title={t("files.noSession")} />;
 }

@@ -841,6 +841,12 @@ export async function getHubToolContent(
 }
 
 export interface WorkspaceEntry { name: string; path: string; kind: "file" | "directory" | "symlink" | "unavailable" }
+export const NATIVE_WORKBENCH = hasTauri && !HTTP;
+export interface TerminalSnapshot { output: string; dropped_bytes: number; exited: boolean; exit_code: number | null }
+export async function hubTerminal<T>(request: { action: "open" | "read" | "write" | "resize" | "close"; session: string; id?: string; rows?: number; columns?: number; input?: string }): Promise<T> {
+  if (!NATIVE_WORKBENCH) throw new Error("Native terminal requires the macOS/Linux Hub desktop application.");
+  return invoke<T>("hub_terminal", { request });
+}
 export interface MessageJournalRecord { sequence: number; turn_id: string; attempt_status: string; event: TimelineEvent }
 export interface MessageJournalPage { records: MessageJournalRecord[]; next_cursor: number; through: number; has_more: boolean }
 export async function getHubMessagePage(productSessionId: string, after: number, through?: number): Promise<MessageJournalPage> {
