@@ -1,8 +1,7 @@
-// INPUT:  persisted projects (H04), read-only worktree discovery states (H05),
-//         mode/entry callbacks
-// OUTPUT: StartupGate — the two FIRST-CLASS entry modes (conversation /
-//         project) with project aggregation before any session exists
-// POS:    H08. Conversation mode never requires a repository (it creates a
+// INPUT:  Persisted projects/recent sessions, read-only worktrees, mode/navigation callbacks
+// OUTPUT: StartupGate — conversation/project onboarding with real recent-session navigation
+// POS:    H08 home before session creation without implicit engine execution.
+// Conversation mode never requires a repository (it creates a
 //         managed independent session directory); project mode aggregates a
 //         working directory, its worktrees (read-only discovery states, not
 //         worker registrations) and its sessions. Switching modes never
@@ -10,7 +9,7 @@
 //         sessions are listed and which directory the next session binds to.
 
 import { FolderKanban, FolderOpen, MessageSquare, Plus, RefreshCw, Trash2 } from "lucide-react";
-import type { ProjectSummary, WorktreeDiscoveryState, WorktreeInfo } from "../bridge";
+import type { HubSessionSummary, ProjectSummary, WorktreeDiscoveryState, WorktreeInfo } from "../bridge";
 import { useI18n } from "../i18n";
 import { Badge, Button, EmptyState, Notice, Surface } from "../ui";
 
@@ -33,6 +32,8 @@ export interface StartupGateProps {
   onDeleteProject: (project: ProjectSummary) => void;
   onRefreshProjects: () => void;
   onCreateConversation: () => void;
+  recentSessions?: HubSessionSummary[];
+  onOpenSession?: (session: HubSessionSummary) => void;
 }
 
 function describeWorktreeState(
@@ -76,6 +77,8 @@ export function StartupGate({
   onDeleteProject,
   onRefreshProjects,
   onCreateConversation,
+  recentSessions = [],
+  onOpenSession,
 }: StartupGateProps) {
   const { locale, t } = useI18n();
   return (
@@ -85,7 +88,7 @@ export function StartupGate({
         <p>{t("startup.description")}</p>
       </header>
 
-      <div className="hub-workspace-gate__options" role="tablist" aria-label={t("startup.modesLabel")}>
+      <div className="hub-workspace-gate__options" role="group" aria-label={t("startup.modesLabel")}>
         <Surface
           className="hub-workspace-gate__card"
           tone={entryMode === "conversation" ? "raised" : "base"}
@@ -132,6 +135,13 @@ export function StartupGate({
         </Surface>
       </div>
 
+      {onOpenSession && recentSessions.length > 0 ? <section aria-label={t("home.recent")}>
+        <h3>{t("home.recent")}</h3><ul>{recentSessions.slice(0, 5).map((session) => <li key={session.product_session_id}>
+          <Button variant="ghost" disabled={busy} onClick={() => onOpenSession(session)}>
+            {session.last_prompt || t("conversation.new")} · {session.engine_id}
+          </Button>
+        </li>)}</ul>
+      </section> : null}
       {entryMode === "project" ? (
         <div className="hub-startup-projects">
           <div className="hub-startup-projects__toolbar">

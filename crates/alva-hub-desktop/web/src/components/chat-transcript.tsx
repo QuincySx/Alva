@@ -1,8 +1,7 @@
-// INPUT:  Ordered Hub entries, optional execution renderer, i18n, clipboard
-// OUTPUT: ChatTranscript — the always-visible message reading flow with safe
-//         Markdown rendering, per-codeblock copy, follow/jump-to-bottom, and
-//         a bounded mounted window (H21)
-// POS:    R29/R30 chat-first transcript; H21 bounds the DOM. Message bodies
+// INPUT:  Ordered Hub entries, module/Markdown/attachment renderers, bounded navigation and i18n
+// OUTPUT: ChatTranscript — bounded messages/execution, safe Markdown/modules, search/copy and follow navigation
+// POS:    R29/R30 chat-first reading flow with H21 bounded DOM and explicit search scope.
+// Message bodies
 //         are memoized per entry so a streaming delta re-renders only the
 //         tail item; history outside the window unmounts as a DOM policy —
 //         the full list stays in the data array and is fully reachable by
@@ -16,11 +15,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowDown, Bot, Check, Copy, User } from "lucide-react";
+import { ArrowDown, Bot, User } from "lucide-react";
 import type { HubTimelineEvent } from "./hub-timeline";
 import { BoundedList, useRowRef, type RowRegister } from "../session/bounded-list";
-import { Button } from "../ui";
+import { Button, TextField } from "../ui";
 import { useI18n } from "../i18n";
+import { renderMarkdown } from "./safe-markdown";
+import { CopyTextButton } from "./copy-text-button";
+import { MessageAttachments } from "./input-attachments";
 
 /** Only the message events the transcript renders. Live events may arrive
  *  without an explicit role — user_message/assistant_message statuses carry
@@ -43,153 +45,10 @@ function entryKey(entry: HubTimelineEvent, index: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Safe Markdown — deliberately no third-party renderer. The assistant text is
-// untrusted model output; we render a restricted block/inline subset where
-// every piece of source text becomes a React text child. React escapes text
-// children by construction, so injected markup can never reach the DOM —
-// without double-escaping (R41): pre-escaping with escapeHtml used to surface
-// literal "&lt;"/"&amp;" entities for prose like `a < b && c > d`.
+// Markdown is delegated to safe-markdown; user text stays literal. Every
+// message/control row shares the same measured scroll owner.
 // ---------------------------------------------------------------------------
 
-/** Render fenced-code + heading + list + paragraph structure to nodes. */
-function renderMarkdown(text: string): ReactNode[] {
-  const lines = text.split("\n");
-  const blocks: ReactNode[] = [];
-  let index = 0;
-  let key = 0;
-
-  const inline = (raw: string): ReactNode => {
-    // Inline code, then bold — matched on the RAW source; emitted strings are
-    // React text children and stay inert (R41).
-    const parts: ReactNode[] = [];
-    let rest = raw;
-    let inlineKey = 0;
-    const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)/g;
-    let cursor = 0;
-    for (const match of rest.matchAll(pattern)) {
-      const start = match.index ?? 0;
-      if (start > cursor) parts.push(rest.slice(cursor, start));
-      if (match[1]) {
-        parts.push(<code className="chat-inline-code" key={`i-${inlineKey++}`}>{match[1].slice(1, -1)}</code>);
-      } else if (match[2]) {
-        parts.push(<strong key={`i-${inlineKey++}`}>{match[2].slice(2, -2)}</strong>);
-      }
-      cursor = start + match[0].length;
-    }
-    if (cursor < rest.length) parts.push(rest.slice(cursor));
-    return <span>{parts}</span>;
-  };
-
-  while (index < lines.length) {
-    const line = lines[index];
-    if (line.startsWith("```")) {
-      const language = line.slice(3).trim();
-      const body: string[] = [];
-      index += 1;
-      while (index < lines.length && !lines[index].startsWith("```")) {
-        body.push(lines[index]);
-        index += 1;
-      }
-      // Consume the closing fence (or run to the end while streaming).
-      if (index < lines.length) index += 1;
-      blocks.push(
-        <CodeBlock code={body.join("\n")} key={`code-${key++}`} language={language || null} />,
-      );
-      continue;
-    }
-    const heading = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (heading) {
-      const level = Math.min(heading[1].length + 2, 6);
-      const content = inline(heading[2]);
-      blocks.push(
-        level <= 3
-          ? <h3 className="chat-heading" key={`h-${key++}`}>{content}</h3>
-          : <h4 className="chat-heading" key={`h-${key++}`}>{content}</h4>,
-      );
-      index += 1;
-      continue;
-    }
-    if (/^\s*[-*]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\s*[-*]\s+/, ""));
-        index += 1;
-      }
-      blocks.push(
-        <ul className="chat-list" key={`ul-${key++}`}>
-          {items.map((item, itemIndex) => <li key={itemIndex}>{inline(item)}</li>)}
-        </ul>,
-      );
-      continue;
-    }
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index])) {
-        items.push(lines[index].replace(/^\s*\d+\.\s+/, ""));
-        index += 1;
-      }
-      blocks.push(
-        <ol className="chat-list chat-list--ordered" key={`ol-${key++}`}>
-          {items.map((item, itemIndex) => <li key={itemIndex}>{inline(item)}</li>)}
-        </ol>,
-      );
-      continue;
-    }
-    if (line.trim() === "") {
-      index += 1;
-      continue;
-    }
-    const paragraph: string[] = [];
-    while (
-      index < lines.length &&
-      lines[index].trim() !== "" &&
-      !lines[index].startsWith("```") &&
-      !/^(#{1,4})\s+/.test(lines[index]) &&
-      !/^\s*([-*]|\d+\.)\s+/.test(lines[index])
-    ) {
-      paragraph.push(lines[index]);
-      index += 1;
-    }
-    blocks.push(<p className="chat-paragraph" key={`p-${key++}`}>{inline(paragraph.join(" "))}</p>);
-  }
-  return blocks;
-}
-
-function CodeBlock({ code, language }: { code: string; language: string | null }) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  const copy = useCallback(() => {
-    void navigator.clipboard
-      .writeText(code)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 2000);
-      })
-      .catch(() => {
-        // Clipboard permission denied — the button simply reports nothing.
-      });
-  }, [code]);
-
-  return (
-    <div className="chat-code-block">
-      <div className="chat-code-block__header">
-        <span className="chat-code-block__language">{language ?? "text"}</span>
-        <Button
-          aria-label={t("chat.copyCode")}
-          onClick={copy}
-          size="small"
-          variant="ghost"
-        >
-          {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-          {copied ? t("chat.copied") : t("chat.copy")}
-        </Button>
-      </div>
-      <pre className="chat-code-block__body" tabIndex={0}>
-        <code>{code}</code>
-      </pre>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Follow / jump-to-bottom
@@ -210,6 +69,28 @@ export function ChatTranscript({ events, streaming, renderExecution }: ChatTrans
   const scrollerRef = useRef<HTMLElement | null>(null);
   const [pinned, setPinned] = useState(true);
   const followRef = useRef(true);
+  const navigationRef = useRef<((key: string) => void) | null>(null);
+  const [query, setQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
+  const matches = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return needle ? messages.flatMap((entry, index) =>
+      [entry.message, ...(entry.attachments ?? []).map((file) => file.name), entry.activity?.tool_name, entry.activity?.tool_input, entry.activity?.tool_output,
+        entry.permission_request?.description].filter(Boolean).join("\n").toLocaleLowerCase().includes(needle)
+        ? [entryKey(entry, index)] : []) : [];
+  }, [messages, query]);
+  const copyConversation = useCallback(() => messages.map((entry) => [
+    `[${messageRole(entry) ?? entry.status}] ${entry.engine_id}`,
+    entry.message ?? "", entry.activity?.tool_name ?? "", entry.activity?.tool_input ?? "", entry.activity?.tool_output ?? "",
+    ...(entry.attachments ?? []).map((file) => `[attachment] ${file.name} (${file.total_bytes} B)${file.path ? ` ${file.path}` : ""}`),
+  ].filter(Boolean).join("\n")).join("\n\n"), [messages]);
+  function navigateMatch(direction: number) {
+    if (!matches.length) return;
+    const next = (matchIndex % matches.length + direction + matches.length) % matches.length;
+    setMatchIndex(next);
+    navigationRef.current?.(matches[next]);
+  }
+  const lastAssistant = messages.reduce((last, entry, index) => messageRole(entry) === "assistant" ? index : last, -1);
 
   const jumpToBottom = useCallback(() => {
     const scroller = scrollerRef.current;
@@ -224,6 +105,15 @@ export function ChatTranscript({ events, streaming, renderExecution }: ChatTrans
 
   return (
     <div className="chat-transcript" data-testid="chat-transcript">
+      <div className="chat-transcript__actions" role="search" aria-label={t("chat.search")}>
+        <TextField aria-label={t("chat.search")} value={query} onChange={(event) => { setQuery(event.target.value); setMatchIndex(0); }} />
+        <Button size="small" variant="ghost" disabled={!matches.length} onClick={() => navigateMatch(-1)}>{t("chat.previousMatch")}</Button>
+        <Button size="small" variant="ghost" disabled={!matches.length} onClick={() => navigateMatch(0)}>{t("chat.showMatch")}</Button>
+        <Button size="small" variant="ghost" disabled={!matches.length} onClick={() => navigateMatch(1)}>{t("chat.nextMatch")}</Button>
+        {query ? <small role="status">{t("chat.matchCount", { current: matches.length ? matchIndex % matches.length + 1 : 0, count: matches.length })}</small> : null}
+        <CopyTextButton text={copyConversation} label={t("chat.copyConversation")} />
+        <small>{t("chat.searchScope")}</small>
+      </div>
       <BoundedList
         ariaLabel={t("chat.transcriptLabel")}
         className="chat-transcript__list"
@@ -239,12 +129,13 @@ export function ChatTranscript({ events, streaming, renderExecution }: ChatTrans
             entry={entry}
             index={index}
             register={rowRegister}
-            streaming={streaming && index === messages.length - 1}
+            streaming={streaming && index === lastAssistant}
           />
         )}
         scrollerRef={scrollerRef}
         followRef={followRef}
         onFollowChange={setPinned}
+        navigationRef={navigationRef}
         testId="chat-transcript-list"
       />
       {!pinned ? (
@@ -313,7 +204,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   const rowRef = useRowRef(register, key);
   const body = useMemo(
     () => (entry.message
-      ? renderMarkdown(isUser ? entry.message : localizeSystemFallback(entry.message, localize))
+      ? isUser ? <div className="chat-user-text">{entry.message}</div> : renderMarkdown(entry.message)
       : null),
     [entry.message, isUser, localize],
   );
@@ -336,24 +227,21 @@ const ChatMessageRow = memo(function ChatMessageRow({
           <small>{localize(entry.status)}</small>
         ) : null}
       </div>
+      {entry.message ? <CopyTextButton text={entry.message} label={t("chat.copyMessage")} /> : null}
       <div className="chat-message__body">
         {body}
+        {entry.attachments?.length ? <MessageAttachments sessionId={entry.product_session_id} files={entry.attachments} /> : null}
         {!entry.message && entry.status === "running" ? (
           <p className="chat-paragraph">{t("timeline.executing")}</p>
         ) : null}
-        {streaming && entry.status === "running" ? (
+        {streaming && (entry.status === "running" || entry.status === "assistant_message") ? (
           <span aria-hidden="true" className="chat-cursor" />
         ) : null}
       </div>
+      {!isUser && entry.status === "failed" ? <small className="chat-hint" role="status">{t("chat.failedHint")}</small> : null}
       {entry.status === "interrupted" ? (
         <small className="chat-hint">{t("timeline.interruptedHint")}</small>
       ) : null}
     </li>
   );
 });
-
-/** Assistant text stays as-is (it is model prose, not localized system copy);
- *  this hook exists so future system-authored messages localize correctly. */
-function localizeSystemFallback(text: string, localize: (value: string | null | undefined) => string): string {
-  return localize(text) || text;
-}

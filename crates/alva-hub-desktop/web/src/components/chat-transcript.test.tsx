@@ -5,11 +5,13 @@
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { TimelineEvent } from "../bridge";
+import { openExternal, type TimelineEvent } from "../bridge";
 import { I18nProvider } from "../i18n";
 import { UIProvider } from "../ui";
 import { ChatTranscript } from "./chat-transcript";
 import type { HubTimelineEvent } from "./hub-timeline";
+
+vi.mock("../bridge", async (original) => ({ ...await original<typeof import("../bridge")>(), openExternal: vi.fn() }));
 
 function message(overrides: Partial<HubTimelineEvent> = {}): HubTimelineEvent {
   const base: TimelineEvent = {
@@ -36,6 +38,34 @@ function renderTranscript(events: HubTimelineEvent[], streaming = false) {
 }
 
 describe("ChatTranscript Markdown rendering", () => {
+  it("opens links through the native-capable bridge and surfaces opener failure", async () => {
+    const open = vi.mocked(openExternal);
+    open.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("opener unavailable"));
+    const { container } = renderTranscript([message({ message: "[Docs](https://example.com/docs)" })]);
+    const link = container.querySelector('a[href="https://example.com/docs"]')!;
+    fireEvent.click(link);
+    expect(open).toHaveBeenCalledWith("https://example.com/docs");
+    fireEvent.click(link);
+    await waitFor(() => expect(container.textContent).toContain("链接打开失败"));
+  });
+  it("renders tables, quotes and safe links without activating unsafe schemes", () => {
+    const { container } = renderTranscript([message({ message:
+      "> quoted **fact**\n\n| Name | Value |\n| --- | --- |\n| A | 42 |\n\n[Docs](https://example.com/docs) [Bad](javascript:alert)" })]);
+    expect(container.querySelector("blockquote")?.textContent).toContain("quoted fact");
+    expect(container.querySelector("table")?.textContent).toContain("42");
+    expect(container.querySelector('a[href="https://example.com/docs"]')).toBeTruthy();
+    expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
+  });
+
+  it("preserves the user's literal line breaks and displays terminal failure reasons", () => {
+    const { container } = renderTranscript([
+      message({ role: "user", status: "user_message", item_id: "u", message: "**literal**\nsecond line" }),
+      message({ role: "assistant", status: "failed", item_id: "a", message: "partial reply" }),
+    ]);
+    expect(container.querySelector(".chat-message--user .chat-message__body")?.textContent).toBe("**literal**\nsecond line");
+    expect(container.querySelector(".chat-message--assistant")).toHaveAttribute("data-status", "failed");
+  });
+
   it("keeps messages and execution in one ordered bounded list", () => {
     const events = [
       message({ role: "user", status: "user_message", message: "first", item_id: "u" }),
@@ -101,6 +131,22 @@ describe("ChatTranscript Markdown rendering", () => {
 });
 
 describe("ChatTranscript follow / jump-to-bottom", () => {
+  it("finds and copies records outside the mounted virtual window and exposes copy failure", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const events = Array.from({ length: 200 }, (_, index) => message({ item_id: `a-${index}`, message: `record ${index}`, created_at: index }));
+    const { container } = renderTranscript(events);
+    expect(container.querySelectorAll(".chat-message").length).toBeLessThan(200);
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="在对话中查找"]')!;
+    fireEvent.change(input, { target: { value: "record 199" } });
+    expect(container.textContent).toContain("1 / 1 条匹配记录");
+    fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="复制对话文本"]')!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining("record 199")));
+    expect(writeText.mock.calls[0][0]).toContain("record 0");
+    writeText.mockRejectedValueOnce(new Error("no clipboard"));
+    fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="复制对话文本"]')!);
+    await waitFor(() => expect(container.textContent).toContain("复制失败"));
+  });
   it("stops following when the reader scrolls up and resumes on jump-to-latest", () => {
     const { container, rerender } = renderTranscript([
       message({ message: "first" }),

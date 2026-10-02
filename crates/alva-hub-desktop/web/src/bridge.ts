@@ -1,5 +1,5 @@
-// INPUT:  @tauri-apps/api, @tauri-apps/plugin-dialog
-// OUTPUT: typed workspace/Skills/automation/capability/MCP/run/Inspector and provider IPC/HTTP APIs
+// INPUT:  @tauri-apps/api, dialog/opener plugins, HTTP JSON transport
+// OUTPUT: typed workspace/Skills/automation/MCP/run/Inspector/provider and reference-first attachment IPC/HTTP APIs
 // POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -45,6 +45,7 @@ export interface PermissionRequestInfo {
 }
 
 export interface TimelineEvent {
+  attachments?: InputAttachmentRef[];
   /** Position of a fragment in one attempt-scoped message, in UTF-16 units. */
   message_position?: { stream_id: string; offset: number } | null;
   status: TimelineStatus;
@@ -73,6 +74,7 @@ export interface TimelineActivity {
 }
 
 export interface RunRequest {
+  attachments?: InputAttachment[];
   prompt: string;
   workspace: string;
   engine_id: string;
@@ -216,6 +218,7 @@ export type WorktreeDiscoveryState =
   | { code: "git"; detail: string };
 
 export interface StoredTurn {
+  attachments?: InputAttachmentRef[];
   turn_id: string;
   prompt: string;
   result: string | null;
@@ -638,15 +641,18 @@ export async function runHubPrompt(
       selected_target: selectedTarget,
       permission_profile: request.permission_profile,
       run_token: runToken,
+      attachments: request.attachments ?? [],
     });
   }
   if (!hasTauri) {
     throw new Error("Running an engine requires the ALVA Hub desktop runtime.");
   }
+  const { attachments, ...runRequest } = request;
   return await invoke<RunOutcome>("run_hub_prompt", {
-    request,
+    request: runRequest,
     selectedTarget,
     runToken,
+    attachments: attachments ?? [],
   });
 }
 
@@ -977,6 +983,18 @@ export async function listHubWorkspaceFiles(productSessionId: string, path: stri
   if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/workspace/files?path=${encodeURIComponent(path)}`, undefined, "GET");
   if (!hasTauri) throw new Error("Workspace browsing requires the Hub runtime.");
   return invoke("list_hub_workspace_files", { productSessionId, path });
+}
+
+export interface InputAttachment { name: string; text?: string; data_base64?: string }
+export interface InputAttachmentRef { attachment_id: string; name: string; total_bytes: number; path?: string; content_type?: string; processing?: Record<string, unknown> }
+export interface InputAttachmentContent extends InputAttachmentRef { text?: string | null; data_base64?: string | null }
+
+export async function getHubInputAttachment(productSessionId: string, attachmentId: string): Promise<InputAttachmentContent> {
+  if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/attachments/${encodeURIComponent(attachmentId)}`, undefined, "GET");
+  if (!hasTauri) throw new Error("Attachment preview requires the Hub runtime.");
+  const file = await invoke<InputAttachmentContent | null>("get_hub_input_attachment", { productSessionId, attachmentId });
+  if (!file) throw new Error("Attachment unavailable");
+  return file;
 }
 
 export async function readHubWorkspaceFile(productSessionId: string, path: string): Promise<WorkspacePreview> {

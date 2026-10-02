@@ -64,3 +64,15 @@ it("labels legacy previews and does not fetch nonexistent full text", async () =
   expect(screen.getByText(/Preview only: no full-text record/)).toBeVisible();
   await waitFor(() => expect(getContent).not.toHaveBeenCalled());
 });
+
+it("renders registered modules from a complete durable tool result while preserving the source", async () => {
+  const envelope = { schema: "alva.display", version: 1, modules: [{ type: "alva.table", version: 1,
+    data: { title: "Actual tool table", columns: ["Name", "Count"], rows: [["result", 3]] } }] };
+  const text = JSON.stringify({ content: [{ type: "text", text: JSON.stringify(envelope) }] });
+  const content = { content_id: "module-result", chunk_count: 1, total_bytes: new TextEncoder().encode(text).length };
+  getContent.mockResolvedValue({ ...content, chunk_index: 0, text });
+  const { container } = render(<UIProvider><ToolContent sessionId="session-1" content={content}
+    preview="truncated preview" label="Tool output" renderModules /></UIProvider>);
+  expect(await screen.findByRole("table", { name: "Actual tool table" })).toBeVisible();
+  expect(container.querySelector("pre")?.textContent).toBe(text);
+});

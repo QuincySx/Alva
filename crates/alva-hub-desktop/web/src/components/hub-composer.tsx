@@ -1,5 +1,5 @@
-// INPUT:  Prompt state, submit action, model picker, and session controls
-// OUTPUT: Chat-first composer card with stable keyboard and running behavior
+// INPUT:  Prompt/attachment draft, submit/attach action, model picker, and session controls
+// OUTPUT: Chat-first composer with IME-safe submission, live Stop and explicit attachment availability
 // POS:    Canonical Hub conversation input shared by every engine runtime
 
 import type { FormEvent, KeyboardEvent, ReactNode, Ref } from "react";
@@ -21,6 +21,8 @@ export interface HubComposerProps {
   modelPicker?: ReactNode;
   status?: ReactNode;
   onAttach?: () => void;
+  attachments?: ReactNode;
+  hasAttachments?: boolean;
   /** R34: lets the page return keyboard focus to the input after a
    *  workspace/session is chosen instead of leaving it on a nav control. */
   inputRef?: Ref<HTMLTextAreaElement>;
@@ -40,10 +42,13 @@ export function HubComposer({
   modelPicker,
   status,
   onAttach,
+  attachments,
+  hasAttachments = false,
   inputRef,
 }: HubComposerProps) {
   const { t } = useI18n();
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.nativeEvent.isComposing || event.keyCode === 229 || busy || disabled) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
@@ -53,6 +58,7 @@ export function HubComposer({
   return (
     <div className="hub-composer-wrap">
       <form className="hub-composer" onSubmit={onSubmit}>
+        {attachments}
         <TextArea
           aria-label={t("composer.message")}
           className="hub-composer__input"
@@ -67,6 +73,7 @@ export function HubComposer({
             <IconButton
               icon={<Plus aria-hidden="true" size={18} />}
               label={t("composer.attach")}
+              disabled={!onAttach || busy || disabled}
               onClick={onAttach}
               variant="ghost"
             />
@@ -76,7 +83,7 @@ export function HubComposer({
             {modelPicker}
             <IconButton
               className="hub-composer__send"
-              disabled={disabled || (busy ? !canStop : !value.trim())}
+              disabled={busy ? !canStop : disabled || (!value.trim() && !hasAttachments)}
               icon={
                 busy ? (
                   <Square aria-hidden="true" fill="currentColor" size={13} />

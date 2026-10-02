@@ -1,17 +1,19 @@
 // INPUT: Session-scoped tool content reference, preview, paged bridge API
-// OUTPUT: ToolContent — safe, bounded, keyboard-reachable full-text pages
+// OUTPUT: ToolContent — bounded keyboard-reachable pages with optional trusted modules on complete bodies
 // POS: Mounted tool rows own only their current page, not an unbounded body cache.
 
 import { useEffect, useState } from "react";
 import { getHubToolContent, type ToolContentRef } from "../bridge";
 import { useI18n } from "../i18n";
 import { Button } from "../ui";
+import { MessageModules } from "./message-modules";
 
-export function ToolContent({ sessionId, content, preview, label }: {
+export function ToolContent({ sessionId, content, preview, label, renderModules = false }: {
   sessionId: string;
   content?: ToolContentRef | null;
   preview?: string | null;
   label: string;
+  renderModules?: boolean;
 }) {
   const { t } = useI18n();
   const [page, setPage] = useState(0);
@@ -37,6 +39,7 @@ export function ToolContent({ sessionId, content, preview, label }: {
   const loading = !!content && !current?.error && current?.text === undefined;
   return <section aria-label={label} aria-busy={loading}>
     <small>{label}</small>
+    {renderModules && (!content || content.chunk_count === 1) ? <MessageModules source={content ? current?.text ?? "" : preview ?? ""} /> : null}
     <pre className="timeline-activity-output" aria-label={label}>
       {content ? current?.text ?? (page === 0 ? preview : "") : preview}
     </pre>

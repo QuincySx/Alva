@@ -1,5 +1,14 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-03 功能补全 · 首页/消息基础与引用优先上传
+
+- 首页真实最近会话与选择目录后的起步草稿；用户原文、助手安全 Markdown/代码/表格/引用/原生外链、失败原因与 partial 文本、工具/审批/fallback 不混淆。显式复制成功/失败反馈；IME Enter/Shift Enter 不发送，busy Stop 不被失效下一轮 route 禁掉。搜索/复制覆盖已载入消息及工具预览（含窗口外条目），明确不是分页全文或模型历史检索。
+- 可信 message-module registry/provider 有表格、正负柱状/折线图、节点图真实 renderer；助手 alva-display fence 与完整单页 ToolOutput 均消费，未知/非法/错误模块保留原文；没有远程 JS/HTML 安装器。协议记录 docs/ALVA-HUB-MESSAGE-MODULES.md，不改 RuntimeEvent/kernel。
+- 用户补充引用优先后，schema 23 原字节 BLOB + no-follow/create-new 会话目录副本替代直接正文喂入。单文件 20 MiB、每 Turn 40 MiB/8 文件；真实 HTTP 64 MiB 专用 body cap 测试成功上传恰好 20 MiB 二进制，越权预览 404，signature-only 不伪造解码。新会话已被 live event 认领后失败仍恢复附件-only 草稿。媒体 Blob 本地预览关闭回收；清单原始哈希/大小、明确未额外压缩/转码/抽帧/分析与 upload_prompt 投递范围，保存清单不是模型成功接收回执。
+- 最终 **233 UI / 24 files、246 Desktop lib / 4 精确真实账号 filtered、4 bin、14 HTTP、6 Chrome 滚动回归**（100/1000/10000 初始底部与 resize、混合行有界 DOM、流式阅读锚点、窗口外搜索）通过。TypeScript/Vite build、Desktop/server all-target check、diff/rustfmt、新公开符号快照、依赖/bus/wasm32-unknown-unknown/host link 闸通过；wasm32-wasip2 缺 target 明确跳过。现有 Rust unused warnings/React act/Collapsible 与 Vite >500 kB chunk warning 未改验收阈值，不冒充性能绿标。
+- 依据 coding/domain-modeling skills 将验收与术语/ADR-0011 同步；新增文件/接口同步分形三层文档。base64/sha2 仅显式复用已缓存/锁定 Rust 依赖，offline 构建，无新增 npm 安装。未调用真实账户/付费模型/用户 MCP 服务，原生 AX/视觉/性能继续按用户授权暂缓；保留 CONTEXT.md 和不相关目录。
+- **不宣称所有基础能力已完**：通用工具大结果策略、MCP 单入口渐进加载、AI 历史检索、实际媒体压缩/抽帧/模型投递仍待实现；已接受方向、实现顺序和反例预算见 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md。本批附件不自动读取原件，文件副本在共享 cwd 不宣称 engine 间 OS 隔离，失败不隐式删除用户目录。
+
 ## 2026-10-02 修复 · H09/H15 ALVA 启动期 Stop 与真实终态
 
 - 每轮 ALVA 使用独立取消 token；尚无 BaseAgent 时也接受 cancel，factory/MCP 组装与取消/consumer 关闭竞争，丢弃 pending build 后不再调用模型。运行期 stream 被丢弃也会取消永远 pending 的模型，drain/flush 后释放 running；同一会话 resume 使用新 token，正常 SessionStarted 仍在真实组装完成后产生。

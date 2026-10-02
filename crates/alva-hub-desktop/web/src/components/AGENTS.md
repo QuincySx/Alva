@@ -11,17 +11,25 @@
 - 从 `../ui` 使用基础控件；遵循上级 AGENTS 及 UI glossary/wireframes/motion。
 - `ToolContent` 由调用者按 content_id 加 key；每个挂载实例只保留当前块，翻页替换正文，不累积全文。
 - 同会话/内容/页的请求匹配后才展示，卸载与会话切换丢弃迟到结果；失败可重试，无全文引用的旧记录明确标注摘要。
-- 正文仅为 React 文本节点，不执行 HTML；默认读首块，不用工具级折叠隐藏事实。
+- 原文为惰性 React 文本/安全 Markdown，不执行 HTML。版本化消息模块仅由编译进 Hub 的可信 renderer 消费有界数据，失败/未知类型保留原文；工具默认读首块，不用折叠隐藏事实。
+- 搜索/复制覆盖所有已载入条目（包括窗口外消息）及工具预览，不声称搜索了分页全文。IME Enter 不提交，Shift Enter 换行，busy 时仍保留 Stop。
+- 文件每 Turn 最多 8 个、单文件 20 MiB/总计 40 MiB，传用户明确选择的原字节，不将上传内容自动拼入模型 prompt。图片/视频本地 Blob 预览不是模型输入，关闭回收 URL；处理清单明确本次上传未压缩/转码/抽帧/分析。
 - 次级页面动作必须消费真实 callback 或明确 disabled；Plugins 只管理真实内置 ALVA capability/MCP，不声称存在第三方包安装目录或 Installed 状态。Files/Text 列按所在容器宽度自动排列，浏览器操作可换行，不独立定义页面断点。
 
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
-| chat-transcript.tsx | 中央有界消息与 execution renderer |
+| chat-transcript.tsx / chat-transcript.test.tsx | 中央有界消息与 execution renderer、窗口外搜索跳转、复制、失败原因及安全链接回归 |
+| safe-markdown.tsx | 助手安全 Markdown、表格/引用/代码与原生外链，用户消息保持原文 |
+| copy-text-button.tsx | 显式复制、成功/失败反馈与卸载清理 |
+| conversation-start.tsx / conversation-start.test.tsx | 已选目录的起步草稿与不可用 route Settings 入口，不自动执行 |
+| input-attachments.tsx / input-attachments.test.tsx | 原字节选择/拖放、限额/草稿保留、会话归属惰性预览、媒体 URL 回收与处理清单 |
+| message-modules.tsx / message-modules.test.tsx | 可信 renderer registry/provider、alva.display v1 表格/图表/图示、校验/错误隔离和原文 fallback |
 | hub-timeline.tsx | 工具/审批/失败/fallback 卡与动作 |
 | tool-content.tsx / tool-content.test.tsx | 有界全文分页、失败重试、隔离迟到响应及回归 |
 | hub-sidebar.tsx / hub-topbar.tsx | 项目/会话导航和标题动作 |
 | hub-composer.tsx / model-picker.tsx | 输入和运行时/model route 选择 |
+| hub-composer.test.tsx | IME/换行/普通 Enter、busy Stop 与未接通附件按钮禁用回归 |
 | startup-gate.tsx / workspace-gate.tsx | 对话/项目入口与工作树选择 |
 | provider-settings.tsx / engine-readiness-panel.tsx | Provider 配置和引擎就绪状态 |
 | engine-inspector.tsx / session-details.tsx | 诊断记录与产品会话详情 |

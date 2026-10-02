@@ -648,3 +648,25 @@
 .hub-startup-projects__info { display: grid; gap: 2px; min-width: 0; }
 .hub-startup-projects__info code { font-size: 12px; opacity: 0.72; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-startup-projects__actions { display: flex; gap: 8px; flex: none; }
+
+/* Conversation foundations: domain composition, no new primitive variants. */
+.conversation-start { display: grid; gap: var(--space-3); padding-block: var(--space-4); }
+.conversation-start__prompts, .chat-transcript__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.chat-transcript__actions { padding-block: var(--space-2); }
+.chat-transcript__actions input { flex: 1; min-width: 12ch; }
+.chat-user-text, .chat-paragraph, .chat-message blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-message blockquote { margin-inline: 0; padding-inline: var(--space-3); border-inline-start: 2px solid var(--color-border); }
+.chat-table-wrap { max-width: 100%; overflow-x: auto; }
+.chat-table { border-collapse: collapse; max-width: 100%; font-size: var(--font-size-body); }
+.chat-table th, .chat-table td { border: 1px solid var(--color-border); padding: var(--space-2); text-align: start; overflow-wrap: anywhere; }
+.message-module { margin-inline: 0; max-width: 100%; }
+.message-module svg { display: block; width: 100%; max-height: 32rem; color: var(--color-text); }
+.message-module svg text { fill: currentColor; font-size: 12px; }
+.message-modules pre, .attachment-preview { white-space: pre-wrap; overflow-wrap: anywhere; }
+.attachment-preview { max-height: 55vh; overflow: auto; }
+.attachment-media { display: block; max-width: 100%; max-height: 55vh; object-fit: contain; }
+.attachment-processing { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-size-body); }
+.input-attachments { padding: var(--space-2); }
+.input-attachments > ul, .message-attachments > ul { margin: 0; padding: 0; list-style: none; }
+.input-attachments li { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.chat-copy-action { display: inline-flex; align-items: center; gap: var(--space-2); }

@@ -42,6 +42,9 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 27. Extensions 的 Skills 标签接真实 session-scoped 文件目录，不冒充全局或完整运行时 registry。可创建/编辑受管项目 SKILL.md、显式确认归档与恢复，生态源只读；保存失败保留草稿、不假报成功，session 切换丢弃迟到目录/文档。仅后续 ALVA 运行读取变更。
 27.1. Plugins 标签与 Settings/Tools 共享真实 ALVA catalog 能力配置和 stdio MCP 管理；不展示伪 GitHub 样例或 Installed 状态，第三方 AEP 安装明确未接入。开关使用后端 revision，失败保留事实；MCP create/edit 重新禁用，enable/test 显式确认宿主访问，删除确认只删配置。参数每行一个，不解析 shell/安装包/继承凭据；test 绑定已存 session cwd，列出工具并关闭，结果不冒充实时状态。UI 不声称配置控制其他 engine 或热改当前 Agent；安全 substrate 无关闭入口。
 28. Automations 接真实 SQLite 配置与状态：模板只预填 form，新建/编辑后暂停；启用弹窗展示 model/provider/account/billing 和固定权限，显式勾选计费授权。间隔不是 cron/本地时间，主窗口/服务关闭不运行；失败/Stop/route change 暂停，busy/missed 跳过，不补跑。暂停不代替当前 session 的 Stop；可打开对应 session 处理审批、结果和取消。轮询卸载清理，失败保留草稿与真实 revision，不伪造成功。
+29. 首页有真实最近会话；选择目录后显示仅预填草稿的起步动作。用户消息保留原文，助手使用安全 Markdown，失败原因/partial text、工具、审批与 fallback 分开呈现。搜索/复制覆盖已载入消息及工具预览，不冒充分页工具全文检索；窗口外搜索通过 canonical key 定位并退出底部跟随。
+30. 上传传原始字节，单文件 20 MiB、每 Turn 总计 40 MiB/8 文件；后端保存 session 文件，prompt 仅元数据/引用和处理清单，不自动送正文/媒体。草稿预览/移除、失败恢复、会话切换隔离；历史预览走 session-owned API。当前媒体没有压缩/转码/抽帧/AI 分析，Blob 本地预览不算模型输入。
+31. 消息模块以 alva.display v1 纯数据 envelope 进入可信编译 renderer registry；表格/图表/图示有真实 ChatTranscript/ToolContent 消费者。未知/无效/renderer 失败保留原文，不从远端安装代码；范围与协议见 docs/ALVA-HUB-MESSAGE-MODULES.md。
 
 ## 约束
 
@@ -81,6 +84,9 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Model picker | `components/model-picker.tsx` | 锚定 Composer 的右侧运行时/模型目录；可用 route 悬停或聚焦时在左侧只浮出该模型真实支持的 Fast/思考强度，未知模型不猜测，不可用 route 置底且不触发面板 |
 | Provider settings | `components/provider-settings.tsx` | 供应商连接、发现候选确认、已识别/自定义模型身份、派生 route 测试/默认值与可用性设置 |
 | Composer | `components/hub-composer.tsx` | 聊天输入、上下文动作、模型与发送动作 |
+| Conversation foundations | `components/conversation-start.tsx` / `components/safe-markdown.tsx` / `components/copy-text-button.tsx` | 起步草稿、安全 Markdown/原生链接、明确复制反馈 |
+| Input attachments | `components/input-attachments.tsx` / `components/input-attachments.test.tsx` | 原字节上传、限额/失败草稿与会话归属历史预览、真实未处理说明、媒体 URL 生命周期 |
+| Message modules | `components/message-modules.tsx` / `components/message-modules.test.tsx` | 可信有界数据 renderer registry、表格/图表/图示与逐模块错误隔离 |
 | Workspace gate | `components/workspace-gate.tsx` | 新会话中央“独立会话 / 项目”双入口，不在确认前创建目录 |
 | Sidebar | `components/hub-sidebar.tsx` | 产品导航、会话搜索与持久会话列表，不承载 Workspace 创建/切换 |
 | Topbar | `components/hub-topbar.tsx` | 对话标题、状态、详情与右侧工作台入口 |

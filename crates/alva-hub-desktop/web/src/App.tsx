@@ -1,5 +1,5 @@
 // INPUT:  React hooks, bridge workspace/run/timeline/session functions
-// OUTPUT: session/project onboarding, engine selection, durable timeline, composer and context-scoped navigation/Stop actions
+// OUTPUT: session/project home, engine selection, durable timeline, attachment drafts and context-scoped navigation/Stop actions
 // POS:    Primary Hub Desktop product surface for reversible, user-authorized engine sessions.
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -32,6 +32,9 @@ import { ModelPicker, type HubModelRoute } from "./components/model-picker";
 import { HubSidebar } from "./components/hub-sidebar";
 import { StartupGate, type EntryMode, type ProjectWorktreeState } from "./components/startup-gate";
 import { ChatTranscript } from "./components/chat-transcript";
+import { ConversationStart } from "./components/conversation-start";
+import { InputAttachments } from "./components/input-attachments";
+import type { InputAttachment } from "./bridge";
 import { useMessageReplay } from "./session/message-replay";
 import {
   HubTimeline,
@@ -310,6 +313,7 @@ export function projectTimeline(detail: HubSessionDetail, locale: Locale = "en-U
       message: turn.prompt,
       created_at: turn.created_at,
       item_id: `${turn.turn_id}:user`,
+      attachments: turn.attachments,
     };
     const assistant: HubTimelineEvent = {
       status:
@@ -539,6 +543,9 @@ function HubApp() {
   const [workspaceKind, setWorkspaceKind] = useState<WorkspaceKind | null>(null);
   const [workspaceCreating, setWorkspaceCreating] = useState(false);
   const [prompt, setPrompt] = useState("");
+  const [inputAttachments, setInputAttachments] = useState<InputAttachment[]>([]);
+  const [attachmentsReading, setAttachmentsReading] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   // Drawer handoff expansion (by handoff_id) for the full cross-engine
   // envelope: memory, skills, MCP pointers and filtered transcript.
@@ -645,6 +652,7 @@ function HubApp() {
   // Only events carrying the explicit new-run correlation token may claim
   // the first live product id. Background workers never receive this token.
   const pendingNewRunTokenRef = useRef<string | null>(null);
+  const pendingNewRunSessionRef = useRef<string | null>(null);
   const stopInFlightRef = useRef(new Set<string>());
   // R34: the composer input is the keyboard home of the conversation page.
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -675,6 +683,7 @@ function HubApp() {
           (event.status === "user_message" || event.status === "running")
         ) {
           activeSessionRef.current = event.product_session_id;
+          pendingNewRunSessionRef.current = event.product_session_id;
           setActiveSessionId(event.product_session_id);
         }
         const belongsToVisibleSession =
@@ -982,10 +991,13 @@ function HubApp() {
   /// session button and picking a workspace go through this, so neither can
   /// leak the previous session's profile, fallback chain or details.
   function resetSessionSurface() {
+    setPrompt("");
+    setInputAttachments([]);
     setActivePage("conversation");
     setActiveSessionId(null);
     activeSessionRef.current = null;
     pendingNewRunTokenRef.current = null;
+    pendingNewRunSessionRef.current = null;
     setSessionDetail(null);
     setTeamRun(null);
     teamLeadRef.current = null;
@@ -1112,6 +1124,9 @@ function HubApp() {
 
   async function openSession(session: HubSessionSummary) {
     if (busy) return;
+    if (session.product_session_id !== activeSessionRef.current) {
+      setPrompt(""); setInputAttachments([]);
+    }
     try {
       setActivePage("conversation");
       await loadSession(session.product_session_id);
@@ -1632,12 +1647,13 @@ function HubApp() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const text = prompt.trim();
+    const draft = prompt;
+    const text = prompt.trim() || (inputAttachments.length ? t("attachment.defaultPrompt") : "");
     if (!workspace) {
       appendLocalFailure(new Error("Choose a workspace before running an engine."));
       return;
     }
-    if (!text || busy) return;
+    if (!text || busy || attemptIsLive || attachmentsReading) return;
     if (!selectedModelRoute || selectedModelRoute.disabled) {
       appendLocalFailure(new Error(
         activeSessionId
@@ -1649,8 +1665,12 @@ function HubApp() {
 
     setBusy(true);
     setPrompt("");
+    const attachments = inputAttachments;
+    setInputAttachments([]);
+    const submittedSessionId = activeSessionRef.current;
     const runToken = activeSessionId === null ? createRunToken() : null;
     pendingNewRunTokenRef.current = runToken;
+    pendingNewRunSessionRef.current = null;
     try {
       const outcome = await runHubPrompt({
         prompt: text,
@@ -1659,9 +1679,15 @@ function HubApp() {
         product_session_id: activeSessionId,
         // The profile is fixed at session creation; resumes never restate it.
         permission_profile: activeSessionId ? null : profile,
+        attachments,
       }, activeSessionId ? null : selectedTarget, runToken);
-      setActiveSessionId(outcome.product_session_id);
-      activeSessionRef.current = outcome.product_session_id;
+      const stillVisible = submittedSessionId === null
+        ? pendingNewRunTokenRef.current === runToken
+        : activeSessionRef.current === submittedSessionId;
+      if (stillVisible) {
+        setActiveSessionId(outcome.product_session_id);
+        activeSessionRef.current = outcome.product_session_id;
+      }
       // H08: a session started inside an open project belongs to it. The
       // attach is a durable product fact written once after creation; it
       // never rewrites the session's workspace/cwd.
@@ -1670,11 +1696,18 @@ function HubApp() {
           .catch(appendLocalFailure);
       }
       await refreshSessions();
-      await loadSession(outcome.product_session_id);
+      if (stillVisible) await loadSession(outcome.product_session_id);
     } catch (error) {
       appendLocalFailure(error);
+      if (activeSessionRef.current === submittedSessionId || (runToken !== null
+        && pendingNewRunTokenRef.current === runToken
+        && activeSessionRef.current === pendingNewRunSessionRef.current)) {
+        setPrompt((current) => current || draft);
+        setInputAttachments((current) => current.length ? current : attachments);
+      }
     } finally {
       pendingNewRunTokenRef.current = null;
+      pendingNewRunSessionRef.current = null;
       setBusy(false);
     }
   }
@@ -1930,6 +1963,8 @@ function HubApp() {
                   projectWorktrees={projectWorktrees}
                   projects={projects}
                   projectsSupported={projectsSupported}
+                  recentSessions={filteredSessions}
+                  onOpenSession={(session) => void openSession(session)}
                 />
                 {/* R17: 失败通知经时间线可见，即便尚未选择工作区。 */}
                 {timeline.length > 0 ? (
@@ -1952,6 +1987,9 @@ function HubApp() {
                 不按运行状态卸载；Markdown/代码复制/滚动跟随由 ChatTranscript
                 承担。 */}
             {messageRecoveryFailed ? <Notice tone="warning" heading={t("timeline.recoveryFailed")} /> : null}
+            {timeline.length === 0 ? <ConversationStart modelAvailable={selectedModelRoute?.disabled === false}
+              onPrompt={(text) => { setPrompt(text); composerInputRef.current?.focus(); }}
+              onSettings={() => setActivePage("settings")} /> : null}
             <ChatTranscript
               events={timeline}
               streaming={attemptIsLive}
@@ -2035,7 +2073,7 @@ function HubApp() {
           })()}
 
           <HubComposer
-          busy={busy}
+          busy={busy || attemptIsLive}
           canStop={attemptIsLive}
           controls={
             <>
@@ -2064,7 +2102,12 @@ function HubApp() {
               ) : null}
             </>
           }
-          disabled={!workspace || selectedModelRoute?.disabled !== false}
+          disabled={!workspace || selectedModelRoute?.disabled !== false || attachmentsReading}
+          onAttach={() => attachmentInputRef.current?.click()}
+          hasAttachments={inputAttachments.length > 0}
+          attachments={<InputAttachments key={activeSessionId ?? workspace} files={inputAttachments}
+            onChange={setInputAttachments} inputRef={attachmentInputRef} onReadingChange={setAttachmentsReading}
+            disabled={!workspace || busy || attemptIsLive} />}
           engineId={engine}
           modelPicker={
             modelRoutes.length > 0 ? (

@@ -13,6 +13,7 @@
 | 文件 | 职责 |
 |---|---|
 | TASKS.md | 21 张 Hub 工作卡与 2 张条件化 Kernel 卡，含中央展示性能门槛 |
+| FOUNDATIONS.md | 首页、滚动、消息类型、附件与可扩展消息模块的当前缺口、边界和逐项验收 |
 | HANDOFF.md | 可直接交给执行 Agent 的指令 |
 | EXECUTION.md | 逐卡历史与接手修正证据；最新修正优先于历史完成标记 |
 | native-before-worktree-fix.png | 隔离真实 Tauri 的部分读取证据，早于 worktree IPC 修复，不是最终 UI 验收截图 |

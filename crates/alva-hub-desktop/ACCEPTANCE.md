@@ -1,5 +1,45 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Conversation foundations and reference-first input — 2026-10-03
+
+Verified: real recent-session home/empty-workspace draft actions; literal user
+messages, safe assistant Markdown/tables/quotes/native external links, visible
+failure reasons, copy feedback, IME/Shift Enter and busy Stop; search/navigation
+across unmounted loaded entries without re-enabling follow. Search/copy includes
+loaded messages and tool previews, not paged full tool bodies or AI history search.
+Trusted compiled renderer registry consumes bounded alva.display v1 table/chart/
+diagram data from assistant text and complete tool bodies; raw source survives
+unknown/invalid/failing renderers. No remote plugin installer or executable HTML.
+
+Schema 23 stores original attachment bytes and processing metadata in private
+SQLite plus unique no-follow/create-new files under the saved session cwd.
+Limits: **20 MiB/file, 40 MiB/8 files per Turn**, and a run-only 64 MiB HTTP body
+cap. The upload prompt contains only references/manifests, never file bodies.
+Images/videos can be uploaded and supported formats locally previewed with
+revocable Blob URLs. Source hash/size/type are durable; no compression/transcode/
+frame extraction/AI media analysis was performed. delivery_scope=upload_prompt
+does not claim later tools never read it or that a model request completed.
+Other sessions cannot read the private preview API; shared cwd is not OS isolation.
+Failure may leave only new copies/directories; no implicit project cleanup.
+
+Latest checks: **233 UI tests / 24 files; 246 Desktop lib tests / 4 exact real-account
+tests filtered; 4 Desktop bin tests; 14 HTTP tests; 6 real Chrome windowing tests**.
+HTTP includes a successful exact-20-MiB binary upload, durable bytes/provenance
+and cross-session denial. Other regressions cover original-byte Unicode/binary
+fidelity, reboot, schema-22 migration, symlink rejection, correlated-start failure
+draft restoration, module validation/error fallback and native opener failures.
+TypeScript/Vite build, Desktop/server all-target check, diff/rustfmt, public
+surface snapshots and dependency/bus/wasm32-unknown-unknown/host-link gates pass.
+wasm32-wasip2 remains unavailable and explicitly skipped. Existing warnings and
+the >500-kB bundle warning are recorded, not treated as measured performance.
+
+Outstanding: **generic tool-result reference policy, progressive single-entry
+MCP discovery, model-facing history search, actual media-derived operations and
+delivery receipts**. See ADR-0011 and docs/ALVA-HUB-CONTEXT-RETRIEVAL.md for accepted
+direction and concrete acceptance. Packaged WKWebView/AX/visual/performance
+acceptance remains deferred; Chrome tests do not renew native claims. No real
+accounts, paid models, user MCP services, downloads or external publication.
+
 ## Current workbench delivery — 2026-10-02
 
 This section is the current evidence ledger. Older V1 scenarios below are

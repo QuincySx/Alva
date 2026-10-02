@@ -150,7 +150,7 @@ export function HubTimeline({
                         preview={entry.activity.tool_input} label={t("timeline.toolInput")} />
                       <ToolContent key={`output:${entry.activity.tool_output_ref?.content_id ?? "legacy"}`}
                         sessionId={entry.product_session_id} content={entry.activity.tool_output_ref}
-                        preview={entry.activity.tool_output} label={t("timeline.toolOutput")} />
+                        preview={entry.activity.tool_output} label={t("timeline.toolOutput")} renderModules />
                     </div>
                   )}
                 </div>

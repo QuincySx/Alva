@@ -1,7 +1,7 @@
-// INPUT:  A list of entries, a scroll-owner element, per-item measured heights
-// OUTPUT: BoundedList — windowed rendering with dynamic-height support and
-//         read-anchor preservation
-// POS:    H21. Only a viewport-sized slice of items is mounted (pad spacers
+// INPUT:  Entries, scroll owner, measured heights and optional canonical-key navigation ref
+// OUTPUT: BoundedList — dynamic-height window, reading anchor and unmounted-entry navigation
+// POS:    H21 viewport-sized DOM with one scroll owner and preserved user follow intent.
+// Only a viewport-sized slice of items is mounted (pad spacers
 //         keep total scroll height exact against measured/estimated heights);
 //         unmounted history is DOM reuse policy, NOT hidden content — the
 //         full list stays in the data array and scrolling mounts any part of
@@ -85,6 +85,7 @@ export interface BoundedListProps<T> {
   scrollerRef: { current: HTMLElement | null };
   followRef?: { current: boolean };
   onFollowChange?: (following: boolean) => void;
+  navigationRef?: { current: ((key: string) => void) | null };
   className?: string;
   ariaLabel?: string;
   testId?: string;
@@ -92,7 +93,7 @@ export interface BoundedListProps<T> {
 
 export function BoundedList<T>({
   items, keyOf, renderItem, estimate = 140, overscan = 6,
-  scrollerRef, followRef, onFollowChange, className, ariaLabel, testId,
+  scrollerRef, followRef, onFollowChange, navigationRef, className, ariaLabel, testId,
 }: BoundedListProps<T>) {
   const listRef = useRef<HTMLOListElement>(null);
   const heights = useRef(new Map<string, number>());
@@ -154,6 +155,21 @@ export function BoundedList<T>({
       observer.current?.observe(node);
     } else nodes.current.delete(key);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!navigationRef) return;
+    navigationRef.current = (key) => {
+      const scroller = scrollerRef.current;
+      const index = geometry.current.keys.indexOf(key);
+      if (!scroller || index < 0) return;
+      if (followRef) followRef.current = false;
+      onFollowChange?.(false);
+      scroller.scrollTop = listTop() + geometry.current.prefix[index];
+      correctedTop.current = scroller.scrollTop;
+      readViewport();
+    };
+    return () => { navigationRef.current = null; };
+  }, [navigationRef, scrollerRef, followRef, listTop, readViewport, onFollowChange]);
 
   useLayoutEffect(() => {
     // Resolve before the parent's trailing ref/effects: the first measured

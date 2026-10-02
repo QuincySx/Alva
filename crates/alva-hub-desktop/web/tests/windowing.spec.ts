@@ -1,7 +1,7 @@
 // INPUT:  The ?perf=1 fixture page (real components, real layout)
-// OUTPUT: Browser-level evidence for H21 — bounded mounted DOM, working
-//         scroll traversal, and anchor preservation while streaming appends
-// POS:    H21 requires real-rendering evidence; jsdom has no layout, so the
+// OUTPUT: Browser regressions for bounded DOM, scroll/resize/stream anchors and unmounted search navigation
+// POS:    H21 real Chrome component-layout evidence, not packaged WKWebView acceptance.
+// jsdom has no layout, so the
 //         bounded-window behavior is pinned here against the dev server.
 
 import { expect, test } from "@playwright/test";
@@ -82,5 +82,23 @@ test.describe("H21 bounded transcript window", () => {
     expect(Math.abs(after! - anchorText.offset!)).toBeLessThan(4);
     // Stream settled: terminal state arrived without losing the anchor.
     await page.waitForFunction(() => document.documentElement.dataset.streamState === "done", null, { timeout: 20000 });
+  });
+
+  test("finds an unmounted history message without filtering the log or resuming stream follow", async ({ page }) => {
+    await page.goto("/?perf=1&n=1000&seed=20260920&stream=1&streamMs=8000");
+    const request = page.getByText("Fixture request 0: summarize the streaming merge behavior and list what changes for tool output.", { exact: true });
+    await expect.poll(() => page.locator("[data-chat-scroll-region]").evaluate((region) =>
+      region.scrollHeight - region.scrollTop - region.clientHeight)).toBeLessThan(3);
+    await expect(request).toHaveCount(0);
+    await page.getByRole("textbox", { name: /Find in conversation|在对话中查找/ }).fill("Fixture request 0:");
+    await page.getByRole("button", { name: /^(Show match|定位匹配)$/ }).click();
+    await expect(request).toBeInViewport();
+    await page.waitForTimeout(600);
+    await expect(request).toBeInViewport();
+    await expect(page.locator(".chat-jump")).toBeVisible();
+    expect(await page.getByTestId("chat-transcript-list").locator(":scope > li").count()).toBeLessThan(120);
+    await page.locator(".chat-jump").click();
+    await expect.poll(() => page.locator("[data-chat-scroll-region]").evaluate((region) =>
+      region.scrollHeight - region.scrollTop - region.clientHeight)).toBeLessThan(3);
   });
 });

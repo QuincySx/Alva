@@ -76,6 +76,7 @@ const bridge = vi.hoisted(() => {
       listHubSessions: vi.fn(async () => state.sessions),
       getHubSession: vi.fn(async (_sessionId: string) => state.detail),
       getHubInspection: vi.fn(async () => null),
+      getHubInputAttachment: vi.fn(),
       listWorkspaceSkills: vi.fn(async (): Promise<WorkspaceSkillCatalog> => ({ skills: [], warnings: 0, truncated: false })),
       workspaceSkillAction: vi.fn(),
       listAutomations: vi.fn(async (): Promise<Automation[]> => []),
@@ -380,6 +381,47 @@ function detailFixture(): HubSessionDetail {
 }
 
 describe("App integration", () => {
+  it("restores an attachment-only draft after a correlated new session fails", async () => {
+    const user = userEvent.setup();
+    let rejectRun!: (reason: Error) => void;
+    bridge.fns.runHubPrompt.mockImplementationOnce(() => new Promise((_, reject) => { rejectRun = reject; }));
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "New conversation" }));
+    const file = new File(["binary\0bytes"], "clip.bin");
+    Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode("binary\0bytes").buffer });
+    fireEvent.change(screen.getByLabelText("Choose files"), { target: { files: [file] } });
+    await screen.findByRole("button", { name: /clip.bin ·/ });
+    await user.click(screen.getByRole("button", { name: "Run with alva" }));
+    const [request, , token] = bridge.fns.runHubPrompt.mock.calls[0];
+    expect(request.prompt).not.toContain("binary");
+    expect(request.prompt).toBeTruthy();
+    expect(request.attachments).toEqual([{ name: "clip.bin", data_base64: btoa("binary\0bytes") }]);
+    act(() => bridge.listeners.forEach((callback) => callback({ product_session_id: "claimed-session",
+      status: "user_message", engine_id: "alva", message: request.prompt, item_id: "claimed:user", run_token: token })));
+    await act(async () => rejectRun(new Error("start failed after session claim")));
+    await screen.findByRole("button", { name: /clip.bin ·/ });
+    expect(screen.getByLabelText("Message")).toHaveValue("");
+    expect(screen.getByText("start failed after session claim")).toBeInTheDocument();
+  });
+  it("offers a useful empty home, sends attachment bytes and restores a rejected draft", async () => {
+    const user = userEvent.setup();
+    bridge.fns.runHubPrompt.mockRejectedValueOnce(new Error("run rejected"));
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "New conversation" }));
+    const prompt = await screen.findByRole("button", { name: "Inspect this workspace and explain its structure." });
+    await user.click(prompt);
+    expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Message")).toHaveValue("Inspect this workspace and explain its structure.");
+    const file = new File(["实际正文"], "notes.txt", { type: "text/plain" });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => new TextEncoder().encode("实际正文").buffer });
+    fireEvent.change(screen.getByLabelText("Choose files"), { target: { files: [file] } });
+    await screen.findByRole("button", { name: /notes.txt ·/ });
+    await user.click(screen.getByRole("button", { name: "Run with alva" }));
+    await waitFor(() => expect(bridge.fns.runHubPrompt).toHaveBeenCalled());
+    expect(bridge.fns.runHubPrompt.mock.calls[0][0].attachments).toEqual([{ name: "notes.txt", data_base64: btoa(String.fromCharCode(...new TextEncoder().encode("实际正文"))) }]);
+    await waitFor(() => expect(screen.getByLabelText("Message")).toHaveValue("Inspect this workspace and explain its structure."));
+    expect(screen.getByRole("button", { name: /notes.txt ·/ })).toBeTruthy();
+  });
   beforeEach(() => {
     bridge.state.sessions = [];
     bridge.state.detail = null;
@@ -940,6 +982,7 @@ describe("App integration", () => {
       session: {
         ...detailFixture().session,
         product_session_id: "ps-new",
+        status: "completed",
       },
     };
 
@@ -960,6 +1003,7 @@ describe("App integration", () => {
         engine_id: "alva",
         product_session_id: null,
         permission_profile: "workspace_write",
+        attachments: [],
       },
       WORKSPACE_DEFAULT_TARGET,
       expect.any(String),
@@ -1401,7 +1445,7 @@ describe("App integration", () => {
     ).toBeInTheDocument();
   });
 
-  it("guards the composer without a workspace and surfaces the failure", async () => {
+  it("guards both click and Enter without a workspace and keeps the home action reachable", async () => {
     const user = userEvent.setup();
     render(<App />);
     // No workspace: the Run button is disabled outright…
@@ -1410,14 +1454,10 @@ describe("App integration", () => {
     await user.type(screen.getByLabelText("Message"), "do the thing");
     expect(runButton).toBeDisabled();
     expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
-    // …but the Enter path (form.requestSubmit) still hits the guard and
-    // surfaces the failure card instead of silently no-op'ing.
+    // Keyboard submission must honor the same disabled state as the button.
     await user.keyboard("{Enter}");
-    expect(
-      await screen.findByText(
-        "Choose a workspace before running an engine.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New conversation" })).toBeEnabled();
+    expect(screen.getByLabelText("Message")).toHaveValue("do the thing\n");
     expect(bridge.fns.runHubPrompt).not.toHaveBeenCalled();
   });
 
