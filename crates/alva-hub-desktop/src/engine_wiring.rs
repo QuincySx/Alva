@@ -6,6 +6,8 @@
 //         the only place that names them. Adding a fifth engine = adding a
 //         blueprint here (or registering one at runtime), touching nothing
 //         else.
+//         ALVA's factory, adapter and Inspector share one native repository,
+//         including reference-first projection and session history retrieval.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -256,6 +258,7 @@ fn build_alva_engine(
         Some(repository) => repository,
         None => SessionRepository::open(history_dir.join("alva-agent-records.db"))?,
     };
+    let factory = factory.with_context_repository(repository.clone());
     Ok(Arc::new(
         AlvaAdapter::new(Arc::new(factory)).with_session_repository(repository),
     ))

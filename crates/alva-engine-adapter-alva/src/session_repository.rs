@@ -1,6 +1,6 @@
 // INPUT:  rusqlite, serde_json, kernel AgentSession contract, listenable in-memory projection
-// OUTPUT: SQLite-backed authoritative Alva AgentSession repository
-// POS:    Engine-native durable record store with atomic batches and flush-time dirty projection repair for Hub resume and Inspector.
+// OUTPUT: SQLite-backed authoritative Alva AgentSession repository and bounded retrieval/source validation
+// POS:    Engine-native durable records, atomic batches/dirty repair, Hub resume/Inspector and reference-first authority.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -64,7 +64,9 @@ impl SessionRepository {
                     seq INTEGER NOT NULL,
                     record_json BLOB NOT NULL,
                     PRIMARY KEY(session_id, seq)
-                 );",
+                 );
+                 CREATE INDEX IF NOT EXISTS native_context_record_id
+                 ON native_records(session_id, json_extract(CAST(record_json AS TEXT), '$.record_id'));",
             )
             .map_err(|error| format!("initialize native session store: {error}"))?;
         Ok(Self {
@@ -163,6 +165,85 @@ impl SessionRepository {
             serde_json::from_slice(&bytes).map_err(SessionError::from)
         })
         .collect()
+    }
+
+    // Product retrieval uses the authoritative log, never the compacted live
+    // projection. Bound SQL pages and release the connection before blob I/O.
+    pub(crate) fn context_page(
+        &self, session_id: &str, after: u64, through: Option<u64>,
+    ) -> Result<(Vec<SessionRecord>, u64), SessionError> {
+        let connection = self.connection.lock().map_err(lock_error)?;
+        let high: u64 = connection.query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM native_records WHERE session_id = ?1",
+            [session_id], |row| row.get(0),
+        ).map_err(sql_error)?;
+        let through = through.unwrap_or(high).min(high);
+        let mut statement = connection.prepare(
+            "SELECT record_json FROM native_records WHERE session_id = ?1 AND seq > ?2 AND seq <= ?3
+             AND ((json_extract(CAST(record_json AS TEXT), '$.payload.category') = 'conversation'
+                   AND json_extract(CAST(record_json AS TEXT), '$.payload.payload.role') IN ('user','assistant','tool'))
+               OR (json_extract(CAST(record_json AS TEXT), '$.payload.category') = 'execution'
+                   AND json_extract(CAST(record_json AS TEXT), '$.payload.payload.kind') = 'intent'))
+             ORDER BY seq LIMIT 128"
+        ).map_err(sql_error)?;
+        let rows = statement.query_map(params![session_id, after, through], |row| row.get::<_, Vec<u8>>(0)).map_err(sql_error)?;
+        let records = rows.map(|row| serde_json::from_slice(&row.map_err(sql_error)?).map_err(SessionError::from)).collect::<Result<_, _>>()?;
+        Ok((records, through))
+    }
+
+    pub(crate) fn context_record(
+        &self, session_id: &str, record_id: &str,
+    ) -> Result<SessionRecord, SessionError> {
+        let bytes: Vec<u8> = self.connection.lock().map_err(lock_error)?.query_row(
+            "SELECT record_json FROM native_records WHERE session_id = ?1 AND json_extract(CAST(record_json AS TEXT), '$.record_id') = ?2",
+            params![session_id, record_id], |row| row.get(0),
+        ).optional().map_err(sql_error)?.ok_or_else(|| SessionError::Other("Context record unavailable in this session".into()))?;
+        serde_json::from_slice(&bytes).map_err(SessionError::from)
+    }
+
+    pub(crate) fn context_value(&self, value: &RecordValue) -> Result<serde_json::Value, SessionError> {
+        match value {
+            RecordValue::Inline { value } => Ok(value.clone()),
+            RecordValue::Blob { reference } => serde_json::from_slice(&read_blob(reference, &self.blob_dir)?).map_err(SessionError::from),
+        }
+    }
+
+    pub(crate) fn context_tool_source(
+        &self, session_id: &str, message: &alva_kernel_abi::Message,
+    ) -> Result<(String, String, String), SessionError> {
+        // Large agent_message values are content-addressed. Hash the SAME
+        // redacted representation used by the writer; do not match by a tool
+        // call ID alone (providers may reuse IDs in later turns).
+        let mut record = SessionRecord::conversation(AgentMessage::Standard(message.clone()), None);
+        redact_record(&mut record);
+        let SessionRecordPayload::Conversation(conversation) = record.payload else { unreachable!() };
+        let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&conversation.agent_message.unwrap())?));
+        let (id, name): (String, String) = self.connection.lock().map_err(lock_error)?.query_row(
+            "SELECT json_extract(CAST(c.record_json AS TEXT), '$.record_id'), COALESCE(json_extract(CAST(i.record_json AS TEXT), '$.payload.payload.operation'), '')
+             FROM native_records c LEFT JOIN native_records i ON i.session_id = c.session_id
+               AND json_extract(CAST(i.record_json AS TEXT), '$.record_id') = json_extract(CAST(c.record_json AS TEXT), '$.parent_record_id')
+             WHERE c.session_id = ?1 AND json_extract(CAST(c.record_json AS TEXT), '$.type_name') = 'tool_result'
+               AND (json_extract(CAST(c.record_json AS TEXT), '$.payload.payload.agent_message.id') = ?2
+                 OR json_extract(CAST(c.record_json AS TEXT), '$.payload.payload.agent_message_blob.sha256') = ?3)
+             ORDER BY c.seq DESC LIMIT 1",
+            params![session_id, message.id, hash], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().map_err(sql_error)?.ok_or_else(|| SessionError::Other("Tool result has no durable context source".into()))?;
+        if !self.context_reference_valid(session_id, &id, &hash)? {
+            return Err(SessionError::Other("Tool result source identity/content mismatch".into()));
+        }
+        Ok((id, name, hash))
+    }
+
+    pub(crate) fn context_reference_valid(&self, session: &str, id: &str, hash: &str) -> Result<bool, SessionError> {
+        let record = self.context_record(session, id)?;
+        let SessionRecordPayload::Conversation(conversation) = record.payload else { return Ok(false) };
+        if record.type_name != "tool_result" { return Ok(false); }
+        let source_hash = if let Some(reference) = conversation.agent_message_blob {
+            reference.sha256
+        } else if let Some(message) = conversation.agent_message {
+            format!("{:x}", Sha256::digest(serde_json::to_vec(&message)?))
+        } else { return Ok(false) };
+        Ok(source_hash == hash)
     }
 
     pub fn conversation_excerpt(&self, session_id: &str) -> Result<Option<String>, SessionError> {
@@ -990,12 +1071,31 @@ fn hydrate_record(record: &mut SessionRecord, blob_dir: &Path) -> Result<(), Ses
 }
 
 fn read_blob(reference: &BlobReference, blob_dir: &Path) -> Result<Vec<u8>, SessionError> {
+    use std::io::Read;
+    const MAX_BLOB: u64 = 64 * 1024 * 1024;
+    if reference.sha256.len() != 64 || !reference.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || reference.size_bytes > MAX_BLOB {
+        return Err(SessionError::Other("Invalid or oversized context blob reference".into()));
+    }
     let path = blob_dir.join(format!("{}.json.zst", reference.sha256));
-    let compressed = std::fs::read(&path).map_err(|error| {
+    let file = std::fs::File::open(&path).map_err(|error| {
         SessionError::Other(format!("read Inspector blob {}: {error}", path.display()))
     })?;
-    let bytes = zstd::stream::decode_all(compressed.as_slice())
-        .map_err(|error| SessionError::Other(format!("decompress Inspector blob: {error}")))?;
+    let mut compressed = Vec::new();
+    const MAX_COMPRESSED: u64 = MAX_BLOB + 1024 * 1024;
+    file.take(MAX_COMPRESSED + 1).read_to_end(&mut compressed)
+        .map_err(|_| SessionError::Other("Context compressed blob read failed".into()))?;
+    if compressed.len() as u64 > MAX_COMPRESSED {
+        return Err(SessionError::Other("Context compressed blob exceeds read budget".into()));
+    }
+    let mut bytes = Vec::new();
+    zstd::stream::read::Decoder::new(compressed.as_slice())
+        .map_err(|_| SessionError::Other("Context blob decoder unavailable".into()))?
+        .take(MAX_BLOB + 1).read_to_end(&mut bytes)
+        .map_err(|_| SessionError::Other("Context blob decoding failed".into()))?;
+    if bytes.len() as u64 != reference.size_bytes || bytes.len() as u64 > MAX_BLOB {
+        return Err(SessionError::Other("Context blob size mismatch".into()));
+    }
     let digest = Sha256::digest(&bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))

@@ -17,7 +17,8 @@ should use `BaseAgentBuilder`, while SDK callers should use
 - **Kept modules**:
   - `agent/` — ACP client (`agent_client/`), session management, persistence.
   - `skills/` — Skill system (loader, store, injector, agent templates).
-  - `mcp/` — MCP protocol layer and tool adapter.
+  - `extension/mcp/` — native MCP lifecycle and direct-tool compatibility,
+    with opt-in single-entry progressive discovery for Hub managed servers.
   - `environment/` — Embedded runtime management (Bun, Node, Python, Chromium).
   - `gateway/`, `base/`, `system/` — infrastructure placeholders.
   - `domain/`, `ports/`, `adapters/` — DDD layers.
@@ -42,7 +43,7 @@ should use `BaseAgentBuilder`, while SDK callers should use
 | agent/ | `src/agent/` | ACP client, persistence, session |
 | ports/tool.rs | `src/ports/tool.rs` | SrowToolContext (ToolContext + LocalToolContext) |
 | skills/ | `src/skills/` | Skill system (loader, store, injector, templates) |
-| mcp/ | `src/mcp/` | MCP protocol, tool adapter |
+| MCP | `src/extension/mcp/` | Native lifecycle, compatible direct tools and opt-in bounded progressive gateway; existing HITL |
 | session projection | `src/session_projection.rs` | Run/turn/LLM/tool Inspector projection with TTFT and middleware hooks |
 | environment/ | `src/environment/` | Embedded runtime management |
 | domain/ | `src/domain/` | Domain models (DDD) |

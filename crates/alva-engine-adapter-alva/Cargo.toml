@@ -24,6 +24,7 @@ uuid = { version = "1", features = ["v4"] }
 zstd = "0.13"
 
 [dev-dependencies]
+alva-agent-context = { path = "../alva-agent-context" }
 alva-engine-runtime = { path = "../alva-engine-runtime", features = ["test-support"] }
 futures-util = "0.3"
 tokio = { version = "1", features = ["full"] }

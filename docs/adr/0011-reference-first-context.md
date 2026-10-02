@@ -14,7 +14,9 @@ permissions, ownership checks and truthful error/result status remain mandatory;
 referenced files and external descriptions are data, not higher-priority
 instructions. Explicit user authorization still gates cross-session scope.
 
-Implementation is incremental. Attachments now follow this rule; MCP still
-registers every discovered tool and returns full results, and model-facing
-history retrieval and the generic large-tool-output policy are not yet implemented. The tracked acceptance plan is
+Implementation is incremental. Attachments, Hub Desktop/server ALVA large-tool
+projection, native-session history retrieval and managed single-entry MCP now
+follow this rule. Other engines' own tool loops, SDK-spawned recursive children,
+cross-engine product history and actual media-derived operations remain outside
+this first runtime delivery. The tracked acceptance plan is
 [ALVA-HUB-CONTEXT-RETRIEVAL.md](../ALVA-HUB-CONTEXT-RETRIEVAL.md).

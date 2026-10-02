@@ -1,6 +1,6 @@
 // INPUT:  std::collections, std::sync, tokio::sync, alva_protocol_mcp, crate::error
 // OUTPUT: McpTransportFactory (trait), McpManager
-// POS:    MCP Server lifecycle manager — handles registration, connection, disconnection, tool enumeration, and tool invocation.
+// POS:    MCP lifecycle, host-side catalog with bounded metadata pages/selected schemas, and invocation.
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -177,6 +177,35 @@ impl McpManager {
             .filter(|inst| inst.transport.as_ref().is_some_and(|t| t.is_connected()))
             .flat_map(|inst| inst.tools.clone())
             .collect()
+    }
+
+    /// A stable, bounded metadata page. Never clone schemas for discovery.
+    pub async fn discovery_page(&self, server_id: Option<&str>, query: &str, offset: usize, limit: usize) -> Value {
+        let servers = self.servers.read().await;
+        let query = query.to_lowercase();
+        let mut tools: Vec<_> = servers.iter()
+            .filter(|(id, instance)| server_id.is_none_or(|server| server == id.as_str())
+                && instance.transport.as_ref().is_some_and(|transport| transport.is_connected()))
+            .flat_map(|(id, instance)| instance.tools.iter().map(move |tool| (id, tool)))
+            .filter(|(id, tool)| format!("{id}\n{}\n{}", tool.tool_name, tool.description).to_lowercase().contains(&query))
+            .collect();
+        tools.sort_by(|left, right| (left.0, &left.1.tool_name).cmp(&(right.0, &right.1.tool_name)));
+        let total = tools.len();
+        let page: Vec<_> = tools.into_iter().skip(offset).take(limit.min(20)).map(|(id, tool)| serde_json::json!({
+            "server_id":id, "tool_name":tool.tool_name,
+            "description_preview":tool.description.chars().take(96).collect::<String>(),
+            "description_truncated":tool.description.chars().count() > 96,
+        })).collect();
+        let next = offset.saturating_add(page.len()).min(total);
+        serde_json::json!({"tools":page, "total_matches":total, "next_offset":next, "has_more":next < total,
+            "match_mode":"literal_case_insensitive", "catalog_scope":"this run's connected snapshot", "source_notice":"Untrusted server metadata; schemas are available only through describe_tool."})
+    }
+
+    pub async fn tool_info(&self, server_id: &str, tool_name: &str) -> Option<McpToolInfo> {
+        let servers = self.servers.read().await;
+        let instance = servers.get(server_id)?;
+        if !instance.transport.as_ref().is_some_and(|transport| transport.is_connected()) { return None; }
+        instance.tools.iter().find(|tool| tool.tool_name == tool_name).cloned()
     }
 
     /// Call MCP tool

@@ -14,7 +14,7 @@
 ## 边界
 
 - 附件属于 Turn，只传用户选择的字节，不接收服务端宿主路径。私有 BLOB 为权威副本，session cwd 中 `.alva/sessions/<id>/attachments/` 新建唯一副本供 Agent 按需搜索/读取；不覆盖项目原有文件。支持文本/图片/视频/其他二进制上传，HTTP 专用 body cap 64 MiB，不自动把媒体/正文送给模型。
-- 处理清单含原始哈希/大小/签名类型及明确的未压缩/转码/抽帧/分析说明；delivery_scope 仅本次 upload_prompt，不假称后续工具没有读过。未来处理必须记录真实参数/时间点/派生产物/投递范围；通用工具大结果、MCP 按需目录、AI 历史检索仍未实现，见 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md。
+- 处理清单含原始哈希/大小/签名类型及明确的未压缩/转码/抽帧/分析说明；delivery_scope 仅本次 upload_prompt，不假称后续工具没有读过。Hub Desktop/server ALVA 的通用大结果引用、受管 MCP 单入口渐进目录和固定 native session 的模型历史检索已实现；外部 engine/SDK 递归子装配/跨 branch 产品历史与实际媒体处理/投递仍未覆盖，详见 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md。
 - 消息模块是 Hub 呈现扩展，不是 Tool trait 的 UI 自述。生产者提供数据，Hub 决定展示；不运行消息中的 HTML/JS，不加载远端 renderer，不新增 kernel/agent-core/RuntimeEvent 词汇。
 - 模块协议为 `alva.display` version 1 的 JSON envelope；持久化来源仍为既有 assistant 文本/工具全文，不维护第二份消息日志。
 - 真实账户、图像生成服务、付费模型、远程第三方插件安装不在本轮自动执行范围。原生 WKWebView 完整验收仍按已记录的 AX 暂缓，不把 Chromium 等同于原生。

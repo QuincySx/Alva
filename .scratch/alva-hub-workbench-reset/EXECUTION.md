@@ -1,5 +1,14 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-03 继续 · ALVA 通用结果引用、按需 MCP 与耐久历史检索
+
+- 同一 native SessionRepository 作为 factory/adapter/Inspector/retrieval authority；Plugin/Middleware 只修改模型请求副本，>4 KiB 普通结果、ToolContent 图片、所有受管 MCP 调用结果返回记录引用，原始脱敏事件/记录/error/id 不改。投影在既有自动压缩之前；重复 call ID 不串源，来源 hash/content 校验，compaction 持久化引用不套成新引用链。blob 解压 64 MiB/压缩输入 65 MiB/hash-size fail-closed。
+- 受管 ALVA MCP 改为一个 mcp_runtime + 4 KiB/32-server 短提示；search 默认 5/最多 20、有界说明/分页，describe 一个 schema、call 精确已连接身份/object/input ≤256 KiB。仍走原 HITL（含查询）与真实 stdio 清环境/取消/进程回收，旧 direct-tool caller 兼容。host 目录扩大到 8192 tools/128 pages，并加累计 32 MiB，单 frame 1 MiB 不变；真实 5000-tool/32-MiB 拒绝 fixture 通过。
+- context_retrieval 的 search_history/read/search_record 固定当前 native ALVA session + execution context，literal keyword/time/type/high-water cursor；128 metadata/64 MiB 来源扫描、20 hits/100-byte preview、2 KiB UTF-8 read/16 KiB wire。排除 reasoning/内部 provider 事件与 typed MCP media/blob/data-URI；原结果仍可由 UI/Inspector 完整查看，不执行返回 HTML/脚本。既有权限和暴露范围不扩大。
+- **40 adapter、325 app-core lib、86 MCP protocol、246 Desktop lib/4 精确真实账号 filtered、4 bin、14 HTTP** 通过；端到端真实 factory + stdio + 正常 AllowOnce + 自动压缩 + 模型历史 Tool 验证 600 kB 原结果只作为引用进入模型。初次并行 Desktop 回归 245 passed/1 既有 reopen lock failure，完整串行 246 pass；未擅自改锁机制、未宣称定位或修好了间歇性冲突。all-target check、diff/new-file rustfmt、public snapshot、依赖/bus/wasm32-unknown-unknown/host-link 闸 pass，wasip2 缺 target 显式 skipped。
+- 依据 coding/domain-modeling/git 规范同步三层文档和 ADR-0011 的实际范围，保留用户 CONTEXT.md/不相关目录，不 push。无 UI 修改，233 UI/6 Chrome 是上一批证据而非重验；无真实账户/计费/外部 MCP/新 npm 包，原生 AX/视觉/性能继续暂缓。
+- **仍待实施**：SDK agent tool 独立递归子装配继承（父 retrieval 被复制也因 session binding 拒绝）、跨 branch/engine 的 Hub 产品历史分组/检索、实际媒体压缩/转码/抽帧/选择投递及 receipts、专用 schema JSON-path 提取。Hub-owned ALVA Worker 走共同 factory 已覆盖；不将 native branch 检索误称为全产品历史，也不将引用返回误称为模型已理解图片/视频。
+
 ## 2026-10-03 功能补全 · 首页/消息基础与引用优先上传
 
 - 首页真实最近会话与选择目录后的起步草稿；用户原文、助手安全 Markdown/代码/表格/引用/原生外链、失败原因与 partial 文本、工具/审批/fallback 不混淆。显式复制成功/失败反馈；IME Enter/Shift Enter 不发送，busy Stop 不被失效下一轮 route 禁掉。搜索/复制覆盖已载入消息及工具预览（含窗口外条目），明确不是分页全文或模型历史检索。

@@ -16,13 +16,15 @@
 - 单 server 握手及发现受配置 timeout 限制，全部自动连接有 60 秒 assembly budget；已关闭 transport 不伪装 Connected，显式重新连接会清理旧工具。
 - 握手与工具目录共用连接超时；目录失败也进入 Failed，不遗留 Connecting。取消关闭的 transport 不投影成 Connected 或列为可用工具。
 - 完全相同 config 的重复注册保留现有连接/目录；配置真正改变才替换。取消 connect 不遗留 Connecting，关闭的 transport 在调用前拒绝，不以旧目录冒充可用。
+- `with_progressive_discovery` 是显式 harness policy：只注册 `mcp_runtime` 和有界 server 索引，不 fan-out tool schemas；旧 caller 不变。search 默认 5/最多 20 条、query ≤200 字符、96 字符描述预览、稳定 offset/has_more；describe 只取一个方法，call 核对当前已连接目录精确身份和 object arguments，入口 input ≤256 KiB。所有 gateway action 保持既有 HITL；结果耐久投影由产品 ContextRetrievalPlugin 消费，不在协议层存第二份日志。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
 | mod | `mod.rs` | 声明子模块 |
-| extension | `extension.rs` | 文件发现或显式 server snapshot 的 Plugin，stdio 接线与 finalize 审批策略 |
-| runtime | `runtime.rs` | McpManager：Server 注册/连接/断开/工具枚举/调用 |
+| extension | `extension.rs` | 文件发现/显式 snapshot、可选单 gateway/server 提示、stdio 接线与 finalize 审批 |
+| runtime | `runtime.rs` | McpManager：生命周期、host-side catalog、有界 metadata page/单工具契约和调用 |
 | tools | `tools.rs` | McpRuntimeTool：面向 Agent 的 MCP meta-tool |
+| progressive tools | `progressive_tools.rs` | opt-in 单入口按需发现/describe/call；5000-tool native fixture、精确身份/输入预算/安全 guard 回归 |
 | config | `config.rs` | McpConfig：mcpServerConfig.json 读写、McpServerEntry/McpTransportEntry |
 | tool_adapter | `tool_adapter.rs` | McpToolAdapter：单个 MCP 工具 -> Tool trait 适配、build_mcp_tools 批量转换 |

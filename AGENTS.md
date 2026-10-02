@@ -175,7 +175,7 @@ target:  complete Desktop V1 (fallback + branches + Orca collaboration)
 | crate | 职责 |
 |------|------|
 | `alva-hub-core` | Hub 产品会话监管器：engine registry、product session ↔ engine session 路由、resume/cancel/permission dispatch；仅依赖 engine contract。 |
-| `alva-engine-adapter-alva` | Hub 的 Alva adapter：每个 engine session 由 `BaseAgentFactory` 构造独立的完整 `BaseAgent`；`SessionRepository` 持久化 typed records，`EngineInspector` 提供历史、实时和递归子会话检查；ToolExecution monotonic duration 不在 RuntimeEvent 投影时丢失。 |
+| `alva-engine-adapter-alva` | Hub 的 Alva adapter：独立完整 `BaseAgent`；共享 `SessionRepository` typed records/Inspector，opt-in `ContextRetrievalPlugin` 在压缩前向模型投影大结果/媒体引用，并提供固定 native session 的有界耐久历史检索；受管 MCP 单 gateway。ToolExecution monotonic duration 不丢失；不冒充外部 engine/SDK 递归子装配策略。 |
 | `alva-hub-cli` | Hub 命令行验证、诊断与自动化入口：支持 one-shot / REPL、私有 session journal、显式 Alva / Claude / Codex 选择、resume、手动切换与 handoff；与原生 `alva-app-cli` 保持独立。 |
 | `alva-hub-desktop` | **正在实现的 V1 主产品**：独立 Tauri 2 + React/Vite/TypeScript L7 入口；新会话可选 owner-only 专属目录的“独立会话”或用户选择 Workspace 的“项目”；支持 ALVA/Claude Code/Codex/Pi、统一第三方 Provider route、CLI 私有订阅、可逆多 EngineBranch、完整 HandoffPackage、自动 fallback 与 Cindy 风格 Lead/Worker，并用私有 SQLite 持久化产品状态；稳定 TimelineEvent 使用产品 shared clock，UI 提供 Input/Agent/Tools 三泳道概览；Workbench Inspector 经稳定 IPC 消费 Alva typed records，支持 LLM/Tool/Middleware 与递归子 Agent 钻取、逐页回退；不得改写 `alva-app-tauri`。 |
 | `alva-hub-server` | Hub Desktop 同源的本地 headless HTTP/SSE 入口；复用 HubStore、engine assembly 与 Inspector DTO，让浏览器版得到与 Tauri 一致的 session、timeline 和 durable inspection surface。 |

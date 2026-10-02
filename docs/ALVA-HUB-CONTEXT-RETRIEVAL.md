@@ -9,9 +9,9 @@
 |---|---|---|---|
 | 上传日志/文本 | 会话内文件名、字节数、相对路径 | 既有文件读取/rg；由 AI 选择相关范围 | 已实现；不会把正文拼到 prompt |
 | 图片/视频/二进制 | 文件引用 + 原始哈希/大小/处理清单 | 适合的媒体工具按需处理，产物保留来源 | 原样上传/本地预览已实现；尚未提供压缩/抽帧/分析工具 |
-| 所有工具的大结果 | 调用身份、成功/失败、有界摘要/引用 | 对完整结果按需搜索/分段读取 | 通用策略待实现；不将 UI 全文存储误称为模型端限额 |
-| MCP | 简短 server 能力提示 + 一个 meta-tool | 查询匹配方法、单个方法契约、执行；结果先落盘再返回引用 | 待实现；现有 meta-tool 不等于按需加载 |
-| 历史消息/工具记录 | 会话级检索入口与稳定记录 ID | 关键词/时间/类型筛选，读取命中附近片段 | 耐久存储/分页已有；模型检索入口待实现 |
+| 所有工具的大结果 | 调用身份、成功/失败、耐久记录引用 | `context_retrieval` 搜索/分段读取 | Hub Desktop/server 的 ALVA BaseAgent 已实现；其他 engine 自有循环不受该策略控制 |
+| MCP | 简短 server 索引 + 一个 `mcp_runtime` | 有界搜索、一个选中方法契约、精确调用；结果先落盘再引用 | Hub 受管 ALVA 已实现；legacy direct-tool caller 保持兼容 |
+| 历史消息/工具记录 | 当前 native ALVA session 的稳定记录 ID | 关键词/时间/类型筛选，读取命中片段 | 模型检索已实现并覆盖压缩/重启；跨 branch/engine 的 Hub 产品历史尚未接入 |
 
 ## 附件（当前）
 
@@ -38,6 +38,25 @@ prompt。大日志、同名上传、Unicode、符号链接绕过、重启/跨会
 模型收到调用身份/有界摘要/引用，只有需要的片段或已选择媒体产物进入工作集。
 在 Plugin/Middleware/产品 adapter 处实施，不给 kernel 添加结果存储政策。
 
+当前 `ContextRetrievalPlugin` 复用同一个 native `SessionRepository`，不另建 artifact
+日志。发模型前仅修改请求副本：普通 ToolResult 文本超过 4096 UTF-8 字节或含
+`ToolContent::Image` 就转引用；`mcp_runtime.call_tool` 即使短结果也转引用。事件和
+权威记录不因投影变短，error/id 保持。引用包含 record ID、调用身份、原始文本字节数、
+有界媒体类型及来源哈希；重复 call ID 按实际消息身份定位，压缩保存的引用再次投影
+时验证来源，避免引用链。原记录已按现有规则脱敏，并非未经脱敏的私人原件。
+
+投影 priority 在现有 CompactionMiddleware 之前，压缩计数和 summarizer 只看引用；
+当前 Hub BaseAgent 没有另装会在此之前执行的自定义 ContextSystem。只豁免本插件
+注册的 `context_retrieval` 的最多 16 KiB 有界提取，不豁免普通 read_file/MCP。
+源不可定位就停止该模型请求；引用读取遇到失效/损坏 blob 明确失败，不回灌原文。
+blob 解压限 64 MiB、压缩输入限 65 MiB，校验大小/hash，SQL 页先读 metadata 再按预算
+解压；媒体类型索引最多 16 项，每项最多 128 字节，并明确截断。
+
+覆盖当前 Desktop/server 经共同 factory 构造的 ALVA native session（包括 Hub-owned
+ALVA Worker）；不是其他 engine 的工具循环政策。SDK `agent` tool 递归子 Agent 的独立
+装配尚未继承此策略，不能宣称全部子树已覆盖。父会话检索工具即便被授予子 Agent，
+也因 execution-context session binding 不同而拒绝读取父记录。
+
 上传处理清单当前记录 `source_sha256`、原始/保存字节数、类型（签名探测，非成功
 解码声明）、`compression_applied=false`、`transcoding_applied=false`、空的
 `extracted_frames` 和 `delivered_to_model=false`；`delivery_scope=upload_prompt`
@@ -58,35 +77,57 @@ prompt。大日志、同名上传、Unicode、符号链接绕过、重启/跨会
 模型正文；视频帧策略/真实时间点、压缩损失说明、派生身份/原件保留、取消、
 缺工具与模型媒体能力不支持均可观测。执行成本与媒体投递须遵循既有权限/用户任务。
 
-## MCP（下一实施单元）
+## MCP（当前 Hub 受管 ALVA）
 
 1. 以 Plugin 注册一个常量 schema 的 MCP 入口；初始 prompt 仅列已授权 server
    的简短能力索引，不将所有 tool schemas 注册进模型。保留旧产品配置的暂停/启用、
    固定 snapshot、连接预算、取消回收以及 HITL，不改稳定 SDK。
 2. `search_tools` 按 server/query 返回有限命中（建议最多 20 条简短描述）；
    `describe_tool` 只取选定方法，不返回全库。超大 schema 返回契约引用，按路径
-   提取必要字段。列表具备分页/截断指示，不靠模型猜遗漏方法。
+   提取必要字段。当前契约引用由通用策略处理，按文字范围读取；专用 JSON-path
+   schema 提取尚未实现。列表具备分页/截断指示，不靠模型猜遗漏方法。
 3. `call_tool` 精确核对已启用 server/method/arguments，并走原审批路径。
    请求、响应、错误和调用关联落在同一会话 artifact 中；输出给模型的是成功/失败、
    有界摘要与结果引用，不把大量结果或调用日志回灌到上下文。
 4. Agent 可搜索/分段读取调用过程与结果，UI 可按引用读取全文和消息模块。
    原始记录保持权威；不执行返回的脚本/HTML，不把描述中的指令视为授权。
-5. 验收：5000 个工具的 server 不增大初始模型 schema 集合；MiB 级结果完整可读，
-   模型返回尺寸受限；大 schema、取消、失败、分页、越权、重复调用身份和审批
-   无绕过均用本地替身验证，不使用真实计费服务。
+5. 当前 gateway 的固定 schema 只含 `list_servers/search_tools/describe_tool/call_tool`。
+   目录按稳定 server/tool 排序，literal case-insensitive query ≤200 字符，默认 5 项、
+   最多 20 项并有 offset/has_more；描述预览最多 96 字符，不返回整库 schema。
+   调用只允许本轮已连接目录的精确身份，arguments 必须 object、入口 input ≤256 KiB。
+   当前包括搜索/描述在内的 meta-tool 都遵循既有 HITL，不自动信任远端 read-only 标签。
+   初始 server 索引最多 4 KiB/32 个 server，不含命令/env 或 tool schema。连接仍有原
+   60 秒总预算和回收机制；初始化失败未注册 gateway 时不提示其可用。
+6. stdio 保留 1 MiB 单 frame、单 schema 64 KiB、description 16 KiB 限额；目录扩为
+   最多 8192 tools/128 pages，另加累计 32 MiB 上限，不以按需加载为由放开宿主内存。
+   单 RPC 的大于 1 MiB 结果仍显式拒绝，20 MiB 文件上传不意味着放开 MCP frame。
+7. 已用真实本地 stdio fixture 验证 5000 工具分页、一个 model-visible gateway、单工具
+   schema、32 MiB 总目录拒绝、正常审批后的 600 kB 结果→引用→模型历史搜索，以及
+   >1 MiB 通用工具原结果保留。typed MCP image/audio/video/blob 在文字检索中剥除字节，
+   保留类型/URI/排除标识与结构化表格；不冒充已经分析媒体。任意普通工具文本中的
+   未标类型编码不是媒体解码能力。未调用真实付费服务。
 
-## 历史（MCP 之后）
+## 历史（当前 ALVA native session；产品跨引擎检索待实现）
 
-复用 Hub 的 Turn/Attempt、schema-20 可见消息日志和 schema-19 工具全文，
-不创建第二份权威对话记录。提供当前会话默认作用域的检索 Tool/Plugin：关键词、
+当前复用 native SessionRepository 的权威记录，不复制新的历史库。未来跨 engine
+的产品检索需连接 Hub Turn/Attempt、schema-20 可见消息日志与 schema-19 工具全文。
+`context_retrieval` 提供当前 native session 固定作用域：关键词、
 时间范围、消息/工具/错误类型；返回稳定引用、时间、类型、简短命中片段，再按
 引用读取附近上下文。先实现确定性文字搜索，不以向量检索代替准确性。
 
-建议首版：query ≤200 字符、每页 ≤20 命中、摘要 ≤250 字符、一次读取 ≤16 KiB；
+当前预算：literal case-sensitive query ≤200 字符、每页 ≤20 命中、预览 ≤100 UTF-8 字节，
+每次最多扫描 128 条 metadata/64 MiB 来源 JSON，读取 ≤2048 UTF-8 字节、完整工具响应
+≤16 KiB。搜索 continuation 携带固定 `through` high-water，后来的追加不混入该快照。
+`%_*` 等字符按字面匹配，不作为 SQL 模式；UTF-8 边界非法或预算放不下一个字符明确拒绝。
 片段携带 source ID/范围/是否还有后文，绝不静默截断成完整答案。压缩/窗口溢出后
 仍可检索，重启身份保持；跨会话/Worker/项目检索须明确授权，默认不扫全局历史。
 检索结果是历史资料，不是当前指令。上传正文和历史日志不能自动进入 handoff
 全文；handoff 应带经过现有脱敏闸门的相关引用/有界摘要。
+
+只提供 user/assistant/tool 文本与 tool intent 参数；跳过重复 execution outcome 和内部
+provider/LLM/hook 事件，剥除 hidden reasoning/typed 媒体字节。scope 同时绑定工具实例
+和 execution context，模型不能传 session_id 越权。append-only 日志里的 compaction
+投影副本仍是独立记录，尚未以 Hub Turn/Attempt 做跨 branch 去重/分组。
 
 验收包含重复文本的不同身份、并行/失败 Attempt、超过模型窗口的历史、重启、
 跨会话拒绝、全文可达、关键词特殊字符/Unicode、错误重试及明确检索预算。

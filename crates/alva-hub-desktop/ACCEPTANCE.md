@@ -1,5 +1,42 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Reference-first ALVA runtime — 2026-10-03
+
+Desktop/server ALVA factories now share their native SessionRepository with a
+ContextRetrievalPlugin. Tool text >4 KiB, any ToolContent image, and every managed
+MCP invocation result become verified durable references in the model-request
+copy, before existing automatic compaction. Original redacted records, UI/Inspector
+events, error status and identities survive. Bounded retrieval is exempt from
+re-referencing; compaction references retain their original source.
+
+Managed MCP registers one gateway and ≤4 KiB/32-server prompt index, not all
+remote schemas. Search is paged, describe selects one contract, call validates an
+exact connected catalog identity; the existing HITL applies to all gateway actions.
+Native stdio retains 1 MiB frames while supporting 8192 tools/128 pages with a
+32 MiB cumulative catalog cap. Real authored fixtures prove 5000-tool discovery,
+single registry entry, selected schema, host budget rejection, normal approval,
+600 kB original result → model reference → history search. Generic >1 MiB outputs,
+reused call IDs, altered-source rejection, UTF-8 limits, missing/corrupt blobs,
+typed MCP media/data-URI exclusion and compaction/restart are covered.
+
+History search/read is fixed to the current native ALVA session and its execution
+context, not cross-engine Hub history. It excludes internal provider/hook events,
+hidden reasoning and typed media bytes, with high-water pagination and explicit
+128-record/64-MiB scan, 20-hit, 2-KiB read and 16-KiB response budgets. Hub-owned
+ALVA Workers use this factory; SDK `agent` recursive children do not yet inherit
+the projection and cannot use a parent-bound retrieval tool to read parent records.
+External engine loops and actual media transformation/delivery receipts remain pending.
+
+Current verification: **40 ALVA adapter, 325 app-core lib, 86 MCP protocol,
+246 Desktop lib / 4 exact account tests filtered, 4 Desktop bin, 14 HTTP** tests
+pass. Desktop/server all-target check, new-file rustfmt, diff check, public SDK
+snapshots and dependency/bus/wasm32/host-link gates pass; wasip2 target remains
+unavailable/skipped. The initial parallel Desktop run had one existing reopen-test
+lock failure (245 passed); the full serial run passed 246. No claim that this
+intermittent lock was diagnosed or fixed. UI/Chrome/native performance were not
+rerun in this backend-only batch; prior UI/upload evidence below is historical.
+No real accounts, paid models, external MCP services, downloads or publication.
+
 ## Conversation foundations and reference-first input — 2026-10-03
 
 Verified: real recent-session home/empty-workspace draft actions; literal user
@@ -33,9 +70,10 @@ surface snapshots and dependency/bus/wasm32-unknown-unknown/host-link gates pass
 wasm32-wasip2 remains unavailable and explicitly skipped. Existing warnings and
 the >500-kB bundle warning are recorded, not treated as measured performance.
 
-Outstanding: **generic tool-result reference policy, progressive single-entry
-MCP discovery, model-facing history search, actual media-derived operations and
-delivery receipts**. See ADR-0011 and docs/ALVA-HUB-CONTEXT-RETRIEVAL.md for accepted
+Outstanding after the runtime delivery above: **recursive SDK child policy,
+cross-engine product history, actual media-derived operations and delivery receipts**.
+Generic results, progressive managed MCP and native ALVA history are implemented
+within the stated scope. See ADR-0011 and docs/ALVA-HUB-CONTEXT-RETRIEVAL.md for accepted
 direction and concrete acceptance. Packaged WKWebView/AX/visual/performance
 acceptance remains deferred; Chrome tests do not renew native claims. No real
 accounts, paid models, user MCP services, downloads or external publication.

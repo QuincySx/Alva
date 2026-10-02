@@ -1,6 +1,6 @@
 // INPUT:  app-core BaseAgent/catalog/paths/Approval/MCP plugins, RuntimeRequest, LanguageModel
 // OUTPUT: BaseAgentFactory, BuiltAgent, DefaultBaseAgentFactory, CatalogBaseAgentFactory
-// POS:    Per-session harness assembly with optional explicit Hub capability/MCP snapshots.
+// POS:    Per-session harness assembly with Hub capability/MCP snapshots and optional shared-authority reference-first retrieval.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -118,6 +118,7 @@ pub struct CatalogBaseAgentFactory {
     toggles: ComponentToggles,
     reasoning_effort: Option<alva_kernel_abi::ReasoningEffort>,
     managed_mcp: Option<Vec<alva_app_core::extension::skills::skill_domain::mcp::McpServerConfig>>,
+    context_repository: Option<crate::SessionRepository>,
 }
 
 impl CatalogBaseAgentFactory {
@@ -135,11 +136,19 @@ impl CatalogBaseAgentFactory {
             toggles: ComponentToggles::default(),
             reasoning_effort: None,
             managed_mcp: None,
+            context_repository: None,
         }
     }
 
     pub fn with_provider_registry(mut self, reg: Arc<alva_agent_abi::ProviderRegistry>) -> Self {
         self.provider_registry = Some(reg);
+        self
+    }
+
+    /// The SAME authority used by the adapter and Inspector; enables bounded
+    /// reference-first tool projection and session history retrieval.
+    pub fn with_context_repository(mut self, repository: crate::SessionRepository) -> Self {
+        self.context_repository = Some(repository);
         self
     }
 
@@ -227,7 +236,7 @@ impl BaseAgentFactory for CatalogBaseAgentFactory {
                 .workspace(&workspace)
                 .system_prompt(&system_prompt)
                 .max_iterations(max_iterations)
-                .session(session)
+                .session(session.clone())
                 .plugin(Box::new(approval_ext)),
             &toggles,
             &ctx,
@@ -238,8 +247,13 @@ impl BaseAgentFactory for CatalogBaseAgentFactory {
                     builder.plugin(Box::new(alva_app_core::extension::McpPlugin::from_servers(
                         servers.clone(),
                         workspace.clone(),
-                    )));
+                    ).with_progressive_discovery()));
             }
+        }
+        if let Some(repository) = &self.context_repository {
+            builder = builder.plugin(Box::new(crate::context_retrieval::ContextRetrievalPlugin::new(
+                repository.clone(), session.session_id().to_string(),
+            )));
         }
         let agent = builder.build(self.model.clone()).await?;
         agent.set_reasoning_effort(self.reasoning_effort).await;
@@ -398,16 +412,27 @@ mod tests {
 for line in sys.stdin:
  r=json.loads(line)
  if 'id' not in r: continue
- result={'protocolVersion':r['params']['protocolVersion'],'capabilities':{'tools':{}},'serverInfo':{'name':'fixture','version':'1'}} if r['method']=='initialize' else {'tools':[{'name':'echo','inputSchema':{'type':'object'}}]}
+ result={'protocolVersion':r['params']['protocolVersion'],'capabilities':{'tools':{}},'serverInfo':{'name':'fixture','version':'1'}} if r['method']=='initialize' else {'tools':[{'name':'echo','inputSchema':{'type':'object'}}]} if r['method']=='tools/list' else {'content':[{'type':'text','text':'x'*600000+'native-result-tail'}]}
  print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)
 "#.into()], env: Default::default() } };
         let toggles = components_for_test()
             .into_iter()
             .map(|id| (id.to_string(), false))
             .collect();
+        let mut call = alva_kernel_abi::Message::user("");
+        call.role = alva_kernel_abi::MessageRole::Assistant;
+        call.content = vec![alva_kernel_abi::ContentBlock::ToolUse { id:"mcp-call".into(), name:"mcp_runtime".into(), input:serde_json::json!({"action":"call_tool","server_id":"fixture","tool_name":"echo"}) }];
+        let mut search = alva_kernel_abi::Message::user("");
+        search.role = alva_kernel_abi::MessageRole::Assistant;
+        search.content = vec![alva_kernel_abi::ContentBlock::ToolUse { id:"history-call".into(), name:"context_retrieval".into(), input:serde_json::json!({"action":"search_history","query":"native-result-tail","kind":"tool"}) }];
+        let mut done = alva_kernel_abi::Message::user("done"); done.role = alva_kernel_abi::MessageRole::Assistant;
+        let model = MockLanguageModel::new().with_response(call).with_response(search).with_response(done);
+        let repository = crate::SessionRepository::open(workspace.path().join("records.db")).unwrap();
+        let session = repository.open_session("fixture-session", None).await.unwrap();
         let factory =
-            CatalogBaseAgentFactory::new(Arc::new(MockLanguageModel::new()), workspace.path())
+            CatalogBaseAgentFactory::new(Arc::new(model.clone()), workspace.path())
                 .with_toggles(toggles)
+                .with_context_repository(repository.clone())
                 .with_managed_mcp(vec![server]);
         let request = RuntimeRequest {
             prompt: "fixture".into(),
@@ -416,10 +441,10 @@ for line in sys.stdin:
             working_directory: None,
             options: Default::default(),
         };
-        let built = factory
+        let mut built = factory
             .build(
                 &request,
-                Arc::new(alva_agent_core::agent_session::InMemoryAgentSession::new()),
+                session,
             )
             .await
             .unwrap();
@@ -430,14 +455,16 @@ for line in sys.stdin:
         let alias = alva_app_core::alva_protocol_mcp::tool_adapter::McpToolAdapter::tool_name(
             "fixture", "echo",
         );
-        assert!(names.iter().any(|n| n == &alias));
+        assert!(!names.iter().any(|n| n == &alias));
         assert!(names.iter().any(|n| n == "mcp_runtime"));
+        assert!(names.iter().any(|n| n == "context_retrieval"));
+        assert_eq!(names.iter().filter(|name| name.starts_with("mcp_")).count(), 1);
         let guard = built
             .agent
             .bus()
             .get::<tokio::sync::Mutex<SecurityGuard>>()
             .unwrap();
-        for name in [alias.as_str(), "mcp_runtime"] {
+        for name in ["mcp_runtime"] {
             assert!(matches!(
                 guard.lock().await.check_tool_call(
                     name,
@@ -454,6 +481,34 @@ for line in sys.stdin:
             .middleware_names
             .iter()
             .any(|n| n.contains("security")));
+        let mut approvals = built.approval_rx.take().unwrap();
+        let mut events = built.agent.prompt_text("Read fixture data, then search its result").await;
+        let mut raw_result = false;
+        let mut search_result = false;
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                tokio::select! {
+                    Some(approval) = approvals.recv() => {
+                        assert_eq!(approval.tool_name, "mcp_runtime");
+                        assert!(built.agent.resolve_permission(&approval.request_id, &approval.tool_name, alva_app_core::PermissionDecision::AllowOnce).await);
+                    }
+                    event = events.recv() => match event {
+                        Some(alva_kernel_core::AgentEvent::ToolExecutionEnd { tool_call, result, .. }) => {
+                            if tool_call.name == "mcp_runtime" { raw_result = result.model_text().len() > 600000; }
+                            if tool_call.name == "context_retrieval" { search_result = result.model_text().contains("native-result-tail"); }
+                        }
+                        Some(_) => {},
+                        None => break,
+                    }
+                }
+            }
+        }).await.expect("native MCP/retrieval run must terminate");
+        assert!(raw_result && search_result);
+        let calls = model.calls();
+        assert_eq!(calls.len(), 3, "reference projection must precede automatic compaction");
+        assert!(serde_json::to_string(&calls[1]).unwrap().contains("context_reference"));
+        assert!(calls.iter().all(|messages| serde_json::to_string(messages).unwrap().len() < 20000));
+        assert!(repository.records("fixture-session").unwrap().iter().any(|record| record.type_name == "tool_result"));
     }
 
     #[cfg(unix)]
