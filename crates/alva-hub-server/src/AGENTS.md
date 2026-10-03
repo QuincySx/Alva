@@ -23,6 +23,7 @@
 11. `/api/run` 专用 64 MiB HTTP 请求上限，复用共享附件 validation（原字节 20 MiB/40 MiB/8 文件）和引用 prompt；其他 routes 不扩大 body 上限。`/api/sessions/:id/attachments/:attachment_id` 在 blocking worker 中按 session JOIN 读耐久 BLOB；缺失/越权 404，不接收宿主文件路径。live/history 仅引用及处理清单，媒体预览不自动成为模型输入；真实 HTTP 20 MiB 二进制边界回归使用本地替身。
 12. 认领后的 engine builder 传同一个 HubStore/product_session_id 给共同 ALVA Plugin 配方，覆盖分支恢复与 fallback；`hub_context` 检索本会话跨 engine 可见记录，`hub_media` 仅显式处理/选择并走现有审批与固定模型声明。其他 engine 不消费 ALVA Plugin；没有第二套 HTTP 检索数据库或媒体状态机。
 13. 附件下 `/media?after=`、`/media/:artifact_id`、`/media/:artifact_id/receipts?after=&through=` 三个 GET 在 blocking worker 复用共享归属/4 项索引/哈希 BLOB/5 项回执 reader，DTO 与 Tauri 同构。不接收宿主路径，索引/回执拒绝未知 query；越权/缺失/损坏/非法 cursor 一律通用 404，解析失败 400；不执行 decoder/engine/重放选择。真实 HTTP 回归只在临时私有 DB 放置合成产物/未知接受 receipt，验读/损坏/越权，不冒充 provider 测试。
+14. `/api/sessions/:id/mcp-journal` 是只读 POST JSON 查询（native_session_id/query），复用 `HubInspectorService` metadata-only typed 父链接归属校验和同一 native MCP reader；无 Agent/连接/重放。单 query ≤2 KiB、索引最多 20 项、正文 ≤2 KiB UTF-8/完整响应 ≤16 KiB，缺失/越权/非法动作或 cursor 通用 404；顶层未知 JSON 字段由 extractor 返回 422。默认 HTTP body 上限不放大，HTTP fixture 仅合成耐久记录，typed child/blob 另由真实 adapter/Desktop 回归覆盖。
 
 ## 约束
 - `/api/tool-settings` GET/POST 复用 schema-22 capability/MCP CRUD/revision；每轮固定 snapshot 注入共同 assembly。`/api/tool-settings/mcp-test` 确认后绑定已存 session cwd 做一次 stdio 测试与回收，无模型调用；不接受 arbitrary cwd、env/header。
@@ -34,4 +35,4 @@
 
 | 名称 | 文件 | 职责 |
 |---|---|---|
-| HTTP service | `main.rs` | AppState、API/SSE、Inspector/工作区 Skills/自动化 pump、只读附件/派生媒体/回执 endpoint、独立测试配置与静态 fallback |
+| HTTP service | `main.rs` | AppState、API/SSE、Inspector/MCP 日志只读查询/工作区 Skills/自动化、附件/派生媒体/回执、独立测试配置与静态 fallback |

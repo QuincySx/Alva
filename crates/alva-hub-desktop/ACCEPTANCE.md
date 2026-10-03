@@ -1,5 +1,55 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Scoped read-only MCP journal Inspector — 2026-10-03
+
+The current Alva Inspector Agent has an explicit journal entry: opening requests
+only metadata, literal keyword search/read retrieves bounded redacted text and
+replaces the current page. Product/native ownership follows existing metadata
+plus version-1 typed causal parent links to this HubSession's Alva branches,
+with cycle/256-depth denial. No session restoration/creation, Agent/provider/MCP
+startup, new journal append or replay occurs in the query path. This human
+Inspector scope does not grant models parent/other-child/other-product logs.
+
+Tauri and the read-only HTTP POST JSON endpoint share the same service/reader.
+Query <=2 KiB; list scans <=128 metadata records and returns <=20 rows without
+blob hydration. Search/read retain exact namespace/type/version and hash/size
+verification, <=200-character literal query, 128 records/64 MiB source scan,
+20 hits/100-byte previews, 2 KiB UTF-8 text and 16 KiB response limits. Corrupt
+bodies can still be indexed, but reads fail. Periodic Inspector MCP DTOs now
+carry only small references, not frame bodies or blob previews. General
+Inspector session restoration/RunRecord construction is still a full snapshot;
+this change does not claim all Inspector memory is bounded or performance green.
+
+UI isolates scope/navigation/retry and late replies, clears prior text as soon
+as the cursor changes, supports fixed-through continuation including empty
+scan pages, generic error/retry, inert text, IME and focus return/Back/Esc. Copy
+states redaction, typed-media exclusion and unknown remote acceptance; browsing
+never starts work. Browser-only without a runtime fails truthfully.
+
+Current verification: **53 adapter + 261 Desktop lib + 4 Desktop bin + 16 HTTP +
+245 UI / 26 files + 10 Chrome = 589 passed**, including fourteen new tests.
+Only the four exact real-account Desktop cases are filtered. Actual temporary
+native SQLite/typed child/blob/reopen tests cover recursive ownership, foreign
+IDs, unknown schema/metadata-only links, corruption, budgets, non-MCP denial
+and no append/start/replay. Real HTTP uses durable JSON fixtures (not a new SDK
+dependency). Six component cases include the production Inspector child entry,
+wrong record/offset, delayed scope changes, immediate page clearing and focus.
+Four Chrome journal cases use read-only intercepted HTTP, English/Chinese and
+1440/720px; six existing Chrome history cases cover 100/1000/10000 entries,
+bounded DOM, streaming anchor and off-window search. Fixture Chromium is not
+native WebView, live user MCP or real provider acceptance.
+
+Production TypeScript/Vite build passes with the existing large-chunk warning;
+all-target check passes with 29 existing warnings. Diff/public snapshots,
+dependency/bus/wasm32/full host-link gates pass; wasip2 is explicitly skipped
+because its target is absent. Initial test failures were fixture Result/import
+mistakes, missing error-alert semantics and StrictMode's duplicate metadata
+effects; assertions follow actual Axum 422 unknown JSON fields and never relax
+production authorization/read budgets. No dependency installation, credential
+access, paid account, user MCP, SDK/kernel API changes or push. Coding and Git
+skills keep scope/coherent local commit; three-layer docs are synchronized.
+The prior entries below are historical evidence, not tests renewed by this batch.
+
 ## Recursive MCP worker ownership — 2026-10-03
 
 Managed ALVA's approved MCP recipe now publishes a narrow app-layer spawn

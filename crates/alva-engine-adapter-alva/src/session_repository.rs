@@ -1,5 +1,5 @@
 // INPUT:  rusqlite, serde_json, kernel AgentSession contract, MCP journal frame contract, listenable in-memory projection
-// OUTPUT: SQLite-backed authoritative Alva AgentSession repository and bounded retrieval/source validation
+// OUTPUT: SQLite-backed AgentSession repository, metadata-only causal parent lookup and bounded retrieval/source validation
 // POS:    Engine-native durable records and MCP extension blobs, atomic batches/dirty repair and scoped reference authority.
 
 use std::collections::HashMap;
@@ -165,6 +165,29 @@ impl SessionRepository {
             serde_json::from_slice(&bytes).map_err(SessionError::from)
         })
         .collect()
+    }
+
+    /// Read a parent only when native metadata and the durable causal link agree.
+    /// This metadata-only path does not restore sessions or hydrate journal blobs.
+    pub fn linked_parent(&self, session_id: &str) -> Result<Option<String>, SessionError> {
+        let connection = self.connection.lock().map_err(lock_error)?;
+        connection
+            .query_row(
+            "SELECT child.parent_session_id FROM native_sessions child
+             WHERE child.session_id = ?1 AND child.parent_session_id IS NOT NULL
+             AND EXISTS (SELECT 1 FROM native_records link
+               WHERE link.session_id = child.parent_session_id
+               AND json_extract(CAST(link.record_json AS TEXT), '$.category') = 'execution'
+               AND json_extract(CAST(link.record_json AS TEXT), '$.schema_version') = 1
+               AND json_extract(CAST(link.record_json AS TEXT), '$.type_name') = 'child_session_linked'
+               AND json_extract(CAST(link.record_json AS TEXT), '$.payload.category') = 'execution'
+               AND json_extract(CAST(link.record_json AS TEXT), '$.payload.payload.kind') = 'child_session_linked'
+               AND json_extract(CAST(link.record_json AS TEXT), '$.payload.payload.child_session_id') = child.session_id)",
+                [session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(sql_error)
     }
 
     // Product retrieval uses the authoritative log, never the compacted live

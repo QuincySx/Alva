@@ -68,7 +68,7 @@ ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，
 | Engine assembly | `alva.rs` | 统一 ProviderConfig 到 ALVA、Claude Code、Codex、Pi 的 route-aware 安全装配 |
 | Product context Plugin | `hub_context.rs` | 已认领 HubSession/native-root 双绑定的跨 engine 可见历史与上传文本 Tool，真实 catalog 配方回归；子 Agent 不继承父产品数据授权 |
 | Selected media | `hub_media.rs` | 显式审批的 native 解码/有界 JPEG、指定或均匀抽帧、短 silent 视频转码；核验产物后只向一次模型请求附选中图与 provenance，receipt/error/取消/不重放回归 |
-| Inspector bridge | `inspection.rs` | 共享 native repository、session 树归属校验、RunRecord/raw durable record 稳定 DTO 投影；真实 SQLite flush/reopen 的递归与跨 Hub 隔离回归 |
+| Inspector bridge | `inspection.rs` | 共享 native repository、树归属/稳定 DTO；MCP 定时快照只传引用，显式 metadata-only 归属索引和有界搜索/正文，不启动 Agent/MCP/重放 |
 | Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、自动 fallback 循环、带产品时钟的事件投影与结果 |
 | Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
 | Managed SDK installation | `sdk_installation.rs` | 产品运行时目录的包身份/版本/入口校验，拒绝符号链接、Unix 异主及组/其他用户可写路径、工作区交叠；不执行包代码 |
@@ -97,7 +97,7 @@ ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，
 | Local automations | `store/automation.rs` | schema 21 真实 CRUD、限额/乐观冲突、授权固定路由、原子认领和终态/restart 恢复；10 项无账号回归 |
 | ALVA tool settings | `store/tool_settings.rs` | schema 22 真实能力开关与 stdio MCP 暂停优先 CRUD、授权/revision 及运行 snapshot |
 | MCP diagnostics | `mcp_diagnostics.rs` | 最多 2 并发、已存 session cwd、revision/确认核对的单次握手/目录测试与回收，无模型调用 |
-| Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness/Inspector/工具正文 command 和 timestamp-preserving event bridge |
+| Desktop entry | `main.rs` | Tauri plugin、workspace 创建、运行/切换/policy/readiness/Inspector/只读 MCP 日志/工具正文 command 和 timestamp-preserving event bridge |
 
 ## 引擎注册表与编排策略（R-tickets 17/18）
 

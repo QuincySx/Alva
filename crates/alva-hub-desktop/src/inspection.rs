@@ -1,5 +1,5 @@
 // INPUT:  HubStore routing, Alva adapter repository, EngineInspector snapshots, stable adapter projection
-// OUTPUT: HubInspectorService and stable HubInspectionSnapshot IPC DTOs
+// OUTPUT: HubInspectorService with scoped read-only MCP journal queries and reference-only MCP snapshot DTOs
 // POS:    L7 inspection bridge that validates product/native session ownership before projecting durable engine records
 
 use std::cmp::Reverse;
@@ -63,6 +63,55 @@ impl HubInspectorService {
 
     pub(crate) fn repository(&self) -> SessionRepository {
         self.repository.clone()
+    }
+
+    /// Explicit UI inspection only: never constructs an Agent or MCP connection.
+    pub async fn mcp_journal(
+        &self,
+        store: &HubStore,
+        product_session_id: &str,
+        native_session_id: &str,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let unavailable = || "MCP journal unavailable in this session".to_string();
+        if native_session_id.is_empty() || native_session_id.len() > 128 {
+            return Err(unavailable());
+        }
+        let detail = store
+            .get_session(product_session_id)
+            .map_err(|_| unavailable())?
+            .ok_or_else(unavailable)?;
+        let roots: Vec<String> = alva_roots(&detail)
+            .iter().filter_map(|branch| branch.engine_session_id.clone()).collect();
+        let repository = self.repository.clone();
+        let target = native_session_id.to_string();
+        let authorized = tokio::task::spawn_blocking(move || {
+            if !repository.contains(&target).map_err(|_| ())? {
+                return Ok(false);
+            }
+            let mut current = target;
+            let mut visited = HashSet::new();
+            for _ in 0..MAX_INSPECTION_SESSIONS {
+                if !visited.insert(current.clone()) {
+                    return Err(());
+                }
+                if roots.contains(&current) {
+                    return Ok(true);
+                }
+                let Some(parent) = repository.linked_parent(&current).map_err(|_| ())? else {
+                    return Ok(false);
+                };
+                current = parent;
+            }
+            Err(())
+        }).await;
+        if !matches!(authorized, Ok(Ok(true))) {
+            return Err(unavailable());
+        }
+        alva_engine_adapter_alva::ContextRetrievalPlugin::new(
+            self.repository.clone(), native_session_id.into(),
+        )
+        .inspect_mcp_journal(input).await.map_err(|_| unavailable())
     }
 
     pub async fn inspect(
@@ -203,20 +252,38 @@ fn project_snapshot(
     let records = snapshot
         .records
         .into_iter()
-        .map(|record| HubInspectionRecord {
-            seq: record.seq,
-            record_id: record.record_id,
-            parent_record_id: record.parent_record_id,
-            timestamp: record.timestamp,
-            category: match record.category {
-                RecordCategory::Conversation => "conversation",
-                RecordCategory::Execution => "execution",
-                RecordCategory::Extension => "extension",
+        .map(|record| {
+            // Periodic Inspector snapshots must not ship entire MCP frames.
+            // Explicit journal queries retrieve the selected verified text page.
+            let payload = match &record.payload {
+                SessionRecordPayload::Extension(extension)
+                    if extension.namespace == "alva.mcp"
+                        && record.type_name == "mcp_io"
+                        && record.schema_version == 1 =>
+                {
+                    let label = |field: &str| {
+                        extension.payload[field]
+                            .as_str().unwrap_or("").chars().take(128).collect::<String>()
+                    };
+                    serde_json::json!({"mcp_journal_reference":{"record_id":record.record_id,
+                        "server_id":label("server_id"),"direction":label("direction")}})
+                }
+                _ => serde_json::to_value(&record.payload).unwrap_or(serde_json::Value::Null),
+            };
+            HubInspectionRecord {
+                seq: record.seq,
+                record_id: record.record_id,
+                parent_record_id: record.parent_record_id,
+                timestamp: record.timestamp,
+                category: match record.category {
+                    RecordCategory::Conversation => "conversation",
+                    RecordCategory::Execution => "execution",
+                    RecordCategory::Extension => "extension",
+                }.to_string(),
+                type_name: record.type_name,
+                emitter: serde_json::to_value(record.emitter).unwrap_or(serde_json::Value::Null),
+                payload,
             }
-            .to_string(),
-            type_name: record.type_name,
-            emitter: serde_json::to_value(record.emitter).unwrap_or(serde_json::Value::Null),
-            payload: serde_json::to_value(record.payload).unwrap_or(serde_json::Value::Null),
         })
         .collect();
     HubInspectionSnapshot {
@@ -270,6 +337,48 @@ mod tests {
             .finish_turn(&prepared, Some(native), Some("done"), None, None)
             .unwrap();
         prepared.branch_id
+    }
+
+    #[tokio::test]
+    async fn mcp_journal_reads_actual_descendants_without_replay_or_full_snapshot_delivery() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = HubStore::open(directory.path().join("hub.db")).unwrap();
+        bind_native_session(&store, directory.path(), "product-a", "alva", "root");
+        bind_native_session(&store, directory.path(), "product-b", "alva", "other");
+        let service = HubInspectorService::open(directory.path()).unwrap();
+        let repository = service.repository();
+        let root = repository.open_session("root", None).await.unwrap();
+        let child = root.create_child_session("run", "spawn").await.unwrap().unwrap();
+        let grandchild = child.create_child_session("child-run", "grand-spawn").await.unwrap().unwrap();
+        repository.open_session("fake", Some("root".into())).await.unwrap();
+        let mut ids = Vec::new();
+        for session in [root.clone() as std::sync::Arc<dyn alva_kernel_abi::AgentSession>, child.clone(), grandchild.clone()] {
+            let record = SessionRecord::extension("alva.mcp", "mcp_io", 1, EventEmitter::runtime(), serde_json::json!({
+                "server_id":"fixture","direction":"incoming","frame":RecordValue::Inline{value:serde_json::json!({"text":format!("{}own-{}", "x".repeat(100000), session.session_id())})}
+            })).unwrap();
+            ids.push(record.record_id.clone());
+            session.append_records(vec![record]).await.unwrap();
+        }
+        let sessions = ["root".to_string(), child.session_id().to_string(), grandchild.session_id().to_string()];
+        for (index, native) in sessions.iter().enumerate() {
+            let page = service.mcp_journal(&store,"product-a",native,serde_json::json!({"action":"list"})).await.unwrap();
+            assert_eq!(page["hits"][0]["record_id"],ids[index]);
+            let text = service.mcp_journal(&store,"product-a",native,serde_json::json!({"action":"read","record_id":ids[index]})).await.unwrap();
+            assert!(text["text"].as_str().unwrap().len() <= 2048);
+            assert!(service.mcp_journal(&store,"product-b",native,serde_json::json!({"action":"list"})).await.is_err());
+        }
+        let count = repository.records("root").unwrap().len();
+        assert!(service.mcp_journal(&store,"product-a","root",serde_json::json!({"action":"read","record_id":ids[1]})).await.is_err());
+        assert!(service.mcp_journal(&store,"product-a","fake",serde_json::json!({"action":"list"})).await.is_err());
+        assert!(service.mcp_journal(&store,"product-a","unknown",serde_json::json!({"action":"list"})).await.is_err());
+        assert!(!repository.contains("unknown").unwrap());
+        let snapshot = service.inspect(&store,"product-a",None).await.unwrap();
+        assert!(serde_json::to_string(&snapshot).unwrap().len() < 10000);
+        assert!(snapshot.records.iter().any(|record| record.payload.get("mcp_journal_reference").is_some()));
+        assert_eq!(repository.records("root").unwrap().len(), count, "inspection never appends/replays calls");
+        drop((root,child,grandchild,repository,service));
+        let reopened = HubInspectorService::open(directory.path()).unwrap();
+        assert_eq!(reopened.mcp_journal(&store,"product-a",&sessions[2],serde_json::json!({"action":"list"})).await.unwrap()["hits"][0]["record_id"],ids[2]);
     }
 
     #[tokio::test]

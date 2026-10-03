@@ -1,5 +1,14 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-03 继续 · 当前 Agent 的只读 MCP 日志 Inspector
+
+- 新增产品只读 journal API/正式 Inspector 入口；Tauri/HTTP POST 复用共享 HubInspectorService 与同一 native reader。native metadata + 版本 1 typed 父链接验证到本 HubSession 的 ALVA branches，256 层/循环拒绝；query 路径不恢复会话/创建未知 ID/Agent/MCP/模型/append/重放，不给主 AI 增加父/其他会话日志权限。
+- list 只扫 128 metadata/回 20 小索引，正文保留 literal 200 字符、128 records/64 MiB scan、20 hits/100-byte previews、2 KiB UTF-8 read/16 KiB response、blob hash-size/type-version/typed 媒体排除。正文损坏仍能列索引，读取则失败；定时 Inspector DTO 仅 MCP 小引用。整个 Inspector 的全量恢复/RunRecord 构建仍未分页/性能验收，不夸大本条 metadata API。
+- UI 当前页替换/固定 through/空页继续，scope/导航/retry 绑定结果防迟到及旧页闪现；关键词原样、不执行 HTML、通用 alert/重试、索引来源焦点与 Inspector Back/Esc。明示脱敏/typed 媒体排除/unknown acceptance，不触发工作；browser-only 无服务明确失败。正式 child Inspector 入口测试确认只查询当前 child。
+- **589 passed：53 adapter、261 Desktop lib / 4 精确真实账户 filtered、4 bin、16 HTTP、245 UI / 26 files、10 Chrome**；14 条新增，6 条既有 Chrome 为 100/1000/10000 history/DOM/stream anchor/窗口外搜索。真实私有 SQLite/typed child/blob/HTTP 覆盖重启、损坏、未知 schema/metadata-only links、越权、限额及不追加/启动/重放；Chrome EN/ZH×1440/720 的日志 HTTP 拦截 fixture 不冒充真实 MCP/provider/WKWebView。
+- production build/all-target check（29 既有 warnings）/diff/public snapshots/依赖/bus/wasm32/full host link 通过，wasip2 缺 target 明确 skipped。首轮 Result/import/Alert 夹具错误、StrictMode 双 metadata 请求、Axum unknown JSON 422 已按真实行为纠正，未放宽生产闸门；代码复查补充 cursor 身份防闪现与 unknown link version 拒绝。Chrome DevTools 工具不可用，使用仓库现有 Playwright/已装 Chrome，不安装依赖。
+- coding/git 规范同步三级文档，仅本批本地提交、不 push；用户 CONTEXT.md/无关目录保留。仓库只有 sample Git hooks，已提示可另行安装 guardrails-agent-plugin，本次不擅自安装。内核公开表面未变，新增业务仍在 adapter/产品层，这是扩展边界有效的证据而非内核完美证明；跨层装配复杂度/完整 Inspector 大规模内存/真实 provider 与 native 验收仍待继续。
+
 ## 2026-10-03 继续 · 递归子/孙 MCP 的自有 worker 与日志
 
 - 受管产品配方初始化发布窄 McpSpawnPolicy；app spawn 完成直接父实际工具选择后，只有获准 mcp_runtime + 共享 SecurityGuard 才重绑。实际 native child authority 校验先于 host IO，沿用本轮批准 server/cwd snapshot，不发现 ambient 配置；每层独立 gateway/recorder/cache/worker，不借父日志或恢复 root 工具。

@@ -1,5 +1,5 @@
 // INPUT:  alva-hub-desktop (HubStore, reference-first run seam, engine assembly and DTOs), axum, tokio
-// OUTPUT: HTTP/SSE workspace/automation/MCP/Inspector APIs, 20 MiB uploads and scoped original/derived media inspection with receipts
+// OUTPUT: HTTP/SSE workspace/automation/MCP/Inspector APIs, scoped read-only journal/media inspection and 20 MiB uploads
 // POS:    Alva Hub as a local service — one backend, many frontends.
 
 use std::collections::{HashMap, HashSet};
@@ -440,6 +440,25 @@ async fn get_inspection(
     {
         Ok(snapshot) => Json(snapshot).into_response(),
         Err(error) => (StatusCode::NOT_FOUND, Json(json!({ "error": error }))).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct McpJournalRequest {
+    native_session_id: String,
+    query: serde_json::Value,
+}
+
+/// Read-only queries use a JSON body for literal Unicode search and cursor data.
+async fn inspect_mcp_journal(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(request): Json<McpJournalRequest>,
+) -> impl IntoResponse {
+    match state.inspector.mcp_journal(&state.store, &id, &request.native_session_id, request.query).await {
+        Ok(page) => Json(page).into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, Json(json!({"error":"MCP journal unavailable in this session"}))).into_response(),
     }
 }
 
@@ -1487,6 +1506,7 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/sessions", get(list_sessions))
         .route("/api/sessions/:id", get(get_session))
         .route("/api/sessions/:id/inspection", get(get_inspection))
+        .route("/api/sessions/:id/mcp-journal", post(inspect_mcp_journal))
         .route("/api/sessions/:id/tool-content/:content_id", get(get_tool_content))
         .route("/api/sessions/:id/attachments/:attachment_id", get(get_input_attachment))
         .route("/api/sessions/:id/attachments/:attachment_id/media", get(list_attachment_media))
@@ -2184,6 +2204,70 @@ mod r65_stop_integration {
         assert_eq!(server.engine.turn.load(Ordering::SeqCst),1,"inspection must not start a new engine turn");
         let stored:String=connection.query_row("SELECT status FROM media_deliveries WHERE delivery_id='http-receipt'",[],|r|r.get(0)).unwrap();
         assert_eq!(stored,"provider_error_acceptance_unknown","inspection must not replay a receipt");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn mcp_journal_http_is_bounded_scoped_and_does_not_start_or_replay_engines() {
+        let server = spawn_server_gated(vec![Step::CompleteNow], false, false).await;
+        let (status, response) = http_post(server.addr, "/api/run".into(), run_body(server.data_dir.join("workspace").to_str().unwrap(), None)).await;
+        assert_eq!(status, 200);
+        let outcome: serde_json::Value = serde_json::from_str(&response).unwrap();
+        let product = outcome["product_session_id"].as_str().unwrap();
+        let detail = http_get(server.addr, &format!("/api/sessions/{product}")).await.1;
+        let native = detail["branches"][0]["engine_session_id"].as_str().unwrap();
+        // Seed durable protocol fixtures without adding SDK dependencies to the server.
+        // Actual typed child creation/blob storage are exercised in the adapter/Desktop tests.
+        let connection = rusqlite::Connection::open(
+            server.data_dir.join("alva-history/alva-agent-records.db"),
+        ).unwrap();
+        let child = "http-fixture-child";
+        let id = "http-fixture-record";
+        for (session, parent) in [(native, None), (child, Some(native))] {
+            connection.execute(
+                "INSERT OR IGNORE INTO native_sessions(session_id,parent_session_id,created_at) VALUES(?1,?2,1)",
+                rusqlite::params![session, parent],
+            ).unwrap();
+        }
+        let emitter = json!({"kind":"runtime","id":"kernel_core","instance":null});
+        let link = json!({
+            "seq":1,"record_id":"http-child-link","parent_record_id":null,"timestamp":1,
+            "emitter":emitter,"category":"execution","type_name":"child_session_linked","schema_version":1,
+            "payload":{"category":"execution","payload":{"kind":"child_session_linked",
+                "child_session_id":child,"parent_run_id":"fixture-run","spawn_tool_call_id":"fixture-spawn"}}
+        });
+        let record = json!({
+            "seq":1,"record_id":id,"parent_record_id":null,"timestamp":1,
+            "emitter":emitter,"category":"extension","type_name":"mcp_io","schema_version":1,
+            "payload":{"category":"extension","payload":{"namespace":"alva.mcp","payload":{
+                "server_id":"fixture","direction":"incoming",
+                "frame":{"storage":"inline","value":{"text":format!("{}tail-日志🙂", "x".repeat(100000))}}
+            }}}
+        });
+        for (session, value) in [(native, link), (child, record)] {
+            connection.execute(
+                "INSERT INTO native_records(session_id,seq,record_json) VALUES(?1,1,?2)",
+                rusqlite::params![session, serde_json::to_vec(&value).unwrap()],
+            ).unwrap();
+        }
+        let endpoint = format!("/api/sessions/{product}/mcp-journal");
+        let request = |query: serde_json::Value| json!({"native_session_id":child,"query":query}).to_string();
+        let (status, index) = http_post(server.addr, endpoint.clone(), request(json!({"action":"list"}))).await;
+        assert_eq!(status, 200); assert!(index.len() < 1000 && !index.contains("tail-"));
+        let (status, text) = http_post(server.addr, endpoint.clone(), request(json!({"action":"read","record_id":id}))).await;
+        assert_eq!(status, 200); assert!(text.len() < 16000);
+        assert!(serde_json::from_str::<serde_json::Value>(&text).unwrap()["has_more"] == true);
+        assert_eq!(http_post(server.addr, "/api/sessions/other/mcp-journal".into(), request(json!({"action":"list"}))).await.0, 404);
+        assert_eq!(http_post(server.addr, endpoint.clone(), json!({"native_session_id":native,"query":{"action":"read","record_id":id}}).to_string()).await.0,404);
+        for query in [json!({"action":"call_tool"}),json!({"action":"list","path":"/private/not-readable"})] {
+            let result = http_post(server.addr, endpoint.clone(), request(query)).await;
+            assert_eq!(result.0,404); assert!(!result.1.contains("/private"));
+        }
+        assert_eq!(http_post(server.addr, endpoint, json!({"native_session_id":native,"query":{"action":"list"},"extra":true}).to_string()).await.0,422);
+        assert_eq!(server.engine.turn.load(Ordering::SeqCst),1);
+        let count: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM native_records WHERE session_id=?1", [child], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1, "inspection must not append/replay journal records");
     }
 
     #[tokio::test(flavor = "multi_thread")]

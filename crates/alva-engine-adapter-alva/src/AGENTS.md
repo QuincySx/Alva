@@ -19,6 +19,7 @@
 11. `SessionPluginFactory` 是显式产品配方：每个实际 native root ID 创建 Plugin；Hub 经它绑定已认领的 HubStore/session，补跨 branch 可见历史与按需媒体。契约/Middleware 类型从此 app adapter 重导出，不给 SDK 增加业务能力，也不自动将根产品数据授权给递归子树。`visible_context_tool_text` 复用 typed 媒体字节排除规则。
 12. 受管 MCP + context repository 装配 `SessionMcpRecorder`：gateway/完整协议/空闲通知/stderr 先写同一 native SQLite/blob authority，同时缓存完整脱敏 frame；64 MiB 序列化/4096 条/装配 lifetime，超预算或落盘失败锁存并停连接，不静默淘汰。四 gateway 动作只回短引用；`context_retrieval kind=mcp` 按文字搜索/read/search_record，核验 namespace/type/version/hash-size/自有 session，排除 typed 媒体，不实现 JSON-path。JSON 语义完整不是原始空白复刻，取消/拒绝的前缀明确不完整。Hub-owned Worker 有独立 factory 绑定；复制 root gateway 到递归 child 仍拒绝，不授予父 journal。
 13. 同一受管配方初始化发布 `ManagedMcpSpawnPlugin/McpSpawnPolicy`，只有直接父实际授予 MCP 且共享安全存在才重绑。实际 child ID 必须已在同一 native repository；沿用本轮批准的 server snapshot/cwd，不重新扫描配置。child/孙各有新 recorder/worker/cache，启动消耗 child timeout、响应父取消，结束回收自己的连接，不关闭父 worker、不重放或恢复被撤销的工具。
+14. 产品只读 `ContextRetrievalPlugin::inspect_mcp_journal` 不创建 Agent/连接/会话。调用者先授权固定 native session；list 仅扫描一页 128 条 metadata、最多 20 个 MCP 索引，正文复用同一有界 reader/hash-size/typed 媒体排除。`SessionRepository::linked_parent` 只在父 metadata 与版本 1 typed causal link 一致时返回父 ID，不恢复整个会话；UI list 不扩充模型工具 schema。
 
 ## 约束
 - 不得构造裸 `AgentState` 或直接调用 `run_agent`；必须通过 BaseAgent factory。
@@ -33,8 +34,8 @@
 |------|------------|------|
 | AlvaAdapter | adapter.rs | EngineRuntime + EngineInspector：session 生命周期、审批路由、typed snapshot/live tail |
 | BaseAgentFactory / SessionPluginFactory / BuiltAgent | factory.rs | 每 session 组装；Catalog vs Default 两档，显式 root 产品 Plugin 配方 |
-| SessionRepository | session_repository.rs | engine-native SQLite records、atomic batch/脏修复、resume/live tail 与固定会话有界检索/引用来源校验 |
-| ContextRetrievalPlugin | context_retrieval.rs | 通用结果/MCP 媒体引用、固定会话耐久历史检索；递归子会话重新绑定与 assembly fail-closed，真实父/子/孙隔离和重启回归 |
+| SessionRepository | session_repository.rs | engine-native SQLite records、atomic batch/脏修复、resume/live tail、metadata-only typed 父链接及有界检索/来源校验 |
+| ContextRetrievalPlugin | context_retrieval.rs | 通用结果/MCP 引用、模型自有检索与产品只读日志索引/正文；递归绑定/assembly fail-closed、隔离/损坏/重启回归 |
 | SessionMcpRecorder / ManagedMcpSpawnPlugin | mcp_journal.rs | 完整脱敏交互内存/文件、预算失败停止；已批准配方向实际 child 重绑自有 gateway，authority 检查先于 host IO |
 | Recursive MCP fixtures | mcp_spawn_tests.rs | 真实本地 stdio/正常审批/模型替身验证父子孙独立日志与检索、撤销授权/拒绝、结束回收和重启 |
 | EventMapper | mapping.rs | AgentEvent → RuntimeEvent；Completed 聚合最后一条助手消息的全部文本块；ToolEnd 保留真实执行 duration |

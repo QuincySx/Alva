@@ -1,5 +1,5 @@
 // INPUT:  @tauri-apps/api, dialog/opener plugins, HTTP JSON transport
-// OUTPUT: typed workspace/Skills/automation/MCP/run/Inspector/provider and scoped attachment/media inspection IPC/HTTP APIs
+// OUTPUT: typed workspace/Skills/automation/MCP/run/Inspector/provider and scoped MCP journal/attachment/media IPC/HTTP APIs
 // POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -1052,6 +1052,23 @@ export async function getHubInspection(
     productSessionId,
     nativeSessionId: nativeSessionId ?? null,
   });
+}
+
+export type McpJournalQuery =
+  | { action: "list"; after_seq?: number; through?: number; limit?: number }
+  | { action: "search_history"; query: string; after_seq?: number; through?: number; limit?: number }
+  | { action: "read"; record_id: string; offset?: number };
+export interface McpJournalHit {
+  record_id: string; seq: number; timestamp: number;
+  server_id?: string; direction?: string; source_bytes?: number; preview?: string; match_offset?: number;
+}
+export type McpJournalPage =
+  | { hits: McpJournalHit[]; next_cursor: number; through: number; has_more: boolean }
+  | { record_id: string; text: string; offset: number; next_offset: number; total_bytes: number; has_more: boolean };
+export async function inspectHubMcpJournal(productSessionId: string, nativeSessionId: string, query: McpJournalQuery): Promise<McpJournalPage> {
+  if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/mcp-journal`, { native_session_id: nativeSessionId, query });
+  if (!hasTauri) throw new Error("MCP journal inspection requires the Hub runtime.");
+  return invoke("inspect_hub_mcp_journal", { productSessionId, nativeSessionId, query });
 }
 
 export async function addSessionMemory(

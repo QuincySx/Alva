@@ -184,8 +184,8 @@ interrupted unknown 不冒充成功或失败接受。无重放/重新发送按�
    native typed extension 不成为 conversation 消息；短引用验证来源后允许进入模型。
    `context_retrieval search_history kind=mcp`、`read`、`search_record` 供模型有界文字检索，
    不暴露其他 namespace/internal provider/hidden reasoning。typed 媒体字节仍被排除，
-   不执行服务器返回的脚本/HTML。typed records 复用 Inspector 的权威来源；本批不新增
-   专门 MCP 日志 UI，也不把后端可检索等同于 UI 全文展示已实现。
+   不执行服务器返回的脚本/HTML。typed records 复用 Inspector 的权威来源；已接下面的
+   显式日志 UI，不自动把其内容送回模型，也不把 UI 分页当成模型预算控制。
 5. 当前 gateway 的固定 schema 只含 `list_servers/search_tools/describe_tool/call_tool`。
    目录按稳定 server/tool 排序，literal case-insensitive query ≤200 字符，默认 5 项、
    最多 20 项并有 offset/has_more；描述预览最多 96 字符，不返回整库 schema。
@@ -222,6 +222,30 @@ interrupted unknown 不冒充成功或失败接受。无重放/重新发送按�
    的不存在工具仍返回 Tool not found；这是现有安全中间件先审批后查缺失工具的行为，
    不代表恢复授权。正常 RejectOnce 不执行 gateway/远端调用；启动超时/父取消会
    drop 绑定且不取消父或调用 child provider。未调用真实付费服务。
+
+### Inspector 只读日志（2026-10-03）
+
+当前 Inspector Agent 有独立“查看 MCP 日志”入口，用户点击后只取 metadata 索引，
+按关键词搜索/点击记录才读已脱敏文字视图。`inspect_hub_mcp_journal` 和 HTTP
+`POST /api/sessions/:id/mcp-journal` 共用 `HubInspectorService`，只读 JSON query 而非调用。
+先验证 native 会话存在，沿 metadata 与版本 1 typed `ChildSessionLinked` 一致的父链接
+走到本 HubSession 的 ALVA branch（最多 256 层/循环拒绝）；不恢复整个会话/创建未知
+会话、Agent 或 MCP 连接，不落新日志/重放。人可钻取自己的递归 Inspector 树，不代表
+模型获得父/其他子/其他 HubSession/Worker 的日志权限。
+
+query ≤2 KiB，list 一次最多扫描 128 条 metadata/返回 20 项，只含 ID/seq/time/server/
+direction/source bytes，无正文或 blob hydration；固定 through 的空扫描页可继续。
+正文复用 native reader 的字面查询 ≤200 字符、128 records/64 MiB scan、20 hits/
+100-byte preview、2 KiB UTF-8 read、16 KiB 完整 response，hash-size/namespace/type/version
+验证与 typed 媒体/内部轨迹排除不变。索引可在 blob 损坏时列出，正文则明确失败。
+定时 Inspector DTO 的 MCP payload 只投影小引用，不自动运输 frame/preview。
+
+UI 每次只保留当前页，scope/导航/retry 身份匹配并丢弃迟到回复，翻页不闪现旧正文；
+搜索/刷新/重试、索引返回来源焦点及 Inspector Back/Esc 真实接线，中英文提示说明
+脱敏、typed 媒体排除与 outgoing/取消不证明远端接受。文本惰性渲染，不执行 HTML。
+Chrome fixture 与真实私有 SQLite/HTTP 回归是本地读取证据，不是用户 MCP/付费 provider/
+WKWebView 验收；整个 Inspector 的全量 session 恢复/RunRecord 构建仍未分页或做大规模
+内存验收，不将仅此 journal API 的 metadata 路径夸大成所有 Inspector 已有界。
 
 ## 历史（ALVA native 与固定 HubSession 产品记录）
 

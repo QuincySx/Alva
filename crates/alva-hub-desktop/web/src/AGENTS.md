@@ -26,6 +26,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 13. 左栏支持 New session、按 workspace/prompt/engine 搜索过滤；composer footer 一处集中 engine、model、PermissionProfile 与 fallback 链（含未授权标注）。
 14. Details 抽屉（顶栏 Details 开关）检视 EngineBranches、EngineAttempts（失败原因/用量/工具证据）、handoffs（含 team snapshot 与 delivered/pending）与 engine diagnostics；timeline 本身只渲染产品 TimelineEvent，并从 `created_at`/合并时保留的 `started_at` 投影 Input/Agent/Tools 三泳道概览，绝不读取 raw adapter stream。
 14.1. Workbench Inspector 与 Details/timeline 分离：`bridge.getHubInspection` 从 Tauri command 或同构 HTTP endpoint 读取稳定 `HubInspectionSnapshot`，运行中每秒刷新当前 native session；`EngineInspectorPanel` 展示 Run/LLM/Tool/Middleware/raw durable records，点击 child session 压入 Agent 页栈，Back/Esc 依次退出详情页、当前 Agent、返回父 Agent。非 Alva session 只展示 truthful unsupported 与产品级 Attempt。
+14.2. 当前 Agent 的 MCP 日志显式打开小索引，按字面关键词搜索和分段读取（2 KiB UTF-8/页），只保留当前页；scope/导航身份隔离迟到结果与上一页闪现，失败可重试，Back/Esc 与索引返回恢复焦点。说明脱敏/typed 媒体排除/未知接受，不启动 MCP/模型/重放；与模型上下文控制相互独立。UI Lab/Chrome 使用只读 HTTP 拦截 fixture，browser-only 无服务明确不可用。
 15. 卡片控件按"本窗口正在跑 **或** store 说 session 在 running"启用（只看快照会在自己这轮运行期间把 Stop 关掉——sessionDetail 是运行后才刷新的）：终态时 Stop 禁用并显示"该 attempt 已结束"，Switch back / View handoff 仍可用；终态事件到达时回刷 sessionDetail，抽屉与闸门不会停留在旧状态。
 16. `resetSessionSurface` 是 New session 与切换 workspace 共用的清场：profile、engine、fallback 链、transcript 开关、已答审批、按索引存的 handoff 展开态一并复位——否则上一个 session 的 profile/链会被当成新 session 的默认值（甚至被存成全局默认）。
 17. `ui/` 是唯一基础组件入口，封装 Radix 的焦点、键盘、碰撞和 Portal 行为；业务页面不得直接从 `radix-ui` 导入。
@@ -68,7 +69,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | I18N | `i18n.tsx` | 简体中文主语言、英文回退、系统语言解析、持久化偏好与 typed 翻译函数 |
 | Appearance | `appearance.tsx` / `appearance.test.tsx` | 全局主题、密度与可访问动效的持久化/跨窗口同步、保存失败和 AA 色彩/居中契约回归 |
 | Product UI | `App.tsx` | 新会话 workspace mode、engine selector、permission profile、fallback、composer、timeline、permission card 与上下文限定快捷键 |
-| IPC bridge | `bridge.ts` | workspace 创建/选择与 run/switch/policy/readiness/session/permission/Inspector 的 Tauri/HTTP 封装及稳定 DTO |
+| IPC bridge | `bridge.ts` | workspace/run/switch/policy/readiness/session/permission/Inspector 与 MCP 日志只读查询的 Tauri/HTTP 封装及稳定 DTO |
 | Style entry | `index.css` | 按 tokens → primitives → domain → app 顺序装配全部样式 |
 | Design tokens | `styles/tokens.css` | ALVA 颜色、间距、圆角、阴影和动效唯一来源 |
 | Primitive styles | `styles/primitives.css` | 基础组件 hover/focus/open/disabled 状态 |
@@ -88,6 +89,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | Input attachments | `components/input-attachments.tsx` / `components/input-attachments.test.tsx` | 原字节上传、限额/失败草稿与会话归属历史预览、真实未处理说明、媒体 URL 生命周期 |
 | Attachment preview | `components/attachment-preview.tsx` | 原件/派生共享惰性文本和本地媒体预览，惰性处理清单与可回收 Blob |
 | Media evidence | `components/attachment-media.tsx` / `components/attachment-media.test.tsx` | 消息内分页派生索引/显式预览/来源清单/回执与重试、隔离、焦点回归，不发送模型请求 |
+| MCP journal | `components/mcp-journal.tsx` / `components/mcp-journal.test.tsx` | 当前 Inspector Agent 的显式只读索引/搜索/有界正文、游标/迟到回复隔离、重试和焦点回归 |
 | Message modules | `components/message-modules.tsx` / `components/message-modules.test.tsx` | 可信有界数据 renderer registry、表格/图表/图示与逐模块错误隔离 |
 | Workspace gate | `components/workspace-gate.tsx` | 新会话中央“独立会话 / 项目”双入口，不在确认前创建目录 |
 | Sidebar | `components/hub-sidebar.tsx` | 产品导航、会话搜索与持久会话列表，不承载 Workspace 创建/切换 |
@@ -115,7 +117,7 @@ Tauri webview 的纯表现层。只消费稳定 IPC DTO 和 `hub_timeline` 产�
 | User browser | `components/workspace-browser.tsx` | 显式打开独立临时原生窗口，地址/导航/刷新/显示/关闭控件；轮询窗口事实，不伪造 Agent 自动化、iframe 或加载成功 |
 | Workspace Skills | `components/workspace-skills.tsx` / `components/workspace-skills.test.tsx` | 真实工作区技能列表/搜索、源文档创建/编辑、冲突/失败/只读状态、归档确认/恢复与会话隔离；不联网安装样例 |
 | Local automations | `components/automations.tsx` / `components/automations.test.tsx` | 真实 interval CRUD/状态轮询、暂停保存、计费 review、Pause/删除确认与 session 导航；不伪造 daemon/cron 或即时执行 |
-| UI Lab | `ui-lab.tsx` | 开发/test-only 确定性组件/页面与真实只读媒体组件展台；HTTP fixtures 仅测试拦截 |
+| UI Lab | `ui-lab.tsx` | 开发/test-only 组件/页面与只读媒体/MCP 日志展台；HTTP fixtures 仅测试拦截 |
 | Visual config | `../playwright.config.ts` | 1440×900 Chrome 截图环境与 Vite 生命周期 |
 | Visual tests | `../tests/visual.spec.ts` | 七张总层架和模型弹层的真实浏览器回归 |
 | Domain styles | `styles/hub-components.css` | Hub 领域组件组合样式，不重复基础控件行为 |

@@ -1,5 +1,5 @@
 // INPUT: Native SessionRepository/MCP journal, Plugin registrar, middleware/ContextHooks, app-level SpawnContextPolicy
-// OUTPUT: ContextRetrievalPlugin, session-bound context_retrieval tool and visible_context_tool_text
+// OUTPUT: ContextRetrievalPlugin with read-only MCP inspection, session-bound context_retrieval and visible_context_tool_text
 // POS: Hub ALVA reference-first projection and session-bound history/MCP text retrieval without SDK policy changes.
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -39,6 +39,99 @@ impl ContextRetrievalPlugin {
             session_id,
             assembly_failed: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Product-only read surface. The caller first authorizes this native session.
+    /// Listing reads metadata only; text search/read reuse the model reader's
+    /// budgets, source verification and typed-media exclusion, without an Agent.
+    pub async fn inspect_mcp_journal(&self, input: Value) -> Result<Value, AgentError> {
+        if input.to_string().len() > 2048 {
+            return Err(fail("Journal query exceeds budget"));
+        }
+        let reader = ContextRetrievalTool(self.clone());
+        let result = tokio::task::spawn_blocking(move || {
+            let repository = &reader.0.repository;
+            let session = &reader.0.session_id;
+            if !repository
+                .contains(session)
+                .map_err(|_| fail("Journal unavailable"))?
+            {
+                return Err(fail("Journal unavailable"));
+            }
+            if input["action"] == "list" {
+                if input.as_object().is_none_or(|fields| {
+                    fields.keys().any(|key| {
+                        !["action", "after_seq", "through", "limit"].contains(&key.as_str())
+                    })
+                }) {
+                    return Err(fail("Unsupported journal index field"));
+                }
+                let after = integer(&input, "after_seq", 0, i64::MAX as u64)?;
+                let through = input
+                    .get("through")
+                    .map(|_| integer(&input, "through", 0, i64::MAX as u64))
+                    .transpose()?;
+                let limit = integer(&input, "limit", 20, 20)? as usize;
+                if limit == 0 {
+                    return Err(fail("limit must be positive"));
+                }
+                let (records, through) = repository
+                    .context_page(session, after, through)
+                    .map_err(|_| fail("Journal index unavailable"))?;
+                let mut hits = Vec::new();
+                let mut cursor = after;
+                if records.is_empty() {
+                    cursor = through;
+                }
+                for record in records {
+                    cursor = record.seq;
+                    if let Some(frame) = crate::mcp_journal::frame_value(&record) {
+                        frame.map_err(|_| fail("Journal metadata invalid"))?;
+                        let SessionRecordPayload::Extension(extension) = &record.payload else {
+                            unreachable!()
+                        };
+                        let label = |field: &str| {
+                            extension.payload[field]
+                                .as_str().unwrap_or("").chars().take(128).collect::<String>()
+                        };
+                        hits.push(json!({"record_id":record.record_id,"seq":record.seq,"timestamp":record.timestamp,
+                            "server_id":label("server_id"),"direction":label("direction"),"source_bytes":source_bytes(&record)}));
+                        if hits.len() == limit {
+                            break;
+                        }
+                    }
+                }
+                return Ok(json!({"hits":hits,"next_cursor":cursor,"through":through,"has_more":cursor < through}));
+            }
+            let mut input = input;
+            match input["action"].as_str() {
+                Some("search_history") => {
+                    if input.get("kind").is_some_and(|kind| kind != "mcp") {
+                        return Err(fail("Journal scope is MCP only"));
+                    }
+                    input["kind"] = json!("mcp");
+                }
+                Some("read" | "search_record") => {
+                    let id = input["record_id"]
+                        .as_str().filter(|id| id.len() <= 128)
+                        .ok_or_else(|| fail("record_id required"))?;
+                    let record = repository
+                        .context_record(session, id)
+                        .map_err(|_| fail("Journal record unavailable"))?;
+                    if crate::mcp_journal::frame_value(&record).is_none() {
+                        return Err(fail("Journal scope is MCP only"));
+                    }
+                }
+                _ => return Err(fail("Unknown journal action")),
+            }
+            reader.run(input)
+        })
+        .await
+        .map_err(|_| fail("Journal reader unavailable"))??;
+        if result.to_string().len() > RETRIEVAL_OUTPUT {
+            return Err(fail("Journal response exceeds budget"));
+        }
+        Ok(result)
     }
 
     async fn project(&self, messages: &mut [Message]) -> Result<(), MiddlewareError> {
@@ -730,6 +823,71 @@ mod tests {
     use alva_test::mock_provider::MockLanguageModel;
     use alva_test::mock_tool::MockTool;
     use alva_app_core::extension::mcp::McpIoObserver;
+
+    #[tokio::test]
+    async fn mcp_inspection_indexes_without_blob_reads_and_bounds_verified_text() {
+        let temp = tempfile::tempdir().unwrap();
+        let repository = SessionRepository::open(temp.path().join("records.db")).unwrap();
+        let session = repository.open_session("own", None).await.unwrap();
+        let recorder = crate::mcp_journal::SessionMcpRecorder::new(session.clone());
+        let id = recorder.record("fixture", "incoming", json!({"text":format!("{}tail-日志🙂", "x".repeat(100000)),"content":[{"type":"image","data":"not-visible-bytes","mimeType":"image/png"}]})).await.unwrap();
+        let reader = ContextRetrievalPlugin::new(repository.clone(), "own".into());
+        let page = reader.inspect_mcp_journal(json!({"action":"list","limit":1})).await.unwrap();
+        assert_eq!(page["hits"][0]["record_id"], id);
+        assert!(page.to_string().len() < 1000 && !page.to_string().contains("tail-"));
+        let before = page["through"].as_u64().unwrap();
+        recorder.record("fixture", "incoming", json!({"text":"later"})).await.unwrap();
+        let old = reader.inspect_mcp_journal(json!({"action":"list","after_seq":before,"through":before})).await.unwrap();
+        assert!(old["hits"].as_array().unwrap().is_empty());
+        let search = reader.inspect_mcp_journal(json!({"action":"search_history","query":"日志🙂"})).await.unwrap();
+        let offset = search["hits"][0]["match_offset"].as_u64().unwrap();
+        let text = reader.inspect_mcp_journal(json!({"action":"read","record_id":id,"offset":offset})).await.unwrap();
+        assert!(text["text"].as_str().unwrap().contains("日志🙂"));
+        let first = reader.inspect_mcp_journal(json!({"action":"read","record_id":id})).await.unwrap();
+        assert!(first["text"].as_str().unwrap().len() <= 2048 && first["has_more"] == true);
+        assert!(!text.to_string().contains("not-visible-bytes"));
+        for input in [json!({"action":"list","session_id":"other"}),json!({"action":"search_history","query":"x","kind":"all"}),json!({"action":"call_tool"}),json!({"action":"list","limit":0})] {
+            assert!(reader.inspect_mcp_journal(input).await.is_err());
+        }
+        assert!(ContextRetrievalTool(reader.clone()).run(json!({"action":"list"})).is_err(), "UI listing does not expand the model tool");
+        let stored = repository.context_record("own", &id).unwrap();
+        let RecordValue::Blob { reference } = crate::mcp_journal::frame_value(&stored).unwrap().unwrap() else { panic!("large fixture blob"); };
+        std::fs::write(repository.path().with_extension("blobs").join(format!("{}.json.zst", reference.sha256)), b"corrupt").unwrap();
+        assert!(reader.inspect_mcp_journal(json!({"action":"list"})).await.is_ok(), "metadata listing must not hydrate corrupt bodies");
+        assert!(reader.inspect_mcp_journal(json!({"action":"read","record_id":id})).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn mcp_inspection_rejects_other_records_and_requires_causal_parent_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let repository = SessionRepository::open(temp.path().join("records.db")).unwrap();
+        let root = repository.open_session("root", None).await.unwrap();
+        let child = root.create_child_session("run", "spawn").await.unwrap().unwrap();
+        assert_eq!(repository.linked_parent(child.session_id()).unwrap().as_deref(), Some("root"));
+        repository.open_session("metadata-only", Some("root".into())).await.unwrap();
+        assert!(repository.linked_parent("metadata-only").unwrap().is_none());
+        repository.open_session("unknown-version", Some("root".into())).await.unwrap();
+        let mut future_link = SessionRecord::execution(
+            "child_session_linked", alva_kernel_abi::EventEmitter::runtime(),
+            alva_kernel_abi::ExecutionRecord::ChildSessionLinked {
+                child_session_id: "unknown-version".into(),
+                parent_run_id: "fixture-run".into(),
+                spawn_tool_call_id: "fixture-spawn".into(),
+            },
+        );
+        future_link.schema_version = 2;
+        root.append_records(vec![future_link]).await.unwrap();
+        assert!(repository.linked_parent("unknown-version").unwrap().is_none());
+        let child_log = crate::mcp_journal::SessionMcpRecorder::new(child.clone()).record("fixture", "incoming", json!({"text":"child-only"})).await.unwrap();
+        let mut message = SessionRecord::conversation(AgentMessage::Standard(Message::user("not an MCP log")), None);
+        message.seq = 0;
+        let message_id = message.record_id.clone();
+        root.append_records(vec![message]).await.unwrap();
+        let reader = ContextRetrievalPlugin::new(repository.clone(), "root".into());
+        for id in [child_log, message_id] { assert!(reader.inspect_mcp_journal(json!({"action":"read","record_id":id})).await.is_err()); }
+        assert!(ContextRetrievalPlugin::new(repository.clone(), "unknown".into()).inspect_mcp_journal(json!({"action":"list"})).await.is_err());
+        assert!(!repository.contains("unknown").unwrap());
+    }
 
     #[tokio::test]
     async fn mcp_transcript_text_search_is_durable_scoped_and_excludes_typed_media() {

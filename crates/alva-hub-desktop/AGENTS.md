@@ -47,6 +47,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 25. 两栏信息架构收口：左栏 HubSession 创建/选择/搜索，composer 集中 engine、model、PermissionProfile 与 FallbackPolicy，timeline 只用产品 TimelineEvent，并按 shared clock 投影 Input/Agent/Tools 三泳道；可选 Details 抽屉完整检视 branches、attempts、handoff 与 engine diagnostics；collaboration surface 管理 Lead/Workers/queues/lifecycle；fallback、permission 与 Worker 卡片在重启后要么可操作要么明确终态。
 
 25.1. Workbench Inspector 与 timeline 分层：timeline 继续只读产品 TimelineEvent；Inspector 经 `HubInspectorService` 使用与 Alva adapter 共享的 `SessionRepository`，把权威 typed records 投影为稳定 IPC DTO。Tauri command 与 headless HTTP endpoint 同构；前端可钻取 LLM/Tool/Middleware/raw durable record 和递归子 Agent，并按详情→当前 Agent→父 Agent 逐页回退。非 Alva engine 明确显示 unsupported，不伪造内部事件。
+25.2. MCP 日志从当前 Inspector Agent 显式打开：只取小索引，关键词/游标分页和点击正文复用 native reader 限额；归属沿版本 1 typed 父链接验证到此 HubSession 的 ALVA branch。定时 DTO 只带 MCP 引用，查询不恢复会话/构造 Agent/启动连接/重放；这不授予模型父日志，也不代表整个 Inspector 全量恢复已分页。
 
 26. V1 验收矩阵在 `ACCEPTANCE.md`：18 条 scenario 逐条映射到可执行断言或明确标注为待打包运行时验证；外部链接经 `tauri-plugin-opener`（wry webview 里裸 `<a target="_blank">` 不生效）；worktree 隔离测试在缺 git 时**响亮失败**而非静默跳过（它们是"未 adopt 的工作不进共享 workspace"的唯一证据）。
 
@@ -72,7 +73,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Product seam | `src/run.rs` | 动态 engine Hub 运行、完整 handoff 注入与 shared-clock timeline 投影 |
 | Engine assembly | `src/alva.rs` | 为 workspace 构造 ALVA、Claude Code、Codex 或 Pi adapter，并投影统一第三方 ProviderConfig |
 | Product context / media | `src/hub_context.rs` / `src/hub_media.rs` | root ALVA Plugin 配方：固定 HubSession 可见历史与上传文本，显式有界派生/选图、单请求投递与 receipts；其他 engine 不消费 |
-| Inspector bridge | `src/inspection.rs` | 共享 Alva SessionRepository、校验 product/native session 归属并投影稳定递归 Inspector DTO |
+| Inspector bridge | `src/inspection.rs` | 共享 Alva SessionRepository、递归 Inspector DTO；MCP 小引用及显式归属索引/有界文字查询 |
 | Engine readiness | `src/readiness.rs` | 只读 probe、结构化 readiness 分类与 dashboard DTO |
 | SDK installation | `src/sdk_installation.rs` | Hub 受管 SDK 入口校验，与 task workspace 隔离，由 assembly/probe/veto 共同消费 |
 | Permission contract | `src/permissions.rs` | session PermissionProfile、adapter 映射资格与 PermissionRouter |

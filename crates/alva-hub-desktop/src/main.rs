@@ -1,5 +1,5 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: Desktop IPC for workspace/Skills/automation/MCP/run/Inspector and session-owned original/derived media inspection with receipts
+// OUTPUT: Desktop IPC for workspace/Skills/automation/MCP/run/Inspector, scoped journal queries and original/derived media inspection
 // POS:    Tauri 2 entrypoint, user-authorized multi-engine Desktop state owner, and product event bridge.
 
 #![cfg_attr(
@@ -1558,6 +1558,16 @@ async fn get_hub_inspection(
 }
 
 #[tauri::command]
+async fn inspect_hub_mcp_journal(
+    state: State<'_, DesktopState>,
+    product_session_id: String,
+    native_session_id: String,
+    query: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    state.inspector.mcp_journal(&state.store, &product_session_id, &native_session_id, query).await
+}
+
+#[tauri::command]
 async fn hub_browser(
     app: AppHandle, state: State<'_, DesktopState>, request: BrowserRequest,
 ) -> Result<serde_json::Value, String> {
@@ -1806,7 +1816,7 @@ fn isolated_ui_command(command: &str) -> bool {
     matches!(command,
         "hub_browser" | "hub_terminal" | "list_hub_sessions" | "get_hub_session"
         | "get_hub_tool_content" | "get_hub_input_attachment" | "list_hub_attachment_media" | "get_hub_media_artifact" | "get_hub_media_receipts" | "list_hub_workspace_files" | "read_hub_workspace_file"
-        | "get_hub_git_status" | "get_hub_git_diff" | "get_hub_messages" | "get_hub_inspection"
+        | "get_hub_git_status" | "get_hub_git_diff" | "get_hub_messages" | "get_hub_inspection" | "inspect_hub_mcp_journal"
         | "list_hub_workspace_skills" | "hub_workspace_skill"
         | "list_hub_automations" | "hub_automation"
         | "get_hub_tool_settings" | "hub_tool_settings_action"
@@ -1971,6 +1981,7 @@ fn main() {
             list_hub_sessions,
             get_hub_session,
             get_hub_inspection,
+            inspect_hub_mcp_journal,
             get_hub_tool_content,
             get_hub_input_attachment,
             list_hub_attachment_media,

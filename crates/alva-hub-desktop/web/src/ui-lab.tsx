@@ -1,5 +1,5 @@
 // INPUT:  ALVA UI facade, deterministic fixture content, and domain components
-// OUTPUT: Development/test-only component, page state and scoped media inspection catalog
+// OUTPUT: Development/test-only component/page catalog with scoped media and MCP journal inspection fixtures
 // POS:    Reproducible visual acceptance surface excluded from production navigation
 
 import { useState } from "react";
@@ -37,6 +37,7 @@ import {
 } from "./ui";
 import { ModelPicker, type HubModelRoute } from "./components/model-picker";
 import { MessageAttachments } from "./components/input-attachments";
+import { McpJournal } from "./components/mcp-journal";
 
 const routes: HubModelRoute[] = [
   { engineId: "alva", engineLabel: "ALVA", modelId: "workspace", modelLabel: "Workspace model", providerId: "workspace", accountSource: "Workspace configuration", billingRoute: "Workspace provider", description: "Uses the project model configuration.", capabilities: ["tools", "images"], reasoningEfforts: ["low", "medium", "high"], reasoningEffort: "high", supportsFastMode: false, fastMode: false },
@@ -87,6 +88,7 @@ export default function UiLab() {
             <TabsTrigger value="surfaces">Surfaces</TabsTrigger>
             <TabsTrigger value="model">Model picker</TabsTrigger>
             <TabsTrigger value="media">Media evidence</TabsTrigger>
+            <TabsTrigger value="mcp">MCP journal</TabsTrigger>
           </TabsList>
           <TabsContent value="tokens">
             <section className="ui-lab__section">
@@ -173,6 +175,9 @@ export default function UiLab() {
               <h2>Saved media evidence</h2>
               <MessageAttachments sessionId="media-fixture" files={[{attachment_id:"fixture-source",name:"fixture-video.mp4",total_bytes:100,content_type:"video/mp4"}]} />
             </section>
+          </TabsContent>
+          <TabsContent value="mcp">
+            <section className="ui-lab__section"><McpJournal productSessionId="journal-fixture" nativeSessionId="journal-root" /></section>
           </TabsContent>
         </TabsRoot>
       </main>

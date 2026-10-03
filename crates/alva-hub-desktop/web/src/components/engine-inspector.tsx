@@ -1,5 +1,5 @@
 // INPUT:  HubSessionDetail, stable HubInspectionSnapshot IPC, shared Hub controls
-// OUTPUT: Live/historical recursive Agent Inspector with detail-page navigation and back stack
+// OUTPUT: Recursive Agent Inspector with explicit own-session MCP journal, detail navigation and back stack
 // POS:    Workbench domain component; projects durable engine records without consuming raw adapter events
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,6 +21,7 @@ import {
   type InspectorToolCallRecord,
 } from "../bridge";
 import { useI18n } from "../i18n";
+import { McpJournal } from "./mcp-journal";
 import {
   Badge,
   Button,
@@ -37,6 +38,7 @@ type InspectorLoader = (
 ) => Promise<HubInspectionSnapshot>;
 
 type DetailPage =
+  | { kind: "mcp" }
   | { kind: "llm"; turnIndex: number }
   | { kind: "tool"; turnIndex: number; toolIndex: number }
   | { kind: "hook"; hook: InspectorHookRecord; title: string }
@@ -487,6 +489,7 @@ export function EngineInspectorPanel({
       </header>
 
       <div className="hub-engine-inspector__body" ref={scrollerRef}>
+      {selection?.kind === "mcp" ? <McpJournal productSessionId={productSessionId!} nativeSessionId={current.native_session_id} /> : null}
       {selection?.kind === "llm" && llm ? <LlmDetail llm={llm} /> : null}
       {selection?.kind === "tool" && tool ? <ToolDetail tool={tool} /> : null}
       {selection?.kind === "hook" ? <HookDetail hook={selection.hook} title={selection.title} /> : null}
@@ -509,6 +512,10 @@ export function EngineInspectorPanel({
               <span><small>{t("inspector.children")}</small><strong>{current.children.length}</strong></span>
             </div>
           </PanelSection>
+
+          <Button data-inspector-origin="mcp" onClick={() => openDetail({ kind: "mcp" }, "mcp")}>
+            {t("mcpJournal.title")}
+          </Button>
 
           {current.children.length > 0 ? (
             <PanelSection heading={t("inspector.children")} meta={`${current.children.length}`}>

@@ -299,6 +299,11 @@ ALVA 能力/MCP 配置同样归 Hub 私有产品层：真实 catalog 开关不�
 复制父 gateway 到递归 child 不授予父日志；可选 McpSpawnPolicy 仅按直接父实际授权，
 以批准 snapshot/cwd 和实际 native child 重新绑定自有 worker/journal，启动计入子预算并响应父取消。
 
+Workbench Inspector 已接当前 Agent 的 MCP 日志只读入口：显式打开小索引、字面关键词搜索和
+2 KiB UTF-8 分段正文，Tauri/HTTP 同构；归属沿版本 1 typed 父链接校验，不恢复会话/启动 MCP/
+模型/重放。定时 Inspector DTO 只带 MCP 引用，UI 不累积全文，不授予模型父日志；整个 Inspector
+全量恢复/大规模性能仍需单独完善，不能把这条日志分页当作所有 Inspector 已有界。
+
 Hub 产品 UI 以 `crates/alva-hub-desktop` 的 Tauri + React 实现为准，旧 GPUI 产品 UI
 迁移方向已退役。正式架构决策见 `docs/adr/0006-hub-tauri-ui-system.md`：Cindy 负责结构与
 交互参考，ALVA 负责视觉语言；组件严格按 Tokens → Controls → Regions/Surfaces → Domain

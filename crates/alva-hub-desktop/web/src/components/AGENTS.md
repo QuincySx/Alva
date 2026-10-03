@@ -15,6 +15,7 @@
 - 搜索/复制覆盖所有已载入条目（包括窗口外消息）及工具预览，不声称搜索了分页全文。IME Enter 不提交，Shift Enter 换行，busy 时仍保留 Stop。
 - 文件每 Turn 最多 8 个、单文件 20 MiB/总计 40 MiB，传用户明确选择的原字节，不将上传内容自动拼入模型 prompt。图片/视频本地 Blob 预览不是模型输入，关闭回收 URL；处理清单明确本次上传未压缩/转码/抽帧/分析。
 - 历史图片/视频的派生查看入口只读：打开取 4 项元数据，点击产物才取私有字节；5 项 receipt 固定 row 高水位、显式刷新可观察状态前进。切页替换 DOM，会话/来源/产物切换丢弃迟到响应，Blob 关闭/卸载回收，Esc 关闭并还原焦点。原始上传清单不改；空页不证明从未尝试，响应/未知接受不冒充理解或允许自动重放。
+- MCP journal 按 product/native 双 scope 挂载，明确点击才列小索引/读 2 KiB UTF-8 正文；搜索是字面关键词、through 固定追加范围，空扫描页仍可继续。导航/retry 身份与响应匹配，不闪现上一页正文；失败通用 alert/重试，索引返回焦点恢复到来源按钮，Inspector Back/Esc 沿原栈退出。惰性文本/typed 媒体排除、脱敏与未知远端接受明示，浏览不启动连接或模型，不增加模型权限。
 - 次级页面动作必须消费真实 callback 或明确 disabled；Plugins 只管理真实内置 ALVA capability/MCP，不声称存在第三方包安装目录或 Installed 状态。Files/Text 列按所在容器宽度自动排列，浏览器操作可换行，不独立定义页面断点。
 
 ## 业务域清单
@@ -36,6 +37,7 @@
 | startup-gate.tsx / workspace-gate.tsx | 对话/项目入口与工作树选择 |
 | provider-settings.tsx / engine-readiness-panel.tsx | Provider 配置和引擎就绪状态 |
 | engine-inspector.tsx / session-details.tsx | 诊断记录与产品会话详情 |
+| mcp-journal.tsx / mcp-journal.test.tsx | 显式当前 Agent 日志索引/文字搜索/正文分段；范围/迟到/导航/重试/惰性文本/正式 Inspector 入口及焦点回归 |
 | workbench-tools.tsx | 工作台页组合 |
 | workspace-files.tsx / workspace-files.test.tsx | 真实文件目录导航、受限只读预览、刷新重试与会话隔离回归；按 session/workspace key 重新挂载 |
 | workspace-git.tsx / workspace-git.test.tsx | 真实 worktree staged/unstaged/untracked 和有界 diff；revision/会话隔离异步结果，无 Git 写入动作 |
