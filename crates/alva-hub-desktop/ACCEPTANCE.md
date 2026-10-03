@@ -1,5 +1,45 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Recursive MCP worker ownership — 2026-10-03
+
+Managed ALVA's approved MCP recipe now publishes a narrow app-layer spawn
+policy. After direct-parent tool selection, only an actually granted
+`mcp_runtime` with the shared SecurityGuard may be rebound to the repository's
+actual child session. Native authority is checked before host I/O; the approved
+server/cwd snapshot is reused without ambient discovery. Each child/grandchild
+owns a new gateway, worker, recorder and cache, not a copied parent journal.
+Startup observes parent cancellation and consumes the existing child budget;
+failure never falls back to the parent gateway. Ending a child releases only
+its own connections. Empty/revoked grants do not start MCP or restore root tools.
+
+Normal HITL remains mandatory. Rejected calls do not enter gateway/remote
+execution. The existing middleware may still approve a hallucinated dangerous
+name before the executor reports Tool not found; even approving that missing
+tool does not grant it or start a worker. This batch does not change that SDK
+dispatch order. Models get bounded server hints and journal references; complete
+accepted redacted protocol data stays in each own native memory/file authority.
+No JSON-path extraction, parent history grant, second LLM or automatic replay.
+
+Current backend verification: **446 app-core, 51 ALVA adapter, 90 MCP protocol,
+260 Desktop lib, 4 Desktop bin, 15 HTTP = 866 passed**, including seven new
+regressions. Ten existing documentation cases are ignored; only the four exact
+real-account Desktop tests are filtered. Real authored local stdio + normal
+AllowOnce/RejectOnce + mock models verify three distinct PIDs, approved cwd and
+clean environment, 600 kB own results -> references -> text retrieval, cross-log
+denial, reopen and parent calls after child completion. Grant/security/gateway
+identity, startup timeout, parent cancellation and missing native authority
+regressions stop before the child provider or unauthorized MCP startup.
+
+Desktop/server all-target check passes with 29 existing warnings. Diff/new-file
+rustfmt, public snapshots, dependency/bus, wasm32 and full host-link gates pass;
+missing wasip2 is explicitly skipped. No new dependencies, external user MCP,
+paid accounts or UI changes. Domain-modeling updates ADR-0011's actual scope;
+guidelines-coding keeps policy in app/product Plugins and the narrow spawn hook,
+not kernel/agent-core; guidelines-git preserves unrelated user work. UI/native
+WebView/performance evidence is not renewed. Dedicated MCP transcript UI,
+external-engine loops and real-provider acceptance remain outside this batch.
+Earlier pending statements and counts below are historical, not current scope.
+
 ## Owned MCP I/O worker and text-searchable journals — 2026-10-03
 
 Explicit user clarification replaces the pending MCP JSON-path/schema-field

@@ -10,7 +10,7 @@
 | 上传日志/文本 | 会话内文件名、字节数、相对路径 | `hub_context` 列表/文字定位/有界读取；既有工作区工具仍可用 | 已实现；不会把正文拼到 prompt |
 | 图片/视频/二进制 | 文件引用 + 原始哈希/大小/处理清单 | `hub_media` 显式探测、压缩/转码/抽帧、选择与 receipt | Hub 根 ALVA 已实现受支持格式的有界处理/选中图单请求投递；不是自动语义分析/全视频或音频输入 |
 | 所有工具的大结果 | 调用身份、成功/失败、耐久记录引用 | `context_retrieval` 搜索/分段读取 | Hub Desktop/server ALVA 与其 app-core 递归子树已实现；其他 engine 自有循环不受该策略控制 |
-| MCP | 简短 server 索引 + 一个 `mcp_runtime` | 后台 I/O worker；完整交互日志先存内存/文件，模型按引用做有界文本搜索/读取 | Hub 受管 ALVA 已实现；不用 JSON-path 提取，legacy caller 保持兼容 |
+| MCP | 简短 server 索引 + 一个 `mcp_runtime` | 后台 I/O worker；完整交互日志先存内存/文件，模型按引用做有界文本搜索/读取 | Hub 受管 ALVA 与实际获准的递归子树已实现，各会话自有日志；不用 JSON-path 提取，legacy caller 保持兼容 |
 | 历史消息/工具记录 | native record ID；Hub Turn/Attempt/branch 分组和来源 SHA | native `context_retrieval` 与 root `hub_context` 关键词/时间/类型/来源筛选 | ALVA 可检索当前 HubSession 已存的跨 branch/engine 可见记录；不扫其他会话/Worker/全局或外部 CLI 内部记录 |
 
 ## 附件（当前）
@@ -203,15 +203,25 @@ interrupted unknown 不冒充成功或失败接受。无重放/重新发送按�
    淘汰已接受内存记录；完整已提交前缀仍可读取。无效/超大/EOF 部分帧按失败或
    不完整前缀标注，不声称保存了被协议拒绝或取消时尚未读到的全部 OS 字节。
    outgoing_attempt 不证明服务器收到/执行；取消记录 acceptance unknown，不自动重试。
-   journal 绑定实际 native session，复制 root gateway 到递归 child 会明确拒绝；
-   未实现递归 child 独立受管 MCP worker，不能借此授予父日志。Hub-owned Worker 的
-   独立 factory/session 仍有自己的 journal；legacy 非受管 caller 不改变行为。
+   journal 绑定实际 native session，复制 root gateway 到递归 child 仍明确拒绝。
+   同一产品配方在初始化发布 optional `McpSpawnPolicy`：只有直接父实际授予
+   `mcp_runtime` 且共享 SecurityGuard 存在，才按 repository 创建的实际 child session
+   重绑自有 gateway/recorder/worker；沿用本轮批准的 snapshot/cwd，不扫描 ambient 配置。
+   native authority 检查先于 host IO；启动时间从同一 child budget 扣除，响应父取消，
+   失败不回退父 gateway，空授权不启动。孙会话再次按直接父授权独立绑定，各层只读
+   自有 journal，结束只回收自身 worker，不关闭父连接。Hub-owned Worker 的独立
+   factory/session 仍有自己的 journal；legacy 非受管 caller 不改变行为。
 7. 已用真实本地 stdio fixture 验证 5000 工具分页、一个 model-visible gateway、单工具
    schema、32 MiB 总目录拒绝、正常审批后的 600 kB 完整交互→引用→模型文本搜索，以及
    空闲通知/stderr/ping、I/O/日志失败关闭、取消未知状态、内存/文件一致、重启、越权和
    >1 MiB 通用工具原结果保留。typed MCP image/audio/video/blob 在文字检索中剥除字节，
    保留类型/URI/排除标识与结构化表格；不冒充已经分析媒体。任意普通工具文本中的
-   未标类型编码不是媒体解码能力。未调用真实付费服务。
+   未标类型编码不是媒体解码能力。另以真实本地 stdio 验证父→子→孙的不同 PID/
+   同一批准 cwd/清环境、各自完整 600 kB 结果→小引用→自有文字检索、交叉记录拒绝、
+   重启读取和子结束后父继续调用。空授权/撤销授权不启动 worker，即使批准模型虚构
+   的不存在工具仍返回 Tool not found；这是现有安全中间件先审批后查缺失工具的行为，
+   不代表恢复授权。正常 RejectOnce 不执行 gateway/远端调用；启动超时/父取消会
+   drop 绑定且不取消父或调用 child provider。未调用真实付费服务。
 
 ## 历史（ALVA native 与固定 HubSession 产品记录）
 

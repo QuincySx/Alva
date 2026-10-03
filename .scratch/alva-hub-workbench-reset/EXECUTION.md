@@ -1,5 +1,13 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-03 继续 · 递归子/孙 MCP 的自有 worker 与日志
+
+- 受管产品配方初始化发布窄 McpSpawnPolicy；app spawn 完成直接父实际工具选择后，只有获准 mcp_runtime + 共享 SecurityGuard 才重绑。实际 native child authority 校验先于 host IO，沿用本轮批准 server/cwd snapshot，不发现 ambient 配置；每层独立 gateway/recorder/cache/worker，不借父日志或恢复 root 工具。
+- 启动受父取消且从同一 child timeout 扣时；超时仅取消自身，失败不回退父 gateway，不调用 child provider。child 结束回收自身连接，父可继续调用。常规 HITL/锁/工具 identity/深度仍保留，空/撤销授权不启动 MCP。既有 middleware 对虚构危险名称可先审批再报 Tool not found；即使批准也不恢复权限，本批不改 SDK 执行顺序。
+- **866 passed：446 app-core、51 adapter、90 MCP protocol、260 Desktop lib / 4 精确真实账号 filtered、4 bin、15 HTTP**，含 7 新回归，10 既有 doc cases ignored。真实本地 stdio + AllowOnce/RejectOnce + 模型替身验证父/子/孙 3 PID、批准 cwd/清环境、600 kB 自有结果→引用→文字搜索、交叉日志拒绝/重启/结束回收/父继续执行；grant/guard/错误 gateway、启动 timeout/父取消、native authority 缺失 fail-closed。
+- all-target check 0 errors/29 既有 warnings；diff/new-file rustfmt/public snapshots/依赖/bus（max external surface 2）/wasm32/full host link 通过，wasip2 缺 target 明确 skipped。初始 fixture 的 grandchild 标记包含 child 子串、Mac cwd canonical 前缀不同，以及 MCP error 同样投影引用，均修正断言位置/标记，不放宽生产权限、日志或模型引用闸门。
+- domain-modeling 更新 ADR-0011 与三级文档的真实实现范围；coding 不改 kernel/agent-core/CI allowlist，git 保留用户 CONTEXT.md/无关目录，只提交本批，不 push。未安装依赖、调用用户 MCP/真实账户/计费；未续验 UI/Chrome/native/性能。递归 MCP 重绑已补齐，专门日志 UI、外部 engine 循环与真实 provider 验收仍不宣称完成；JSON-path 不恢复为待做项，下文为历史。
+
 ## 2026-10-03 MCP 澄清 · owned I/O worker 与完整日志文本检索
 
 - 用户明确不要 JSON-path/字段提取；改为 owned 后台 I/O worker，不新起子 LLM/Hub WorkerSession。四 gateway 动作保留完整 input/output 后只给主 AI 短引用；握手、目录分页、调用/错误、空闲通知、客户端回复和 stderr 持续记录。沿用单 gateway/HITL/cwd/环境/协议预算，不动 kernel/agent-core，也不影响 legacy 未启用 caller。

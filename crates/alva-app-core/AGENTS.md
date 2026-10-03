@@ -18,7 +18,9 @@ should use `BaseAgentBuilder`, while SDK callers should use
   - `agent/` — ACP client (`agent_client/`), session management, persistence.
   - `skills/` — Skill system (loader, store, injector, agent templates).
   - `extension/mcp/` — native MCP lifecycle and direct-tool compatibility,
-    with opt-in single-entry progressive discovery for Hub managed servers.
+    with opt-in single-entry progressive discovery and own-session recorded
+    workers for Hub managed servers; narrow optional child gateway rebinding
+    requires an actual direct-parent grant and shared security.
   - `extension/agent_spawn.rs` + `spawn_context.rs` — recursive direct-parent
     tool grants and optional product-owned durable-context policy bindings;
     child authority does not expand to root tools or parent history.
@@ -46,7 +48,7 @@ should use `BaseAgentBuilder`, while SDK callers should use
 | agent/ | `src/agent/` | ACP client, persistence, session |
 | ports/tool.rs | `src/ports/tool.rs` | SrowToolContext (ToolContext + LocalToolContext) |
 | skills/ | `src/skills/` | Skill system (loader, store, injector, templates) |
-| MCP | `src/extension/mcp/` | Native lifecycle, compatible direct tools and opt-in bounded progressive gateway; existing HITL |
+| MCP | `src/extension/mcp/` | Native lifecycle, compatible direct tools, opt-in bounded recorded gateway and McpSpawnPolicy for granted child workers; existing HITL/cancellation/budgets |
 | Child context policy | `src/extension/` | Optional per-child reference/retrieval binding; direct-parent tool grants, shared security/locks and causal session links |
 | session projection | `src/session_projection.rs` | Run/turn/LLM/tool Inspector projection with TTFT and middleware hooks |
 | environment/ | `src/environment/` | Embedded runtime management |

@@ -175,7 +175,7 @@ target:  complete Desktop V1 (fallback + branches + Orca collaboration)
 | crate | 职责 |
 |------|------|
 | `alva-hub-core` | Hub 产品会话监管器：engine registry、product session ↔ engine session 路由、resume/cancel/permission dispatch；仅依赖 engine contract。 |
-| `alva-engine-adapter-alva` | Hub 的 Alva adapter：独立完整 `BaseAgent`；共享 `SessionRepository` records/Inspector，opt-in `ContextRetrievalPlugin` 压缩前投影大结果/媒体引用并提供自有 native 历史检索，SpawnContextPolicy 重绑递归子会话且不授予父历史/root 工具。受管 MCP 单 gateway + owned I/O worker，完整脱敏日志存内存/同会话文件、主 AI 有界文本检索；父 journal gateway 复制到 child 拒绝，不控制外部 engine。 |
+| `alva-engine-adapter-alva` | Hub 的 Alva adapter：独立完整 `BaseAgent`；共享 `SessionRepository` records/Inspector，opt-in `ContextRetrievalPlugin` 压缩前投影大结果/媒体引用并提供自有 native 历史检索，SpawnContextPolicy 重绑递归子会话且不授予父历史/root 工具。受管 MCP 单 gateway + owned I/O worker，完整脱敏日志存内存/同会话文件、主 AI 有界文本检索；McpSpawnPolicy 按直接父实际授权重绑 child 自有 worker/journal，不借用父日志，不控制外部 engine。 |
 | Hub 产品 context/media Plugin | `alva-hub-desktop` 经 adapter 的 `SessionPluginFactory` 按实际 native root/已认领 HubSession 绑定：跨 branch 可见历史/日志有界检索、媒体显式派生与选中图单请求投递/receipts。复用既有权限，不给 kernel/agent-core 加政策，不自动授予 child/别的 HubSession/Worker/全局读取权；原始媒体不自动送模型。 |
 | Hub 消息媒体证据 | `alva-hub-desktop::store/media_preview` 共享会话归属的只读派生索引/哈希 BLOB/固定高水位回执，Tauri 与 HTTP 同构；消息 UI 点击才预览、说明真实处理及尝试/未知状态，不自动处理/送模型或重放。 |
 | `alva-hub-cli` | Hub 命令行验证、诊断与自动化入口：支持 one-shot / REPL、私有 session journal、显式 Alva / Claude / Codex 选择、resume、手动切换与 handoff；与原生 `alva-app-cli` 保持独立。 |
@@ -296,7 +296,8 @@ ALVA 能力/MCP 配置同样归 Hub 私有产品层：真实 catalog 开关不�
 受管 MCP 实际交互用 owned 后台 I/O worker（不是子 AI）：完整脱敏输入/输出、协议过程、
 空闲通知/stderr 同存有限内存和 native session SQLite/blob 文件，主 AI 只拿小引用并文字
 搜索/读取。JSON-path 提取已按用户方向取消；超预算/记录失败明确停止，取消不重放。
-复制父 gateway 到递归 child 不授予父日志，独立 child MCP worker 重绑尚未实现。
+复制父 gateway 到递归 child 不授予父日志；可选 McpSpawnPolicy 仅按直接父实际授权，
+以批准 snapshot/cwd 和实际 native child 重新绑定自有 worker/journal，启动计入子预算并响应父取消。
 
 Hub 产品 UI 以 `crates/alva-hub-desktop` 的 Tauri + React 实现为准，旧 GPUI 产品 UI
 迁移方向已退役。正式架构决策见 `docs/adr/0006-hub-tauri-ui-system.md`：Cindy 负责结构与

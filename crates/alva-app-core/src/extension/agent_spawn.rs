@@ -1,6 +1,6 @@
-// INPUT:  alva_kernel_abi (including scope::spawn + ProviderRegistry), alva_kernel_core::run_child, SpawnScopeImpl, ContextHooksChain, optional SpawnContextPolicy, MCP alias resolver
+// INPUT:  alva_kernel_abi (including scope::spawn + ProviderRegistry), alva_kernel_core::run_child, SpawnScopeImpl, ContextHooksChain, optional context/MCP spawn policies
 // OUTPUT: AgentSpawnTool, create_agent_spawn_tool, SubAgentPlugin
-// POS:    AI-driven recursive spawning with direct-parent authority, optional product context policy and communication hooks.
+// POS:    Recursive spawning with direct-parent authority, session-bound product context/MCP policies and communication hooks.
 
 //! Agent spawn plugin — the AI primitive for creating sub-agents.
 //!
@@ -643,6 +643,54 @@ impl AgentSpawnTool {
             child_tools.push(binding.retrieval_tool.clone());
             child_hooks.insert(0, binding.assembly_hook.clone());
         }
+        let mut child_cancel = ctx.cancel_token().child();
+        let mut child_timeout = child_scope.timeout();
+        let mut mcp_prompt = None;
+        // Rebind only a gateway already granted by the actual direct parent.
+        // The product recipe creates an own-session journal/worker; its startup
+        // consumes the same child budget and observes the parent cancellation.
+        if child_tools.iter().any(|tool| tool.name() == "mcp_runtime") {
+            if let Some(policy) = ctx
+                .bus()
+                .and_then(|bus| bus.get::<dyn crate::extension::mcp::McpSpawnPolicy>())
+            {
+                if ctx
+                    .bus()
+                    .and_then(|bus| bus.get::<tokio::sync::Mutex<alva_agent_security::SecurityGuard>>())
+                    .is_none()
+                {
+                    return Ok(ToolOutput::error(
+                        "Child MCP requires the shared SecurityGuard",
+                    ));
+                }
+                let started = std::time::Instant::now();
+                let binding = tokio::select! {
+                    biased;
+                    _ = child_cancel.cancelled() => return Ok(ToolOutput::error("Child MCP startup cancelled")),
+                    result = tokio::time::timeout(child_timeout, policy.bind(child_session.clone())) => match result {
+                        Ok(Ok(binding)) => binding,
+                        Ok(Err(_)) => return Ok(ToolOutput::error("Child MCP binding failed; no parent gateway reused")),
+                        Err(_) => {
+                            child_cancel.cancel();
+                            return Ok(ToolOutput::error("Child MCP startup exceeded the child budget"));
+                        }
+                    },
+                };
+                child_timeout = child_timeout.saturating_sub(started.elapsed());
+                if child_timeout.is_zero() {
+                    child_cancel.cancel();
+                    return Ok(ToolOutput::error(
+                        "Child MCP startup exhausted the child budget",
+                    ));
+                }
+                if binding.gateway.name() != "mcp_runtime" || binding.system_prompt.len() > 8192 {
+                    return Ok(ToolOutput::error("Invalid child MCP gateway binding"));
+                }
+                child_tools.retain(|tool| tool.name() != "mcp_runtime");
+                child_tools.push(binding.gateway);
+                mcp_prompt = Some(binding.system_prompt);
+            }
+        }
         child_tools.push(Arc::new(AgentSpawnTool {
             scope: child_scope.clone(),
             granted_tools: Some(child_tools.clone()),
@@ -740,6 +788,9 @@ impl AgentSpawnTool {
         if let Some(binding) = context_binding {
             child_system_prompt.push(binding.system_prompt);
         }
+        if let Some(prompt) = mcp_prompt {
+            child_system_prompt.push(prompt);
+        }
         // Run child agent using the shared helper, supplying the listenable session.
         let result = run_child_agent(ChildAgentParams {
             model: child_model,
@@ -747,7 +798,7 @@ impl AgentSpawnTool {
             system_prompt: child_system_prompt,
             task: input.task.clone(),
             max_iterations: child_scope.max_iterations(),
-            timeout: child_scope.timeout(),
+            timeout: child_timeout,
             parent_session_id: Some(self.scope.session_id().to_string()),
             // Hierarchical child token: a cancel on the parent run reaches
             // the sub-agent (latching, so it also covers a cancel that races
@@ -756,7 +807,7 @@ impl AgentSpawnTool {
             // ONLY the child subtree. A plain `.clone()` here would share the
             // parent's channel and let a child timeout take down the whole
             // parent run; a fresh token would leave the child disconnected.
-            cancel: ctx.cancel_token().child(),
+            cancel: child_cancel,
             model_config: None,
             context_window: 0,
             workspace: ctx.workspace().map(|p| p.to_path_buf()),
@@ -1091,6 +1142,169 @@ mod tests {
         }
         fn as_any(&self) -> &dyn std::any::Any {
             self
+        }
+    }
+
+    struct McpPolicyProbe {
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        drops: Arc<std::sync::atomic::AtomicUsize>,
+        pending: bool,
+    }
+    struct BindingDrop(Arc<std::sync::atomic::AtomicUsize>);
+    impl Drop for BindingDrop {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    #[async_trait]
+    impl crate::extension::mcp::McpSpawnPolicy for McpPolicyProbe {
+        async fn bind(
+            &self,
+            _: Arc<dyn AgentSession>,
+        ) -> Result<crate::extension::mcp::McpGatewayBinding, AgentError> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let _drop = BindingDrop(self.drops.clone());
+            if self.pending {
+                std::future::pending::<()>().await;
+            }
+            Ok(crate::extension::mcp::McpGatewayBinding {
+                gateway: Arc::new(alva_test::mock_tool::MockTool::new(
+                    "not-the-granted-gateway",
+                )),
+                system_prompt: String::new(),
+            })
+        }
+    }
+    fn mcp_probe_bus(
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        drops: Arc<std::sync::atomic::AtomicUsize>,
+        pending: bool,
+        guard: bool,
+    ) -> Bus {
+        let bus = Bus::new();
+        bus.writer()
+            .provide::<dyn crate::extension::mcp::McpSpawnPolicy>(Arc::new(McpPolicyProbe {
+                calls,
+                drops,
+                pending,
+            }));
+        if guard {
+            bus.writer().provide(Arc::new(tokio::sync::Mutex::new(
+                alva_agent_security::SecurityGuard::new(
+                    std::env::temp_dir(),
+                    alva_agent_security::SandboxMode::RestrictiveOpen,
+                ),
+            )));
+        }
+        bus
+    }
+    fn mcp_probe_tool(model: Arc<MockLanguageModel>, budget: Duration) -> AgentSpawnTool {
+        AgentSpawnTool::new(Arc::new(SpawnScopeImpl::root(
+            model,
+            vec![Arc::new(alva_test::mock_tool::MockTool::new("mcp_runtime"))],
+            budget,
+            6,
+            3,
+        )))
+    }
+    #[tokio::test]
+    async fn child_mcp_rebind_requires_actual_grant_guard_and_exact_gateway_identity() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        for (grant, guard) in [(false, false), (false, true), (true, false), (true, true)] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let drops = Arc::new(AtomicUsize::new(0));
+            let bus = mcp_probe_bus(calls.clone(), drops, false, guard);
+            let model = Arc::new(
+                MockLanguageModel::new().with_response(make_assistant_message("done")),
+            );
+            let tool = mcp_probe_tool(model.clone(), Duration::from_secs(2));
+            let out = tool
+                .execute(
+                    serde_json::json!({"task":"t","role":"child","tools":if grant { vec!["mcp_runtime"] } else { vec![] }}),
+                    &TestExecutionContext {
+                        cancel: CancellationToken::new(),
+                        bus: Some(bus.handle()),
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(out.is_error, grant);
+            assert_eq!(calls.load(Ordering::SeqCst), usize::from(grant && guard));
+            assert_eq!(model.calls().len(), usize::from(!grant));
+            if grant {
+                assert!(out.model_text().contains(if guard {
+                    "Invalid child MCP"
+                } else {
+                    "SecurityGuard"
+                }));
+            }
+        }
+    }
+    #[tokio::test]
+    async fn child_mcp_startup_timeout_drops_binding_without_cancelling_parent() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let calls = Arc::new(AtomicUsize::new(0));
+        let drops = Arc::new(AtomicUsize::new(0));
+        let bus = mcp_probe_bus(calls.clone(), drops.clone(), true, true);
+        let model = Arc::new(MockLanguageModel::new());
+        let context = TestExecutionContext {
+            cancel: CancellationToken::new(),
+            bus: Some(bus.handle()),
+        };
+        let tool = mcp_probe_tool(model.clone(), Duration::from_millis(30));
+        let out = tool
+            .execute(
+                serde_json::json!({"task":"t","role":"child","tools":["mcp_runtime"]}),
+                &context,
+            )
+            .await
+            .unwrap();
+        assert!(out.is_error && out.model_text().contains("child budget"));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(drops.load(Ordering::SeqCst), 1);
+        assert!(!context.cancel.is_cancelled());
+        assert!(model.calls().is_empty());
+    }
+    #[tokio::test]
+    async fn parent_cancellation_stops_child_mcp_startup_before_provider() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        for already_cancelled in [false, true] {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let drops = Arc::new(AtomicUsize::new(0));
+            let bus = mcp_probe_bus(calls.clone(), drops.clone(), true, true);
+            let model = Arc::new(MockLanguageModel::new());
+            let cancel = CancellationToken::new();
+            if already_cancelled {
+                cancel.cancel();
+            }
+            let context = TestExecutionContext {
+                cancel: cancel.clone(),
+                bus: Some(bus.handle()),
+            };
+            let tool = mcp_probe_tool(model.clone(), Duration::from_secs(3));
+            let task = tokio::spawn(async move {
+                tool.execute(
+                    serde_json::json!({"task":"t","role":"child","tools":["mcp_runtime"]}),
+                    &context,
+                )
+                .await
+                .unwrap()
+            });
+            if !already_cancelled {
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    while calls.load(Ordering::SeqCst) == 0 {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                cancel.cancel();
+            }
+            let out = task.await.unwrap();
+            assert!(out.is_error && out.model_text().contains("cancelled"));
+            assert_eq!(calls.load(Ordering::SeqCst), usize::from(!already_cancelled));
+            assert_eq!(drops.load(Ordering::SeqCst), usize::from(!already_cancelled));
+            assert!(model.calls().is_empty());
         }
     }
 

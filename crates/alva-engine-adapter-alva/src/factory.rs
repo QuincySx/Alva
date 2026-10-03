@@ -263,10 +263,15 @@ impl BaseAgentFactory for CatalogBaseAgentFactory {
                         servers.clone(),
                         workspace.clone(),
                     ).with_progressive_discovery();
-                if self.context_repository.is_some() {
+                if let Some(repository) = &self.context_repository {
                     mcp = mcp.with_recorded_interactions(
                         Arc::new(crate::mcp_journal::SessionMcpRecorder::new(session.clone())), session.session_id().to_string(),
                     );
+                    builder = builder.plugin(Box::new(crate::mcp_journal::ManagedMcpSpawnPlugin {
+                        repository: repository.clone(),
+                        servers: servers.clone(),
+                        workspace: workspace.clone(),
+                    }));
                 }
                 builder = builder.plugin(Box::new(mcp));
             }

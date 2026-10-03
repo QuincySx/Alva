@@ -7,6 +7,8 @@ mod context_retrieval;
 mod factory;
 mod mapping;
 mod mcp_journal;
+#[cfg(all(test, unix))]
+mod mcp_spawn_tests;
 mod session_repository;
 
 pub use adapter::AlvaAdapter;

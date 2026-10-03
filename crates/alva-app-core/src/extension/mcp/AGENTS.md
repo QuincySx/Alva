@@ -17,13 +17,15 @@
 - 握手与工具目录共用连接超时；目录失败也进入 Failed，不遗留 Connecting。取消关闭的 transport 不投影成 Connected 或列为可用工具。
 - 完全相同 config 的重复注册保留现有连接/目录；配置真正改变才替换。取消 connect 不遗留 Connecting，关闭的 transport 在调用前拒绝，不以旧目录冒充可用。
 - `with_progressive_discovery` 是显式 harness policy：只注册 `mcp_runtime` 和有界 server 索引，不 fan-out tool schemas；旧 caller 不变。search 默认 5/最多 20 条、query ≤200 字符、96 字符描述预览、稳定 offset/has_more；describe 只取一个方法，call 核对当前已连接目录精确身份和 object arguments，入口 input ≤256 KiB。所有 gateway action 保持既有 HITL；结果耐久投影由产品 ContextRetrievalPlugin 消费，不在协议层存第二份日志。
-- `with_recorded_interactions` 可选接产品 observer/实际 native owner：强制单 gateway，将 stdio 放入 owned 后台 I/O worker（不是第二模型），连握手/目录页/空闲通知/stderr 的连续协议观察；四动作 gateway input/output 也保留，只回短日志引用。队列 1 项，caller 取消关闭 RPC/连接并记录 acceptance unknown，不重放；最后 handle/记录失败回收 transport。执行 context 不符 owner 在任何日志/宿主动作前拒绝，不能复制 root gateway 授予 child 父 journal；独立 child worker 重绑未实现。持久化、脱敏、日志/检索预算归产品，legacy caller 保持不变。
+- `with_recorded_interactions` 可选接产品 observer/实际 native owner：强制单 gateway，将 stdio 放入 owned 后台 I/O worker（不是第二模型），连握手/目录页/空闲通知/stderr 的连续协议观察；四动作 gateway input/output 也保留，只回短日志引用。队列 1 项，caller 取消关闭 RPC/连接并记录 acceptance unknown，不重放；最后 handle/记录失败回收 transport。执行 context 不符 owner 在任何日志/宿主动作前拒绝，不能复制 root gateway 授予 child 父 journal。持久化、脱敏、日志/检索预算归产品，legacy caller 保持不变。
+- optional `McpSpawnPolicy` 仅初始化由产品发布；AgentSpawnTool 先核对直接父实际授予的 `mcp_runtime` 和共享 SecurityGuard，再按实际 child AgentSession 创建自有 gateway/journal/worker。`bind_recorded_gateway` 仅接受 recorded progressive 显式 snapshot，无 ambient config；启动遵循父取消且消耗同一 child timeout，绑定失败不回退父 gateway，空授权不启动。每层新 gateway 可再次受限授予孙会话，不授予父日志或 root 工具。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |------|------------|------|
 | mod | `mod.rs` | 声明子模块 |
-| extension | `extension.rs` | 文件发现/显式 snapshot、可选单 gateway/server 提示、recorded stdio worker 接线与 finalize 审批 |
+| extension | `extension.rs` | 文件发现/显式 snapshot、可选单 gateway/server 提示、recorded stdio worker 与获准 child gateway 重绑、finalize 审批 |
+| spawn | `spawn.rs` | McpSpawnPolicy/McpGatewayBinding：产品日志权威向 app spawn 提供 own-session gateway 的窄初始化能力 |
 | runtime | `runtime.rs` | McpManager：生命周期、host-side catalog、有界 metadata page/单工具契约和调用 |
 | tools | `tools.rs` | McpRuntimeTool：面向 Agent 的 MCP meta-tool |
 | progressive tools | `progressive_tools.rs` | opt-in 单入口发现/describe/call、session-bound gateway journal/短引用；精确身份/输入预算/安全 guard 回归 |

@@ -1,5 +1,5 @@
-// INPUT: Actual native AgentSession, canonical record redaction and MCP I/O observer
-// OUTPUT: SessionMcpRecorder retaining complete redacted interaction frames in memory/files
+// INPUT: Actual native AgentSession, canonical record redaction, MCP observer and spawn policy
+// OUTPUT: SessionMcpRecorder and product-only ManagedMcpSpawnPlugin for own-session journals
 // POS: Product-only MCP journal over the same durable session authority, not model context.
 use alva_app_core::extension::mcp::{McpInteractionError, McpIoObserver};
 use alva_kernel_abi::{
@@ -8,6 +8,51 @@ use alva_kernel_abi::{
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
+
+#[derive(Clone)]
+pub(crate) struct ManagedMcpSpawnPlugin {
+    pub repository: crate::SessionRepository,
+    pub servers: Vec<alva_app_core::extension::skills::skill_domain::mcp::McpServerConfig>,
+    pub workspace: std::path::PathBuf,
+}
+
+#[async_trait]
+impl alva_agent_core::extension::Plugin for ManagedMcpSpawnPlugin {
+    fn name(&self) -> &str {
+        "managed-mcp-spawn"
+    }
+    async fn register(&self, r: &alva_agent_core::extension::Registrar) {
+        r.provide::<dyn alva_app_core::extension::mcp::McpSpawnPolicy>(Arc::new(self.clone()));
+    }
+}
+
+#[async_trait]
+impl alva_app_core::extension::mcp::McpSpawnPolicy for ManagedMcpSpawnPlugin {
+    async fn bind(
+        &self,
+        session: Arc<dyn AgentSession>,
+    ) -> Result<alva_app_core::extension::mcp::McpGatewayBinding, alva_kernel_abi::AgentError> {
+        let repository = self.repository.clone();
+        let id = session.session_id().to_string();
+        let exists = tokio::task::spawn_blocking(move || repository.contains(&id)).await;
+        if !matches!(exists, Ok(Ok(true))) {
+            return Err(alva_kernel_abi::AgentError::ToolError {
+                tool_name: "mcp_runtime".into(),
+                message: "Child MCP durable authority unavailable".into(),
+            });
+        }
+        alva_app_core::extension::McpPlugin::from_servers(
+            self.servers.clone(),
+            self.workspace.clone(),
+        )
+        .with_recorded_interactions(
+            Arc::new(SessionMcpRecorder::new(session.clone())),
+            session.session_id().into(),
+        )
+        .bind_recorded_gateway()
+        .await
+    }
+}
 
 pub(crate) const NAMESPACE: &str = "alva.mcp";
 pub(crate) const TYPE_NAME: &str = "mcp_io";

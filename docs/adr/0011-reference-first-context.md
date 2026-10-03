@@ -23,7 +23,13 @@ deliberately not planned. Protocol/storage budgets stop the connection explicitl
 instead of silently discarding accepted output; outgoing attempts and interrupted
 transcripts do not prove remote acceptance. Generic callers keep their opt-in
 compatibility path. Parent-bound recorded gateways cannot be copied into children
-as a way to write/read the parent's journal.
+as a way to write/read the parent's journal. An optional app-level MCP spawn
+policy now creates an independent recorded gateway only after the direct parent
+actually grants it, using the approved server/cwd snapshot and actual durable
+child authority. Children and grandchildren own their workers and journals;
+startup observes parent cancellation and consumes the child's existing budget.
+An absent grant does not start host I/O or restore root tools; failed binding
+does not fall back to the parent's gateway. Shared security/HITL remains intact.
 
 Implementation is incremental. Attachments, Hub Desktop/server ALVA large-tool
 projection, native-session history retrieval and managed single-entry MCP now
