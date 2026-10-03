@@ -1,6 +1,6 @@
 // INPUT:  app-core BaseAgent/catalog/paths/Approval/MCP plugins, RuntimeRequest, LanguageModel
 // OUTPUT: BaseAgentFactory, SessionPluginFactory, BuiltAgent, DefaultBaseAgentFactory, CatalogBaseAgentFactory
-// POS:    Per-session harness assembly with Hub capability/MCP snapshots and explicitly root-bound product Plugins.
+// POS:    Per-session harness assembly with recorded managed MCP snapshots and explicitly root-bound product Plugins.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -259,11 +259,16 @@ impl BaseAgentFactory for CatalogBaseAgentFactory {
         );
         if let Some(servers) = &self.managed_mcp {
             if !servers.is_empty() {
-                builder =
-                    builder.plugin(Box::new(alva_app_core::extension::McpPlugin::from_servers(
+                let mut mcp = alva_app_core::extension::McpPlugin::from_servers(
                         servers.clone(),
                         workspace.clone(),
-                    ).with_progressive_discovery()));
+                    ).with_progressive_discovery();
+                if self.context_repository.is_some() {
+                    mcp = mcp.with_recorded_interactions(
+                        Arc::new(crate::mcp_journal::SessionMcpRecorder::new(session.clone())), session.session_id().to_string(),
+                    );
+                }
+                builder = builder.plugin(Box::new(mcp));
             }
         }
         if let Some(repository) = &self.context_repository {
@@ -431,6 +436,7 @@ mod tests {
 for line in sys.stdin:
  r=json.loads(line)
  if 'id' not in r: continue
+ if r['method']=='tools/call': print(json.dumps({'jsonrpc':'2.0','method':'notifications/message','params':{'text':'intermediate-notification-marker'}}),flush=True)
  result={'protocolVersion':r['params']['protocolVersion'],'capabilities':{'tools':{}},'serverInfo':{'name':'fixture','version':'1'}} if r['method']=='initialize' else {'tools':[{'name':'echo','inputSchema':{'type':'object'}}]} if r['method']=='tools/list' else {'content':[{'type':'text','text':'x'*600000+'native-result-tail'}]}
  print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':result}),flush=True)
 "#.into()], env: Default::default() } };
@@ -443,7 +449,7 @@ for line in sys.stdin:
         call.content = vec![alva_kernel_abi::ContentBlock::ToolUse { id:"mcp-call".into(), name:"mcp_runtime".into(), input:serde_json::json!({"action":"call_tool","server_id":"fixture","tool_name":"echo"}) }];
         let mut search = alva_kernel_abi::Message::user("");
         search.role = alva_kernel_abi::MessageRole::Assistant;
-        search.content = vec![alva_kernel_abi::ContentBlock::ToolUse { id:"history-call".into(), name:"context_retrieval".into(), input:serde_json::json!({"action":"search_history","query":"native-result-tail","kind":"tool"}) }];
+        search.content = vec![alva_kernel_abi::ContentBlock::ToolUse { id:"history-call".into(), name:"context_retrieval".into(), input:serde_json::json!({"action":"search_history","query":"native-result-tail","kind":"mcp"}) }];
         let mut done = alva_kernel_abi::Message::user("done"); done.role = alva_kernel_abi::MessageRole::Assistant;
         let model = MockLanguageModel::new().with_response(call).with_response(search).with_response(done);
         let repository = crate::SessionRepository::open(workspace.path().join("records.db")).unwrap();
@@ -502,7 +508,7 @@ for line in sys.stdin:
             .any(|n| n.contains("security")));
         let mut approvals = built.approval_rx.take().unwrap();
         let mut events = built.agent.prompt_text("Read fixture data, then search its result").await;
-        let mut raw_result = false;
+        let mut reference_result = false;
         let mut search_result = false;
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
@@ -513,7 +519,7 @@ for line in sys.stdin:
                     }
                     event = events.recv() => match event {
                         Some(alva_kernel_core::AgentEvent::ToolExecutionEnd { tool_call, result, .. }) => {
-                            if tool_call.name == "mcp_runtime" { raw_result = result.model_text().len() > 600000; }
+                            if tool_call.name == "mcp_runtime" { reference_result = result.model_text().len() < 2000 && result.model_text().contains("mcp_interaction_reference"); }
                             if tool_call.name == "context_retrieval" { search_result = result.model_text().contains("native-result-tail"); }
                         }
                         Some(_) => {},
@@ -522,12 +528,18 @@ for line in sys.stdin:
                 }
             }
         }).await.expect("native MCP/retrieval run must terminate");
-        assert!(raw_result && search_result);
+        assert!(reference_result && search_result, "reference={reference_result}, search={search_result}; recorded types={:?}", repository.records("fixture-session").unwrap().iter().map(|r| &r.type_name).collect::<Vec<_>>());
         let calls = model.calls();
         assert_eq!(calls.len(), 3, "reference projection must precede automatic compaction");
-        assert!(serde_json::to_string(&calls[1]).unwrap().contains("context_reference"));
+        assert!(serde_json::to_string(&calls[1]).unwrap().contains("mcp_interaction_reference"));
         assert!(calls.iter().all(|messages| serde_json::to_string(messages).unwrap().len() < 20000));
         assert!(repository.records("fixture-session").unwrap().iter().any(|record| record.type_name == "tool_result"));
+        let records = repository.records("fixture-session").unwrap();
+        let transcript: Vec<_> = records.iter().filter_map(|record| crate::mcp_journal::frame_value(record)).map(|value| repository.context_value(&value.unwrap()).unwrap()).collect();
+        let text = serde_json::to_string(&transcript).unwrap();
+        for expected in ["initialize","notifications/initialized","tools/list","tools/call","intermediate-notification-marker","native-result-tail"] {
+            assert!(text.contains(expected),"missing complete transcript element {expected}");
+        }
     }
 
     #[cfg(unix)]

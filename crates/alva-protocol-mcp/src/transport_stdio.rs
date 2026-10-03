@@ -1,10 +1,10 @@
 // INPUT: tokio process/IO, serde_json, MCP transport/types, Unix libc
-// OUTPUT: StdioTransport with bounded handshake, tool discovery/calls and owned-process cleanup
+// OUTPUT: StdioTransport with optional lossless protocol observer, bounded RPCs and owned-process cleanup
 // POS: Native newline JSON-RPC MCP client; bounded large catalogs, no shell/ambient credentials
 
 use crate::{
     error::McpError,
-    transport::McpTransport,
+    transport::{McpIoObserver, McpTransport},
     types::{McpServerConfig, McpToolInfo, McpTransportConfig},
 };
 use async_trait::async_trait;
@@ -20,10 +20,12 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, ChildStdout, Command},
+    io::{AsyncWriteExt, BufReader},
+    process::{ChildStdin, ChildStdout, Command},
     sync::Mutex,
 };
+#[path="transport_stdio_observed.rs"]
+mod observed;
 
 const FRAME_LIMIT: usize = 1024 * 1024;
 const TOOL_LIMIT: usize = 8192;
@@ -35,68 +37,34 @@ fn failure(message: &str) -> McpError {
 }
 
 struct Session {
-    child: Child,
-    input: ChildStdin,
-    output: BufReader<ChildStdout>,
+    input: Arc<Mutex<ChildStdin>>,
+    output: Option<BufReader<ChildStdout>>,
+    observed: Option<observed::ObservedOutput>,
+    owned_pid: observed::ProcessGuard,
     sequence: u64,
     has_tools: bool,
     connected: Arc<AtomicBool>,
+    observer: Option<Arc<dyn McpIoObserver>>,
+    server_id: String,
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
-        self.connected.store(false, Ordering::SeqCst);
         // Kill the group BEFORE Tokio can reap the leader and recycle its PID.
-        #[cfg(unix)]
-        if let Some(pid) = self.child.id() {
-            unsafe {
-                libc::kill(-(pid as i32), libc::SIGKILL);
-            }
-        }
-        let _ = self.child.start_kill();
+        observed::terminate_owned(&self.owned_pid, &self.connected);
     }
 }
 
 impl Session {
     async fn send(&mut self, value: Value) -> Result<(), McpError> {
-        let mut bytes = serde_json::to_vec(&value).map_err(|_| failure("invalid outgoing JSON"))?;
-        if bytes.len() > FRAME_LIMIT {
-            return Err(failure("MCP frame exceeds 1 MiB"));
-        }
-        bytes.push(b'\n');
-        self.input
-            .write_all(&bytes)
-            .await
-            .map_err(|_| failure("MCP stdin closed"))?;
-        self.input
-            .flush()
-            .await
-            .map_err(|_| failure("MCP stdin closed"))
+        observed::send_frame(&self.input,self.observer.as_ref(),&self.server_id,value).await
     }
 
     async fn read(&mut self) -> Result<Value, McpError> {
-        let mut bytes = Vec::new();
-        loop {
-            let chunk = self
-                .output
-                .fill_buf()
-                .await
-                .map_err(|_| failure("MCP stdout unavailable"))?;
-            if chunk.is_empty() {
-                return Err(failure("MCP server closed stdout"));
-            }
-            let end = chunk.iter().position(|b| *b == b'\n').map(|i| i + 1);
-            let length = end.unwrap_or(chunk.len());
-            if bytes.len() + length > FRAME_LIMIT {
-                return Err(failure("MCP frame exceeds 1 MiB"));
-            }
-            bytes.extend_from_slice(&chunk[..length]);
-            self.output.consume(length);
-            if end.is_some() {
-                break;
-            }
+        match &mut self.observed {
+            Some(output)=>output.receiver.recv().await.ok_or_else(||failure("MCP response worker closed"))?,
+            None=>observed::read_frame(self.output.as_mut().ok_or_else(||failure("MCP stdout unavailable"))?,None,&self.server_id).await,
         }
-        serde_json::from_slice(&bytes).map_err(|_| failure("MCP emitted invalid JSON"))
     }
 
     async fn request(
@@ -107,6 +75,10 @@ impl Session {
     ) -> Result<Value, McpError> {
         self.sequence += 1;
         let id = self.sequence;
+        if let Some(output)=&self.observed {
+            output.notifications.store(0,Ordering::SeqCst);
+            output.pending.store(id,Ordering::SeqCst);
+        }
         tokio::time::timeout(timeout, async {
             self.send(json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}))
                 .await?;
@@ -154,6 +126,7 @@ pub struct StdioTransport {
     cwd: Option<PathBuf>,
     session: Mutex<Option<Session>>,
     connected: Arc<AtomicBool>,
+    observer: Option<Arc<dyn McpIoObserver>>,
 }
 
 impl StdioTransport {
@@ -163,8 +136,15 @@ impl StdioTransport {
             cwd,
             session: Mutex::new(None),
             connected: Arc::new(AtomicBool::new(false)),
+            observer: None,
         }
     }
+
+    pub fn with_io_observer(mut self, observer: Arc<dyn McpIoObserver>) -> Self {
+        self.observer = Some(observer);
+        self
+    }
+    pub fn connection_state(&self) -> Arc<AtomicBool> { self.connected.clone() }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value, McpError> {
         let mut slot = self.session.lock().await;
@@ -190,7 +170,10 @@ impl McpTransport for StdioTransport {
             return Err(failure("Only stdio MCP transport is implemented"));
         };
         if self.session.get_mut().is_some() {
-            return Ok(());
+            if self.connected.load(Ordering::SeqCst) {
+                return Ok(());
+            }
+            self.session.get_mut().take();
         }
         let mut process = Command::new(command);
         process
@@ -201,7 +184,7 @@ impl McpTransport for StdioTransport {
             .envs(env)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(if self.observer.is_some() { Stdio::piped() } else { Stdio::null() })
             .kill_on_drop(true);
         if let Some(cwd) = &self.cwd {
             process.current_dir(cwd);
@@ -211,23 +194,32 @@ impl McpTransport for StdioTransport {
         let mut child = process
             .spawn()
             .map_err(|_| failure("MCP executable could not start"))?;
-        let input = child
+        let input = Arc::new(Mutex::new(child
             .stdin
             .take()
-            .ok_or_else(|| failure("MCP stdin unavailable"))?;
+            .ok_or_else(|| failure("MCP stdin unavailable"))?));
         let output = BufReader::new(
             child
                 .stdout
                 .take()
                 .ok_or_else(|| failure("MCP stdout unavailable"))?,
         );
+        let stderr = child.stderr.take();
+        let owned_pid = Arc::new(std::sync::Mutex::new(Some(child)));
+        let (output,observed)=match &self.observer {
+            Some(observer)=>(None,Some(observed::ObservedOutput::new(output,stderr,input.clone(),observer.clone(),self.config.id.clone(),self.connected.clone(),owned_pid.clone()))),
+            None=>(Some(output),None),
+        };
         let mut session = Session {
-            child,
             input,
             output,
+            observed,
+            owned_pid,
             sequence: 0,
             has_tools: false,
             connected: self.connected.clone(),
+            observer: self.observer.clone(),
+            server_id: self.config.id.clone(),
         };
         let result = session.request("initialize", json!({"protocolVersion":VERSIONS[0], "capabilities":{}, "clientInfo":{"name":"alva", "version":env!("CARGO_PKG_VERSION")}}), Duration::from_secs(self.config.connect_timeout_secs.clamp(1, 60) as u64)).await?;
         if !result
@@ -255,21 +247,25 @@ impl McpTransport for StdioTransport {
         )
         .await
         .map_err(|_| failure("MCP initialization timed out"))??;
+        // Serialize publication with an idle reader/stderr failure. A killed
+        // process must never be revived by publishing a stale handshake result.
+        {
+            let pid = session.owned_pid.lock().map_err(|_| failure("MCP process guard unavailable"))?;
+            if pid.is_none() {
+                return Err(failure("MCP I/O worker stopped during initialization"));
+            }
+            self.connected.store(true, Ordering::SeqCst);
+        }
         *self.session.get_mut() = Some(session);
-        self.connected.store(true, Ordering::SeqCst);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<(), McpError> {
         if let Some(mut session) = self.session.get_mut().take() {
-            let _ = session.input.shutdown().await;
-            #[cfg(unix)]
-            if let Some(pid) = session.child.id() {
-                unsafe {
-                    libc::kill(-(pid as i32), libc::SIGKILL);
-                }
-            }
-            let _ = session.child.kill().await;
+            let child = observed::terminate_owned(&session.owned_pid, &session.connected);
+            session.observed.take();
+            let _ = session.input.lock().await.shutdown().await;
+            if let Some(mut child) = child { let _ = child.kill().await; }
         }
         Ok(())
     }
@@ -378,6 +374,16 @@ impl McpTransport for StdioTransport {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    #[derive(Default)]
+    struct Observer { frames: Mutex<Vec<(String, Value)>>, fail: bool, fail_direction: Option<&'static str> }
+    #[async_trait]
+    impl McpIoObserver for Observer {
+        async fn record(&self, _: &str, direction: &str, frame: Value) -> Result<String, McpError> {
+            if self.fail || self.fail_direction == Some(direction) { return Err(failure("fixture journal failure")); }
+            self.frames.lock().await.push((direction.into(),frame));
+            Ok("fixture-reference".into())
+        }
+    }
     // An in-process authored fixture, not downloaded package/server code.
     const SERVER: &str = r#"
 import json, sys, time, os
@@ -385,6 +391,8 @@ mode = sys.argv[1]
 initialized = False
 for line in sys.stdin:
     r = json.loads(line)
+    if 'method' not in r:
+        continue
     method = r.get('method')
     if method == 'notifications/initialized':
         initialized = True
@@ -422,6 +430,14 @@ for line in sys.stdin:
     else:
         result = {}
     print(json.dumps({'jsonrpc':'2.0', 'id':r['id'], 'result':result}), flush=True)
+    if method == 'tools/list' and mode.startswith('idle'):
+        time.sleep(0.02)
+        print('idle-stderr-marker', file=sys.stderr, flush=True)
+        if mode == 'idle-invalid':
+            print(json.dumps({'jsonrpc':'2.0','id':9999,'result':{'idle-invalid-marker':True}}), flush=True)
+        else:
+            print(json.dumps({'jsonrpc':'2.0','method':'notifications/message','params':{'text':'idle-notification-marker'}}), flush=True)
+            print(json.dumps({'jsonrpc':'2.0','method':'ping','id':'fixture-ping'}), flush=True)
 "#;
 
     fn transport(mode: &str, cwd: &PathBuf) -> StdioTransport {
@@ -439,6 +455,72 @@ for line in sys.stdin:
             },
             Some(cwd.clone()),
         )
+    }
+
+    #[tokio::test]
+    async fn observer_retains_initialize_catalog_and_full_error_response_without_inline_leak() {
+        let workspace = tempfile::tempdir().unwrap();
+        let observer = Arc::new(Observer::default());
+        let mut client = transport("error",&workspace.path().to_path_buf()).with_io_observer(observer.clone());
+        client.connect().await.unwrap();
+        client.list_tools().await.unwrap();
+        let error = client.call_tool("echo",json!({"query":"literal-query"})).await.unwrap_err();
+        assert!(!error.to_string().contains("synthetic-private-value"));
+        let frames = observer.frames.lock().await;
+        assert!(frames.iter().any(|(direction,frame)|direction=="outgoing_attempt" && frame["method"]=="initialize"));
+        assert!(frames.iter().any(|(_,frame)|frame["method"]=="notifications/initialized"));
+        assert!(frames.iter().any(|(_,frame)|frame["method"]=="tools/list"));
+        assert!(frames.iter().any(|(_,frame)|frame["params"]["arguments"]["query"]=="literal-query"));
+        assert!(frames.iter().any(|(direction,frame)|direction=="incoming" && frame.to_string().contains("synthetic-private-value")));
+    }
+    #[tokio::test]
+    async fn failing_observer_prevents_unjournaled_outbound_handshake() {
+        let workspace = tempfile::tempdir().unwrap();
+        let mut client = transport("pages",&workspace.path().to_path_buf()).with_io_observer(Arc::new(Observer { fail:true,..Default::default() }));
+        assert!(client.connect().await.is_err());
+        assert!(!client.is_connected());
+    }
+
+    #[tokio::test]
+    async fn idle_notifications_stderr_and_server_requests_are_recorded_without_another_call() {
+        let workspace = tempfile::tempdir().unwrap();
+        let observer = Arc::new(Observer::default());
+        let mut client = transport("idle", &workspace.path().to_path_buf()).with_io_observer(observer.clone());
+        client.connect().await.unwrap();
+        client.list_tools().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let frames = observer.frames.lock().await;
+                let stderr = frames.iter().any(|(d,f)| d == "stderr" && f.to_string().contains("idle-stderr-marker"));
+                let notification = frames.iter().any(|(d,f)| d == "incoming" && f.to_string().contains("idle-notification-marker"));
+                let pong = frames.iter().any(|(d,f)| d == "outgoing_attempt" && f["id"] == "fixture-ping" && f["result"].is_object());
+                if stderr && notification && pong { break; }
+                drop(frames);
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        assert!(client.is_connected());
+        client.disconnect().await.unwrap();
+        assert!(!client.is_connected());
+    }
+
+    #[tokio::test]
+    async fn invalid_idle_response_or_stderr_journal_failure_closes_connection() {
+        let workspace = tempfile::tempdir().unwrap();
+        for fail_stderr in [false, true] {
+            let observer = Arc::new(Observer { fail_direction: fail_stderr.then_some("stderr"), ..Default::default() });
+            let mut client = transport(if fail_stderr { "idle" } else { "idle-invalid" }, &workspace.path().to_path_buf()).with_io_observer(observer.clone());
+            client.connect().await.unwrap();
+            client.list_tools().await.unwrap();
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while client.is_connected() { tokio::task::yield_now().await; }
+            }).await.unwrap();
+            if !fail_stderr {
+                assert!(observer.frames.lock().await.iter().any(|(d,f)| d == "incoming" && f.to_string().contains("idle-invalid-marker")));
+            }
+            assert!(client.call_tool("echo", json!({})).await.is_err());
+            client.disconnect().await.unwrap();
+        }
     }
 
     #[tokio::test]

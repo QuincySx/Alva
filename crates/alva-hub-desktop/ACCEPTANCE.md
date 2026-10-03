@@ -1,5 +1,60 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Owned MCP I/O worker and text-searchable journals — 2026-10-03
+
+Explicit user clarification replaces the pending MCP JSON-path/schema-field
+extraction proposal: the calling AI receives small references and searches
+retained text itself. Managed ALVA uses an owned background I/O worker, not a
+second LLM or Hub WorkerSession. The existing single gateway, catalog identity
+checks, host approval, cwd/environment/process limits and generic-caller opt-in
+compatibility remain. All four gateway actions return journal references.
+
+Complete accepted redacted JSON-RPC semantics, gateway inputs/outputs,
+initialize/initialized, catalog pages, responses/errors, idle notifications,
+client replies and continuously read stderr share the native SessionRepository.
+SQLite/content-addressed zstd files are authoritative; full redacted records are
+also retained in a bounded recorder cache, not conversation context. This is not
+unredacted secret storage or byte-for-byte JSON whitespace capture. Stderr keeps
+UTF-8 text or raw byte chunks. Commit order is not a promise of global OS stream
+chronology; rejected/EOF/cancelled unread bytes are not claimed complete.
+
+Queue/response channel size is one; stderr chunks are <=4 KiB, frames <=1 MiB,
+and the existing catalog/schema/RPC limits remain. Per-assembly cache is limited
+to 4096 records/64 MiB serialized data, not a hard process RSS limit; idle reuse
+across turns does not reset it. Budget/storage failure latches, terminates the
+owned connection and preserves the accepted prefix; gateway journal failures
+also close managed connections. Cancellation records unknown acceptance,
+releases the worker/process and never auto-replays. PID/child ownership prevents
+stale readers killing recycled processes or publishing fake connected state.
+
+`context_retrieval search_history kind=mcp`, `read` and `search_record` expose
+bounded literal text views with current native-session ownership, exact
+namespace/type/version and hash/size verification. Typed media bytes and unrelated
+extensions/provider reasoning are excluded. References survive repeated model
+projection/compaction and reopen; missing/corrupt/foreign sources fail closed.
+Hub-owned Workers have their own factory/session journal. A copied root gateway
+rejects recursive children before any journal/host work; independent recursive
+child MCP worker rebinding is not implemented and parent logs are not granted.
+
+Current backend verification: **443 app-core, 47 ALVA adapter, 90 MCP protocol,
+260 Desktop lib, 4 Desktop bin, 15 HTTP = 859 passed**, including 11 new tests.
+Ten existing documentation cases are ignored; only the four exact real-account
+Desktop tests are filtered. Authored real local stdio, normal AllowOnce and mock
+model fixtures verify 600 kB complete result -> small reference -> text search,
+idle notifications/stderr/ping, error/cancellation/cleanup, memory/file equality,
+budget latch, namespace/media exclusion, UTF-8 bounds, restart and scope denial.
+Desktop/server all-target check passes with 29 existing warnings. No new
+dependencies, external user MCP, paid providers or account access.
+New-file rustfmt/diff, public snapshots, dependency/bus, wasm32 and full host-link
+gates pass; the missing wasip2 target is explicitly skipped, not installed.
+
+UI/Chrome/native WebView/performance evidence is not renewed, and no dedicated
+MCP transcript UI is claimed. Recursive child MCP rebinding, external-engine
+loop policies and real-provider/native acceptance remain outside this batch.
+JSON-path is deliberately retired, not unfinished. ADR-0011 and three-layer
+docs record the choice; kernel/agent-core contracts stay unchanged and unrelated
+user changes are preserved. Older evidence/pending entries below are historical.
+
 ## Derived media evidence in messages — 2026-10-03
 
 Historical image/video attachments now expose a read-only derived-media dialog.

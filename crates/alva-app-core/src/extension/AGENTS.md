@@ -26,7 +26,7 @@ L5 app-core 的 harness 装配；Plugin/Registrar 合约仍来自 agent-core。
 | agent_spawn.rs | 独立子会话、直接父工具授权、递归深度/预算/安全/锁与可选引用绑定 |
 | spawn_context.rs | SpawnContextPolicy/Binding：产品引用策略的窄子会话继承口 |
 | agent_templates.rs | 内置子 Agent 模板 |
-| mcp/ | MCP 生命周期、兼容直接目录、渐进 gateway |
+| mcp/ | MCP 生命周期、兼容直接目录、渐进 gateway；可选 session-bound journal/owned I/O worker，日志政策由产品提供 |
 | skills/ | Skills、模板服务与协议装配 |
 | hooks/ | session/tool hooks phase handler |
 | evaluation/ | graph-based 评估能力 |

@@ -17,6 +17,7 @@
 9. adapter 从 `alva-app-core::session_projection` 重导出 `build_run_record` / `RunRecord`，供 L7 Hub 在不绕过 adapter 依赖边界的前提下投影稳定 Inspector DTO。
 10. `with_context_repository` 使用 adapter/Inspector 的同一个 authority，为当前 native session 注入 `ContextRetrievalPlugin`：普通结果 >4 KiB、任何 ToolContent 图片、MCP 调用结果只向模型投影引用，记录/事件/error 原样保留；优先级在现有压缩之前。模型检索固定 session、128 records/64 MiB scan、20 hits/100-byte previews、2 KiB UTF-8 reads/16 KiB response；缺失/损坏明确失败，reasoning/typed media bytes 不暴露。compaction 引用验证来源而不层层套引用；重复 call ID 不串源，重启可读。
 11. `SessionPluginFactory` 是显式产品配方：每个实际 native root ID 创建 Plugin；Hub 经它绑定已认领的 HubStore/session，补跨 branch 可见历史与按需媒体。契约/Middleware 类型从此 app adapter 重导出，不给 SDK 增加业务能力，也不自动将根产品数据授权给递归子树。`visible_context_tool_text` 复用 typed 媒体字节排除规则。
+12. 受管 MCP + context repository 装配 `SessionMcpRecorder`：gateway/完整协议/空闲通知/stderr 先写同一 native SQLite/blob authority，同时缓存完整脱敏 frame；64 MiB 序列化/4096 条/装配 lifetime，超预算或落盘失败锁存并停连接，不静默淘汰。四 gateway 动作只回短引用；`context_retrieval kind=mcp` 按文字搜索/read/search_record，核验 namespace/type/version/hash-size/自有 session，排除 typed 媒体，不实现 JSON-path。JSON 语义完整不是原始空白复刻，取消/拒绝的前缀明确不完整。Hub-owned Worker 有独立 factory 绑定；复制 root gateway 到递归 child 拒绝，尚无 child worker 重绑，不授予父 journal。
 
 ## 约束
 - 不得构造裸 `AgentState` 或直接调用 `run_agent`；必须通过 BaseAgent factory。
@@ -33,5 +34,6 @@
 | BaseAgentFactory / SessionPluginFactory / BuiltAgent | factory.rs | 每 session 组装；Catalog vs Default 两档，显式 root 产品 Plugin 配方 |
 | SessionRepository | session_repository.rs | engine-native SQLite records、atomic batch/脏修复、resume/live tail 与固定会话有界检索/引用来源校验 |
 | ContextRetrievalPlugin | context_retrieval.rs | 通用结果/MCP 媒体引用、固定会话耐久历史检索；递归子会话重新绑定与 assembly fail-closed，真实父/子/孙隔离和重启回归 |
+| SessionMcpRecorder | mcp_journal.rs | 完整脱敏交互内存缓存 + 同一 session extension/blob 文件；预算失败停止、文本检索来源判定与重启回归 |
 | EventMapper | mapping.rs | AgentEvent → RuntimeEvent；Completed 聚合最后一条助手消息的全部文本块；ToolEnd 保留真实执行 duration |
 | lib.rs | lib.rs | 重导出 adapter、factory、reference-first Plugin、repository Inspector 与稳定 run projection API |

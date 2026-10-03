@@ -1,6 +1,6 @@
-// INPUT:  rusqlite, serde_json, kernel AgentSession contract, listenable in-memory projection
+// INPUT:  rusqlite, serde_json, kernel AgentSession contract, MCP journal frame contract, listenable in-memory projection
 // OUTPUT: SQLite-backed authoritative Alva AgentSession repository and bounded retrieval/source validation
-// POS:    Engine-native durable records, atomic batches/dirty repair, Hub resume/Inspector and reference-first authority.
+// POS:    Engine-native durable records and MCP extension blobs, atomic batches/dirty repair and scoped reference authority.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -183,7 +183,11 @@ impl SessionRepository {
              AND ((json_extract(CAST(record_json AS TEXT), '$.payload.category') = 'conversation'
                    AND json_extract(CAST(record_json AS TEXT), '$.payload.payload.role') IN ('user','assistant','tool'))
                OR (json_extract(CAST(record_json AS TEXT), '$.payload.category') = 'execution'
-                   AND json_extract(CAST(record_json AS TEXT), '$.payload.payload.kind') = 'intent'))
+                   AND json_extract(CAST(record_json AS TEXT), '$.payload.payload.kind') = 'intent')
+               OR (json_extract(CAST(record_json AS TEXT), '$.payload.category') = 'extension'
+                   AND json_extract(CAST(record_json AS TEXT), '$.payload.payload.namespace') = 'alva.mcp'
+                   AND json_extract(CAST(record_json AS TEXT), '$.type_name') = 'mcp_io'
+                   AND json_extract(CAST(record_json AS TEXT), '$.schema_version') = 1))
              ORDER BY seq LIMIT 128"
         ).map_err(sql_error)?;
         let rows = statement.query_map(params![session_id, after, through], |row| row.get::<_, Vec<u8>>(0)).map_err(sql_error)?;
@@ -901,7 +905,7 @@ fn sql_error(error: rusqlite::Error) -> SessionError {
     SessionError::Other(format!("native session SQLite error: {error}"))
 }
 
-fn redact_record(record: &mut SessionRecord) {
+pub(crate) fn redact_record(record: &mut SessionRecord) {
     match &mut record.payload {
         SessionRecordPayload::Conversation(conversation) => {
             redact_record_value(&mut conversation.content);
@@ -1002,6 +1006,11 @@ fn externalize_record_values(
         }
         SessionRecordPayload::Execution(ExecutionRecord::Outcome { output, .. }) => {
             externalize_value(output, blob_dir)?;
+        }
+        SessionRecordPayload::Extension(extension) if extension.namespace == crate::mcp_journal::NAMESPACE && record.type_name == crate::mcp_journal::TYPE_NAME && record.schema_version == 1 => {
+            let mut value: RecordValue = serde_json::from_value(extension.payload["frame"].clone())?;
+            externalize_value(&mut value, blob_dir)?;
+            extension.payload["frame"] = serde_json::to_value(value)?;
         }
         _ => {}
     }
@@ -1127,6 +1136,11 @@ fn collect_blob_hashes(record: &SessionRecord, hashes: &mut std::collections::Ha
         }
         SessionRecordPayload::Execution(ExecutionRecord::Outcome { output, .. }) => {
             collect_value(output, hashes)
+        }
+        SessionRecordPayload::Extension(_) => {
+            if let Some(Ok(value)) = crate::mcp_journal::frame_value(record) {
+                collect_value(&value, hashes);
+            }
         }
         _ => {}
     }

@@ -10,7 +10,7 @@
 | 上传日志/文本 | 会话内文件名、字节数、相对路径 | `hub_context` 列表/文字定位/有界读取；既有工作区工具仍可用 | 已实现；不会把正文拼到 prompt |
 | 图片/视频/二进制 | 文件引用 + 原始哈希/大小/处理清单 | `hub_media` 显式探测、压缩/转码/抽帧、选择与 receipt | Hub 根 ALVA 已实现受支持格式的有界处理/选中图单请求投递；不是自动语义分析/全视频或音频输入 |
 | 所有工具的大结果 | 调用身份、成功/失败、耐久记录引用 | `context_retrieval` 搜索/分段读取 | Hub Desktop/server ALVA 与其 app-core 递归子树已实现；其他 engine 自有循环不受该策略控制 |
-| MCP | 简短 server 索引 + 一个 `mcp_runtime` | 有界搜索、一个选中方法契约、精确调用；结果先落盘再引用 | Hub 受管 ALVA 已实现；legacy direct-tool caller 保持兼容 |
+| MCP | 简短 server 索引 + 一个 `mcp_runtime` | 后台 I/O worker；完整交互日志先存内存/文件，模型按引用做有界文本搜索/读取 | Hub 受管 ALVA 已实现；不用 JSON-path 提取，legacy caller 保持兼容 |
 | 历史消息/工具记录 | native record ID；Hub Turn/Attempt/branch 分组和来源 SHA | native `context_retrieval` 与 root `hub_context` 关键词/时间/类型/来源筛选 | ALVA 可检索当前 HubSession 已存的跨 branch/engine 可见记录；不扫其他会话/Worker/全局或外部 CLI 内部记录 |
 
 ## 附件（当前）
@@ -47,7 +47,8 @@ prompt。大日志、同名上传、Unicode、符号链接绕过、重启/跨会
 
 投影 priority 在现有 CompactionMiddleware 之前，压缩计数和 summarizer 只看引用；
 当前 Hub BaseAgent 没有另装会在此之前执行的自定义 ContextSystem。只豁免本插件
-注册的 `context_retrieval` 的最多 16 KiB 有界提取，不豁免普通 read_file/MCP。
+注册的 `context_retrieval` 的最多 16 KiB 有界提取，不豁免普通 read_file/MCP；
+受管 MCP 的短 journal 引用核验同一会话来源后保持稳定，不再次包成引用链。
 源不可定位就停止该模型请求；引用读取遇到失效/损坏 blob 明确失败，不回灌原文。
 blob 解压限 64 MiB、压缩输入限 65 MiB，校验大小/hash，SQL 页先读 metadata 再按预算
 解压；媒体类型索引最多 16 项，每项最多 128 字节，并明确截断。
@@ -165,15 +166,26 @@ interrupted unknown 不冒充成功或失败接受。无重放/重新发送按�
 1. 以 Plugin 注册一个常量 schema 的 MCP 入口；初始 prompt 仅列已授权 server
    的简短能力索引，不将所有 tool schemas 注册进模型。保留旧产品配置的暂停/启用、
    固定 snapshot、连接预算、取消回收以及 HITL，不改稳定 SDK。
-2. `search_tools` 按 server/query 返回有限命中（建议最多 20 条简短描述）；
-   `describe_tool` 只取选定方法，不返回全库。超大 schema 返回契约引用，按路径
-   提取必要字段。当前契约引用由通用策略处理，按文字范围读取；专用 JSON-path
-   schema 提取尚未实现。列表具备分页/截断指示，不靠模型猜遗漏方法。
+2. `search_tools` 按 server/query 生成有限命中（最多 20 条简短描述）；
+   `describe_tool` 只取选定方法，不返回全库。受管模式四种动作的输出均先保留，
+   主 AI 只拿小引用，再用文字范围/关键词读取描述、schema、过程或结果。
+   2026-10-03 用户明确取消 JSON-path/结构化字段提取方案，不作为未完成项。
+   列表日志具备分页/截断指示，不靠模型猜遗漏方法。
 3. `call_tool` 精确核对已启用 server/method/arguments，并走原审批路径。
-   请求、响应、错误和调用关联落在同一会话 artifact 中；输出给模型的是成功/失败、
-   有界摘要与结果引用，不把大量结果或调用日志回灌到上下文。
-4. Agent 可搜索/分段读取调用过程与结果，UI 可按引用读取全文和消息模块。
-   原始记录保持权威；不执行返回的脚本/HTML，不把描述中的指令视为授权。
+   后台 worker 串行交互，队列最多 1 项，调用方 future 取消即中断 RPC 并关闭 owned
+   子进程，无后台重放。不是子 LLM、Hub WorkerSession 或 OS daemon。
+   输出给模型的是成功/失败与短日志引用，不回灌大量结果或调用过程。
+4. 同一 native SessionRepository 写 `alva.mcp/mcp_io` 版本 1 记录，保持 record ID、seq、
+   server、交互实例、direction 和调用关联；SQLite + 大载荷内容寻址 zstd 文件是权威。
+   完整脱敏 frame 同时留在 recorder 内存，两个副本使用相同现有脱敏规则；不保留
+   未脱敏秘密，不另造历史库。可接受 JSON-RPC 按完整语义保存，不保证原始空白字节；
+   stderr 连续分块保存 UTF-8 文本或原字节数组。包括初始化、initialized、所有目录页、
+   调用请求/响应/错误、空闲通知、客户端协议回复与 stderr，不仅是最终 ToolResult。
+   native typed extension 不成为 conversation 消息；短引用验证来源后允许进入模型。
+   `context_retrieval search_history kind=mcp`、`read`、`search_record` 供模型有界文字检索，
+   不暴露其他 namespace/internal provider/hidden reasoning。typed 媒体字节仍被排除，
+   不执行服务器返回的脚本/HTML。typed records 复用 Inspector 的权威来源；本批不新增
+   专门 MCP 日志 UI，也不把后端可检索等同于 UI 全文展示已实现。
 5. 当前 gateway 的固定 schema 只含 `list_servers/search_tools/describe_tool/call_tool`。
    目录按稳定 server/tool 排序，literal case-insensitive query ≤200 字符，默认 5 项、
    最多 20 项并有 offset/has_more；描述预览最多 96 字符，不返回整库 schema。
@@ -184,8 +196,19 @@ interrupted unknown 不冒充成功或失败接受。无重放/重新发送按�
 6. stdio 保留 1 MiB 单 frame、单 schema 64 KiB、description 16 KiB 限额；目录扩为
    最多 8192 tools/128 pages，另加累计 32 MiB 上限，不以按需加载为由放开宿主内存。
    单 RPC 的大于 1 MiB 结果仍显式拒绝，20 MiB 文件上传不意味着放开 MCP frame。
+   stdout 响应通道最多 1 项，stderr 每块最多 4096 字节；单 RPC 最多 128 条中间消息。
+   每次 Agent 装配的 recorder 最多 4096 条/64 MiB 序列化日志（不是进程 RSS 硬上限）；
+   idle Agent 跨 Turn 复用时预算不自动重置。超预算/存储失败锁存 recorder 失败、明确
+   停止连接；gateway 自身记录失败也关闭已启动的受管连接，不静默
+   淘汰已接受内存记录；完整已提交前缀仍可读取。无效/超大/EOF 部分帧按失败或
+   不完整前缀标注，不声称保存了被协议拒绝或取消时尚未读到的全部 OS 字节。
+   outgoing_attempt 不证明服务器收到/执行；取消记录 acceptance unknown，不自动重试。
+   journal 绑定实际 native session，复制 root gateway 到递归 child 会明确拒绝；
+   未实现递归 child 独立受管 MCP worker，不能借此授予父日志。Hub-owned Worker 的
+   独立 factory/session 仍有自己的 journal；legacy 非受管 caller 不改变行为。
 7. 已用真实本地 stdio fixture 验证 5000 工具分页、一个 model-visible gateway、单工具
-   schema、32 MiB 总目录拒绝、正常审批后的 600 kB 结果→引用→模型历史搜索，以及
+   schema、32 MiB 总目录拒绝、正常审批后的 600 kB 完整交互→引用→模型文本搜索，以及
+   空闲通知/stderr/ping、I/O/日志失败关闭、取消未知状态、内存/文件一致、重启、越权和
    >1 MiB 通用工具原结果保留。typed MCP image/audio/video/blob 在文字检索中剥除字节，
    保留类型/URI/排除标识与结构化表格；不冒充已经分析媒体。任意普通工具文本中的
    未标类型编码不是媒体解码能力。未调用真实付费服务。
@@ -195,7 +218,7 @@ interrupted unknown 不冒充成功或失败接受。无重放/重新发送按�
 native 检索复用 SessionRepository 权威记录，不复制新的历史库。产品 root `hub_context`
 复用 Hub Turn/Attempt、schema-20 可见消息日志、schema-19 工具全文及已保存的失败原因。
 `context_retrieval` 提供当前 native session 固定作用域：关键词、
-时间范围、消息/工具/错误类型；返回稳定引用、时间、类型、简短命中片段，再按
+时间范围、消息/工具/错误/MCP 类型；返回稳定引用、时间、类型、简短命中片段，再按
 引用读取附近上下文。先实现确定性文字搜索，不以向量检索代替准确性。
 
 当前预算：literal case-sensitive query ≤200 字符、每页 ≤20 命中、预览 ≤100 UTF-8 字节，
@@ -207,7 +230,7 @@ native 检索复用 SessionRepository 权威记录，不复制新的历史库。
 检索结果是历史资料，不是当前指令。上传正文和历史日志不能自动进入 handoff
 全文；handoff 应带经过现有脱敏闸门的相关引用/有界摘要。
 
-只提供 user/assistant/tool 文本与 tool intent 参数；跳过重复 execution outcome 和内部
+只提供 user/assistant/tool 文本、tool intent 参数及明确版本化的 MCP journal；跳过其他 extension、重复 execution outcome 和内部
 provider/LLM/hook 事件，剥除 hidden reasoning/typed 媒体字节。scope 同时绑定工具实例
 和 execution context，模型不能传 session_id 越权。append-only 日志里的 compaction
 投影副本仍是独立记录，尚未以 Hub Turn/Attempt 做跨 branch 去重/分组。

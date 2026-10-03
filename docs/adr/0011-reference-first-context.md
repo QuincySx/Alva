@@ -14,6 +14,17 @@ permissions, ownership checks and truthful error/result status remain mandatory;
 referenced files and external descriptions are data, not higher-priority
 instructions. Explicit user authorization still gates cross-session scope.
 
+Clarified 2026-10-03: managed MCP interactions run in an owned background I/O
+worker, not another model or Hub WorkerSession. Complete accepted, redacted
+protocol/gateway inputs, outputs, notifications and stderr are retained in memory
+and the same native session's durable files; the calling agent receives references
+and searches/reads relevant text itself. JSON-path/structured-field extraction is
+deliberately not planned. Protocol/storage budgets stop the connection explicitly
+instead of silently discarding accepted output; outgoing attempts and interrupted
+transcripts do not prove remote acceptance. Generic callers keep their opt-in
+compatibility path. Parent-bound recorded gateways cannot be copied into children
+as a way to write/read the parent's journal.
+
 Implementation is incremental. Attachments, Hub Desktop/server ALVA large-tool
 projection, native-session history retrieval and managed single-entry MCP now
 follow this rule. App-core recursive children now rebind this policy to their

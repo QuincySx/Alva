@@ -1,4 +1,4 @@
-// INPUT:  adapter, factory, context_retrieval, mapping, session_repository modules
+// INPUT:  adapter, factory, context_retrieval, mcp_journal, mapping, session_repository modules
 // OUTPUT: AlvaAdapter, root-bound SessionPluginFactory/Plugin/Middleware contracts, ContextRetrievalPlugin, catalog/MCP DTOs and repository Inspector
 // POS:    Canonical app-layer Alva engine adapter that builds complete BaseAgent sessions for Hub.
 
@@ -6,6 +6,7 @@ mod adapter;
 mod context_retrieval;
 mod factory;
 mod mapping;
+mod mcp_journal;
 mod session_repository;
 
 pub use adapter::AlvaAdapter;

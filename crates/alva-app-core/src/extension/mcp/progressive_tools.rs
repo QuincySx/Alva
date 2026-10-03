@@ -24,6 +24,15 @@ struct Input {
 
 pub struct ProgressiveMcpTool {
     pub manager: Arc<McpManager>,
+    pub recording: Option<(Arc<dyn super::McpIoObserver>, String)>,
+}
+
+impl ProgressiveMcpTool {
+    async fn stop_recorded_interactions(&self) {
+        for server in self.manager.server_states().await.into_keys() {
+            let _ = self.manager.disconnect(&server).await;
+        }
+    }
 }
 
 fn fail(message: &str) -> AgentError {
@@ -60,11 +69,17 @@ impl Tool for ProgressiveMcpTool {
     async fn execute(
         &self,
         input: Value,
-        _: &dyn ToolExecutionContext,
+        ctx: &dyn ToolExecutionContext,
     ) -> Result<ToolOutput, AgentError> {
         if input.to_string().len() > 256 * 1024 {
             return Err(fail("MCP gateway input exceeds 256 KiB"));
         }
+        if let Some((_, session)) = &self.recording {
+            if ctx.session_id() != session {
+                return Err(fail("MCP interaction session binding mismatch"));
+            }
+        }
+        let original = input.clone();
         let input: Input =
             serde_json::from_value(input).map_err(|_| fail("Invalid MCP gateway input"))?;
         let limit = input.limit.unwrap_or(5);
@@ -83,7 +98,23 @@ impl Tool for ProgressiveMcpTool {
         {
             return Err(fail("Invalid discovery query or server identity"));
         }
-        let result = match input.action.as_str() {
+        let server_id = input.server_id.clone().unwrap_or_else(|| "gateway".into());
+        if let Some((observer, _)) = &self.recording {
+            if observer
+                .record(
+                    &server_id,
+                    "gateway_input",
+                    serde_json::json!({"tool_call_id":ctx.tool_call_id(),"input":original}),
+                )
+                .await
+                .is_err()
+            {
+                self.stop_recorded_interactions().await;
+                return Err(fail("MCP input could not be retained; interaction stopped"));
+            }
+        }
+        let result: Result<Value, AgentError> = async {
+            let value = match input.action.as_str() {
             "list_servers" => {
                 let mut states: Vec<_> = self.manager.server_states().await.into_iter().collect();
                 states.sort_by(|left, right| left.0.cmp(&right.0));
@@ -142,7 +173,44 @@ impl Tool for ProgressiveMcpTool {
                 }
             }
             _ => return Err(fail("Unknown MCP gateway action")),
-        };
+            };
+            Ok(value)
+        }.await;
+        if let Some((observer, _)) = &self.recording {
+            let (frame, is_error) = match result {
+                Ok(value) => {
+                    let error = value
+                        .get("isError")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    (value, error)
+                }
+                Err(_) => (
+                    json!({"status":"failed","acceptance":"unknown","notice":"Inspect the retained RPC transcript; a failure does not prove the remote side did not execute."}),
+                    true,
+                ),
+            };
+            let id = match observer
+                .record(
+                    &server_id,
+                    "gateway_output",
+                    json!({"tool_call_id":ctx.tool_call_id(),"is_error":is_error,"result":frame}),
+                )
+                .await
+            {
+                Ok(id) => id,
+                Err(_) => {
+                    self.stop_recorded_interactions().await;
+                    return Err(fail(
+                        "MCP output could not be retained; no complete reference available",
+                    ));
+                }
+            };
+            let mut output = ToolOutput::text(json!({"mcp_interaction_reference":{"record_id":id,"is_error":is_error},"retrieve":"Use context_retrieval read/search_record, or search_history kind=mcp. Full input/output and intermediate RPCs remain in durable logs; retrieve relevant text only."}).to_string());
+            output.is_error = is_error;
+            return Ok(output);
+        }
+        let result = result?;
         let is_error = result
             .get("isError")
             .and_then(Value::as_bool)
@@ -188,6 +256,50 @@ for line in sys.stdin:
 "#.into()]}}
     }
     #[tokio::test]
+    async fn recorded_gateway_rejects_foreign_session_before_any_journal_or_host_work() {
+        struct RejectRecorder(std::sync::atomic::AtomicUsize);
+        #[async_trait]
+        impl super::super::McpIoObserver for RejectRecorder {
+            async fn record(
+                &self,
+                _: &str,
+                _: &str,
+                _: Value,
+            ) -> Result<String, super::super::McpInteractionError> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Err(super::super::McpInteractionError::Transport(
+                    "fixture failure".into(),
+                ))
+            }
+        }
+        let workspace = tempfile::tempdir().unwrap();
+        let recorder = Arc::new(RejectRecorder(std::sync::atomic::AtomicUsize::new(0)));
+        let mut tool = ProgressiveMcpTool {
+            manager: Arc::new(McpManager::new(Arc::new(FixtureFactory(
+                workspace.path().to_path_buf(),
+            )))),
+            recording: Some((recorder.clone(), "actual-native-owner".into())),
+        };
+        tool.manager.register(config()).await;
+        tool.manager.connect("fixture").await.unwrap();
+        let context = MinimalExecutionContext::new();
+        let error = tool
+            .execute(json!({"action":"list_servers"}), &context)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("binding mismatch"));
+        assert_eq!(recorder.0.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(tool.manager.list_all_tools().await.len(), 5000);
+        tool.recording.as_mut().unwrap().1 = context.session_id().into();
+        let error = tool
+            .execute(json!({"action":"list_servers"}), &context)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("input could not be retained"));
+        assert_eq!(recorder.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(tool.manager.list_all_tools().await.is_empty());
+    }
+    #[tokio::test]
     async fn discovers_large_real_catalog_and_returns_only_one_selected_schema() {
         let workspace = tempfile::tempdir().unwrap();
         let manager = Arc::new(McpManager::new(Arc::new(FixtureFactory(
@@ -197,6 +309,7 @@ for line in sys.stdin:
         manager.connect("fixture").await.unwrap();
         let tool = ProgressiveMcpTool {
             manager: manager.clone(),
+            recording: None,
         };
         let ctx = MinimalExecutionContext::new();
         assert!(

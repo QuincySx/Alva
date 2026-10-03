@@ -45,7 +45,7 @@
 | 记忆系统 | `agent/memory/` | MemoryService — FTS + 向量混合搜索、文件同步、embedding |
 | 持久化 | `agent/persistence/` | SqliteStorage — session & message 的 SQLite 存储 |
 | 会话管理 | `agent/session/` | SessionManager 会话生命周期管理 |
-| MCP 集成 | `extension/mcp/` | native stdio/生命周期/显式配置；opt-in 单 gateway 渐进发现，旧 direct tools 兼容，全部经 SecurityGuard HITL |
+| MCP 集成 | `extension/mcp/` | native stdio/生命周期/显式配置；opt-in 单 gateway 与 session-bound recorded I/O worker，旧 caller 兼容，全部经 SecurityGuard HITL |
 | 技能系统 | `extension/skills/` | SkillsPlugin：auto 目录常驻注入、统一 `skill` registry/tool、REPL 直接调用服务；底层复用 SkillLoader / SkillStore / SkillInjector / FsSkillRepository |
 | 环境管理 | `environment/` | EnvironmentManager — 嵌入式运行时安装、版本解析、manifest 管理 |
 | 领域模型 | `domain/` | Agent / Session / Tool 等纯实体定义 |

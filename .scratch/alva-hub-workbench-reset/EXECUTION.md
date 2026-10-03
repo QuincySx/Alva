@@ -1,5 +1,13 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-03 MCP 澄清 · owned I/O worker 与完整日志文本检索
+
+- 用户明确不要 JSON-path/字段提取；改为 owned 后台 I/O worker，不新起子 LLM/Hub WorkerSession。四 gateway 动作保留完整 input/output 后只给主 AI 短引用；握手、目录分页、调用/错误、空闲通知、客户端回复和 stderr 持续记录。沿用单 gateway/HITL/cwd/环境/协议预算，不动 kernel/agent-core，也不影响 legacy 未启用 caller。
+- 同一 native SessionRepository 的 SQLite/内容寻址 zstd 文件为权威；完整脱敏 frame 同存内存，复用现有安全脱敏规则。有效 JSON 保存完整语义而非原始空白；stderr 保存文本/原字节块。queue/response 各 1 项，stderr 4 KiB/frame 1 MiB，recorder 每装配最多 4096 条/64 MiB 序列化（不是 RSS 硬上限，idle 跨 Turn 不重置）；预算/落盘失败锁存并关连接，gateway 自身记日志失败也关受管连接，不静默淘汰或自动重放。取消/超大/EOF 前缀不冒充完整输入或远端未执行，owned child/PID 闸防迟到 reader 杀 recycled 进程/发布假 Connected。
+- 主 AI 用 context_retrieval 的 kind=mcp/read/search_record 自行有界文字搜索；精确 namespace/type/version、实际自有 session、blob hash-size 验证，typed 媒体/其他 extension/internal reasoning 不暴露。日志不成为 conversation，引用重复投影/压缩不套链，重启可读。Hub-owned Worker 独立 factory 有自己的 journal；复制 root gateway 到递归 child 明确拒绝，独立 child MCP worker 重绑尚未实现，不能授权父日志。
+- **859 passed：443 app-core、47 adapter、90 MCP protocol、260 Desktop lib / 4 精确真实账号 filtered、4 bin、15 HTTP**，含 11 新测试，10 既有 doc cases ignored。真实自编 stdio/AllowOnce/模型替身验证 600 kB 完整结果→引用→文字搜索、空闲 stderr/通知/ping、取消/错误/日志失败关闭、完整内存与文件一致、预算锁存、Unicode/重启/损坏/越权。all-target check 0 errors/29 既有 warnings；new-file rustfmt/diff/public snapshots/依赖/bus/wasm32/full host link 闸通过，wasip2 缺 target 显式 skipped。
+- domain-modeling 记录已接受 ADR-0011 的澄清，JSON-path 已撤销而非待做；coding 控制在协议机制/harness worker/产品日志，git 仅提交本批、保留用户 CONTEXT.md/无关文件。无依赖安装、真实账户/计费、用户 MCP 或 push。未续验 UI/Chrome/native/性能、不冒充专门 MCP 日志 UI 已完成；外部 engine 循环、递归 child MCP 重绑和真实 provider 验收仍未覆盖。下文历史 pending 不覆盖本次明确决策。
+
 ## 2026-10-03 继续 · 消息内派生媒体/处理清单/投递回执
 
 - 历史图片/视频消息接“派生媒体”只读入口，打开只取 4 项索引、点击才读核验私有 JPEG/MP4 BLOB；原始清单不改，处理/帧策略/实际时间/理由/范围/损失明示。单份 metadata 16 KiB 在 SQL 分配前拒绝，字符串值脱敏、React 惰性展示；不读取工作区副本、执行 decoder/模型或重放选择。

@@ -137,7 +137,7 @@ agent loop 更复杂的场景用。它跟 `run_agent` 是平行的两套 runtime
 | crate | 职责 |
 |------|------|
 | `alva-protocol-skill` | Skill 系统：加载 / 注入 / 存储 / 渐进式三级加载。 |
-| `alva-protocol-mcp` | Model Context Protocol 客户端 + `McpToolAdapter`（把远端 MCP 工具桥接成 `Tool` trait）。 |
+| `alva-protocol-mcp` | Model Context Protocol 客户端 + `McpToolAdapter`；optional backpressured `McpIoObserver` 与 native 连续 stdout/stderr/空闲通知观察机制，不持有存储政策。 |
 | `alva-protocol-acp` | Agent Client Protocol：消息类型 / 会话 / 连接 / 进程管理。 |
 | `alva-llm-provider` | LLM provider 实现：`AnthropicProvider` / `OpenAIChatProvider` / `OpenAIResponsesProvider` / `GeminiProvider`；**canonical 工厂 `build_language_model(kind, config)` 与默认端点表 `default_base_url(kind)`（PR-10 之后调用方一律走这两个入口，禁止再复制 match）**。 |
 | `alva-environment` | 运行环境检测与抽象。 |
@@ -175,7 +175,7 @@ target:  complete Desktop V1 (fallback + branches + Orca collaboration)
 | crate | 职责 |
 |------|------|
 | `alva-hub-core` | Hub 产品会话监管器：engine registry、product session ↔ engine session 路由、resume/cancel/permission dispatch；仅依赖 engine contract。 |
-| `alva-engine-adapter-alva` | Hub 的 Alva adapter：独立完整 `BaseAgent`；共享 `SessionRepository` records/Inspector，opt-in `ContextRetrievalPlugin` 在压缩前投影大结果/媒体引用并提供自有 native 历史检索；app-core SpawnContextPolicy 将其重绑到递归子会话，首个 assembly hook + middleware fail-closed，不授予父历史或 root host 工具。受管 MCP 单 gateway，duration 保留；不控制外部 engine，不冒充跨 engine 历史。 |
+| `alva-engine-adapter-alva` | Hub 的 Alva adapter：独立完整 `BaseAgent`；共享 `SessionRepository` records/Inspector，opt-in `ContextRetrievalPlugin` 压缩前投影大结果/媒体引用并提供自有 native 历史检索，SpawnContextPolicy 重绑递归子会话且不授予父历史/root 工具。受管 MCP 单 gateway + owned I/O worker，完整脱敏日志存内存/同会话文件、主 AI 有界文本检索；父 journal gateway 复制到 child 拒绝，不控制外部 engine。 |
 | Hub 产品 context/media Plugin | `alva-hub-desktop` 经 adapter 的 `SessionPluginFactory` 按实际 native root/已认领 HubSession 绑定：跨 branch 可见历史/日志有界检索、媒体显式派生与选中图单请求投递/receipts。复用既有权限，不给 kernel/agent-core 加政策，不自动授予 child/别的 HubSession/Worker/全局读取权；原始媒体不自动送模型。 |
 | Hub 消息媒体证据 | `alva-hub-desktop::store/media_preview` 共享会话归属的只读派生索引/哈希 BLOB/固定高水位回执，Tauri 与 HTTP 同构；消息 UI 点击才预览、说明真实处理及尝试/未知状态，不自动处理/送模型或重放。 |
 | `alva-hub-cli` | Hub 命令行验证、诊断与自动化入口：支持 one-shot / REPL、私有 session journal、显式 Alva / Claude / Codex 选择、resume、手动切换与 handoff；与原生 `alva-app-cli` 保持独立。 |
@@ -293,6 +293,10 @@ ALVA 能力/MCP 配置同样归 Hub 私有产品层：真实 catalog 开关不�
 仅下一轮 ALVA 消费，不影响其他 engine、不加载外部现有 MCP/AEP。受管 MCP 当前仅
 原生 stdio，不安装程序或继承凭据；新增/编辑禁用，启用/测试需确认宿主访问，测试
 绑定已存 session cwd 并结束回收；MCP 工具含 meta-tool 进入既有 HITL。
+受管 MCP 实际交互用 owned 后台 I/O worker（不是子 AI）：完整脱敏输入/输出、协议过程、
+空闲通知/stderr 同存有限内存和 native session SQLite/blob 文件，主 AI 只拿小引用并文字
+搜索/读取。JSON-path 提取已按用户方向取消；超预算/记录失败明确停止，取消不重放。
+复制父 gateway 到递归 child 不授予父日志，独立 child MCP worker 重绑尚未实现。
 
 Hub 产品 UI 以 `crates/alva-hub-desktop` 的 Tauri + React 实现为准，旧 GPUI 产品 UI
 迁移方向已退役。正式架构决策见 `docs/adr/0006-hub-tauri-ui-system.md`：Cindy 负责结构与
