@@ -130,8 +130,35 @@ EINVAL，改为每 50ms 监测 owned/unreaped PID 的 512 MiB RSS 守卫，可�
 
 真实本地 ffmpeg fixture 验证图压缩、指定/均匀时间/实际时间、视频 codec/fps 损失、原件
 保留/损坏/迁移/重启/越权/取消/输出限额。真实 catalog + AllowOnce + 模型替身验证零自动
-输入→只选中图及 provenance→成功/错误 receipt→下一轮零重放。尚无派生预览的专门
-Tauri/HTTP endpoint/UI、真实付费 provider 验收、音频转录/场景检测或外部 engine 循环适配。
+输入→只选中图及 provenance→成功/错误 receipt→下一轮零重放。真实付费 provider 验收、
+音频转录/场景检测、精确多模态 token 预算或外部 engine 循环适配仍未覆盖。
+
+### 消息内只读媒体证据（当前）
+
+历史图片/视频附件提供独立“派生媒体”入口，原始上传的未处理清单不被改写。
+打开先读每页 4 个产物的元数据，不取任何派生 BLOB；用户点击产物后才读取
+JPEG（≤256 KiB）或 MP4（≤8 MiB）的哈希/大小核验私有副本。不会读工作区中可能
+被修改的副本，也不接收宿主路径。处理方法/版本、源与产物 hash、大小/尺寸、
+请求及实际帧时间/理由、codec/fps/range/loss 等原始清单以惰性文本展示。
+
+回执每页 5 条，以首次读取的 row 高水位固定成员范围；记录状态仍可能前进，
+用户显式刷新重新取范围。保留真实 status/时间/selection/实际 model/backend，准备
+不等于发送、submitted 只表示尝试、response_received 不证明理解，provider error/
+interrupted unknown 不冒充成功或失败接受。无重放/重新发送按钮；空产物页仅说明
+没有已完成记录，空回执只说明该次读取范围没有记录，不证明从未尝试其他途径。
+
+三个共享 HubStore API 经 Tauri `list_hub_attachment_media`、`get_hub_media_artifact`、
+`get_hub_media_receipts` 与 HTTP 附件下 `/media`、`/media/:artifact_id`、
+`/media/:artifact_id/receipts` 暴露同构 DTO。按 product session→source→artifact
+检查归属；只读、blocking worker、每份 JSON 元数据最多 16 KiB，SQL 在字符串分配前
+拒绝超限，字符串值脱敏而不破坏 JSON。缺失/越权/损坏/非法 cursor 返回通用错误，
+不泄漏内部路径、不把失败写成空成功。查看不执行 decoder、模型或更改 receipt。
+
+前端翻页替换正文而不累积全部产物/receipt DOM，迟到结果/会话切换隔离；Blob URL
+关闭/卸载回收，本地媒体不 autoplay，失败可重试，Esc 关闭并还原焦点。进程重启后
+仍读耐久副本/实际恢复状态，不重放选择。store/HTTP 隔离夹具及 real Chrome 的
+中英文/1440/720px、实际合成 JPEG 解码、键盘/Blob 生命周期验证，不冒充真实 provider
+或原生 WebView 验收；其他格式的上传仍可保存，但无已完成派生不能伪造预览。
 
 ## MCP（当前 Hub 受管 ALVA）
 

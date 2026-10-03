@@ -1,16 +1,13 @@
 // INPUT: Explicitly selected File bytes or session-owned durable attachment refs
-// OUTPUT: InputAttachments picker, MessageAttachments preview and truthful processing manifest
+// OUTPUT: InputAttachments picker, MessageAttachments original/derived inspection and truthful processing manifests
 // POS: Reference-first uploads; local previews never imply media was sent to or analyzed by AI.
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { getHubInputAttachment, type InputAttachment, type InputAttachmentRef, type InputAttachmentContent } from "../bridge";
 import { useI18n } from "../i18n";
 import { Button, DialogContent, DialogRoot } from "../ui";
-import { CopyTextButton } from "./copy-text-button";
-
-export function attachmentBytes(file: InputAttachment | InputAttachmentContent): Uint8Array {
-  return file.data_base64 ? Uint8Array.from(atob(file.data_base64), (character) => character.charCodeAt(0))
-    : new TextEncoder().encode(file.text ?? "");
-}
+import { AttachmentPreview, attachmentBytes } from "./attachment-preview";
+import { AttachmentMedia } from "./attachment-media";
+export { attachmentBytes } from "./attachment-preview";
 function toBase64(bytes: Uint8Array): string {
   const pieces: string[] = [];
   for (let index = 0; index < bytes.length; index += 32768) pieces.push(String.fromCharCode(...bytes.subarray(index, index + 32768)));
@@ -105,6 +102,7 @@ export function MessageAttachments({ sessionId, files }: { sessionId: string; fi
   const currentFile = body?.key === key ? body.file : undefined;
   return <div className="message-attachments"><ul>{files.map((file) => <li key={file.attachment_id}>
     <Button size="small" variant="ghost" onClick={(event) => { previewTrigger.current = event.currentTarget; setSelected(file); }}>{file.name} · {file.total_bytes} B</Button>
+    {file.content_type?.match(/^(image|video)\//) ? <AttachmentMedia key={`${sessionId}:${file.attachment_id}`} sessionId={sessionId} file={file} /> : null}
   </li>)}</ul><DialogRoot open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
     <DialogContent title={selected?.name ?? t("attachment.label")} description={t("attachment.preview")} size="wide"
       onCloseAutoFocus={(event) => { event.preventDefault(); previewTrigger.current?.focus(); }}>
@@ -112,45 +110,4 @@ export function MessageAttachments({ sessionId, files }: { sessionId: string; fi
         : currentFile === undefined ? <p role="status">{t("attachment.reading")}</p> : <AttachmentPreview file={currentFile} />}
     </DialogContent>
   </DialogRoot></div>;
-}
-
-function previewType(bytes: Uint8Array): string {
-  const prefix = String.fromCharCode(...bytes.subarray(0, 12));
-  if (prefix.startsWith("\x89PNG\r\n\x1a\n")) return "image/png";
-  if (prefix.startsWith("\xff\xd8\xff")) return "image/jpeg";
-  if (/^GIF8[79]a/.test(prefix)) return "image/gif";
-  if (prefix.startsWith("RIFF") && prefix.slice(8) === "WEBP") return "image/webp";
-  if (prefix.slice(4, 8) === "ftyp" && !["avif", "avis", "heic", "heix", "mif1"].includes(prefix.slice(8, 12))) return "video/mp4";
-  if (prefix.startsWith("\x1a\x45\xdf\xa3") && new TextDecoder().decode(bytes.subarray(0, 4096)).includes("webm")) return "video/webm";
-  return "";
-}
-function AttachmentPreview({ file }: { file: InputAttachment | InputAttachmentContent }) {
-  const { t } = useI18n();
-  const [preview, setPreview] = useState<{ file: typeof file; text?: string; url?: string; mime: string }>();
-  const [failedFile, setFailedFile] = useState<typeof file>();
-  useEffect(() => {
-    const bytes = attachmentBytes(file);
-    const mime = previewType(bytes);
-    let url: string | undefined;
-    let text: string | undefined;
-    if (mime) {
-      try { url = URL.createObjectURL(new Blob([new Uint8Array(bytes).buffer], { type: mime })); }
-      catch { setFailedFile(file); }
-    }
-    else try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); if (text.includes("\0")) text = undefined; } catch { /* binary: metadata only */ }
-    setPreview({ file, text, url, mime });
-    return () => { if (url) URL.revokeObjectURL(url); };
-  }, [file]);
-  const current = preview?.file === file ? preview : undefined;
-  return <div><p>{t("attachment.unprocessed")}</p>
-    {"path" in file && file.path ? <code>{file.path}</code> : null}
-    {"processing" in file && file.processing ? <pre className="attachment-processing">{JSON.stringify(file.processing, null, 2)}</pre> : null}
-    {failedFile === file ? <p role="status">{t("attachment.mediaPreviewError")}</p>
-      : current?.url ? current.mime.startsWith("image/")
-      ? <img className="attachment-media" src={current.url} alt={file.name} onError={() => setFailedFile(file)} />
-      : <video className="attachment-media" src={current.url} controls preload="metadata" aria-label={file.name} onError={() => setFailedFile(file)} />
-      : current === undefined ? <p role="status">{t("attachment.reading")}</p>
-      : current.text !== undefined ? <><pre className="attachment-preview">{current.text}</pre><CopyTextButton text={current.text} label={t("chat.copy")} /></>
-      : <p>{t("attachment.binarySaved")}</p>}
-  </div>;
 }

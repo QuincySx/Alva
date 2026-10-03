@@ -1,5 +1,5 @@
 // INPUT:  Hub Desktop engine, provider, workspace, run, store, and collaboration sub-modules
-// OUTPUT: engine/provider/workspace/Skills/automation/MCP, root-bound product context/media Plugin recipe and durable orchestration APIs
+// OUTPUT: engine/provider/workspace/Skills/automation/MCP, root-bound context/media Plugins, read-only media inspection DTOs and orchestration APIs
 // POS:    Hub Desktop multi-engine library facade shared by Tauri IPC and product tests.
 
 mod alva;
@@ -70,6 +70,7 @@ pub use run::{
 };
 pub use session_workspace::{create_managed_session_workspace, WorkspaceBinding, WorkspaceKind};
 pub use store::{
+    MediaArtifactRef, MediaArtifactContent, MediaArtifactPage, MediaDeliveryReceipt, MediaReceiptPage,
     Automation, AutomationAction,
     validate_input_attachments, InputAttachment, InputAttachmentRef, InputAttachmentContent,
     HubToolSettings, ToolComponent, ManagedMcpServer, ToolSettingsAction,

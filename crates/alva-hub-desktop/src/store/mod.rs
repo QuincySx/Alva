@@ -1,5 +1,5 @@
 // INPUT:  rusqlite, serde, filesystem paths, UUID/time primitives
-// OUTPUT: HubStore, automations/ALVA tool settings, session input-file DTOs and durable orchestration DTOs
+// OUTPUT: HubStore, automations/ALVA tool settings, session input-file/media inspection DTOs and durable orchestration DTOs
 // POS:    Hub Desktop-private multi-engine state machine, authorization snapshots, and crash repair owner.
 
 use std::fs::File;
@@ -33,6 +33,8 @@ mod input_attachments;
 mod context_history;
 pub(crate) use context_history::ContextRequest;
 mod media;
+mod media_preview;
+pub use media_preview::{MediaArtifactRef, MediaArtifactContent, MediaArtifactPage, MediaDeliveryReceipt, MediaReceiptPage};
 pub(crate) use media::{MediaArtifact, MediaSource};
 pub(crate) use media::sha as media_sha;
 mod turn;

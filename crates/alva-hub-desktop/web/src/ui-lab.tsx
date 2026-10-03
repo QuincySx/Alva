@@ -1,5 +1,5 @@
 // INPUT:  ALVA UI facade, deterministic fixture content, and domain components
-// OUTPUT: Development/test-only component and page state catalog
+// OUTPUT: Development/test-only component, page state and scoped media inspection catalog
 // POS:    Reproducible visual acceptance surface excluded from production navigation
 
 import { useState } from "react";
@@ -36,6 +36,7 @@ import {
   UIProvider,
 } from "./ui";
 import { ModelPicker, type HubModelRoute } from "./components/model-picker";
+import { MessageAttachments } from "./components/input-attachments";
 
 const routes: HubModelRoute[] = [
   { engineId: "alva", engineLabel: "ALVA", modelId: "workspace", modelLabel: "Workspace model", providerId: "workspace", accountSource: "Workspace configuration", billingRoute: "Workspace provider", description: "Uses the project model configuration.", capabilities: ["tools", "images"], reasoningEfforts: ["low", "medium", "high"], reasoningEffort: "high", supportsFastMode: false, fastMode: false },
@@ -85,6 +86,7 @@ export default function UiLab() {
             <TabsTrigger value="tokens">Tokens</TabsTrigger>
             <TabsTrigger value="surfaces">Surfaces</TabsTrigger>
             <TabsTrigger value="model">Model picker</TabsTrigger>
+            <TabsTrigger value="media">Media evidence</TabsTrigger>
           </TabsList>
           <TabsContent value="tokens">
             <section className="ui-lab__section">
@@ -164,6 +166,12 @@ export default function UiLab() {
               <h2>Composer model route</h2>
               <label className="hub-search-field"><Search size={16} /><TextField aria-label="Lab search" placeholder="Search models…" /></label>
               <ModelPicker onOptionsChange={(route, update) => setSelected({ ...route, reasoningEffort: update.reasoningEffort ?? route.reasoningEffort, fastMode: update.fastMode ?? route.fastMode })} onSelect={setSelected} routes={routes} selectedEngineId={selected.engineId} selectedModelId={selected.modelId} selectedProviderId={selected.providerId} />
+            </section>
+          </TabsContent>
+          <TabsContent value="media">
+            <section className="ui-lab__section">
+              <h2>Saved media evidence</h2>
+              <MessageAttachments sessionId="media-fixture" files={[{attachment_id:"fixture-source",name:"fixture-video.mp4",total_bytes:100,content_type:"video/mp4"}]} />
             </section>
           </TabsContent>
         </TabsRoot>

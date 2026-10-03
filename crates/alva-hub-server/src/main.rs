@@ -1,5 +1,5 @@
 // INPUT:  alva-hub-desktop (HubStore, reference-first run seam, engine assembly and DTOs), axum, tokio
-// OUTPUT: HTTP/SSE workspace/automation/MCP/Inspector APIs and session-owned 20 MiB attachment transport
+// OUTPUT: HTTP/SSE workspace/automation/MCP/Inspector APIs, 20 MiB uploads and scoped original/derived media inspection with receipts
 // POS:    Alva Hub as a local service — one backend, many frontends.
 
 use std::collections::{HashMap, HashSet};
@@ -385,6 +385,44 @@ async fn get_input_attachment(
         Ok(Ok(Some(file))) => Json(file).into_response(),
         Ok(Ok(None)) => (StatusCode::NOT_FOUND, Json(json!({"error":"Attachment unavailable"}))).into_response(),
         _ => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"Attachment unavailable"}))).into_response(),
+    }
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct MediaPageQuery {
+    #[serde(default)]
+    after: i64,
+    through: Option<i64>,
+}
+async fn list_attachment_media(
+    State(state): State<Arc<AppState>>, Path((session, attachment)): Path<(String, String)>, Query(query): Query<MediaPageQuery>,
+) -> Response {
+    let store=state.store.clone();
+    match tokio::task::spawn_blocking(move || store.list_attachment_media(&session,&attachment,query.after)).await {
+        Ok(Ok(page))=>Json(page).into_response(),
+        Ok(Err(_))=>(StatusCode::NOT_FOUND,Json(json!({"error":"Media unavailable"}))).into_response(),
+        _=>(StatusCode::INTERNAL_SERVER_ERROR,Json(json!({"error":"Media unavailable"}))).into_response(),
+    }
+}
+async fn get_media_artifact(
+    State(state): State<Arc<AppState>>, Path((session, attachment, artifact)): Path<(String, String, String)>,
+) -> Response {
+    let store=state.store.clone();
+    match tokio::task::spawn_blocking(move || store.read_media_artifact(&session,&attachment,&artifact)).await {
+        Ok(Ok(file))=>Json(file).into_response(),
+        Ok(Err(_))=>(StatusCode::NOT_FOUND,Json(json!({"error":"Media unavailable"}))).into_response(),
+        _=>(StatusCode::INTERNAL_SERVER_ERROR,Json(json!({"error":"Media unavailable"}))).into_response(),
+    }
+}
+async fn get_media_receipts(
+    State(state): State<Arc<AppState>>, Path((session, attachment, artifact)): Path<(String, String, String)>, Query(query): Query<MediaPageQuery>,
+) -> Response {
+    let store=state.store.clone();
+    match tokio::task::spawn_blocking(move || store.media_artifact_receipts(&session,&attachment,&artifact,query.after,query.through)).await {
+        Ok(Ok(page))=>Json(page).into_response(),
+        Ok(Err(_))=>(StatusCode::NOT_FOUND,Json(json!({"error":"Media unavailable"}))).into_response(),
+        _=>(StatusCode::INTERNAL_SERVER_ERROR,Json(json!({"error":"Media unavailable"}))).into_response(),
     }
 }
 
@@ -1451,6 +1489,9 @@ fn build_app(state: Arc<AppState>) -> Router {
         .route("/api/sessions/:id/inspection", get(get_inspection))
         .route("/api/sessions/:id/tool-content/:content_id", get(get_tool_content))
         .route("/api/sessions/:id/attachments/:attachment_id", get(get_input_attachment))
+        .route("/api/sessions/:id/attachments/:attachment_id/media", get(list_attachment_media))
+        .route("/api/sessions/:id/attachments/:attachment_id/media/:artifact_id", get(get_media_artifact))
+        .route("/api/sessions/:id/attachments/:attachment_id/media/:artifact_id/receipts", get(get_media_receipts))
         .route("/api/sessions/:id/messages", get(get_messages))
         .route("/api/sessions/:id/workspace/files", get(workspace_files))
         .route("/api/sessions/:id/workspace/file", get(workspace_file))
@@ -1899,13 +1940,18 @@ mod r65_stop_integration {
     }
 
     async fn http_get(addr: std::net::SocketAddr, path: &str) -> (u16, serde_json::Value) {
+        let (status, body) = http_get_raw(addr, path).await;
+        (status, serde_json::from_str(&body).unwrap())
+    }
+
+    async fn http_get_raw(addr: std::net::SocketAddr, path: &str) -> (u16, String) {
         let mut stream = TcpStream::connect(addr).await.unwrap();
         stream.write_all(format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
         let mut raw = String::new();
         stream.read_to_string(&mut raw).await.unwrap();
         let status = raw.split_whitespace().nth(1).unwrap().parse().unwrap();
         let body = raw.split_once("\r\n\r\n").unwrap().1;
-        (status, serde_json::from_str(body).unwrap())
+        (status, body.to_string())
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2092,6 +2138,52 @@ mod r65_stop_integration {
         assert_eq!(stored["data_base64"], encoded);
         assert_eq!(stored["processing"], file["processing"]);
         assert_eq!(http_get(server.addr, &format!("/api/sessions/other/attachments/{attachment}")).await.0, 404);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn media_inspection_is_read_only_scoped_and_verifies_private_bytes_over_http() {
+        use base64::Engine;
+        use sha2::{Digest,Sha256};
+        let server=spawn_server_gated(vec![Step::CompleteNow],false,false).await;
+        let workspace=server.data_dir.join("workspace");
+        let mut body:serde_json::Value=serde_json::from_str(&run_body(workspace.to_str().unwrap(),None)).unwrap();
+        body["attachments"]=json!([{"name":"photo.jpg","data_base64":base64::engine::general_purpose::STANDARD.encode(b"\xff\xd8\xffsource-fixture")}]);
+        let (status,response)=http_post(server.addr,"/api/run".into(),body.to_string()).await;
+        assert_eq!(status,200,"{response}");
+        let outcome:serde_json::Value=serde_json::from_str(&response).unwrap();
+        let session=outcome["product_session_id"].as_str().unwrap();
+        let detail=http_get(server.addr,&format!("/api/sessions/{session}")).await.1;
+        let source=&detail["turns"][0]["attachments"][0];
+        let attachment=source["attachment_id"].as_str().unwrap();
+        // Only this disposable, account-free server DB is seeded. No decoder
+        // or product write endpoint is introduced for test data.
+        let connection=rusqlite::Connection::open(server.data_dir.join("alva-hub.db")).unwrap();
+        let bytes=b"\xff\xd8\xffderived-fixture";
+        let hash=format!("{:x}",Sha256::digest(bytes));
+        let manifest=json!({"artifact_id":"http-derived","source_attachment_id":attachment,"source_sha256":source["processing"]["source_sha256"],"output_sha256":hash,"output_bytes":bytes.len(),"path":"media/derived.jpg","content_type":"image/jpeg","method":"HTTP fixture, not actual processing","actual_timestamp_seconds":0.6,"original_preserved":true});
+        connection.execute("INSERT INTO media_artifacts(artifact_id,attachment_id,body,content_type,relative_path,processing_json,created_at) VALUES('http-derived',?1,?2,'image/jpeg','media/derived.jpg',?3,1)",rusqlite::params![attachment,bytes,manifest.to_string()]).unwrap();
+        let selection=json!({"delivery_id":"http-receipt","artifact_ids":["http-derived"],"actual_model_id":"synthetic-model","provider_backend":"fixture","originals_sent":false});
+        connection.execute("INSERT INTO media_deliveries VALUES('http-receipt',?1,'fixture-root','fixture-call',?2,'provider_error_acceptance_unknown',1,2)",rusqlite::params![session,selection.to_string()]).unwrap();
+        let base=format!("/api/sessions/{session}/attachments/{attachment}/media");
+        let (status,index)=http_get(server.addr,&base).await;
+        assert_eq!(status,200);assert_eq!(index["artifacts"][0]["processing"],manifest);
+        assert!(index.to_string().find("data_base64").is_none());
+        let (status,preview)=http_get(server.addr,&format!("{base}/http-derived")).await;
+        assert_eq!(status,200);assert_eq!(base64::engine::general_purpose::STANDARD.decode(preview["data_base64"].as_str().unwrap()).unwrap(),bytes);
+        let (status,receipts)=http_get(server.addr,&format!("{base}/http-derived/receipts")).await;
+        assert_eq!(status,200);assert_eq!(receipts["receipts"][0]["status"],"provider_error_acceptance_unknown");
+        for suffix in ["","/http-derived","/http-derived/receipts"] {
+            assert_eq!(http_get(server.addr,&format!("/api/sessions/other/attachments/{attachment}/media{suffix}")).await.0,404);
+        }
+        assert_eq!(http_get(server.addr,&format!("{base}?after=-1")).await.0,404);
+        assert_eq!(http_get(server.addr,&format!("{base}/http-derived/receipts?after=1&through=0")).await.0,404);
+        assert_eq!(http_get(server.addr,&format!("{base}/unknown")).await.0,404);
+        assert_eq!(http_get_raw(server.addr,&format!("{base}?path=%2Fetc%2Fpasswd")).await.0,400);
+        connection.execute("UPDATE media_artifacts SET body=?1 WHERE artifact_id='http-derived'",[vec![42_u8;bytes.len()]]).unwrap();
+        assert_eq!(http_get(server.addr,&format!("{base}/http-derived")).await.0,404);
+        assert_eq!(server.engine.turn.load(Ordering::SeqCst),1,"inspection must not start a new engine turn");
+        let stored:String=connection.query_row("SELECT status FROM media_deliveries WHERE delivery_id='http-receipt'",[],|r|r.get(0)).unwrap();
+        assert_eq!(stored,"provider_error_acceptance_unknown","inspection must not replay a receipt");
     }
 
     #[tokio::test(flavor = "multi_thread")]

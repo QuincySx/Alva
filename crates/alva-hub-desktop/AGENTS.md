@@ -88,6 +88,7 @@ Desktop IPC，不向 kernel、agent-core、`alva-app-cli` 或 `alva-app-tauri`
 | Message recovery | `src/store/message_journal.rs` | schema 20 可见 assistant 全文与有界游标补页，复用消息位置协议并对齐崩溃修复终态 |
 | Input attachments | `src/store/input_attachments.rs` | schema 23 原字节与处理清单/引用保存、会话文件副本和授权历史预览，不自动送模型 |
 | Product retrieval / media storage | `src/store/context_history.rs` / `src/store/media.rs` | 复用耐久记录分组/来源校验，schema 24 派生 BLOB/文件与 native-root 选择快照/receipt/不重放恢复 |
+| Media evidence inspection | `src/store/media_preview.rs` / `web/src/components/attachment-media.tsx` | 消息内派生索引、点击私有 BLOB 本地预览、处理清单和分页回执；同构只读 Tauri/HTTP、不自动处理/发送/重放 |
 | Local automations | `src/store/automation.rs` | 暂停优先的 interval CRUD/revision、普通会话固定路由、原子 Turn 认领、忙/漏过跳过、终态与重启暂停；产品入口 pump 最多 4 个并行，不经过 kernel |
 | ALVA capabilities / MCP | `src/store/tool_settings.rs` / `src/mcp_diagnostics.rs` | schema-22 catalog 配置、stdio MCP 授权/CRUD/一次性连接测试；不安装程序，不导入凭据 |
 | Tauri entry | `src/main.rs` | workspace 创建、运行/切换/Inspector IPC、event emission 与 Desktop runtime |

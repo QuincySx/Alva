@@ -1,5 +1,55 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Derived media evidence in messages — 2026-10-03
+
+Historical image/video attachments now expose a read-only derived-media dialog.
+Opening reads at most four metadata records; only selecting an artifact reads
+its private, size/hash-verified JPEG (<=256 KiB) or MP4 (<=8 MiB) BLOB. No mutable
+workspace copy is read. Original upload manifests remain unchanged; derived
+method/version/hashes/dimensions/requested and actual frame times/reasons/losses
+are inert text, not executable message content. Missing completed artifacts do
+not prove processing was never attempted. Local preview is not model input.
+
+Delivery receipts are independent five-record pages at a fixed row high-water;
+status may advance, explicit refresh takes a new range. Actual stored status,
+selection/model/backend and timestamps remain inspectable. Prepared is not sent,
+submitted is only an attempt, response is not proof of visual understanding,
+and unknown acceptance is not silently converted into success or replayed.
+There is no process/send/replay action in this dialog.
+
+The three shared HubStore readers/DTOs are exposed by registered Tauri commands
+and matching HTTP GET endpoints under the original attachment. Session/source/
+artifact ownership, restart persistence, changed workspace copies, corrupt
+private bytes and invalid cursors are verified. Each JSON metadata record is
+limited to 16 KiB before SQL string allocation; string values are redacted without
+breaking JSON. Generic failures do not expose host paths or masquerade as empty
+success. Paging replaces content; stale responses are discarded, Blob URLs are
+revoked, video does not autoplay, retry/Escape/focus restoration are covered.
+
+This batch: **260 Desktop lib / 4 exact real-account tests filtered, 4 Desktop
+bin, 15 HTTP, 239 UI / 25 files, 10 real Chrome = 528 passed** (13 added tests).
+The final reader cursor guard was followed by its two focused regressions;
+these overlap the full lib count and are not counted twice. Chrome includes
+six renewed 100/1000/10000-message window/streaming/search regressions and four
+EN/ZH 1440/720px media fixtures with actual browser-generated JPEG decode,
+keyboard/focus, inert manifests, GET-only requests and Blob revocation. Those
+HTTP-intercepted browser fixtures are not live backend/provider/native evidence;
+the separate HTTP regression uses a real disposable server/private DB.
+
+Production web build, Desktop/server all-target check (29 existing warnings),
+new-file rustfmt/diff check, public snapshots and dependency/bus/wasm32/full host
+link gates pass; missing wasip2 is explicitly skipped. Existing React/Vite
+warnings are retained. No real accounts, paid models, user media, external MCP,
+dependency downloads or publication. Cached rusqlite/sha2 are test-only server
+dependencies. Guidelines-coding keeps this read-only/product-layer only;
+guidelines-git keeps the local commit scoped and user changes preserved.
+
+Dedicated preview API/UI is no longer pending. Full native WebView/performance
+and real-provider media acceptance, audio transcription, scene detection,
+schema JSON-path retrieval, exact multimodal budgets and external-engine loop
+policies still are. Kernel/agent-core and SDK contracts are unchanged. Earlier
+batch evidence and pending statements below are historical, not renewed claims.
+
 ## Scoped product history and selected media — 2026-10-03
 
 Production Desktop/server ALVA roots now receive a Plugin recipe bound after

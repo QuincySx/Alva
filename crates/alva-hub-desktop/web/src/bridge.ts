@@ -1,5 +1,5 @@
 // INPUT:  @tauri-apps/api, dialog/opener plugins, HTTP JSON transport
-// OUTPUT: typed workspace/Skills/automation/MCP/run/Inspector/provider and reference-first attachment IPC/HTTP APIs
+// OUTPUT: typed workspace/Skills/automation/MCP/run/Inspector/provider and scoped attachment/media inspection IPC/HTTP APIs
 // POS:    Typed multi-engine authorization boundary between React and Hub Desktop commands.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -988,6 +988,33 @@ export async function listHubWorkspaceFiles(productSessionId: string, path: stri
 export interface InputAttachment { name: string; text?: string; data_base64?: string }
 export interface InputAttachmentRef { attachment_id: string; name: string; total_bytes: number; path?: string; content_type?: string; processing?: Record<string, unknown> }
 export interface InputAttachmentContent extends InputAttachmentRef { text?: string | null; data_base64?: string | null }
+
+export interface MediaArtifactRef {
+  artifact_id: string; source_attachment_id: string; name: string; total_bytes: number;
+  path: string; content_type: "image/jpeg" | "video/mp4"; processing: Record<string, unknown>;
+}
+export interface MediaArtifactContent extends MediaArtifactRef { data_base64: string }
+export interface MediaArtifactPage { artifacts: MediaArtifactRef[]; next_cursor: number; has_more: boolean }
+export interface MediaDeliveryReceipt { delivery_id: string; status: string; created_at: number; updated_at: number; selection: Record<string, unknown> }
+export interface MediaReceiptPage { receipts: MediaDeliveryReceipt[]; next_cursor: number; through: number; has_more: boolean }
+function mediaPath(session: string, attachment: string, artifact?: string): string {
+  return `/api/sessions/${encodeURIComponent(session)}/attachments/${encodeURIComponent(attachment)}/media${artifact ? `/${encodeURIComponent(artifact)}` : ""}`;
+}
+export async function listHubAttachmentMedia(productSessionId: string, attachmentId: string, after = 0): Promise<MediaArtifactPage> {
+  if (HTTP) return httpJson(`${mediaPath(productSessionId, attachmentId)}?after=${after}`, undefined, "GET");
+  if (!hasTauri) throw new Error("Media inspection requires the Hub runtime.");
+  return invoke("list_hub_attachment_media", { productSessionId, attachmentId, after });
+}
+export async function getHubMediaArtifact(productSessionId: string, attachmentId: string, artifactId: string): Promise<MediaArtifactContent> {
+  if (HTTP) return httpJson(mediaPath(productSessionId, attachmentId, artifactId), undefined, "GET");
+  if (!hasTauri) throw new Error("Media preview requires the Hub runtime.");
+  return invoke("get_hub_media_artifact", { productSessionId, attachmentId, artifactId });
+}
+export async function getHubMediaReceipts(productSessionId: string, attachmentId: string, artifactId: string, after = 0, through?: number): Promise<MediaReceiptPage> {
+  if (HTTP) return httpJson(`${mediaPath(productSessionId, attachmentId, artifactId)}/receipts?after=${after}${through === undefined ? "" : `&through=${through}`}`, undefined, "GET");
+  if (!hasTauri) throw new Error("Media receipts require the Hub runtime.");
+  return invoke("get_hub_media_receipts", { productSessionId, attachmentId, artifactId, after, through: through ?? null });
+}
 
 export async function getHubInputAttachment(productSessionId: string, attachmentId: string): Promise<InputAttachmentContent> {
   if (HTTP) return httpJson(`/api/sessions/${encodeURIComponent(productSessionId)}/attachments/${encodeURIComponent(attachmentId)}`, undefined, "GET");

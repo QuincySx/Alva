@@ -1,5 +1,13 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-03 继续 · 消息内派生媒体/处理清单/投递回执
+
+- 历史图片/视频消息接“派生媒体”只读入口，打开只取 4 项索引、点击才读核验私有 JPEG/MP4 BLOB；原始清单不改，处理/帧策略/实际时间/理由/范围/损失明示。单份 metadata 16 KiB 在 SQL 分配前拒绝，字符串值脱敏、React 惰性展示；不读取工作区副本、执行 decoder/模型或重放选择。
+- 共享 HubStore 三个 reader/DTO 经 Tauri 注册命令及 HTTP GET 同构传输，按产品→来源→产物归属验证；receipt 5 项固定 row 高水位/状态可前进/显式刷新。准备、尝试、响应、未知接受真实区分，空页不冒充从未尝试、响应不冒充理解。翻页替换 DOM、失败重试、迟到结果/会话切换隔离、Blob 回收、无 autoplay、Esc/焦点恢复。
+- **528 passed：260 Desktop lib / 4 精确真实账号 filtered、4 bin、15 HTTP、239 UI / 25 files、10 Chrome**；含 13 新测试。reader 最后 cursor guard 后另跑其 2 项窄回归，不重复计数。真实私有 Store/HTTP 临时 DB 核验重启、工作区副本变化、损坏/越权/预算；4 Chrome EN/ZH×1440/720 fixture 使用实际合成 JPEG/HTTP 拦截，另续验 6 条 100/1000/10000 消息滚动/流 anchor/窗口外搜索。不是 WKWebView/provider 验收。
+- production build/all-target check（29 既有 warnings）/rustfmt/diff/public snapshots/依赖/bus/wasm32/full host-link 全通过；wasip2 缺 target 显式 skipped。首轮 HTTP 缺 qualified Deserialize、测试 helper 误把 Axum 400 文本当 JSON 均修正，未放宽生产解析/归属/损坏闸门。仅复用缓存 test-only rusqlite/sha2，无安装/付费/真实账号/用户 MCP/SDK 改动或 push；依 coding/git 技能同步三层文档、保留用户 CONTEXT.md/无关目录。
+- 专门派生预览 API/UI 已补上；原生 UI/性能、真实 provider 媒体验收、音频转录/场景检测、schema JSON-path/精确多模态预算和外部 engine 循环政策继续待实施。下文为历史，不将其旧 pending/测试数当作当前结果。
+
 ## 2026-10-03 继续 · 产品历史检索与真实媒体处理/选中投递
 
 - Desktop/server 在 Turn 认领后，以现有 HubStore/实际 native root 装配 SessionPluginFactory；hub_context 检索当前 HubSession 已保存的跨 branch/engine 可见 user/assistant/tool/error，按 Turn/Attempt/engine/status 分组，含失败原因/时间/ID 筛选。五来源固定高水位、跨 message 片段/tool 块、源 SHA、有界 UTF-8 读取；128 逻辑来源/64 MiB scan、3 命中、512-byte excerpt、4 KiB response。文件列表只读索引，文字附件须显式查询原 BLOB；无全局/其他产品会话/Worker/父 scope、hidden reasoning 或外部 CLI 未落盘全文。

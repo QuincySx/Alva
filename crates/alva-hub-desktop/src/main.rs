@@ -1,5 +1,5 @@
 // INPUT:  alva_hub_desktop, tauri app-data paths, dialog, tracing_subscriber
-// OUTPUT: Desktop IPC for workspace/Skills/automation/MCP/run/Inspector and session-owned attachment bytes/references
+// OUTPUT: Desktop IPC for workspace/Skills/automation/MCP/run/Inspector and session-owned original/derived media inspection with receipts
 // POS:    Tauri 2 entrypoint, user-authorized multi-engine Desktop state owner, and product event bridge.
 
 #![cfg_attr(
@@ -1689,6 +1689,33 @@ async fn get_hub_input_attachment(
 }
 
 #[tauri::command]
+async fn list_hub_attachment_media(
+    state: State<'_, DesktopState>, product_session_id: String, attachment_id: String, after: i64,
+) -> Result<alva_hub_desktop::MediaArtifactPage, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.list_attachment_media(&product_session_id, &attachment_id, after))
+        .await.map_err(|_| "Media index unavailable".to_string())?
+}
+
+#[tauri::command]
+async fn get_hub_media_artifact(
+    state: State<'_, DesktopState>, product_session_id: String, attachment_id: String, artifact_id: String,
+) -> Result<alva_hub_desktop::MediaArtifactContent, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.read_media_artifact(&product_session_id, &attachment_id, &artifact_id))
+        .await.map_err(|_| "Media reader unavailable".to_string())?
+}
+
+#[tauri::command]
+async fn get_hub_media_receipts(
+    state: State<'_, DesktopState>, product_session_id: String, attachment_id: String, artifact_id: String, after: i64, through: Option<i64>,
+) -> Result<alva_hub_desktop::MediaReceiptPage, String> {
+    let store = state.store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.media_artifact_receipts(&product_session_id, &attachment_id, &artifact_id, after, through))
+        .await.map_err(|_| "Media receipts unavailable".to_string())?
+}
+
+#[tauri::command]
 async fn get_hub_tool_settings(state: State<'_, DesktopState>) -> Result<alva_hub_desktop::HubToolSettings, String> {
     let store = state.store.clone();
     tauri::async_runtime::spawn_blocking(move || store.tool_settings()).await.map_err(|_| "Tool settings unavailable".to_string())?
@@ -1778,7 +1805,7 @@ fn isolated_ui_directory(args: impl IntoIterator<Item = std::ffi::OsString>) -> 
 fn isolated_ui_command(command: &str) -> bool {
     matches!(command,
         "hub_browser" | "hub_terminal" | "list_hub_sessions" | "get_hub_session"
-        | "get_hub_tool_content" | "get_hub_input_attachment" | "list_hub_workspace_files" | "read_hub_workspace_file"
+        | "get_hub_tool_content" | "get_hub_input_attachment" | "list_hub_attachment_media" | "get_hub_media_artifact" | "get_hub_media_receipts" | "list_hub_workspace_files" | "read_hub_workspace_file"
         | "get_hub_git_status" | "get_hub_git_diff" | "get_hub_messages" | "get_hub_inspection"
         | "list_hub_workspace_skills" | "hub_workspace_skill"
         | "list_hub_automations" | "hub_automation"
@@ -1946,6 +1973,9 @@ fn main() {
             get_hub_inspection,
             get_hub_tool_content,
             get_hub_input_attachment,
+            list_hub_attachment_media,
+            get_hub_media_artifact,
+            get_hub_media_receipts,
             list_hub_workspace_files,
             read_hub_workspace_file,
             list_hub_workspace_skills,
@@ -2015,6 +2045,9 @@ mod isolated_ui_tests {
             assert!(!isolated_ui_command(command));
         }
         assert!(isolated_ui_command("get_hub_messages"));
+        for command in ["list_hub_attachment_media", "get_hub_media_artifact", "get_hub_media_receipts"] {
+            assert!(isolated_ui_command(command));
+        }
         assert!(isolated_ui_command("hub_terminal"));
         assert!(isolated_ui_command("hub_browser"));
     }
