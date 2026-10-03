@@ -1,5 +1,5 @@
 // INPUT:  rusqlite, serde_json, kernel AgentSession contract, MCP journal frame contract, listenable in-memory projection
-// OUTPUT: SQLite-backed AgentSession repository, metadata-only causal parent lookup and bounded retrieval/source validation
+// OUTPUT: SQLite-backed AgentSession repository, restore-free inspection snapshots, metadata-only causal parent lookup and bounded retrieval/source validation
 // POS:    Engine-native durable records and MCP extension blobs, atomic batches/dirty repair and scoped reference authority.
 
 use std::collections::HashMap;
@@ -165,6 +165,55 @@ impl SessionRepository {
             serde_json::from_slice(&bytes).map_err(SessionError::from)
         })
         .collect()
+    }
+
+    /// Read committed record references, not the runtime conversation projection.
+    /// Parent metadata and records belong to the same read-only SQLite snapshot.
+    fn read_inspection_snapshot(&self, session_id: &str) -> Result<InspectionSnapshot, RuntimeError> {
+        let unavailable = |error: String| RuntimeError::Other(error);
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|error| unavailable(error.to_string()))?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .map_err(|error| unavailable(error.to_string()))?;
+        let parent: Option<Option<String>> = transaction
+            .query_row(
+                "SELECT parent_session_id FROM native_sessions WHERE session_id = ?1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| unavailable(error.to_string()))?;
+        let parent_session_id = parent
+            .ok_or_else(|| RuntimeError::SessionNotFound(session_id.to_string()))?;
+        let records: Vec<SessionRecord> = {
+            let mut statement = transaction
+                .prepare(
+                    "SELECT record_json FROM native_records WHERE session_id = ?1 ORDER BY seq ASC",
+                )
+                .map_err(|error| unavailable(error.to_string()))?;
+            let rows = statement
+                .query_map([session_id], |row| row.get::<_, Vec<u8>>(0))
+                .map_err(|error| unavailable(error.to_string()))?;
+            rows.map(|row| {
+                let bytes = row.map_err(|error| unavailable(error.to_string()))?;
+                serde_json::from_slice(&bytes).map_err(|error| unavailable(error.to_string()))
+            })
+            .collect::<Result<_, _>>()?
+        };
+        transaction
+            .commit()
+            .map_err(|error| unavailable(error.to_string()))?;
+        Ok(InspectionSnapshot {
+            engine_id: "alva".to_string(),
+            native_session_id: session_id.to_string(),
+            parent_session_id,
+            high_water_seq: records.last().map(|record| record.seq).unwrap_or(0),
+            children: child_links(session_id, &records),
+            records,
+        })
     }
 
     /// Read a parent only when native metadata and the durable causal link agree.
@@ -409,28 +458,11 @@ impl EngineInspector for RepositoryInspector {
     }
 
     async fn snapshot(&self, native_session_id: &str) -> Result<InspectionSnapshot, RuntimeError> {
-        if !self
-            .repository
-            .contains(native_session_id)
-            .map_err(|error| RuntimeError::Other(error.to_string()))?
-        {
-            return Err(RuntimeError::SessionNotFound(native_session_id.to_string()));
-        }
-        let session = self
-            .repository
-            .open_session(native_session_id.to_string(), None)
+        let repository = self.repository.clone();
+        let session_id = native_session_id.to_string();
+        tokio::task::spawn_blocking(move || repository.read_inspection_snapshot(&session_id))
             .await
-            .map_err(|error| RuntimeError::Other(error.to_string()))?;
-        let records = session.records(0).await;
-        let children = child_links(native_session_id, &records);
-        Ok(InspectionSnapshot {
-            engine_id: "alva".to_string(),
-            native_session_id: native_session_id.to_string(),
-            parent_session_id: session.parent_session_id().map(str::to_string),
-            high_water_seq: records.last().map(|record| record.seq).unwrap_or(0),
-            records,
-            children,
-        })
+            .map_err(|_| RuntimeError::Other("Native inspection worker unavailable".into()))?
     }
 
     async fn subscribe(
@@ -1194,6 +1226,66 @@ fn text_blocks(value: &serde_json::Value) -> Vec<String> {
 mod tests {
     use super::*;
     use alva_kernel_abi::{EventEmitter, ExecutionRecord, SessionRecordPayload};
+
+    #[tokio::test]
+    async fn cold_snapshot_reads_ten_thousand_records_without_restoring_runtime_or_blobs() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("records.db");
+        let repository = SessionRepository::open(&path).unwrap();
+        let root = repository.open_session("root", None).await.unwrap();
+        let mut records: Vec<_> = (0..10_000).map(|index| {
+            SessionRecord::execution("fixture_event", EventEmitter::runtime(),
+                ExecutionRecord::Event { data: serde_json::json!({"number":index}) })
+        }).collect();
+        let message = SessionRecord::conversation(
+            AgentMessage::Standard(alva_kernel_abi::Message::user("日志🙂".repeat(30_000))), None,
+        );
+        let message_id = message.record_id.clone();
+        records.push(message);
+        root.append_records(records).await.unwrap();
+        let child = root.create_child_session("run", "spawn").await.unwrap().unwrap();
+        let child_id = child.session_id().to_string();
+        let stored = repository.context_record("root", &message_id).unwrap();
+        let SessionRecordPayload::Conversation(conversation) = &stored.payload else { panic!("conversation fixture") };
+        let RecordValue::Blob { reference } = &conversation.content else { panic!("large fixture blob") };
+        std::fs::write(repository.blob_dir.join(format!("{}.json.zst", reference.sha256)), b"corrupt").unwrap();
+        drop((child, root, repository));
+
+        let repository = SessionRepository::open(&path).unwrap();
+        let inspector = RepositoryInspector::new(repository.clone());
+        let snapshot = inspector.snapshot("root").await.unwrap();
+        assert_eq!(snapshot.records.len(), 10_002);
+        assert_eq!(snapshot.high_water_seq, 10_002);
+        assert_eq!(snapshot.children[0].child_session_id, child_id);
+        assert_eq!(snapshot.parent_session_id, None);
+        let actual = snapshot.records.iter().find(|record| record.record_id == message_id).unwrap();
+        assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(stored).unwrap());
+        assert!(repository.sessions.lock().unwrap().is_empty(), "inspection must not restore/cache runtime sessions");
+        assert!(matches!(inspector.snapshot("not-created").await, Err(RuntimeError::SessionNotFound(_))));
+        assert!(!repository.contains("not-created").unwrap());
+        // An explicit resume still verifies/loads conversation bytes and fails;
+        // metadata inspection must not implicitly take that runtime path.
+        assert!(repository.open_session("root", None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn snapshot_record_errors_are_not_silently_projected_as_empty_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SessionRepository::open(directory.path().join("records.db")).unwrap();
+        let root = repository.open_session("root", None).await.unwrap();
+        root.append(SessionEvent::new_runtime("fixture_event")).await.unwrap();
+        repository.connection.lock().unwrap().execute(
+            "UPDATE native_records SET record_json=?1 WHERE session_id='root'",
+            [br#"{"record_id":"broken-fixture"}"#.to_vec()],
+        ).unwrap();
+        let inspector = RepositoryInspector::new(repository.clone());
+        assert!(inspector.snapshot("root").await.is_err(), "corrupt typed rows must not look like an empty valid snapshot");
+        let empty = repository.open_session("empty", None).await.unwrap();
+        let snapshot = inspector.snapshot("empty").await.unwrap();
+        assert!(snapshot.records.is_empty());
+        assert_eq!(snapshot.high_water_seq, 0);
+        drop((empty, root));
+    }
 
     /// R24: typed `ChildSessionLinked` payloads must survive the
     /// append_records → plain event append → flush → reopen round trip.

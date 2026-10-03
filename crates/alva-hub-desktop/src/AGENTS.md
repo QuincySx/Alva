@@ -22,7 +22,7 @@ ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，
 5. 运行中 switch 持久化为 queued；终态或启动 crash repair 后再原子应用。
 6. runtime events 与 switch facts 被投影为稳定 timeline states；每个 TimelineEvent 在产品创建点取得统一 `created_at`，所有 engine 共用一个产品时间轴，UI 不读取 adapter-native clock。
 7. `main` 从 Tauri app-data 初始化 store，并暴露运行、切换、列表和详情 IPC。debug-only `--isolated-ui-data <absolute path>` 使用独立数据与临时主 WebView，关闭共享 Provider/账号探测、worker 恢复及 engine/账号操作；专用于无真实账号的 UI 验证，正常启动路径不变。
-7.1. `inspection` 持有与 Alva adapter 共享的 `SessionRepository`，按 HubSession/EngineBranch 校验 native session 必须是根或可达子孙，再把 `EngineInspector` snapshot 投影为稳定 `HubInspectionSnapshot`；`main::get_hub_inspection` 只暴露该 DTO，非 Alva engine truthful unsupported。
+7.1. `inspection` 持有与 Alva adapter 共享的 `SessionRepository`，普通 Inspector/MCP 日志均沿 metadata 与版本 1 typed causal 父链接验证到本 HubSession/EngineBranch（最多 256 节点/循环拒绝），不 BFS 读取祖先/旁支正文。获准后只读目标 committed snapshot，不恢复 runtime/创建 ID/解压 conversation blob，坏记录明确失败；稳定 `HubInspectionSnapshot`/RunRecord 仍全量，不冒充分页。`main::get_hub_inspection` 只暴露该 DTO，非 Alva engine truthful unsupported。
 8. `main` 暴露全局与单 session fallback policy IPC；自动使用必须来自当前 session snapshot 的明确授权。
 9. `readiness` 用只读 `EngineProbe` facts（PATH 发现、`--version`、凭证存在性、attempt 历史）分类 ALVA/Claude Code/Codex/Pi 的结构化 EngineReadiness；target-aware fast veto 对 API-backed CLI route 仍要求 binary，但不再错误要求该 CLI 的私有订阅登录。
 9.1. `provider_diagnostics` 只消费后端解析出的 ProviderConfig：按协议发现远端模型，连接测试走 canonical provider factory 的最小真实 inference；跨 IPC 只返回模型标识、耗时和脱敏分类，不返回 URL、响应正文、样例、密钥或 header。
@@ -68,7 +68,7 @@ ALVA 能力/MCP 配置是 `store/tool_settings` 的 schema-22 全局 snapshot，
 | Engine assembly | `alva.rs` | 统一 ProviderConfig 到 ALVA、Claude Code、Codex、Pi 的 route-aware 安全装配 |
 | Product context Plugin | `hub_context.rs` | 已认领 HubSession/native-root 双绑定的跨 engine 可见历史与上传文本 Tool，真实 catalog 配方回归；子 Agent 不继承父产品数据授权 |
 | Selected media | `hub_media.rs` | 显式审批的 native 解码/有界 JPEG、指定或均匀抽帧、短 silent 视频转码；核验产物后只向一次模型请求附选中图与 provenance，receipt/error/取消/不重放回归 |
-| Inspector bridge | `inspection.rs` | 共享 native repository、树归属/稳定 DTO；MCP 定时快照只传引用，显式 metadata-only 归属索引和有界搜索/正文，不启动 Agent/MCP/重放 |
+| Inspector bridge | `inspection.rs` | 共享 native repository、metadata-only ancestry 归属/restore-free 目标快照与稳定 DTO；MCP 引用及显式有界索引/搜索/正文，不启动 Agent/MCP/重放 |
 | Run controller | `run.rs` | 动态 Hub request、delta/full handoff、native-resume recovery、自动 fallback 循环、带产品时钟的事件投影与结果 |
 | Engine readiness | `readiness.rs` | 只读 probe seam、EngineReadiness 分类与 SystemProbe 实现 |
 | Managed SDK installation | `sdk_installation.rs` | 产品运行时目录的包身份/版本/入口校验，拒绝符号链接、Unix 异主及组/其他用户可写路径、工作区交叠；不执行包代码 |

@@ -301,8 +301,11 @@ ALVA 能力/MCP 配置同样归 Hub 私有产品层：真实 catalog 开关不�
 
 Workbench Inspector 已接当前 Agent 的 MCP 日志只读入口：显式打开小索引、字面关键词搜索和
 2 KiB UTF-8 分段正文，Tauri/HTTP 同构；归属沿版本 1 typed 父链接校验，不恢复会话/启动 MCP/
-模型/重放。定时 Inspector DTO 只带 MCP 引用，UI 不累积全文，不授予模型父日志；整个 Inspector
-全量恢复/大规模性能仍需单独完善，不能把这条日志分页当作所有 Inspector 已有界。
+模型/重放。普通 Inspector 同样沿 metadata/typed ancestry 授权，仅取目标 committed records，
+不恢复 runtime/填 session cache/解压 conversation blob或读取祖先/旁支正文；坏记录明确失败。
+定时 DTO 只带 MCP 引用，日志 UI 不累积全文、不授予模型父日志；完整目标快照/RunRecord/
+前端缓存仍全量，冷 subscribe 与耐久追加的全量投影/大规模性能待完善。压力与装配 lifetime
+清单见引用检索规范，不把日志分页或冷读取隔离当成整个 Inspector 已有界。
 
 Hub 产品 UI 以 `crates/alva-hub-desktop` 的 Tauri + React 实现为准，旧 GPUI 产品 UI
 迁移方向已退役。正式架构决策见 `docs/adr/0006-hub-tauri-ui-system.md`：Cindy 负责结构与

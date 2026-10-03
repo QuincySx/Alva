@@ -1,5 +1,14 @@
 # EXECUTION · 逐卡执行记录
 
+## 2026-10-03 继续整理压力 · 冷 Inspector 与装配 lifetime
+
+- 普通 repository snapshot 与 runtime restore 分离：blocking worker 内同一只读 SQLite transaction 读取目标 metadata/typed records，不 open_session/填 cache/解压 conversation blob/创建 ID/flush/启动 Agent/模型/MCP；坏记录返回错误，不再默认为空。原 blob 引用不变，显式正文/运行恢复仍核验。
+- 普通 Inspector/MCP 日志共用 metadata + 版本 1 typed causal ancestry 授权，获准后只读目标；不 BFS 恢复祖先/旁支。256 节点（含目标/根）/循环守卫保留，fake metadata/future link/外产品拒绝；人用递归树不授予模型父日志。DTO/默认 branch 次序兼容，kernel/agent-core 零修改。
+- **338 passed：55 adapter、263 Desktop lib / 4 精确真实账户 filtered、4 bin、16 HTTP**；4 新回归，其中 3 条先红后绿。实际私有 SQLite/typed child/blob 验证 10,002 records 冷快照/损坏大 blob/空 runtime cache、坏目标不能变空成功、有效空会话、祖先旁支坏正文不妨碍 child、循环/版本/256 节点边界/越权。全历史 fixture 是读取隔离证据，不是 RSS/性能绿标。
+- all-target check 0 errors/29 既有 warnings，diff/public snapshots/依赖/bus/wasm32/full host-link 通过；wasip2 缺 target skipped。本批不续报 UI/build/Chrome/native/provider，也不访问凭据/真实账户/用户 MCP/新增依赖。三级文档同步；coding/git 规范只提交本批、保留 CONTEXT.md/无关目录，不 push。
+- 引用检索规范新增按优先级/源码位置/完成条件的压力清单与资源 lifetime 矩阵：先建立耐久 append 长历史基线/安全增量化，再做完整 Inspector 概览/详情有界读取与前端缓存；冷 subscribe/原生/真实 provider 独立待验。共用 repository 已接线，root/Hub-owned Worker/native child 授权不混，批准 snapshot/Agent 与 MCP recorder/cache 为装配 lifetime，取消/审批借用为每轮；不因“整理”引入大一统 Bus/内核 setter。不恢复已取消 JSON-path；FOUNDATIONS 的旧 pending 已纠正。
+- 上次本地提交尝试因 1Password signing 的 `failed to fill whole buffer` 失败（exit 128），该次未生成 commit；改动未丢失，未绕过用户签名配置/操作凭据或 push。现按用户明确的 commit 请求重试同一已验证单元的签名提交。
+
 ## 2026-10-03 继续 · 当前 Agent 的只读 MCP 日志 Inspector
 
 - 新增产品只读 journal API/正式 Inspector 入口；Tauri/HTTP POST 复用共享 HubInspectorService 与同一 native reader。native metadata + 版本 1 typed 父链接验证到本 HubSession 的 ALVA branches，256 层/循环拒绝；query 路径不恢复会话/创建未知 ID/Agent/MCP/模型/append/重放，不给主 AI 增加父/其他会话日志权限。

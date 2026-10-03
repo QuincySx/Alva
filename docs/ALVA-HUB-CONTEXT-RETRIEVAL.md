@@ -244,8 +244,58 @@ UI 每次只保留当前页，scope/导航/retry 身份匹配并丢弃迟到回�
 搜索/刷新/重试、索引返回来源焦点及 Inspector Back/Esc 真实接线，中英文提示说明
 脱敏、typed 媒体排除与 outgoing/取消不证明远端接受。文本惰性渲染，不执行 HTML。
 Chrome fixture 与真实私有 SQLite/HTTP 回归是本地读取证据，不是用户 MCP/付费 provider/
-WKWebView 验收；整个 Inspector 的全量 session 恢复/RunRecord 构建仍未分页或做大规模
-内存验收，不将仅此 journal API 的 metadata 路径夸大成所有 Inspector 已有界。
+WKWebView 验收。下面的普通快照读取修正也不等于整个 Inspector 已分页或通过大规模
+内存验收，不将 journal API 的 metadata 路径夸大成所有 Inspector 已有界。
+
+### 普通 Inspector 冷读取与剩余压力（2026-10-03）
+
+普通 `RepositoryInspector::snapshot` 已与运行会话恢复分开：blocking worker 内，
+同一只读 SQLite transaction 读取 parent metadata 与目标 session 的全部 typed records；
+不调用 `open_session`、不创建未知 ID、不填充内存会话 cache，也不解压 conversation
+blob。读取权威已提交记录，不触发 flush/Agent/provider/MCP。记录解码失败明确返回错误，
+不再经 runtime `records().unwrap_or_default()` 冒充空历史；有效空会话仍可成功读取。
+blob reference 保留原样，正文损坏可浏览其 metadata，但显式读取/运行恢复仍核验并失败。
+
+普通 Inspector 和 MCP 日志入口共用归属路径：沿目标的 metadata 与版本 1 typed causal
+parent link 校验到本 HubSession 的 ALVA branch，然后只读目标快照。无须先读祖先或
+旁支的完整历史；祖先的非链接正文损坏不再阻断合法 child。安全限额为最多 256 个
+祖先节点（含目标和根），不是旧 BFS 的整个树节点数；假 metadata、未知 link version、
+循环、超深或其他产品会话仍拒绝。不向模型扩大历史权限，不新增第二份记录库。
+
+本地反例覆盖 10,000 条事件 + 大 conversation blob + typed child link 的冷读取；
+损坏 blob 不妨碍引用快照，而运行恢复必须失败，冷 Inspector 后内存 session map 为空。
+另覆盖损坏目标记录不能变空成功、祖先/旁支坏正文不妨碍 child、归属/256 节点边界。
+这是结构性读取隔离证据，不是 10,000 条下的耗时/RSS 或原生 UI 性能通过证明。
+
+| 优先级 / 状态 | 具体压力与当前代码 | 下一步完成条件 / 不可破坏的边界 |
+|---|---|---|
+| 已修第一步 | `session_repository.rs::RepositoryInspector::snapshot` 原先走恢复；`inspection.rs` 原先 BFS 读祖先/旁支 | 冷快照不恢复/解压、不创建会话；只授权目标后读取，坏记录报错；上述反例已通过 |
+| 下一步：耐久写入 | `SqliteAgentSession::append_records` 每批先读已有 `persisted_events`，提交后再读 events/typed records 并全量恢复内存；连续追加随历史增长重复工作，MCP 日志也走此处 | 先以长历史连续追加建立读取次数/耗时/内存基线，再只维护必要增量；保留原子 seq/receipt、typed child link、conversation/compaction 投影、dirty repair、广播顺序和重启一致。不能把提交后的错误冒充未提交，也不能删除原文以减负 |
+| 下一步：完整 Inspector 读模型 | 目标快照仍全量反序列化；`project_snapshot` 克隆 events、重建 `RunRecord` 再序列化 DTO。MCP 小引用在这之后才投影；共享 SQLite connection mutex 仍会串行化这些读取与写入 | 产品层 metadata/固定高水位页与显式详情读取，运行概览增量维护；保留 typed records 权威/坏源错误/归属，不能只在 UI 截短或默认回灌所有正文。用长历史和并发写入验证分配、响应大小、延迟，不扩大 SDK 接口来塞产品分页政策 |
+| 跟随读模型：前端持有量 | `engine-inspector.tsx` 对 live session 每秒请求全快照，按已访问 native ID 缓存完整快照；journal 当前页有界不代表这部分有界 | 只保留可见概览/有限页，详情按需，限制在途刷新/忽略迟到结果并回收退出路径缓存；100/1,000/10,000/更大混合历史测请求字节与 heap，不以消息区 DOM 回归替代 Inspector 验收 |
+| 边界已整理，非本轮重构 | `engine_wiring` → `CatalogBaseAgentFactory` → root/Hub-owned Worker/递归 native child 的配方与资源生命周期 | 保留一个生产装配入口和同一 repository authority；以取消/恢复/授权缩小/child 结束的实际回归验证下面的矩阵，不新增大一统 Bus 服务或 kernel setter |
+| 独立待验 | native WKWebView 全流程、长历史真实 RSS、实际 provider 媒体投递/接受状态；`RepositoryInspector::subscribe` 冷入口仍调用 `open_session` | 分别验证真实环境；若产品引入 live subscribe，先拆掉该冷恢复及全量 replay 开销。fixture 与普通 snapshot 修正都不能当作这些项目完成 |
+
+#### 装配与资源生命周期边界
+
+`engine_wiring::build_alva_engine` 当前已把一个实际 native repository 同时传给 factory
+引用策略与 adapter/Inspector；认领后产品配方再绑定实际 HubStore/HubSession/native root。
+根、Hub-owned Worker 与递归 native child 不是一种授权作用域，不能为了“统一装配”
+把父产品工具/父日志或 root host 工具复制给所有 child。暂未发现要求修改稳定内核接口
+才能解决的装配缺陷；这是保留现有边界的理由，不是装配/资源性能已经全部验证。
+
+| 对象 | 所有权 / 实际 lifetime | 保留的规则 |
+|---|---|---|
+| 配置、批准 MCP snapshot/cwd | 一次 factory/Agent 装配；不是每个工具调用现场重新读取全局配置 | managed 空列表不回退 ambient；不热改正在运行或被复用的 Agent，配置变化应由产品下一次实际装配消费 |
+| native root 的 BaseAgent / MCP worker / recorder cache | adapter 同进程 idle Agent 可复用；recorder 4096 条/64 MiB 是装配 lifetime，不是每 Turn 自动清零 | 不能在新 Turn 偷偷重置预算/丢日志；需区分取消当前 RPC 与释放整个 Agent。超预算明确停止，不宣称这是进程 RSS 上限 |
+| 每轮取消 token / `approval_rx` | token 每 `execute` 新建；receiver 由 session 持有，当前事件流暂借，终态 drain 后归还 | 组装前 Stop/消费者关闭丢弃 pending build，运行时取消并 drain/flush；下一轮不继承取消或让旧流截获审批 |
+| 递归 native child 的 reader / gateway / worker / journal | repository 创建的实际 child ID；按直接父实际授权独立重绑，预算/取消沿既有 child 执行 | 不读父/兄弟日志、不恢复 root 工具；child 结束只回收自身 worker，父连接继续；启动失败不借父 gateway |
+| Hub-owned Worker 产品配方 | 自己的 HubSession/native root、权限与 runtime 生命周期 | 不等同于上述 native child；不可因同工作区或同 TeamRun 合并日志授权，沿既有 worker 释放/取消规则 |
+| 人用 Inspector 的只读快照 | 固定获准目标的一次 committed SQLite read；没有 Agent/模型/连接 lifetime | 不从“人能钻取递归树”推出模型可读父历史；完整快照暂仍占目标历史规模内存，尚非分页 |
+
+实施顺序：先为耐久追加建立长历史基线并安全增量化，再做产品 Inspector 的概览/详情
+有界读模型与前端缓存，最后续验原生/真实 provider。每一步保留单独反例和测量结果；
+不把跨层职责整理当作理由向 kernel/agent-core 加产品功能，不恢复已取消的 JSON-path 方案。
 
 ## 历史（ALVA native 与固定 HubSession 产品记录）
 

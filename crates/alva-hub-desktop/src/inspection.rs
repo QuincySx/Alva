@@ -1,9 +1,9 @@
 // INPUT:  HubStore routing, Alva adapter repository, EngineInspector snapshots, stable adapter projection
-// OUTPUT: HubInspectorService with scoped read-only MCP journal queries and reference-only MCP snapshot DTOs
+// OUTPUT: HubInspectorService with metadata-only ancestry authorization, scoped MCP journal queries and restore-free snapshots
 // POS:    L7 inspection bridge that validates product/native session ownership before projecting durable engine records
 
 use std::cmp::Reverse;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::path::Path;
 
 use alva_engine_adapter_alva::{
@@ -19,7 +19,7 @@ use serde::Serialize;
 
 use crate::store::{HubSessionDetail, HubStore, StoredBranch};
 
-const MAX_INSPECTION_SESSIONS: usize = 256;
+const MAX_INSPECTION_DEPTH: usize = 256;
 
 #[derive(Clone)]
 pub struct HubInspectorService {
@@ -83,35 +83,44 @@ impl HubInspectorService {
             .ok_or_else(unavailable)?;
         let roots: Vec<String> = alva_roots(&detail)
             .iter().filter_map(|branch| branch.engine_session_id.clone()).collect();
-        let repository = self.repository.clone();
-        let target = native_session_id.to_string();
-        let authorized = tokio::task::spawn_blocking(move || {
-            if !repository.contains(&target).map_err(|_| ())? {
-                return Ok(false);
-            }
-            let mut current = target;
-            let mut visited = HashSet::new();
-            for _ in 0..MAX_INSPECTION_SESSIONS {
-                if !visited.insert(current.clone()) {
-                    return Err(());
-                }
-                if roots.contains(&current) {
-                    return Ok(true);
-                }
-                let Some(parent) = repository.linked_parent(&current).map_err(|_| ())? else {
-                    return Ok(false);
-                };
-                current = parent;
-            }
-            Err(())
-        }).await;
-        if !matches!(authorized, Ok(Ok(true))) {
+        if !matches!(self.owned_root(roots, native_session_id).await, Ok(Some(_))) {
             return Err(unavailable());
         }
         alva_engine_adapter_alva::ContextRetrievalPlugin::new(
             self.repository.clone(), native_session_id.into(),
         )
         .inspect_mcp_journal(input).await.map_err(|_| unavailable())
+    }
+
+    /// Ownership needs only validated causal-parent metadata, never sibling histories.
+    async fn owned_root(&self, roots: Vec<String>, target: &str) -> Result<Option<String>, String> {
+        let repository = self.repository.clone();
+        let target = target.to_string();
+        tokio::task::spawn_blocking(move || {
+            if !repository.contains(&target).map_err(|error| error.to_string())? {
+                return Ok(None);
+            }
+            let mut current = target;
+            let mut visited = HashSet::new();
+            for _ in 0..MAX_INSPECTION_DEPTH {
+                if !visited.insert(current.clone()) {
+                    return Err("Inspector session ancestry contains a cycle".to_string());
+                }
+                if roots.contains(&current) {
+                    return Ok(Some(current));
+                }
+                let Some(parent) = repository
+                    .linked_parent(&current)
+                    .map_err(|error| error.to_string())?
+                else {
+                    return Ok(None);
+                };
+                current = parent;
+            }
+            Err(format!("Inspector session ancestry exceeds the {MAX_INSPECTION_DEPTH}-session safety limit"))
+        })
+        .await
+        .map_err(|_| "Inspector ownership worker unavailable".to_string())?
     }
 
     pub async fn inspect(
@@ -134,6 +143,17 @@ impl HubInspectorService {
         let inspector = RepositoryInspector::new(self.repository.clone());
         let capabilities = inspector.inspection_capabilities();
         let requested = native_session_id.filter(|id| !id.trim().is_empty());
+        let owned_root = if let Some(requested) = requested {
+            let roots = candidates
+                .iter()
+                .filter_map(|branch| branch.engine_session_id.clone())
+                .collect();
+            Some(self.owned_root(roots, requested).await?.ok_or_else(|| format!(
+                "native Inspector session '{requested}' does not belong to Hub session '{product_session_id}'"
+            ))?)
+        } else {
+            None
+        };
         let mut last_error = None;
 
         for branch in candidates {
@@ -141,8 +161,17 @@ impl HubInspectorService {
                 .engine_session_id
                 .as_deref()
                 .expect("filtered Alva branch must have a native session id");
-            match snapshot_in_tree(&inspector, root_native_session_id, requested).await {
-                Ok(Some(snapshot)) => {
+            if owned_root
+                .as_deref()
+                .is_some_and(|root| root != root_native_session_id)
+            {
+                continue;
+            }
+            match inspector
+                .snapshot(requested.unwrap_or(root_native_session_id))
+                .await
+            {
+                Ok(snapshot) => {
                     let live = detail.session.status == "running"
                         && detail.session.active_branch_id == branch.branch_id;
                     return Ok(project_snapshot(
@@ -154,8 +183,8 @@ impl HubInspectorService {
                         snapshot,
                     ));
                 }
-                Ok(None) => {}
-                Err(error) => last_error = Some(error),
+                Err(error) if requested.is_some() => return Err(error.to_string()),
+                Err(error) => last_error = Some(error.to_string()),
             }
         }
 
@@ -187,52 +216,6 @@ fn alva_roots(detail: &HubSessionDetail) -> Vec<&StoredBranch> {
     candidates
         .sort_by_key(|branch| Reverse((branch.branch_id == active_branch_id, branch.updated_at)));
     candidates
-}
-
-async fn snapshot_in_tree(
-    inspector: &dyn EngineInspector,
-    root_native_session_id: &str,
-    requested: Option<&str>,
-) -> Result<Option<InspectionSnapshot>, String> {
-    let root = inspector
-        .snapshot(root_native_session_id)
-        .await
-        .map_err(|error| error.to_string())?;
-    let target = requested.unwrap_or(root_native_session_id);
-    if target == root_native_session_id {
-        return Ok(Some(root));
-    }
-
-    let mut pending = root
-        .children
-        .iter()
-        .map(|child| child.child_session_id.clone())
-        .collect::<VecDeque<_>>();
-    let mut visited = HashSet::from([root_native_session_id.to_string()]);
-    while let Some(session_id) = pending.pop_front() {
-        if !visited.insert(session_id.clone()) {
-            continue;
-        }
-        if visited.len() > MAX_INSPECTION_SESSIONS {
-            return Err(format!(
-                "Inspector session tree exceeds the {MAX_INSPECTION_SESSIONS}-session safety limit"
-            ));
-        }
-        let snapshot = inspector
-            .snapshot(&session_id)
-            .await
-            .map_err(|error| error.to_string())?;
-        if session_id == target {
-            return Ok(Some(snapshot));
-        }
-        pending.extend(
-            snapshot
-                .children
-                .iter()
-                .map(|child| child.child_session_id.clone()),
-        );
-    }
-    Ok(None)
 }
 
 fn project_snapshot(
@@ -559,6 +542,111 @@ mod tests {
         event.emitter = EventEmitter::runtime();
         event.data = Some(data);
         SessionRecord::from_event(event)
+    }
+
+    #[tokio::test]
+    async fn selected_child_inspection_does_not_load_ancestor_or_sibling_histories() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = HubStore::open(directory.path().join("hub.db")).unwrap();
+        let branch = bind_native_session(&store, directory.path(), "product", "alva", "root");
+        let service = HubInspectorService::open(directory.path()).unwrap();
+        let repository = service.repository();
+        let root = repository.open_session("root", None).await.unwrap();
+        // Put the unrelated sibling first in the old breadth-first traversal.
+        let sibling = root.create_child_session("run", "sibling-spawn").await.unwrap().unwrap();
+        let child = root.create_child_session("run", "child-spawn").await.unwrap().unwrap();
+        let child_id = child.session_id().to_string();
+        child.append_records(vec![event(0, "run_start", 1, serde_json::json!({}))]).await.unwrap();
+        root.append_records(vec![event(0, "root-body", 2, serde_json::json!({}))]).await.unwrap();
+        sibling.append_records(vec![event(0, "sibling-body", 3, serde_json::json!({}))]).await.unwrap();
+        let connection = rusqlite::Connection::open(repository.path()).unwrap();
+        connection.execute(
+            "UPDATE native_records SET record_json=?1 WHERE session_id=?2 AND seq=?3",
+            rusqlite::params![br#"{"record_id":"broken-root-body"}"#.to_vec(), "root", 3],
+        ).unwrap();
+        connection.execute(
+            "UPDATE native_records SET record_json=?1 WHERE session_id=?2",
+            rusqlite::params![br#"{"record_id":"broken-sibling-body"}"#.to_vec(), sibling.session_id()],
+        ).unwrap();
+        drop((root, sibling, child, repository, service, connection));
+        let service = HubInspectorService::open(directory.path()).unwrap();
+        let snapshot = service.inspect(&store, "product", Some(&child_id)).await.unwrap();
+        assert_eq!(snapshot.native_session_id, child_id);
+        assert_eq!(snapshot.root_native_session_id, "root");
+        assert_eq!(snapshot.branch_id, branch);
+        assert_eq!(snapshot.records.len(), 1);
+        assert!(service.inspect(&store, "product", Some("root")).await.is_err());
+        assert!(service.inspect(&store, "product", Some("not-created")).await.unwrap_err().contains("does not belong"));
+        assert!(!service.repository().contains("not-created").unwrap());
+    }
+
+    #[tokio::test]
+    async fn inspection_ownership_rejects_unlinked_future_version_cycles_and_excessive_depth() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = HubStore::open(directory.path().join("hub.db")).unwrap();
+        bind_native_session(&store, directory.path(), "product", "alva", "root");
+        let service = HubInspectorService::open(directory.path()).unwrap();
+        let repository = service.repository();
+        let root = repository.open_session("root", None).await.unwrap();
+        repository.open_session("unlinked", Some("root".into())).await.unwrap();
+        repository.open_session("future", Some("root".into())).await.unwrap();
+        let child_link = |child: &str| SessionRecord::execution(
+            "child_session_linked", EventEmitter::runtime(),
+            ExecutionRecord::ChildSessionLinked {
+                child_session_id: child.into(), parent_run_id: "run".into(),
+                spawn_tool_call_id: "spawn".into(),
+            },
+        );
+        let mut future_link = child_link("future");
+        future_link.schema_version = 2;
+        root.append_records(vec![future_link]).await.unwrap();
+        for target in ["unlinked", "future"] {
+            assert!(service.inspect(&store, "product", Some(target)).await
+                .unwrap_err().contains("does not belong"));
+        }
+
+        let cycle_a = repository.open_session("cycle-a", Some("cycle-b".into())).await.unwrap();
+        let cycle_b = repository.open_session("cycle-b", Some("cycle-a".into())).await.unwrap();
+        cycle_a.append_records(vec![child_link("cycle-b")]).await.unwrap();
+        cycle_b.append_records(vec![child_link("cycle-a")]).await.unwrap();
+        assert!(service.inspect(&store, "product", Some("cycle-a")).await
+            .unwrap_err().contains("cycle"));
+
+        // Seed a valid causal chain without assembling hundreds of runtime sessions.
+        let mut connection = rusqlite::Connection::open(repository.path()).unwrap();
+        let transaction = connection.transaction().unwrap();
+        for index in 0..MAX_INSPECTION_DEPTH {
+            let child = format!("depth-{index}");
+            let parent = if index + 1 == MAX_INSPECTION_DEPTH {
+                "root".to_string()
+            } else {
+                format!("depth-{}", index + 1)
+            };
+            transaction.execute(
+                "INSERT INTO native_sessions(session_id, parent_session_id, created_at) VALUES (?1, ?2, 0)",
+                rusqlite::params![child, parent],
+            ).unwrap();
+        }
+        for index in 0..MAX_INSPECTION_DEPTH {
+            let child = format!("depth-{index}");
+            let parent = if index + 1 == MAX_INSPECTION_DEPTH {
+                "root".to_string()
+            } else {
+                format!("depth-{}", index + 1)
+            };
+            let mut record = child_link(&child);
+            record.seq = 2;
+            transaction.execute(
+                "INSERT INTO native_records(session_id, seq, record_json) VALUES (?1, ?2, ?3)",
+                rusqlite::params![parent, record.seq, serde_json::to_vec(&record).unwrap()],
+            ).unwrap();
+        }
+        transaction.commit().unwrap();
+        assert!(service.inspect(&store, "product", Some("depth-0")).await
+            .unwrap_err().contains("safety limit"));
+        // At the boundary (256 sessions including root), the validated child is allowed.
+        assert_eq!(service.inspect(&store, "product", Some("depth-1")).await
+            .unwrap().root_native_session_id, "root");
     }
 
     #[test]

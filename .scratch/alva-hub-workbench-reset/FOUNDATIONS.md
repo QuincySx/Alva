@@ -19,7 +19,8 @@
 - 消息模块是 Hub 呈现扩展，不是 Tool trait 的 UI 自述。生产者提供数据，Hub 决定展示；不运行消息中的 HTML/JS，不加载远端 renderer，不新增 kernel/agent-core/RuntimeEvent 词汇。
 - 模块协议为 `alva.display` version 1 的 JSON envelope；持久化来源仍为既有 assistant 文本/工具全文，不维护第二份消息日志。
 - 真实账户、图像生成服务、付费模型、远程第三方插件安装不在本轮自动执行范围。原生 WKWebView 完整验收仍按已记录的 AX 暂缓，不把 Chromium 等同于原生。
-- 派生媒体专门只读 Tauri/HTTP 端点与消息 UI 已接通，索引/预览/处理清单/投递回执分开惰性读取，分页/失败重试/迟到回复/Blob 回收/焦点与重启有回归；不会因为查看而处理或投递。真实 provider 媒体验收、原生 WebView 完整验收、音频转录、场景检测、schema JSON-path 提取和精确多模态 token 预算仍待实施；本地 fixtures 不是这些验收的替代。
+- 派生媒体专门只读 Tauri/HTTP 端点与消息 UI 已接通，索引/预览/处理清单/投递回执分开惰性读取，分页/失败重试/迟到回复/Blob 回收/焦点与重启有回归；不会因为查看而处理或投递。真实 provider 媒体验收、原生 WebView 完整验收、音频转录、场景检测和精确多模态 token 预算仍待实施；JSON-path 已按用户澄清取消，不再列作待做。本地 fixtures 不是上述验收的替代。
+- 普通 Inspector 冷快照已从 runtime 恢复分离：只读目标 committed records，不填 session cache/解压 conversation blob，坏记录报错；metadata/版本 1 typed ancestry 校验替代祖先/旁支完整历史 BFS，256 节点/循环仍拒绝。目标全量 records/RunRecord/live 每秒刷新与已访问前端缓存未有界，不能用消息区 DOM/日志分页证据替代。耐久 append 的全量投影、冷 subscribe 及装配资源 lifetime 验收顺序见 docs/ALVA-HUB-CONTEXT-RETRIEVAL.md 的压力清单；不向 kernel 加产品政策。
 
 ## 验证
 

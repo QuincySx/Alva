@@ -1,5 +1,51 @@
 # ALVA Hub Desktop V1 — Acceptance Matrix
 
+## Restore-free Inspector reads and pressure audit — 2026-10-03
+
+Repository snapshots now read committed target metadata/typed rows in one
+read-only SQLite transaction on a blocking worker. They do not call runtime
+`open_session`, populate its memory cache, hydrate conversation blobs, create
+unknown IDs, flush or start an Agent/provider/MCP. Invalid typed records return
+errors instead of appearing as empty valid history; valid empty sessions work.
+Blob references remain unchanged; explicit body reads/resume still verify them.
+
+General Inspector and MCP journal queries share metadata/version-1 typed causal
+parent authorization to this product's Alva branches. Explicit child inspection
+no longer loads ancestor/sibling bodies. Cycles, metadata-only/future-version
+links and >256 ancestry nodes are rejected; the boundary includes target/root,
+not the old BFS's whole-tree width. Product/model authorization remains separate.
+Existing stable DTOs/default branch ordering and unsupported engines are retained.
+
+Current verification: **55 adapter + 263 Desktop lib + 4 Desktop bin + 16 HTTP =
+338 passed**, with only the four exact real-account cases filtered. Four new
+tests use actual temporary SQLite/blob/typed-child records: 10,002-row cold
+snapshot with a corrupt large conversation blob and no runtime cache, explicit
+resume failure, invalid target row versus valid empty history, corrupt ancestor/
+sibling body isolation, foreign/unlinked/future links, cycles and the depth
+boundary. Three initial regression tests failed before the production fix.
+
+All-target check passes with 29 existing warnings; diff/public snapshots,
+dependency/bus/wasm32/full host-link gates pass. Missing wasip2 is explicitly
+skipped. No UI/build/Chrome/native/paid-provider verification is renewed, no
+credentials, user MCP or new dependencies are used, no SDK/kernel APIs change.
+The 10,000-event test proves path isolation, not elapsed-time/RSS performance.
+
+The actionable pressure/lifetime matrix lives in
+`docs/ALVA-HUB-CONTEXT-RETRIEVAL.md`: durable append still rereads/restores full
+history, target snapshot/RunRecord and visited frontend caches remain full,
+live Inspector polls full DTOs every second, cold `subscribe` still restores
+runtime, and native/provider/large-history memory acceptance is pending.
+Next: baseline and safely increment durable writes, then product-layer bounded
+Inspector read models/caches. Assembly preserves one native repository authority
+and separate root/Hub Worker/native-child grants; idle Agent's MCP cache budget
+is per assembly, cancel token/approval stream ownership per turn. No broad
+kernel setters/Bus abstraction or cancelled JSON-path proposal is introduced.
+Coding/Git skills keep a coherent local change and preserve user CONTEXT.md and
+unrelated directories. An earlier local commit attempt failed at 1Password
+signing (`failed to fill whole buffer`, exit 128); that attempt created no
+commit and signing was not bypassed. The signed commit is retried at the user's
+explicit request. Older entries below are historical, not renewed evidence.
+
 ## Scoped read-only MCP journal Inspector — 2026-10-03
 
 The current Alva Inspector Agent has an explicit journal entry: opening requests

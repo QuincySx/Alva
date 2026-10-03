@@ -10,7 +10,7 @@
 3. **`DefaultBaseAgentFactory`**：仅 default plugins，供单测与极简场景。
 3.1. Hub 用 `with_toggles` + `with_managed_mcp` 注入下一轮能力；显式空列表不回退全局 MCP，受管模式关闭外部 subprocess loader，只注册一个渐进式 MCP gateway 和短 server prompt。meta-tool 保持 HITL，子 Agent 复用 SecurityGuard；其他 caller 保留 direct catalog 兼容路径。
 4. `execute()` 映射 `AgentEvent` → `RuntimeEvent`；ToolExecutionStart 用 monotonic clock 计时并在 ToolEnd 保留 duration；`approval_rx` 由 session 持有，每 turn 暂借给当前事件流做 multiplex，结束后归还，避免旧 stream 长驻或截获新 turn 审批。
-5. `EngineInspector` 直接读取同一个 AgentSession 的 typed record snapshot/live tail，不复制第二份 Inspector 日志。
+5. `EngineInspector` 读取同一权威 typed records，不复制第二份日志。repository snapshot 在 blocking worker 的只读 SQLite transaction 中读取目标 metadata/records，不恢复运行会话/填 cache/解压 conversation blob，未知 ID 不创建，坏记录明确错误。目标仍全量快照，`subscribe` 冷入口仍恢复 session；不冒充全 Inspector 已有界。
 6. `SessionRepository` 是唯一持久化源：typed records 原子写入 SQLite，infallible legacy append 失败会标脏并由 `flush()` 事务重建，敏感字段写盘前脱敏，大载荷转内容寻址 zstd blob。
 7. 同进程 idle BaseAgent 优先；running session 拒绝并发 execute。
 8. 每轮独立 cancellation token：`cancel()` 在 BaseAgent 尚未组装完成时也可取消；消费者丢弃 stream 会中断 pending factory/MCP 组装，不在后台继续调用模型。运行期取消/consumer 关闭转交已启动的 BaseAgent 并 drain 到真实终态/flush 后释放 running，resume 不继承前一轮取消；`respond_permission()` 仍路由对应 BaseAgent，修改 tool input 尚不支持。
@@ -34,7 +34,7 @@
 |------|------------|------|
 | AlvaAdapter | adapter.rs | EngineRuntime + EngineInspector：session 生命周期、审批路由、typed snapshot/live tail |
 | BaseAgentFactory / SessionPluginFactory / BuiltAgent | factory.rs | 每 session 组装；Catalog vs Default 两档，显式 root 产品 Plugin 配方 |
-| SessionRepository | session_repository.rs | engine-native SQLite records、atomic batch/脏修复、resume/live tail、metadata-only typed 父链接及有界检索/来源校验 |
+| SessionRepository | session_repository.rs | engine-native SQLite records、atomic batch/脏修复、resume/live tail、restore-free committed snapshot、metadata-only typed 父链接及有界检索/来源校验 |
 | ContextRetrievalPlugin | context_retrieval.rs | 通用结果/MCP 引用、模型自有检索与产品只读日志索引/正文；递归绑定/assembly fail-closed、隔离/损坏/重启回归 |
 | SessionMcpRecorder / ManagedMcpSpawnPlugin | mcp_journal.rs | 完整脱敏交互内存/文件、预算失败停止；已批准配方向实际 child 重绑自有 gateway，authority 检查先于 host IO |
 | Recursive MCP fixtures | mcp_spawn_tests.rs | 真实本地 stdio/正常审批/模型替身验证父子孙独立日志与检索、撤销授权/拒绝、结束回收和重启 |
