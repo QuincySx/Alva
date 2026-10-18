@@ -57,6 +57,6 @@ go mod verify
 | `platform/` | host 执行/审批 owner、独立 workspace 文件能力、system 底层宿主原语、storage、sandbox 实现 |
 | `tests/` | architecture 静态闸/公开快照/分形检查与独立 extensibility 消费者实验 |
 | `tools/` | 显式维护和手工验收工具，不进入生产执行或普通测试路径 |
-| `docs/` | 当前 Go 架构、治理、ADR 与明确标注的结构审查提案；实现状态以 MIGRATION.md 为准 |
+| `docs/` | 当前架构、使用说明、治理/ADR 与完整 history；实现状态以根 MIGRATION.md 为准 |
 | `.github/` | 唯一维护的 Go CI，无 Rust 构建/测试工作流 |
 | `CONTEXT.md` | 领域词汇，不替代实际接口或验收记录 |

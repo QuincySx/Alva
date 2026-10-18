@@ -173,3 +173,10 @@ reservation、10秒deadline和共享job fuel。构建链、体积和执行能力
 Go 的接口/函数/显式生命周期替代 Rust 特定接线形式；正确性、资源预算、race 和包依赖
 约束继续用测试维护。MyGo 的平台行为独立验证，不以采用 Go 推导桌面框架已成熟。
 本次不批准任何抽象合并，不保留历史兼容层，也不因追求少包而扩大单个对象的职责。
+
+## 2026-10-18 目录整理落地
+
+上文目录表保留原决策时间的路径。当前采用根 cmd、apps/ui 共享呈现、apps/direct/desktop、
+tests/architecture 与 tests/extensibility、tools/qa；授权文件系统在 platform/host/workspace，
+模型文件/安全扩展分别在 extension/files 与 extension/security。包职责与 SDK 核心契约保留，
+实际地图与源码验收见 [当前架构](../ARCHITECTURE.md)、[MIGRATION](../../MIGRATION.md)。
