@@ -1,34 +1,24 @@
-# REGISTRAR-RULES — Registrar 准入规则
+# Registrar 贡献边界
 
-> 由公开符号快照闸（`scripts/public-surface.sh`，CI 中的 public-surface step）执行，
-> 不另写 lint。`alva-agent-core` 的公开符号快照就是这条规则的执行记录。
+当前契约在 [sdk/agent/core](../sdk/agent/core/AGENTS.md)。
+公开方法由 `architecture/testdata/public-surface/agent-core.txt` 显式记录。
 
-## 规则
+## 当前契约
 
-`Registrar`（`alva-agent-core::extension::Registrar`）只接受**贡献**类方法：
-把插件的能力**放进**装配结果的方法。
+Plugin 使用 Name 与可失败的 Register；需要完整装配结果时实现独立 Finalizer。
+Registrar 的 Tool、Middleware、SystemPrompt、Command、ContextSystem、ContextSource 贡献
+进入本次装配；能力使用 BusWriter 配合类型化 Provide 注册。
+Bus、BusWriter、Workspace 是既有装配访问入口，不新增产品状态 getter。
 
-- 贡献类：`tool` / `tools` / `middleware` / `phase` / `phase_handler` /
-  `provide` / `system_prompt` / `command`。
-- **不再新增"读取"类方法。** 想在装配期读取运行期状态，走 `bus()` /
-  `bus_writer()`——bus 本来就是跨层协调通道，读取能力已经存在。
-- 现有三个只读方法（`workspace()` / `bus()` / `plugin_name()`，
-  加上装配期可写的 `bus_writer()`）是**历史欠账，保留但不扩大**。
+Register 返回后其 Registrar 同步封闭，Seal 后注册集不可写；Finalize 使用只读 LateContext。
+重复工具/中间件/命令与无效贡献失败关闭。Builder 冻结当前 recipe，callback 修改 Builder
+仅影响下一次 Build，不得改写正在组装的 Agent。
 
-## 为什么
+## 演进规则
 
-1. **读取方法是单向棘轮。** 每加一个读取方法，就把装配期上下文的一部分固化成
-   Registrar 的公开契约；之后想收窄就是一次破坏性变更。贡献方法没有这个问题——
-   装配结果的消费者是固定的（builder 自己）。
-2. **读取已有正道。** 装配期可读的状态（已注册能力、workspace、事件）全部
-   可以从 `bus` / `bus_writer` / `workspace()` 拿到。新增读取方法不是补能力，
-   是在两个通道之间复制状态。
-3. **快照闸执行成本为零。** `Registrar` 的每一个新公开方法都会出现在
-   `alva-agent-core` 的符号快照 diff 里；review 时看见 `implfn Registrar::fn …`
-   多了一行，就对照本文件问一句：这是贡献还是读取？
+新增方法须有真实消费者与独立职责。优先使用已有贡献或构造传参，不把 Registrar 扩成运行期
+服务容器，不为某个产品增加设置/存储/权限/观测读取面。既有读取方法不构成继续扩张的理由。
+公开 API 增删改须同批显式更新快照，并说明收益、损失及外部源码兼容影响。
 
-## 历史
-
-这条规则是 2026-09 内核边界重构（ticket 01）定下的。起因是检视 Registrar 时
-发现它的读取面（workspace/bus/plugin_name）没有任何调用方会因缺少更多读取方法
-而受阻，而每个读取方法都会永久占据 SDK 公开表面。
+在 Go module 根目录执行 `go test -mod=readonly ./architecture/... ./sdk/agent/core`。
+公开快照和依赖闸是执行证据，不宣称存在另一套已删除的脚本/lint。

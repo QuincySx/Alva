@@ -5,6 +5,19 @@
 - Scope: 全栈目标实现、SDK 边界、原生桌面与迁移验收
 - Supersedes: ADR-0006 中 Tauri/React 的目标技术栈选择；领域、交互与可访问性要求不变
 
+## 2026-10-18：Go 转正与旧栈归档
+
+用户明确要求先提交完整 Rust 版本，再删除 Rust 实现并让 Go 转正。本次授权替代下文迁移阶段
+“暂时保留旧树/不隐式删除”的并存安排；用户数据与外部共享缓存不在删除范围。
+完整快照为 `archive/rust-final-2026-10-18`（`1d675f730223`），包括 Rust/Cargo、旧前端、
+配套脚本/CI、审查材料及切换前 Go 实现。当前源码提升到仓库根目录，项目名为 Alva，module path 对齐仓库地址 `github.com/QuincySx/Alva`。
+遵循 Go 官方单模块仓库指南（https://go.dev/doc/modules/managing-source），不再使用外层 go/。
+既有包按路径迁移，细分 SDK 边界和接口职责不合并；公开面快照同步 import 身份，旧路径不留 alias。
+旧产品/ADR 文档从该标签查阅；当前架构以 docs/ARCHITECTURE.md 与目录地图为准。
+
+技术栈转正不构成尚未完成的平台/外部账户/完整 UI 验收承诺；能力状态仍由 go/MIGRATION.md 记录。
+以下各节保留决策沿革，其中“当前/本轮”描述其原决定时间，后续明确决定优先。
+
 ## Context
 
 用户决定把 Alva 的目标实现改为 Go，并明确要求 subagent 实施、主 agent 审核。

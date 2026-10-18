@@ -1,0 +1,62 @@
+Alva Go
+Copyright (C) 2026 Alva contributors
+
+The Alva Go implementation in this directory is licensed under the GNU Affero
+General Public License, version 3 only (SPDX: AGPL-3.0-only), as provided in
+LICENSE. This declaration does not replace the individual licenses of third-
+party dependencies, test fixtures, or source outside this Go implementation.
+
+Absorbed Magpie protocol conversion source
+  Repository: https://github.com/yetone/magpie
+  Pinned commit: e085d6e9262786815c0f6c5ff65c5a585916cc9e
+  Copyright (c) 2026 yetone
+  License: MIT; the complete original notice is preserved in
+    integration/llm/codec/internal/magpie/LICENSE.magpie.
+  This is an adapted protocol-conversion source slice, not the complete Magpie
+  application or a dependency on its internal application packages. Exact
+  upstream paths, whole-file SHA-256 hashes, retained declarations and local
+  adaptations are recorded in that directory's provenance.json. Alva owns the
+  native decoder, authority/loss/size/terminal gates, HTTP transport and product
+  policies. Preserve the upstream MIT notice in source and binary distributions.
+  Request construction and response rendering/encoding reuse the actual pinned
+  implementation. No account discovery, credentials, disk signature cache,
+  automatic retries, external-agent configuration, GUI or tool executor was
+  imported. This replacement removes the RelayKit module dependency; the
+  existing Alva Go project license above remains AGPL-3.0-only.
+
+Other dependencies retain their own license notices in their Go modules.
+Tool argument validation uses github.com/santhosh-tekuri/jsonschema/v6 v6.0.3,
+tag commit b0fc661f4939578bc429f408c18202573dbafcc4,
+checksum h1:1EYB5IzjZawrrnELUi78f9fPu57HuXjmddZPjrls/28=.
+The unmodified module is Apache-2.0 licensed; preserve its complete upstream
+LICENSE in distributions. It is confined to extension/toolvalidation, with
+external schema loading disabled, and does not enter the portable Alva SDK.
+The read-only Devtools MCP entry uses github.com/modelcontextprotocol/go-sdk
+v1.8.0, checksum h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=,
+tag commit 3f3b699b2b67e1ed033a63d6651671dab53c2d32. Upstream is transitioning
+from MIT to Apache-2.0: contributions with consent/new contributions use
+Apache-2.0 and original contributions without consent retain MIT. Preserve the
+complete upstream LICENSE and any dependency notices in binary distributions.
+No MCP SDK types or optional dependencies enter the portable Alva SDK.
+Binary distribution must include applicable third-party notices and provide
+the corresponding source, build instructions and local modifications required
+by the licenses. This repository edit does not itself publish a binary or
+upload private configuration, credentials, session files or user media.
+
+Embedded QuickJS engine asset
+  Source: QuickJS-NG v0.17.0 core, https://github.com/quickjs-ng/quickjs
+  Source archive SHA-256:
+    559bc4c420475e55c7ab4510adbc562f55d7524d75e8e89d79ce4bb02f5687d9
+  License: MIT; unmodified upstream copyright/permission text is preserved in
+    platform/sandbox/host/scriptwasm/LICENSE.quickjs.
+  Alva's bridge/host/bindings are separate project source. The rebuild uses
+  QuickJS's upstream WASI stack guard without source patches and excludes quickjs-libc,
+  std/os modules and the module loader. Source archive, explicit WASI SDK clang,
+  exact build flags, local source hashes and binary checksum are recorded in
+  platform/sandbox/host/scriptwasm/provenance.json and build.py. The WASM asset
+  is rebuilt only by a maintainer; ordinary Go builds need no C/Node toolchain.
+  Preserve the upstream copyright and permission notice in distributions.
+
+The archived Rust implementation at archive/rust-final-2026-10-18 retains its original licensing.
+
+The optional AEP Python author client in integration/protocol/aep/python is carried from the archived SDK and preserves its original MIT declaration in pyproject.toml. It is not a Rust runtime dependency.

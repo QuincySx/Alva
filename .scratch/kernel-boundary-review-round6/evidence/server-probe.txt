@@ -1,3 +1,0 @@
-    Blocking waiting for file lock on package cache
-
-NOT EXECUTED: initial attempt waited on package/build locks for over 11 minutes. After core suite exited, retry still waited on package cache. Reviewer interrupted only its own probe process; no test result is claimed. Source archived as server-projection.rs; temporary production test removed.

@@ -1,4 +1,0 @@
-
-thread 'main' (1914689) panicked at src/bin/reentrant.rs:24:2:
-non-Tokio reentrant append deadlocked
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

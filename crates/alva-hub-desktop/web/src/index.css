@@ -1,8 +1,0 @@
-/* INPUT:  ALVA style layers in dependency order */
-/* OUTPUT: Complete Hub Desktop visual system */
-/* POS:    Single stylesheet entry imported by main.tsx */
-
-@import "./styles/tokens.css";
-@import "./styles/primitives.css";
-@import "./styles/hub-components.css";
-@import "./styles/app.css";

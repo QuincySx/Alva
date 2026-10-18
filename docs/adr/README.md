@@ -1,20 +1,12 @@
-# ALVA Hub Architecture Decision Records
+# Architecture Decision Records
 
-These records capture accepted ALVA Hub product and architecture decisions.
-They describe target constraints; the implementation status is tracked in the
-linked product specification and current crate documentation.
+当前实现的技术栈与边界决策见 [ADR 0012](./0012-go-native-stack.md)：
+Go、MyGo 自绘、独立 SDK/扩展/harness/产品、无历史兼容桥。
+2026-10-18 用户明确授权先提交 Rust 完整快照，再删除旧实现并将 Go 转正。
 
-| ADR | Status | Decision |
-|---|---|---|
-| [0001](./0001-alva-hub-desktop-first.md) | Accepted | Hub V1 is a new Desktop-first L7 product; existing Alva Desktop remains. |
-| [0002](./0002-reversible-multi-engine-fallback.md) | Accepted | Explicit engine choice plus visible, reversible automatic fallback. |
-| [0003](./0003-orca-style-collaboration.md) | Accepted | Cindy Orca-style durable Lead/Worker collaboration across engines. |
-| [0004](./0004-hub-owned-agent-inspector.md) | Accepted | Retire the standalone Alva desktop direction and move recursive Alva inspection into Hub. |
-| [0005](./0005-typed-durable-session-records.md) | Accepted | Keep one AgentSession while separating typed durable records, live state, and telemetry. |
-| [0006](./0006-hub-tauri-ui-system.md) | Accepted | Build the Hub UI as a strict Tauri/React component system aligned to Cindy's structure and interaction. |
-| [0007](./0007-agent-hub-abstraction-alignment.md) | Accepted | Introduce a swappable agent-loop interface; move Hub toward DSH's strengths selectively without cloning Cordis. |
-| [0011](./0011-reference-first-context.md) | Accepted | Store files, MCP results and history; expose references and retrieve bounded relevant excerpts, not whole payloads. |
-| [0012](./0012-go-native-stack.md) | Accepted | Preserve fine-grained architecture in Go, omit historical compatibility layers, and target a self-drawn MyGo desktop without React; migrate by verified layers. |
+Rust 时代的 ADR、产品规范和实现记录已归档到 `archive/rust-final-2026-10-18`，
+不再列作当前源码地图。可用 `git show archive/rust-final-2026-10-18:docs/adr/README.md`
+查看完整旧索引；领域/所有权约束继续体现在当前 Go 接口与目录文档中。
 
-The complete V1 scope and acceptance scenarios live in
-[ALVA-HUB-V1.md](../ALVA-HUB-V1.md).
+当前架构见 [ARCHITECTURE](../ARCHITECTURE.md)，实际能力/平台验收见
+[MIGRATION.md](../../MIGRATION.md)。归档与转正不自动宣称所有目标平台或产品场景已验收。

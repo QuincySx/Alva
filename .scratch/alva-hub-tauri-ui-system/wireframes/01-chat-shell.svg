@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
-  <style>.r{fill:#f7f7f7;stroke:#111;stroke-width:2}.s{fill:#fff;stroke:#555}.d{fill:none;stroke:#777;stroke-dasharray:7 5}.t{font:16px system-ui;fill:#111}.h{font:bold 20px system-ui}.m{font:12px system-ui;fill:#666}</style>
-  <rect class="r" x="1" y="1" width="1438" height="898" rx="12"/><rect class="r" x="1" y="1" width="256" height="898" rx="12"/>
-  <text class="h" x="22" y="34">HubSidebar · WIDTH OWNER 256</text><text class="t" x="22" y="78">Brand · PrimaryNavigation</text><text class="t" x="22" y="118">SessionSearch · SessionItem[]</text><text class="m" x="22" y="146">SCROLL: session list only</text><rect class="s" x="16" y="820" width="224" height="58" rx="10"/><text class="t" x="30" y="854">WorkspaceFooter</text>
-  <rect class="s" x="257" y="1" width="1182" height="58"/><text class="h" x="282" y="37">HubTopbar</text>
-  <rect class="d" x="300" y="82" width="1090" height="620" rx="10"/><text class="h" x="326" y="115">ConversationScroll · SCROLL OWNER</text><text class="t" x="326" y="164">UserMessage</text><text class="t" x="326" y="212">AgentMessage · ActivityRow / Disclosure</text><rect class="s" x="326" y="240" width="840" height="112" rx="10"/><text class="t" x="348" y="278">Permission / fallback / handoff stay on one reading axis</text>
-  <rect class="r" x="300" y="720" width="1090" height="158" rx="14"/><text class="h" x="326" y="750">ConversationDock · DOCK OWNER</text><rect class="s" x="326" y="766" width="1038" height="88" rx="12"/><text class="t" x="350" y="810">HubComposer · Context · Permission · Model · Send</text>
-</svg>

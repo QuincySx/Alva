@@ -1,63 +1,30 @@
-# 分形文档协议（Fractal Documentation Protocol）
+# 分形文档协议
 
-> **本项目采用分形文档协议。所有 AI Agent 和开发者必须遵守本协议。**
+本项目采用三层文档：根 AGENTS.md → 目录 AGENTS.md → 源码 INPUT/OUTPUT/POS 三行头。
+从外向内按需阅读，源码与文档共同维护。当前实现为 Go，module 根目录就是仓库根目录。
 
----
+## 源码三行头
 
-## 如何阅读本项目
+每个 Go 源码文件（包括测试、tagged 文件和 helper）的前三行必须是非空结构化注释：
 
-本项目的文档体系是分层的，按需逐层展开，不要一次性读所有文件：
-
-1. **根 AGENTS.md** → 了解项目整体模块划分和业务域清单
-2. **目录级 AGENTS.md** → 进入感兴趣的模块，了解内部分工、约束、数据流
-3. **源码文件三行注释**（INPUT/OUTPUT/POS）→ 了解单个文件的依赖、输出和定位
-
-从根往下，只加载你需要理解的路径。这是一个逐层展开的导航地图。
-
----
-
-## 协议格式
-
-### 第一层：源码文件三行头部注释
-
-每个源码文件最前面放三行结构化注释：
-
-#### Rust (`*.rs`)
-
-三行注释放在 `#![...]` crate attributes **之前**，`use` **之前**：
-
-```rust
-// INPUT:  embassy_nrf(twim, gpio), embedded_graphics, rmk
-// OUTPUT: pub run_display() async task
-// POS:    OLED 显示主循环，30FPS 菜单 / 1FPS 首页
-#![no_std]
-#![no_main]
-
-use embassy_nrf::twim::Twim;
+```go
+// INPUT: context, kernel/abi
+// OUTPUT: Runner
+// POS: 执行单个已授权任务并将生命周期交还调用方。
+package example
 ```
 
-如果没有 `#![...]`，直接放第一行：
+INPUT 列直接依赖；OUTPUT 列公开输出/契约；POS 用一句话说明职责。
+现有描述性注释置于三行头后；构建约束仍遵守 Go 的位置/空行规则，不把三行头移到 import 后。
+其他受维护语言的桥接/脚本沿用本语言注释格式，维护相同三项职责信息。
 
-```rust
-// INPUT:  embassy_sync, heapless
-// OUTPUT: DisplayCommand enum, DISPLAY_DATA channel
-// POS:    BLE 数据通道协议解析与分发
-use embassy_sync::channel::Channel;
-```
+## 目录地图
 
-- 放在文件最前面（shebang 行之后），在任何 `use`/`#include`/`import` 之前
-- 现有描述性注释保留，移到三行注释之后
-- INPUT 只列直接依赖，不列传递依赖
-- OUTPUT 只列公开接口，不列内部实现
-- POS 必须一句话，不要两句
-
-### 第二层：目录级 AGENTS.md
-
-每个源码目录放一个 `AGENTS.md`，格式统一：
+每个源码目录及分层容器维护 AGENTS.md，包含：
 
 ```markdown
-# {模块名}
-> {一句话定位}
+# 模块名
+> 一句话定位。
 
 ## 地位
 ## 逻辑
@@ -66,17 +33,16 @@ use embassy_sync::channel::Channel;
 | 名称 | 文件/子目录 | 职责 |
 ```
 
-### 第三层：级联更新规则
+地图描述当前目录，不把 Git 历史中的旧路径列作当前实现。
 
-修改代码后，必须同步更新对应的文档：
+## 级联更新
 
-| 触发事件 | 文件级 | 目录级 | 上级目录级 |
-|----------|--------|--------|-----------|
-| 新增文件 | 添加三行注释 | 更新 AGENTS.md 清单 | 更新上级清单 |
-| 删除文件 | — | 更新 AGENTS.md 清单 | 更新上级清单 |
-| 修改接口/职责 | 更新三行注释 | 更新 AGENTS.md | 如影响则更新上级 |
-| 仅改内部实现 | 检查注释准确性 | 不更新 | 不更新 |
+| 变化 | 文件级 | 本目录 | 直接上级 |
+|---|---|---|---|
+| 新增文件 | 添加三行头 | 更新清单 | 更新清单 |
+| 删除文件 | — | 更新清单 | 更新清单 |
+| 接口或职责变化 | 更新三行头 | 更新职责 | 影响上层时更新 |
+| 内部实现变化 | 核对准确性 | 职责未变时无需更新 | 无需更新 |
 
-如已安装 `fractal-docs` skill，可使用以下命令自动维护：
-- `/fractal-docs update` — 根据 git diff 检测变更，自动级联更新
-- `/fractal-docs check` — 检查全量一致性，交互式修复问题
+在仓库根目录执行 `go test -mod=readonly ./architecture/...` 检查源码、地图和边界。
+公开面变化另须显式更新对应快照；文档通过不替代运行期或平台验收。

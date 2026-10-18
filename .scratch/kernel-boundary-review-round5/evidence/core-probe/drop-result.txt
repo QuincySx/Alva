@@ -1,8 +1,0 @@
-before drop: 1 tasks
-after close/drop: 1 tasks
-
-thread 'main' (1858180) panicked at src/main.rs:19:3:
-assertion `left == right` failed: broadcast driver should terminate after session disposal
-  left: 1
- right: 0
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

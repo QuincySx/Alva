@@ -1,7 +1,0 @@
-node_modules
-dist
-*.log
-*.tsbuildinfo
-.DS_Store
-test-results
-playwright-report

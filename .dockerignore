@@ -1,4 +1,13 @@
-target/
+# INPUT: Go repository and local build/session paths
+# OUTPUT: Source-only container build context
+# POS: Excludes Git history, local configuration and generated artifacts
 .git/
 .claude/
-node_modules/
+.codex/
+.ailoom/
+.alva/
+.zed/
+.playwright-cli/
+build/
+.mygo/
+**/__pycache__/

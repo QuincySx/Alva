@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
-  <style>.r{fill:#f7f7f7;stroke:#111;stroke-width:2}.s{fill:#fff;stroke:#555}.o{fill:#fff;stroke:#111;stroke-width:2;stroke-dasharray:7 5}.t{font:16px system-ui}.h{font:bold 20px system-ui}.m{font:12px system-ui;fill:#666}</style>
-  <rect class="r" x="1" y="1" width="1438" height="898" rx="12"/><rect class="r" x="1" y="1" width="256" height="898"/><text class="h" x="22" y="36">Sidebar</text>
-  <rect class="s" x="257" y="1" width="1182" height="58"/><text class="h" x="282" y="37">New conversation · Topbar</text>
-  <text class="h" x="650" y="250">EmptyConversation</text><text class="t" x="592" y="292">Prompt · QuickStart[]</text>
-  <rect class="r" x="330" y="700" width="1030" height="170" rx="14"/><text class="h" x="354" y="732">Composer · DOCK</text><text class="t" x="354" y="790">Attach · Permission · Agent · Model · Send</text>
-  <line x1="1000" y1="790" x2="955" y2="548" stroke="#111"/><rect class="o" x="700" y="270" width="590" height="278" rx="14"/><text class="h" x="724" y="304">ModelPicker · OVERLAY</text><text class="t" x="724" y="350">Engine Tabs · Search · Availability groups</text><text class="t" x="724" y="392">Selected model · thinking · capabilities</text><text class="m" x="724" y="430">anchor: Composer ModelTrigger · close: Esc/outside/select</text>
-</svg>

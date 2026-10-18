@@ -2,8 +2,7 @@
 
 本文件是 Alva 的**领域词汇表**。只定义"这个词指什么"，不写实现、不写决策理由、不写待办。
 实现权威在 [`AGENTS.md`](./AGENTS.md)，架构决策在 [`docs/adr/`](./docs/adr/)。
-Hub 产品域另有专属词汇表：[`docs/ALVA-HUB-GLOSSARY.md`](./docs/ALVA-HUB-GLOSSARY.md)、
-[`docs/ALVA-HUB-UI-GLOSSARY.md`](./docs/ALVA-HUB-UI-GLOSSARY.md)。
+当前 Go 产品域见 [`apps/hub/AGENTS.md`](./apps/hub/AGENTS.md)；历史词汇和产品规范保存在 Git 归档标签 `archive/rust-final-2026-10-18`。
 
 ---
 
@@ -82,7 +81,7 @@ Harness 持有**观点**（默认装哪些工具、默认什么安全策略、�
 
 内核对"历史"的全部要求：**读得到消息、追加得进消息**。仅此而已。
 
-一个 `Vec<Message>` 就能满足这个概念。内核不要求历史可查询、可回滚、可快照、可订阅。
+一个 `[]Message` 就能满足这个概念。内核不要求历史可查询、可回滚、可快照、可订阅。
 
 ### Session Store（会话存储）
 
@@ -130,7 +129,7 @@ Harness 与 UI 对会话的要求：查询、计数、回滚、快照、订阅�
 
 ### 不是"扩展点"的东西
 
-一个 trait 方法或 crate 模块，如果**长期没有第二个实现者、也没有真实消费者**，
+一个 interface 方法或 package 模块，如果**长期没有第二个实现者、也没有真实消费者**，
 它不是"给未来留的扩展点"，它是死表面。留白不等于可扩展。
 
 ### 不是"通用"的东西
