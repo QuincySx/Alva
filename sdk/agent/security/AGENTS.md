@@ -17,7 +17,7 @@ Plan 只允许读取，AcceptEdits 可直接写，其余执行/网络/未知效�
 CheckPath 的 resolver 必须由宿主提供；纯词法校验不宣称防符号链接/TOCTOU/OS sandbox。
 取消后到达的审批不得授权未来调用。实际 filesystem handle/open、Seatbelt/Landlock 不在此库。
 NewGuard拒绝typed-nil host resolver，普通nil仍可构造无文件能力guard；缺失或typed-nil审批handler保持ErrApprovalRequired语义。两个函数adapter的nil值直接调用返回错误。resolver回调结束后再次检查取消，拒绝返回路径并保留真实resolver错误。
-Plugin wrapper 在 extension/builtin；app 仅装配默认配方，不复制本库政策。
+Plugin wrapper 在 extension/security；app 仅装配默认配方，不复制本库政策。
 PermissionManager.ModeForSession/SetSessionMode仅供可信host显式控制单会话，失效该session generation/cache/flights而不撤父/兄弟；SetMode明确整体重置、ClearSession回落base。此map不拥有任务树/直接父授权ceiling、不构成审批，产品必须独立检查策略切换；模型侧exit_plan_mode在真正独立policy批准与父ceiling接线前不能注册为假EffectRead免审。
 
 ## 业务域清单

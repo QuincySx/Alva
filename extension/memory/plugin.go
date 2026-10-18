@@ -1,4 +1,4 @@
-// INPUT: context, errors, filepath, agent/core/context/memory/security, builtin filesystem, kernel/abi/bus.
+// INPUT: context, errors, filepath, agent/core/context/memory/security, host workspace filesystem, kernel/abi/bus.
 // OUTPUT: Config, Plugin, New, Tools and RebindTool for explicit same-name memory replacement.
 // POS: [L4 extension] Optional memory business Plugin keeps persistence, host approval and reference delivery out of the SDK recipe.
 package memoryplugin
@@ -6,12 +6,13 @@ package memoryplugin
 import (
 	"context"
 	"errors"
+	filetools "github.com/QuincySx/Alva/extension/files"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/memory"
@@ -25,7 +26,7 @@ type Config struct {
 	Service              *memory.Service
 	References           agentcontext.ReferenceBackend
 	Guard                *security.Guard
-	Workspace            *builtin.Workspace
+	Workspace            *workspacefs.Workspace
 	Cwd, MemoryDirectory string
 }
 type Plugin struct {
@@ -61,7 +62,7 @@ func New(config Config) (*Plugin, error) {
 			return nil, errors.New("memory directory must be one bounded relative directory name")
 		}
 		p.config = config
-		for _, fileTool := range builtin.FileTools(config.Workspace, config.Guard, config.References, config.SessionID) {
+		for _, fileTool := range filetools.FileTools(config.Workspace, config.Guard, config.References, config.SessionID) {
 			p.files[fileTool.Name()] = fileTool
 		}
 		for _, name := range []string{"memory_sync", "memory_extract"} {

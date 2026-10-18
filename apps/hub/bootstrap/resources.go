@@ -6,10 +6,10 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"sync"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/protocol/skill"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -25,7 +25,7 @@ type attemptResource interface {
 
 type ownedRunner struct {
 	harness.Runner
-	workspace         *builtin.Workspace
+	workspace         *workspacefs.Workspace
 	skills            *skill.FS
 	nativeID, ownerID string
 	resources         []attemptResource

@@ -1,4 +1,4 @@
-// INPUT: context, crypto/sha256, encoding/hex/json, errors/filepath/sync/time, core/security, builtin Workspace, ABI/bus/wire, session.
+// INPUT: context, crypto/sha256, encoding/hex/json, errors/filepath/sync/time, core/security, host Workspace, ABI/bus/wire, session.
 // OUTPUT: Explicit Notebook Plugin/Config with exact notebook_edit, shared-lease checked writes and full original/prepared references.
 // POS: [L4 extension] Native cell editing preserves filesystem authority and evidence without executing notebooks or pretending OS hash-CAS.
 package notebook
@@ -9,11 +9,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -30,7 +30,7 @@ type Config struct {
 	Repository            *session.Repository
 	Owner, SessionID, Cwd string
 	Guard                 *security.Guard
-	Workspace             *builtin.Workspace
+	Workspace             *workspacefs.Workspace
 	Locks                 *core.ToolLockRegistry
 	Report                func(context.Context, Activity) error
 }

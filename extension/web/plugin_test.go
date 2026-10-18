@@ -4,6 +4,7 @@
 package web
 
 import (
+	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -139,7 +139,7 @@ func TestActualHTMLReferencesAndSDKRequestNotRawBody(t *testing.T) {
 		}
 		return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
 	})
-	a, err := core.NewBuilder(m, f.log).Workspace(f.cwd).Plugin(p).Plugin(builtin.NewSecurityPlugin(f.guard, p.Tools())).Build(context.Background())
+	a, err := core.NewBuilder(m, f.log).Workspace(f.cwd).Plugin(p).Plugin(securityplugin.NewSecurityPlugin(f.guard, p.Tools())).Build(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

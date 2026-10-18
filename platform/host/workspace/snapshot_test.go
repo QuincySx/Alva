@@ -1,15 +1,16 @@
 // INPUT: context, errors, os/filepath, testing, security Guard and actual Workspace.
 // OUTPUT: Real pinned snapshot/hash-conflict/mode/atomic-write/symlink/foreign-snapshot regressions.
-// POS: [L4 extension] Native checked replacement is tested without pretending OS-level hash-CAS or executing notebook code.
-package builtin
+// POS: [host capability] Native checked replacement is tested without pretending OS-level hash-CAS or executing notebook code.
+package workspace
 
 import (
 	"context"
 	"errors"
-	"github.com/QuincySx/Alva/sdk/agent/security"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/QuincySx/Alva/sdk/agent/security"
 )
 
 func TestCheckedSnapshotActualModeAndHashConflict(t *testing.T) {
@@ -123,5 +124,24 @@ func TestSnapshotUsesOriginalPinnedWorkspaceAfterPathReplacement(t *testing.T) {
 	replacement, _ := os.ReadFile(path)
 	if string(actual) != "changed pinned original" || string(replacement) != "ungranted replacement" {
 		t.Fatal("checked snapshot reopened displayed absolute path instead of pinned authority")
+	}
+	read, err := w.ReadFile(ctx, path, guard)
+	if err != nil || string(read) != "changed pinned original" {
+		t.Fatal("extracted read reopened the replacement path", string(read), err)
+	}
+	if err = w.Update(ctx, path, guard, func([]byte, bool) ([]byte, error) { return []byte("updated pinned original"), nil }); err != nil {
+		t.Fatal(err)
+	}
+	listing, err := w.ListDirectory(ctx, cwd, guard)
+	if err != nil || len(listing.Entries) != 1 || listing.Entries[0].Name != "notes.ipynb" {
+		t.Fatal("listing lost the original root", listing, err)
+	}
+	search, err := w.Search(ctx, cwd, "updated pinned", guard)
+	if err != nil || len(search.Matches) != 1 {
+		t.Fatal("search lost the original root", search, err)
+	}
+	replacement, _ = os.ReadFile(path)
+	if string(replacement) != "ungranted replacement" {
+		t.Fatal("extracted operations modified the ungranted replacement")
 	}
 }

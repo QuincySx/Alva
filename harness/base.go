@@ -1,4 +1,4 @@
-// INPUT: context, errors, os, filepath, reflect, builtin/toolvalidation, llm/provider, agent/core/context/security, kernel/abi, llm/wire.
+// INPUT: context, errors, os, filepath, reflect, extension/security, platform/host/workspace, toolvalidation, llm/provider, agent/core/context/security, kernel/abi, llm/wire.
 // OUTPUT: Runner, Builder, NewBuilder, NewDemo and NewOpenAI harness entry points.
 // POS: [L5 harness] Default-by-name application harness above the independently usable SDK.
 package harness
@@ -6,11 +6,11 @@ package harness
 import (
 	"context"
 	"errors"
+	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"os"
 	"path/filepath"
 	"reflect"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/extension/toolvalidation"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
@@ -145,7 +145,7 @@ func (b *Builder) Build(ctx context.Context) (*core.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	defaults := []core.Plugin{NewMemoryPlugin(), builtin.NewSecurityPlugin(guard, knownTools), SystemContextPlugin{}, retrieval, toolvalidation.New()}
+	defaults := []core.Plugin{NewMemoryPlugin(), securityplugin.NewSecurityPlugin(guard, knownTools), SystemContextPlugin{}, retrieval, toolvalidation.New()}
 	if b.contextSystem != nil {
 		defaults = append(defaults, contextBudgetPlugin{system: b.contextSystem})
 	}
@@ -184,7 +184,7 @@ func contributedTools(plugin core.Plugin) []abi.Tool {
 	}
 }
 
-// NewSecurityPlugin is the product recipe over the builtin wrapper. Only
+// NewSecurityPlugin is the product recipe over the extension security wrapper. Only
 // explicitly supplied tools and this harness's concrete owned contributions are
 // trusted; arbitrary Plugin metadata cannot self-authorize an implementation.
 func NewSecurityPlugin(guard *security.Guard, tools []abi.Tool, plugins ...core.Plugin) core.Plugin {
@@ -192,7 +192,7 @@ func NewSecurityPlugin(guard *security.Guard, tools []abi.Tool, plugins ...core.
 	for _, plugin := range plugins {
 		trusted = append(trusted, contributedTools(plugin)...)
 	}
-	return builtin.NewSecurityPlugin(guard, trusted)
+	return securityplugin.NewSecurityPlugin(guard, trusted)
 }
 
 // NewDemo is an explicitly local fixture: the model deterministically calls a

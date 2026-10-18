@@ -4,6 +4,7 @@
 package shell
 
 import (
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -14,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -54,7 +54,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	f := &fixture{repo: repo, log: log, cwd: t.TempDir()}
-	workspace, err := builtin.OpenWorkspace(f.cwd)
+	workspace, err := workspacefs.OpenWorkspace(f.cwd)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-// INPUT: context, crypto/sha256, encoding/json, filepath, sort, strings, time, memory FileReplacer, builtin file tools.
+// INPUT: context, crypto/sha256, encoding/json, filepath, sort, strings, time, memory FileReplacer, extension/files tools.
 // OUTPUT: Authorized explicit workspace MEMORY.md synchronization with truthful bounded report.
 // POS: [L4 extension] Reuses pinned filesystem capabilities and same-session references rather than inventing another host file boundary.
 package memoryplugin

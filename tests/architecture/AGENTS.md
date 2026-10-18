@@ -20,6 +20,7 @@ MyGo 只允许 `apps/direct/desktop`、`apps/hub/desktop`、`apps/ui/chat`、`ap
 `apps/hub` 核心只看标准库与 `integration/engine` 根契约，不能回引自身 product/bootstrap/sqlite/server/desktop。
 引擎根契约只依赖标准库；direct CLI/Desktop 不得传递进入 engine 或 Hub。
 SDK、harness、integration、platform、extension 不得向上依赖 apps；L0 检查含未知新增 workspace 包。
+platform/host/workspace 是独立叶子，不得依赖 extension/harness/storage 或 host 父包；模型引用/备份政策留 extension/files。
 extension/utility/timer是已抽出的portable Tool叶子，直接/传递只可标准库与SDK，不能重新拉入父native Plugin、SQLite/host或第三方依赖；负例持续验证而非仅凭包名宣称轻量。
 显式 module import 即使没有被扫描的源节点也保留 workspace 身份，不能伪装成标准库依赖。
 旧目录和 import 路径不保留，布局回归拒绝旧名或 symlink 兼容桥。

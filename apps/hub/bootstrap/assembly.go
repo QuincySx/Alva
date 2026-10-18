@@ -6,6 +6,8 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	filetools "github.com/QuincySx/Alva/extension/files"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"path/filepath"
 	"sync"
 	"time"
@@ -16,7 +18,6 @@ import (
 	productstore "github.com/QuincySx/Alva/apps/hub/sqlite"
 	"github.com/QuincySx/Alva/apps/hub/worktree"
 	browserextension "github.com/QuincySx/Alva/extension/browser"
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/extension/hooks"
 	"github.com/QuincySx/Alva/extension/loader"
 	managedmcp "github.com/QuincySx/Alva/extension/mcp"
@@ -177,7 +178,7 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 		a.pending[owned] = struct{}{}
 		a.pendingMu.Unlock()
 		var loaded []attemptResource
-		var workspace *builtin.Workspace
+		var workspace *workspacefs.Workspace
 		var skillFiles *skill.FS
 		defer func() {
 			if factoryErr != nil {
@@ -228,7 +229,7 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 			builder.MaxIterations(request.MaxTurns)
 		}
 		builder.Plugin(product.SharedLocksPlugin{Registry: toolLocks})
-		workspace, err = builtin.OpenWorkspace(request.Workspace)
+		workspace, err = workspacefs.OpenWorkspace(request.Workspace)
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +241,7 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 		if err != nil {
 			return nil, err
 		}
-		tools := builtin.FileTools(workspace, guard, backend, nativeID)
+		tools := filetools.FileTools(workspace, guard, backend, nativeID)
 		history := &product.HistoryTool{Store: store, ProductID: request.OwnerID, NativeID: nativeID}
 		builder.Plugin(product.HistoryPlugin{Tool: history})
 		trustedTools := append(append(append([]abi.Tool(nil), builder.DeclaredTools()...), tools...), history)

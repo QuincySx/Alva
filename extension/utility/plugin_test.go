@@ -4,6 +4,7 @@
 package utility
 
 import (
+	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -113,7 +113,7 @@ func TestConfigActualNextRequestConsumerPersistenceAndCAS(t *testing.T) {
 		}
 		return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
 	})
-	a, err := core.NewBuilder(m, f.log).Workspace(f.c.Cwd).SystemPrompt("original instruction").Plugin(f.p).Plugin(builtin.NewSecurityPlugin(f.c.Guard, f.p.Tools())).Build(ctx)
+	a, err := core.NewBuilder(m, f.log).Workspace(f.c.Cwd).SystemPrompt("original instruction").Plugin(f.p).Plugin(securityplugin.NewSecurityPlugin(f.c.Guard, f.p.Tools())).Build(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

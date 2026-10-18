@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, errors, filepath, strings, testing, time, agent/security/core, extension/subagent/builtin, storage/session.
+// INPUT: context, encoding/json, errors, filepath, strings, testing, time, agent/security/core, extension/subagent/files, host workspace, storage/session.
 // OUTPUT: Real recursive native child records, exact grants, isolated references, HITL and setup-failure regressions.
 // POS: [L5 harness] Local model fixtures execute actual SDK loops and SQLite, never paid providers or inherited history.
 package harness
@@ -7,13 +7,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	filetools "github.com/QuincySx/Alva/extension/files"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/extension/subagent"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
@@ -64,7 +65,7 @@ func TestNativeSubagentRecursiveFactsReferencesAndDirectGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := builtin.OpenWorkspace(cwd)
+	workspace, err := workspacefs.OpenWorkspace(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestNativeSubagentRecursiveFactsReferencesAndDirectGrants(t *testing.T) {
 	}
 	refs, _ := repo.BoundReferences(ctx, "owner", parent.ID())
 	parentPrivate, _ := refs.StoreText(ctx, "root-only-secret")
-	files := builtin.FileTools(workspace, guard, refs, parent.ID())
+	files := filetools.FileTools(workspace, guard, refs, parent.ID())
 	locks, _ := core.NewToolLockRegistry(64)
 	factory, err := NewNativeChildFactory(ctx, NativeChildConfig{Repository: repo, Owner: "owner", ParentID: parent.ID(), Cwd: cwd, Guard: guard, Bindings: NativeFileBindings(files, workspace), Locks: locks})
 	if err != nil {

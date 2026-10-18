@@ -4,13 +4,13 @@
 package product
 
 import (
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"context"
 	"database/sql"
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -36,7 +36,7 @@ func TestTeamToolActualBindingAndFailClosedMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace, err := builtin.OpenWorkspace(p.Workspace)
+	workspace, err := workspacefs.OpenWorkspace(p.Workspace)
 	if err != nil {
 		t.Fatal(err)
 	}

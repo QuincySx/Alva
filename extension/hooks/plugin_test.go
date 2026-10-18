@@ -4,6 +4,7 @@
 package hooks
 
 import (
+	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -261,7 +261,7 @@ func TestHookPhasesActuallyExecuteAndReauthorizeModifiedArguments(t *testing.T) 
 		}
 		return nil
 	})
-	agent := build(t, f, p, model, tool, builtin.NewSecurityPlugin(guard, []abi.Tool{tool}))
+	agent := build(t, f, p, model, tool, securityplugin.NewSecurityPlugin(guard, []abi.Tool{tool}))
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("registration starts hooks")
 	}

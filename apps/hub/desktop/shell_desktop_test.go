@@ -6,13 +6,13 @@
 package hubdesktop
 
 import (
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"context"
 	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/extension/shell"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -41,7 +41,7 @@ func TestNativeShellJobStopWaitsForItsActualApplicationOwner(t *testing.T) {
 	if err := s.Store.BindNative(ctx, product.ID, product.ActiveBranchID, log.ID()); err != nil {
 		t.Fatal(err)
 	}
-	files, err := builtin.OpenWorkspace(product.Workspace)
+	files, err := workspacefs.OpenWorkspace(product.Workspace)
 	if err != nil {
 		t.Fatal(err)
 	}

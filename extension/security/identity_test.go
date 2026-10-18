@@ -1,7 +1,7 @@
 // INPUT: context, encoding/json, errors, testing, agent/core/security, kernel/abi, llm/wire
 // OUTPUT: Dynamic value comparability and real Agent security fallback regressions
 // POS: [L4 extension] Unprovable tool identity requires approval without crashing the execution goroutine.
-package builtin
+package securityplugin
 
 import (
 	"context"

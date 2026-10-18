@@ -1,7 +1,7 @@
 // INPUT: context, crypto/rand/sha256, encoding/hex, errors/io/os/filepath, security Guard and kernel access.
 // OUTPUT: FileSnapshot, Workspace.ReadSnapshot and ReplaceCheckedSnapshot using existing pinned os.Root grants.
-// POS: [L4 extension] Optimistic checked regular-file replacement never reopens an authorized absolute path or claims OS hash-CAS.
-package builtin
+// POS: [host capability] Optimistic checked regular-file replacement never reopens an authorized absolute path or claims OS hash-CAS.
+package workspace
 
 import (
 	"context"

@@ -6,10 +6,10 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"time"
 
 	"github.com/QuincySx/Alva/apps/hub"
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/extension/interaction"
 	"github.com/QuincySx/Alva/extension/notebook"
 	"github.com/QuincySx/Alva/extension/planning"
@@ -21,7 +21,7 @@ import (
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
 
-func (a *Application) optionalTools(ctx context.Context, owner, native, cwd string, s hub.ToolSettings, w *builtin.Workspace, g *security.Guard, locks *core.ToolLockRegistry, report func(context.Context, string, string, string) error, retainWorkspace func() (func(), error), plugins *[]core.Plugin, trusted *[]abi.Tool, resources *[]attemptResource) error {
+func (a *Application) optionalTools(ctx context.Context, owner, native, cwd string, s hub.ToolSettings, w *workspacefs.Workspace, g *security.Guard, locks *core.ToolLockRegistry, report func(context.Context, string, string, string) error, retainWorkspace func() (func(), error), plugins *[]core.Plugin, trusted *[]abi.Tool, resources *[]attemptResource) error {
 	add := func(p core.Plugin, tools []abi.Tool) {
 		*plugins = append(*plugins, p)
 		*trusted = append(*trusted, tools...)

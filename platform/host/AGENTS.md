@@ -21,3 +21,4 @@ Admission rejects nil/typed-nil Runner before any goroutine starts. Single activ
 | Lifecycle regressions | controller_test.go | Detached/slow observers, nil/typed-nil Runner and cancelled admission, actual Stop/Close and state isolation |
 | Foreground commands | command/ | Explicit bounded stdin/stdout/stderr, tail-preserving capture and actual process reap |
 | Owned browser host | browser/ | Explicit Chrome launch, private fresh profiles, prior risk callback and real process/CDP cleanup |
+| Granted workspace | workspace/ | 独立授权目录/pinned roots、受限文件读写/搜索/快照；不依赖本父包执行 owner、harness 或 extensions |

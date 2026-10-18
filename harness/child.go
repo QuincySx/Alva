@@ -1,4 +1,4 @@
-// INPUT: context, errors, filepath, reflect, time, agent/core/context/security, extension/builtin/mcp/subagent, storage/session.
+// INPUT: context, errors, filepath, reflect, time, agent/core/context/security, extension/files/security/mcp/subagent, host workspace, storage/session.
 // OUTPUT: NativeChildFactory, NativeChildConfig, ChildToolBinding, BoundChildTool, NativeFileBindings and MCPChildBinding.
 // POS: [L5 harness] Native child assembly creates independent durable authorities and explicitly rebinds only actual direct-parent capabilities.
 package harness
@@ -8,11 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	filetools "github.com/QuincySx/Alva/extension/files"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"path/filepath"
 	"reflect"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	managedmcp "github.com/QuincySx/Alva/extension/mcp"
 	"github.com/QuincySx/Alva/extension/subagent"
 	"github.com/QuincySx/Alva/platform/storage/session"
@@ -278,13 +279,13 @@ func childLifecycle(ctx context.Context, log abi.ConversationLog, link abi.Recor
 // NativeFileBindings only recognizes the supplied actual parent tool values;
 // it does not add tools missing from that list. The pinned workspace is owned
 // by the product, and is not closed by a child.
-func NativeFileBindings(parentTools []abi.Tool, workspace *builtin.Workspace) []ChildToolBinding {
+func NativeFileBindings(parentTools []abi.Tool, workspace *workspacefs.Workspace) []ChildToolBinding {
 	var bindings []ChildToolBinding
 	for _, tool := range parentTools {
 		parent := tool
 		var bind ChildToolBinder
 		bind = func(_ context.Context, b ChildBinding) (BoundChildTool, error) {
-			for _, candidate := range builtin.FileTools(workspace, b.Guard, b.References, b.SessionID) {
+			for _, candidate := range filetools.FileTools(workspace, b.Guard, b.References, b.SessionID) {
 				if candidate.Name() == parent.Name() {
 					return BoundChildTool{Tool: candidate, Next: bind}, nil
 				}

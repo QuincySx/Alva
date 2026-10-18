@@ -10,6 +10,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	filetools "github.com/QuincySx/Alva/extension/files"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +19,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/host"
@@ -63,7 +64,7 @@ type Run struct {
 }
 type binding struct {
 	controller *host.Controller
-	files      *builtin.Workspace
+	files      *workspacefs.Workspace
 	lastRun    string
 }
 type Service struct {
@@ -278,7 +279,7 @@ func (s *Service) bind(ctx context.Context, id string) (*binding, error) {
 		}
 		builder.Workspace(canonical)
 		if !s.config.Demo {
-			files, err := builtin.OpenWorkspace(canonical)
+			files, err := workspacefs.OpenWorkspace(canonical)
 			if err != nil {
 				return nil, err
 			}
@@ -293,7 +294,7 @@ func (s *Service) bind(ctx context.Context, id string) (*binding, error) {
 				files.Close()
 				return nil, err
 			}
-			tools := builtin.FileTools(files, guard, references, id)
+			tools := filetools.FileTools(files, guard, references, id)
 			for _, tool := range tools {
 				builder.Tool(tool)
 			}

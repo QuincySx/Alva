@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/extension/loader"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/engine"
@@ -83,7 +83,7 @@ func TestAEPActualProcessIsClosedIfInitialEngineObservationFails(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		workspace, err := builtin.OpenWorkspace(session.Workspace)
+		workspace, err := workspacefs.OpenWorkspace(session.Workspace)
 		if err != nil {
 			return nil, err
 		}

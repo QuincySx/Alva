@@ -118,7 +118,7 @@ func workspacePackage(name string) bool {
 }
 
 func legacyWorkspacePackage(name string) bool {
-	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "native", "storage", "sandbox", "apps/cmd", "architecture", "apps/desktop"} {
+	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "native", "storage", "sandbox", "apps/cmd", "architecture", "apps/desktop", "extension/builtin"} {
 		if under(name, prefix) {
 			return true
 		}
@@ -127,6 +127,9 @@ func legacyWorkspacePackage(name string) bool {
 }
 
 func forbidden(root, dependency string, local bool) string {
+	if under(root, "platform/host/workspace") && local && !under(dependency, "sdk") && !under(dependency, "platform/system") && !under(dependency, "platform/host/workspace") {
+		return "workspace filesystem cannot depend on extensions, harness, storage or the host execution parent"
+	}
 	if (under(dependency, "tests") || under(dependency, "tools")) && !under(root, "tests") && !under(root, "tools") {
 		return "production packages cannot depend on repository validation or maintenance tools"
 	}
@@ -333,6 +336,9 @@ func TestFirewallRejectsContainerAndTransitiveBypasses(t *testing.T) {
 		"apps prefix is not desktop":            {"apps/other": {"github.com/egoist/mygo/ui"}},
 		"desktop prefix is exact":               {"apps/direct/desktop-extra": {"github.com/egoist/mygo/ui"}},
 		"shared UI cannot own direct":           {"apps/ui/chat": {"apps/direct"}},
+		"workspace cannot own file tools":       {"platform/host/workspace": {"extension/files"}},
+		"workspace cannot own harness":          {"platform/host/workspace": {"harness"}},
+		"workspace cannot own controller":       {"platform/host/workspace": {"platform/host"}},
 		"shared UI cannot own Hub":              {"apps/ui/chat": {"apps/hub/product"}},
 		"shared UI cannot own execution":        {"apps/ui/modules": {"platform/host"}},
 		"shared UI cannot inherit execution":    {"apps/ui/chat": {"platform/storage/session"}, "platform/storage/session": {"harness"}},

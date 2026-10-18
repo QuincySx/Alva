@@ -1,4 +1,4 @@
-// INPUT: testing, owned temporary files, real SQLite memory/session stores, builtin filesystem, app recipe.
+// INPUT: testing, owned temporary files, real SQLite memory/session stores, host workspace filesystem, app recipe.
 // OUTPUT: Actual memory tools, reference-only search, atomic sync, Markdown extraction and permission regressions.
 // POS: [L4 extension] Full local memory business acceptance without external models, embeddings accounts or ambient scans.
 package memoryplugin
@@ -8,13 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/harness"
 	memorysqlite "github.com/QuincySx/Alva/platform/storage/memory"
 	"github.com/QuincySx/Alva/platform/storage/session"
@@ -60,7 +60,7 @@ func newFixture(t *testing.T, allow bool) *fixture {
 		t.Fatal(err)
 	}
 	cwd := t.TempDir()
-	workspace, err := builtin.OpenWorkspace(cwd)
+	workspace, err := workspacefs.OpenWorkspace(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}

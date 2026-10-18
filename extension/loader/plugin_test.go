@@ -4,6 +4,7 @@
 package loader
 
 import (
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"bufio"
 	"context"
 	"encoding/json"
@@ -17,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/integration/protocol/aep"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -171,7 +171,7 @@ func newPluginFixture(t *testing.T, mode string, before func(context.Context) er
 		t.Fatal(err)
 	}
 	workspace := t.TempDir()
-	files, err := builtin.OpenWorkspace(workspace)
+	files, err := workspacefs.OpenWorkspace(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}

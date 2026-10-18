@@ -7,12 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -32,7 +32,7 @@ type fixture struct {
 	repo      *session.Repository
 	log       *session.Session
 	cwd, path string
-	workspace *builtin.Workspace
+	workspace *workspacefs.Workspace
 	p         *Plugin
 	tool      abi.Tool
 }
@@ -54,7 +54,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	os.Chmod(path, 0640)
-	workspace, err := builtin.OpenWorkspace(cwd)
+	workspace, err := workspacefs.OpenWorkspace(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}

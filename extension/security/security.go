@@ -1,7 +1,7 @@
 // INPUT: agent/core Plugin registration, agent/security Guard, kernel Tool contracts
 // OUTPUT: NewSecurityPlugin
 // POS: [L4 extension] Optional security middleware wrapper with explicit known-tool ownership and fail-closed unknown effects
-package builtin
+package securityplugin
 
 import (
 	"context"

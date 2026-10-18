@@ -16,7 +16,7 @@ StoreEntry优先可选FileReplacer原子替换(file+全chunks)；InMemory单锁�
 只有Backend CRUD时仍为非原子fallback，file hash最后更新，不能把跨调用事务原子性冒充已有。
 embedding cache可先成功，它不代表file revision提交；transaction失败不能再悄悄执行非原子fallback。
 Service在入口、等待写锁后及外置检索/存储阶段之间检查取消；取消后不进入下个索引阶段。已经完成的backend写入不自动撤回，CRUD fallback仍可能部分提交；backend须负责自身原子性与执行中的context响应。
-插件装配在 extension/builtin；不保留临时 app KV MemoryService 的 Put/Get 兼容入口。
+默认 MemoryPlugin 在 harness，可选业务插件在 extension/memory；不保留临时 app KV MemoryService 的 Put/Get 兼容入口。
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |

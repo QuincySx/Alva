@@ -4,6 +4,7 @@
 package browser
 
 import (
+	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	host "github.com/QuincySx/Alva/platform/host/browser"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -131,7 +131,7 @@ func TestRealBrowserRecipeRunsCatalogWithHITLAndReferenceOnlyEvidence(t *testing
 		}
 		return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
 	})
-	agent, err := core.NewBuilder(model, f.log).Workspace(f.cwd).MaxIterations(16).Plugin(p).Plugin(builtin.NewSecurityPlugin(f.guard, p.Tools())).Build(context.Background())
+	agent, err := core.NewBuilder(model, f.log).Workspace(f.cwd).MaxIterations(16).Plugin(p).Plugin(securityplugin.NewSecurityPlugin(f.guard, p.Tools())).Build(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

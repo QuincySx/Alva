@@ -4,6 +4,7 @@
 package tooling
 
 import (
+	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -174,7 +174,7 @@ func model(args string, verify func(abi.ModelRequest) error) abi.LanguageModel {
 }
 func build(t *testing.T, f *fixture, p *Plugin, m abi.LanguageModel) *core.Agent {
 	t.Helper()
-	agent, err := core.NewBuilder(m, f.log).Workspace(f.cwd).Plugin(p).Plugin(builtin.NewSecurityPlugin(f.guard, []abi.Tool{p.Tool()})).Build(context.Background())
+	agent, err := core.NewBuilder(m, f.log).Workspace(f.cwd).Plugin(p).Plugin(securityplugin.NewSecurityPlugin(f.guard, []abi.Tool{p.Tool()})).Build(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

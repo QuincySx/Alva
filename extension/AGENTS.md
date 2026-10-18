@@ -17,7 +17,8 @@
 
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
-| Builtin | `builtin/` | 安全 wrapper、实际Tool值身份验证、独立严格文件参数与备份写入 |
+| Files | `files/` | 严格文件参数、实际会话绑定、引用读取与备份写入；宿主根句柄位于 platform/host/workspace |
+| Security | `security/` | 安全 wrapper、实际 Tool 值身份验证与 effect/HITL 闸 |
 | Model retry | `modelretry/` | 显式有界次数/字节/数量/总期限的同模型重试，失败流私有，完整成功流才发布 |
 | Tool validation | `toolvalidation/` | 可替换默认schema校验，准备阶段拒绝与冻结执行前复核，不把依赖引入SDK |
 | Skills | `skill/` | 元数据提示与按需Skill Tool，替换仓库同样执行参数/实际调用/输出/取消边界，完整正文按会话引用读取 |

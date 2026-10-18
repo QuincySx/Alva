@@ -10,6 +10,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	filetools "github.com/QuincySx/Alva/extension/files"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"io"
 	"os"
 	"os/signal"
@@ -19,7 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/QuincySx/Alva/extension/builtin"
 	memoryplugin "github.com/QuincySx/Alva/extension/memory"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/llm/provider"
@@ -252,7 +253,7 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 		}
 		builder.Workspace(absolute)
 		if *live {
-			files, err := builtin.OpenWorkspace(absolute)
+			files, err := workspacefs.OpenWorkspace(absolute)
 			if err != nil {
 				return err
 			}
@@ -277,7 +278,7 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 			if err != nil {
 				return err
 			}
-			tools := builtin.FileTools(files, guard, backend, log.ID())
+			tools := filetools.FileTools(files, guard, backend, log.ID())
 			for _, tool := range tools {
 				builder.Tool(tool)
 			}

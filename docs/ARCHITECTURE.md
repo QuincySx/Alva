@@ -147,8 +147,9 @@ alva-agent/
 
 ### 第二步：builtin 的职责提取
 
-[builtin/files.go](../extension/builtin/files.go) 同时定义 os.Root 授权文件系统和 LLM FileTools，
-[snapshot.go](../extension/builtin/snapshot.go) 又提供 notebook 使用的受检读写。六个实际生产
+审查时 builtin/files.go 同时定义 os.Root 授权文件系统和 LLM FileTools，现分别位于
+[宿主文件能力](../platform/host/workspace/workspace.go)和[模型文件工具](../extension/files/files.go)；
+[snapshot.go](../platform/host/workspace/snapshot.go) 提供 notebook 使用的受检读写。六个原生产
 消费者是 CLI、direct、Hub bootstrap、harness、memory、notebook。建议目标为：
 
 - platform/host/workspace：现有 pinned roots、Workspace、FileSnapshot 与受限宿主操作。
