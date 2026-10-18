@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
 	"github.com/QuincySx/Alva/platform/system/loopback"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
 type Config struct {
@@ -327,7 +327,7 @@ func inputJSON(w http.ResponseWriter, r *http.Request, out any) error {
 	if err != nil {
 		return errors.New("diagnostic input exceeds budget")
 	}
-	if err := httpjson.ValidateObject(raw, out); err != nil {
+	if err := strictjson.ValidateObject(raw, out); err != nil {
 		return err
 	}
 	return json.Unmarshal(raw, out)

@@ -54,7 +54,7 @@ go mod verify
 | `harness/` | L5 默认配方、同名替换、引用/历史/子会话政策 |
 | `apps/` | L6 direct/Gateway 与 L7 Hub；CLI/桌面/HTTP/MCP/Worker 程序入口在 cmd，Hub desktop/server 共用 bootstrap/product |
 | `integration/` | 模型/协议/引擎适配；仅 engine 根契约为 L4.5，具体 adapter 是产品桥接 |
-| `platform/` | host 执行/审批 owner、system OS 原语、storage、sandbox 实现 |
+| `platform/` | host 执行/审批 owner、独立 workspace 文件能力、system 底层宿主原语、storage、sandbox 实现 |
 | `tests/` | architecture 静态闸/公开快照/分形检查与独立 extensibility 消费者实验 |
 | `tools/` | 显式维护和手工验收工具，不进入生产执行或普通测试路径 |
 | `docs/` | 当前 Go 架构、治理、ADR 与明确标注的结构审查提案；实现状态以 MIGRATION.md 为准 |

@@ -1,4 +1,4 @@
-// INPUT: platform/system/httpjson, Claimed Lead/native identity, shared product Team service and actual permission Guard
+// INPUT: platform/system/strictjson, Claimed Lead/native identity, shared product Team service and actual permission Guard
 // OUTPUT: Bounded hub_team Tool/Plugin for visible independent Worker queues and outcomes
 // POS: [L7 Hub product] Product collaboration capability, never inherited implicitly by native SDK children
 package product
@@ -13,7 +13,7 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/integration/engine"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -90,7 +90,7 @@ func (t *TeamTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call
 		return wire.ToolResult{}, errors.New("Team arguments exceed 24 KiB")
 	}
 	var a teamArgs
-	if err = httpjson.ValidateObject(call.Arguments, &a); err != nil {
+	if err = strictjson.ValidateObject(call.Arguments, &a); err != nil {
 		return wire.ToolResult{}, err
 	}
 	if err = json.Unmarshal(call.Arguments, &a); err != nil {

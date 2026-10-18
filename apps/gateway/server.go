@@ -20,8 +20,8 @@ import (
 
 	"github.com/QuincySx/Alva/integration/llm/codec"
 	"github.com/QuincySx/Alva/integration/llm/provider"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
 	"github.com/QuincySx/Alva/platform/system/loopback"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
 type Route struct {
@@ -208,7 +208,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if httpjson.Validate(body) != nil {
+	if strictjson.Validate(body) != nil {
 		writeError(w, inbound, 400)
 		return
 	}

@@ -1,4 +1,4 @@
-// INPUT: bytes, context, encoding/json, errors, fmt, strings, time, unicode/utf8, host/command, kernel/abi, storage/session, platform/system/httpjson.
+// INPUT: bytes, context, encoding/json, errors, fmt, strings, time, unicode/utf8, host/command, kernel/abi, storage/session, platform/system/strictjson.
 // OUTPUT: ErrExecution, ErrFinalization and bounded hook receipts backed by actual native fact/artifact authority.
 // POS: [L4 extension] Every approved start has prior durable evidence, full bounded sanitized I/O and truthful process/error outcomes.
 package hooks
@@ -15,7 +15,7 @@ import (
 
 	"github.com/QuincySx/Alva/platform/host/command"
 	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -138,7 +138,7 @@ func (p *Plugin) execute(ctx context.Context, entry Entry, input Input) (out hoo
 		decoder := json.NewDecoder(bytes.NewReader(result.Stdout))
 		decoder.DisallowUnknownFields()
 		var fields map[string]json.RawMessage
-		if err = httpjson.ValidateObject(result.Stdout, &out.output); err != nil {
+		if err = strictjson.ValidateObject(result.Stdout, &out.output); err != nil {
 			runErr = errors.Join(runErr, err)
 		} else if err = json.Unmarshal(result.Stdout, &fields); err != nil || fields == nil {
 			runErr = errors.Join(runErr, errors.New("hook stdout must be one explicit JSON output object"))

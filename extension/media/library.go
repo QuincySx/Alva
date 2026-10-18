@@ -1,4 +1,4 @@
-// INPUT: Actual native repository authority, immutable original/derivative BLOBs and explicit processing outputs, platform/system/httpjson.
+// INPUT: Actual native repository authority, immutable original/derivative BLOBs and explicit processing outputs, platform/system/strictjson.
 // OUTPUT: Library bounded metadata/manifests, complete verified derivatives and immutable selection/receipt events
 // POS: [L4 extension] Media evidence reuses native artifacts without a second transcript, process discovery or model replay
 package media
@@ -16,8 +16,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -172,7 +172,7 @@ func (l *Library) ReadReceipt(ctx context.Context, uri string) (Receipt, error) 
 }
 
 func decodeJSON(data []byte, out any) error {
-	if httpjson.ValidateObject(data, out) != nil {
+	if strictjson.ValidateObject(data, out) != nil {
 		return errors.New("invalid media evidence JSON")
 	}
 	d := json.NewDecoder(bytes.NewReader(data))

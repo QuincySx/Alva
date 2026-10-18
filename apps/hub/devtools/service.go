@@ -16,8 +16,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/hub"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
 	"github.com/QuincySx/Alva/platform/system/loopback"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -129,7 +129,7 @@ func (a Arguments) route() (string, error) {
 }
 func (c *Client) Inspect(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var args Arguments
-	if len(raw) > 16<<10 || !wire.ValidJSON(raw) || httpjson.ValidateObject(raw, &args) != nil || json.Unmarshal(raw, &args) != nil {
+	if len(raw) > 16<<10 || !wire.ValidJSON(raw) || strictjson.ValidateObject(raw, &args) != nil || json.Unmarshal(raw, &args) != nil {
 		return nil, errors.New("strict bounded diagnostic arguments required")
 	}
 	path, err := args.route()

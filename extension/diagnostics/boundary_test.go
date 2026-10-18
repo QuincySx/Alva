@@ -1,7 +1,7 @@
 // INPUT: Actual SDK/native diagnostics seam, custom manager reports and same/foreign artifact evidence.
 // OUTPUT: Replaceable manager evidence validation, typed-nil and late cancellation regressions.
 // POS: [L4 extension] Custom diagnostic implementations must return real same-session sources rather than plausible metadata.
-package tooling
+package diagnostics
 
 import (
 	"context"

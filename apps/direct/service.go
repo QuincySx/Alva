@@ -23,7 +23,7 @@ import (
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/host"
 	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -187,7 +187,7 @@ func (s *Service) metadata(ctx context.Context, id string) (Metadata, error) {
 		return Metadata{}, errors.New("direct metadata identity mismatch")
 	}
 	var value Metadata
-	if err := httpjson.ValidateObject(record.Payload, &value); err != nil {
+	if err := strictjson.ValidateObject(record.Payload, &value); err != nil {
 		return Metadata{}, err
 	}
 	if err := json.Unmarshal(record.Payload, &value); err != nil {

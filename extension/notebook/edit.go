@@ -1,4 +1,4 @@
-// INPUT: bytes, encoding/json, errors, io, strings, unicode/utf8, llm/wire, platform/system/httpjson.
+// INPUT: bytes, encoding/json, errors, io, strings, unicode/utf8, llm/wire, platform/system/strictjson.
 // OUTPUT: Strict bounded nbformat4.5 cell replacement/insertion/deletion preserving exact source and unknown fields.
 // POS: [L4 extension] Notebook editing never executes cells and clears stale code outputs/execution metadata on changed source.
 package notebook
@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 	"io"
 	"strings"
@@ -45,7 +45,7 @@ func decode(raw json.RawMessage) (editArguments, error) {
 	if len(raw) > 256<<10 || !wire.ValidJSON(raw) {
 		return a, errors.New("notebook arguments exceed 256 KiB UTF-8")
 	}
-	if err := httpjson.ValidateObject(raw, &a); err != nil {
+	if err := strictjson.ValidateObject(raw, &a); err != nil {
 		return a, err
 	}
 	var fields map[string]json.RawMessage
@@ -104,7 +104,7 @@ func transform(raw []byte, a editArguments) (editResult, error) {
 	if len(raw) > 20<<20 || !utf8.Valid(raw) || !wire.ValidJSON(raw) {
 		return result, errors.New("UTF-8 notebook <=20 MiB required")
 	}
-	if err := httpjson.Validate(raw); err != nil {
+	if err := strictjson.Validate(raw); err != nil {
 		return result, err
 	}
 	var document map[string]json.RawMessage

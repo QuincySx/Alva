@@ -9,13 +9,13 @@ import (
 	"errors"
 
 	"github.com/QuincySx/Alva/apps/hub"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 func (s *HubService) SaveToolsDraft(ctx context.Context, id, raw string) error {
 	var value hub.ToolSettings
-	if len(raw) > 64<<10 || !wire.ValidJSON([]byte(raw)) || httpjson.ValidateObject([]byte(raw), &value) != nil {
+	if len(raw) > 64<<10 || !wire.ValidJSON([]byte(raw)) || strictjson.ValidateObject([]byte(raw), &value) != nil {
 		return errors.New("strict tool configuration object within 64 KiB required")
 	}
 	if err := json.Unmarshal([]byte(raw), &value); err != nil {

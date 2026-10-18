@@ -16,7 +16,7 @@ import (
 	"github.com/QuincySx/Alva/apps/debug"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/apps/ui/chat"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
 func (p *NativePage) traceUI(method string) {
@@ -68,7 +68,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 			var args struct {
 				Text string `json:"text"`
 			}
-			if err := httpjson.ValidateObject(raw, &args); err != nil {
+			if err := strictjson.ValidateObject(raw, &args); err != nil {
 				return err
 			}
 			if err := json.Unmarshal(raw, &args); err != nil {
@@ -83,7 +83,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 			var args struct {
 				ID string `json:"id"`
 			}
-			if err := httpjson.ValidateObject(raw, &args); err != nil {
+			if err := strictjson.ValidateObject(raw, &args); err != nil {
 				return err
 			}
 			if err := json.Unmarshal(raw, &args); err != nil {
@@ -104,7 +104,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 				Title     string `json:"title"`
 				Workspace string `json:"workspace"`
 			}
-			if err := httpjson.ValidateObject(raw, &args); err != nil {
+			if err := strictjson.ValidateObject(raw, &args); err != nil {
 				return err
 			}
 			if err := json.Unmarshal(raw, &args); err != nil {
@@ -120,7 +120,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 			var args struct {
 				Pane string `json:"pane"`
 			}
-			if err := httpjson.ValidateObject(raw, &args); err != nil {
+			if err := strictjson.ValidateObject(raw, &args); err != nil {
 				return err
 			}
 			if err := json.Unmarshal(raw, &args); err != nil {
@@ -159,7 +159,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 			return nil
 		}
 		var args struct{}
-		if err := httpjson.ValidateObject(raw, &args); err != nil {
+		if err := strictjson.ValidateObject(raw, &args); err != nil {
 			return err
 		}
 		switch method {

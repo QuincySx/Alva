@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, strings, agent/memory, kernel/abi, llm/wire, platform/system/httpjson.
+// INPUT: context, encoding/json, strings, agent/memory, kernel/abi, llm/wire, platform/system/strictjson.
 // OUTPUT: Session-bound memory search/store/sync/extract Tools.
 // POS: [L4 extension] Actual memory actions require matching host approval and return bounded source references rather than full text.
 package memoryplugin
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/agent/memory"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -108,7 +108,7 @@ func (t *tool) Execute(ctx context.Context, execution abi.ToolExecutionContext, 
 	if len(call.Arguments) > 128<<10 || !utf8.Valid(call.Arguments) {
 		return wire.ToolResult{}, errors.New("memory tool arguments exceed 128 KiB UTF-8")
 	}
-	if err := httpjson.Validate(call.Arguments); err != nil {
+	if err := strictjson.Validate(call.Arguments); err != nil {
 		return wire.ToolResult{}, err
 	}
 	// Decode the selected operation schema, not a permissive superset.

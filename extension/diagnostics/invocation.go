@@ -1,14 +1,14 @@
 // INPUT: Bounded diagnostic Tool or direct Manager call arguments and shared strict native JSON validation.
 // OUTPUT: No exported symbols.
 // POS: [L4 extension] Tool and direct Manager consumers agree on exact action/profile and unambiguous input.
-package tooling
+package diagnostics
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
 
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
 type diagnosticArguments struct {
@@ -22,7 +22,7 @@ func decodeArguments(raw json.RawMessage) (diagnosticArguments, error) {
 	if len(raw) > 4096 {
 		return args, errors.New("diagnostics input exceeds 4 KiB")
 	}
-	if err := httpjson.ValidateObject(raw, &args); err != nil {
+	if err := strictjson.ValidateObject(raw, &args); err != nil {
 		return args, err
 	}
 	var fields map[string]json.RawMessage

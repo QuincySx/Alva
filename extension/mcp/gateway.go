@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, strings, time, kernel/abi, llm/wire, protocol/mcp, platform/system/httpjson.
+// INPUT: context, encoding/json, strings, time, kernel/abi, llm/wire, protocol/mcp, platform/system/strictjson.
 // OUTPUT: Session-bound mcp_runtime Tool with bounded discovery and reference-only output.
 // POS: [L4 extension] One HITL gateway keeps all remote schemas, full results and protocol transcripts out of automatic context.
 package managedmcp
@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -65,7 +65,7 @@ func (g *gateway) Execute(ctx context.Context, execution abi.ToolExecutionContex
 		return wire.ToolResult{}, errors.New("MCP gateway input exceeds 256 KiB or is not UTF-8")
 	}
 	var input gatewayInput
-	if err := httpjson.ValidateObject(call.Arguments, &input); err != nil {
+	if err := strictjson.ValidateObject(call.Arguments, &input); err != nil {
 		return wire.ToolResult{}, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(call.Arguments))

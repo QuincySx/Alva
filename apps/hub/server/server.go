@@ -22,8 +22,8 @@ import (
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
 	"github.com/QuincySx/Alva/platform/system/loopback"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
@@ -267,7 +267,7 @@ func decode(w http.ResponseWriter, r *http.Request, out any, limit int64) bool {
 		fail(w, 400)
 		return false
 	}
-	if httpjson.ValidateObject(data, out) != nil {
+	if strictjson.ValidateObject(data, out) != nil {
 		fail(w, 400)
 		return false
 	}

@@ -1,4 +1,4 @@
-// INPUT: bytes, context, encoding/json, errors, fmt, io, strings, time, unicode/utf8, agent/abi, kernel/abi, llm/wire, platform/system/httpjson.
+// INPUT: bytes, context, encoding/json, errors, fmt, io, strings, time, unicode/utf8, agent/abi, kernel/abi, llm/wire, platform/system/strictjson.
 // OUTPUT: ErrChildCleanup and ErrChildCompletion for non-recoverable child finalization failures.
 // POS: [L4 extension] Delegation executes SDK-backed children inline and never relabels copied parent capabilities or unclosed work as complete.
 package subagent
@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -92,7 +92,7 @@ func (t *agentTool) Execute(ctx context.Context, execution abi.ToolExecutionCont
 		}
 	}
 	var input spawnInput
-	if err := httpjson.ValidateObject(call.Arguments, &input); err != nil {
+	if err := strictjson.ValidateObject(call.Arguments, &input); err != nil {
 		return wire.ToolResult{}, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(call.Arguments))

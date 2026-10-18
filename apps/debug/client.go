@@ -16,8 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/system/httpjson"
 	"github.com/QuincySx/Alva/platform/system/loopback"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -100,7 +100,7 @@ func exactJSON(raw []byte, out any) error {
 	if len(raw) > 32<<10 {
 		return errors.New("diagnostic arguments exceed 32 KiB")
 	}
-	if err := httpjson.ValidateObject(raw, out); err != nil {
+	if err := strictjson.ValidateObject(raw, out); err != nil {
 		return errors.New("exact bounded diagnostic object required")
 	}
 	return json.Unmarshal(raw, out)
@@ -152,7 +152,7 @@ func (c *Client) Inspect(ctx context.Context, raw []byte) (json.RawMessage, erro
 	if err != nil {
 		return nil, err
 	}
-	if err := httpjson.Validate(result); err != nil {
+	if err := strictjson.Validate(result); err != nil {
 		return nil, errors.New("diagnostic server returned invalid JSON")
 	}
 	return result, nil
@@ -225,7 +225,7 @@ func (c *Client) Control(ctx context.Context, raw []byte) (json.RawMessage, erro
 	if err != nil {
 		return nil, err
 	}
-	if err := httpjson.Validate(result); err != nil {
+	if err := strictjson.Validate(result); err != nil {
 		return nil, errors.New("invalid diagnostic control response")
 	}
 	return result, nil

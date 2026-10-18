@@ -27,7 +27,7 @@
 | Memory | `memory/` | 显式 service 替换、实际调用/严格参数与引用工具、受控 MEMORY.md 扫描与结构化笔记提取 |
 | SubAgent | `subagent/` | SDK scope驱动的真实独立native子会话、直接父实际值授权与有限递归；可执行贡献/Attach返回值在child IO前校验，部分setup返回owner也收尾 |
 | Hooks | `hooks/` | 显式授权外部Hook与严格控制JSON、pre-intent改参、Notify取消/join、terminal Close/physical cleanup和真实输入/输出引用 |
-| Tooling | `tooling/` | 显式诊断命令/可替换Manager、严格调用与同native证据核对、真实exit，不搬空LSP stub |
+| Diagnostics | `diagnostics/` | 显式诊断命令/可替换 Manager、严格调用与同 native 证据核对、真实 exit，不搬空 LSP stub |
 | Media | `media/` | 显式原件派生、完整清单/哈希与单请求选中图/真实receipt及Tool/model完整取消/join；不自动送原件 |
 | Browser | `browser/` | 七实际Tool、显式owned私有profile/启动risk/HITL，join实际Tool/事实与进程收尾，全量大结果仅引用 |
 | Shell | `shell/` | 明确shell/clean env、同一真实global lease持至reap，run-owned后台stdin/output/kill、审批/管理调用取消与join及脱敏完整引用 |

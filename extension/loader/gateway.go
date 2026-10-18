@@ -1,4 +1,4 @@
-// INPUT: Explicit catalog query or selected AEP remote call under the actual native tool context, platform/system/httpjson.
+// INPUT: Explicit catalog query or selected AEP remote call under the actual native tool context, platform/system/strictjson.
 // OUTPUT: One small SDK Tool, bounded discovery and reference-only opaque remote results
 // POS: [L4 extension] Progressive Plugin capability gateway; large schemas/output never become automatic model context
 package loader
@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -69,7 +69,7 @@ func (g *pluginGateway) Execute(ctx context.Context, execution abi.ToolExecution
 		Tool      string          `json:"tool,omitempty"`
 		Arguments json.RawMessage `json:"arguments,omitempty"`
 	}
-	if err := httpjson.ValidateObject(call.Arguments, &args); err != nil {
+	if err := strictjson.ValidateObject(call.Arguments, &args); err != nil {
 		return wire.ToolResult{}, err
 	}
 	if err := decodeCallback(call.Arguments, &args); err != nil {

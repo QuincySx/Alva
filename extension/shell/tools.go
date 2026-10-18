@@ -1,4 +1,4 @@
-// INPUT: bytes, context, crypto/sha256, encoding/hex/json, errors, io, strings/time/utf8, Task, ABI/wire and native/process, platform/system/httpjson.
+// INPUT: bytes, context, crypto/sha256, encoding/hex/json, errors, io, strings/time/utf8, Task, ABI/wire and native/process, platform/system/strictjson.
 // OUTPUT: Actual execute_shell/read_shell_output/write_shell_stdin/kill_shell Tools with owned job references.
 // POS: [L4 extension] Coordinator tools retain shared global execution leases across background work without deadlocking job management.
 package shell
@@ -15,8 +15,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/system/httpjson"
 	"github.com/QuincySx/Alva/platform/system/process"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -72,7 +72,7 @@ func (t *shellTool) decode(raw json.RawMessage) (args, error) {
 	if len(raw) > 256<<10 || !utf8.Valid(raw) {
 		return a, errors.New("shell input exceeds 256 KiB UTF-8")
 	}
-	if err := httpjson.Validate(raw); err != nil {
+	if err := strictjson.Validate(raw); err != nil {
 		return a, err
 	}
 	var fields map[string]json.RawMessage

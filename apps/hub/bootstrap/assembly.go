@@ -18,6 +18,7 @@ import (
 	productstore "github.com/QuincySx/Alva/apps/hub/sqlite"
 	"github.com/QuincySx/Alva/apps/hub/worktree"
 	browserextension "github.com/QuincySx/Alva/extension/browser"
+	diagnostictools "github.com/QuincySx/Alva/extension/diagnostics"
 	"github.com/QuincySx/Alva/extension/hooks"
 	"github.com/QuincySx/Alva/extension/loader"
 	managedmcp "github.com/QuincySx/Alva/extension/mcp"
@@ -26,7 +27,6 @@ import (
 	"github.com/QuincySx/Alva/extension/shell"
 	skillextension "github.com/QuincySx/Alva/extension/skill"
 	"github.com/QuincySx/Alva/extension/subagent"
-	"github.com/QuincySx/Alva/extension/tooling"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/engine/alva"
@@ -319,14 +319,14 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 			loaded = append(loaded, plugin)
 			plugins = append(plugins, plugin)
 		}
-		var diagnosticProfiles []tooling.Profile
+		var diagnosticProfiles []diagnostictools.Profile
 		for _, profile := range settings.Commands.Diagnostics {
 			if profile.Enabled {
-				diagnosticProfiles = append(diagnosticProfiles, tooling.Profile{ID: profile.ID, Description: profile.Description, Process: ownedprocess.Config{Command: profile.Command, Args: profile.Args, Env: profile.Env, Cwd: request.Workspace}, Timeout: time.Duration(profile.TimeoutMS) * time.Millisecond, ApprovedHostAccess: profile.HostAccessApproved})
+				diagnosticProfiles = append(diagnosticProfiles, diagnostictools.Profile{ID: profile.ID, Description: profile.Description, Process: ownedprocess.Config{Command: profile.Command, Args: profile.Args, Env: profile.Env, Cwd: request.Workspace}, Timeout: time.Duration(profile.TimeoutMS) * time.Millisecond, ApprovedHostAccess: profile.HostAccessApproved})
 			}
 		}
 		if len(diagnosticProfiles) > 0 {
-			plugin, err := tooling.New(ctx, tooling.Config{Repository: repository, Owner: request.OwnerID, SessionID: nativeID, Cwd: request.Workspace, Guard: guard, Profiles: diagnosticProfiles, Report: func(ctx context.Context, a tooling.Activity) error {
+			plugin, err := diagnostictools.New(ctx, diagnostictools.Config{Repository: repository, Owner: request.OwnerID, SessionID: nativeID, Cwd: request.Workspace, Guard: guard, Profiles: diagnosticProfiles, Report: func(ctx context.Context, a diagnostictools.Activity) error {
 				return reportCommand(ctx, a.SessionID, a.ID, a.Name)
 			}})
 			if err != nil {

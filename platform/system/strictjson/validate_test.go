@@ -1,7 +1,7 @@
 // INPUT: Concrete DTO and arbitrary protocol JSON byte fixtures
 // OUTPUT: Duplicate/key-case/Unicode/depth/null denial and unknown-protocol-field preservation regressions
-// POS: [platform / OS primitive] Shared input ambiguity acceptance without HTTP, credentials, model calls or product state
-package httpjson
+// POS: [platform / host primitive] Shared input ambiguity acceptance without HTTP, credentials, model calls or product state
+package strictjson
 
 import (
 	"strings"

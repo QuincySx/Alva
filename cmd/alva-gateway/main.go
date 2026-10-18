@@ -22,9 +22,9 @@ import (
 
 	"github.com/QuincySx/Alva/apps/gateway"
 	"github.com/QuincySx/Alva/integration/llm/provider"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
 	"github.com/QuincySx/Alva/platform/system/loopback"
 	"github.com/QuincySx/Alva/platform/system/secretinput"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
 type routeInput struct {
@@ -88,7 +88,7 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 		return err
 	}
 	var config inputConfig
-	if httpjson.ValidateObject(data, &config) != nil {
+	if strictjson.ValidateObject(data, &config) != nil {
 		return errors.New("stdin must contain strict token/routes JSON with no duplicate or unknown fields")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))

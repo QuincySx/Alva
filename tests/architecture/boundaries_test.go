@@ -118,7 +118,7 @@ func workspacePackage(name string) bool {
 }
 
 func legacyWorkspacePackage(name string) bool {
-	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "native", "storage", "sandbox", "apps/cmd", "architecture", "apps/desktop", "extension/builtin"} {
+	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "native", "storage", "sandbox", "apps/cmd", "architecture", "apps/desktop", "extension/builtin", "extension/tooling", "platform/system/httpjson"} {
 		if under(name, prefix) {
 			return true
 		}

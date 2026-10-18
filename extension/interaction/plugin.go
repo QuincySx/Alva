@@ -1,4 +1,4 @@
-// INPUT: bytes, context, crypto/rand, encoding/hex/json, errors/io, filepath, reflect/sync/time, core/security, ABI/wire, native session, platform/system/httpjson.
+// INPUT: bytes, context, crypto/rand, encoding/hex/json, errors/io, filepath, reflect/sync/time, core/security, ABI/wire, native session, platform/system/strictjson.
 // OUTPUT: Explicit human-question Plugin/Config, exact ask_human Tool and reference-only durable answer receipts.
 // POS: [L4 extension] Real handler waits are cancellable, retained as facts and never interpreted as permission approvals.
 package interaction
@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -127,7 +127,7 @@ func (t *questionTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 		return zero, errors.New("question arguments exceed 32 KiB UTF-8")
 	}
 	var q Question
-	if err := httpjson.ValidateObject(call.Arguments, &q); err != nil {
+	if err := strictjson.ValidateObject(call.Arguments, &q); err != nil {
 		return zero, err
 	}
 	d := json.NewDecoder(bytes.NewReader(call.Arguments))

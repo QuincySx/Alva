@@ -1,13 +1,13 @@
 // INPUT: context, encoding/json, errors, io, os, filepath, strings, testing, time, agent/core/security and native SQLite.
 // OUTPUT: Real diagnostic command, HITL, source/exit, bounds, cancellation and manager capability regressions.
 // POS: [L4 extension] Actual SDK plus temporary Go subprocess acceptance never fabricates zero diagnostics or starts ambient language servers.
-package tooling
+package diagnostics
 
 import (
-	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"context"
 	"encoding/json"
 	"errors"
+	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"io"
 	"os"
 	"path/filepath"

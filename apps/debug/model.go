@@ -9,7 +9,7 @@ import (
 	"errors"
 	"regexp"
 
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
 var ErrUnavailable = errors.New("diagnostic view is unavailable")
@@ -64,7 +64,7 @@ func (a Action) validate() error {
 	if args := bytes.TrimSpace(a.Args); len(args) == 0 || args[0] != '{' {
 		return errors.New("UI action arguments require an object")
 	}
-	return httpjson.Validate(a.Args)
+	return strictjson.Validate(a.Args)
 }
 func validateNode(node Node, depth int, budget *int) error {
 	*budget--

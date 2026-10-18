@@ -1,7 +1,7 @@
 // INPUT: context, crypto/sha256, encoding/hex/json, errors, fmt, strings, time, utf8, host/command, kernel/abi, storage/session.
 // OUTPUT: Native diagnostic Manager with prior activity, explicit process execution and owned reference evidence.
 // POS: [L4 extension] Command success is not misrepresented as parsed diagnostics or a silent empty no-server result.
-package tooling
+package diagnostics
 
 import (
 	"bytes"

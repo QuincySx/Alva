@@ -18,6 +18,6 @@ SDK 不反向依赖本目录；只有实际 consumer 的显式配置决定访问
 | 目录 | 职责 |
 |---|---|
 | `host/` | Agent Controller/审批/问题与 command/browser 的执行及资源 owner |
-| `system/` | 底层 owned process、媒体派生/播放、loopback/JSON、可取消秘密输入 |
+| `system/` | 底层 owned process、媒体派生/播放、loopback/strictjson、可取消秘密输入 |
 | `storage/` | 私有 SQLite、native session records/artifacts、可选持久 memory，不合并 Hub product store |
 | `sandbox/` | 真实 WASIp1 guest/native wazero host；共享纯 ABI 在 sdk/sandbox/abi |

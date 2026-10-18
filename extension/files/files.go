@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -77,7 +77,7 @@ func decodeFile(call wire.ToolCall, kind string) (fileArgs, error) {
 	if len(call.Arguments) > 2<<20 {
 		return args, errors.New("file arguments exceed 2 MiB")
 	}
-	if err := httpjson.ValidateObject(call.Arguments, &args); err != nil {
+	if err := strictjson.ValidateObject(call.Arguments, &args); err != nil {
 		return args, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(call.Arguments))

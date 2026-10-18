@@ -1,4 +1,4 @@
-// INPUT: platform/system/httpjson, Bound product/native identities, Hub Store and kernel Tool contract
+// INPUT: platform/system/strictjson, Bound product/native identities, Hub Store and kernel Tool contract
 // OUTPUT: HistoryTool with fixed-high-water metadata search and explicit UTF-8 byte-range reads
 // POS: [L7 Hub product] Product context capability; neither grants foreign native histories nor injects complete transcripts
 package product
@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/hub"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -57,7 +57,7 @@ func (t *HistoryTool) Execute(ctx context.Context, execution abi.ToolExecutionCo
 	if len(call.Arguments) > 4096 {
 		return wire.ToolResult{}, errors.New("history arguments exceed budget")
 	}
-	if err = httpjson.ValidateObject(call.Arguments, &args); err != nil {
+	if err = strictjson.ValidateObject(call.Arguments, &args); err != nil {
 		return wire.ToolResult{}, err
 	}
 	if err = json.Unmarshal(call.Arguments, &args); err != nil {

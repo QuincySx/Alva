@@ -1,4 +1,4 @@
-// INPUT: platform/system/httpjson, context, encoding/json, sync, storage/session, agent/core, kernel/abi.
+// INPUT: platform/system/strictjson, context, encoding/json, sync, storage/session, agent/core, kernel/abi.
 // OUTPUT: NativeSessionPlugins binding a bounded context source, run claims, references and history.
 // POS: [L5 harness] Explicit native harness recipe connects one actual session authority without SDK storage policy.
 package harness
@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -130,7 +130,7 @@ func (t *nativeHistoryTool) Execute(ctx context.Context, execution abi.ToolExecu
 	if len(call.Arguments) > 4096 {
 		return wire.ToolResult{}, errors.New("native history arguments exceed 4 KiB")
 	}
-	if err := httpjson.ValidateObject(call.Arguments, &args); err != nil {
+	if err := strictjson.ValidateObject(call.Arguments, &args); err != nil {
 		return wire.ToolResult{}, err
 	}
 	if err := json.Unmarshal(call.Arguments, &args); err != nil {

@@ -1,4 +1,4 @@
-// INPUT: bytes, context, crypto/sha256, encoding/hex/json, errors, io, time, utf8, host/browser, ABI/wire, protocol/browser, session, platform/system/httpjson.
+// INPUT: bytes, context, crypto/sha256, encoding/hex/json, errors, io, time, utf8, host/browser, ABI/wire, protocol/browser, session, platform/system/strictjson.
 // OUTPUT: Seven actual browser Tool implementations with immutable launch policy, HITL and bounded source references.
 // POS: [L4 extension] Exact dispatched identity gates all native browser authority and large results never become inline model bodies.
 package browser
@@ -17,7 +17,7 @@ import (
 	protocol "github.com/QuincySx/Alva/integration/protocol/browser"
 	host "github.com/QuincySx/Alva/platform/host/browser"
 	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -90,7 +90,7 @@ func (t *browserTool) decode(raw json.RawMessage) (arguments, error) {
 	if len(raw) > 128<<10 || !utf8.Valid(raw) {
 		return a, errors.New("browser input exceeds valid UTF-8 128 KiB budget")
 	}
-	if err := httpjson.Validate(raw); err != nil {
+	if err := strictjson.Validate(raw); err != nil {
 		return a, err
 	}
 	var fields map[string]json.RawMessage

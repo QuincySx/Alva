@@ -46,7 +46,10 @@ direct 产品说明/窗口/诊断/订阅留在所属产品。仅增加呈现保�
 原 builtin 的 12 个测试全部保留，另验证备份失败/取消不写入、无残留 staging、根路径被替换后
 Read/Update/List/Search 仍只访问原 pinned root。八个消费者/能力包 race 99 项通过；后续补充反例与
 静态闸的结果另随本批最终验收记录。137 个受保护 SDK/模块/固定资产文件保持原字节。
-后续继续命名/文档整理及最终整树验收。
+第五步将 platform/system/httpjson 改名为 strictjson，将 extension/tooling 改名为 diagnostics，
+同步实际 import、调用限定名、目录地图及退休路径闸。仅调整源码归属名称；Plugin.Name("tooling")、
+配置键、工具名和已有 records namespace 均保留。相关两能力/Hub 装配/架构四包 race 239 项通过。
+后续继续文档入口整理及最终整树验收。
 
 ## 2026-10-18 全仓结构复审（审查基线）
 

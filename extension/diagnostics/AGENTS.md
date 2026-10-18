@@ -3,6 +3,7 @@
 
 ## 地位
 Optional native extension; Manager is consumed by the actual project_diagnostics Tool and optionally published as a narrow typed capability. SDK contains no diagnostic/process policy.
+The package path is extension/diagnostics. Its existing Plugin.Name remains "tooling"; contribution identity, command profiles and persisted records are unchanged by the source-directory rename.
 ## 逻辑
 New copies explicit profiles or consumes an explicitly supplied Manager. Registration/start only binds actual session/run; no program starts until an approved run action. Native execution reports prior unknown activity and commits same-session diagnostic_intent before platform/host/command. Outcome preserves actual exit/reap/capture state and original-source sanitized stdout/stderr references.
 ## 约束

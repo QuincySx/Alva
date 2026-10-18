@@ -11,9 +11,9 @@ import (
 	"io"
 	"net/netip"
 
-	"github.com/QuincySx/Alva/platform/system/httpjson"
 	"github.com/QuincySx/Alva/platform/system/loopback"
 	"github.com/QuincySx/Alva/platform/system/secretinput"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
 type Options struct {
@@ -62,7 +62,7 @@ func (o Options) Read(ctx context.Context, input io.Reader) (StartupSecrets, err
 		return StartupSecrets{}, err
 	}
 	var value StartupSecrets
-	if err := httpjson.ValidateObject(raw, &value); err != nil {
+	if err := strictjson.ValidateObject(raw, &value); err != nil {
 		return StartupSecrets{}, errors.New("startup secrets require exact unique api_key/debug_token fields")
 	}
 	if err := json.Unmarshal(raw, &value); err != nil || len(value.APIKey) > 8192 {

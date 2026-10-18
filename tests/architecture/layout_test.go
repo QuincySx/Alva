@@ -16,6 +16,7 @@ func TestLayeredDirectoryLayout(t *testing.T) {
 		"sdk/agent/abi", "sdk/agent/core", "sdk/agent/context", "sdk/agent/memory", "sdk/agent/security", "sdk/agent/graph", "sdk/sandbox/abi",
 		"extension", "harness", "integration/llm/codec", "integration/llm/provider", "integration/protocol", "integration/engine",
 		"extension/files", "extension/security", "platform/host/workspace",
+		"extension/diagnostics", "platform/system/strictjson",
 		"platform/system", "platform/host", "platform/storage", "platform/sandbox/host", "platform/sandbox/guest",
 		commandRoot, directDesktopRoot, sharedChatRoot, sharedModulesRoot, "apps/hub", "apps/hub/bootstrap", hubDesktopRoot, "apps/gateway", validationRoot, extensibilityRoot, "tools/qa",
 	} {
@@ -32,6 +33,7 @@ func TestLayeredDirectoryLayout(t *testing.T) {
 		"architecture",
 		"apps/desktop",
 		"extension/builtin",
+		"extension/tooling", "platform/system/httpjson",
 		"platform/httpjson", "platform/loopback", "platform/media", "platform/process", "platform/secretinput",
 	} {
 		t.Run("retired/"+retired, func(t *testing.T) {

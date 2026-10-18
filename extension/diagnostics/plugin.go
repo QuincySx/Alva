@@ -1,7 +1,7 @@
 // INPUT: bytes, context, encoding/json, errors, io, filepath, reflect, strings, sync, time, utf8, core/security, ABI/bus, process/session.
 // OUTPUT: Config, Profile, ProfileInfo, Manager, Request, Report, Plugin and New for real explicit diagnostic command execution.
 // POS: [L4 extension] Optional replaceable diagnostics manager has a real Tool consumer, not a fake empty LSP server scaffold.
-package tooling
+package diagnostics
 
 import (
 	"context"

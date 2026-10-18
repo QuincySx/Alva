@@ -15,7 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/debug"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
 func (v *directView) traceUI(method string) {
@@ -49,7 +49,7 @@ func (v *directView) Diagnostic(owner context.Context, enqueue func(func()), cap
 			var args struct {
 				Text string `json:"text"`
 			}
-			if err := httpjson.ValidateObject(raw, &args); err != nil {
+			if err := strictjson.ValidateObject(raw, &args); err != nil {
 				return err
 			}
 			if err := json.Unmarshal(raw, &args); err != nil {
@@ -62,7 +62,7 @@ func (v *directView) Diagnostic(owner context.Context, enqueue func(func()), cap
 			return nil
 		}
 		var args struct{}
-		if err := httpjson.ValidateObject(raw, &args); err != nil {
+		if err := strictjson.ValidateObject(raw, &args); err != nil {
 			return err
 		}
 		switch method {

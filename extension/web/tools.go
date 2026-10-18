@@ -1,4 +1,4 @@
-// INPUT: bytes, context, crypto/sha256, encoding/hex/json, errors, io, mime/url, strings, time/utf8, ABI/wire, platform/system/httpjson.
+// INPUT: bytes, context, crypto/sha256, encoding/hex/json, errors, io, mime/url, strings, time/utf8, ABI/wire, platform/system/strictjson.
 // OUTPUT: Actual read_url and optional internet_search tools with durable receipts and bounded source references.
 // POS: [L4 extension] Explicit identity/session/risk admission precedes any network side effect and source bodies stay out of model context.
 package web
@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -66,7 +66,7 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 	if len(call.Arguments) > 16<<10 || !utf8.Valid(call.Arguments) {
 		return result, errors.New("web input exceeds 16 KiB UTF-8")
 	}
-	if err := httpjson.Validate(call.Arguments); err != nil {
+	if err := strictjson.Validate(call.Arguments); err != nil {
 		return result, err
 	}
 	var fields map[string]json.RawMessage

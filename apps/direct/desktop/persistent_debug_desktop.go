@@ -13,7 +13,7 @@ import (
 	"errors"
 	"github.com/QuincySx/Alva/apps/debug"
 	chat "github.com/QuincySx/Alva/apps/ui/chat"
-	"github.com/QuincySx/Alva/platform/system/httpjson"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
 func (p *PersistentPage) Diagnostic(ctx context.Context, enqueue func(func()), capture func() ([]byte, error)) (*debug.View, []debug.Method, error) {
@@ -42,7 +42,7 @@ func (p *PersistentPage) Diagnostic(ctx context.Context, enqueue func(func()), c
 			var args struct {
 				Title string `json:"title"`
 			}
-			if err := httpjson.ValidateObject(raw, &args); err != nil {
+			if err := strictjson.ValidateObject(raw, &args); err != nil {
 				return err
 			}
 			if err := json.Unmarshal(raw, &args); err != nil {
@@ -58,7 +58,7 @@ func (p *PersistentPage) Diagnostic(ctx context.Context, enqueue func(func()), c
 			var args struct {
 				ID string `json:"id"`
 			}
-			if err := httpjson.ValidateObject(raw, &args); err != nil {
+			if err := strictjson.ValidateObject(raw, &args); err != nil {
 				return err
 			}
 			if err := json.Unmarshal(raw, &args); err != nil {
@@ -81,7 +81,7 @@ func (p *PersistentPage) Diagnostic(ctx context.Context, enqueue func(func()), c
 			var args struct {
 				Text string `json:"text"`
 			}
-			if err := httpjson.ValidateObject(raw, &args); err != nil {
+			if err := strictjson.ValidateObject(raw, &args); err != nil {
 				return err
 			}
 			if err := json.Unmarshal(raw, &args); err != nil {
@@ -94,7 +94,7 @@ func (p *PersistentPage) Diagnostic(ctx context.Context, enqueue func(func()), c
 			return nil
 		}
 		var args struct{}
-		if err := httpjson.ValidateObject(raw, &args); err != nil {
+		if err := strictjson.ValidateObject(raw, &args); err != nil {
 			return err
 		}
 		switch method {
