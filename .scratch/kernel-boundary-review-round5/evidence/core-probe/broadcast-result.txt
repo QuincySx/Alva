@@ -1,0 +1,7 @@
+Command: cargo test --offline -p alva-agent-core --test review_broadcast_regression --test review_subscription_probe
+Exit: 0
+
+review_broadcast_regression: 12 passed; 0 failed; finished in 0.03s.
+review_subscription_probe: 1 passed; 0 failed; finished in 0.04s.
+
+The shutdown test does not assert driver termination; the independent drop-result.txt demonstrates a remaining task after session disposal.

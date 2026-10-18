@@ -1,0 +1,112 @@
+# INPUT: Go source, pinned Go modules and local-only protocol/desktop fixtures
+# OUTPUT: Portable SDK, race/vet, architecture and native compile gates
+# POS: Independent Go migration CI; does not remove or weaken existing Rust checks
+name: Go
+
+on:
+  push:
+    paths:
+      - 'go/**'
+      - '.github/workflows/go.yml'
+  pull_request:
+    paths:
+      - 'go/**'
+      - '.github/workflows/go.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: go
+    env:
+      GOTOOLCHAIN: local
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: go/go.sum
+      - run: go mod download
+      - run: go mod verify
+      - name: Real Windows DACL, LockFileEx, atomic job and inherited stdin regressions
+        run: go test -mod=readonly -count=1 ./platform/system/privatefs ./platform/storage/sqlite ./platform/system/process ./platform/system/secretinput ./platform/system/lineinput
+      - name: Actual portable UI diagnostic HTTP and private-file MCP stdio
+        run: go test -mod=readonly -count=1 ./apps/debug ./apps/cmd/alva-devtools-mcp
+      - name: Windows read-only media stdin and delete-on-close snapshots
+        run: go test -mod=readonly -count=1 ./platform/system/media -run 'TestMediaSnapshotHelper|TestWindowsInputSnapshotAndHandleBinding'
+      - name: Windows actual WASI SDK file roundtrip and native file capabilities
+        run: go test -mod=readonly -count=1 ./platform/sandbox/host -run 'TestWindowsWASI|TestWASIReadonlyCreate|TestWASIActualSDKModelToolModelAndReferenceRetrieval|TestActualQuickJS|TestScriptHeapStack|TestScriptFuelExhaustionAfterLoopEntryCancelsOwner'
+      - name: Windows portable SDK and architecture
+        run: go test -mod=readonly -count=1 ./sdk/... ./architecture
+      - name: All Windows native commands without cgo
+        run: go build -mod=readonly -tags desktop ./apps/cmd/...
+      - name: Windows platform static checks
+        run: go vet -mod=readonly -tags desktop ./platform/... ./extension/loader ./integration/engine/process ./apps/cmd/...
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: go
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: go/go.sum
+      - run: go mod download
+      - run: go mod verify
+      - name: Formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Full native and headless race regressions
+        # Metered SDK and CLI cases include native compilation in their real
+        # wall-clock budget. Do not compete cold compilers across packages;
+        # each package's actual concurrency/race tests still run unchanged.
+        run: go test -mod=readonly -race -p 1 -count=1 -tags desktop ./...
+      - name: Static checks and tagged dependency firewall
+        run: go vet -mod=readonly -tags desktop ./...
+      - name: Browser-portable SDK
+        env:
+          CGO_ENABLED: '0'
+          GOOS: js
+          GOARCH: wasm
+        run: go build -mod=readonly ./sdk/... ./integration/llm/codec
+      - name: WASIp1-portable SDK
+        env:
+          CGO_ENABLED: '0'
+          GOOS: wasip1
+          GOARCH: wasm
+        run: |
+          go build -mod=readonly ./sdk/... ./integration/llm/codec
+          go build -mod=readonly -o build/alva-worker.wasm ./apps/cmd/alva-worker-wasm
+      - name: Native executables without cgo
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go build -mod=readonly -o build/alva ./apps/cmd/alva
+          go build -mod=readonly -o build/alva-gateway ./apps/cmd/alva-gateway
+          go build -mod=readonly -o build/alva-hub-server ./apps/cmd/alva-hub-server
+          go build -mod=readonly -o build/alva-hub ./apps/cmd/alva-hub
+          go build -mod=readonly -o build/alva-devtools-mcp ./apps/cmd/alva-devtools-mcp
+          go build -mod=readonly -tags desktop -o build/alva-desktop ./apps/cmd/alva-desktop
+          go build -mod=readonly -tags desktop -o build/alva-hub-desktop ./apps/cmd/alva-hub-desktop

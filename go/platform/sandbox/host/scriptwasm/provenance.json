@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "engine": "QuickJS-NG v0.17.0 core only",
+  "source_url": "https://codeload.github.com/quickjs-ng/quickjs/tar.gz/refs/tags/v0.17.0",
+  "source_sha256": "559bc4c420475e55c7ab4510adbc562f55d7524d75e8e89d79ce4bb02f5687d9",
+  "compiler": "clang version 23.1.0-wasi-sdk (https://github.com/llvm/llvm-project 895aa2c896ada719451be2e3673c83da8ddf1141)",
+  "wasi_sdk": "34.0",
+  "wasi_sdk_arm64_macos_sha256": "9c59398106b417f8f14913380fdf0097a8cc0ff4af9eb3ce0065a859e88d49e9",
+  "bridge_sha256": "a5103249a08a1ffb6764e4efe9f94b3d5e3798dc2269ebb025e35f1df1b1aba1",
+  "bootstrap_sha256": "2028586cd1d2fec3291277d267be2872f6304a545b9fc4e58a39897952f0c870",
+  "binary_sha256": "ce29aaec478123bc26825288c43560cfdb6c70bf1802bfad1ef54ea77c7271d7",
+  "binary_bytes": 936180,
+  "patch": "None; upstream WASI stack guard; no quickjs-libc, module loader or std/os module linked",
+  "limits": {
+    "quickjs_heap_bytes": 33554432,
+    "quickjs_soft_c_stack_bytes": 524288,
+    "wasm_linear_memory_bytes": 67108864
+  },
+  "command": "python3 build.py --clang /explicit/wasi-sdk-34/bin/clang --source-tar /explicit/quickjs-v0.17.0.tar.gz",
+  "flags": [
+    "--target=wasm32-wasip1",
+    "-mexec-model=reactor",
+    "-O2",
+    "-DNDEBUG",
+    "-D_GNU_SOURCE",
+    "-D_WASI_EMULATED_SIGNAL",
+    "-mno-tail-call",
+    "-ffile-prefix-map=/alva-quickjs-source=/alva-quickjs-source",
+    "-I",
+    "/alva-quickjs-source",
+    "-Wl,-z,stack-size=2097152",
+    "-Wl,--initial-memory=4194304",
+    "-Wl,--max-memory=67108864",
+    "-Wl,--strip-all"
+  ]
+}

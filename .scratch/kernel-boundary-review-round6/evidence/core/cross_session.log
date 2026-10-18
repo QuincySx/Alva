@@ -1,0 +1,102 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling zmij v1.0.21
+   Compiling autocfg v1.5.0
+   Compiling getrandom v0.4.2
+   Compiling futures-core v0.3.32
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.149
+   Compiling num-traits v0.2.19
+   Compiling ref-cast v1.0.25
+   Compiling typenum v1.19.0
+   Compiling memchr v2.8.0
+   Compiling smallvec v1.15.1
+   Compiling futures-task v0.3.32
+   Compiling thiserror v2.0.18
+   Compiling futures-sink v0.3.32
+   Compiling bytes v1.11.1
+   Compiling chrono v0.4.44
+   Compiling syn v2.0.117
+   Compiling generic-array v0.14.7
+   Compiling parking_lot_core v0.9.12
+   Compiling cpufeatures v0.2.17
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling parking_lot v0.12.5
+   Compiling uuid v1.22.0
+   Compiling sha2 v0.10.9
+   Compiling darling_core v0.20.11
+   Compiling serde_derive_internals v0.29.1
+   Compiling tokio-macros v2.7.0
+   Compiling serde_derive v1.0.228
+   Compiling futures-macro v0.3.32
+   Compiling ref-cast-impl v1.0.25
+   Compiling tracing-attributes v0.1.31
+   Compiling thiserror-impl v2.0.18
+   Compiling async-trait v0.1.89
+   Compiling tokio v1.52.3
+   Compiling tracing v0.1.44
+   Compiling futures-util v0.3.32
+   Compiling schemars_derive v1.2.1
+   Compiling schemars v1.2.1
+   Compiling alva-llm-wire v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-llm-wire)
+   Compiling darling_macro v0.20.11
+   Compiling darling v0.20.11
+   Compiling alva-macros v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-macros)
+   Compiling futures-executor v0.3.32
+   Compiling alva-kernel-bus v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-bus)
+   Compiling tokio-stream v0.1.18
+   Compiling tokio-util v0.7.18
+   Compiling alva-kernel-abi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-abi)
+   Compiling alva-kernel-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-core)
+   Compiling alva-agent-abi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-abi)
+   Compiling alva-engine-runtime v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-runtime)
+warning: unused import: `AgentEvent`
+  --> /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling alva-hub-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-core)
+   Compiling alva-agent-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core)
+warning: `alva-kernel-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 2 suggestions)
+warning: unused import: `normalize_path_string`
+  --> /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core/src/agent_builder.rs:358:13
+    |
+358 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-agent-core` to apply 2 suggestions)
+   Compiling round6-core-probe v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/.scratch/kernel-boundary-review-round6/evidence/core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 48.08s
+     Running `.scratch/kernel-boundary-review-round6/evidence/core/target/debug/cross_session`
+B listener deliveries after successful A->B append: 0
+
+thread 'main' (9091210) panicked at cross_session.rs:25:2:
+assertion `left == right` failed: cross-session append must deliver without requiring an unrelated future append
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

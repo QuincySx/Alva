@@ -1,0 +1,182 @@
+   Compiling alva-kernel-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-core)
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling alva-agent-context v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-context)
+   Compiling alva-test v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-test)
+   Compiling alva-agent-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core)
+warning: `alva-kernel-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 2 suggestions)
+warning: unused import: `normalize_path_string`
+  --> crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:358:13
+    |
+358 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Mutex`
+  --> crates/alva-agent-context/src/middleware.rs:12:22
+   |
+12 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+  --> crates/alva-agent-context/src/middleware.rs:15:5
+   |
+15 | use alva_kernel_abi::agent_session::AgentSession;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/alva-agent-context/src/middleware.rs:73:9
+   |
+73 |         mut self,
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_store_session` is never used
+  --> crates/alva-agent-context/src/middleware.rs:72:8
+   |
+61 | impl CompactionMiddleware {
+   | ------------------------- method in this implementation
+...
+72 |     fn with_store_session(
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-agent-core` to apply 2 suggestions)
+warning: `alva-agent-context` (lib) generated 4 warnings (run `cargo fix --lib -p alva-agent-context` to apply 3 suggestions)
+warning: `alva-kernel-core` (lib test) generated 2 warnings (2 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.24s
+     Running unittests src/lib.rs (target/debug/deps/alva_kernel_core-6ebb2db64acb82c4)
+
+running 68 tests
+test builtins::dangling_tool_call::tests::test_priority ... ok
+test builtins::dangling_tool_call::tests::test_name ... ok
+test builtins::loop_detection::tests::test_name ... ok
+test builtins::loop_detection::tests::test_no_tool_calls_passes_through ... ok
+test builtins::dangling_tool_call::tests::test_no_tool_calls_no_change ... ok
+test builtins::dangling_tool_call::tests::test_no_dangling_no_change ... ok
+test builtins::loop_detection::tests::test_priority ... ok
+test builtins::dangling_tool_call::tests::test_multiple_dangling_tool_calls ... ok
+test builtins::dangling_tool_call::tests::test_multi_assistant_sequences ... ok
+test builtins::dangling_tool_call::tests::test_dangling_tool_call_gets_synthetic_result ... ok
+test builtins::loop_detection::tests::test_hash_stability ... ok
+test builtins::loop_detection::tests::test_below_warn_threshold_no_change ... ok
+test builtins::loop_detection::tests::test_hard_limit_strips_tool_calls ... ok
+test builtins::loop_detection::tests::test_different_tool_calls_no_loop ... ok
+test builtins::loop_detection::tests::test_separate_sessions_independent ... ok
+test builtins::loop_detection::tests::test_sliding_window_evicts_old_hashes ... ok
+test builtins::loop_detection::tests::test_warn_threshold_keeps_tool_calls ... ok
+test event::tests::agent_end_with_no_error_renders_error_as_null ... ok
+test event::tests::agent_end_with_some_error_renders_string ... ok
+test event::tests::agent_start_unit_variant_renders_only_type_tag ... ok
+test event::tests::bounded_try_send_drops_only_when_full ... ok
+test event::tests::message_end_includes_message_field ... ok
+test event::tests::message_error_includes_message_and_error_string ... ok
+test event::tests::message_start_spreads_message_alongside_type_tag ... ok
+test event::tests::message_update_includes_both_message_and_delta_top_level ... ok
+test event::tests::message_update_text_delta_wire_shape_is_externally_tagged ... ok
+test event::tests::tool_execution_end_includes_tool_call_and_result_fields ... ok
+test event::tests::tool_execution_start_includes_tool_call_field ... ok
+test event::tests::tool_execution_update_uses_snake_case_tool_call_id ... ok
+test event::tests::turn_end_unit_variant_renders_only_type_tag ... ok
+test event::tests::turn_start_unit_variant_renders_only_type_tag ... ok
+test middleware::tests::empty_stack ... ok
+test middleware::tests::push_sorted_by_priority ... ok
+test middleware::tests::push_sorted_stable_for_equal_priority ... ok
+test run::run_helpers_tests::cache_base_changes_with_stable_system_or_model ... ok
+test run::run_helpers_tests::cache_outcome_distinguishes_provider_observations ... ok
+test run::run_helpers_tests::cache_base_ignores_dynamic_system_tail ... ok
+test run::run_helpers_tests::empty_additions_leave_prompt_untouched ... ok
+test run::run_helpers_tests::empty_prompt_receives_additions_as_first_segment ... ok
+test run::run_helpers_tests::multi_segment_appends_to_stable_bucket_not_dynamic_tail ... ok
+test run::run_helpers_tests::single_segment_appends_in_place ... ok
+test runtime_context::tests::as_any_returns_self ... ok
+test runtime_context::tests::cancel_token_returns_provided_token ... ok
+test runtime_context::tests::new_defaults ... ok
+test runtime_context::tests::report_progress_sends_event ... ok
+test runtime_context::tests::session_id_returns_provided_string ... ok
+test runtime_context::tests::with_allow_dangerous_true ... ok
+test runtime_context::tests::with_bus_sets_and_returns_bus ... ok
+test runtime_context::tests::with_tool_fs_works ... ok
+test runtime_context::tests::with_workspace_sets_workspace ... ok
+test shared::tests::extensions_contains_reflects_insert_and_remove ... ok
+test shared::tests::extensions_default_is_empty ... ok
+test shared::tests::extensions_remove_returns_inserted_value ... ok
+test shared::tests::into_agent_error_agent_passes_through_unchanged ... ok
+test shared::tests::into_agent_error_blocked_wraps_reason_with_blocked_prefix ... ok
+test shared::tests::into_agent_error_other_wraps_with_middleware_prefix ... ok
+test shared::tests::middleware_error_blocked_display_has_blocked_prefix ... ok
+test shared::tests::middleware_error_from_agent_error_passes_through_display ... ok
+test shared::tests::middleware_error_other_display_has_prefix ... ok
+test shared::tests::middleware_priority_default_aliases_context ... ok
+test shared::tests::middleware_priority_tiers_are_strictly_increasing ... ok
+test shared::tests::middleware_priority_tiers_have_thousand_wide_gaps ... ok
+test shared::tests::test_extensions_get_is_shared_arc ... ok
+test shared::tests::test_extensions_insert_get ... ok
+test state::tests::agent_config_with_system_prompt ... ok
+test state::tests::agent_state_creation ... ok
+test state::tests::extensions_on_state ... ok
+test event::tests::bounded_sender_waits_for_receiver_capacity ... ok
+
+test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+=== kernel-core exit=0 ===
+warning: unused import: `AgentEvent`
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+warning: unused import: `normalize_path_string`
+warning: unused import: `alva_kernel_abi::ConversationLog`
+warning: unused import: `alva_kernel_abi::SessionStore`
+warning: unused import: `AgentSession`
+warning: unused import: `Mutex`
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+warning: unused `Result` that must be used
+warning: unused imports: `AgentMessage`, `CancellationToken`, `LockMode`, and `Message`
+warning: unused import: `assertions::collect_events`
+warning: unused import: `EventMatch`
+test result: ok. 318 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.63s
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.09s
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.02s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s
+   Doc-tests alva_app_core
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+=== app-core exit=0 ===

@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ALVA Hub UI Studio & 43-State Interactive Wireframe Gallery</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #090d16;
+      --bg-surface: #131b2e;
+      --bg-card: #1e293b;
+      --bg-hover: #334155;
+      --border-subtle: #243049;
+      --border-strong: #3b4d70;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --accent-glow: rgba(59, 130, 246, 0.2);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    [data-theme="light"] {
+      --bg-base: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-card: #f1f5f9;
+      --bg-hover: #e2e8f0;
+      --border-subtle: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text-main: #0f172a;
+      --text-muted: #475569;
+      --text-dim: #94a3b8;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --accent-glow: rgba(37, 99, 235, 0.15);
+      --success: #059669;
+      --warning: #d97706;
+      --danger: #dc2626;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-base);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Header Bar */
+    .top-bar {
+      height: 56px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      flex-shrink: 0;
+      z-index: 100;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.01em;
+    }
+    .brand-badge {
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 12px;
+      letter-spacing: 0.05em;
+    }
+    .view-modes {
+      display: flex;
+      background: var(--bg-card);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 2px;
+    }
+    .mode-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .mode-btn.active {
+      background: var(--bg-surface);
+      color: var(--text-main);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+    }
+    .icon-btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .icon-btn:hover { color: var(--text-main); background: var(--bg-hover); }
+
+    /* Main Container */
+    .app-workspace {
+      display: flex;
+      flex: 1;
+      height: calc(100vh - 56px);
+      overflow: hidden;
+    }
+
+    /* Left Sidebar: 43 States Catalog */
+    .catalog-sidebar {
+      width: 320px;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .sidebar-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .search-box {
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: var(--text-main);
+      font-size: 13px;
+      outline: none;
+    }
+    .search-box:focus { border-color: var(--accent); }
+    .catalog-filters {
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    .filter-chip {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--bg-card);
+      color: var(--text-muted);
+      border: 1px solid var(--border-subtle);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .filter-chip.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .catalog-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 0;
+    }
+    .catalog-group-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      padding: 12px 16px 4px;
+    }
+    .catalog-item {
+      padding: 9px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: background 0.12s;
+      border-left: 3px solid transparent;
+    }
+    .catalog-item:hover { background: var(--bg-hover); }
+    .catalog-item.active {
+      background: var(--bg-card);
+      border-left-color: var(--accent);
+    }
+    .item-id {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      width: 34px;
+      flex-shrink: 0;
+    }
+    .item-info {
+      flex: 1;
+      min-width: 0;
+      margin: 0 8px;
+    }
+    .item-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-main);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .item-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Main Viewport */
+    .main-canvas {
+      flex: 1;
+      background: var(--bg-base);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    .canvas-toolbar {
+      height: 48px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+    }
+    .state-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .state-title strong { color: var(--text-main); }
+    .canvas-viewport {
+      flex: 1;
+      overflow: auto;
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    /* Responsive Frame */
+    .mock-window {
+      width: 100%;
+      max-width: 1180px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.4);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    .window-titlebar {
+      height: 38px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+    }
+    .traffic-lights { display: flex; gap: 6px; }
+    .traffic-light { width: 11px; height: 11px; border-radius: 50%; }
+    .traffic-light.red { background: #ff5f56; }
+    .traffic-light.yellow { background: #ffbd2e; }
+    .traffic-light.green { background: #27c93f; }
+    .window-title { font-size: 12px; font-weight: 500; color: var(--text-dim); }
+
+    .window-body {
+      display: flex;
+      flex: 1;
+      min-height: 640px;
+      position: relative;
+    }
+
+    /* Reusable Mock Elements */
+    .mock-sidebar {
+      width: 220px;
+      background: var(--bg-card);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .mock-nav-item {
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mock-nav-item:hover { background: var(--bg-hover); color: var(--text-main); }
+    .mock-nav-item.active { background: var(--bg-surface); color: var(--text-main); font-weight: 600; }
+    
+    .mock-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-surface);
+      min-width: 0;
+    }
+    .mock-header {
+      height: 48px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .mock-timeline {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 820px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .mock-msg {
+      padding: 14px 18px;
+      border-radius: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .mock-msg.user { border-left: 3px solid var(--accent); }
+    .mock-msg.agent { border-left: 3px solid var(--success); }
+    
+    .mock-activity-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .mock-activity-card:hover { border-color: var(--accent); }
+
+    .mock-composer-area {
+      padding: 14px 20px;
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-subtle);
+    }
+    .mock-composer-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .mock-pill-btn {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 14px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+    .mock-pill-btn:hover { background: var(--bg-hover); }
+    .mock-pill-btn.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+
+    .mock-workbench {
+      width: 420px;
+      background: var(--bg-card);
+      border-left: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .mock-tabs {
+      height: 40px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      gap: 4px;
+    }
+    .mock-tab-item {
+      font-size: 12px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .mock-tab-item.active {
+      background: var(--bg-card);
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    /* Modal / Popover Overlay Layer */
+    .mock-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(9, 13, 22, 0.65);
+      backdrop-filter: blur(3px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+    .mock-dialog-card {
+      width: 540px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Split Comparison View */
+    .split-container {
+      display: flex;
+      width: 100%;
+      gap: 20px;
+    }
+    .split-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 0;
+    }
+    .split-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+    }
+    .split-frame {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      max-height: 780px;
+    }
+    .retina-img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 6px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    }
+
+    /* Right Inspector */
+    .inspector-sidebar {
+      width: 300px;
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      padding: 20px;
+      gap: 18px;
+      overflow-y: auto;
+    }
+    .insp-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .insp-val {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .insp-badge {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--bg-card);
+      color: var(--accent);
+      border: 1px solid var(--border-subtle);
+    }
+    .insp-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .insp-tag {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 5px;
+      background: var(--bg-card);
+      color: var(--text-main);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Header -->
+  <header class="top-bar">
+    <div class="brand">
+      <span>ALVA Hub UI Studio</span>
+      <span class="brand-badge">43 States Master Suite</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <div class="view-modes">
+        <button class="mode-btn active" onclick="setViewMode('interactive')">📱 真实交互 UI</button>
+        <button class="mode-btn" onclick="setViewMode('split')">🌓 4K 原图对照</button>
+        <button class="mode-btn" onclick="setViewMode('ascii')">📄 72列 ASCII</button>
+      </div>
+      <button class="icon-btn" onclick="toggleTheme()" title="切换明暗主题">🌓</button>
+    </div>
+  </header>
+
+  <!-- Main App Workspace -->
+  <div class="app-workspace">
+
+    <!-- Left State Catalog -->
+    <aside class="catalog-sidebar">
+      <div class="sidebar-header">
+        <input type="text" class="search-box" id="searchBox" placeholder="🔍 快速搜索 43 个交互状态…" oninput="filterStates()">
+        <div class="catalog-filters">
+          <span class="filter-chip active" onclick="setCategoryFilter('all')">全部 (43)</span>
+          <span class="filter-chip" onclick="setCategoryFilter('聊天')">聊天/时间线</span>
+          <span class="filter-chip" onclick="setCategoryFilter('输入')">Composer</span>
+          <span class="filter-chip" onclick="setCategoryFilter('工作台')">工作台</span>
+          <span class="filter-chip" onclick="setCategoryFilter('设置')">设置</span>
+          <span class="filter-chip" onclick="setCategoryFilter('自动化')">自动化</span>
+        </div>
+      </div>
+      <div class="catalog-list" id="catalogList">
+        <!-- Rendered by JS -->
+      </div>
+    </aside>
+
+    <!-- Center Main Preview Canvas -->
+    <main class="main-canvas">
+      <div class="canvas-toolbar">
+        <div class="state-title" id="stateTitleBar">
+          <span>状态 #002</span> › <strong>任务对话-主视图</strong>
+        </div>
+        <div style="font-size: 12px; color: var(--text-dim);">
+          窗口基准: 1440 × 900 · 支持折叠与点击交互
+        </div>
+      </div>
+      <div class="canvas-viewport" id="canvasViewport">
+        <!-- Mock window dynamically loaded -->
+      </div>
+    </main>
+
+    <!-- Right Inspector Info -->
+    <aside class="inspector-sidebar">
+      <div>
+        <div class="insp-label">触发动作 (Trigger)</div>
+        <div class="insp-val" id="inspAction">进入当前任务对话</div>
+      </div>
+      <div>
+        <div class="insp-label">对应截图</div>
+        <div class="insp-val"><span class="insp-badge" id="inspFile">002-任务对话-主视图.png</span></div>
+      </div>
+      <div>
+        <div class="insp-label">关键可见控件</div>
+        <div class="insp-tags" id="inspControls">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+      <div>
+        <div class="insp-label">区域层级 (Region Tree)</div>
+        <div class="insp-val" id="inspRegionTree" style="font-family: var(--font-mono); font-size: 11px; line-height: 1.6;">
+          AppFrame<br>
+          ├─ Sidebar (248px)<br>
+          ├─ Main (max-w: 820px)<br>
+          │  ├─ Timeline [SCROLL]<br>
+          │  └─ Composer [DOCK]<br>
+          └─ Workbench (520px)
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script>
+    const states = [
+      { id: 1, title: "更新公告-v0.1.45", cat: "全局浮层", trigger: "启动 Cindy 首屏自动弹出更新公告", file: "001-更新公告-v0-1-45.png", ctrls: ["版本标题", "亮点列表", "我知道了按钮"] },
+      { id: 2, title: "任务对话-主视图", cat: "聊天", trigger: "主聊天流与折叠活动行视图", file: "002-任务对话-主视图.png", ctrls: ["Sidebar", "Timeline", "CompactActivityRow", "ChangedFilesCard", "Composer"] },
+      { id: 3, title: "侧边栏整理弹层", cat: "侧边栏", trigger: "点击侧边栏「整理」按钮", file: "003-侧边栏整理弹层.png", ctrls: ["排序维度", "状态过滤", "一键批量归档"] },
+      { id: 4, title: "项目更多操作菜单", cat: "侧边栏", trigger: "点击项目标题旁「⋯」", file: "004-项目更多操作菜单.png", ctrls: ["重命名", "置顶", "搜索任务", "打开Finder"] },
+      { id: 5, title: "侧栏任务条目-选中态", cat: "侧边栏", trigger: "点击选中侧栏某条任务", file: "005-侧栏任务条目-选中态.png", ctrls: ["高亮背景", "悬浮操作", "活跃指示点"] },
+      { id: 6, title: "自动化-列表页", cat: "自动化", trigger: "点击左侧导航「⏱ 自动化」", file: "006-自动化-列表页.png", ctrls: ["自动化列表", "开关Switch", "模板卡片网格", "新建按钮"] },
+      { id: 7, title: "自动化-模板编辑器", cat: "自动化", trigger: "点击模板卡片「夜间自愈测试」", file: "007-自动化-模板编辑器.png", ctrls: ["标题输入", "AI/脚本模式", "Cron选择", "Worktree隔离"] },
+      { id: 8, title: "自动化-Cron选择器", cat: "自动化", trigger: "点击调度输入框", file: "008-自动化-cron选择器.png", ctrls: ["周期预设", "时分选择器", "Cron预览", "确认按钮"] },
+      { id: 9, title: "设置-0.1.45总览", cat: "设置", trigger: "点击设置入口", file: "009-设置-0-1-45总览.png", ctrls: ["双栏Nav", "账户卡片", "外观模式", "字体字号"] },
+      { id: 10, title: "设置-通用中段增量", cat: "设置", trigger: "通用设置向下滚动第一屏", file: "010-设置-通用中段-0-1-45增量.png", ctrls: ["侧栏展示风格", "面板停靠行为", "系统通知开关"] },
+      { id: 11, title: "设置-通用底部增量", cat: "设置", trigger: "通用设置滚动到底部", file: "011-设置-通用底部-0-1-45增量.png", ctrls: ["Worker并发上限", "资源档位", "LSP集成", "注销账户"] },
+      { id: 12, title: "设置-模型供应商", cat: "设置", trigger: "点击侧栏「模型供应商」", file: "012-设置-模型供应商-0-1-45.png", ctrls: ["供应商列表", "拖拽排序", "余额展示", "模型可见性"] },
+      { id: 13, title: "设置-供应商更多菜单", cat: "设置", trigger: "点击供应商卡片「⋯」", file: "013-设置-供应商更多操作菜单.png", ctrls: ["重命名", "刷新余额", "编辑Key", "删除"] },
+      { id: 14, title: "设置-模型更多菜单", cat: "设置", trigger: "点击模型行「⋯」", file: "014-设置-模型更多操作菜单.png", ctrls: ["可见性开关", "设为默认", "上下文上限"] },
+      { id: 15, title: "设置-供应商余额完成", cat: "设置", trigger: "供应商余额异步加载完成", file: "015-设置-模型供应商-余额加载完成.png", ctrls: ["可用余额¥128", "充值入口", "模型列表"] },
+      { id: 16, title: "设置-添加供应商弹层", cat: "设置", trigger: "点击「＋ 添加供应商」", file: "016-设置-添加供应商弹层.png", ctrls: ["云端厂商目录", "本地Ollama", "自定义端点"] },
+      { id: 17, title: "设置-自定义供应商端点", cat: "设置", trigger: "点击「🛠 自定义端点」", file: "017-设置-自定义供应商连接表单.png", ctrls: ["协议类型", "Base URL", "API Key", "测试连接按钮"] },
+      { id: 18, title: "设置-自定义模板菜单", cat: "设置", trigger: "点击「从模板快速填充」", file: "018-设置-自定义供应商模板菜单.png", ctrls: ["SiliconFlow", "DeepSeek", "OpenRouter", "Moonshot"] },
+      { id: 19, title: "设置-工具与MCP", cat: "设置", trigger: "点击「🛠 工具与 MCP」", file: "019-设置-工具与mcp.png", ctrls: ["内置工具开关", "MCP服务列表", "添加MCP按钮"] },
+      { id: 20, title: "设置-添加MCP服务器", cat: "设置", trigger: "点击「＋ 添加 MCP 服务器」", file: "020-设置-添加mcp服务器表单.png", ctrls: ["服务名称", "HTTP/SSE协议", "URL", "认证Header"] },
+      { id: 21, title: "设置-远程连接主页", cat: "设置", trigger: "点击「🌐 远程连接」", file: "021-设置-远程连接.png", ctrls: ["SSH主机", "同账号设备", "重新加载配置"] },
+      { id: 22, title: "设置-SSH主机列表", cat: "设置", trigger: "点击「SSH 远程主机」", file: "022-设置-ssh主机列表.png", ctrls: ["SSH主机卡片", "连接状态", "唤醒终端", "添加主机"] },
+      { id: 23, title: "设置-添加SSH主机表单", cat: "设置", trigger: "点击「＋ 添加 SSH 主机」", file: "023-设置-添加ssh主机表单.png", ctrls: ["主机别名", "IP/端口", "密钥认证", "沙箱代理"] },
+      { id: 24, title: "任务-计划推进浮层", cat: "聊天", trigger: "点击 Composer 上方「第 2 / 6 步」", file: "024-任务-计划浮层-0-1-45.png", ctrls: ["步骤序号", "完成/进行状态", "暂停/终止按钮"] },
+      { id: 25, title: "任务-权限模式菜单", cat: "输入", trigger: "点击 Composer 底部「自动审批 ▾」", file: "025-任务-权限模式菜单.png", ctrls: ["默认权限", "自动审批", "完全访问"] },
+      { id: 26, title: "任务-模型选择器", cat: "输入", trigger: "点击模型选择药丸按钮", file: "026-任务-模型选择器-0-1-45.png", ctrls: ["模型搜索", "厂商分组", "推理强度滑块", "Fast开关"] },
+      { id: 27, title: "任务-Composer操作菜单", cat: "输入", trigger: "点击左下角「＋」操作按钮", file: "027-任务-composer操作菜单.png", ctrls: ["添加附件", "新建Goal", "计划模式", "插件提及"] },
+      { id: 28, title: "任务标题-更多操作菜单", cat: "聊天", trigger: "点击会话标题栏右侧「⋯」", file: "028-任务标题-更多操作菜单-0-1-45.png", ctrls: ["置顶", "重命名", "在新窗口打开", "导出", "归档"] },
+      { id: 29, title: "任务-长图分享选区", cat: "聊天", trigger: "点击消息「📸 分享为图片」", file: "029-任务-分享选区-0-1-45.png", ctrls: ["消息复选框", "全选底栏", "下载长图", "复制图片"] },
+      { id: 30, title: "任务-长对话分享全选", cat: "聊天", trigger: "在分享模式下点击「全选」", file: "030-任务-长对话分享全选-0-1-45.png", ctrls: ["全选23条", "底部下载按钮", "取消退出"] },
+      { id: 31, title: "右栏-多标签工作台", cat: "工作台", trigger: "点击右侧「展开」工作台", file: "031-右栏-多标签工作台-0-1-45.png", ctrls: ["TabBar", "审查Diff", "独立窗口按钮", "最大化按钮"] },
+      { id: 32, title: "右栏-资源用量表", cat: "工作台", trigger: "切换至「⚡ 资源用量」标签", file: "032-右栏-资源用量表-0-1-45.png", ctrls: ["进程列表", "CPU占用", "内存", "PID", "终止进程"] },
+      { id: 33, title: "资源用量-独立窗口", cat: "工作台", trigger: "点击「在新窗口打开工作台」", file: "033-资源用量-独立窗口-0-1-45.png", ctrls: ["独立窗口Bar", "合并回主窗口", "全尺寸资源监控"] },
+      { id: 34, title: "右栏-Subagent空态", cat: "工作台", trigger: "切换至「🤖 Subagent」标签", file: "034-右栏-subagent空态-0-1-45.png", ctrls: ["空态图标", "说明文案", "显式派生按钮"] },
+      { id: 35, title: "右栏-添加标签菜单", cat: "工作台", trigger: "点击 TabBar 上的「＋」按钮", file: "035-右栏-添加标签菜单-0-1-45.png", ctrls: ["文件浏览器", "浏览器", "终端", "Inspector"] },
+      { id: 36, title: "新建任务-空白草稿", cat: "输入", trigger: "点击「＋ 新建」会话", file: "036-新建任务-空白草稿-0-1-45.png", ctrls: ["居中Composer", "快速开始4大卡片", "协同目标切换"] },
+      { id: 37, title: "新建任务-项目选择器", cat: "输入", trigger: "点击协同目标选择器", file: "037-新建任务-对话或项目选择器-0-1-45.png", ctrls: ["纯对话选项", "本地项目列表", "选择其他文件夹"] },
+      { id: 38, title: "Goal-新建目标草稿", cat: "输入", trigger: "点击「🎯 新建目标」", file: "038-goal-新建目标草稿.png", ctrls: ["目标描述输入", "高级限制折叠", "开始目标按钮"] },
+      { id: 39, title: "Goal-高级限制", cat: "输入", trigger: "在新建目标中点击「高级设置」", file: "039-goal-高级限制.png", ctrls: ["最大轮数", "Token预算", "无进展终止阈值"] },
+      { id: 40, title: "设置-编辑个人资料", cat: "设置", trigger: "点击「编辑名字和头像」", file: "040-设置-编辑个人资料.png", ctrls: ["头像更换", "用户名输入", "保存按钮"] },
+      { id: 41, title: "设置-IM个人微信连接", cat: "设置", trigger: "展开个人微信卡片", file: "041-设置-im个人微信连接门.png", ctrls: ["新对话配置", "工作目录", "连接微信按钮"] },
+      { id: 42, title: "侧栏-全局搜索输入", cat: "侧边栏", trigger: "点击侧边栏搜索框", file: "042-侧栏-全局搜索输入.png", ctrls: ["搜索Input", "筛选按钮", "任务树联动态"] },
+      { id: 43, title: "侧栏-搜索筛选排序菜单", cat: "侧边栏", trigger: "点击搜索框旁「🎛」", file: "043-侧栏-搜索筛选排序菜单.png", ctrls: ["相关度排序", "状态过滤", "项目过滤", "周期筛选"] }
+    ];
+
+    let current = states[1]; // default state 2
+    let mode = 'interactive';
+    let activeCat = 'all';
+
+    function renderCatalog() {
+      const list = document.getElementById('catalogList');
+      list.innerHTML = '';
+      const q = document.getElementById('searchBox').value.toLowerCase();
+      
+      const filtered = states.filter(s => {
+        const matchesQ = s.title.toLowerCase().includes(q) || s.trigger.toLowerCase().includes(q);
+        const matchesCat = activeCat === 'all' || s.cat.includes(activeCat);
+        return matchesQ && matchesCat;
+      });
+
+      filtered.forEach(s => {
+        const item = document.createElement('div');
+        item.className = `catalog-item ${s.id === current.id ? 'active' : ''}`;
+        item.onclick = () => selectState(s);
+        item.innerHTML = `
+          <span class="item-id">#${String(s.id).padStart(3, '0')}</span>
+          <div class="item-info">
+            <div class="item-title">${s.title}</div>
+            <div class="item-desc">${s.trigger}</div>
+          </div>
+          <span style="font-size:10px; padding:2px 6px; border-radius:4px; background:var(--bg-surface); color:var(--text-dim); border:1px solid var(--border-subtle);">${s.cat}</span>
+        `;
+        list.appendChild(item);
+      });
+    }
+
+    function selectState(s) {
+      current = s;
+      renderCatalog();
+      updateInspector();
+      renderCanvas();
+    }
+
+    function updateInspector() {
+      document.getElementById('stateTitleBar').innerHTML = `<span>状态 #${String(current.id).padStart(3, '0')}</span> › <strong>${current.title}</strong>`;
+      document.getElementById('inspAction').textContent = current.trigger;
+      document.getElementById('inspFile').textContent = current.file;
+      document.getElementById('inspControls').innerHTML = current.ctrls.map(c => `<span class="insp-tag">${c}</span>`).join('');
+    }
+
+    function setViewMode(m) {
+      mode = m;
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      renderCanvas();
+    }
+
+    function setCategoryFilter(c) {
+      activeCat = c;
+      document.querySelectorAll('.filter-chip').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+      renderCatalog();
+    }
+
+    function toggleTheme() {
+      const cur = document.documentElement.getAttribute('data-theme');
+      document.documentElement.setAttribute('data-theme', cur === 'light' ? 'dark' : 'light');
+    }
+
+    function filterStates() { renderCatalog(); }
+
+    function renderCanvas() {
+      const vp = document.getElementById('canvasViewport');
+      
+      if (mode === 'interactive') {
+        let overlayHtml = '';
+        
+        if (current.id === 1) {
+          overlayHtml = `
+            <div class="mock-overlay">
+              <div class="mock-dialog-card">
+                <div style="font-size: 16px; font-weight: 700;">✨ ALVA Hub v0.1.45 更新公告</div>
+                <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                  • 全新单阅读轴时间线与折叠活动行<br>
+                  • 右侧多标签工作台支持独立副屏窗口 (Detached Sidebar Window)<br>
+                  • 新增自主目标 Goal 模式与 Token 配额控制<br>
+                  • 模型选择器增加供应商分组与实时余额展示
+                </div>
+                <button class="mock-pill-btn primary" style="align-self: flex-end; padding: 6px 16px;">我知道了 (Got it)</button>
+              </div>
+            </div>
+          `;
+        } else if (current.id === 24) {
+          overlayHtml = `
+            <div style="position:absolute; top:48px; right:40px; width:340px; background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:10px; box-shadow:0 15px 30px rgba(0,0,0,0.5); padding:16px; z-index:30;">
+              <div style="font-size:13px; font-weight:700; margin-bottom:10px;">📋 任务推进计划 (2 / 6 步)</div>
+              <div style="font-size:12px; color:var(--text-muted); line-height:1.8;">
+                [✓] 1. 分析现有 Timeline 布局与工具活动结构<br>
+                <strong style="color:var(--accent);">[●] 2. 抽象并封装 CompactActivityRow 组件</strong><br>
+                [○] 3. 接入 Disclosure 展开动画<br>
+                [○] 4. 迁移 ChangedFilesCard 审查与撤销
+              </div>
+            </div>
+          `;
+        } else if (current.id === 25) {
+          overlayHtml = `
+            <div style="position:absolute; bottom:80px; left:120px; width:260px; background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:10px; box-shadow:0 15px 30px rgba(0,0,0,0.5); padding:12px; z-index:30;">
+              <div style="font-size:12px; font-weight:700; margin-bottom:8px;">🛡 选择权限模式</div>
+              <div style="font-size:12px; line-height:1.6;">
+                <div style="padding:6px; border-radius:6px; cursor:pointer;">🔒 默认权限 (逐一确认)</div>
+                <div style="padding:6px; border-radius:6px; background:var(--bg-card); color:var(--accent); font-weight:600; cursor:pointer;">⚡ 自动审批 (推荐)</div>
+                <div style="padding:6px; border-radius:6px; cursor:pointer;">🔓 完全访问 (无限制)</div>
+              </div>
+            </div>
+          `;
+        } else if (current.id === 38 || current.id === 39) {
+          overlayHtml = `
+            <div class="mock-overlay">
+              <div class="mock-dialog-card">
+                <div style="font-size: 15px; font-weight: 700;">🎯 新建自主目标 (New Goal)</div>
+                <input type="text" class="search-box" value="请重构 crates/alva-hub 下的所有 UI 状态组件" style="padding:10px;">
+                <div style="font-size:12px; color:var(--text-muted); background:var(--bg-card); padding:10px; border-radius:8px;">
+                  <strong>⚙ 高级限制:</strong><br>
+                  • 最大轮数: 50 轮<br>
+                  • Token 预算: 500k Tokens<br>
+                  • 无进展终止: 连续 3 轮无改动自停
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:8px;">
+                  <button class="mock-pill-btn">取消</button>
+                  <button class="mock-pill-btn primary">🚀 启动自主推进</button>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        vp.innerHTML = `
+          <div class="mock-window">
+            <div class="window-titlebar">
+              <div class="traffic-lights">
+                <div class="traffic-light red"></div>
+                <div class="traffic-light yellow"></div>
+                <div class="traffic-light green"></div>
+              </div>
+              <div class="window-title">ALVA Hub - ${current.title}</div>
+              <div style="font-size:11px; color:var(--text-dim);">macOS Native / GPUI</div>
+            </div>
+            <div class="window-body">
+              ${overlayHtml}
+              <div class="mock-sidebar">
+                <div style="font-weight:700; font-size:14px; padding:4px 8px;">ALVA HUB</div>
+                <div class="mock-nav-item ${current.id === 36 ? 'active' : ''}">➕ 新建会话</div>
+                <div class="mock-nav-item ${current.id === 6 ? 'active' : ''}">⏱ 自动化</div>
+                <div class="mock-nav-item">🧩 插件与技能</div>
+                <div class="mock-nav-item ${current.id === 42 ? 'active' : ''}">🔍 搜索…</div>
+                <div style="font-size:11px; font-weight:600; color:var(--text-dim); margin-top:12px; padding:0 8px;">项目列表</div>
+                <div class="mock-nav-item active" style="font-size:12px;">📁 alva-agent</div>
+                <div class="mock-nav-item" style="font-size:12px; padding-left:24px;">● 重构时间线</div>
+                <div class="mock-nav-item" style="font-size:12px; padding-left:24px;">○ 修复存储</div>
+              </div>
+              <div class="mock-main">
+                <div class="mock-header">
+                  <span>📁 alva-agent / 📌 重构 Hub UI 时间线布局</span>
+                  <div style="display:flex; gap:6px;">
+                    <span class="mock-pill-btn" style="color:var(--accent);">📋 2/6 计划</span>
+                    <span class="mock-pill-btn">⋯</span>
+                  </div>
+                </div>
+                <div class="mock-timeline">
+                  <div class="mock-msg user">
+                    <strong>👤 User</strong> <span style="font-size:11px; color:var(--text-dim); margin-left:8px;">10:24</span>
+                    <p style="margin-top:6px;">请帮我把聊天时间线与工具活动行重构成折叠紧凑结构，并在右侧打开代码审查。</p>
+                  </div>
+                  <div class="mock-msg agent">
+                    <strong>🤖 ALVA</strong> <span style="font-size:11px; color:var(--text-dim); margin-left:8px;">10:25 (Codex · GPT-5.6-Sol · 高)</span>
+                    <p style="margin-top:6px;">执行链已确认。已分析现有代码并应用重构方案：</p>
+                    
+                    <div class="mock-activity-card" onclick="this.querySelector('.act-body').style.display = this.querySelector('.act-body').style.display === 'none' ? 'block' : 'none'" style="margin:10px 0;">
+                      <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>▶ <strong>[✓] 编辑文件</strong> <code>Timeline.tsx</code></span>
+                        <span style="color:var(--text-dim);">450ms (点击折叠/展开)</span>
+                      </div>
+                      <div class="act-body" style="display:none; margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle); font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">
+                        + 替换手搓 div 为标准 CompactActivityRow<br>
+                        + 接入 Disclosure 动画与状态管理
+                      </div>
+                    </div>
+
+                    <div style="background:var(--accent-glow); border:1px solid rgba(59,130,246,0.3); border-radius:8px; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;">
+                      <span>📄 3 个文件已修改 (+124, -45)</span>
+                      <div style="display:flex; gap:6px;">
+                        <span class="mock-pill-btn primary" style="padding:3px 8px;">👁 审查 Diff</span>
+                        <span class="mock-pill-btn" style="padding:3px 8px;">↩ 撤销</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="mock-composer-area">
+                  <div class="mock-composer-card">
+                    <div style="font-size:13px; color:var(--text-muted);">💬 继续聊一聊，或输入 @ 提及插件…</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border-subtle); padding-top:8px;">
+                      <div style="display:flex; gap:6px;">
+                        <span class="mock-pill-btn">➕</span>
+                        <span class="mock-pill-btn">🛡 自动审批 ▾</span>
+                        <span class="mock-pill-btn">📁 alva-agent ▾</span>
+                        <span class="mock-pill-btn">🤖 Codex ▾</span>
+                        <span class="mock-pill-btn">🧠 GPT-5.6-Sol ▾</span>
+                      </div>
+                      <button class="mock-pill-btn primary">➤ 发送</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="mock-workbench">
+                <div class="mock-tabs">
+                  <div class="mock-tab-item active">👁 审查 ✕</div>
+                  <div class="mock-tab-item">⚡ 资源用量 ✕</div>
+                  <div class="mock-tab-item">🤖 Subagent ✕</div>
+                  <div class="mock-tab-item">＋</div>
+                </div>
+                <div style="padding:16px; font-size:12px; color:var(--text-muted); line-height:1.8;">
+                  <strong style="color:var(--text-main);">已修改文件 (3):</strong><br>
+                  <span style="font-family:var(--font-mono);">
+                    M crates/alva-hub/src/App.tsx (+12, -4)<br>
+                    M crates/alva-hub/src/Timeline.tsx (+45, -18)<br>
+                    A crates/alva-hub/src/ActivityRow.tsx (+86, -0)
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (mode === 'split') {
+        vp.innerHTML = `
+          <div class="split-container">
+            <div class="split-pane">
+              <div class="split-title">📐 高保真交互线稿 (Vector UI)</div>
+              <div class="split-frame" style="min-height:560px;">
+                <div style="padding:20px; font-size:13px; line-height:1.6; color:var(--text-main); width:100%;">
+                  <h3 style="margin-bottom:12px;">#${String(current.id).padStart(3, '0')} - ${current.title}</h3>
+                  <p style="color:var(--text-muted); margin-bottom:16px;">${current.trigger}</p>
+                  <div style="background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:8px; padding:16px; font-family:var(--font-mono); font-size:12px;">
+                    ┌── [Region: ${current.cat}] ───────────────────────────────┐<br>
+                    │ 控件列表: ${current.ctrls.join(', ')}<br>
+                    │ 状态归属: ${current.title}<br>
+                    └──────────────────────────────────────────────────────────┘
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="split-pane">
+              <div class="split-title">📸 5K / 4K 视网膜高清原图 (${current.file})</div>
+              <div class="split-frame">
+                <img class="retina-img" src="../cropped/01-cindy-main.png" alt="${current.title}" onerror="this.src='../screenshots/01-cindy-main.png'">
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (mode === 'ascii') {
+        vp.innerHTML = `
+          <div style="width:100%; max-width:820px; background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:10px; padding:20px; font-family:var(--font-mono); font-size:12.5px; line-height:1.45; white-space:pre; overflow-x:auto;">
+┌──────────────────────────────────────────────────────────────────────┐
+│  ALVA HUB  [·][—][+]                                [🔍 搜索] [⚙ 设置] │
+├────────────────────┬─────────────────────────────────────────────────┤
+│ [HubSidebar: 248px]│ [MainContent: max-w 820px]                      │
+│                    │ 📁 alva-agent / 📌 重构 UI 时间线   [📋 2/6] [⋯] │
+│ [+] 新建会话       ├─────────────────────────────────────────────────┤
+│ ⏱  自动化         │ 👤 User: 请把聊天时间线重构成紧凑活动行。       │
+│ 🧩 插件与技能      │                                                 │
+│ 🔍 搜索标题或内容… │ 🤖 ALVA: 执行链已确认，以下是执行详情：         │
+│                    │ ┌── [工具调用: 折叠活动行] ───────────────────┐ │
+│ ── 项目列表 ────── │ │ ▶ [✓] 读取文件 crates/alva-hub/src/App.tsx  │ │
+│ ▼ 📁 alva-agent    │ │ ▼ [✓] 编辑文件 Timeline.tsx (450ms)         │ │
+│   ├── ● 当前任务   │ │   └─ 替换手搓 div 为标准 CompactActivityRow │ │
+│   └── ○ 历史任务   │ └─────────────────────────────────────────────┘ │
+│                    │ 📄 3 个文件已修改   [👁 审查 Diff]   [↩ 撤销]   │
+│ ── 独立会话 ────── ├─────────────────────────────────────────────────┤
+│   ○ 临时对话       │ [HubComposer: 常驻底栏]                         │
+│                    │ 💬 继续聊一聊，或输入 @ 提及插件…               │
+│ ── 底部账户 ────── │ [+]  (•) 自动审批 ▾  |  🤖 Codex ▾  |  🎙 [➤ 发送]│
+│ 👤 Wang (Pro)      ├─────────────────────────────────────────────────┤
+│ ⚙ 设置  [⬆ 更新]   │ alva-agent · 7天剩余 81% · 本次用量: $0.032    │
+└────────────────────┴─────────────────────────────────────────────────┘
+          </div>
+        `;
+      }
+    }
+
+    renderCatalog();
+    updateInspector();
+    renderCanvas();
+  </script>
+</body>
+</html>

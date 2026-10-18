@@ -1,5 +1,51 @@
 # Alva Architecture
 
+## Go target implementation
+
+The user accepted [ADR 0012](./adr/0012-go-native-stack.md) on 2026-10-16:
+preserve the fine-grained responsibility and dependency boundaries in Go,
+exclude historical compatibility layers, and target a self-drawn MyGo desktop
+without React. The implementation lives under [`go/`](../go/AGENTS.md), with
+layer-by-layer acceptance in [`go/MIGRATION.md`](../go/MIGRATION.md).
+No abstraction merge is approved. Rust code below remains the current product
+and behavior reference until equivalent Go capabilities pass their own tests;
+coexistence is not a Rust runtime/IPC compatibility bridge.
+
+### Current Go directory and responsibility map
+
+The 2026-10-17 layout groups existing packages without merging abstractions:
+
+| Directory | Layer / responsibility |
+|---|---|
+| `go/sdk/` | L0 wire/bus/sandbox ABI, L1 kernel contracts, L2 loop, L2.3 Agent semantics, L2.5 Plugin assembly, L3 capabilities |
+| `go/extension/` | L4 optional Tool/Plugin/Middleware implementations |
+| `go/harness/` | L5 opinionated defaults and reference/history/child policies |
+| `go/apps/` | L6 direct desktop/Gateway and L7 Hub; command owners in apps/cmd |
+| `go/integration/` | External LLM/protocol/engine integration; engine root contract alone is L4.5 |
+| `go/platform/` | Execution/resource owners, OS primitives, persistence and WASM implementation |
+| `go/architecture/` | Actual tagged import graph, API and fractal-document gates |
+
+SDK has no integration/platform/extension/harness/apps dependency; kernel has no
+agent dependency. Direct CLI/desktop consume harness and platform/host, not the
+multi-engine runtime. Hub core consumes only integration/engine's light root
+contract; apps/hub/bootstrap assembles the concrete Alva/externally owned-process
+adapters and shares one product service with apps/hub/desktop and apps/hub/server.
+Alva bridges the complete harness; Claude/Codex/Pi currently share a Vendor-based
+process adapter package, not three independently ported packages.
+
+Integration/platform are horizontal responsibility containers, not blanket low
+layers. platform/host owns Agent execution, approvals/questions and command/CDP
+resource lifetimes; platform/system owns the lower-level OS process/media/HTTP
+primitives. platform/storage retains native typed facts/artifacts separately from
+Hub product SQLite. Pure sandbox ABI stays in sdk/sandbox/abi; actual guest/host
+implementations stay in platform/sandbox. Neither UI subscriptions nor protocol
+disconnects grant authority to replay or silently stop owned execution.
+
+See [the Go overview and reading order](../go/README.md#先看地图l0--l7),
+[directory rules](../go/AGENTS.md) and [acceptance status](../go/MIGRATION.md).
+The following Rust component paths/diagrams remain behavior-reference material,
+not aliases for the Go target or evidence that all capabilities were migrated.
+
 This file is the architecture source of truth for the current tree.
 
 Related living docs (not historical plans):

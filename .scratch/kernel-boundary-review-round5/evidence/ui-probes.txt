@@ -1,0 +1,52 @@
+
+> alva-hub-desktop-web@0.1.0 test
+> vitest run src/review-round5.test.tsx
+
+
+ RUN  v2.1.9 /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-desktop/web
+
+ ❯ src/review-round5.test.tsx (2 tests | 2 failed) 16ms
+   × preserves literal prose and inline code without displaying HTML entities 15ms
+     → expected 'a &lt; b &amp;&amp; c &gt; d &quot;qu…' to be 'a < b && c > d "quoted"' // Object.is equality
+   × updates execution progress to the latest failure reason 0ms
+     → expected 'bash running' to be 'bash failed' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/review-round5.test.tsx > preserves literal prose and inline code without displaying HTML entities
+AssertionError: expected 'a &lt; b &amp;&amp; c &gt; d &quot;qu…' to be 'a < b && c > d "quoted"' // Object.is equality
+
+Expected: "a < b && c > d "quoted""
+Received: "a &lt; b &amp;&amp; c &gt; d &quot;quoted&quot;"
+
+ ❯ src/review-round5.test.tsx:14:67
+     12|   const text = 'a < b && c > d "quoted"';
+     13|   const {container} = render(<I18nProvider><ChatTranscript events={[{.…
+     14|   expect(container.querySelector(".chat-paragraph")?.textContent).toBe…
+       |                                                                   ^
+     15|   expect(container.querySelector(".chat-inline-code")?.textContent).to…
+     16| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/review-round5.test.tsx > updates execution progress to the latest failure reason
+AssertionError: expected 'bash running' to be 'bash failed' // Object.is equality
+
+Expected: "bash failed"
+Received: "bash running"
+
+ ❯ src/review-round5.test.tsx:20:59
+     18|   const previous: HubTimelineEvent = {...entry,status:"activity_starte…
+     19|   const failed: HubTimelineEvent = {...entry,status:"activity_complete…
+     20|   expect(mergeLiveTimeline([previous],failed)[0].message).toBe("bash f…
+       |                                                           ^
+     21| });
+     22| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  00:21:05
+   Duration  1.11s (transform 203ms, setup 70ms, collect 494ms, tests 16ms, environment 301ms, prepare 76ms)
+

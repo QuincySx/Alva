@@ -1,0 +1,2823 @@
+=== kernel-core lib (R72) ===
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `alva-kernel-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 2 suggestions)
+warning: unused import: `Mutex`
+  --> crates/alva-agent-context/src/middleware.rs:12:22
+   |
+12 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+  --> crates/alva-agent-context/src/middleware.rs:15:5
+   |
+15 | use alva_kernel_abi::agent_session::AgentSession;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/alva-agent-context/src/middleware.rs:73:9
+   |
+73 |         mut self,
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_store_session` is never used
+  --> crates/alva-agent-context/src/middleware.rs:72:8
+   |
+61 | impl CompactionMiddleware {
+   | ------------------------- method in this implementation
+...
+72 |     fn with_store_session(
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `normalize_path_string`
+  --> crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:358:13
+    |
+358 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-context` (lib) generated 4 warnings (run `cargo fix --lib -p alva-agent-context` to apply 3 suggestions)
+warning: `alva-agent-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-agent-core` to apply 2 suggestions)
+warning: `alva-kernel-core` (lib test) generated 2 warnings (2 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.50s
+     Running unittests src/lib.rs (target/debug/deps/alva_kernel_core-6ebb2db64acb82c4)
+
+running 68 tests
+test builtins::dangling_tool_call::tests::test_priority ... ok
+test builtins::loop_detection::tests::test_name ... ok
+test builtins::dangling_tool_call::tests::test_name ... ok
+test builtins::dangling_tool_call::tests::test_no_tool_calls_no_change ... ok
+test builtins::dangling_tool_call::tests::test_no_dangling_no_change ... ok
+test builtins::dangling_tool_call::tests::test_multiple_dangling_tool_calls ... ok
+test builtins::loop_detection::tests::test_hash_stability ... ok
+test builtins::loop_detection::tests::test_below_warn_threshold_no_change ... ok
+test builtins::loop_detection::tests::test_hard_limit_strips_tool_calls ... ok
+test builtins::dangling_tool_call::tests::test_dangling_tool_call_gets_synthetic_result ... ok
+test builtins::loop_detection::tests::test_no_tool_calls_passes_through ... ok
+test builtins::dangling_tool_call::tests::test_multi_assistant_sequences ... ok
+test builtins::loop_detection::tests::test_different_tool_calls_no_loop ... ok
+test builtins::loop_detection::tests::test_priority ... ok
+test builtins::loop_detection::tests::test_separate_sessions_independent ... ok
+test builtins::loop_detection::tests::test_warn_threshold_keeps_tool_calls ... ok
+test builtins::loop_detection::tests::test_sliding_window_evicts_old_hashes ... ok
+test event::tests::agent_end_with_no_error_renders_error_as_null ... ok
+test event::tests::agent_end_with_some_error_renders_string ... ok
+test event::tests::agent_start_unit_variant_renders_only_type_tag ... ok
+test event::tests::bounded_try_send_drops_only_when_full ... ok
+test event::tests::message_end_includes_message_field ... ok
+test event::tests::message_error_includes_message_and_error_string ... ok
+test event::tests::message_start_spreads_message_alongside_type_tag ... ok
+test event::tests::message_update_includes_both_message_and_delta_top_level ... ok
+test event::tests::message_update_text_delta_wire_shape_is_externally_tagged ... ok
+test event::tests::tool_execution_end_includes_tool_call_and_result_fields ... ok
+test event::tests::tool_execution_start_includes_tool_call_field ... ok
+test event::tests::tool_execution_update_uses_snake_case_tool_call_id ... ok
+test event::tests::turn_end_unit_variant_renders_only_type_tag ... ok
+test event::tests::turn_start_unit_variant_renders_only_type_tag ... ok
+test middleware::tests::empty_stack ... ok
+test middleware::tests::push_sorted_by_priority ... ok
+test middleware::tests::push_sorted_stable_for_equal_priority ... ok
+test run::run_helpers_tests::cache_outcome_distinguishes_provider_observations ... ok
+test run::run_helpers_tests::empty_additions_leave_prompt_untouched ... ok
+test run::run_helpers_tests::cache_base_ignores_dynamic_system_tail ... ok
+test run::run_helpers_tests::cache_base_changes_with_stable_system_or_model ... ok
+test run::run_helpers_tests::empty_prompt_receives_additions_as_first_segment ... ok
+test run::run_helpers_tests::multi_segment_appends_to_stable_bucket_not_dynamic_tail ... ok
+test run::run_helpers_tests::single_segment_appends_in_place ... ok
+test runtime_context::tests::as_any_returns_self ... ok
+test runtime_context::tests::cancel_token_returns_provided_token ... ok
+test runtime_context::tests::new_defaults ... ok
+test runtime_context::tests::report_progress_sends_event ... ok
+test runtime_context::tests::session_id_returns_provided_string ... ok
+test runtime_context::tests::with_allow_dangerous_true ... ok
+test runtime_context::tests::with_bus_sets_and_returns_bus ... ok
+test runtime_context::tests::with_tool_fs_works ... ok
+test runtime_context::tests::with_workspace_sets_workspace ... ok
+test shared::tests::extensions_contains_reflects_insert_and_remove ... ok
+test shared::tests::extensions_default_is_empty ... ok
+test shared::tests::extensions_remove_returns_inserted_value ... ok
+test shared::tests::into_agent_error_agent_passes_through_unchanged ... ok
+test shared::tests::into_agent_error_blocked_wraps_reason_with_blocked_prefix ... ok
+test shared::tests::into_agent_error_other_wraps_with_middleware_prefix ... ok
+test shared::tests::middleware_error_blocked_display_has_blocked_prefix ... ok
+test shared::tests::middleware_error_from_agent_error_passes_through_display ... ok
+test shared::tests::middleware_error_other_display_has_prefix ... ok
+test shared::tests::middleware_priority_default_aliases_context ... ok
+test shared::tests::middleware_priority_tiers_are_strictly_increasing ... ok
+test shared::tests::middleware_priority_tiers_have_thousand_wide_gaps ... ok
+test shared::tests::test_extensions_get_is_shared_arc ... ok
+test shared::tests::test_extensions_insert_get ... ok
+test state::tests::agent_config_with_system_prompt ... ok
+test state::tests::agent_state_creation ... ok
+test state::tests::extensions_on_state ... ok
+test event::tests::bounded_sender_waits_for_receiver_capacity ... ok
+
+test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+--- exit=0 ---
+=== agent-core lib (R62) ===
+   Compiling alva-kernel-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-core)
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `alva-kernel-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 2 suggestions)
+   Compiling alva-agent-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core)
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:358:13
+    |
+358 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1257:9
+     |
+1257 |         s.append(e1).await;
+     |         ^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+     = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+     |
+1257 |         let _ = s.append(e1).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1258:9
+     |
+1258 |         s.append(e2).await;
+     |         ^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1258 |         let _ = s.append(e2).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1259:9
+     |
+1259 |         s.append(e3).await;
+     |         ^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1259 |         let _ = s.append(e3).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1285:21
+     |
+1285 |                     s.append(e).await;
+     |                     ^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1285 |                     let _ = s.append(e).await;
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1320:21
+     |
+1320 |                     s.append_message(user_msg(&format!("{t}-{i}")), None).await;
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1320 |                     let _ = s.append_message(user_msg(&format!("{t}-{i}")), None).await;
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1444:9
+     |
+1444 |         s.append_message(user_msg("hello"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1444 |         let _ = s.append_message(user_msg("hello"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1445:9
+     |
+1445 |         s.append_message(user_msg("world"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1445 |         let _ = s.append_message(user_msg("world"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1464:13
+     |
+1464 | /             s.append_message(user_msg(&format!("msg {}", i)), None)
+1465 | |                 .await;
+     | |______________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1464 |             let _ = s.append_message(user_msg(&format!("msg {}", i)), None)
+     |             +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1482:9
+     |
+1482 |         s.append_message(user_msg("one"), None).await; // seq 1
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1482 |         let _ = s.append_message(user_msg("one"), None).await; // seq 1
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1483:9
+     |
+1483 |         s.append_message(user_msg("two"), None).await; // seq 2
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1483 |         let _ = s.append_message(user_msg("two"), None).await; // seq 2
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1484:9
+     |
+1484 |         s.append_message(user_msg("three"), None).await; // seq 3
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1484 |         let _ = s.append_message(user_msg("three"), None).await; // seq 3
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1496:9
+     |
+1496 |         s.append_message(user_msg("m1"), None).await; // seq 1 (message)
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1496 |         let _ = s.append_message(user_msg("m1"), None).await; // seq 1 (message)
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1497:9
+     |
+1497 | /         s.append(SessionEvent::progress(serde_json::json!({"p": 1})))
+1498 | |             .await; // seq 2 (no data-backed message)
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1497 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"p": 1})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1499:9
+     |
+1499 |         s.append_message(user_msg("m2"), None).await; // seq 3 (message)
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1499 |         let _ = s.append_message(user_msg("m2"), None).await; // seq 3 (message)
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1511:9
+     |
+1511 |         s.append_message(user_msg("one"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1511 |         let _ = s.append_message(user_msg("one"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1518:9
+     |
+1518 | /         s.append(SessionEvent::user_message(serde_json::json!("hi")))
+1519 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1518 |         let _ = s.append(SessionEvent::user_message(serde_json::json!("hi")))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1520:9
+     |
+1520 | /         s.append(SessionEvent::progress(serde_json::json!({"ok": true})))
+1521 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1520 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"ok": true})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1522:9
+     |
+1522 | /         s.append(SessionEvent::progress(serde_json::json!({"ok": false})))
+1523 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1522 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"ok": false})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1547:9
+     |
+1547 |         s.append_message(user_msg("one"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1547 |         let _ = s.append_message(user_msg("one"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1548:9
+     |
+1548 |         s.append_message(user_msg("two"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1548 |         let _ = s.append_message(user_msg("two"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1549:9
+     |
+1549 |         s.append_message(user_msg("three"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1549 |         let _ = s.append_message(user_msg("three"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1591:9
+     |
+1591 |         original.append_message(user_msg("hi"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1591 |         let _ = original.append_message(user_msg("hi"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1592:9
+     |
+1592 | /         original
+1593 | |             .append_message(
+1594 | |                 AgentMessage::Standard(Message {
+1595 | |                     id: "m2".into(),
+...    |
+1606 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1592 |         let _ = original
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1628:9
+     |
+1628 | /         restored
+1629 | |             .append(SessionEvent::progress(
+1630 | |                 serde_json::json!({"after": "restore"}),
+1631 | |             ))
+1632 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1628 |         let _ = restored
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1644:9
+     |
+1644 |         s.append(SessionEvent::new_runtime("run_start")).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1644 |         let _ = s.append(SessionEvent::new_runtime("run_start")).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1645:9
+     |
+1645 |         s.append_message(user_msg("msg1"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1645 |         let _ = s.append_message(user_msg("msg1"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1646:9
+     |
+1646 |         s.append_message(user_msg("reply1"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1646 |         let _ = s.append_message(user_msg("reply1"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1647:9
+     |
+1647 |         s.append(SessionEvent::new_runtime("tool_use")).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1647 |         let _ = s.append(SessionEvent::new_runtime("tool_use")).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1648:9
+     |
+1648 |         s.append_message(user_msg("msg2"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1648 |         let _ = s.append_message(user_msg("msg2"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1652:9
+     |
+1652 |         s.append(SessionEvent::new_runtime("compaction")).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1652 |         let _ = s.append(SessionEvent::new_runtime("compaction")).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1698:9
+     |
+1698 |         s.append_message(user_msg("one"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1698 |         let _ = s.append_message(user_msg("one"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1707:9
+     |
+1707 | /         s.append(SessionEvent::progress(
+1708 | |             serde_json::json!({"after": "clear"}),
+1709 | |         ))
+1710 | |         .await;
+     | |______________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1707 |         let _ = s.append(SessionEvent::progress(
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1733:9
+     |
+1733 |         scoped.append(e).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1733 |         let _ = scoped.append(e).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1791:9
+     |
+1791 |         session.append(e).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1791 |         let _ = session.append(e).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1806:9
+     |
+1806 |         session.append_message(user_msg("hello"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1806 |         let _ = session.append_message(user_msg("hello"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1830:9
+     |
+1830 | /         session
+1831 | |             .append(SessionEvent::progress(serde_json::json!({"x": 1})))
+1832 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1830 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1847:9
+     |
+1847 | /         s.append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1848 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1847 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"n": 1})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1849:9
+     |
+1849 | /         s.append(SessionEvent::progress(serde_json::json!({"n": 2})))
+1850 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1849 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"n": 2})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1870:9
+     |
+1870 | /         session
+1871 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1872 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1870 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1873:9
+     |
+1873 | /         session
+1874 | |             .append(SessionEvent::progress(serde_json::json!({"n": 2})))
+1875 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1873 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1886:9
+     |
+1886 | /         session
+1887 | |             .append(SessionEvent::progress(serde_json::json!({"n": 3})))
+1888 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1886 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1898:9
+     |
+1898 | /         session
+1899 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1900 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1898 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1901:9
+     |
+1901 | /         session
+1902 | |             .append(SessionEvent::progress(serde_json::json!({"n": 2})))
+1903 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1901 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1904:9
+     |
+1904 | /         session
+1905 | |             .append(SessionEvent::progress(serde_json::json!({"n": 3})))
+1906 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1904 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1925:9
+     |
+1925 | /         session
+1926 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1927 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1925 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1949:9
+     |
+1949 | /         session
+1950 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1951 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1949 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1980:9
+     |
+1980 | /         session
+1981 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1982 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1980 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:2000:17
+     |
+2000 |                 self.target.append(event.clone()).await;
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+2000 |                 let _ = self.target.append(event.clone()).await;
+     |                 +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:2015:9
+     |
+2015 | /         child
+2016 | |             .append(SessionEvent::progress(serde_json::json!({"from": "child"})))
+2017 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+2015 |         let _ = child
+     |         +++++++
+
+warning: `alva-agent-core` (lib test) generated 50 warnings (run `cargo fix --lib -p alva-agent-core --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.02s
+     Running unittests src/lib.rs (target/debug/deps/alva_agent_core-349a84fd011682f6)
+
+running 70 tests
+test agent_builder::tests::environment_block_with_workspace_includes_cwd ... ok
+test agent_builder::tests::environment_block_without_workspace_has_date_only ... ok
+test agent_builder::tests::assemble_empty_base_still_emits_environment ... ok
+test agent_builder::tests::assemble_groups_stable_and_dynamic_correctly ... ok
+test agent_builder::tests::assemble_skips_empty_additions ... ok
+test agent_session::tests::child_session_has_parent ... ok
+test agent_session::tests::append_assigns_monotonic_seq ... ok
+test agent_session::tests::default_subscribe_events_replays_history_and_ends ... ok
+test agent_session::tests::lifecycle_methods_are_ok ... ok
+test agent_session::tests::clear_resets_everything ... ok
+test agent_session::tests::dropped_subscription_is_reaped_on_next_append ... ok
+test agent_session::tests::disposal_delivers_committed_events_before_exit ... ok
+test agent_session::tests::append_message_updates_cache_and_events ... ok
+test agent_session::tests::disposal_wakes_idle_driver_and_reclaims_it ... ok
+test agent::tests::run_returns_before_the_model_finishes ... ok
+test agent_session::tests::listenable_session_notifies_listener_on_append ... ok
+test agent_session::tests::listenable_session_multiple_listeners_fire_in_order ... ok
+test agent::tests::run_streams_events_before_the_turn_finishes ... ok
+test agent_session::tests::compact_messages_preserves_event_log_and_reload_reproduces_projection ... ok
+test agent::tests::run_works_without_a_tokio_runtime ... ok
+test agent_session::tests::listenable_session_nested_forward ... ok
+test agent_session::tests::live_explicit_listener_survives_the_reap ... ok
+test agent_session::tests::listenable_session_notifies_on_append_message ... ok
+test agent_session::tests::new_session_has_id_and_no_parent ... ok
+test agent_session::tests::messages_since_returns_only_newer_messages ... ok
+test agent_session::tests::non_tokio_cross_session_inline_delivery ... ok
+test agent_session::tests::messages_since_skips_non_message_events ... ok
+test agent_session::tests::non_tokio_reentrant_listener_append_completes ... ok
+test agent_session::tests::query_by_event_type ... ok
+test agent_session::tests::recent_messages_larger_than_total_returns_all ... ok
+test agent_session::tests::scoped_session_stamps_emitter ... ok
+test agent_session::tests::restore_events_rebuilds_both_event_log_and_messages_cache ... ok
+test agent_session::tests::rollback_after_drops_events_and_rebuilds_cache ... ok
+test agent_session::tests::subscribe_events_dropping_stream_does_not_panic_future_appends ... ok
+test agent_session::tests::snapshot_save_and_load ... ok
+test agent_session::tests::recent_messages_returns_last_n_from_cache ... ok
+test agent_session::tests::subscribe_events_from_seq_skips_early_history ... ok
+test extension::registrar::tests::plugin_name_and_workspace_accessors ... ok
+test agent_session::tests::subscribe_events_replays_history_then_tails_live ... ok
+test agent_session::tests::typed_batch_append_assigns_one_contiguous_commit_range ... ok
+test extension::registrar::tests::tool_take_round_trip ... ok
+test agent_session::tests::unrelated_session_driver_delivers_while_listener_awaits ... ok
+test mock_fs::tests::test_mock_exec ... ok
+test mock_fs::tests::test_mock_exec_empty_queue_returns_error ... ok
+test mock_fs::tests::test_mock_exec_fifo_order ... ok
+test mock_fs::tests::test_mock_exists ... ok
+test mock_fs::tests::test_mock_list_dir ... ok
+test mock_fs::tests::test_mock_list_dir_subdirs ... ok
+test mock_fs::tests::test_mock_read_missing_returns_error ... ok
+test mock_fs::tests::test_mock_read_write ... ok
+test tool_lock::tests::acquire_with_timeout_succeeds_when_uncontended ... ok
+test tool_lock::tests::dedup_promotes_to_write_on_mixed_modes ... ok
+test tool_lock::tests::inspect_clears_after_guard_drops ... ok
+test tool_lock::tests::inspect_empty_registry_is_empty ... ok
+test tool_lock::tests::inspect_lists_held_locks_with_holder_label ... ok
+test tool_lock::tests::normalize_collapses_double_slashes_and_dots ... ok
+test tool_lock::tests::inspect_serial_global_uses_sentinel_key ... ok
+test tool_lock::tests::resource_key_normalizes_at_construction ... ok
+test agent_session::tests::concurrent_append_preserves_monotonic_seq ... ok
+test agent_session::tests::listenable_broadcast_order_matches_seq_order ... ok
+test tool_lock::tests::inspect_age_grows_with_time ... ok
+test tool_lock::tests::acquire_with_timeout_succeeds_after_release ... ok
+test agent_session::tests::concurrent_append_message_preserves_storage_order ... ok
+test tool_lock::tests::acquire_with_timeout_times_out_on_contention ... ok
+test tool_lock::tests::acquire_within_collides_relative_and_absolute ... ok
+test tool_lock::tests::writes_on_same_key_serialize ... ok
+test tool_lock::tests::sort_avoids_deadlock_on_multi_key_tools ... ok
+test tool_lock::tests::read_locks_are_concurrent ... ok
+test tool_lock::tests::serial_global_blocks_parallels ... ok
+test agent_session::tests::slow_stream_consumer_does_not_block_appends ... ok
+
+test result: ok. 70 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+--- exit=0 ---
+=== app-core full (R71/R72/R73) ===
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `alva-kernel-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 2 suggestions)
+warning: unused import: `normalize_path_string`
+  --> crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:358:13
+    |
+358 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-agent-core` to apply 2 suggestions)
+warning: unused import: `alva_kernel_abi::ConversationLog`
+  --> crates/alva-agent-security/src/pending_actions.rs:17:5
+   |
+17 | use alva_kernel_abi::ConversationLog;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::SessionStore`
+  --> crates/alva-agent-security/src/middleware/security.rs:18:5
+   |
+18 | use alva_kernel_abi::SessionStore;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `AgentSession`
+  --> crates/alva-agent-security/src/middleware/security.rs:17:38
+   |
+17 | use alva_kernel_abi::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
+   |                                      ^^^^^^^^^^^^
+
+warning: unused import: `Mutex`
+  --> crates/alva-agent-context/src/middleware.rs:12:22
+   |
+12 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+  --> crates/alva-agent-context/src/middleware.rs:15:5
+   |
+15 | use alva_kernel_abi::agent_session::AgentSession;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/alva-agent-context/src/middleware.rs:73:9
+   |
+73 |         mut self,
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_store_session` is never used
+  --> crates/alva-agent-context/src/middleware.rs:72:8
+   |
+61 | impl CompactionMiddleware {
+   | ------------------------- method in this implementation
+...
+72 |     fn with_store_session(
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-security` (lib) generated 3 warnings (run `cargo fix --lib -p alva-agent-security` to apply 1 suggestion)
+warning: `alva-agent-context` (lib) generated 4 warnings (run `cargo fix --lib -p alva-agent-context` to apply 3 suggestions)
+warning: unused `Result` that must be used
+   --> crates/alva-app-core/src/extension/pending.rs:194:13
+    |
+194 | /             state
+195 | |                 .session
+196 | |                 .append_message(AgentMessage::Standard(Message::user(&m.text)), None)
+197 | |                 .await;
+    | |______________________^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+194 |             let _ = state
+    |             +++++++
+
+warning: `alva-app-core` (lib) generated 1 warning
+   Compiling alva-app-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-app-core)
+warning: unused imports: `AgentMessage`, `CancellationToken`, `LockMode`, and `Message`
+  --> crates/alva-app-core/tests/child_lock_workspace_tests.rs:20:17
+   |
+20 |     AgentError, AgentMessage, CancellationToken, ExecutionMode, LockMode, Message, ResourceKey,
+   |                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^                 ^^^^^^^^  ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `assertions::collect_events`
+  --> crates/alva-app-core/tests/child_lock_workspace_tests.rs:25:5
+   |
+25 |     assertions::collect_events,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `EventMatch`
+   --> crates/alva-app-core/src/base_agent/agent.rs:556:30
+    |
+556 |             ConversationLog, EventMatch, EventQuery, SessionError, SessionStore,
+    |                              ^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-app-core` (test "child_lock_workspace_tests") generated 2 warnings (run `cargo fix --test "child_lock_workspace_tests" -p alva-app-core` to apply 2 suggestions)
+warning: `alva-app-core` (lib test) generated 2 warnings (1 duplicate) (run `cargo fix --lib -p alva-app-core --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 25s
+     Running unittests src/lib.rs (target/debug/deps/alva_app_core-501d1187b2c0cf2b)
+
+running 318 tests
+test analytics::tests::write_failure_does_not_panic ... ok
+test analytics::tests::writes_one_line_per_event ... ok
+test analytics::tests::rotates_when_size_exceeds_threshold ... ok
+test analytics::tests::prunes_past_retain_count ... ok
+test base_agent::builder::tests::builder_defaults ... ok
+test base_agent::builder::tests::builder_fluent_api ... ok
+test base_agent::agent::tests::failed_flush_keeps_the_current_session ... ok
+test base_agent::agent::tests::concurrent_swaps_keep_log_and_store_on_the_same_session ... ok
+test base_agent::agent::tests::test_base_agent_prompt_text_ends_without_error ... ok
+test base_agent::agent::tests::test_base_agent_messages_after_prompt ... ok
+test base_agent::agent::tests::test_base_agent_no_tools_by_default ... ok
+test base_agent::agent::tests::test_base_agent_prompt_produces_events ... ok
+test base_agent::builder::tests::test_build_without_workspace_fails ... ok
+test base_agent::agent::tests::test_base_agent_with_custom_tool ... ok
+test base_agent::permission::tests::accept_edits_maps_to_security_interactive ... ok
+test base_agent::permission::tests::accept_shell_maps_to_security_auto ... ok
+test base_agent::permission::tests::ask_maps_to_security_interactive ... ok
+test base_agent::agent::tests::test_base_agent_with_tool_presets ... ok
+test base_agent::permission::tests::bypass_maps_to_security_bypass ... ok
+test base_agent::permission::tests::copy_and_eq_round_trip ... ok
+test base_agent::permission::tests::default_is_ask_for_safe_by_default ... ok
+test base_agent::permission::tests::plan_maps_to_security_plan ... ok
+test base_agent::permission::tests::variants_are_mutually_distinct ... ok
+test checkpoint::tests::list_empty ... ok
+test base_agent::builder::tests::custom_memory_plugin_replaces_the_default ... ok
+test checkpoint::tests::create_and_list_checkpoint ... ok
+test components::tests::component_ids_are_unique ... ok
+test checkpoint::tests::manager_callback_creates_checkpoints ... ok
+test checkpoint::tests::rewind_restores_files ... ok
+test checkpoint::tests::rewind_nested_files ... ok
+test components::tests::is_on_uses_toggle_then_default ... ok
+test base_agent::builder::tests::custom_security_plugin_replaces_the_default ... ok
+test base_agent::builder::tests::test_build_with_workspace_succeeds ... ok
+test base_agent::builder::tests::test_build_with_preset_succeeds ... ok
+test base_agent::builder::tests::default_security_is_installed_when_not_replaced ... ok
+test components::tests::unknown_toggle_ids_flags_typos_and_accepts_catalog_ids ... ok
+test config::tests::active_falls_back_to_first_with_key ... ok
+test config::tests::empty_object_parses_to_default ... ok
+test config::tests::parses_multi_provider_schema ... ok
+test config::tests::named_profile_kind_field_wins_over_map_key ... ok
+test config::tests::subagent_depth_parses_and_defaults_to_none ... ok
+test error::tests::display_constant_variants_have_expected_text ... ok
+test error::tests::display_llm_provider_interpolates_payload ... ok
+test error::tests::display_max_iterations_includes_count ... ok
+test config::tests::alva_config_dir_env_redirects_the_shared_home ... ok
+test error::tests::display_session_not_found_quotes_id ... ok
+test error::tests::display_tool_not_found_quotes_name ... ok
+test error::tests::from_mcp_connect_timeout_maps_to_skill_mcp_connect_timeout ... ok
+test error::tests::from_mcp_io_maps_to_skill_io ... ok
+test error::tests::from_mcp_not_connected_maps_to_skill_mcp_not_connected ... ok
+test error::tests::from_mcp_serialization_maps_to_skill_serialization ... ok
+test error::tests::from_mcp_server_not_found_maps_to_skill_mcp_server_not_found ... ok
+test error::tests::from_mcp_transport_maps_to_skill_mcp_transport ... ok
+test error::tests::from_mcp_tool_execution_maps_to_skill_mcp_tool_call ... ok
+test error::tests::from_protocol_skill_cannot_remove_bundled_maps_through ... ok
+test error::tests::from_protocol_skill_invalid_md_maps_through ... ok
+test error::tests::from_protocol_skill_not_found_maps_through ... ok
+test error::tests::from_protocol_skill_path_traversal_maps_through ... ok
+test error::tests::storage_helper_produces_storage_variant_with_message ... ok
+test extension::agent_spawn::tests::agent_type_without_registry_errors ... ok
+test extension::agent_spawn::tests::in_memory_registry_get_and_list ... ok
+test extension::agent_spawn::tests::parameters_schema_with_ctx_injects_comm_enum ... ok
+test extension::agent_spawn::tests::parameters_schema_without_ctx_omits_comm_enum ... ok
+test extension::agent_spawn::tests::execute_with_model_field_without_provider_registry_inherits_parent_model ... ok
+test extension::agent_spawn::tests::print_spawn_input_schema ... ok
+test extension::agent_spawn::tests::schema_injects_agent_type_enum_and_when_to_use ... ok
+test extension::agent_spawn::tests::spawn_input_schema_shape ... ok
+test extension::agent_spawn::tests::template_provider_config_uses_provider_default_when_base_url_is_omitted ... ok
+test extension::agent_spawn::tests::unknown_agent_type_lists_available ... ok
+test extension::agent_templates::tests::builtins_include_video_with_understand_video_tool ... ok
+test extension::agent_spawn::tests::spawn_by_agent_type_runs_via_template ... ok
+test components::tests::defaults_register_expected_tools ... ok
+test extension::agent_templates::tests::missing_file_yields_empty ... ok
+test extension::analytics::tests::error_text_extraction ... ok
+test components::tests::explicit_off_drops_tool ... ok
+test extension::analytics::tests::extension_metadata ... ok
+test extension::analytics::tests::middleware_handles_missing_sink ... ok
+test extension::agent_templates::tests::loads_minimal_template_from_toml ... ok
+test extension::analytics::tests::middleware_tracks_start_then_clears ... ok
+test extension::analytics::tests::llm_call_event_fields_match_the_previous_kernel_emission ... ok
+test extension::agent_templates::tests::config_overrides_builtin_by_name ... ok
+test components::tests::explicit_on_adds_tool ... ok
+test extension::evaluation::evaluator::tests::evaluation_passes_when_above_threshold ... ok
+test extension::evaluation::evaluator::tests::evaluation_fails_when_below_threshold ... ok
+test extension::evaluation::evaluator::tests::feedback_prompt_contains_issues ... ok
+test extension::evaluation::evaluator::tests::retries_exhaust_forces_pass ... ok
+test base_agent::agent::tests::cancel_targets_the_active_turn_not_a_queued_prompt ... ok
+test base_agent::agent::tests::concurrent_swap_cannot_steal_an_in_flight_turn_session ... ok
+test extension::evaluation::evaluator::tests::router_returns_end_on_pass ... ok
+test extension::evaluation::evaluator::tests::router_returns_generator_on_fail ... ok
+test components::tests::missing_provider_registry_skips_gracefully ... ok
+test extension::evaluation::evaluator::tests::scores_are_clamped ... ok
+test extension::evaluation::sprint_contract::tests::contract_builder_works ... ok
+test extension::evaluation::sprint_contract::tests::contract_prompt_contains_all_sections ... ok
+test extension::evaluation::sprint_contract::tests::middleware_injects_contract_into_messages ... ok
+test extension::evaluation::sprint_contract::tests::middleware_stores_contract_in_extensions ... ok
+test extension::analytics::tests::plugin_registers_analytics_middleware_without_phase_handlers ... ok
+test extension::hooks::executor::tests::hook_input_post_tool_use_builder ... ok
+test extension::hooks::executor::tests::hook_input_pre_tool_use_builder ... ok
+test checkpoint::tests::multiple_checkpoints_ordered ... ok
+test extension::hooks::executor::tests::blocked_hook_stops_further_pre_tool_use ... ok
+test extension::hooks::executor::tests::exit_1_is_non_blocking_error ... ok
+test extension::hooks::executor::tests::exit_0_is_success ... ok
+test extension::hooks::executor::tests::matcher_filters_hooks ... ok
+test extension::hooks::executor::tests::json_output_parsed ... ok
+test extension::hooks::matcher::tests::case_insensitive_exact ... ok
+test extension::hooks::executor::tests::exit_2_is_blocked ... ok
+test extension::hooks::matcher::tests::contains_wildcard ... ok
+test extension::hooks::matcher::tests::exact_match ... ok
+test extension::hooks::matcher::tests::no_matcher_always_matches ... ok
+test extension::hooks::matcher::tests::matcher_with_no_query ... ok
+test extension::hooks::matcher::tests::prefix_wildcard ... ok
+test extension::hooks::extension::tests::plugin_registers_lifecycle_hooks_as_phase_handlers ... ok
+test extension::hooks::matcher::tests::suffix_wildcard ... ok
+test extension::hooks::matcher::tests::wildcard_star_matches_everything ... ok
+test extension::hooks::tests::configs_for_legacy_settings_no_failure_field_yields_empty ... ok
+test extension::hooks::tests::configs_for_routes_post_tool_use_failure_to_dedicated_field ... ok
+test extension::hooks::tests::hook_event_display ... ok
+test extension::hooks::tests::hook_input_serializes ... ok
+test extension::hooks::tests::hook_output_deserializes_defaults ... ok
+test extension::hooks::tests::hook_output_deserializes_full ... ok
+test extension::hooks::tests::hook_result_additional_context ... ok
+test extension::hooks::tests::hook_result_blocked ... ok
+test extension::hooks::tests::hook_result_not_blocked ... ok
+test components::tests::snapshot_records_component_plugins_and_direct_middleware ... ok
+test extension::lsp::tests::diagnostic_serializes_with_snake_case_severity ... ok
+test extension::lsp::tests::extension_metadata_and_default_servers ... ok
+test extension::lsp::tests::stub_overwrites_per_path ... ok
+test extension::lsp::tests::stub_returns_empty_for_unknown_path ... ok
+test extension::lsp::tests::stub_round_trips_diagnostics ... ok
+test extension::lsp::tool_diagnostics::tests::rejects_invalid_input_shape ... ok
+test extension::lsp::tool_diagnostics::tests::returns_empty_when_no_manager_on_bus ... ok
+test extension::lsp::tool_diagnostics::tests::returns_seeded_diagnostics ... ok
+test extension::mcp::config::tests::ecosystem_overrides_when_merged_manually ... ok
+test extension::mcp::config::tests::parse_alva_servers_shape ... ok
+test extension::mcp::config::tests::parse_mcp_servers_ecosystem_shape ... ok
+test extension::mcp::config::tests::parse_mcp_servers_url ... ok
+test extension::mcp::runtime::tests::disconnected_manager_constructs_and_exposes_no_tools ... ok
+test extension::pending::tests::add_returns_uuid_and_lists_unread ... ok
+test extension::pending::tests::cancel_after_drain_returns_false ... ok
+test extension::pending::tests::cancel_removes_unread ... ok
+test extension::pending::tests::cancel_unknown_uuid_returns_false ... ok
+test extension::pending::tests::drain_is_idempotent_on_empty ... ok
+test extension::pending::tests::drain_marks_read_and_keeps_history ... ok
+test extension::hooks::executor::tests::stdin_receives_json_input ... ok
+test extension::spawn_comm_registry::tests::register_and_lookup ... ok
+test extension::spawn_comm_registry::tests::register_overwrites_same_kind ... ok
+test outcome::tests::define_initializes_pending_state ... ok
+test outcome::tests::delete_removes_outcome ... ok
+test outcome::tests::list_session_filters_by_status_and_terminal ... ok
+test outcome::tests::record_iteration_carries_per_criterion_breakdown ... ok
+test outcome::tests::record_iteration_marks_max_iterations_when_cap_hit ... ok
+test outcome::tests::record_iteration_marks_needs_revision_on_fail_below_cap ... ok
+test outcome::tests::record_iteration_marks_satisfied_on_pass ... ok
+test outcome::tests::render_outcomes_includes_active_only_with_rubric_breakdown ... ok
+test outcome::tests::render_returns_empty_when_no_active_outcomes ... ok
+test outcome::tests::rubric_serde_round_trip ... ok
+test outcome::tests::status_strings_match_anthropic ... ok
+test outcome::tests::terminal_statuses_classified_correctly ... ok
+test outcome::tests::update_to_interrupted_sets_completed_at ... ok
+test resource::tests::add_assigns_id_and_timestamps ... ok
+test resource::tests::default_access_is_read_write ... ok
+test resource::tests::delete_removes_record ... ok
+test resource::tests::kind_tag_matches_anthropic_strings ... ok
+test resource::tests::list_session_filters_by_kind_tag ... ok
+test paths::tests::mcp_discovery_ends_with_project_alva ... ok
+test resource::tests::render_returns_empty_when_no_resources ... ok
+test paths::tests::skill_extra_dirs_include_agents_and_claude ... ok
+test resource::tests::retrieve_roundtrips ... ok
+test resource::tests::render_returns_empty_when_no_text ... ok
+test resource::tests::serde_round_trip_for_each_kind ... ok
+test resource::tests::update_can_clear_optional_fields ... ok
+test resource::tests::update_missing_resource_errors ... ok
+test roster::tests::agent_entry_builds_with_latest_version ... ok
+test roster::tests::agent_ids_iter_skips_self_ref ... ok
+test roster::tests::cap_strict_builder ... ok
+test roster::tests::contains_agent_lookup ... ok
+test roster::tests::description_attaches ... ok
+test roster::tests::duplicate_agent_id_fails ... ok
+test roster::tests::empty_roster_fails_validation ... ok
+test roster::tests::multiple_self_refs_fail ... ok
+test roster::tests::one_self_ref_is_fine ... ok
+test roster::tests::over_size_roster_fails ... ok
+test roster::tests::round_trips_through_json ... ok
+test paths::tests::collect_agents_md_chain_requires_stop_to_be_ancestor ... ok
+test roster::tests::same_id_different_version_still_dupe ... ok
+test roster::tests::self_ref_entry_is_classified ... ok
+test roster::tests::single_entry_is_valid ... ok
+test roster::tests::versioned_entry_pins_version ... ok
+test session_projection::tests::build_config_snapshot_event_without_data_field_returns_defaults ... ok
+test session_projection::tests::build_config_snapshot_invalid_tool_definitions_silently_default_to_empty ... ok
+test session_projection::tests::build_config_snapshot_max_iterations_falls_back_when_missing ... ok
+test session_projection::tests::build_config_snapshot_full_data_populates_all_fields ... ok
+test session_projection::tests::build_config_snapshot_none_returns_defaults_with_fallback_max_iter ... ok
+test session_projection::tests::build_config_snapshot_partial_data_only_populates_present_fields ... ok
+test session_projection::tests::build_config_snapshot_string_arrays_filter_out_non_string_values ... ok
+test session_projection::tests::build_config_snapshot_wrong_type_fields_fall_back_to_defaults ... ok
+test session_projection::tests::build_llm_call_record_assistant_event_picked_by_parent_uuid_first ... ok
+test session_projection::tests::build_llm_call_record_complete_happy_path ... ok
+test session_projection::tests::build_llm_call_record_empty_events_returns_all_defaults ... ok
+test paths::tests::collect_agents_md_chain_rejects_symlink_target_outside_workspace ... ok
+test session_projection::tests::build_llm_call_record_falls_back_to_any_assistant_if_no_parent_match ... ok
+test paths::tests::collect_agents_md_chain_outer_to_inner ... ok
+test session_projection::tests::build_llm_call_record_messages_sent_invalid_array_defaults_to_empty ... ok
+test session_projection::tests::build_llm_call_record_missing_cache_token_fields_yield_none ... ok
+test session_projection::tests::build_llm_call_record_no_end_event_duration_is_zero ... ok
+test session_projection::tests::build_llm_call_record_no_response_sets_error_stop_reason ... ok
+test session_projection::tests::build_llm_call_record_projects_stream_timing_and_middleware ... ok
+test session_projection::tests::build_llm_call_record_reversed_timestamps_yield_zero_duration ... ok
+test session_projection::tests::build_llm_call_record_tool_use_response_sets_tool_use_stop_reason ... ok
+test session_projection::tests::build_llm_call_record_wrong_type_config_knobs_default_safely ... ok
+test session_projection::tests::build_run_record_aggregates_tokens_across_multiple_llm_calls ... ok
+test session_projection::tests::build_run_record_attaches_error_from_run_end_to_last_turn ... ok
+test session_projection::tests::build_run_record_empty_error_string_does_not_attach ... ok
+test session_projection::tests::build_run_record_empty_events_matches_empty_record ... ok
+test session_projection::tests::build_run_record_empty_subagent_range_yields_empty_recursive_record ... ok
+test session_projection::tests::build_run_record_matching_markers_attach_sub_run ... ok
+test session_projection::tests::build_run_record_multiple_tool_calls_each_get_their_own_sub_run ... ok
+test session_projection::tests::build_run_record_no_subagent_markers_leaves_sub_run_none ... ok
+test session_projection::tests::build_run_record_single_turn_complete_run_populates_top_level_fields ... ok
+test session_projection::tests::build_run_record_tool_call_with_empty_id_skips_sub_run_lookup ... ok
+test session_projection::tests::build_run_record_total_duration_falls_back_to_last_event_when_no_run_end ... ok
+test session_projection::tests::build_tool_call_records_arguments_pulled_from_assistant_event ... ok
+test session_projection::tests::build_tool_call_records_defaults_missing_name_and_id_to_empty_string ... ok
+test session_projection::tests::build_tool_call_records_empty_returns_empty ... ok
+test outcome::tests::update_terminal_again_does_not_move_completed_at ... ok
+test session_projection::tests::build_tool_call_records_no_matching_result_yields_none_and_zero_duration ... ok
+test session_projection::tests::build_tool_call_records_pairs_results_by_parent_uuid_not_position ... ok
+test session_projection::tests::build_tool_call_records_preserves_event_order_for_multiple_tool_uses ... ok
+test session_projection::tests::build_tool_call_records_propagates_is_error_flag ... ok
+test session_projection::tests::build_tool_call_records_reversed_timestamps_yield_zero_duration ... ok
+test session_projection::tests::build_tool_call_records_single_tool_use_with_matching_result ... ok
+test session_projection::tests::build_tool_call_records_skips_non_tool_use_events ... ok
+test session_projection::tests::build_tool_call_records_skips_tool_use_without_data ... ok
+test session_projection::tests::build_turns_empty_events_returns_empty ... ok
+test session_projection::tests::build_turns_end_ts_before_start_ts_yields_zero_duration ... ok
+test session_projection::tests::build_turns_iteration_without_matching_end_falls_back_to_last_event ... ok
+test session_projection::tests::build_turns_only_pairs_with_first_matching_end_after_start ... ok
+test session_projection::tests::build_turns_single_complete_iteration_emits_one_turn_with_duration ... ok
+test session_projection::tests::build_turns_skips_non_iteration_events_at_top_level ... ok
+test session_projection::tests::build_turns_two_iterations_increment_turn_number ... ok
+test session_projection::tests::build_turns_wrong_parent_uuid_end_does_not_match ... ok
+test session_projection::tests::build_user_messages_empty_events_returns_empty ... ok
+test session_projection::tests::build_user_messages_handles_missing_message_field_with_empty_text ... ok
+test session_projection::tests::build_user_messages_ignores_unrelated_event_types ... ok
+test session_projection::tests::build_user_messages_lone_user_no_iter_gets_turn_1 ... ok
+test session_projection::tests::build_user_messages_single_user_before_iter_gets_turn_1 ... ok
+test session_projection::tests::build_user_messages_two_users_before_one_iter_both_get_turn_1 ... ok
+test session_projection::tests::build_user_messages_user_after_last_iter_uses_past_end_turn_number ... ok
+test session_projection::tests::build_user_messages_users_interleaved_with_iters_increment_turn_number ... ok
+test session_projection::tests::empty_record_returns_zeroed_runrecord ... ok
+test session_projection::tests::extract_text_from_content_handles_bare_string ... ok
+test session_projection::tests::extract_text_from_content_ignores_non_text_blocks ... ok
+test session_projection::tests::extract_text_from_content_joins_text_blocks_with_space ... ok
+test session_projection::tests::extract_text_from_content_returns_empty_for_other_types ... ok
+test resource::tests::update_patches_selected_fields_only ... ok
+test session_projection::tests::extract_text_from_content_skips_text_block_missing_text_field ... ok
+test session_projection::tests::extract_tool_arguments_empty_object_when_id_not_found ... ok
+test session_projection::tests::extract_tool_arguments_handles_empty_event_list ... ok
+test session_projection::tests::extract_tool_arguments_returns_input_for_matching_id ... ok
+test session_projection::tests::extract_tool_arguments_skips_non_assistant_events ... ok
+test session_projection::tests::find_subagent_range_empty_events_returns_none ... ok
+test session_projection::tests::find_subagent_range_isolates_concurrent_subagents_by_id ... ok
+test session_projection::tests::find_subagent_range_no_matching_start_returns_none ... ok
+test session_projection::tests::find_subagent_range_returns_empty_vec_when_markers_are_adjacent ... ok
+test session_projection::tests::find_subagent_range_returns_inner_events_excluding_markers ... ok
+test session_projection::tests::find_subagent_range_skips_events_with_missing_data_field ... ok
+test session_projection::tests::find_subagent_range_skips_events_with_non_string_tool_call_id ... ok
+test session_projection::tests::find_subagent_range_start_without_matching_end_returns_none ... ok
+test session_projection::tests::find_tool_output_handles_empty_event_list ... ok
+test session_projection::tests::find_tool_output_preserves_is_error_flag ... ok
+test session_projection::tests::find_tool_output_returns_match_for_correct_id ... ok
+test session_projection::tests::find_tool_output_returns_none_for_unknown_id ... ok
+test session_projection::tests::find_tool_output_skips_non_tool_result_events ... ok
+test session_projection::tests::message_from_event_data_falls_back_to_bare_message ... ok
+test session_projection::tests::message_from_event_data_returns_none_for_invalid_json ... ok
+test session_projection::tests::message_from_event_data_unwraps_standard_variant ... ok
+test session_projection::tests::parent_totals_and_turns_exclude_subagent_ranges ... ok
+test session_registry::tests::archived_excluded_by_default_in_count ... ok
+test session_registry::tests::archive_hides_from_default_list ... ok
+test session_registry::tests::count_matches_list_size_for_same_filter ... ok
+test session_registry::tests::delete_removes_completely ... ok
+test session_registry::tests::insert_and_get_roundtrip ... ok
+test session_registry::tests::insert_rejects_duplicate_ids ... ok
+test session_registry::tests::list_default_order_is_newest_first ... ok
+test session_registry::tests::list_filters_by_agent_id ... ok
+test session_registry::tests::list_filters_by_created_at_range ... ok
+test session_registry::tests::list_filters_by_parent ... ok
+test session_registry::tests::list_filters_by_status ... ok
+test session_registry::tests::list_pagination_via_cursor ... ok
+test session_registry::tests::primary_thread_for_walks_up_to_root ... ok
+test session_registry::tests::raw_metadata_has_no_enriched_tree_fields ... ok
+test session_registry::tests::record_usage_and_active_ms_visible_through_thread_view ... ok
+test session_registry::tests::thread_tree_returns_root_then_bfs_all_enriched ... ok
+test session_registry::tests::thread_view_for_child_resolves_group_root_and_depth ... ok
+test session_registry::tests::thread_view_for_primary_has_zero_depth_and_self_group ... ok
+test session_registry::tests::thread_view_with_orphan_parent_falls_back_to_reachable_root ... ok
+test session_registry::tests::update_can_clear_optional_field ... ok
+test session_registry::tests::update_missing_session_errors ... ok
+test utils::tests::estimate_cost_combined_input_and_output ... ok
+test utils::tests::estimate_cost_one_million_input_is_three_dollars ... ok
+test utils::tests::estimate_cost_one_million_output_is_fifteen_dollars ... ok
+test utils::tests::estimate_cost_sub_micro_token_amount_is_tiny_but_positive ... ok
+test utils::tests::estimate_cost_zero_is_zero ... ok
+test utils::tests::format_token_count_1500_renders_as_1_5_kilo ... ok
+test utils::tests::format_token_count_2_5_million_renders_as_2_5_mega ... ok
+test utils::tests::format_token_count_below_thousand_passes_through_decimal_string ... ok
+test utils::tests::format_token_count_exactly_1000_renders_as_1_0_kilo ... ok
+test utils::tests::format_token_count_exactly_1_million_renders_as_1_0_mega ... ok
+test utils::tests::format_token_count_just_under_million_stays_in_kilo ... ok
+test utils::tests::format_token_count_large_value_renders_with_one_decimal ... ok
+test resource::tests::list_session_returns_only_that_sessions_resources_ordered ... ok
+test resource::tests::render_resource_instructions_skips_empty_and_orders_by_creation ... ok
+test session_registry::tests::update_patches_selected_fields_only ... ok
+test base_agent::agent::tests::deterministic_swap_gate_blocks_until_turn_releases_state ... ok
+test extension::hooks::executor::tests::timeout_kills_hook ... ok
+test extension::hooks::executor::tests::env_vars_passed_to_hook ... ok
+test extension::agent_spawn::tests::build_template_model_uses_config_model_and_key_env ... ok
+
+test result: ok. 318 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.60s
+
+     Running tests/agent_capabilities.rs (target/debug/deps/agent_capabilities-62187494fd85475f)
+
+running 17 tests
+test report_write_tests::repeat_count_parser_defaults_to_one_and_rejects_zero ... ok
+test report_write_tests::report_write_is_skipped_without_output_dir ... ok
+test real_capability_suite ... ok
+test report_write_tests::failed_case_json_classifies_missing_tool_call_as_model_failure ... ok
+test report_write_tests::failed_case_json_classifies_tool_execution_error_as_tool_failure ... ok
+test report_write_tests::agent_summary_aggregates_case_stability_across_repeats ... ok
+test report_write_tests::agent_summary_keeps_compact_failure_counts_and_next_actions ... ok
+test report_write_tests::report_write_uses_explicit_output_dir ... ok
+test video_template_wires_into_spawn_and_skill_service ... ok
+test mini_agent_registers_p3_p4_tools ... ok
+test parent_cancel_propagates_to_subagent ... ok
+test subagent_loop_detection_breaks_repeated_tool_calls ... ok
+test subagent_dangerous_tool_goes_through_hitl ... ok
+test subagent_running_shell_does_not_deadlock ... ok
+test subagent_timeout_fires ... ok
+test mock_capability_suite ... ok
+test subagent_tool_timeout_bounds_a_stuck_tool ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+
+     Running tests/base_agent_overrides.rs (target/debug/deps/base_agent_overrides-fc039dc4b598ff1b)
+
+running 4 tests
+test custom_security_plugin_replaces_default ... ok
+test default_security_plugin_is_wired ... ok
+test default_memory_plugin_is_wired ... ok
+test custom_memory_plugin_replaces_default ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/child_lock_workspace_tests.rs (target/debug/deps/child_lock_workspace_tests-4486de4f119dd69f)
+
+running 2 tests
+test registry_resolves_relative_keys_against_workspace_for_contention ... ok
+test spawned_child_waits_on_absolute_holder_of_relative_resource ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+     Running tests/e2e_agent_test.rs (target/debug/deps/e2e_agent_test-e8e15af0525a3971)
+
+running 23 tests
+test e2e_cancel_stops_agent ... ok
+test e2e_llm_error_propagated ... ok
+test e2e_event_ordering_is_correct ... ok
+test e2e_plan_mode_blocks_writes ... ok
+test e2e_builtin_tool_registry_completeness ... ok
+test e2e_multiple_tool_calls_in_single_response ... ok
+test e2e_multi_turn_mixed_tools ... ok
+test e2e_new_session_clears_history ... ok
+test e2e_multi_turn_tool_loop ... ok
+test e2e_execute_shell_blocked_without_approval ... ok
+test e2e_checkpoint_created_on_file_edit ... ok
+test e2e_find_files_respects_gitignore ... ok
+test e2e_tool_call_chain ... ok
+test e2e_session_message_flow ... ok
+test e2e_simple_prompt_produces_streaming_events ... ok
+test e2e_usage_metadata_in_events ... ok
+test e2e_session_persists_across_prompts ... ok
+test e2e_unknown_tool_produces_error_result ... ok
+test e2e_tool_event_ordering ... ok
+test e2e_real_file_edit_tool_blocked_without_approval ... ok
+test e2e_real_read_file_tool ... ok
+test e2e_real_grep_search_tool ... ok
+test e2e_real_find_files_tool ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/e2e_http_test.rs (target/debug/deps/e2e_http_test-26e7cff6cab5c0f8)
+
+running 2 tests
+test e2e_http_streaming_full_pipeline ... ok
+test e2e_http_tool_call_pipeline ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.45s
+
+     Running tests/e2e_tool_coverage.rs (target/debug/deps/e2e_tool_coverage-916562ebfa799bf2)
+
+running 23 tests
+test stage1_config_get_returns_not_set_for_unknown_key ... ok
+test stage1_tool_search_returns_stub_with_query ... ok
+test stage1_list_files_returns_workspace_entries ... ok
+test stage1_notebook_edit_modifies_cell ... ok
+test stage1_create_file_writes_to_workspace ... ok
+test stage1_todo_write_appends_to_default_file ... ok
+test stage1_skill_tool_invokes_real_registry ... ok
+test stage1_enter_plan_mode_tool_stub_and_real_plan_mode_blocks_writes ... ok
+test stage1_execute_shell_runs_command_in_accept_shell_mode ... ok
+test stage2_exit_plan_mode_tool_stub_and_real_mode_switch_unblocks_writes ... ok
+test stage2_task_create_persists_to_in_memory_store ... ok
+test stage2_task_list_after_create_includes_new_task ... ok
+test stage2_task_get_returns_state_for_created_task ... ok
+test stage2_task_update_happy_path_marks_task_completed ... ok
+test stage3_create_then_list_then_read_visibility_chain ... ok
+test stage3_grep_then_read_then_edit_chain ... ok
+test stage3_read_then_edit_then_create_in_sequence ... ok
+test stage3_shell_output_feeds_into_grep ... ok
+test stage3_task_create_then_get_round_trip ... ok
+test stage1_sleep_tool_blocks_for_requested_duration ... ok
+test stage2_read_url_with_malformed_url_returns_terminal_state ... ok
+test stage2_read_url_fetches_from_wiremock_server ... ok
+test stage2_internet_search_executes_and_returns_terminal_state ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.65s
+
+     Running tests/escalation_permission_modes.rs (target/debug/deps/escalation_permission_modes-56d2573f7908d40a)
+
+running 6 tests
+test golden_plan_never_executes_escalation ... ok
+test golden_bypass_executes_without_prompting ... ok
+test golden_accept_edits_still_waits_for_shell_approval ... ok
+test scripted_worker_edits_runs_tests_reads_failure_and_repairs ... ok
+test golden_accept_shell_runs_safe_or_unknown_and_blocks_destructive ... ok
+test golden_ask_waits_then_approval_executes_and_rejection_returns_reason ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/eval_agent_tools.rs (target/debug/deps/eval_agent_tools-fe4e544d9b881070)
+
+running 4 tests
+test eval_agent_tools_main ... ignored
+test eval_raw_tcp_probe ... ignored
+test eval_reqwest_probe ... ignored
+test eval_warmup ... ignored
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/r10_compaction_swap_chain.rs (target/debug/deps/r10_compaction_swap_chain-36a81bf17cf99e83)
+
+running 1 test
+test compaction_across_swap_chain_lands_in_the_current_session ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/r11_tool_lock_matrix.rs (target/debug/deps/r11_tool_lock_matrix-74f77ffdef520786)
+
+running 7 tests
+test different_resources_do_not_collide ... ok
+test read_holders_share_the_resource_with_readers ... ok
+test different_resource_real_children_overlap ... ok
+test read_children_overlap_while_read_hold_is_live ... ok
+test same_resource_real_children_serialize_with_in_flight_overlap ... ok
+test two_children_on_one_resource_are_mutually_excluded ... ok
+test parent_relative_hold_blocks_child_absolute_key_and_reverse ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+     Running tests/r48_swap_child_identity.rs (target/debug/deps/r48_swap_child_identity-f1c4e77c08e93ea9)
+
+running 1 test
+test root_swap_during_a_running_child_preserves_child_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/review_wiring_regressions.rs (target/debug/deps/review_wiring_regressions-fb390a2b9f77ec75)
+
+running 3 tests
+test failed_run_start_still_emits_terminal_event ... ok
+test production_analytics_plugin_records_llm_call ... ok
+test spawned_child_obeys_shared_tool_lock ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/scope_integration.rs (target/debug/deps/scope_integration-93350c3cf72a4e3c)
+
+running 6 tests
+test model_shared_across_tree ... ok
+test multi_level_depth_tracking ... ok
+test timeout_iterations_inheritance_and_override ... ok
+test snapshot_across_tree ... ok
+test sibling_board_sharing_via_registry ... ok
+test cross_tree_board_isolation ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/skill_system_test.rs (target/debug/deps/skill_system_test-f31552239389711c)
+
+running 14 tests
+test test_parse_frontmatter_missing_opening ... ok
+test test_parse_frontmatter_missing_closing ... ok
+test test_parse_body ... ok
+test test_parse_frontmatter ... ok
+test test_build_meta_summary ... ok
+test test_build_meta_summary_empty ... ok
+test test_skill_store_scan_and_find ... ok
+test test_mbb_domain_routing ... ok
+test test_fs_skill_repository_scan ... ok
+test test_skill_injector_mixed_policies ... ok
+test test_end_to_end_skill_loading_and_injection ... ok
+test auto_directory_is_always_in_system_prompt_for_chinese_input ... ok
+test unified_skill_tool_unknown_name_lists_auto_and_explicit_enabled_skills ... ok
+test unified_skill_tool_loads_explicit_body_and_applies_strict_allowlist ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/subagent_security_gate.rs (target/debug/deps/subagent_security_gate-8f6a89c9b4c69767)
+
+running 3 tests
+test child_escalation_call_is_gated_and_reject_blocks_it ... ok
+test child_shell_call_is_gated_and_reject_blocks_it ... ok
+test child_shell_call_executes_after_approval ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.20s
+
+   Doc-tests alva_app_core
+
+running 6 tests
+test crates/alva-app-core/src/base_agent/agent.rs - base_agent::agent::BaseAgent (line 26) ... ignored
+test crates/alva-app-core/src/base_agent/builder.rs - base_agent::builder::BaseAgentBuilder (line 22) ... ignored
+test crates/alva-app-core/src/extension/evaluation/evaluator.rs - extension::evaluation::evaluator (line 10) ... ignored
+test crates/alva-app-core/src/extension/evaluation/evaluator.rs - extension::evaluation::evaluator::evaluator_router (line 329) ... ignored
+test crates/alva-app-core/src/extension/evaluation/sprint_contract.rs - extension::evaluation::sprint_contract (line 11) ... ignored
+test crates/alva-app-core/src/extension/provider_registry.rs - extension::provider_registry (line 13) ... ignored
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+--- exit=0 ---
+=== hub-core lib (R63/R64/R80/R90) ===
+warning: unused pinned boxed `Stream` trait object that must be used
+    --> crates/alva-hub-core/src/runtime.rs:3426:9
+     |
+3426 |         rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap();
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: streams do nothing unless polled
+     = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-hub-core` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.18s
+     Running unittests src/lib.rs (target/debug/deps/alva_hub_core-4d13f50fac95dad8)
+
+running 47 tests
+test runtime::tests::descriptor_is_queryable_and_decides_without_engine_names ... ok
+test runtime::tests::descriptor_declares_permission_plans_without_engine_name ... ok
+test runtime::tests::abandon_aborts_the_stream_task ... ok
+test runtime::tests::concurrent_product_session_execute_is_rejected_while_starting ... ok
+test runtime::tests::abandoned_session_can_be_reclaimed ... ok
+test runtime::tests::cancel_reaches_a_running_run_after_engine_is_unregistered ... ok
+test runtime::tests::clean_stream_has_zero_diagnostics ... ok
+test runtime::tests::duplicate_engine_registration_is_rejected ... ok
+test runtime::tests::cancel_reporting_unsupported_still_releases_claim ... ok
+test runtime::tests::cancel_releases_claim_when_engine_session_is_unknown ... ok
+test runtime::tests::cancel_without_engine_capability_releases_claim_and_allows_reopen ... ok
+test runtime::tests::error_before_session_started_then_completed_stays_failed ... ok
+test runtime::tests::executes_and_records_distinct_product_and_engine_session_ids ... ok
+test runtime::tests::failed_engine_start_preserves_handoff_context_for_retry ... ok
+test runtime::tests::fast_finishing_run_leaves_no_stale_handle ... ok
+test runtime::tests::fatal_error_after_completed_keeps_completed ... ok
+test runtime::tests::fatal_first_handoff_stream_preserves_context_for_retry ... ok
+test runtime::tests::handoff_uses_product_supplied_context_once ... ok
+test runtime::tests::nonrecoverable_error_keeps_session_failed_after_completed ... ok
+test runtime::tests::missing_engine_terminal_is_synthesized_and_session_is_failed ... ok
+test runtime::tests::permission_response_checks_engine_capability ... ok
+test runtime::tests::recoverable_error_allows_normal_completion ... ok
+test runtime::tests::register_engine_rejects_duplicate_ids ... ok
+test runtime::tests::rejected_resume_clears_stored_engine_session_id ... ok
+test runtime::tests::restore_session_enables_resume_after_rehydrate ... ok
+test runtime::tests::restore_session_rejects_engine_mismatch ... ok
+test runtime::tests::restore_session_rejects_non_terminal_status ... ok
+test runtime::tests::resume_uses_the_engine_session_id_not_the_product_session_id ... ok
+test runtime::tests::stale_fallback_cancel_must_not_release_new_claim ... ok
+test runtime::tests::stale_cancel_result_must_not_abort_new_generation ... ok
+test runtime::tests::stateless_engine_starts_a_fresh_native_session_instead_of_failing ... ok
+test runtime::tests::stream_contract_violations_are_forwarded_not_dropped ... ok
+test runtime::tests::switch_engine_refuses_a_running_session ... ok
+test runtime::tests::stream_soft_warnings_are_recorded_on_snapshot ... ok
+test runtime::tests::switch_engine_same_target_is_noop ... ok
+test runtime::tests::switch_engine_to_unregistered_engine_fails ... ok
+test runtime::tests::switch_engine_starts_fresh_native_session_on_target ... ok
+test runtime::tests::unclosed_tool_closes_before_engine_terminal_events ... ok
+test runtime::tests::unclosed_tool_is_synthesized_as_failing_toolend_on_midrun_death ... ok
+test runtime::tests::capability_bypass_cancel_must_target_original_generation ... ok
+test runtime::tests::fallback_capability_gate_cancel_must_keep_original_claim ... ok
+test runtime::tests::abandon_stops_the_spawned_turn ... ok
+test runtime::tests::retry_before_handoff_stream_eof_still_carries_the_banner ... ok
+test runtime::tests::late_sync_execute_err_rollback_does_not_clobber_new_turn ... ok
+test runtime::tests::late_registration_after_abandon_does_not_overwrite_new_run ... ok
+test runtime::tests::old_run_tail_does_not_delete_the_new_runs_handle ... ok
+test runtime::tests::stale_turn_tail_does_not_release_next_turn_claim ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.89s
+
+--- exit=0 ---
+=== engine-runtime (R83 harness) ===
+   Compiling alva-engine-runtime v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.45s
+     Running unittests src/lib.rs (target/debug/deps/alva_engine_runtime-023e3a8ef8e6e6b7)
+
+running 56 tests
+test conformance::mutation::normal_with_recoverable_error_still_passes ... ok
+test stream_contract::tests::event_after_completed_fails ... ok
+test stream_contract::tests::event_between_fatal_error_and_completed_fails ... ok
+test stream_contract::tests::fatal_error_requires_completed ... ok
+test inspector::tests::bundle_starts_with_versioned_manifest ... ok
+test stream_contract::tests::duplicate_tool_start_fails ... ok
+test stream_contract::tests::fatal_error_then_completed_passes ... ok
+test stream_contract::tests::happy_path_passes ... ok
+test conformance::mutation::killed_without_fatal_is_rejected - should panic ... ok
+test conformance::mutation::normal_with_fatal_then_success_result_is_rejected - should panic ... ok
+test conformance::mutation::eof_without_fatal_is_rejected - should panic ... ok
+test conformance::mutation::normal_with_fatal_is_rejected - should panic ... ok
+test conformance::mutation::output_after_fatal_without_fatal_is_rejected - should panic ... ok
+test conformance::mutation::eof_with_a_success_result_is_rejected - should panic ... ok
+test stream_contract::tests::is_terminal_is_only_completed ... ok
+test stream_contract::tests::is_consumer_visible_delta_filters_control_frames ... ok
+test stream_contract::tests::message_with_tool_use_fails ... ok
+test stream_contract::tests::non_visible_delta_fails ... ok
+test stream_contract::tests::orphan_tool_end_fails ... ok
+test stream_contract::tests::recoverable_error_does_not_require_immediate_completed ... ok
+test stream_contract::tests::soft_warns_fatal_completed_with_result ... ok
+test stream_contract::tests::soft_warns_unclosed_tool ... ok
+test stream_contract::tests::tool_call_delta_is_not_consumer_visible ... ok
+test tests::capabilities_all_false ... ok
+test tests::capabilities_construction ... ok
+test tests::error_cancelled_display ... ok
+test tests::error_from_io ... ok
+test tests::error_from_serde_json ... ok
+test tests::error_not_ready_display ... ok
+test tests::error_other_display ... ok
+test tests::error_permission_not_found_display ... ok
+test tests::error_process_error_display ... ok
+test tests::error_protocol_error_display ... ok
+test tests::error_session_not_found_display ... ok
+test tests::error_unsupported_display ... ok
+test tests::event_completed_with_usage ... ok
+test tests::event_completed_without_result ... ok
+test tests::event_error_fatal ... ok
+test tests::event_error_recoverable ... ok
+test tests::event_permission_request ... ok
+test tests::event_session_started ... ok
+test tests::event_tool_end ... ok
+test tests::event_tool_start ... ok
+test tests::options_default ... ok
+test tests::options_extra_fields ... ok
+test tests::options_max_turns ... ok
+test tests::permission_decision_allow_no_update ... ok
+test tests::permission_decision_allow_with_update ... ok
+test tests::permission_decision_deny ... ok
+test tests::request_builder_chain ... ok
+test tests::request_field_access ... ok
+test tests::request_new_sets_prompt ... ok
+test tests::request_with_cwd ... ok
+test tests::request_with_streaming ... ok
+test tests::usage_construction ... ok
+test tests::usage_default ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests alva_engine_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+--- exit=0 ---
+=== codex adapter (R81) ===
+   Compiling alva-engine-adapter-codex v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-codex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.28s
+     Running unittests src/lib.rs (target/debug/deps/alva_engine_adapter_codex-fb4dad8127ed2b41)
+
+running 17 tests
+test mapping::tests::thread_started_without_id_does_not_fabricate_session_id ... ok
+test mapping::tests::hard_error_is_fatal ... ok
+test mapping::tests::reconnect_style_error_is_recoverable_not_failed ... ok
+test mapping::tests::maps_agent_message_and_thread_start ... ok
+test mapping::tests::tool_item_updated_does_not_duplicate_tool_start ... ok
+test process::tests::fresh_exec_keeps_cwd_and_sandbox_flags ... ok
+test process::tests::resume_drops_cwd_and_sandbox_flags_and_keeps_session_id ... ok
+test retry_escalation::tests::escalates_on_count_threshold ... ok
+test retry_escalation::tests::escalates_on_elapsed_threshold ... ok
+test retry_escalation::tests::escalation_message_keeps_last_error_anchor ... ok
+test adapter::tests::conformance::spawn_failure_conforms ... ok
+test adapter::tests::conformance::output_after_fatal_conforms ... ok
+test adapter::tests::cancel_emits_one_fatal_error_then_completed ... ok
+test adapter::tests::conformance::normal_run_conforms ... ok
+test adapter::tests::conformance::killed_mid_run_conforms ... ok
+test adapter::tests::conformance::eof_without_result_conforms ... ok
+test adapter::tests::stops_reading_after_fatal_error ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+   Doc-tests alva_engine_adapter_codex
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+--- exit=0 ---
+=== pi adapter (R82) ===
+   Compiling alva-engine-adapter-pi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-pi)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.14s
+     Running unittests src/lib.rs (target/debug/deps/alva_engine_adapter_pi-a46e7482b2d26bc3)
+
+running 13 tests
+test mapping::tests::retry_start_stays_recoverable ... ok
+test process::tests::args_keep_secret_out_and_use_stable_session ... ok
+test mapping::tests::maps_session_delta_message_and_usage ... ok
+test adapter::tests::conformance::spawn_failure_conforms ... ok
+test process::tests::temporary_models_json_references_env_not_secret ... ok
+test adapter::tests::conformance::eof_without_result_conforms ... ok
+test adapter::tests::conformance::output_after_fatal_is_not_forwarded ... ok
+test adapter::tests::stops_reading_after_fatal_error ... ok
+test adapter::tests::conformance::killed_mid_run_conforms ... ok
+test adapter::tests::cancel_emits_one_fatal_error_then_completed ... ok
+test adapter::tests::conformance::normal_run_conforms ... ok
+test adapter::tests::real_pi::real_pi_cancel_stops_the_cli_within_the_grace_bound ... ok
+test adapter::tests::real_pi::real_pi_completes_a_turn_conformant ... FAILED
+
+failures:
+
+---- adapter::tests::real_pi::real_pi_completes_a_turn_conformant stdout ----
+
+thread 'adapter::tests::real_pi::real_pi_completes_a_turn_conformant' (9006521) panicked at crates/alva-engine-runtime/src/conformance.rs:86:13:
+Normal must not contain a fatal Error: [
+    SessionStarted {
+        session_id: "c69979ef-a69a-4abf-a894-f9f68eb65dfa",
+        model: None,
+        tools: [],
+    },
+    Error {
+        message: "401: {\"type\":\"CreditsError\",\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/wrk_01KDD280X247QHRCZR1T2MST26/billing\"}",
+        recoverable: false,
+    },
+    Completed {
+        session_id: "c69979ef-a69a-4abf-a894-f9f68eb65dfa",
+        result: None,
+        usage: Some(
+            RuntimeUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+                total_cost_usd: Some(
+                    0.0,
+                ),
+                duration_ms: 0,
+                num_turns: 1,
+            },
+        ),
+    },
+]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    adapter::tests::real_pi::real_pi_completes_a_turn_conformant
+
+test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.90s
+
+error: test failed, to rerun pass `-p alva-engine-adapter-pi --lib`
+--- exit=101 ---
+=== alva adapter (R74) ===
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `alva-kernel-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 2 suggestions)
+warning: unused import: `normalize_path_string`
+  --> crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:358:13
+    |
+358 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-agent-core` to apply 2 suggestions)
+warning: unused import: `alva_kernel_abi::ConversationLog`
+  --> crates/alva-agent-security/src/pending_actions.rs:17:5
+   |
+17 | use alva_kernel_abi::ConversationLog;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::SessionStore`
+  --> crates/alva-agent-security/src/middleware/security.rs:18:5
+   |
+18 | use alva_kernel_abi::SessionStore;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `AgentSession`
+  --> crates/alva-agent-security/src/middleware/security.rs:17:38
+   |
+17 | use alva_kernel_abi::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
+   |                                      ^^^^^^^^^^^^
+
+warning: unused import: `Mutex`
+  --> crates/alva-agent-context/src/middleware.rs:12:22
+   |
+12 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+  --> crates/alva-agent-context/src/middleware.rs:15:5
+   |
+15 | use alva_kernel_abi::agent_session::AgentSession;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/alva-agent-context/src/middleware.rs:73:9
+   |
+73 |         mut self,
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_store_session` is never used
+  --> crates/alva-agent-context/src/middleware.rs:72:8
+   |
+61 | impl CompactionMiddleware {
+   | ------------------------- method in this implementation
+...
+72 |     fn with_store_session(
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-security` (lib) generated 3 warnings (run `cargo fix --lib -p alva-agent-security` to apply 1 suggestion)
+warning: `alva-agent-context` (lib) generated 4 warnings (run `cargo fix --lib -p alva-agent-context` to apply 3 suggestions)
+   Compiling alva-engine-runtime v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-runtime)
+warning: unused `Result` that must be used
+   --> crates/alva-app-core/src/extension/pending.rs:194:13
+    |
+194 | /             state
+195 | |                 .session
+196 | |                 .append_message(AgentMessage::Standard(Message::user(&m.text)), None)
+197 | |                 .await;
+    | |______________________^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+194 |             let _ = state
+    |             +++++++
+
+warning: `alva-app-core` (lib) generated 1 warning
+   Compiling alva-engine-adapter-alva v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-alva)
+warning: unused import: `alva_kernel_abi::SessionStore`
+  --> crates/alva-engine-adapter-alva/src/adapter.rs:18:5
+   |
+18 | use alva_kernel_abi::SessionStore;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused `Result` that must be used
+   --> crates/alva-engine-adapter-alva/src/session_repository.rs:516:9
+    |
+516 |         self.memory.append(event).await;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+516 |         let _ = self.memory.append(event).await;
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/alva-engine-adapter-alva/src/session_repository.rs:536:9
+    |
+536 |         self.memory.append_message(message, parent_uuid).await;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+536 |         let _ = self.memory.append_message(message, parent_uuid).await;
+    |         +++++++
+
+warning: unused import: `alva_kernel_abi::AgentSession as _`
+   --> crates/alva-engine-adapter-alva/src/adapter.rs:561:9
+    |
+561 |     use alva_kernel_abi::AgentSession as _;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::SessionStore`
+  --> crates/alva-engine-adapter-alva/src/adapter.rs:18:5
+   |
+18 | use alva_kernel_abi::SessionStore;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused `Result` that must be used
+    --> crates/alva-engine-adapter-alva/src/session_repository.rs:1299:9
+     |
+1299 |         session.append_message(message("old", "old"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1299 |         let _ = session.append_message(message("old", "old"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-engine-adapter-alva/src/session_repository.rs:1300:9
+     |
+1300 | /         session
+1301 | |             .append(SessionEvent::new_runtime("compaction"))
+1302 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1300 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-engine-adapter-alva/src/session_repository.rs:1330:9
+     |
+1330 | /         session
+1331 | |             .append(SessionEvent::new_runtime("transient_failure"))
+1332 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1330 |         let _ = session
+     |         +++++++
+
+warning: `alva-engine-adapter-alva` (lib test) generated 7 warnings (2 duplicates) (run `cargo fix --lib -p alva-engine-adapter-alva --tests` to apply 1 suggestion)
+warning: `alva-engine-adapter-alva` (lib) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.05s
+     Running unittests src/lib.rs (target/debug/deps/alva_engine_adapter_alva-f6a4d1ebe8330256)
+
+running 31 tests
+test adapter::tests::emits_terminal_pair_when_session_is_deleted_while_starting ... ok
+test adapter::tests::resume_missing_native_session_emits_fatal_without_echoing_dead_id ... ok
+test adapter::tests::output_after_fatal_conforms ... ok
+test adapter::tests::normal_run_conforms ... ok
+test adapter::tests::respond_permission_reports_not_found_when_the_approval_is_gone ... ok
+test adapter::tests::exposes_full_typed_inspection_snapshot_from_authoritative_session ... ok
+test adapter::tests::killed_mid_run_conforms ... ok
+test adapter::tests::approval_receiver_moves_between_turns_without_holding_stream_open ... ok
+test adapter::tests::spawn_failure_conforms ... ok
+test mapping::tests::completed_result_contains_all_blocks_from_last_assistant_message ... ok
+test mapping::tests::filters_control_frame_deltas ... ok
+test adapter::tests::eof_without_result_conforms ... ok
+test adapter::tests::emits_terminal_pair_when_agent_channel_closes_early ... ok
+test mapping::tests::tool_execution_duration_is_preserved_on_runtime_end ... ok
+test mapping::tests::tool_use_is_tool_start_not_message_content ... ok
+test session_repository::tests::flush_repairs_a_transient_infallible_append_failure ... ok
+test session_repository::tests::atomic_records_survive_repository_reopen ... ok
+test session_repository::tests::compacted_message_projection_survives_repository_reopen ... ok
+test session_repository::tests::durable_records_are_redacted_and_large_values_use_compressed_blobs ... ok
+test session_repository::tests::deleting_a_root_recursively_removes_children_and_unreferenced_blobs ... ok
+test session_repository::tests::repository_inspector_never_creates_a_missing_session_when_subscribing ... ok
+test session_repository::tests::repository_inspector_tails_the_active_typed_session ... ok
+test adapter::tests::deleting_an_active_repository_session_removes_recursive_children ... ok
+test session_repository::tests::typed_child_links_survive_flush_and_repository_reopen ... ok
+test adapter::tests::runs_a_complete_base_agent_session ... ok
+test adapter::tests::resumes_the_same_base_agent_session ... ok
+test factory::tests::catalog_factory_wires_compaction_and_checkpoint_middleware ... ok
+test session_repository::tests::large_conversation_restores_from_blob_without_inline_duplication ... ok
+test adapter::tests::resumes_from_native_records_after_process_drop ... ok
+test adapter::tests::inspector_drill_down_after_repo_reopen_reaches_grandchild ... ok
+test adapter::tests::nested_agent_spawns_persist_independent_sessions_with_causal_links ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+   Doc-tests alva_engine_adapter_alva
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+--- exit=0 ---
+=== claude adapter (R74) ===
+   Compiling alva-engine-adapter-claude v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-claude)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.53s
+     Running unittests src/lib.rs (target/debug/deps/alva_engine_adapter_claude-75abeb6f8790d0c2)
+
+running 102 tests
+test adapter::tests::capabilities_report_resume_support ... ok
+test adapter::tests::build_bridge_config_injects_stream_watchdog_env ... ok
+test adapter::tests::build_bridge_config_includes_cloud_provider_flags ... ok
+test adapter::tests::build_bridge_config_maps_runtime_request_fields ... ok
+test adapter::tests::duplicate_active_session_id_keeps_existing_route_and_rejects_new_child ... ok
+test adapter::tests::control_ack_timeout_is_bounded_and_reports_failure ... ok
+test adapter::tests::cancel_kills_bridge_when_no_terminal_event_within_grace ... ok
+test adapter::tests::permission_ack_timeout_is_bounded_and_reports_failure ... ok
+test adapter::tests::dropped_consumer_before_first_event_kills_bridge_promptly ... ok
+test adapter::tests::explicit_sdk_override_fails_closed_without_leaking_its_specifier ... ok
+test adapter::tests::stale_cleanup_keeps_a_newer_sender_for_the_same_session ... ok
+test bridge::tests::bridge_base_dir_respects_env_override_over_dirs_cache ... ok
+test bridge::tests::bridge_base_dir_returns_some_path_when_no_env_override ... ok
+test bridge::tests::bridge_dir_name_is_pinned_literal ... ok
+test bridge::tests::cache_dir_override_env_var_name_is_pinned_literal ... ok
+test bridge::tests::ensure_bridge_script_rewrites_when_existing_content_differs ... ok
+test bridge::tests::test_ensure_bridge_script_creates_file ... ok
+test bridge::tests::test_ensure_bridge_script_idempotent ... ok
+test bridge::tests::windows_drive_paths_are_classified_as_filesystem_not_urls ... ok
+test config::tests::bridge_config_empty_agents_omitted_from_json ... ok
+test config::tests::bridge_config_empty_setting_sources_omitted_from_json ... ok
+test config::tests::bridge_config_none_max_turns_omitted_from_json ... ok
+test config::tests::bridge_config_none_persist_session_omitted_from_json ... ok
+test config::tests::bridge_config_none_resume_session_omitted_from_json ... ok
+test config::tests::bridge_config_none_sandbox_omitted_from_json ... ok
+test config::tests::bridge_config_present_values_serialize_with_field_present ... ok
+test config::tests::bridge_config_uses_sdk_package_path_not_executable_path ... ok
+test config::tests::claude_adapter_config_default_has_none_paths_and_default_permission ... ok
+test config::tests::permission_mode_default_impl_yields_default_variant ... ok
+test config::tests::permission_mode_each_variant_emits_spec_camel_case_on_both_wire_paths ... ok
+test config::tests::sandbox_config_roundtrip_preserves_enabled_flag ... ok
+test idle_watchdog::tests::ensure_stream_watchdog_env_is_append_only ... ok
+test idle_watchdog::tests::gate_pauses_during_tools_and_permissions ... ok
+test idle_watchdog::tests::idle_message_names_reason ... ok
+test idle_watchdog::tests::message_clears_pending_permission ... ok
+test idle_watchdog::tests::parse_idle_timeout_defaults_and_zero_disable ... ok
+test mapping::tests::empty_response_emits_fatal_error_then_completed ... ok
+test adapter::tests::cwd_sdk_resolves_and_permission_response_is_not_blocked_by_stdout_read ... ok
+test mapping::tests::empty_thinking_only_is_not_substance_but_normal_success_if_usage_nonzero ... ok
+test mapping::tests::input_json_delta_is_not_emitted_as_message_delta ... ok
+test mapping::tests::map_bridge_done_returns_empty_vec_no_runtime_events_emitted ... ok
+test mapping::tests::map_bridge_permission_request_emits_permission_event_with_description_none ... ok
+test mapping::tests::map_sdk_message_unknown_silently_returns_empty_vec_for_forward_compat ... ok
+test mapping::tests::maps_real_print_user_tool_result_to_tool_end ... ok
+test mapping::tests::parse_stream_delta_input_json_delta_defaults_index_to_zero_when_missing ... ok
+test mapping::tests::parse_stream_delta_input_json_delta_uses_event_index_as_tool_id ... ok
+test mapping::tests::parse_stream_delta_text_delta_yields_text_delta_event ... ok
+test mapping::tests::parse_stream_delta_thinking_delta_yields_reasoning_delta ... ok
+test mapping::tests::parse_stream_delta_unknown_delta_type_returns_none_for_forward_compat ... ok
+test mapping::tests::parse_stream_delta_unknown_event_type_returns_none_for_forward_compat ... ok
+test mapping::tests::test_map_assistant_splits_tool_use ... ok
+test mapping::tests::test_map_bridge_error ... ok
+test mapping::tests::test_map_result_error_emits_error_then_completed ... ok
+test mapping::tests::test_map_system_init ... ok
+test mapping::tests::test_map_tool_result_resolves_name ... ok
+test mapping::tests::text_delta_is_emitted_and_tracks_substance ... ok
+test print_adapter::tests::capabilities_mark_no_permission_callback ... ok
+test adapter::tests::bridge_done_without_result_emits_error_then_completed ... ok
+test print_adapter::tests::conformance::eof_without_result_conforms ... ok
+test adapter::tests::full_eof_without_result_conforms ... ok
+test print_adapter::tests::cancel_emits_one_fatal_error_then_completed ... ok
+test print_adapter::tests::conformance::spawn_failure_conforms ... ok
+test print_adapter::tests::conformance::output_after_fatal_is_not_forwarded ... ok
+test print_adapter::tests::conformance::normal_run_conforms ... ok
+test print_adapter::tests::default_print_config_is_non_interactive ... ok
+test print_adapter::tests::conformance::killed_mid_run_conforms ... ok
+test print_adapter::tests::stale_cancel_route_is_removed_after_send_failure ... ok
+test print_config::tests::permission_modes_match_current_claude_cli_values ... ok
+test print_adapter::tests::consumer_drop_cleans_the_native_session_route ... ok
+test print_process::tests::empty_line_skipped ... ok
+test print_process::tests::parse_system_init_line ... ok
+test print_process::tests::parse_unknown_type_maps_to_unknown_variant ... ok
+test process::tests::is_fatal_stderr_detects_each_pattern_in_realistic_stderr_lines ... ok
+test process::tests::is_fatal_stderr_is_case_insensitive ... ok
+test process::tests::is_fatal_stderr_returns_false_for_unrelated_lines ... ok
+test process::tests::is_fatal_stderr_uses_substring_contains_not_exact_match ... ok
+test process::tests::spawn_with_nonexistent_node_path_returns_process_error_naming_path ... ok
+test protocol::tests::test_parse_assistant_with_tool_use ... ok
+test protocol::tests::test_parse_permission_request ... ok
+test protocol::tests::test_parse_permission_response_accepted ... ok
+test protocol::tests::test_parse_permission_response_rejected ... ok
+test protocol::tests::test_parse_result_success ... ok
+test protocol::tests::test_parse_system_init ... ok
+test protocol::tests::test_parse_unknown_sdk_message ... ok
+test protocol::tests::test_real_print_user_tool_result ... ok
+test protocol::tests::test_real_sdk_assistant_message ... ok
+test protocol::tests::test_real_sdk_rate_limit_falls_to_unknown ... ok
+test protocol::tests::test_real_sdk_result_success ... ok
+test protocol::tests::test_real_sdk_stream_event_text_delta ... ok
+test protocol::tests::test_real_sdk_system_init ... ok
+test protocol::tests::test_serialize_permission_response ... ok
+test print_adapter::tests::no_reader_resumes_after_a_fatal_result_frame ... ok
+test print_process::tests::argv_is_safe_and_streaming_is_opt_in ... ok
+test print_adapter::tests::duplicate_native_session_does_not_replace_the_active_route ... ok
+test adapter::tests::full_killed_mid_run_conforms ... ok
+test adapter::tests::full_normal_conforms ... ok
+test adapter::tests::full_output_after_fatal_conforms ... ok
+test adapter::tests::full_spawn_failure_conforms ... ok
+test adapter::tests::global_npm_root_sdk_resolution_loads_the_package_child ... ok
+test adapter::tests::late_permission_response_fails_as_permission_not_found ... ok
+test adapter::tests::relative_explicit_sdk_path_resolves_against_request_cwd ... ok
+test adapter::tests::resolved_ambient_sdk_import_failure_does_not_fall_back ... ok
+
+test result: ok. 102 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.92s
+
+   Doc-tests alva_engine_adapter_claude
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+--- exit=0 ---
+=== hub-server bin (R65) ===
+   Compiling alva-kernel-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-core)
+   Compiling alva-hub-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-core)
+   Compiling alva-engine-adapter-pi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-pi)
+   Compiling alva-engine-adapter-codex v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-codex)
+   Compiling alva-engine-adapter-claude v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-claude)
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling alva-agent-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core)
+   Compiling alva-agent-security v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-security)
+   Compiling alva-agent-context v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-context)
+warning: `alva-kernel-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 2 suggestions)
+warning: unused import: `normalize_path_string`
+  --> crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:358:13
+    |
+358 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling alva-app-extension-browser v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-app-extension-browser)
+   Compiling alva-app-extension-loader v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-app-extension-loader)
+warning: unused import: `Mutex`
+  --> crates/alva-agent-context/src/middleware.rs:12:22
+   |
+12 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+  --> crates/alva-agent-context/src/middleware.rs:15:5
+   |
+15 | use alva_kernel_abi::agent_session::AgentSession;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/alva-agent-context/src/middleware.rs:73:9
+   |
+73 |         mut self,
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_store_session` is never used
+  --> crates/alva-agent-context/src/middleware.rs:72:8
+   |
+61 | impl CompactionMiddleware {
+   | ------------------------- method in this implementation
+...
+72 |     fn with_store_session(
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-agent-core` to apply 2 suggestions)
+warning: `alva-agent-context` (lib) generated 4 warnings (run `cargo fix --lib -p alva-agent-context` to apply 3 suggestions)
+warning: unused import: `alva_kernel_abi::ConversationLog`
+  --> crates/alva-agent-security/src/pending_actions.rs:17:5
+   |
+17 | use alva_kernel_abi::ConversationLog;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::SessionStore`
+  --> crates/alva-agent-security/src/middleware/security.rs:18:5
+   |
+18 | use alva_kernel_abi::SessionStore;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `AgentSession`
+  --> crates/alva-agent-security/src/middleware/security.rs:17:38
+   |
+17 | use alva_kernel_abi::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
+   |                                      ^^^^^^^^^^^^
+
+   Compiling alva-agent-extension-builtin v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-extension-builtin)
+warning: `alva-agent-security` (lib) generated 3 warnings (run `cargo fix --lib -p alva-agent-security` to apply 1 suggestion)
+   Compiling alva-host-native v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-host-native)
+   Compiling alva-app-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-app-core)
+warning: unused `Result` that must be used
+   --> crates/alva-app-core/src/extension/pending.rs:194:13
+    |
+194 | /             state
+195 | |                 .session
+196 | |                 .append_message(AgentMessage::Standard(Message::user(&m.text)), None)
+197 | |                 .await;
+    | |______________________^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+194 |             let _ = state
+    |             +++++++
+
+   Compiling alva-engine-adapter-alva v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-alva)
+warning: `alva-app-core` (lib) generated 1 warning
+warning: unused import: `alva_kernel_abi::SessionStore`
+  --> crates/alva-engine-adapter-alva/src/adapter.rs:18:5
+   |
+18 | use alva_kernel_abi::SessionStore;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused `Result` that must be used
+   --> crates/alva-engine-adapter-alva/src/session_repository.rs:516:9
+    |
+516 |         self.memory.append(event).await;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+516 |         let _ = self.memory.append(event).await;
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/alva-engine-adapter-alva/src/session_repository.rs:536:9
+    |
+536 |         self.memory.append_message(message, parent_uuid).await;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+536 |         let _ = self.memory.append_message(message, parent_uuid).await;
+    |         +++++++
+
+   Compiling alva-hub-desktop v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-desktop)
+warning: `alva-engine-adapter-alva` (lib) generated 3 warnings
+warning: unused imports: `AlvaAdapter` and `CatalogBaseAgentFactory`
+ --> crates/alva-hub-desktop/src/alva.rs:9:32
+  |
+9 | use alva_engine_adapter_alva::{AlvaAdapter, CatalogBaseAgentFactory, SessionRepository};
+  |                                ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `ClaudePrintAdapter` and `ClaudePrintConfig`
+  --> crates/alva-hub-desktop/src/alva.rs:10:34
+   |
+10 | use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
+   |                                  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `CodexAdapterConfig` and `CodexAdapter`
+  --> crates/alva-hub-desktop/src/alva.rs:11:33
+   |
+11 | use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
+   |                                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PiAdapterConfig`, `PiAdapter`, `PiApiProtocol`, `PiProviderConfig`, and `PiToolPolicy`
+  --> crates/alva-hub-desktop/src/alva.rs:13:5
+   |
+13 |     PiAdapter, PiAdapterConfig, PiApiProtocol, PiProviderConfig, PiToolPolicy,
+   |     ^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: unused import: `EngineEnforcement`
+  --> crates/alva-hub-desktop/src/alva.rs:19:43
+   |
+19 | use crate::permissions::{enforcement_for, EngineEnforcement, PermissionProfile};
+   |                                           ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `EngineDescriptor`
+  --> crates/alva-hub-desktop/src/engine_wiring.rs:21:27
+   |
+21 | use alva_engine_runtime::{EngineDescriptor, EngineRuntime, RuntimeCapabilities};
+   |                           ^^^^^^^^^^^^^^^^
+
+warning: unused import: `StreamHealth`
+  --> crates/alva-hub-desktop/src/engine_wiring.rs:29:67
+   |
+29 |     capability_labels, AuthKind, EngineProbeFacts, ReadinessSpec, StreamHealth, SystemProbe,
+   |                                                                   ^^^^^^^^^^^^
+
+warning: unused import: `PermissionRelation`
+  --> crates/alva-hub-desktop/src/permissions.rs:10:62
+   |
+10 | use alva_engine_runtime::{EngineRuntime, PermissionDecision, PermissionRelation};
+   |                                                              ^^^^^^^^^^^^^^^^^^
+
+warning: function `ineligible_reason` is never used
+   --> crates/alva-hub-desktop/src/permissions.rs:100:4
+    |
+100 | fn ineligible_reason(engine_id: &str, profile: PermissionProfile, detail: &str) -> String {
+    |    ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `home_dir` is never used
+   --> crates/alva-hub-desktop/src/readiness.rs:437:19
+    |
+359 | impl SystemProbe {
+    | ---------------- method in this implementation
+...
+437 |     pub(crate) fn home_dir(&self) -> Option<&PathBuf> {
+    |                   ^^^^^^^^
+
+warning: `alva-hub-desktop` (lib) generated 10 warnings (run `cargo fix --lib -p alva-hub-desktop` to apply 8 suggestions)
+   Compiling alva-hub-server v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-server)
+warning: associated function `new` is never used
+    --> crates/alva-hub-server/src/main.rs:1246:12
+     |
+1245 |     impl ScriptedEngine {
+     |     ------------------- associated function in this implementation
+1246 |         fn new(steps: Vec<Step>, cancel_fails: bool) -> Arc<Self> {
+     |            ^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-hub-server` (bin "alva-hub-server" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 57s
+     Running unittests src/main.rs (target/debug/deps/alva_hub_server-a4730eed692a1863)
+
+running 5 tests
+test r65_stop_integration::terminal_before_ack_leaves_no_marker_for_next_turn ... ok
+test r65_stop_integration::stop_acked_error_then_completed_projects_single_terminal ... ok
+test r65_stop_integration::failed_cancel_records_nothing_and_run_completes ... ok
+test r65_stop_integration::stop_acked_killed_stream_settles_interrupted_once_at_real_end ... ok
+test r65_stop_integration::stop_acked_delayed_natural_completion_projects_completed_only ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+--- exit=0 ---
+=== hub-desktop lib (R66) ===
+   Compiling alva-kernel-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-core)
+   Compiling alva-engine-adapter-pi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-pi)
+   Compiling alva-engine-adapter-codex v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-codex)
+   Compiling alva-engine-adapter-claude v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-claude)
+   Compiling alva-hub-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-core)
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling alva-agent-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core)
+   Compiling alva-agent-security v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-security)
+   Compiling alva-agent-context v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-context)
+warning: `alva-kernel-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 2 suggestions)
+warning: unused import: `alva_kernel_abi::ConversationLog`
+  --> crates/alva-agent-security/src/pending_actions.rs:17:5
+   |
+17 | use alva_kernel_abi::ConversationLog;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Mutex`
+  --> crates/alva-agent-context/src/middleware.rs:12:22
+   |
+12 | use std::sync::{Arc, Mutex};
+   |                      ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+  --> crates/alva-agent-context/src/middleware.rs:15:5
+   |
+15 | use alva_kernel_abi::agent_session::AgentSession;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `alva_kernel_abi::SessionStore`
+  --> crates/alva-agent-security/src/middleware/security.rs:18:5
+   |
+18 | use alva_kernel_abi::SessionStore;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `AgentSession`
+  --> crates/alva-agent-security/src/middleware/security.rs:17:38
+   |
+17 | use alva_kernel_abi::agent_session::{AgentSession, EmitterKind, EventEmitter, SessionEvent};
+   |                                      ^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/alva-agent-context/src/middleware.rs:73:9
+   |
+73 |         mut self,
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_store_session` is never used
+  --> crates/alva-agent-context/src/middleware.rs:72:8
+   |
+61 | impl CompactionMiddleware {
+   | ------------------------- method in this implementation
+...
+72 |     fn with_store_session(
+   |        ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `normalize_path_string`
+  --> crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:358:13
+    |
+358 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling alva-agent-extension-builtin v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-extension-builtin)
+   Compiling alva-app-extension-browser v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-app-extension-browser)
+   Compiling alva-app-extension-loader v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-app-extension-loader)
+warning: `alva-agent-security` (lib) generated 3 warnings (run `cargo fix --lib -p alva-agent-security` to apply 1 suggestion)
+warning: `alva-agent-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-agent-core` to apply 2 suggestions)
+warning: `alva-agent-context` (lib) generated 4 warnings (run `cargo fix --lib -p alva-agent-context` to apply 3 suggestions)
+   Compiling alva-host-native v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-host-native)
+   Compiling alva-app-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-app-core)
+warning: unused `Result` that must be used
+   --> crates/alva-app-core/src/extension/pending.rs:194:13
+    |
+194 | /             state
+195 | |                 .session
+196 | |                 .append_message(AgentMessage::Standard(Message::user(&m.text)), None)
+197 | |                 .await;
+    | |______________________^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+194 |             let _ = state
+    |             +++++++
+
+   Compiling alva-engine-adapter-alva v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-adapter-alva)
+warning: `alva-app-core` (lib) generated 1 warning
+warning: unused import: `alva_kernel_abi::SessionStore`
+  --> crates/alva-engine-adapter-alva/src/adapter.rs:18:5
+   |
+18 | use alva_kernel_abi::SessionStore;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused `Result` that must be used
+   --> crates/alva-engine-adapter-alva/src/session_repository.rs:516:9
+    |
+516 |         self.memory.append(event).await;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+516 |         let _ = self.memory.append(event).await;
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/alva-engine-adapter-alva/src/session_repository.rs:536:9
+    |
+536 |         self.memory.append_message(message, parent_uuid).await;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+536 |         let _ = self.memory.append_message(message, parent_uuid).await;
+    |         +++++++
+
+warning: `alva-engine-adapter-alva` (lib) generated 3 warnings
+   Compiling alva-hub-desktop v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-desktop)
+warning: unused imports: `AlvaAdapter` and `CatalogBaseAgentFactory`
+ --> crates/alva-hub-desktop/src/alva.rs:9:32
+  |
+9 | use alva_engine_adapter_alva::{AlvaAdapter, CatalogBaseAgentFactory, SessionRepository};
+  |                                ^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `ClaudePrintAdapter` and `ClaudePrintConfig`
+  --> crates/alva-hub-desktop/src/alva.rs:10:34
+   |
+10 | use alva_engine_adapter_claude::{ClaudePrintAdapter, ClaudePrintConfig};
+   |                                  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `CodexAdapterConfig` and `CodexAdapter`
+  --> crates/alva-hub-desktop/src/alva.rs:11:33
+   |
+11 | use alva_engine_adapter_codex::{CodexAdapter, CodexAdapterConfig};
+   |                                 ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `PiAdapterConfig`, `PiAdapter`, `PiApiProtocol`, `PiProviderConfig`, and `PiToolPolicy`
+  --> crates/alva-hub-desktop/src/alva.rs:13:5
+   |
+13 |     PiAdapter, PiAdapterConfig, PiApiProtocol, PiProviderConfig, PiToolPolicy,
+   |     ^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: unused import: `EngineEnforcement`
+  --> crates/alva-hub-desktop/src/alva.rs:19:43
+   |
+19 | use crate::permissions::{enforcement_for, EngineEnforcement, PermissionProfile};
+   |                                           ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `EngineDescriptor`
+  --> crates/alva-hub-desktop/src/engine_wiring.rs:21:27
+   |
+21 | use alva_engine_runtime::{EngineDescriptor, EngineRuntime, RuntimeCapabilities};
+   |                           ^^^^^^^^^^^^^^^^
+
+warning: unused import: `StreamHealth`
+  --> crates/alva-hub-desktop/src/engine_wiring.rs:29:67
+   |
+29 |     capability_labels, AuthKind, EngineProbeFacts, ReadinessSpec, StreamHealth, SystemProbe,
+   |                                                                   ^^^^^^^^^^^^
+
+warning: unused import: `super::*`
+   --> crates/alva-hub-desktop/src/engine_wiring.rs:551:9
+    |
+551 |     use super::*;
+    |         ^^^^^^^^
+
+warning: unused import: `PermissionRelation`
+  --> crates/alva-hub-desktop/src/permissions.rs:10:62
+   |
+10 | use alva_engine_runtime::{EngineRuntime, PermissionDecision, PermissionRelation};
+   |                                                              ^^^^^^^^^^^^^^^^^^
+
+warning: function `ineligible_reason` is never used
+   --> crates/alva-hub-desktop/src/permissions.rs:100:4
+    |
+100 | fn ineligible_reason(engine_id: &str, profile: PermissionProfile, detail: &str) -> String {
+    |    ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `home_dir` is never used
+   --> crates/alva-hub-desktop/src/readiness.rs:437:19
+    |
+359 | impl SystemProbe {
+    | ---------------- method in this implementation
+...
+437 |     pub(crate) fn home_dir(&self) -> Option<&PathBuf> {
+    |                   ^^^^^^^^
+
+warning: `alva-hub-desktop` (lib test) generated 11 warnings (run `cargo fix --lib -p alva-hub-desktop --tests` to apply 9 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.51s
+     Running unittests src/lib.rs (target/debug/deps/alva_hub_desktop-bf12bfe78c3371cc)
+
+running 173 tests
+test claims::tests::facilities_and_exclusive_tools_are_all_or_nothing ... ok
+test failure::tests::contract_violation_messages_never_trigger_fallback ... ok
+test failure::tests::most_specific_category_wins_over_generic_phrases ... ok
+test claims::tests::messy_but_equivalent_paths_are_one_resource ... ok
+test claims::tests::writers_exclude_overlapping_paths_in_both_directions ... ok
+test claims::tests::disjoint_paths_and_shared_reads_run_concurrently ... ok
+test failure::tests::only_unclassified_failures_are_excluded_from_fallback ... ok
+test claims::tests::meaningless_or_escaping_claims_are_rejected_loudly ... ok
+test failure::tests::stall_messages_classify_stably ... ok
+test failure::tests::matrix_covers_all_v1_operational_failure_categories ... ok
+test claims::tests::conflicting_claims_reports_every_blocked_resource_once ... ok
+test permissions::stale_tests::classifies_stale_and_genuine_messages ... ok
+test claims::tests::claim_json_shape_is_pinned_for_the_typescript_bridge ... ok
+test engine_wiring::assembly_tests::cli_adapters_reject_incompatible_provider_protocols ... ok
+test permissions::tests::only_same_scope_same_action_same_resource_is_equivalent ... ok
+test permissions::tests::profile_round_trips_through_storage_text ... ok
+test permissions::tests::adapter_mapping_contract_table_is_stable ... ok
+test permissions::tests::decisions_are_single_use_and_unknown_requests_fail_loudly ... ok
+test permissions::tests::clear_session_drops_only_that_sessions_pending_requests ... ok
+test permissions::tests::releasing_a_run_clears_both_the_handle_and_its_approvals ... ok
+test permissions::tests::requests_with_unknown_resources_never_merge_onto_one_card ... ok
+test permissions::tests::decision_routes_to_the_engine_session_that_asked ... ok
+test permissions::tests::engine_rejection_keeps_the_member_out_of_answered ... ok
+test permissions::tests::total_engine_rejection_fails_the_call ... ok
+test permissions::tests::eligibility_report_covers_all_engines_with_reasons ... ok
+test permissions::tests::one_decision_routes_to_every_member_of_an_equivalence_group ... ok
+test permissions::tests::unknown_engine_is_rejected_loudly ... ok
+test engine_wiring::assembly_tests::third_party_provider_configs_are_projected_into_each_cli_adapter ... ok
+test provider_plane::model_registry::tests::bundled_registry_is_versioned_and_unknown_models_stay_unknown ... ok
+test provider_diagnostics::tests::inference_errors_keep_only_safe_http_status ... ok
+test engine_wiring::assembly_tests::build_engine_fails_closed_for_weaken_only_combinations ... ok
+test provider_diagnostics::tests::discovered_models_carry_a_non_authoritative_registry_binding_preview ... ok
+test engine_wiring::assembly_tests::eligible_cli_engines_assemble_with_profile_mapping ... ok
+test provider_plane::model_registry::tests::engine_override_is_data_not_a_runtime_guess ... ok
+test provider_diagnostics::tests::validation_fails_locally_without_credentials_or_supported_kind ... ok
+test provider_plane::route_planner::tests::protocol_matrix_matches_product_contract ... ok
+test provider_diagnostics::tests::malformed_catalog_error_never_echoes_response_body ... ok
+test provider_plane::route_planner::tests::unknown_models_and_untrusted_catalogs_never_invent_controls ... ok
+test provider_plane::route_planner::tests::explicit_registry_binding_is_required_for_untrusted_provider_ids ... ok
+test provider_diagnostics::tests::custom_headers_replace_api_key_for_discovery ... ok
+test provider_diagnostics::tests::request_shapes_match_provider_specific_model_endpoints_and_auth ... ok
+test provider_plane::route_planner::tests::one_provider_model_plans_runtime_specific_routes ... ok
+test providers::tests::endpoints_require_https_except_for_loopback_http ... ok
+test provider_diagnostics::tests::parsers_normalize_sort_and_deduplicate_provider_catalogs ... ok
+test providers::tests::model_registry_binding_is_explicit_and_backend_validated ... ok
+test inspection::tests::projects_compact_stream_observation_from_typed_records ... ok
+test provider_diagnostics::tests::catalog_limits_model_count_and_field_lengths ... ok
+test providers::tests::fixed_catalog_has_core_starters_and_read_only_subscriptions ... ok
+test providers::tests::duplicate_model_ids_are_rejected_after_trimming ... ok
+test redact::tests::credentials_and_env_values_are_redacted_from_text ... ok
+test redact::tests::mainstream_secret_shapes_are_all_caught ... ok
+test redact::tests::ordinary_identifiers_and_paths_are_not_false_positives ... ok
+test redact::tests::redact_handoff_filters_every_text_field_and_private_metadata ... ok
+test redact::tests::sensitive_names_cover_common_environment_variables ... ok
+test repair::tests::healthy_engines_need_no_repair ... ok
+test repair::tests::incompatible_engines_get_a_one_click_upgrade_with_minimum_named ... ok
+test repair::tests::missing_npm_engines_get_a_one_click_install ... ok
+test repair::tests::repair_action_json_shape_is_pinned_for_the_typescript_bridge ... ok
+test repair::tests::repair_argv_refuses_guided_actions_and_mismatched_kinds ... ok
+test providers::tests::catalog_redacts_keys_reopens_and_resolves_saved_models ... ok
+test providers::tests::failed_persist_does_not_advance_memory_or_disk ... ok
+test repair::tests::unauthenticated_engines_get_guided_auth_never_one_click ... ok
+test repair::tests::unknown_engine_ids_never_yield_runnable_repairs ... ok
+test providers::tests::diagnostics_resolver_keeps_credentials_backend_only ... ok
+test providers::tests::schema_v1_without_default_target_still_opens ... ok
+test providers::tests::one_anthropic_model_fans_out_to_every_compatible_runtime ... ok
+test providers::tests::incomplete_draft_saves_but_route_explains_unavailability ... ok
+test providers::tests::route_options_are_runtime_specific_and_requested_values_are_validated ... ok
+test providers::tests::subscription_routes_remain_private_to_their_cli_runtime ... ok
+test providers::tests::managed_workspace_and_shared_profiles_are_normalized_and_redacted ... ok
+test run::tests::empty_native_session_id_fails_without_advertising_cancellation ... ok
+test providers::tests::default_target_is_explicit_persistent_and_never_silently_replaced ... ok
+test providers::tests::removed_default_target_remains_explicitly_unavailable ... ok
+test run::tests::concurrent_tool_finishing_does_not_rearm_watchdog_during_pending_approval ... ok
+test run::tests::exhausted_chain_records_a_card_with_every_terminal_state ... ok
+test run::tests::failed_engine_build_after_native_resume_upgrade_finishes_the_turn ... ok
+test run::tests::continuity_failure_without_authorization_fails_without_fallback ... ok
+test run::tests::doomed_attempt_with_pending_approval_drains_within_the_stall_window ... ok
+test run::tests::canary_secrets_never_reach_the_fallback_engine ... ok
+test run::tests::confirmed_stall_classifies_stably_and_falls_back ... ok
+test run::tests::fallback_skips_targets_that_would_weaken_the_permission_profile ... ok
+test run::tests::capability_incompatible_target_is_skipped_with_reason ... ok
+test run::tests::a_model_vocabulary_word_does_not_veto_a_fallback_target ... ok
+test run::tests::fallback_chain_tries_each_authorized_engine_once_in_order ... ok
+test run::tests::fallback_target_start_failure_keeps_source_and_handoff_recoverable ... ok
+test run::tests::pending_user_approval_does_not_trip_the_watchdog ... ok
+test run::tests::long_running_tool_does_not_trip_the_watchdog ... ok
+test run::tests::projects_streamed_assistant_text_and_tool_activity ... ok
+test run::tests::projects_successful_engine_run_to_timeline ... ok
+test run::tests::first_turn_on_a_new_branch_receives_full_then_native_return_receives_delta ... ok
+test run::tests::projects_terminal_engine_error_as_failed ... ok
+test run::tests::persists_attempt_usage_and_side_effect_evidence ... ok
+test run::tests::permission_request_event_carries_engine_session_routing_identity ... ok
+test run::tests::live_hub_is_published_while_running_and_removed_at_end ... ok
+test run::tests::invalid_native_resume_replaces_delta_with_full_handoff_before_fresh_execution ... ok
+test run::tests::persists_reopens_and_resumes_a_product_session ... ok
+test run::tests::parallel_worker_tasks_genuinely_overlap_and_keep_attribution ... ok
+test run::tests::one_worker_falls_back_while_a_sibling_keeps_progressing ... ok
+test run::tests::poor_quality_success_never_triggers_fallback ... ok
+test run::tests::premature_permission_request_surfaces_without_routing_controls ... ok
+test run::tests::resume_rejects_a_changed_permission_profile_loudly ... ok
+test run::tests::selected_provider_route_builds_and_pins_the_new_session_target ... ok
+test run::tests::recovered_attempt_without_native_session_continues_fresh ... ok
+test run::tests::same_engine_alternate_provider_target_is_a_valid_fallback ... ok
+test run::tests::treats_stream_without_terminal_event_as_failed ... ok
+test run::tests::slow_but_recovering_output_resets_the_watchdog ... ok
+test run::tests::sync_start_failure_recycles_the_published_hub ... ok
+test session_workspace::tests::creates_unique_owner_only_session_workspaces ... ok
+test session_workspace::tests::rejects_a_symlink_workspace_root ... ok
+test run::tests::terminal_continuity_failure_falls_back_to_next_authorized_engine_in_same_turn ... ok
+test run::tests::unclassified_mid_chain_failure_stops_and_still_summarizes_the_cycle ... ok
+test store::tests::tests::an_unknown_required_capability_is_rejected_with_the_legal_vocabularies ... ok
+test store::tests::tests::a_solo_session_handoff_carries_no_team_snapshot ... ok
+test run::tests::unhealthy_target_is_skipped_with_reason_and_the_chain_continues ... ok
+test run::tests::team_worker_executes_on_its_own_engine_and_reports_to_the_lead ... ok
+test run::tests::user_stop_cancels_the_attempt_without_fallback_and_survives_restart ... ok
+test store::tests::tests::an_older_waiter_reserves_its_resources_against_a_stream_of_short_tasks ... ok
+test store::tests::tests::database_and_parent_are_private ... ok
+test store::tests::tests::automatic_fallback_continues_the_turn_with_serial_attempt_and_persisted_handoff ... ok
+test store::tests::tests::dirty_permission_profile_text_is_rejected_loudly ... ok
+test store::tests::tests::automatic_fallback_needs_explicit_session_authorization_but_manual_switch_does_not ... ok
+test run::tests::real_alva_resume_failure_text_triggers_upgrade ... ok
+test store::tests::tests::fallback_is_local_to_one_session_and_its_handoff_carries_team_context ... ok
+test store::tests::tests::handoff_snapshot_carries_session_memory_and_filters_it ... ok
+test store::tests::tests::fallback_requires_session_authorization_and_a_different_engine ... ok
+test store::tests::tests::handoff_lists_workspace_mcp_servers_without_credentials ... ok
+test store::tests::tests::handoff_lists_workspace_skills_without_shipping_bodies ... ok
+test store::tests::tests::independent_connection_observes_atomic_turn_and_attempt_transaction ... ok
+test store::tests::tests::latest_attempt_outcome_reports_terminal_evidence_per_engine ... ok
+test store::tests::tests::isolated_workers_carry_worktree_identity_and_a_separate_workspace ... ok
+test store::tests::tests::live_store_owns_the_recovery_lock ... ok
+test store::tests::tests::manual_switch_to_a_weaken_only_target_is_rejected_with_the_reason ... ok
+test store::tests::tests::manual_switch_parks_source_and_persists_full_handoff ... ok
+test store::tests::tests::migrates_schema_one_turns_into_attempts_without_losing_history ... ok
+test store::tests::tests::new_session_branch_metadata_roundtrips_and_restores_after_reopen ... ok
+test store::tests::tests::refuses_symlinked_database_and_parent ... ok
+test store::tests::tests::rejects_a_future_schema_without_downgrading_it ... ok
+test store::tests::tests::native_resume_upgrade_is_crash_recoverable_with_full_handoff ... ok
+test store::tests::tests::new_session_snapshots_global_fallback_policy_without_later_drift ... ok
+test store::tests::tests::next_authorized_fallback_target_follows_chain_order_and_skips_tried_engines ... ok
+test store::tests::tests::parked_branch_records_watermark_and_builds_a_delta_handoff_on_return ... ok
+test store::tests::tests::permission_profile_persists_and_survives_branch_switches ... ok
+test store::tests::tests::queued_task_evidence_is_scoped_to_its_own_claim_not_the_queue ... ok
+test store::tests::tests::reopening_applies_a_switch_queued_before_a_crash ... ok
+test store::tests::tests::reopening_repairs_a_worker_task_left_running_by_a_crash ... ok
+test store::tests::tests::reopening_repairs_an_abandoned_attempt_and_preserves_evidence ... ok
+test store::tests::tests::resource_claims_let_compatible_tasks_run_and_queue_conflicting_ones ... ok
+test store::tests::tests::returning_to_the_fallback_source_branch_receives_the_fallback_turn_in_the_delta ... ok
+test store::tests::tests::running_switch_is_queued_until_the_attempt_is_terminal ... ok
+test store::tests::tests::same_engine_alternate_provider_targets_each_get_their_own_try ... ok
+test store::tests::tests::same_route_option_changes_persist_without_creating_a_branch ... ok
+test store::tests::tests::session_fallback_policy_and_target_account_metadata_survive_restart ... ok
+test store::tests::tests::session_list_is_ordered_most_recent_first ... ok
+test store::tests::tests::session_memory_persists_across_reopen_and_never_crosses_sessions ... ok
+test store::tests::tests::session_workspace_kind_persists_across_reopen ... ok
+test store::tests::tests::team_creation_inherits_permissions_and_never_widens_them ... ok
+test store::tests::tests::tasks_in_different_workspaces_never_contend ... ok
+test store::tests::tests::transcript_is_opt_in_and_passes_the_same_filter ... ok
+test store::tests::tests::team_run_walking_skeleton_survives_reopen_with_all_associations ... ok
+test store::tests::tests::worker_queues_are_fifo_editable_and_cancellable_until_claimed ... ok
+test store::tests::tests::worker_lifecycle_survives_restart_and_never_conflates_archive_with_delete ... ok
+test worktree::tests::isolation_requires_a_repository_with_a_commit ... ok
+test worktree::tests::discard_refuses_paths_and_branches_it_did_not_create ... ok
+test worktree::tests::a_subdirectory_workspace_cannot_be_isolated ... ok
+test worktree::tests::discarding_a_worktree_never_deletes_shared_workspace_data ... ok
+test worktree::tests::preview_does_not_mutate_the_workers_index ... ok
+test worktree::tests::preview_surfaces_conflicts_with_concurrent_shared_edits ... ok
+test worktree::tests::isolated_work_never_reaches_the_shared_workspace_until_adoption ... ok
+test repair::tests::run_repair_command_reports_success_failure_and_spawn_errors ... ok
+test run::tests::real_claude_runs_and_completes_a_turn ... ok
+test run::tests::real_codex_worker_task_executes_and_closes_with_result ... ok
+test run::tests::real_codex_receives_a_fallback_after_engine_failure ... ok
+test run::tests::real_codex_runs_and_completes_a_turn ... ok
+
+test result: ok. 173 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.99s
+
+--- exit=0 ---
+=== ALL DONE ===

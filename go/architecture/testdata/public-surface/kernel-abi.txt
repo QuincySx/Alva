@@ -1,0 +1,616 @@
+const (
+	AccessRead  Access = "read"
+	AccessWrite Access = "write"
+)
+
+const (
+	AlwaysPresent ContextLayer = "always_present"
+	OnDemand      ContextLayer = "on_demand"
+	RuntimeInject ContextLayer = "runtime_inject"
+	MemoryLayer   ContextLayer = "memory"
+)
+
+const (
+	CompressWindow      CompressionKind = "window"
+	CompressSummary     CompressionKind = "summary"
+	CompressToolResult  CompressionKind = "tool_result"
+	CompressExternalize CompressionKind = "externalize"
+	CompressPriority    CompressionKind = "priority"
+)
+
+const (
+	Disposable Priority = iota
+	Low
+	Normal
+	High
+	Critical
+)
+
+const (
+	EffectRead    EffectKind = "read"
+	EffectWrite   EffectKind = "write"
+	EffectExecute EffectKind = "execute"
+	EffectNetwork EffectKind = "network"
+	EffectUnknown EffectKind = "unknown"
+)
+
+const (
+	EventRunStarted     EventKind = "run_started"
+	EventTextDelta      EventKind = "text_delta"
+	EventReasoningDelta EventKind = "reasoning_delta"
+	EventContentBlock   EventKind = "content_block"
+
+	EventMessageCommitted EventKind = "message_committed"
+	EventToolStarted      EventKind = "tool_started"
+	EventToolCompleted    EventKind = "tool_completed"
+	EventUsage            EventKind = "usage"
+	EventRunCompleted     EventKind = "run_completed"
+	EventRunFailed        EventKind = "run_failed"
+)
+
+const (
+	FromStart SelectorKind = "from_start"
+	ToEnd     SelectorKind = "to_end"
+	ByIndex   SelectorKind = "by_index"
+	ByID      SelectorKind = "by_id"
+)
+
+const (
+	IngestKeep   IngestKind = "keep"
+	IngestSkip   IngestKind = "skip"
+	IngestModify IngestKind = "modify"
+)
+
+const (
+	InjectSystem  InjectionKind = "system"
+	InjectSkill   InjectionKind = "skill"
+	InjectMessage InjectionKind = "message"
+	InjectRuntime InjectionKind = "runtime"
+	InjectMemory  InjectionKind = "memory"
+)
+
+const (
+	OutcomeSucceeded OutcomeStatus = "succeeded"
+	OutcomeFailed    OutcomeStatus = "failed"
+	OutcomeCancelled OutcomeStatus = "cancelled"
+)
+
+const (
+	Parallel     ExecutionMode = "parallel"
+	SerialGlobal ExecutionMode = "serial_global"
+	Coordinator  ExecutionMode = "coordinator"
+)
+
+const (
+	RecordConversation RecordKind = "conversation"
+	RecordModelIntent  RecordKind = "model_intent"
+	RecordModelOutcome RecordKind = "model_outcome"
+	RecordToolIntent   RecordKind = "tool_intent"
+	RecordToolOutcome  RecordKind = "tool_outcome"
+	RecordExtension    RecordKind = "extension"
+)
+
+func (err *SessionError) Error() string
+
+func (err *SessionError) Unwrap() error
+
+func (err *ToolBlockedError) Error() string
+
+func (r SessionRecord) Validate() error
+
+func (registry *ToolRegistry) Get(name string) (Tool, bool)
+
+func (registry *ToolRegistry) Register(tool Tool) error
+
+func (registry *ToolRegistry) Remove(name string) bool
+
+func (registry *ToolRegistry) Replace(tool Tool) (Tool, error)
+
+func (registry *ToolRegistry) Snapshot() ToolRegistrySnapshot
+
+func (scheduling Scheduling) Validate() error
+
+func (state *AgentState) Extensions() *Extensions
+
+func (state *AgentState) Model() LanguageModel
+
+func (state *AgentState) Session() ConversationLog
+
+func (state *AgentState) SetModel(model LanguageModel) error
+
+func (state *AgentState) SetSession(session ConversationLog) error
+
+func (state *AgentState) Tools() *ToolRegistry
+
+func BuiltinRecord(record SessionRecord) SessionRecord
+
+func CloneEvent(event Event) Event
+
+func CloneRecords(records []SessionRecord) []SessionRecord
+
+func DeleteExtension[T any](extensions *Extensions)
+
+func GetExtension[T any](extensions *Extensions) (T, bool)
+
+func NewAgentState(model LanguageModel, session ConversationLog, tools []Tool) (*AgentState, error)
+
+func NewExtensions() *Extensions
+
+func NewToolRegistry(tools []Tool) (*ToolRegistry, error)
+
+func NormalizeResource(resource, workspace string) string
+
+func OnlyCancellation(err error) bool
+
+func PutExtension[T any](extensions *Extensions, value T)
+
+func SchedulingConflicts(left, right Scheduling, workspace string) bool
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/QuincySx/Alva/go/sdk/kernel/bus"
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"fmt"
+)
+
+import (
+	"context"
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+	"time"
+)
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/QuincySx/Alva/go/sdk/kernel/bus"
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+	"reflect"
+	"sync"
+	"unicode/utf8"
+)
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+)
+
+import (
+	"errors"
+	"path"
+	"strings"
+)
+
+import (
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+)
+
+type Access string
+
+type AfterModelHook interface {
+	AfterModel(context.Context, RuntimeContext, *wire.Message) error
+}
+
+type AfterToolHook interface {
+	AfterTool(context.Context, ToolExecutionContext, wire.ToolCall, *wire.ToolResult) error
+}
+
+type AgentState struct {
+}
+
+type BeforeModelHook interface {
+	BeforeModel(context.Context, RuntimeContext, *ModelRequest) error
+}
+
+type BeforeToolHook interface {
+	BeforeTool(context.Context, ToolExecutionContext, wire.ToolCall) error
+}
+
+type BudgetInfo struct {
+	ModelWindow, BudgetTokens, UsedTokens, RemainingTokens int
+	UsageRatio                                             float64
+}
+
+type CompressAction struct {
+	Kind                     CompressionKind
+	KeepRecent               int
+	Range                    MessageRange
+	Hints                    []string
+	MessageID, Summary, Path string
+	Priority                 Priority
+}
+
+type CompressionKind string
+
+type ContextAfterTurnHook interface {
+	AfterTurn(context.Context, ContextHandle, string) error
+}
+
+type ContextApply interface {
+	ApplyInjections(context.Context, []Injection, *[]string, *[]wire.Message) error
+	ApplyCompressions(context.Context, []CompressAction, *[]wire.Message, ContextHandle, string) error
+}
+
+type ContextAssembleHook interface {
+	Assemble(context.Context, ContextHandle, string, []ContextEntry, int) ([]ContextEntry, error)
+}
+
+type ContextBootstrapHook interface {
+	Bootstrap(context.Context, ContextHandle, string) error
+}
+
+type ContextBudgetHook interface {
+	OnBudgetExceeded(context.Context, ContextHandle, string, ContextSnapshot) ([]CompressAction, error)
+}
+
+type ContextDisposeHook interface{ Dispose(context.Context) error }
+
+type ContextEntry struct {
+	ID       string
+	Message  wire.Message
+	Metadata ContextMetadata
+}
+
+type ContextHandle interface {
+	Snapshot(string) ContextSnapshot
+	Budget(string) BudgetInfo
+	Entries(string) []ContextEntry
+	ReadMessage(string, string) (ContextEntry, bool)
+	InjectMessage(string, ContextLayer, wire.Message) error
+	TagPriority(string, string, Priority) error
+	TagExclude(string, string) error
+	AdvanceTurn(string)
+}
+
+type ContextHooks interface{ Name() string }
+
+type ContextIngestHook interface {
+	Ingest(context.Context, ContextHandle, string, ContextEntry) (IngestAction, error)
+}
+
+type ContextLayer string
+
+type ContextMessageHook interface {
+	OnMessage(context.Context, ContextHandle, string, wire.Message) ([]Injection, error)
+}
+
+type ContextMetadata struct {
+	Layer                                                     ContextLayer
+	Priority                                                  Priority
+	EstimatedTokens                                           int
+	Compacted                                                 bool
+	ExternalizedPath, ReplacementSummary, SourceAgent, Origin string
+	CreatedAt                                                 time.Time
+	CreatedAtTurn                                             uint64
+	Excluded                                                  bool
+}
+
+type ContextSnapshot struct {
+	TotalTokens, BudgetTokens, ModelWindow int
+	UsageRatio                             float64
+	Layers                                 map[ContextLayer]LayerStats
+	Entries                                []EntrySnapshot
+	ToolPatterns                           []ToolPattern
+}
+
+type ContextSource interface {
+	Load(context.Context, ConversationReader) ([]wire.Message, error)
+}
+
+type ContextSystem struct {
+	Hooks        ContextHooks
+	Handle       ContextHandle
+	Apply        ContextApply
+	Counter      TokenCounter
+	BudgetTokens int
+}
+
+type ConversationLog interface {
+	ConversationReader
+	AppendRecords(context.Context, []SessionRecord) ([]SessionRecord, error)
+	Flush(context.Context) error
+}
+
+type ConversationReader interface {
+	ID() string
+	Messages(context.Context) ([]wire.Message, error)
+}
+
+type Effect struct {
+	Kind        EffectKind
+	Description string
+	Resources   []ResourceClaim
+}
+
+type EffectKind string
+
+type EntrySnapshot struct {
+	ID              string
+	Layer           ContextLayer
+	Priority        Priority
+	EstimatedTokens int
+	Origin          string
+	AgeTurns        uint64
+	Preview         string
+}
+
+type Event struct {
+	Kind         EventKind          `json:"kind"`
+	Text         string             `json:"text,omitempty"`
+	ContentBlock *wire.ContentBlock `json:"content_block,omitempty"`
+	Message      *wire.Message      `json:"message,omitempty"`
+	ToolCall     *wire.ToolCall     `json:"tool_call,omitempty"`
+	ToolResult   *wire.ToolResult   `json:"tool_result,omitempty"`
+	Record       *RecordReference   `json:"record,omitempty"`
+	Usage        *wire.Usage        `json:"usage,omitempty"`
+	Error        string             `json:"error,omitempty"`
+}
+
+type EventKind string
+
+type EventSink interface {
+	Emit(context.Context, Event) error
+}
+
+type ExecutionMode string
+
+type Extensions struct {
+}
+
+type IngestAction struct {
+	Kind     IngestKind
+	Message  *wire.Message
+	Priority *Priority
+}
+
+type IngestKind string
+
+type Injection struct {
+	Kind            InjectionKind
+	Layer           ContextLayer
+	Priority        Priority
+	Section         *PromptSection
+	SkillName, Text string
+	Message         *wire.Message
+	Memory          []MemoryFact
+}
+
+type InjectionKind string
+
+type InputCommittedHook interface {
+	InputCommitted(context.Context, RuntimeContext, wire.Message) error
+}
+
+type LanguageModel interface {
+	Stream(context.Context, ModelRequest, func(wire.StreamChunk) error) error
+}
+
+type LayerStats struct {
+	Tokens, Entries int
+	Percentage      float64
+}
+
+type MemoryFact struct {
+	ID, Text, Fingerprint, Category, SourceSession string
+	Confidence                                     float64
+	CreatedAt, LastAccessedAt                      time.Time
+	AccessCount                                    uint64
+}
+
+type MessageRange struct{ From, To MessageSelector }
+
+type MessageSelector struct {
+	Kind  SelectorKind
+	Index int
+	ID    string
+}
+
+type Middleware interface{ Name() string }
+
+type ModelAdmissionHook interface {
+	AdmitModel(context.Context, RuntimeContext, ModelRequest) error
+}
+
+type ModelFunc func(context.Context, RuntimeContext, ModelRequest, func(wire.StreamChunk) error) error
+
+type ModelIdentity interface {
+	ProviderID() string
+	ModelID() string
+}
+
+type ModelIntent struct {
+	RequestID string `json:"request_id"`
+}
+
+type ModelOutcome struct {
+	RequestID string        `json:"request_id"`
+	Status    OutcomeStatus `json:"status"`
+	Error     string        `json:"error,omitempty"`
+	Usage     *wire.Usage   `json:"usage,omitempty"`
+}
+
+type ModelRequest struct {
+	Messages []wire.Message
+	Tools    []wire.ToolDefinition
+	Config   wire.ModelConfig
+}
+
+type ModelWrapper interface {
+	WrapModel(context.Context, RuntimeContext, ModelRequest, func(wire.StreamChunk) error, ModelFunc) error
+}
+
+type OutcomeStatus string
+
+type PersistentSession interface {
+	ConversationLog
+	SessionStore
+}
+
+type PrepareToolHook interface {
+	PrepareTool(context.Context, ToolPreparationContext, wire.ToolCall) (ToolPreparation, error)
+}
+
+type Priority int
+
+type PromptSection struct {
+	ID, Content string
+	Priority    Priority
+}
+
+type RecordKind string
+
+type RecordReference struct {
+	SessionID string `json:"session_id"`
+	RecordID  string `json:"record_id"`
+	Sequence  uint64 `json:"sequence"`
+}
+
+type ResourceClaim struct {
+	Resource string
+	Access   Access
+}
+
+type RunEndHook interface {
+	OnRunEnd(context.Context, RuntimeContext, error) error
+}
+
+type RunStartHook interface {
+	OnRunStart(context.Context, RuntimeContext) error
+}
+
+type RuntimeContext struct {
+	InvocationModel LanguageModel
+
+	InvocationSessionID string
+	RunID               string
+	State               *AgentState
+	Workspace           string
+	Capabilities        bus.Handle
+}
+
+type Scheduling struct {
+	ConcurrentSafe    bool
+	Resources         []ResourceClaim
+	ExecutionMode     ExecutionMode
+	ManagesOwnTimeout bool
+}
+
+type SelectorKind string
+
+type SessionError struct {
+	Operation string
+	SessionID string
+	Err       error
+}
+
+type SessionRecord struct {
+	Sequence      uint64           `json:"sequence"`
+	ID            string           `json:"id"`
+	Time          time.Time        `json:"time"`
+	Namespace     string           `json:"namespace"`
+	Type          string           `json:"type"`
+	SchemaVersion uint32           `json:"schema_version"`
+	Parent        *RecordReference `json:"parent,omitempty"`
+	Kind          RecordKind       `json:"kind"`
+	Payload       json.RawMessage  `json:"payload,omitempty"`
+	Message       *wire.Message    `json:"message,omitempty"`
+	ModelIntent   *ModelIntent     `json:"model_intent,omitempty"`
+	ModelOutcome  *ModelOutcome    `json:"model_outcome,omitempty"`
+	ToolIntent    *ToolIntent      `json:"tool_intent,omitempty"`
+	ToolOutcome   *ToolOutcome     `json:"tool_outcome,omitempty"`
+}
+
+type SessionStore interface {
+	Records(context.Context, uint64) ([]SessionRecord, error)
+}
+
+type TokenCounter interface {
+	CountTokens(string) int
+	ContextWindow() int
+}
+
+type Tool interface {
+	Name() string
+	Description() string
+	ParametersSchema() json.RawMessage
+	Execute(context.Context, ToolExecutionContext, wire.ToolCall) (wire.ToolResult, error)
+	Scheduling(wire.ToolCall) Scheduling
+	DescribeEffect(wire.ToolCall) Effect
+	IsReadOnly(wire.ToolCall) bool
+}
+
+type ToolBlockedError struct{ Reason string }
+
+type ToolExecutionContext struct {
+	SessionID    string
+	RunID        string
+	CallID       string
+	Workspace    string
+	Progress     EventSink
+	Capabilities bus.Handle
+	Scheduling   Scheduling
+	Session      ConversationLog
+
+	ActualTool Tool
+}
+
+type ToolFunc func(context.Context, ToolExecutionContext, wire.ToolCall) (wire.ToolResult, error)
+
+type ToolIntent struct {
+	RunID string        `json:"run_id"`
+	Call  wire.ToolCall `json:"call"`
+
+	DeclaredCall *wire.ToolCall `json:"declared_call,omitempty"`
+
+	NoSideEffect bool       `json:"no_side_effect,omitempty"`
+	Effect       Effect     `json:"effect"`
+	Scheduling   Scheduling `json:"scheduling"`
+	ReadOnly     bool       `json:"read_only"`
+}
+
+type ToolOutcome struct {
+	RunID  string          `json:"run_id"`
+	CallID string          `json:"call_id"`
+	Status OutcomeStatus   `json:"status"`
+	Result wire.ToolResult `json:"result"`
+	Error  string          `json:"error,omitempty"`
+}
+
+type ToolPattern struct {
+	ToolName                                          string
+	CallCount, AverageResultTokens, TotalResultTokens int
+}
+
+type ToolPreparation struct {
+	Arguments json.RawMessage
+	Result    *wire.ToolResult
+}
+
+type ToolPreparationContext struct {
+	Runtime    RuntimeContext
+	ActualTool Tool
+}
+
+type ToolRegistry struct {
+}
+
+type ToolRegistrySnapshot struct {
+	Version     uint64
+	Tools       []Tool
+	Definitions []wire.ToolDefinition
+}
+
+type ToolWrapper interface {
+	WrapTool(context.Context, ToolExecutionContext, wire.ToolCall, ToolFunc) (wire.ToolResult, error)
+}

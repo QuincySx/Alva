@@ -1,0 +1,21 @@
+
+> alva-hub-desktop-web@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-desktop/web
+
+ ✓ src/i18n.test.tsx (3 tests) 36ms
+ ✓ src/components/workbench-tools.test.tsx (2 tests) 41ms
+ ✓ src/components/chat-transcript.test.tsx (3 tests) 31ms
+ ✓ src/ui/ui.test.tsx (10 tests) 101ms
+ ✓ src/App.pure.test.tsx (17 tests) 4ms
+ ✓ src/components/components.test.tsx (30 tests) 1137ms
+ ✓ src/App.integration.test.tsx (34 tests) 3654ms
+   ✓ App integration > renders team workers with lifecycle controls and dispatches actions 696ms
+
+ Test Files  7 passed (7)
+      Tests  99 passed (99)
+   Start at  21:28:45
+   Duration  20.30s (transform 855ms, setup 8.86s, collect 22.90s, tests 5.00s, environment 76.53s, prepare 3.34s)
+

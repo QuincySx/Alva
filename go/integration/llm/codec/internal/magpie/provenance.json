@@ -1,0 +1,582 @@
+{
+  "repository": "https://github.com/yetone/magpie",
+  "commit": "e085d6e9262786815c0f6c5ff65c5a585916cc9e",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 yetone",
+  "files": [
+    {
+      "path": "internal/gateway/additional_tools.go",
+      "sha256": "5f62cf5f7cf55659496d2dbeb8c173cd599071250fea1a55272772b08a1c84d7",
+      "declarations": [
+        "liteNamespace",
+        "liftAdditionalTools",
+        "toolsByName",
+        "toolKey",
+        "addTool",
+        "containsNamed"
+      ],
+      "local_path": "upstream_additional_tools.go"
+    },
+    {
+      "path": "internal/gateway/advisor.go",
+      "sha256": "15525643fd5dc6f67f0e55f07e26490fde66ce9f737731395f5392e5376463f2",
+      "declarations": [
+        "advisorNote",
+        "advisorGoneIn"
+      ],
+      "local_path": "upstream_advisor.go"
+    },
+    {
+      "path": "internal/gateway/anthropic.go",
+      "sha256": "b43f6ea42783b889f7397fe82a0dc856a526e3feab20f19ce6712f8a69fa9dc3",
+      "declarations": [
+        "aBlock",
+        "aBlock.MarshalJSON",
+        "ephemeral",
+        "aRequest",
+        "parseAnthropic",
+        "parseAnthropicRequest",
+        "anthropicModel",
+        "claudeVersion",
+        "adaptiveOnly",
+        "noXhigh",
+        "claudeVersionOf",
+        "effortInOutputConfig",
+        "imageBlock",
+        "aMessage",
+        "interruptedTool",
+        "buildAnthropic",
+        "anthropicBody",
+        "pairToolBlocks",
+        "resultSaid",
+        "aUsage",
+        "aCacheCreation",
+        "aUsage.usage",
+        "Usage.anthropic",
+        "stopToAnthropic",
+        "anthropicEncoder",
+        "anthropicID",
+        "anthropicIDMark",
+        "anthropicOutID",
+        "anthropicInID",
+        "safeCallID",
+        "rawCallID",
+        "safeIDChars",
+        "anthropicEncoder.start",
+        "anthropicEncoder.close",
+        "anthropicEncoder.openBlock",
+        "anthropicEncoder.thinking",
+        "anthropicEncoder.delta",
+        "anthropicEncoder.event",
+        "anthropicEncoder.keepalive",
+        "anthropicEncoder.finish",
+        "renderAnthropic",
+        "searchResultBlock",
+        "idSeq",
+        "idClock",
+        "newID"
+      ],
+      "local_path": "upstream_anthropic.go"
+    },
+    {
+      "path": "internal/gateway/anthropic_shapes.go",
+      "sha256": "871c305a4c13fefdae6d9cadfe47c7ccc7ac7eb73200c9f63326614e9c3715d7",
+      "declarations": [
+        "emptyContent",
+        "toolLoadedText"
+      ],
+      "local_path": "upstream_anthropic_shapes.go"
+    },
+    {
+      "path": "internal/gateway/chat.go",
+      "sha256": "6ae85aff44f112c153adfb1473acdacf486c87de4a811fd182fca83c9168948a",
+      "declarations": [
+        "cToolCall",
+        "cRequest",
+        "parseChat",
+        "chatParts",
+        "chatFile",
+        "imagePart",
+        "dataURL",
+        "failedAsText",
+        "chatReplaysReasoning",
+        "buildChat",
+        "pairToolMessages",
+        "toolMsgID",
+        "emptyAssistant",
+        "silentAssistant",
+        "withoutSilentAssistants",
+        "joinedUserContent",
+        "aiStudioHost",
+        "geminiCompat",
+        "aiStudioThinking",
+        "Usage.chat",
+        "stopToChat",
+        "chatEncoder",
+        "chatEncoder.chunk",
+        "chatEncoder.start",
+        "chatEncoder.event",
+        "chatEncoder.keepalive",
+        "chatEncoder.finish",
+        "renderChat"
+      ],
+      "local_path": "upstream_chat.go"
+    },
+    {
+      "path": "internal/gateway/chat_tool_shape.go",
+      "sha256": "37c37d9def62dfc45bba442adca209d563f8115dff581f0da680c6d2fe2237e6",
+      "declarations": [
+        "shapeChatTools",
+        "unshapedChatTool"
+      ],
+      "local_path": "upstream_chat_tool_shape.go"
+    },
+    {
+      "path": "internal/gateway/chattidy.go",
+      "sha256": "a5df7f5905e8d229e81f0451069f88320e4d3b0274102431f25909b67559a792",
+      "declarations": [
+        "messageReasoning",
+        "reasoningText",
+        "noReasoning"
+      ],
+      "local_path": "upstream_chattidy.go"
+    },
+    {
+      "path": "internal/gateway/claude_subscription.go",
+      "sha256": "30f784630a2f59e08f97470a030f53309fb38548e3107ab174dfddd9565c8d34",
+      "declarations": [
+        "Usage.carryUpdate",
+        "Usage.plus"
+      ],
+      "local_path": "upstream_usage_merge.go"
+    },
+    {
+      "path": "internal/gateway/codeassist.go",
+      "sha256": "7349419948e367fcef89962fdfd0158e9e363594aff236322b781377fc45cbe4",
+      "declarations": [
+        "skipSignature",
+        "unsafeToolID",
+        "buildCodeAssistSent",
+        "dropSecondAnswers",
+        "interruptedToolNote",
+        "pairFunctionTurns",
+        "thinkingConfig",
+        "geminiVersion",
+        "geminiGeneration",
+        "plainSchema",
+        "hasResponse"
+      ],
+      "local_path": "upstream_codeassist.go"
+    },
+    {
+      "path": "internal/gateway/codex_backend.go",
+      "sha256": "4651041f8b800558daafea434338c4dd3a5790274773729617068adc33f8a640",
+      "declarations": [
+        "openaiItemPrefix"
+      ],
+      "local_path": "upstream_codex_backend.go"
+    },
+    {
+      "path": "internal/gateway/compacting.go",
+      "sha256": "38ecfc6ba6d7e384de97d2215b2df9961f33a3b2574a7896336eb111797596ca",
+      "declarations": [
+        "compactLead",
+        "compactSystems",
+        "compactAsk",
+        "compactAsks",
+        "leads",
+        "compacting"
+      ],
+      "local_path": "upstream_compacting.go"
+    },
+    {
+      "path": "internal/gateway/continuation.go",
+      "sha256": "b7af3b5fd80c9e612e8ff0852f015acd17a869b296920468c84b98af9cd3edae",
+      "declarations": [
+        "chatPrefill"
+      ],
+      "local_path": "upstream_continuation.go"
+    },
+    {
+      "path": "internal/gateway/format.go",
+      "sha256": "7392169294f5aaf4463d3832e6405dfeb9bf9c0c8cc9558935e5974b464e7305",
+      "declarations": [
+        "Format",
+        "formatName",
+        "openAIFormat",
+        "Format.schema",
+        "Format.responses",
+        "Format.chat",
+        "Format.instruction",
+        "Request.inSystem",
+        "Request.asObject",
+        "withLine",
+        "Request.wantsJSON"
+      ],
+      "local_path": "upstream_format.go"
+    },
+    {
+      "path": "internal/gateway/gateway.go",
+      "sha256": "a188bce2046820465da1ca2be2cc64445b44c91c7b480187cc6c1396a7223fe8",
+      "declarations": [
+        "offEffort",
+        "withFields"
+      ],
+      "local_path": "upstream_gateway.go"
+    },
+    {
+      "path": "internal/gateway/gemini.go",
+      "sha256": "c4826649978ca8792dae895e4ef27199d7a549eeb7fb52d852b08a078f33c204",
+      "declarations": [
+        "gPart",
+        "gContent",
+        "gRequest",
+        "gThinking",
+        "gThinking.effort",
+        "buildGemini",
+        "geminiRequest",
+        "geminiCamel",
+        "geminiOwn",
+        "camelKeys",
+        "snakeToCamel",
+        "parseGemini",
+        "geminiText",
+        "functionResponseParts",
+        "functionResponseText",
+        "firstJSON",
+        "jsonSchema",
+        "stopToGemini",
+        "Usage.gemini",
+        "geminiParts",
+        "geminiEncoder",
+        "geminiEncoder.chunk",
+        "geminiEncoder.keepalive",
+        "geminiEncoder.start",
+        "geminiEncoder.flushTool",
+        "geminiEncoder.event",
+        "geminiEncoder.finish",
+        "renderGemini"
+      ],
+      "local_path": "upstream_gemini.go"
+    },
+    {
+      "path": "internal/gateway/gemini_signature.go",
+      "sha256": "d4ea6bdd8c5572b78056beb197f67143c7a33fc89ffe5188efd556a37a23387e",
+      "declarations": [
+        "googleSignature",
+        "googleExtra"
+      ],
+      "local_path": "upstream_gemini_signature.go"
+    },
+    {
+      "path": "internal/gateway/ir.go",
+      "sha256": "fdf426ebe1a388a8765582d1a44d1921d738b143ada812e5b8f15fd720273712",
+      "declarations": [
+        "Kind",
+        "Text",
+        "Part",
+        "sealAnthropic",
+        "Part.sealedBy",
+        "Hit",
+        "attachmentText",
+        "Message",
+        "joinSplitCalls",
+        "hasCalls",
+        "Tool",
+        "Request",
+        "nsTool",
+        "EventKind",
+        "KStart",
+        "Event",
+        "Usage",
+        "Usage.billed",
+        "Usage.prompt",
+        "Usage.add",
+        "Result",
+        "collector",
+        "collector.last",
+        "collector.open",
+        "collector.closeTool",
+        "collector.add",
+        "collector.finish",
+        "argsOf",
+        "argsString",
+        "parseArgs",
+        "text",
+        "stringOrText",
+        "toolOutput",
+        "effortOf",
+        "budgetOf",
+        "effortOfBudget"
+      ],
+      "local_path": "upstream_ir.go"
+    },
+    {
+      "path": "internal/gateway/maxoutput.go",
+      "sha256": "7806755d35c2ecbaf09eab4bc58a9de26b9f037c060968e2b95cebea143ed6ea",
+      "declarations": [
+        "defaultMaxTokens"
+      ],
+      "local_path": "upstream_maxoutput.go"
+    },
+    {
+      "path": "internal/gateway/message_tools.go",
+      "sha256": "b9abf6b389e7d50c440e5a566841f8b2a0bb92f8686633cbb4a5f802d841c030",
+      "declarations": [
+        "liftMessageTools",
+        "chatToolKey"
+      ],
+      "local_path": "upstream_message_tools.go"
+    },
+    {
+      "path": "internal/gateway/phase.go",
+      "sha256": "6f73fb79d99c09b4c8971bcba36ae20657e95d07822c76de4fe2c98f532e556a",
+      "declarations": [
+        "phaseCommentary",
+        "heldMost",
+        "unphased",
+        "phaseOutput"
+      ],
+      "local_path": "upstream_phase.go"
+    },
+    {
+      "path": "internal/gateway/prefill.go",
+      "sha256": "bd1b5c400d94638ce1ffd609dd80d990f5449e1322f9a4e38a1e61ea1f2809ea",
+      "declarations": [
+        "continueText",
+        "compactLastText",
+        "modelLastAsk",
+        "Request.endsWithAssistant",
+        "Request.userLast"
+      ],
+      "local_path": "upstream_prefill.go"
+    },
+    {
+      "path": "internal/gateway/responses.go",
+      "sha256": "1e99e6e1f67c1da8074413def2d04b2b2b297b15b45242e2135fa4806badebe3",
+      "declarations": [
+        "rItem",
+        "rArgs",
+        "rArgs.UnmarshalJSON",
+        "rText",
+        "rTool",
+        "rFormat",
+        "customSchema",
+        "customDescription",
+        "customInput",
+        "toolSearch",
+        "searchFound",
+        "unsealed",
+        "flatName",
+        "rRequest",
+        "textFormat",
+        "sentRaw",
+        "parseResponses",
+        "toolCallItem",
+        "toolResultItem",
+        "pairToolItems",
+        "mergeTurns",
+        "responsesParts",
+        "replaysReasoning",
+        "stepKind",
+        "stepOther",
+        "stepKindOf",
+        "noReasoningItem",
+        "reasonFirst",
+        "sealedReasoning",
+        "buildResponses",
+        "Usage.responses",
+        "saidError",
+        "responsesEncoder",
+        "heldEvent",
+        "callTo",
+        "itemPrefix",
+        "responsesEncoder.send",
+        "responsesEncoder.write",
+        "responsesEncoder.release",
+        "responsesEncoder.response",
+        "responsesEncoder.start",
+        "responsesEncoder.closeItem",
+        "responsesEncoder.closeAs",
+        "responsesEncoder.openItem",
+        "responsesEncoder.event",
+        "responsesEncoder.keepalive",
+        "responsesEncoder.finish",
+        "responsesSearchItem",
+        "renderResponses"
+      ],
+      "local_path": "upstream_responses.go"
+    },
+    {
+      "path": "internal/gateway/toolsearch.go",
+      "sha256": "c6773e7fc43de306a794ae1c1ffcf2cb8c0bb2fa18af83dd8cb635e20acc88de",
+      "declarations": [
+        "marshalPlain"
+      ],
+      "local_path": "upstream_toolsearch.go"
+    },
+    {
+      "path": "internal/gateway/vertex.go",
+      "sha256": "1647f708e10b1fb96e04e8029aeb36b760a432ef3cf83b51906571e21eb3a623",
+      "declarations": [
+        "vertexThinking",
+        "vertexBudgets"
+      ],
+      "local_path": "upstream_vertex.go"
+    },
+    {
+      "path": "internal/gateway/whole_stream.go",
+      "sha256": "6d34553f89423c2f1ccadeb9e683f55042a7a8a257f76fc92a59878ce0dac385",
+      "declarations": [
+        "wholeEvent",
+        "obj",
+        "raw",
+        "str",
+        "chatWholeEvents",
+        "responsesWholeEvents",
+        "anthropicWholeEvents",
+        "orNull"
+      ],
+      "local_path": "upstream_whole_stream.go"
+    },
+    {
+      "path": "internal/provider/grok.go",
+      "sha256": "eb5af589e0fb9856f79bca5a943ad2904de5a9742ccc80cb9390dcbde8bc23c4",
+      "declarations": [
+        "FlatName"
+      ],
+      "local_path": "bridge.go"
+    },
+    {
+      "path": "internal/catalog/catalog.go",
+      "sha256": "3ce003cf6a37cafb3af40f2130e72c1fc4bcb7617814a0c03bf1085558f02fe1",
+      "declarations": [
+        "DrawsID"
+      ],
+      "local_path": "bridge.go"
+    }
+  ],
+  "local_adaptations": [
+    "Package renamed and declarations extracted by Go AST dependency closure; only protocol conversion and pure helpers retained.",
+    "HTTP/account/settings/catalog IO, retries, ambient discovery, persistent signature store and subscription cache integration excluded.",
+    "SSE writers replaced with synchronous framed-event callback; errors and limits belong to Alva codec.",
+    "Standard encoding/json replaces upstream fast JSON optimization; native strict validation precedes parsing.",
+    "Gemini builder retains pure request construction; Antigravity account-ID adaptation removed.",
+    "Gemini call signatures remain typed state; no signature encoding or disk lookup through call IDs.",
+    "Schema flattening removed; unrepresentable schema shapes must fail admission rather than silently weaken constraints.",
+    "Native validated response chunks bridge into Magpie IR/encoders; native identity remains raw JSON.",
+    "Native response decoding is reused from Alva and projected into Magpie IR; imported duplicate source decoders and text-call/think-tag heuristics were pruned.",
+    "Streaming initial text is incremental; tools and later content are validated and sorted using authoritative native content indices before Magpie encoding.",
+    "Gemini parser does not inject a structured-output request into system text; known output-format constraints stay in native fields.",
+    "Pure net/url and net/netip replace net host predicates; protocol status codes do not import HTTP. MIME hints use a fixed table, not ambient OS files.",
+    "Alva verifies source/target normalized request intent, unsupported variants, exact thinking budgets and flat-name collisions; compatibility degradation does not silently become success.",
+    "The upstream unsealed helper preserves all raw schema values; encryption-required annotations and grammar-constrained custom tools are rejected before upstream billing, while literal schema data remains intact."
+  ],
+  "local_files": [
+    {
+      "path": "bridge.go",
+      "sha256": "e7de5ad98d26f7217c15ec414f4d55e5cece167a0025063bfa65793ab883e676"
+    },
+    {
+      "path": "upstream_additional_tools.go",
+      "sha256": "b769502e257b92891341494995b730eb70a5cb511bad8221691fea36fed7bfa0"
+    },
+    {
+      "path": "upstream_advisor.go",
+      "sha256": "21472ea1e12eaf68d1fce1536e34401e0d00f24f615aca1fcee26e2aa21b95d0"
+    },
+    {
+      "path": "upstream_anthropic.go",
+      "sha256": "cb00783b8ba3e62723088ec3d9769a0a491e4860158d7575f7a030cb6708dbdc"
+    },
+    {
+      "path": "upstream_anthropic_shapes.go",
+      "sha256": "4e54f07b6e829df2ed75ccf6940c4ff5fa19eed035834d6a346897acf103cddc"
+    },
+    {
+      "path": "upstream_chat.go",
+      "sha256": "a2aff0889227f4e9d559b2b166abee4911a41f985606317713539147f6d48be4"
+    },
+    {
+      "path": "upstream_chat_tool_shape.go",
+      "sha256": "3b32322d54c54e327caad7c685ab939b08e3f03964c780f31efc0b34cf9cd11a"
+    },
+    {
+      "path": "upstream_chattidy.go",
+      "sha256": "7f9cdb5cb446af34b35ba70ff110717ccc046ec7355f62a5b90ce45e292ec7fa"
+    },
+    {
+      "path": "upstream_codeassist.go",
+      "sha256": "eabc46b51703d070e16463635abae0bfeaace27da15e03d673de713bd69bdb21"
+    },
+    {
+      "path": "upstream_codex_backend.go",
+      "sha256": "22c169d3d36ffad8a12f4071c67c377a0d2255b1e08dbcd3d30ec6b4aaf154e1"
+    },
+    {
+      "path": "upstream_compacting.go",
+      "sha256": "9075456d1098fdad993ae497a8e51894f020cce033cf0b8f1e22fc6b1e189b61"
+    },
+    {
+      "path": "upstream_continuation.go",
+      "sha256": "1c55a326fe5484595892e295a4f0ac163e584344ebce727460e9738adddc5bcf"
+    },
+    {
+      "path": "upstream_format.go",
+      "sha256": "3c6c8d168c57764465606d2f93a03151671c4b8ddc745c027143d3e0da6d0cc5"
+    },
+    {
+      "path": "upstream_gateway.go",
+      "sha256": "c2708c8a0103cfd5bef9e4e813a002df95ea7346d73ec56f616b951b32df0456"
+    },
+    {
+      "path": "upstream_gemini.go",
+      "sha256": "35edac50c5afc62ac8630ddb1e1be5e1e2da46fb9cf0babc2d771d91d7b22aa9"
+    },
+    {
+      "path": "upstream_gemini_signature.go",
+      "sha256": "70d68dbe38bebf6f9f12a1bebc03ce00dc039ae55e565dffcf85d3808754f1eb"
+    },
+    {
+      "path": "upstream_ir.go",
+      "sha256": "52cb7685cdcdc8aaeff75e6eea28c6a7e7f0c5e386ef148812f8f70378db10f8"
+    },
+    {
+      "path": "upstream_maxoutput.go",
+      "sha256": "9147f8a9e33d41f82918a0275cd20ad2685bc07678b7c4f1d0aadf580030c0b6"
+    },
+    {
+      "path": "upstream_message_tools.go",
+      "sha256": "4c2a3c4dd03e352b00f2dd33ae81abef48bb7bdbaee24d8236e87a8db4d3ccc3"
+    },
+    {
+      "path": "upstream_phase.go",
+      "sha256": "4e929532580818c48b79309a7298ea53a71f75a0ace9ea5ef6027d605d4fe80b"
+    },
+    {
+      "path": "upstream_prefill.go",
+      "sha256": "7f99ac68fe168b31e9a393d9bbad0114d41fc93c8d9a4eb6974ed390ec09d260"
+    },
+    {
+      "path": "upstream_responses.go",
+      "sha256": "2cdaf5dc420e7bf78a0e11366dd6285e66451a828b1c27300fca99549b0b7bfe"
+    },
+    {
+      "path": "upstream_toolsearch.go",
+      "sha256": "c66e6d6a36ddb82770e51f809182bb880d583baa66567239ca6f4a1ca934aabc"
+    },
+    {
+      "path": "upstream_usage_merge.go",
+      "sha256": "774142f7df7be0b3cc8648aa4b9cea9cafc0cd1f726f0394b7bbda2de5cf0423"
+    },
+    {
+      "path": "upstream_vertex.go",
+      "sha256": "50178900c49c4e074aefb59a55bfdffdad127ea4ffc2947d9c9d954187b21537"
+    },
+    {
+      "path": "upstream_whole_stream.go",
+      "sha256": "366e828c1e315432f873d882fedbdeafab117b9316e0c96e9dc77a7a132ecf2a"
+    }
+  ],
+  "license_sha256": "79d2c8444715d4bc453ec4f8a0aaf2051a4c1ee5ac08f5bd2e5848aef87c7572"
+}

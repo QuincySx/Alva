@@ -1,11 +1,40 @@
 # Alva
 
+> **2026-10-16 Go 迁移开始**：用户已接受 [ADR-0012](./docs/adr/0012-go-native-stack.md)。
+> 目标实现位于 [`go/`](./go/AGENTS.md)，保留以下细分职责与依赖方向，不带历史兼容层；
+> 桌面采用 MyGo 自绘，不依赖 React。任何抽象合并先讨论，未有明确结论则保留。
+> 下面 Rust crate 清单仍是现有产品与迁移验收参考，不代表 Go 已全部对等；逐层状态见
+> [`go/MIGRATION.md`](./go/MIGRATION.md)。不隐式删除旧源码、依赖、缓存或用户历史。
+
 > Rust 实现的分层 AI Agent 框架。架构核心是**稳定的 SDK 内核 + 一切通过插件扩展**——
 > kernel 和 agent-core 不接受功能扩展，所有可选行为都是 `Tool` / `Plugin` / `Middleware`。
 
 > **⚠ 本项目采用分形文档协议，必须严格遵守 [FRACTAL-DOCS.md](./FRACTAL-DOCS.md) 中定义的三层文档规范。**
 
 ---
+
+## Go 当前目录地图（先读这一层）
+
+目标代码以 [`go/README.md`](./go/README.md#先看地图l0--l7) 的 L0→L7 总图为入口，
+再按 [`go/AGENTS.md`](./go/AGENTS.md) 逐层进入。以下分类只重排位置，不合并现有抽象，
+不保留旧包路径 alias；目录分类完成不等于功能或产品对等验收完成。
+
+| 目录 | 层级/职责 |
+|---|---|
+| `go/sdk/` | L0 wire/bus/沙箱 ABI；L1 kernel 契约；L2 通用循环；L2.3 Agent 语义；L2.5 Plugin 装配；L3 能力库 |
+| `go/extension/` | L4 可选 Tool/Plugin/Middleware，不把功能写入稳定内核 |
+| `go/harness/` | L5 BaseAgent 默认配方、同名 Plugin 替换、引用/历史/子会话政策 |
+| `go/apps/` | L6 direct/Gateway 与 L7 Hub；命令在 apps/cmd，Hub UI/HTTP 共用 apps/hub/bootstrap |
+| `go/integration/` | 横向模型/协议/引擎适配；仅 engine 根契约是 L4.5，Alva 与 process adapter 是产品桥接而非 SDK |
+| `go/platform/` | 横向 host 执行/审批所有权、system 底层 OS 原语、storage、sandbox；纯 ABI 不混在实现里 |
+| `go/architecture/` | 实际 tagged import 图、公开面快照与分形文档检查 |
+
+SDK 不依赖 integration/platform/extension/harness/apps，kernel 不反向依赖 agent。
+direct CLI/desktop 直连 harness/host，不经 EngineRuntime；Hub core 只看 engine 根契约，
+具体 adapter 在外层 bootstrap 装配。host 与 system、native facts 与 Hub 产品事实、
+UI 观察与执行 owner 都继续分开。Go package 是自有源码单元，不是外部依赖或独立进程数量。
+
+下文 Rust crate 表、代码和工具路径是历史实现/行为验收参考，不是当前 Go 目录表；不据此重命名旧树。
 
 ## 扩展哲学（核心架构决策）
 
@@ -235,7 +264,7 @@ let agent = BaseAgent::builder()
 | `docs/ALVA-HUB-MESSAGE-MODULES.md` | 可信 Hub 消息 renderer 注册、版本化纯数据模块与原文 fallback。 |
 | `docs/ALVA-HUB-CONTEXT-RETRIEVAL.md` | ADR-0011 引用优先：所有工具/文件/MCP/历史按需检索与媒体处理来源说明；实现状态分开记录。 |
 | `docs/adr/` | Hub Desktop-first、可逆多引擎 fallback、Cindy Orca 风格协作的架构决策记录。 |
-| `Cargo.toml` | Rust workspace，管理 44 个 crate。 |
+| `Cargo.toml` | 历史 Rust 参考 workspace，43 个已注册成员；不是 Go package 或外部依赖数量。 |
 | `alva-bus-lint` | CI lint binary：扫 `#[bus_cap]` trait 的跨 crate 类型表面，配合 `docs/BUS-RULES.md` 防止 bus 退化为 God Object。 |
 | `sdk/python/` | Python 插件 SDK（`alva_sdk` 包）。供第三方用 Python 写 `alva-app-extension-loader` 的子进程插件，不在 Cargo workspace 里。 |
 
@@ -280,6 +309,10 @@ session 里不会出现 Steering 变体，这个 match 分支永远不会命中�
 5. 工具输出，可删，只保留 pass/fail 结论
 
 ## Hub 产品 UI（alva-hub-desktop）
+
+**目标技术栈更新**：新 Go 实现遵循 ADR-0012 的自绘路线；本节 Tauri/React 规则继续约束
+尚在维护的 Rust 产品，不要求新 Go UI 引入 React。领域、交互、权限、可信消息模块和
+引用优先不因技术栈改变而取消；新实现读 `go/AGENTS.md` 与实际目录级文档。
 
 Hub 上下文贯彻引用优先（ADR-0011）：文件/媒体、所有大工具结果、MCP 目录和历史应先持久化，模型只拿小索引/引用，再按任务有界检索。具体当前实现/未完成项见 `docs/ALVA-HUB-CONTEXT-RETRIEVAL.md`；不得把 UI 分页当作模型端控制。上传当前保存原字节、20 MiB/文件和 40 MiB/8 文件每轮，明确原始哈希/处理/投递范围；无压缩/抽帧就明确注明未做，不冒充媒体理解。政策在产品/Plugin/Middleware 实施，不向 kernel/agent-core 增加功能。
 

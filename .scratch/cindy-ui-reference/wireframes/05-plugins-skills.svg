@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
+  <style>.f{fill:#fff;stroke:#111;stroke-width:2}.p{fill:#f7f7f7;stroke:#333;stroke-width:1.3}.c{fill:#fff;stroke:#666;stroke-width:1.1}.t{font:15px system-ui;fill:#111}.h{font:bold 24px system-ui;fill:#111}.m{font:13px system-ui;fill:#666}.s{font:11px system-ui;fill:#555}</style>
+  <rect class="f" x="1" y="1" width="1438" height="898" rx="12"/><rect class="p" x="1" y="1" width="250" height="898"/>
+  <rect class="p" x="430" y="24" width="145" height="38" rx="19"/><text class="t" x="455" y="48">插件</text><text class="t" x="520" y="48">技能</text>
+  <rect class="c" x="760" y="24" width="230" height="38" rx="19"/><text class="m" x="782" y="48">⌕ 搜索插件</text><rect class="c" x="1004" y="24" width="130" height="38" rx="19"/><text class="t" x="1022" y="48">＋ 添加插件⌄</text>
+  <text class="h" x="430" y="120">插件</text><text class="m" x="430" y="144">扩展 Hub 能力的工具与集成。</text>
+  <text class="t" x="430" y="194">已安装 1</text><rect class="c" x="430" y="214" width="360" height="114" rx="12"/><rect class="p" x="448" y="232" width="52" height="52" rx="12"/><text class="t" x="518" y="248">TapTap Maker</text><text class="s" x="518" y="270">公开 · v2.1.10 · 已是最新</text><text class="m" x="518" y="294">运行时连接账号、同步功能…</text><text class="t" x="718" y="310">对话</text>
+  <text class="h" x="430" y="388">推荐</text>
+  <rect class="c" x="430" y="414" width="360" height="112" rx="12"/><text class="t" x="458" y="448">GitLab</text><text class="m" x="458" y="476">项目与 Issue 集成</text><text class="t" x="724" y="500">安装</text>
+  <rect class="c" x="808" y="414" width="360" height="112" rx="12"/><text class="t" x="836" y="448">Art</text><text class="m" x="836" y="476">图片与视频生成</text><text class="t" x="1102" y="500">安装</text>
+  <rect class="c" x="430" y="544" width="360" height="112" rx="12"/><text class="t" x="458" y="578">GitHub</text><text class="m" x="458" y="606">仓库、PR 与 Issue</text><text class="t" x="724" y="630">安装</text>
+  <rect class="c" x="808" y="544" width="360" height="112" rx="12"/><text class="t" x="836" y="578">Calendar</text><text class="m" x="836" y="606">日程与会议</text><text class="t" x="1102" y="630">安装</text>
+  <rect class="p" x="998" y="66" width="170" height="140" rx="10"/><text class="t" x="1016" y="98">✧ 使用 Hub 创建</text><text class="t" x="1016" y="138">⇧ 安装插件…</text><text class="t" x="1016" y="178">▣ 添加插件市场…</text>
+  <line x1="1210" y1="80" x2="1210" y2="820" stroke="#999" stroke-dasharray="5 5"/><text class="s" x="1230" y="104">技能页复用同一壳：</text><text class="m" x="1230" y="136">本地技能列表</text><text class="m" x="1230" y="164">来源标签</text><text class="m" x="1230" y="192">搜索与导入</text><text class="m" x="1230" y="220">点击进入详情</text>
+</svg>

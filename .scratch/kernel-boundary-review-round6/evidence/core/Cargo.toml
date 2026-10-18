@@ -1,0 +1,30 @@
+[package]
+name = "round6-core-probe"
+version = "0.1.0"
+edition = "2021"
+[workspace]
+[dependencies]
+alva-hub-core = { path = "../../../../crates/alva-hub-core" }
+alva-engine-runtime = { path = "../../../../crates/alva-engine-runtime" }
+alva-agent-core = { path = "../../../../crates/alva-agent-core" }
+alva-kernel-abi = { path = "../../../../crates/alva-kernel-abi" }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+futures-util = "0.3"
+async-trait = "0.1"
+futures-executor = "0.3"
+
+[[bin]]
+name="cross_session"
+path="cross_session.rs"
+
+[[bin]]
+name="tokio_delivery"
+path="tokio_delivery.rs"
+
+[[bin]]
+name="stale_cancel"
+path="stale_cancel.rs"
+
+[[bin]]
+name="late_registration"
+path="late_registration.rs"

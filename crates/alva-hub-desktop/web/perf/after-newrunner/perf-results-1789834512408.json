@@ -1,0 +1,397 @@
+{
+  "recorded_at": "2026-09-19T16:11:36.513Z",
+  "machine": {
+    "platform": "darwin 27.0.0 arm64",
+    "cpu": "Apple M4 Pro",
+    "memory_gb": 48,
+    "browser": "151.0.7922.34",
+    "viewport": "1440x900@1x",
+    "build_mode": "vite production (esbuild minify)",
+    "seed": 20260920,
+    "headed": true
+  },
+  "sizes": {
+    "1000": {
+      "scenarios": {
+        "S1_first_open": [
+          {
+            "run": 0,
+            "tti_ms": 539,
+            "dom": 14295,
+            "scroller": {
+              "scrollTop": 279341.5,
+              "scrollHeight": 280242,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 10597685
+          },
+          {
+            "run": 1,
+            "tti_ms": 238,
+            "dom": 14295,
+            "scroller": {
+              "scrollTop": 279341.5,
+              "scrollHeight": 280242,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 10632575
+          },
+          {
+            "run": 2,
+            "tti_ms": 270,
+            "dom": 14295,
+            "scroller": {
+              "scrollTop": 279341.5,
+              "scrollHeight": 280242,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 10581180
+          }
+        ],
+        "S2_scroll_up_30s": [
+          {
+            "run": 0,
+            "drawFrame": {
+              "frames": 0,
+              "p50_ms": null,
+              "p95_ms": null,
+              "p99_ms": null,
+              "mean_ms": null
+            },
+            "rawFrameCount": 0,
+            "input_latency_ms": {
+              "samples": 15,
+              "p50": 0.8,
+              "p95": 1.1
+            },
+            "dom": 14300,
+            "scroller": {
+              "scrollTop": 188875.5,
+              "scrollHeight": 280276,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 14231233,
+            "longtasks": [
+              72
+            ]
+          },
+          {
+            "run": 1,
+            "drawFrame": {
+              "frames": 0,
+              "p50_ms": null,
+              "p95_ms": null,
+              "p99_ms": null,
+              "mean_ms": null
+            },
+            "rawFrameCount": 0,
+            "input_latency_ms": {
+              "samples": 15,
+              "p50": 0.6,
+              "p95": 1
+            },
+            "dom": 14300,
+            "scroller": {
+              "scrollTop": 188875.5,
+              "scrollHeight": 280276,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 14455702,
+            "longtasks": []
+          },
+          {
+            "run": 2,
+            "drawFrame": {
+              "frames": 0,
+              "p50_ms": null,
+              "p95_ms": null,
+              "p99_ms": null,
+              "mean_ms": null
+            },
+            "rawFrameCount": 0,
+            "input_latency_ms": {
+              "samples": 15,
+              "p50": 0.7,
+              "p95": 1
+            },
+            "dom": 14300,
+            "scroller": {
+              "scrollTop": 188875.5,
+              "scrollHeight": 280276,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 14453410,
+            "longtasks": []
+          }
+        ],
+        "S3_fast_scroll": [
+          {
+            "run": 0,
+            "drawFrame": {
+              "frames": 0,
+              "p50_ms": null,
+              "p95_ms": null,
+              "p99_ms": null,
+              "mean_ms": null
+            },
+            "rawFrameCount": 0,
+            "dom": 14295,
+            "scroller": {
+              "scrollTop": 279341.5,
+              "scrollHeight": 280242,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 16451058,
+            "longtasks": [
+              78
+            ]
+          },
+          {
+            "run": 1,
+            "drawFrame": {
+              "frames": 0,
+              "p50_ms": null,
+              "p95_ms": null,
+              "p99_ms": null,
+              "mean_ms": null
+            },
+            "rawFrameCount": 0,
+            "dom": 14300,
+            "scroller": {
+              "scrollTop": 278475.5,
+              "scrollHeight": 280276,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 16431316,
+            "longtasks": [
+              73
+            ]
+          },
+          {
+            "run": 2,
+            "drawFrame": {
+              "frames": 0,
+              "p50_ms": null,
+              "p95_ms": null,
+              "p99_ms": null,
+              "mean_ms": null
+            },
+            "rawFrameCount": 0,
+            "dom": 14295,
+            "scroller": {
+              "scrollTop": 279341.5,
+              "scrollHeight": 280242,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 16487727,
+            "longtasks": []
+          }
+        ],
+        "S4_scroll_while_streaming": [
+          {
+            "run": 0,
+            "stream_state": "running",
+            "drawFrame": {
+              "frames": 0,
+              "p50_ms": null,
+              "p95_ms": null,
+              "p99_ms": null,
+              "mean_ms": null
+            },
+            "rawFrameCount": 0,
+            "dom": 14300,
+            "scroller": {
+              "scrollTop": 268525.5,
+              "scrollHeight": 280276,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 42105323,
+            "longtasks": [
+              70
+            ]
+          },
+          {
+            "run": 1,
+            "stream_state": "running",
+            "drawFrame": {
+              "frames": 0,
+              "p50_ms": null,
+              "p95_ms": null,
+              "p99_ms": null,
+              "mean_ms": null
+            },
+            "rawFrameCount": 0,
+            "dom": 14300,
+            "scroller": {
+              "scrollTop": 268525.5,
+              "scrollHeight": 280276,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 54327576,
+            "longtasks": []
+          },
+          {
+            "run": 2,
+            "stream_state": "running",
+            "drawFrame": {
+              "frames": 0,
+              "p50_ms": null,
+              "p95_ms": null,
+              "p99_ms": null,
+              "mean_ms": null
+            },
+            "rawFrameCount": 0,
+            "dom": 14300,
+            "scroller": {
+              "scrollTop": 268525.5,
+              "scrollHeight": 280276,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 53974812,
+            "longtasks": [
+              81
+            ]
+          }
+        ],
+        "S5_session_switch_x20": [
+          {
+            "run": 0,
+            "per_switch_ms": {
+              "p50": 81,
+              "p95": 93,
+              "max": 106
+            },
+            "dom": 14295,
+            "scroller": {
+              "scrollTop": 279341.5,
+              "scrollHeight": 280242,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 13582096,
+            "longtasks": [
+              59,
+              53,
+              58,
+              51,
+              52,
+              52,
+              53,
+              52,
+              53,
+              50,
+              50,
+              52,
+              51,
+              50,
+              53,
+              50,
+              51,
+              52,
+              50,
+              50
+            ]
+          },
+          {
+            "run": 1,
+            "per_switch_ms": {
+              "p50": 82,
+              "p95": 89,
+              "max": 114
+            },
+            "dom": 14295,
+            "scroller": {
+              "scrollTop": 279341.5,
+              "scrollHeight": 280242,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 13567131,
+            "longtasks": [
+              57,
+              52,
+              57,
+              51,
+              51,
+              55,
+              54,
+              52,
+              53,
+              50,
+              50,
+              52,
+              52,
+              52,
+              52,
+              54,
+              50,
+              51,
+              50
+            ]
+          },
+          {
+            "run": 2,
+            "per_switch_ms": {
+              "p50": 82,
+              "p95": 102,
+              "max": 115
+            },
+            "dom": 14295,
+            "scroller": {
+              "scrollTop": 279341.5,
+              "scrollHeight": 280242,
+              "clientHeight": 900,
+              "messageNodes": 858,
+              "timelineNodes": 145
+            },
+            "heap": 44621969,
+            "longtasks": [
+              80,
+              56,
+              52,
+              59,
+              51,
+              50,
+              54,
+              55,
+              54,
+              60,
+              50,
+              50,
+              52,
+              60,
+              50,
+              50
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

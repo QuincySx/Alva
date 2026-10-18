@@ -1,0 +1,235 @@
+func (ToolLockMiddleware) Name() string
+
+func (agent *Agent) Bus() bus.Handle
+
+func (agent *Agent) Run(ctx context.Context, input []wire.Message, emit func(abi.Event) error) error
+
+func (agent *Agent) RunWithConfig(ctx context.Context, input []wire.Message, config wire.ModelConfig, emit func(abi.Event) error) error
+
+func (agent *Agent) Session() abi.ConversationLog
+
+func (agent *Agent) Snapshot() AgentAssemblySnapshot
+
+func (agent *Agent) State() *abi.AgentState
+
+func (b *Builder) Build(ctx context.Context) (*Agent, error)
+
+func (b *Builder) ContextSystem(system *abi.ContextSystem) *Builder
+
+func (b *Builder) Loop(loop kernel.AgentLoop) *Builder
+
+func (b *Builder) MaxConcurrentTools(limit int) *Builder
+
+func (b *Builder) MaxIterations(limit int) *Builder
+
+func (b *Builder) MaxResponseBytes(limit int) *Builder
+
+func (b *Builder) Middleware(middleware abi.Middleware, order ...int) *Builder
+
+func (b *Builder) ModelConfig(config wire.ModelConfig) *Builder
+
+func (b *Builder) Plugin(plugin Plugin) *Builder
+
+func (b *Builder) SystemPrompt(prompt string) *Builder
+
+func (b *Builder) Tool(tool abi.Tool) *Builder
+
+func (b *Builder) Workspace(workspace string) *Builder
+
+func (h admitModelHook) AdmitModel(ctx context.Context, runtime abi.RuntimeContext, request abi.ModelRequest) error
+
+func (h afterModelHook) AfterModel(ctx context.Context, runtime abi.RuntimeContext, response *wire.Message) error
+
+func (h afterToolHook) AfterTool(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall, result *wire.ToolResult) error
+
+func (h beforeModelHook) BeforeModel(ctx context.Context, runtime abi.RuntimeContext, request *abi.ModelRequest) error
+
+func (h beforeToolHook) BeforeTool(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall) error
+
+func (h hookIdentity) Name() string
+
+func (h inputCommittedHook) InputCommitted(ctx context.Context, runtime abi.RuntimeContext, message wire.Message) error
+
+func (h prepareToolHook) PrepareTool(ctx context.Context, preparation abi.ToolPreparationContext, call wire.ToolCall) (abi.ToolPreparation, error)
+
+func (h runEndHook) OnRunEnd(ctx context.Context, runtime abi.RuntimeContext, cause error) error
+
+func (h runStartHook) OnRunStart(ctx context.Context, runtime abi.RuntimeContext) error
+
+func (h wrapModelHook) WrapModel(ctx context.Context, runtime abi.RuntimeContext, request abi.ModelRequest, emit func(wire.StreamChunk) error, next abi.ModelFunc) error
+
+func (h wrapToolHook) WrapTool(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall, next abi.ToolFunc) (wire.ToolResult, error)
+
+func (middleware ToolLockMiddleware) WrapTool(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall, next abi.ToolFunc) (wire.ToolResult, error)
+
+func (r *Registrar) Bus() bus.Handle
+
+func (r *Registrar) BusWriter() bus.Writer
+
+func (r *Registrar) Command(command agentabi.Command) error
+
+func (r *Registrar) ContextSource(source abi.ContextSource) error
+
+func (r *Registrar) ContextSystem(system *abi.ContextSystem) error
+
+func (r *Registrar) Middleware(middleware abi.Middleware, order ...int) error
+
+func (r *Registrar) SystemPrompt(prompt string) error
+
+func (r *Registrar) Tool(tool abi.Tool) error
+
+func (r *Registrar) Workspace() string
+
+func (registry *ToolLockRegistry) Acquire(ctx context.Context, scheduling abi.Scheduling, workspace string) (func(), error)
+
+func (session *MemorySession) AppendRecords(ctx context.Context, records []abi.SessionRecord) ([]abi.SessionRecord, error)
+
+func (session *MemorySession) Flush(ctx context.Context) error
+
+func (session *MemorySession) ID() string
+
+func (session *MemorySession) Messages(ctx context.Context) ([]wire.Message, error)
+
+func (session *MemorySession) Records(ctx context.Context, after uint64) ([]abi.SessionRecord, error)
+
+func (view conversationView) ID() string
+
+func (view conversationView) Messages(ctx context.Context) ([]wire.Message, error)
+
+func AdmitModel(name string, fn func(context.Context, abi.RuntimeContext, abi.ModelRequest) error) abi.Middleware
+
+func AfterModel(name string, fn func(context.Context, abi.RuntimeContext, *wire.Message) error) abi.Middleware
+
+func AfterTool(name string, fn func(context.Context, abi.ToolExecutionContext, wire.ToolCall, *wire.ToolResult) error) abi.Middleware
+
+func BeforeModel(name string, fn func(context.Context, abi.RuntimeContext, *abi.ModelRequest) error) abi.Middleware
+
+func BeforeTool(name string, fn func(context.Context, abi.ToolExecutionContext, wire.ToolCall) error) abi.Middleware
+
+func InputCommitted(name string, fn func(context.Context, abi.RuntimeContext, wire.Message) error) abi.Middleware
+
+func NewBuilder(model abi.LanguageModel, session abi.ConversationLog) *Builder
+
+func NewMemorySession(id string) *MemorySession
+
+func NewToolLockRegistry(maxWaiters int) (*ToolLockRegistry, error)
+
+func PrepareTool(name string, fn func(context.Context, abi.ToolPreparationContext, wire.ToolCall) (abi.ToolPreparation, error)) abi.Middleware
+
+func RunEnd(name string, fn func(context.Context, abi.RuntimeContext, error) error) abi.Middleware
+
+func RunStart(name string, fn func(context.Context, abi.RuntimeContext) error) abi.Middleware
+
+func WrapModel(name string, fn func(context.Context, abi.RuntimeContext, abi.ModelRequest, func(wire.StreamChunk) error, abi.ModelFunc) error) abi.Middleware
+
+func WrapTool(name string, fn func(context.Context, abi.ToolExecutionContext, wire.ToolCall, abi.ToolFunc) (wire.ToolResult, error)) abi.Middleware
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+	"sync/atomic"
+
+	agentabi "github.com/QuincySx/Alva/go/sdk/agent/abi"
+	"github.com/QuincySx/Alva/go/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/go/sdk/kernel/bus"
+	kernel "github.com/QuincySx/Alva/go/sdk/kernel/core"
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/go/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"unicode/utf8"
+
+	agentabi "github.com/QuincySx/Alva/go/sdk/agent/abi"
+	"github.com/QuincySx/Alva/go/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/go/sdk/kernel/bus"
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"github.com/QuincySx/Alva/go/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+	"sort"
+	"sync"
+)
+
+import (
+	"context"
+	"errors"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/go/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+)
+
+type Agent struct {
+}
+
+type AgentAssemblySnapshot struct {
+	Plugins    []PluginAssemblySnapshot `json:"plugins"`
+	Tools      []string                 `json:"tools"`
+	Middleware []string                 `json:"middleware"`
+	Commands   []agentabi.Command       `json:"commands"`
+}
+
+type Builder struct {
+}
+
+type Finalizer interface {
+	Finalize(context.Context, LateContext) ([]abi.Tool, error)
+}
+
+type LateContext struct {
+	Bus             bus.Handle
+	Workspace       string
+	Session         abi.ConversationReader
+	Model           abi.LanguageModel
+	ToolDefinitions []wire.ToolDefinition
+	Assembly        AgentAssemblySnapshot
+}
+
+type MemorySession struct {
+}
+
+type Plugin interface {
+	Name() string
+	Register(context.Context, *Registrar) error
+}
+
+type PluginAssemblySnapshot struct {
+	Name              string   `json:"name"`
+	Tools             []string `json:"tools"`
+	FinalizedTools    []string `json:"finalized_tools"`
+	Middleware        []string `json:"middleware"`
+	Commands          []string `json:"commands"`
+	SystemPromptCount int      `json:"system_prompt_count"`
+}
+
+type Registrar struct {
+}
+
+type ToolLockMiddleware struct{ Registry *ToolLockRegistry }
+
+type ToolLockRegistry struct {
+}
+
+var ErrRunInProgress = errors.New("agent already running")

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900">
+  <style>.f{fill:#fff;stroke:#111;stroke-width:2}.p{fill:#f7f7f7;stroke:#333;stroke-width:1.4}.c{fill:#fff;stroke:#666;stroke-width:1.2}.t{font:16px system-ui;fill:#111}.h{font:bold 28px system-ui;fill:#111}.m{font:14px system-ui;fill:#777}.s{font:12px system-ui;fill:#555}</style>
+  <rect class="f" x="1" y="1" width="1438" height="898" rx="12"/><rect class="p" x="1" y="1" width="250" height="898" rx="12"/>
+  <text class="t" x="24" y="68">⊕ 新建</text><text class="t" x="24" y="106">◷ 自动化</text><text class="t" x="24" y="144">⌘ 插件</text><text class="t" x="24" y="182">⌕ 搜索</text>
+  <text class="s" x="24" y="228">项目</text><text class="t" x="24" y="262">▱ alva-agent</text><text class="m" x="36" y="298">◉ 运行中的任务</text><text class="m" x="36" y="332">◌ 历史任务</text>
+  <text class="h" x="560" y="342">ALVA</text>
+  <rect class="c" x="420" y="386" width="720" height="126" rx="14"/>
+  <text class="m" x="444" y="420">向 ALVA 描述你要完成的事…</text>
+  <text class="t" x="444" y="486">＋</text><text class="t" x="492" y="486">自动审批⌄</text><text class="m" x="910" y="486">Codex⌄</text><text class="m" x="1000" y="486">GPT-5⌄</text><text class="t" x="1094" y="486">➤</text>
+  <rect class="c" x="1045" y="342" width="95" height="32" rx="16"/><text class="s" x="1066" y="363">对话⌄</text>
+  <rect class="p" x="944" y="376" width="250" height="196" rx="10"/>
+  <text class="s" x="964" y="402">对话或选择项目</text><text class="t" x="964" y="438">◯ 对话</text><text class="s" x="964" y="470">项目</text>
+  <rect class="c" x="956" y="482" width="226" height="50" rx="8"/><text class="t" x="974" y="508">▱ alva-agent</text><text class="s" x="974" y="526">/workspace/alva-agent</text>
+  <text class="t" x="964" y="558">⊞ 选择其他项目文件夹</text>
+  <text class="s" x="420" y="560">快速开始</text>
+  <rect class="c" x="420" y="580" width="170" height="104" rx="10"/><rect class="c" x="602" y="580" width="170" height="104" rx="10"/><rect class="c" x="784" y="580" width="170" height="104" rx="10"/><rect class="c" x="966" y="580" width="174" height="104" rx="10"/>
+  <text class="s" x="438" y="638">探索并理解代码</text><text class="s" x="620" y="638">构建新功能</text><text class="s" x="802" y="638">审查代码</text><text class="s" x="984" y="638">修复问题</text>
+</svg>

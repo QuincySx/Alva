@@ -1,0 +1,50 @@
+func (e LaggedError) Error() string
+
+func (s *Subscription[T]) Close()
+
+func (s *Subscription[T]) Recv(ctx context.Context) (T, error)
+
+func (t *Topic[T]) HasSubscribers() bool
+
+func (t *Topic[T]) Publish(value T)
+
+func (t *Topic[T]) Subscribe() *Subscription[T]
+
+func (w Writer) Handle() Handle
+
+func (w Writer) Seal()
+
+func New() (Writer, Handle)
+
+func NewTopic[T any](capacity int, clone func(T) T) (*Topic[T], error)
+
+func Provide[T any](writer Writer, value T) error
+
+func Resolve[T any](handle Handle) (T, bool)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+)
+
+import (
+	"errors"
+	"reflect"
+	"sync"
+)
+
+type Handle struct{}
+
+type LaggedError struct{ Skipped uint64 }
+
+type Subscription[T any] struct {
+}
+
+type Topic[T any] struct {
+}
+
+type Writer struct{}
+
+var ErrSubscriptionClosed = errors.New("bus subscription closed")

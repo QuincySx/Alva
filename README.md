@@ -1,12 +1,47 @@
 # Alva
 
-Rust implementation of a layered AI Agent framework.
+Layered AI Agent SDK and products, with Go as the target implementation.
+
+The target stack is moving to Go with a self-drawn MyGo desktop, without React
+or a Rust compatibility bridge. The first runnable foundation lives in
+[go/README.md](./go/README.md); [go/MIGRATION.md](./go/MIGRATION.md) separates
+verified work from pending product parity. The Rust architecture below remains
+the behavior reference until that acceptance is complete; existing data and
+dependencies are not removed automatically.
+
+The Go implementation is open source under [AGPL-3.0-only](./go/LICENSE).
+Its pinned RelayKit conversion dependency and attribution are documented in
+[go/NOTICE](./go/NOTICE); this does not relicense the historical Rust tree.
 
 The core architectural contract is: stable SDK kernel, optional capability by
 plugin. `alva-kernel-*` and `alva-agent-core` provide the reusable SDK surface;
 product-specific harness decisions live in `alva-app-*` / `alva-host-*`.
 
-## Architecture Flow
+## Go: start with the layer map
+
+The current layout preserves each abstraction, with no old-path aliases:
+
+| Directory | Role |
+|---|---|
+| `go/sdk/` | Portable L0–L3: values/bus/ABI → kernel → Agent assembly/capabilities |
+| `go/extension/` | L4 optional tools, plugins and middleware |
+| `go/harness/` | L5 opinionated BaseAgent recipe, not the SDK |
+| `go/apps/` | L6 direct/Gateway and L7 Hub products; thin executables in apps/cmd |
+| `go/integration/` | External model/protocol/engine adapters; only the engine root contract is L4.5 |
+| `go/platform/` | Host execution ownership, low-level system primitives, durable storage and WASM implementations |
+| `go/architecture/` | Tagged dependency, public-surface and documentation gates |
+
+Read [the L0→L7 map and reading order](./go/README.md#先看地图l0--l7), then the
+relevant directory's AGENTS.md. Integration/platform are responsibility groups,
+not a forced linear layer: host may consume the harness Runner, while system
+provides lower-level OS primitives. Alva engine bridging consumes the complete
+harness; the process adapter shares Claude/Codex/Pi implementation by Vendor.
+Neither adapter is part of the portable SDK.
+
+This reclassification is not a claim of completed feature parity. Rust crate
+paths and the behavior-reference architecture below remain unchanged.
+
+## Architecture Flow (Rust behavior reference)
 
 ```text
 CLI / Tauri / third-party harness

@@ -1,0 +1,6 @@
+attributed field: MISSED; before='struct\tConfig\n'; after='struct\tConfig\n'
+variant payload: MISSED; before='enum\tE\nvariant\tE::Data\n'; after='enum\tE\nvariant\tE::Data\n'
+assoc bounds: MISSED; before='assoc\tT::Item\ntrait\tT trait T\n'; after='assoc\tT::Item\ntrait\tT trait T\n'
+attributed variant: MISSED; before='enum\tE\nvariant\tE::Two\n'; after='enum\tE\nvariant\tE::Two\n'
+arrow then variant: MISSED; before='enum\tE\nvariant\tE::Handler\n'; after='enum\tE\nvariant\tE::Handler\n'
+stacked item attributes: MISSED; before='\n'; after='\n'

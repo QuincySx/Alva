@@ -1,0 +1,41 @@
+
+> alva-hub-desktop-web@0.1.0 test:visual
+> playwright test
+
+[WebServer] (node:55685) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+[WebServer] (node:55801) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+
+Running 23 tests using 1 worker
+
+(node:56202) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/23] tests/behavior.spec.ts:31:3 › tier wide (1600px): chat, workbench and gate stay inside the viewport
+[2/23] tests/behavior.spec.ts:31:3 › tier desktop (1280px): chat, workbench and gate stay inside the viewport
+[3/23] tests/behavior.spec.ts:31:3 › tier narrow (900px): chat, workbench and gate stay inside the viewport
+[4/23] tests/behavior.spec.ts:31:3 › tier compact (720px): chat, workbench and gate stay inside the viewport
+[5/23] tests/behavior.spec.ts:51:1 › long English copy at the compact tier does not overflow and keeps send reachable
+[6/23] tests/behavior.spec.ts:63:1 › sidebar states: no-match search, and the narrow sheet restores focus on Escape
+[7/23] tests/behavior.spec.ts:82:1 › workbench close returns focus to the topbar open-workbench control
+[8/23] tests/behavior.spec.ts:93:1 › keyboard-only: independent session → model search → submit surfaces the honest failure
+[9/23] tests/behavior.spec.ts:124:1 › keyboard-only: Inspector drills into a child Agent and Escape backs out
+[10/23] tests/behavior.spec.ts:150:3 › normal motion › normal motion renders the chat shell inside the viewport
+[11/23] tests/behavior.spec.ts:162:1 › truthful disabled and not-wired states are visible in settings
+[12/23] tests/visual.spec.ts:27:1 › 01 chat shell
+[13/23] tests/visual.spec.ts:33:1 › 02 new conversation
+[14/23] tests/visual.spec.ts:39:1 › 03 right workbench
+[15/23] tests/visual.spec.ts:45:1 › 03 Inspector drills into Agent and LLM pages then backs out
+[16/23] tests/visual.spec.ts:79:1 › 03 right workbench add-tab menu
+[17/23] tests/visual.spec.ts:86:1 › 03 right workbench manages dynamic tabs and width
+[18/23] tests/visual.spec.ts:101:1 › 03 right workbench becomes a narrow overlay
+[19/23] tests/visual.spec.ts:108:1 › 04 automation
+[20/23] tests/visual.spec.ts:115:1 › 05 plugins and skills
+[21/23] tests/visual.spec.ts:121:1 › 06 settings
+[22/23] tests/visual.spec.ts:127:1 › 07 context menus
+[23/23] tests/visual.spec.ts:134:1 › model picker stays anchored to composer
+  23 passed (38.8s)

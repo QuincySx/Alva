@@ -1,0 +1,29 @@
+    Blocking waiting for file lock on build directory
+   Compiling alva-kernel-abi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-abi)
+   Compiling alva-engine-runtime v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-runtime)
+   Compiling alva-hub-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 34s
+     Running tests/review_round5.rs (target/debug/deps/review_round5-dbeb24175531b52c)
+
+running 2 tests
+completed index=3, tool_end index=4
+
+thread 'closes_unfinished_tools_before_forwarding_completed' (1926604) panicked at crates/alva-hub-core/tests/review_round5.rs:31:2:
+unfinished tool must close before Completed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+cancel=Err(Runtime(Unsupported("cancel"))); status=Running
+
+thread 'unsupported_cancel_still_releases_the_hub_claim' (1926605) panicked at crates/alva-hub-core/tests/review_round5.rs:42:2:
+unsupported engine cancel should use Hub abandon fallback
+test closes_unfinished_tools_before_forwarding_completed ... FAILED
+test unsupported_cancel_still_releases_the_hub_claim ... FAILED
+
+failures:
+
+failures:
+    closes_unfinished_tools_before_forwarding_completed
+    unsupported_cancel_still_releases_the_hub_claim
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p alva-hub-core --test review_round5`

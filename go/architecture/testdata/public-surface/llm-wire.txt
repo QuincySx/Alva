@@ -1,0 +1,285 @@
+const (
+	ChunkText         ChunkKind = "text"
+	ChunkToolCall     ChunkKind = "tool_call"
+	ChunkUsage        ChunkKind = "usage"
+	ChunkFinish       ChunkKind = "finish"
+	ChunkContentBlock ChunkKind = "content_block"
+	ChunkReasoning    ChunkKind = "reasoning"
+)
+
+const (
+	ContentText          ContentKind = "text"
+	ContentToolCall      ContentKind = "tool_call"
+	ContentToolResult    ContentKind = "tool_result"
+	ContentReference     ContentKind = "reference"
+	ContentReasoning     ContentKind = "reasoning"
+	ContentProviderState ContentKind = "provider_state"
+	ContentRefusal       ContentKind = "refusal"
+	ContentImage         ContentKind = "image"
+	ContentAudio         ContentKind = "audio"
+	ContentVideo         ContentKind = "video"
+)
+
+const (
+	ReasoningNone    ReasoningEffort = "none"
+	ReasoningMinimal ReasoningEffort = "minimal"
+	ReasoningLow     ReasoningEffort = "low"
+	ReasoningMedium  ReasoningEffort = "medium"
+	ReasoningHigh    ReasoningEffort = "high"
+	ReasoningXHigh   ReasoningEffort = "xhigh"
+	ReasoningMax     ReasoningEffort = "max"
+)
+
+const (
+	RoleSystem    Role = "system"
+	RoleUser      Role = "user"
+	RoleAssistant Role = "assistant"
+	RoleTool      Role = "tool"
+)
+
+const MaxStreamContentBlocks = 4096
+
+const MaxStreamContentIndex = 1 << 20
+
+func (accumulator *StreamAccumulator) Finish() (Message, error)
+
+func (accumulator *StreamAccumulator) Push(chunk StreamChunk) (err error)
+
+func (accumulator *StreamAccumulator) Snapshot() Message
+
+func (audio Audio) Validate() error
+
+func (b ContentBlock) Validate() error
+
+func (config ModelConfig) AllowsTool(name string) bool
+
+func (config ModelConfig) Validate() error
+
+func (effort ReasoningEffort) SuggestedTokenBudget() (uint32, bool)
+
+func (image Image) Validate() error
+
+func (m Message) Text() string
+
+func (m Message) Validate() error
+
+func (payload MediaPayload) Validate() error
+
+func (reference Reference) Validate() error
+
+func (state ProviderState) Validate() error
+
+func (video Video) Validate() error
+
+func CloneContent(content []ContentBlock) []ContentBlock
+
+func CloneMessages(messages []Message) []Message
+
+func CloneModelConfig(config ModelConfig) ModelConfig
+
+func CloneStreamChunk(chunk StreamChunk) StreamChunk
+
+func CloneToolCall(call ToolCall) ToolCall
+
+func CloneUsage(usage Usage) Usage
+
+func NewStreamAccumulator(maxBytes int) *StreamAccumulator
+
+func ParseReasoningEffort(value string) (ReasoningEffort, error)
+
+func TextMessage(role Role, text string) Message
+
+func ValidJSON(data json.RawMessage) bool
+
+import "encoding/json"
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"strings"
+)
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+)
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+)
+
+import (
+	"encoding/json"
+	"errors"
+	"math"
+	"strings"
+)
+
+import (
+	"encoding/json"
+	"unicode/utf8"
+)
+
+type Audio struct {
+	Payload        MediaPayload `json:"payload"`
+	DurationMillis int64        `json:"duration_millis,omitempty"`
+	Transcript     string       `json:"transcript,omitempty"`
+}
+
+type ChunkKind string
+
+type ContentBlock struct {
+	Kind          ContentKind    `json:"kind"`
+	Text          string         `json:"text,omitempty"`
+	ToolCall      *ToolCall      `json:"tool_call,omitempty"`
+	ToolResult    *ToolResult    `json:"tool_result,omitempty"`
+	Reference     *Reference     `json:"reference,omitempty"`
+	Reasoning     *Reasoning     `json:"reasoning,omitempty"`
+	ProviderState *ProviderState `json:"provider_state,omitempty"`
+	Refusal       *Refusal       `json:"refusal,omitempty"`
+	Image         *Image         `json:"image,omitempty"`
+	Audio         *Audio         `json:"audio,omitempty"`
+	Video         *Video         `json:"video,omitempty"`
+}
+
+type ContentKind string
+
+type Image struct {
+	Payload MediaPayload `json:"payload"`
+	Detail  string       `json:"detail,omitempty"`
+	Width   int          `json:"width,omitempty"`
+	Height  int          `json:"height,omitempty"`
+}
+
+type MediaOperation struct {
+	Kind             string          `json:"kind"`
+	Description      string          `json:"description"`
+	InputSHA256      string          `json:"input_sha256,omitempty"`
+	OutputSHA256     string          `json:"output_sha256,omitempty"`
+	FrameTimesMillis []int64         `json:"frame_times_millis,omitempty"`
+	Parameters       json.RawMessage `json:"parameters,omitempty"`
+}
+
+type MediaPayload struct {
+	MediaType  string           `json:"media_type"`
+	Data       []byte           `json:"data,omitempty"`
+	URL        string           `json:"url,omitempty"`
+	Provenance *MediaProvenance `json:"provenance,omitempty"`
+}
+
+type MediaProvenance struct {
+	Original    Reference        `json:"original"`
+	Operations  []MediaOperation `json:"operations,omitempty"`
+	Description string           `json:"description"`
+}
+
+type Message struct {
+	ID           string         `json:"id,omitempty"`
+	Role         Role           `json:"role"`
+	Content      []ContentBlock `json:"content"`
+	Usage        *Usage         `json:"usage,omitempty"`
+	ResponseID   string         `json:"response_id,omitempty"`
+	FinishReason string         `json:"finish_reason,omitempty"`
+}
+
+type ModelConfig struct {
+	Temperature     *float64         `json:"temperature,omitempty"`
+	MaxTokens       *uint32          `json:"max_tokens,omitempty"`
+	StopSequences   []string         `json:"stop_sequences,omitempty"`
+	TopP            *float64         `json:"top_p,omitempty"`
+	ReasoningEffort *ReasoningEffort `json:"reasoning_effort,omitempty"`
+	ExtraBody       json.RawMessage  `json:"extra_body,omitempty"`
+	DisableTools    bool             `json:"disable_tools,omitempty"`
+
+	AllowedTools        []string `json:"allowed_tools"`
+	TurnSystemAdditions []string `json:"turn_system_additions,omitempty"`
+}
+
+type ProviderState struct {
+	Provider   string          `json:"provider"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Data       json.RawMessage `json:"data"`
+}
+
+type Reasoning struct {
+	Text         string `json:"text,omitempty"`
+	Signature    string `json:"signature,omitempty"`
+	RedactedData string `json:"redacted_data,omitempty"`
+}
+
+type ReasoningEffort string
+
+type Reference struct {
+	URI        string `json:"uri"`
+	MediaType  string `json:"media_type,omitempty"`
+	SHA256     string `json:"sha256,omitempty"`
+	Bytes      int64  `json:"bytes,omitempty"`
+	Processing string `json:"processing,omitempty"`
+}
+
+type Refusal struct {
+	Text string `json:"text"`
+}
+
+type Role string
+
+type StreamAccumulator struct {
+}
+
+type StreamChunk struct {
+	Kind ChunkKind
+
+	ContentIndex *int
+	Text         string
+	ToolCall     *ToolCall
+	Usage        *Usage
+	FinishReason string
+	ContentBlock *ContentBlock
+	ResponseID   string
+}
+
+type ToolCall struct {
+	ID            string          `json:"id"`
+	Name          string          `json:"name"`
+	Arguments     json.RawMessage `json:"arguments"`
+	ProviderState []ProviderState `json:"provider_state,omitempty"`
+}
+
+type ToolDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+type ToolResult struct {
+	CallID  string         `json:"call_id"`
+	Content []ContentBlock `json:"content"`
+	IsError bool           `json:"is_error,omitempty"`
+}
+
+type Usage struct {
+	InputTokens  uint64 `json:"input_tokens"`
+	OutputTokens uint64 `json:"output_tokens"`
+
+	CachedInputTokens     *uint64 `json:"cached_input_tokens,omitempty"`
+	TotalTokens           uint64  `json:"total_tokens,omitempty"`
+	CacheWriteInputTokens *uint64 `json:"cache_write_input_tokens,omitempty"`
+	ReasoningTokens       uint64  `json:"reasoning_tokens,omitempty"`
+}
+
+type Video struct {
+	Payload        *MediaPayload `json:"payload,omitempty"`
+	DurationMillis int64         `json:"duration_millis,omitempty"`
+	Frames         []VideoFrame  `json:"frames,omitempty"`
+}
+
+type VideoFrame struct {
+	TimestampMillis int64 `json:"timestamp_millis"`
+	Image           Image `json:"image"`
+}

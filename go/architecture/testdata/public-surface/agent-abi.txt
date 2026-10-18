@@ -1,0 +1,349 @@
+const (
+	AnalyticsSessionStart AnalyticsKind = "session_start"
+	AnalyticsSessionEnd   AnalyticsKind = "session_end"
+	AnalyticsToolStart    AnalyticsKind = "tool_call_start"
+	AnalyticsToolEnd      AnalyticsKind = "tool_call_end"
+	AnalyticsLLMCall      AnalyticsKind = "llm_call"
+)
+
+const (
+	PhaseRunStart            Phase = "run_start"
+	PhaseInputCommitted      Phase = "input_committed"
+	PhaseIterationStart      Phase = "iteration_start"
+	PhasePrepareModelRequest Phase = "prepare_model_request"
+	PhaseModelCallStart      Phase = "model_call_start"
+	PhaseBeforeModel         Phase = "before_model"
+	PhaseAroundModel         Phase = "around_model"
+	PhaseAfterModel          Phase = "after_model"
+	PhaseModelCallEnd        Phase = "model_call_end"
+	PhaseAssistantCommitted  Phase = "assistant_committed"
+	PhaseToolBatchDeclared   Phase = "tool_batch_declared"
+	PhaseToolBatchPlanned    Phase = "tool_batch_planned"
+	PhaseToolUseDeclared     Phase = "tool_use_declared"
+	PhasePrepareTool         Phase = "prepare_tool"
+	PhaseBeforeTool          Phase = "before_tool"
+	PhaseAroundTool          Phase = "around_tool"
+	PhaseAfterTool           Phase = "after_tool"
+	PhaseToolResultCommitted Phase = "tool_result_committed"
+	PhaseToolBatchEnd        Phase = "tool_batch_end"
+	PhaseAfterTurn           Phase = "after_turn"
+	PhaseIterationEnd        Phase = "iteration_end"
+	PhaseRunEnd              Phase = "run_end"
+)
+
+const (
+	ProviderAPICall           ProviderErrorKind = "api_call"
+	ProviderEmptyResponse     ProviderErrorKind = "empty_response"
+	ProviderInvalidArgument   ProviderErrorKind = "invalid_argument"
+	ProviderInvalidPrompt     ProviderErrorKind = "invalid_prompt"
+	ProviderInvalidResponse   ProviderErrorKind = "invalid_response"
+	ProviderJSONParse         ProviderErrorKind = "json_parse"
+	ProviderCredential        ProviderErrorKind = "credential"
+	ProviderSetting           ProviderErrorKind = "setting"
+	ProviderNoContent         ProviderErrorKind = "no_content"
+	ProviderNoSuchModel       ProviderErrorKind = "no_such_model"
+	ProviderTooManyEmbeddings ProviderErrorKind = "too_many_embeddings"
+	ProviderTypeValidation    ProviderErrorKind = "type_validation"
+	ProviderUnsupported       ProviderErrorKind = "unsupported"
+	ProviderNetwork           ProviderErrorKind = "network"
+	ProviderRateLimited       ProviderErrorKind = "rate_limited"
+)
+
+const (
+	TaskLocalBash         TaskKind = "local_bash"
+	TaskLocalAgent        TaskKind = "local_agent"
+	TaskRemoteAgent       TaskKind = "remote_agent"
+	TaskInProcessTeammate TaskKind = "in_process_teammate"
+	TaskLocalWorkflow     TaskKind = "local_workflow"
+	TaskMonitorMCP        TaskKind = "monitor_mcp"
+	TaskDream             TaskKind = "dream"
+)
+
+const (
+	TaskPending   TaskStatus = "pending"
+	TaskRunning   TaskStatus = "running"
+	TaskSucceeded TaskStatus = "succeeded"
+	TaskFailed    TaskStatus = "failed"
+	TaskCancelled TaskStatus = "cancelled"
+)
+
+func (NoopAnalyticsSink) Record(AnalyticsEvent)
+
+func (SimpleTokenEstimator) EstimateText(text string) int
+
+func (StaticCredential) GoString() string
+
+func (StaticCredential) MarshalJSON() ([]byte, error)
+
+func (StaticCredential) String() string
+
+func (credential StaticCredential) GetAPIKey(ctx context.Context) (string, error)
+
+func (err *ProviderError) Error() string
+
+func (err *ProviderError) Unwrap() error
+
+func (estimator SimpleTokenEstimator) CountTokens(text string) int
+
+func (estimator SimpleTokenEstimator) EstimateMessages(messages []wire.Message) (int, error)
+
+func (event AnalyticsEvent) Validate() error
+
+func (fn ChildCompleteFunc) Call(ctx context.Context, result SpawnResult) error
+
+func (kind TaskKind) Prefix() (byte, error)
+
+func (phase Phase) Valid() bool
+
+func (registry *CommunicationRegistry) Get(kind string) (SpawnCommunication, bool)
+
+func (registry *CommunicationRegistry) List() []SpawnCommunication
+
+func (registry *CommunicationRegistry) Register(communication SpawnCommunication) error
+
+func (registry *ProviderRegistry) Get(id string) (Provider, bool)
+
+func (registry *ProviderRegistry) IDs() []string
+
+func (registry *ProviderRegistry) LanguageModel(ctx context.Context, providerID, modelID string) (kernel.LanguageModel, error)
+
+func (registry *ProviderRegistry) Register(provider Provider) error
+
+func (status TaskStatus) Terminal() bool
+
+func (task *Task) AddPaused(duration time.Duration) error
+
+func (task *Task) AdvanceOutput(next int64) error
+
+func (task *Task) Transition(next TaskStatus) error
+
+func CloneAnalyticsEvent(event AnalyticsEvent) AnalyticsEvent
+
+func NewCommunicationRegistry(capacity int) (*CommunicationRegistry, error)
+
+func NewProviderRegistry() *ProviderRegistry
+
+func NewStaticCredential(key string) (*StaticCredential, error)
+
+func NewTask(kind TaskKind, title, toolUseID, outputFile string) (Task, error)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	kernel "github.com/QuincySx/Alva/go/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/go/sdk/kernel/bus"
+	"sort"
+	"sync"
+	"time"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	kernel "github.com/QuincySx/Alva/go/sdk/kernel/abi"
+)
+
+import (
+	"context"
+)
+
+import (
+	"crypto/rand"
+	"encoding/binary"
+	"errors"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+)
+
+import (
+	"encoding/json"
+
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+)
+
+import (
+	"errors"
+	"math"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/go/sdk/llm/wire"
+)
+
+type AnalyticsEvent struct {
+	Type         AnalyticsKind            `json:"type"`
+	SessionID    string                   `json:"session_id"`
+	RunID        string                   `json:"run_id,omitempty"`
+	Time         time.Time                `json:"time"`
+	SessionStart *AnalyticsSessionStarted `json:"session_start,omitempty"`
+	SessionEnd   *AnalyticsSessionEnded   `json:"session_end,omitempty"`
+	ToolStart    *AnalyticsToolStarted    `json:"tool_start,omitempty"`
+	ToolEnd      *AnalyticsToolEnded      `json:"tool_end,omitempty"`
+	LLMCall      *AnalyticsModelCall      `json:"llm_call,omitempty"`
+}
+
+type AnalyticsKind string
+
+type AnalyticsModelCall struct {
+	Provider  string      `json:"provider"`
+	Model     string      `json:"model"`
+	Usage     *wire.Usage `json:"usage,omitempty"`
+	CostUSD   *float64    `json:"cost_usd,omitempty"`
+	LatencyMS uint64      `json:"latency_ms"`
+}
+
+type AnalyticsSessionEnded struct {
+	DurationMS uint64 `json:"duration_ms"`
+}
+
+type AnalyticsSessionStarted struct {
+	Workspace string `json:"workspace"`
+}
+
+type AnalyticsSink interface{ Record(AnalyticsEvent) }
+
+type AnalyticsToolEnded struct {
+	Tool      string `json:"tool"`
+	CallID    string `json:"call_id"`
+	LatencyMS uint64 `json:"latency_ms"`
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+}
+
+type AnalyticsToolStarted struct {
+	Tool   string `json:"tool"`
+	CallID string `json:"call_id"`
+}
+
+type ChildCompleteFunc func(context.Context, SpawnResult) error
+
+type ChildScopeConfig struct {
+	Role, SystemPrompt string
+	Timeout            time.Duration
+	MaxIterations      int
+}
+
+type Command struct {
+	Name        string
+	Description string
+}
+
+type CommunicationRegistry struct {
+}
+
+type CredentialSource interface {
+	GetAPIKey(context.Context) (string, error)
+}
+
+type NoopAnalyticsSink struct{}
+
+type OnChildComplete interface {
+	Call(context.Context, SpawnResult) error
+}
+
+type Phase string
+
+type Provider interface {
+	ID() string
+	LanguageModel(context.Context, string) (kernel.LanguageModel, error)
+}
+
+type ProviderError struct {
+	Kind                                                     ProviderErrorKind
+	Message, URL, ResponseBody, Argument, ModelID, ModelType string
+	StatusCode                                               *int
+	Retryable                                                bool
+	RetryAfter                                               *time.Duration
+	Count, Max                                               int
+	Err                                                      error
+}
+
+type ProviderErrorKind string
+
+type ProviderRegistry struct {
+}
+
+type Scope struct {
+	ID       string
+	ParentID string
+}
+
+type ScopeSnapshot struct {
+	ID, ParentID, Role, SessionID  string
+	Depth, MaxDepth, ChildrenCount int
+	Completed                      bool
+}
+
+type SimpleTokenEstimator struct{}
+
+type SpawnCommContext struct {
+	ParentScopeID, ParentSessionID, ChildScopeID, ChildSessionID, Role string
+	Bus                                                                bus.Handle
+}
+
+type SpawnCommHandle struct {
+	Hooks      []kernel.ContextHooks
+	OnComplete OnChildComplete
+}
+
+type SpawnCommunication interface {
+	Kind() string
+	Description() string
+	ConfigSchema() json.RawMessage
+	Attach(context.Context, SpawnCommContext, json.RawMessage) (SpawnCommHandle, error)
+}
+
+type SpawnRequest struct {
+	Scope     Scope
+	Task      Task
+	Workspace string
+}
+
+type SpawnResult struct {
+	Text    string
+	IsError bool
+	Error   string
+}
+
+type SpawnService interface {
+	Spawn(context.Context, SpawnRequest) (string, error)
+	Cancel(context.Context, string) error
+}
+
+type StaticCredential struct{}
+
+type Task struct {
+	ID           string        `json:"id"`
+	Kind         TaskKind      `json:"kind"`
+	Title        string        `json:"title"`
+	Status       TaskStatus    `json:"status"`
+	ToolUseID    string        `json:"tool_use_id,omitempty"`
+	CreatedAt    time.Time     `json:"created_at"`
+	StartedAt    *time.Time    `json:"started_at,omitempty"`
+	EndedAt      *time.Time    `json:"ended_at,omitempty"`
+	TotalPaused  time.Duration `json:"total_paused_ns"`
+	OutputFile   string        `json:"output_file,omitempty"`
+	OutputOffset int64         `json:"output_offset"`
+	Notified     bool          `json:"notified"`
+}
+
+type TaskKind string
+
+type TaskStatus string
+
+type TokenEstimator interface {
+	EstimateText(string) int
+	EstimateMessages([]wire.Message) (int, error)
+}

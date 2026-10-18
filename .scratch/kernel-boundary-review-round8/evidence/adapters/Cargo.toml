@@ -1,0 +1,14 @@
+[package]
+name = "round8-adapter-probe"
+version = "0.1.0"
+edition = "2021"
+[workspace]
+[dependencies]
+alva-engine-runtime = { path = "../../../../crates/alva-engine-runtime", features = ["test-support"] }
+alva-engine-adapter-codex = { path = "../../../../crates/alva-engine-adapter-codex" }
+alva-engine-adapter-pi = { path = "../../../../crates/alva-engine-adapter-pi" }
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+
+[[bin]]
+name = "round8-adapter-probe"
+path = "main.rs"

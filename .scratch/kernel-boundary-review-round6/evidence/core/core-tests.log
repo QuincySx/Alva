@@ -1,0 +1,1066 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling futures-util v0.3.32
+   Compiling tokio v1.52.3
+   Compiling alva-llm-wire v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-llm-wire)
+   Compiling aho-corasick v1.1.4
+   Compiling regex-automata v0.4.14
+   Compiling regex v1.12.3
+   Compiling futures-executor v0.3.32
+   Compiling alva-kernel-bus v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-bus)
+   Compiling tokio-stream v0.1.18
+   Compiling tokio-util v0.7.18
+   Compiling futures v0.3.32
+   Compiling alva-kernel-abi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-abi)
+   Compiling alva-agent-abi v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-abi)
+   Compiling alva-kernel-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-kernel-core)
+   Compiling alva-engine-runtime v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-engine-runtime)
+   Compiling alva-hub-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-hub-core)
+warning: unused import: `AgentEvent`
+  --> crates/alva-kernel-core/src/run/loop_impl.rs:16:20
+   |
+16 | use crate::event::{AgentEvent, AgentEventSender};
+   |                    ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `alva_kernel_abi::agent_session::AgentSession`
+ --> crates/alva-kernel-core/src/state.rs:6:5
+  |
+6 | use alva_kernel_abi::agent_session::AgentSession;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling alva-agent-core v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-core)
+warning: `alva-kernel-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-kernel-core` to apply 2 suggestions)
+warning: unused import: `normalize_path_string`
+  --> crates/alva-agent-core/src/tool_lock.rs:20:5
+   |
+20 |     normalize_path_string, resolve_against_workspace, ExecutionMode, LockMode, ResourceKey,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/alva-agent-core/src/agent_builder.rs:358:13
+    |
+358 |         let mut extensions = Extensions::new();
+    |             ----^^^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `alva-agent-core` (lib) generated 2 warnings (run `cargo fix --lib -p alva-agent-core` to apply 2 suggestions)
+   Compiling alva-agent-security v0.1.0 (/Volumes/DevVault/Dev/Projects/QuincyWork/alva-agent/crates/alva-agent-security)
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1228:9
+     |
+1228 |         s.append(e1).await;
+     |         ^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+     = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+     |
+1228 |         let _ = s.append(e1).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1229:9
+     |
+1229 |         s.append(e2).await;
+     |         ^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1229 |         let _ = s.append(e2).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1230:9
+     |
+1230 |         s.append(e3).await;
+     |         ^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1230 |         let _ = s.append(e3).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1256:21
+     |
+1256 |                     s.append(e).await;
+     |                     ^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1256 |                     let _ = s.append(e).await;
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1291:21
+     |
+1291 |                     s.append_message(user_msg(&format!("{t}-{i}")), None).await;
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1291 |                     let _ = s.append_message(user_msg(&format!("{t}-{i}")), None).await;
+     |                     +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1415:9
+     |
+1415 |         s.append_message(user_msg("hello"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1415 |         let _ = s.append_message(user_msg("hello"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1416:9
+     |
+1416 |         s.append_message(user_msg("world"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1416 |         let _ = s.append_message(user_msg("world"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1435:13
+     |
+1435 | /             s.append_message(user_msg(&format!("msg {}", i)), None)
+1436 | |                 .await;
+     | |______________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1435 |             let _ = s.append_message(user_msg(&format!("msg {}", i)), None)
+     |             +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1453:9
+     |
+1453 |         s.append_message(user_msg("one"), None).await; // seq 1
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1453 |         let _ = s.append_message(user_msg("one"), None).await; // seq 1
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1454:9
+     |
+1454 |         s.append_message(user_msg("two"), None).await; // seq 2
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1454 |         let _ = s.append_message(user_msg("two"), None).await; // seq 2
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1455:9
+     |
+1455 |         s.append_message(user_msg("three"), None).await; // seq 3
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1455 |         let _ = s.append_message(user_msg("three"), None).await; // seq 3
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1467:9
+     |
+1467 |         s.append_message(user_msg("m1"), None).await; // seq 1 (message)
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1467 |         let _ = s.append_message(user_msg("m1"), None).await; // seq 1 (message)
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1468:9
+     |
+1468 | /         s.append(SessionEvent::progress(serde_json::json!({"p": 1})))
+1469 | |             .await; // seq 2 (no data-backed message)
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1468 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"p": 1})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1470:9
+     |
+1470 |         s.append_message(user_msg("m2"), None).await; // seq 3 (message)
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1470 |         let _ = s.append_message(user_msg("m2"), None).await; // seq 3 (message)
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1482:9
+     |
+1482 |         s.append_message(user_msg("one"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1482 |         let _ = s.append_message(user_msg("one"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1489:9
+     |
+1489 | /         s.append(SessionEvent::user_message(serde_json::json!("hi")))
+1490 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1489 |         let _ = s.append(SessionEvent::user_message(serde_json::json!("hi")))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1491:9
+     |
+1491 | /         s.append(SessionEvent::progress(serde_json::json!({"ok": true})))
+1492 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1491 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"ok": true})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1493:9
+     |
+1493 | /         s.append(SessionEvent::progress(serde_json::json!({"ok": false})))
+1494 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1493 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"ok": false})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1518:9
+     |
+1518 |         s.append_message(user_msg("one"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1518 |         let _ = s.append_message(user_msg("one"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1519:9
+     |
+1519 |         s.append_message(user_msg("two"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1519 |         let _ = s.append_message(user_msg("two"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1520:9
+     |
+1520 |         s.append_message(user_msg("three"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1520 |         let _ = s.append_message(user_msg("three"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1562:9
+     |
+1562 |         original.append_message(user_msg("hi"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1562 |         let _ = original.append_message(user_msg("hi"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1563:9
+     |
+1563 | /         original
+1564 | |             .append_message(
+1565 | |                 AgentMessage::Standard(Message {
+1566 | |                     id: "m2".into(),
+...    |
+1577 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1563 |         let _ = original
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1599:9
+     |
+1599 | /         restored
+1600 | |             .append(SessionEvent::progress(
+1601 | |                 serde_json::json!({"after": "restore"}),
+1602 | |             ))
+1603 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1599 |         let _ = restored
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1615:9
+     |
+1615 |         s.append(SessionEvent::new_runtime("run_start")).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1615 |         let _ = s.append(SessionEvent::new_runtime("run_start")).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1616:9
+     |
+1616 |         s.append_message(user_msg("msg1"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1616 |         let _ = s.append_message(user_msg("msg1"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1617:9
+     |
+1617 |         s.append_message(user_msg("reply1"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1617 |         let _ = s.append_message(user_msg("reply1"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1618:9
+     |
+1618 |         s.append(SessionEvent::new_runtime("tool_use")).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1618 |         let _ = s.append(SessionEvent::new_runtime("tool_use")).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1619:9
+     |
+1619 |         s.append_message(user_msg("msg2"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1619 |         let _ = s.append_message(user_msg("msg2"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1623:9
+     |
+1623 |         s.append(SessionEvent::new_runtime("compaction")).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1623 |         let _ = s.append(SessionEvent::new_runtime("compaction")).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1669:9
+     |
+1669 |         s.append_message(user_msg("one"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1669 |         let _ = s.append_message(user_msg("one"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1678:9
+     |
+1678 | /         s.append(SessionEvent::progress(
+1679 | |             serde_json::json!({"after": "clear"}),
+1680 | |         ))
+1681 | |         .await;
+     | |______________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1678 |         let _ = s.append(SessionEvent::progress(
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1704:9
+     |
+1704 |         scoped.append(e).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1704 |         let _ = scoped.append(e).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1762:9
+     |
+1762 |         session.append(e).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1762 |         let _ = session.append(e).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1777:9
+     |
+1777 |         session.append_message(user_msg("hello"), None).await;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1777 |         let _ = session.append_message(user_msg("hello"), None).await;
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1801:9
+     |
+1801 | /         session
+1802 | |             .append(SessionEvent::progress(serde_json::json!({"x": 1})))
+1803 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1801 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1818:9
+     |
+1818 | /         s.append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1819 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1818 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"n": 1})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1820:9
+     |
+1820 | /         s.append(SessionEvent::progress(serde_json::json!({"n": 2})))
+1821 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1820 |         let _ = s.append(SessionEvent::progress(serde_json::json!({"n": 2})))
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1841:9
+     |
+1841 | /         session
+1842 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1843 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1841 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1844:9
+     |
+1844 | /         session
+1845 | |             .append(SessionEvent::progress(serde_json::json!({"n": 2})))
+1846 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1844 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1857:9
+     |
+1857 | /         session
+1858 | |             .append(SessionEvent::progress(serde_json::json!({"n": 3})))
+1859 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1857 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1869:9
+     |
+1869 | /         session
+1870 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1871 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1869 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1872:9
+     |
+1872 | /         session
+1873 | |             .append(SessionEvent::progress(serde_json::json!({"n": 2})))
+1874 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1872 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1875:9
+     |
+1875 | /         session
+1876 | |             .append(SessionEvent::progress(serde_json::json!({"n": 3})))
+1877 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1875 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1896:9
+     |
+1896 | /         session
+1897 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1898 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1896 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1920:9
+     |
+1920 | /         session
+1921 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1922 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1920 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1951:9
+     |
+1951 | /         session
+1952 | |             .append(SessionEvent::progress(serde_json::json!({"n": 1})))
+1953 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1951 |         let _ = session
+     |         +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1971:17
+     |
+1971 |                 self.target.append(event.clone()).await;
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1971 |                 let _ = self.target.append(event.clone()).await;
+     |                 +++++++
+
+warning: unused `Result` that must be used
+    --> crates/alva-agent-core/src/agent_session.rs:1986:9
+     |
+1986 | /         child
+1987 | |             .append(SessionEvent::progress(serde_json::json!({"from": "child"})))
+1988 | |             .await;
+     | |__________________^
+     |
+     = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+     |
+1986 |         let _ = child
+     |         +++++++
+
+warning: `alva-agent-core` (lib test) generated 50 warnings (1 duplicate)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8m 39s
+     Running unittests src/lib.rs (target/debug/deps/alva_agent_core-a522e83afac59caa)
+
+running 68 tests
+test agent_builder::tests::assemble_skips_empty_additions ... ok
+test agent_builder::tests::environment_block_with_workspace_includes_cwd ... ok
+test agent_session::tests::child_session_has_parent ... ok
+test agent_builder::tests::assemble_empty_base_still_emits_environment ... ok
+test agent_session::tests::append_assigns_monotonic_seq ... ok
+test agent_builder::tests::environment_block_without_workspace_has_date_only ... ok
+test agent_builder::tests::assemble_groups_stable_and_dynamic_correctly ... ok
+test agent_session::tests::append_message_updates_cache_and_events ... ok
+test agent_session::tests::clear_resets_everything ... ok
+test agent_session::tests::default_subscribe_events_replays_history_and_ends ... ok
+test agent_session::tests::compact_messages_preserves_event_log_and_reload_reproduces_projection ... ok
+test agent_session::tests::lifecycle_methods_are_ok ... ok
+test agent_session::tests::disposal_delivers_committed_events_before_exit ... ok
+test agent::tests::run_returns_before_the_model_finishes ... ok
+test agent_session::tests::listenable_session_nested_forward ... ok
+test agent_session::tests::dropped_subscription_is_reaped_on_next_append ... ok
+test agent_session::tests::listenable_session_multiple_listeners_fire_in_order ... ok
+test agent::tests::run_works_without_a_tokio_runtime ... ok
+test agent_session::tests::live_explicit_listener_survives_the_reap ... ok
+test agent_session::tests::new_session_has_id_and_no_parent ... ok
+test agent_session::tests::listenable_session_notifies_listener_on_append ... ok
+test agent_session::tests::non_tokio_reentrant_listener_append_completes ... ok
+test agent_session::tests::listenable_session_notifies_on_append_message ... ok
+test agent_session::tests::query_by_event_type ... ok
+test agent_session::tests::messages_since_returns_only_newer_messages ... ok
+test agent_session::tests::messages_since_skips_non_message_events ... ok
+test agent::tests::run_streams_events_before_the_turn_finishes ... ok
+test agent_session::tests::recent_messages_larger_than_total_returns_all ... ok
+test agent_session::tests::snapshot_save_and_load ... ok
+test agent_session::tests::restore_events_rebuilds_both_event_log_and_messages_cache ... ok
+test agent_session::tests::scoped_session_stamps_emitter ... ok
+test agent_session::tests::recent_messages_returns_last_n_from_cache ... ok
+test agent_session::tests::subscribe_events_dropping_stream_does_not_panic_future_appends ... ok
+test agent_session::tests::rollback_after_drops_events_and_rebuilds_cache ... ok
+test agent_session::tests::subscribe_events_from_seq_skips_early_history ... ok
+test extension::registrar::tests::plugin_name_and_workspace_accessors ... ok
+test agent_session::tests::subscribe_events_replays_history_then_tails_live ... ok
+test agent_session::tests::typed_batch_append_assigns_one_contiguous_commit_range ... ok
+test extension::registrar::tests::tool_take_round_trip ... ok
+test mock_fs::tests::test_mock_exec ... ok
+test mock_fs::tests::test_mock_exec_fifo_order ... ok
+test mock_fs::tests::test_mock_exec_empty_queue_returns_error ... ok
+test mock_fs::tests::test_mock_exists ... ok
+test mock_fs::tests::test_mock_list_dir_subdirs ... ok
+test mock_fs::tests::test_mock_list_dir ... ok
+test mock_fs::tests::test_mock_read_write ... ok
+test mock_fs::tests::test_mock_read_missing_returns_error ... ok
+test tool_lock::tests::acquire_with_timeout_succeeds_when_uncontended ... ok
+test tool_lock::tests::dedup_promotes_to_write_on_mixed_modes ... ok
+test tool_lock::tests::inspect_empty_registry_is_empty ... ok
+test tool_lock::tests::inspect_clears_after_guard_drops ... ok
+test tool_lock::tests::inspect_lists_held_locks_with_holder_label ... ok
+test tool_lock::tests::inspect_serial_global_uses_sentinel_key ... ok
+test tool_lock::tests::normalize_collapses_double_slashes_and_dots ... ok
+test tool_lock::tests::resource_key_normalizes_at_construction ... ok
+test agent_session::tests::disposal_wakes_idle_driver_and_reclaims_it ... ok
+test agent_session::tests::concurrent_append_preserves_monotonic_seq ... ok
+test agent_session::tests::listenable_broadcast_order_matches_seq_order ... ok
+test tool_lock::tests::inspect_age_grows_with_time ... ok
+test tool_lock::tests::acquire_with_timeout_succeeds_after_release ... ok
+test agent_session::tests::concurrent_append_message_preserves_storage_order ... ok
+test tool_lock::tests::acquire_with_timeout_times_out_on_contention ... ok
+test tool_lock::tests::acquire_within_collides_relative_and_absolute ... ok
+test tool_lock::tests::writes_on_same_key_serialize ... ok
+test tool_lock::tests::sort_avoids_deadlock_on_multi_key_tools ... ok
+test tool_lock::tests::read_locks_are_concurrent ... ok
+test tool_lock::tests::serial_global_blocks_parallels ... ok
+test agent_session::tests::slow_stream_consumer_does_not_block_appends ... ok
+
+test result: ok. 68 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running unittests src/lib.rs (target/debug/deps/alva_agent_security-cf6ed6cd907d3772)
+
+running 193 tests
+test authorized_roots::tests::allows_workspace_paths ... ok
+test authorized_roots::tests::denies_outside_workspace ... ok
+test authorized_roots::tests::remove_extra_root ... ok
+test authorized_roots::tests::allows_extra_root ... ok
+test cache::tests::remove_specific_entry ... ok
+test cache::tests::different_inputs_different_keys ... ok
+test cache::tests::different_tools_different_keys ... ok
+test cache::tests::clear_removes_all ... ok
+test cache::tests::empty_cache_returns_none ... ok
+test cache::tests::default_is_empty ... ok
+test cache::tests::overwrite_decision ... ok
+test cache::tests::set_and_get ... ok
+test classifier::tests::chmod_777_is_destructive ... ok
+test classifier::tests::cat_is_read_only ... ok
+test classifier::tests::cargo_check_is_read_only ... ok
+test classifier::tests::dd_is_destructive ... ok
+test classifier::tests::destructive_patterns_are_case_insensitive ... ok
+test classifier::tests::echo_is_read_only ... ok
+test classifier::tests::drop_database_is_destructive ... ok
+test classifier::tests::empty_command_is_read_only ... ok
+test classifier::tests::git_commit_is_unknown ... ok
+test classifier::tests::git_diff_is_read_only ... ok
+test classifier::tests::git_log_is_read_only ... ok
+test classifier::tests::git_push_force_is_destructive ... ok
+test classifier::tests::git_push_without_force_is_unknown ... ok
+test classifier::tests::git_reset_hard_is_destructive ... ok
+test classifier::tests::git_clean_f_is_destructive ... ok
+test classifier::tests::git_status_is_read_only ... ok
+test classifier::tests::grep_is_read_only ... ok
+test classifier::tests::kill_9_is_destructive ... ok
+test classifier::tests::killall_is_destructive ... ok
+test classifier::tests::ls_is_read_only ... ok
+test classifier::tests::pwd_is_read_only ... ok
+test classifier::tests::rm_fr_is_destructive ... ok
+test classifier::tests::rm_rf_is_destructive ... ok
+test classifier::tests::rm_rf_with_irregular_whitespace_is_destructive ... ok
+test classifier::tests::unknown_commands ... ok
+test guard::tests::extracts_paths_from_command ... ok
+test guard::tests::explicit_path_outside_workspace_still_denied ... ok
+test guard::tests::allows_safe_tool_in_workspace ... ok
+test guard::tests::always_allow_does_not_cover_different_arguments ... ok
+test authorized_roots::tests::new_file_through_workspace_symlink_is_denied ... ok
+test guard::tests::approval_receiver_can_be_taken_after_check ... ok
+test guard::tests::denies_sensitive_path ... ok
+test guard::tests::inspect_url_through_guard_is_low_for_public_literal ... ok
+test guard::tests::extracts_paths_from_args ... ok
+test guard::tests::denies_outside_workspace ... ok
+test guard::tests::dangerous_tool_needs_approval ... ok
+test middleware::plan_mode::tests::allows_read_only_tools ... ok
+test guard::tests::inspect_url_through_guard_returns_high_for_imds ... ok
+test guard::tests::non_dangerous_tool_auto_allowed ... ok
+test guard::tests::dangerous_tool_after_always_allow ... ok
+test guard::tests::set_url_rules_overrides_threshold ... ok
+test guard::tests::request_escalation_is_gated_by_harness_policy_not_tool_declaration ... ok
+test guard::tests::relative_sensitive_path_is_denied ... ok
+test middleware::plan_mode::tests::blocks_write_tools ... ok
+test guard::tests::should_ask_for_url_delegates_to_threshold ... ok
+test middleware::plan_mode::tests::mcp_tool_blocked_by_default ... ok
+test guard::tests::shell_commands_not_root_checked ... ok
+test middleware::plan_mode::tests::disabled_allows_everything ... ok
+test middleware::plan_mode::tests::toggle ... ok
+test guard::tests::url_rules_default_is_some_medium_threshold ... ok
+test middleware::plan_mode::tests::mcp_tool_allowed_by_read_only_pattern ... ok
+test guard::tests::tool_cannot_deny_itself_through_its_effect_description ... ok
+test middleware::security::tests::allows_workspace_path ... ok
+test middleware::security::tests::approval_emits_requires_action_into_session_log ... ok
+test middleware::security::tests::middleware_cancellation_interrupts_pending_approval ... ok
+test middleware::security::tests::blocks_outside_workspace_path ... ok
+test middleware::security::tests::middleware_exposes_guard ... ok
+test middleware::security::tests::middleware_waits_for_approval_and_denies ... ok
+test middleware::security::tests::middleware_waits_for_approval_and_allows ... ok
+test middleware::security::tests::effect_summary_travels_with_the_approval_request ... ok
+test mode_control::tests::roundtrip ... ok
+test middleware::security::tests::no_handler_records_resolved_with_no_handler_status ... ok
+test middleware::security::tests::pending_actions_lists_in_flight_approval ... ok
+test middleware::security::tests::url_aware_public_url_passes_without_approval ... ok
+test middleware::security::tests::subscriber_sees_requires_action_live ... ok
+test middleware::security::tests::url_aware_loopback_denied_on_reject ... ok
+test modes::tests::auto_and_bypass_auto_approve ... ok
+test modes::tests::auto_does_not_require_confirmation ... ok
+test modes::tests::display_format ... ok
+test mode_control::tests::shared_arc_observes_writes ... ok
+test modes::tests::default_is_default_variant ... ok
+test modes::tests::interactive_requires_confirmation ... ok
+test modes::tests::interactive_does_not_auto_approve ... ok
+test middleware::security::tests::url_aware_loopback_triggers_approval_and_proceeds_on_allow ... ok
+test modes::tests::non_plan_allows_writes ... ok
+test modes::tests::only_bypass_requires_sandbox ... ok
+test modes::tests::serde_roundtrip ... ok
+test modes::tests::serde_all_variants ... ok
+test middleware::security::tests::url_aware_threshold_none_passes_loopback_without_approval ... ok
+test path_utils::tests::dot_component_in_middle_is_stripped ... ok
+test path_utils::tests::dot_only_path_normalizes_to_empty ... ok
+test path_utils::tests::empty_path_normalizes_to_empty ... ok
+test path_utils::tests::multiple_dots_all_stripped ... ok
+test path_utils::tests::nested_parent_dirs_resolve_layer_by_layer ... ok
+test path_utils::tests::parent_dir_at_absolute_root_does_not_escape_root ... ok
+test path_utils::tests::parent_dir_at_relative_root_silently_drops ... ok
+test modes::tests::plan_disallows_writes ... ok
+test path_utils::tests::parent_dir_in_middle_pops_previous_component ... ok
+test path_utils::tests::round_trip_already_normalized_path_is_idempotent ... ok
+test path_utils::tests::simple_absolute_path_passes_through_unchanged ... ok
+test path_utils::tests::simple_relative_path_passes_through_unchanged ... ok
+test path_utils::tests::trailing_slash_is_normalized_away ... ok
+test pending_actions::tests::empty_session_returns_no_pending ... ok
+test pending_actions::tests::mixed_pending_and_resolved ... ok
+test pending_actions::tests::unresolved_requires_action_shows_up ... ok
+test pending_actions::tests::resolve_status_strings_match_expected ... ok
+test pending_actions::tests::resolved_requires_action_is_filtered_out ... ok
+test permission::tests::allow_once_does_not_cache ... ok
+test permission::tests::always_allow_caches ... ok
+test permission::tests::always_allow_is_scoped_to_arguments ... ok
+test pending_actions::tests::pending_actions_are_ordered_by_seq ... ok
+test permission::tests::always_deny_caches ... ok
+test permission::tests::approval_flow_end_to_end ... ok
+test permission::tests::cancel_drops_pending ... ok
+test permission::tests::no_cached_decision_by_default ... ok
+test permission::tests::parse_interactive_maps_human_shorthand ... ok
+test permission::tests::parse_interactive_fails_safe_on_unrecognized_input ... ok
+test permission::tests::parse_token_accepts_exactly_the_four_wire_tokens ... ok
+test permission::tests::parse_token_is_strict_no_trim_no_case_fold_unknown_errors ... ok
+test permission::tests::reject_once_does_not_cache ... ok
+test rules::tests::deny_overrides_ask ... ok
+test rules::tests::glob_double_star_path ... ok
+test permission::tests::reset_clears_everything ... ok
+test rules::tests::allow_rule_matches ... ok
+test rules::tests::allow_with_arg_pattern ... ok
+test rules::tests::default_decision_is_ask ... ok
+test rules::tests::deny_overrides_allow ... ok
+test rules::tests::glob_double_star_matches_everything ... ok
+test rules::tests::ask_overrides_allow ... ok
+test rules::tests::glob_prefix_wildcard ... ok
+test rules::tests::read_only_no_patterns_returns_none ... ok
+test rules::tests::glob_exact_match ... ok
+test rules::tests::glob_middle_wildcard ... ok
+test rules::tests::glob_suffix_wildcard ... ok
+test rules::tests::is_empty_when_no_rules ... ok
+test rules::tests::glob_star_matches_everything ... ok
+test rules::tests::is_not_empty_with_rules ... ok
+test rules::tests::read_only_exact_match ... ok
+test rules::tests::read_only_star_matches_all ... ok
+test rules::tests::simple_tool_name_match ... ok
+test rules::tests::read_only_wildcard_prefix ... ok
+test rules::tests::rule_decision_serde ... ok
+test rules::tests::tool_pattern_with_wildcard_args ... ok
+test rules::tests::serde_roundtrip ... ok
+test rules::tests::tool_pattern_with_path_args ... ok
+test rules::tests::tool_pattern_with_prefix_args ... ok
+test sandbox::tests::default_mode_is_restrictive_open ... ok
+test sandbox::tests::is_enforced_stays_false_until_a_sandbox_actually_wraps_commands ... ok
+test sandbox::tests::restrictive_closed_denies_network ... ok
+test sandbox::tests::symlinked_grant_is_canonicalized_before_parameter_injection ... ok
+test sensitive_paths::tests::blocks_certificate_files ... ok
+test sensitive_paths::tests::allows_normal_files ... ok
+test sandbox::tests::profile_uses_fixed_parameters_and_ticket_12_write_only_shape ... ok
+test url_info::tests::broadcast_ipv4 ... ok
+test sensitive_paths::tests::blocks_ssh_directory ... ok
+test sensitive_paths::tests::blocks_env_files ... ok
+test sensitive_paths::tests::blocks_env_variant_via_regex ... ok
+test url_info::tests::inspect_url_imds_address_is_high_with_credential_warning ... ok
+test url_info::tests::inspect_url_ipv6_loopback_is_high ... ok
+test sensitive_paths::tests::blocks_gnupg_directory ... ok
+test url_info::tests::inspect_url_loopback_ipv4_is_high ... ok
+test sandbox::tests::os_worker_cannot_claim_enforcement_without_a_kernel_denial ... ok
+test url_info::tests::inspect_url_parse_failure_returns_high_unresolved ... ok
+test url_info::tests::inspect_url_private_ip_is_medium ... ok
+test url_info::tests::inspect_url_public_ipv4_is_low ... ok
+test url_info::tests::link_local_ipv4_covers_imds_address ... ok
+test url_info::tests::link_local_ipv6_fe80_slash_10 ... ok
+test url_info::tests::loopback_ipv4_covers_127_0_0_0_8 ... ok
+test url_info::tests::loopback_ipv6 ... ok
+test url_info::tests::multicast_ipv4_covers_224_0_0_0_4 ... ok
+test url_info::tests::multicast_ipv6_ff00_slash_8 ... ok
+test url_info::tests::public_ipv4_examples ... ok
+test url_info::tests::public_ipv6_example ... ok
+test url_info::tests::rfc1918_private_ipv4_all_three_ranges ... ok
+test url_info::tests::risk_is_orderable_for_threshold_comparison ... ok
+test url_info::tests::risk_mapping_dangerous_classes_are_high ... ok
+test url_info::tests::risk_mapping_private_and_unique_local_are_medium ... ok
+test url_info::tests::unique_local_ipv6_fc00_slash_7 ... ok
+test url_info::tests::risk_mapping_public_is_low ... ok
+test url_info::tests::unspecified_ipv4 ... ok
+test url_info::tests::unspecified_ipv6 ... ok
+test url_info::tests::url_rules_default_threshold_is_some_medium ... ok
+test url_info::tests::url_rules_should_ask_respects_threshold ... ok
+test url_info::tests::inspect_url_localhost_resolves_and_classifies_as_loopback ... ok
+test middleware::security::tests::timeout_records_resolved_with_timed_out_status ... ok
+test middleware::security::tests::a_decision_arriving_after_the_timeout_reports_undelivered ... ok
+test middleware::security::tests::middleware_times_out_pending_approval ... ok
+test middleware::security::tests::url_aware_skipped_for_non_mapped_tool ... ok
+test url_info::tests::inspect_url_dns_failure_returns_high_unresolved ... ok
+test sandbox::tests::child_shell_inherits_outside_write_denial ... ok
+test sandbox::tests::canonicalized_tmp_grant_allows_inside_write_and_denies_outside_write ... ok
+
+test result: ok. 193 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.12s
+
+     Running unittests src/lib.rs (target/debug/deps/alva_engine_runtime-7bd9d93d90a7553b)
+
+running 53 tests
+test stream_contract::tests::event_between_fatal_error_and_completed_fails ... ok
+test stream_contract::tests::fatal_error_then_completed_passes ... ok
+test stream_contract::tests::duplicate_tool_start_fails ... ok
+test inspector::tests::bundle_starts_with_versioned_manifest ... ok
+test stream_contract::tests::fatal_error_requires_completed ... ok
+test stream_contract::tests::event_after_completed_fails ... ok
+test stream_contract::tests::happy_path_passes ... ok
+test conformance::mutation::eof_without_fatal_is_rejected - should panic ... ok
+test conformance::mutation::killed_without_fatal_is_rejected - should panic ... ok
+test conformance::mutation::output_after_fatal_without_fatal_is_rejected - should panic ... ok
+test conformance::mutation::eof_with_a_success_result_is_rejected - should panic ... ok
+test stream_contract::tests::is_consumer_visible_delta_filters_control_frames ... ok
+test stream_contract::tests::is_terminal_is_only_completed ... ok
+test stream_contract::tests::message_with_tool_use_fails ... ok
+test stream_contract::tests::non_visible_delta_fails ... ok
+test stream_contract::tests::orphan_tool_end_fails ... ok
+test stream_contract::tests::recoverable_error_does_not_require_immediate_completed ... ok
+test stream_contract::tests::soft_warns_fatal_completed_with_result ... ok
+test stream_contract::tests::soft_warns_unclosed_tool ... ok
+test stream_contract::tests::tool_call_delta_is_not_consumer_visible ... ok
+test tests::capabilities_all_false ... ok
+test tests::capabilities_construction ... ok
+test tests::error_cancelled_display ... ok
+test tests::error_from_io ... ok
+test tests::error_from_serde_json ... ok
+test tests::error_not_ready_display ... ok
+test tests::error_other_display ... ok
+test tests::error_permission_not_found_display ... ok
+test tests::error_process_error_display ... ok
+test tests::error_protocol_error_display ... ok
+test tests::error_session_not_found_display ... ok
+test tests::error_unsupported_display ... ok
+test tests::event_completed_with_usage ... ok
+test tests::event_completed_without_result ... ok
+test tests::event_error_fatal ... ok
+test tests::event_error_recoverable ... ok
+test tests::event_permission_request ... ok
+test tests::event_session_started ... ok
+test tests::event_tool_end ... ok
+test tests::event_tool_start ... ok
+test tests::options_default ... ok
+test tests::options_extra_fields ... ok
+test tests::options_max_turns ... ok
+test tests::permission_decision_allow_no_update ... ok
+test tests::permission_decision_allow_with_update ... ok
+test tests::permission_decision_deny ... ok
+test tests::request_builder_chain ... ok
+test tests::request_field_access ... ok
+test tests::request_new_sets_prompt ... ok
+test tests::request_with_cwd ... ok
+test tests::request_with_streaming ... ok
+test tests::usage_construction ... ok
+test tests::usage_default ... ok
+
+test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/alva_hub_core-c06286b17cf3446c)
+
+running 40 tests
+test runtime::tests::descriptor_is_queryable_and_decides_without_engine_names ... ok
+test runtime::tests::concurrent_product_session_execute_is_rejected_while_starting ... ok
+test runtime::tests::abandon_aborts_the_stream_task ... ok
+test runtime::tests::cancel_releases_claim_when_engine_session_is_unknown ... ok
+test runtime::tests::abandoned_session_can_be_reclaimed ... ok
+test runtime::tests::descriptor_declares_permission_plans_without_engine_name ... ok
+test runtime::tests::cancel_reaches_a_running_run_after_engine_is_unregistered ... ok
+test runtime::tests::clean_stream_has_zero_diagnostics ... ok
+test runtime::tests::cancel_reporting_unsupported_still_releases_claim ... ok
+test runtime::tests::duplicate_engine_registration_is_rejected ... ok
+test runtime::tests::cancel_without_engine_capability_releases_claim_and_allows_reopen ... ok
+test runtime::tests::fatal_error_after_completed_keeps_completed ... ok
+test runtime::tests::nonrecoverable_error_keeps_session_failed_after_completed ... ok
+test runtime::tests::error_before_session_started_then_completed_stays_failed ... ok
+test runtime::tests::fast_finishing_run_leaves_no_stale_handle ... ok
+test runtime::tests::executes_and_records_distinct_product_and_engine_session_ids ... ok
+test runtime::tests::missing_engine_terminal_is_synthesized_and_session_is_failed ... ok
+test runtime::tests::permission_response_checks_engine_capability ... ok
+test runtime::tests::failed_engine_start_preserves_handoff_context_for_retry ... ok
+test runtime::tests::recoverable_error_allows_normal_completion ... ok
+test runtime::tests::handoff_uses_product_supplied_context_once ... ok
+test runtime::tests::restore_session_rejects_non_terminal_status ... ok
+test runtime::tests::restore_session_rejects_engine_mismatch ... ok
+test runtime::tests::register_engine_rejects_duplicate_ids ... ok
+test runtime::tests::rejected_resume_clears_stored_engine_session_id ... ok
+test runtime::tests::restore_session_enables_resume_after_rehydrate ... ok
+test runtime::tests::fatal_first_handoff_stream_preserves_context_for_retry ... ok
+test runtime::tests::switch_engine_refuses_a_running_session ... ok
+test runtime::tests::switch_engine_same_target_is_noop ... ok
+test runtime::tests::resume_uses_the_engine_session_id_not_the_product_session_id ... ok
+test runtime::tests::stream_soft_warnings_are_recorded_on_snapshot ... ok
+test runtime::tests::stream_contract_violations_are_forwarded_not_dropped ... ok
+test runtime::tests::stateless_engine_starts_a_fresh_native_session_instead_of_failing ... ok
+test runtime::tests::switch_engine_to_unregistered_engine_fails ... ok
+test runtime::tests::unclosed_tool_is_synthesized_as_failing_toolend_on_midrun_death ... ok
+test runtime::tests::unclosed_tool_closes_before_engine_terminal_events ... ok
+test runtime::tests::switch_engine_starts_fresh_native_session_on_target ... ok
+test runtime::tests::abandon_stops_the_spawned_turn ... ok
+test runtime::tests::old_run_tail_does_not_delete_the_new_runs_handle ... ok
+test runtime::tests::stale_turn_tail_does_not_release_next_turn_claim ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.77s
+
