@@ -30,6 +30,10 @@ host 执行/审批所有权与 system 底层 OS 原语分开；纯 sandbox ABI �
 同步 CI、动态 WASIp1 fixture、说明地图与传递依赖闸。库/产品不得依赖 cmd，入口可装配所属产品；
 新增四个反例验证缺失源节点的入口、平台/产品反向依赖和旧路径。架构闸 159 项通过，
 desktop-tagged 全入口构建及实际 CLI/WASIp1 附件/历史/宿主凭据隔离回归通过。
+第二步将静态闸与六份原字节公开快照放入 tests/architecture，消费者实验独立为 tests/extensibility，
+手工窗口探针放 tools/qa/native_window.py；集中 module 根定位并更新 CI/文档。
+补生产包不得导入 tests/tools 的反例。新位置两包 189 项通过，durable helper 无参数入口按设计 skip，
+实际独立进程恢复实验通过；手工工具仅验证 --help 与语法，不启动窗口或声称实机验收。
 后续继续 UI/验证工具归位、builtin 能力提取、命名/文档整理及最终整树验收。
 
 ## 2026-10-18 全仓结构复审（审查基线）

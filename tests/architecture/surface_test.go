@@ -159,7 +159,7 @@ func TestPublicSDKSurfaceSnapshot(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(goRoot(), "architecture", "testdata", "public-surface", strings.ReplaceAll(strings.TrimPrefix(pkg, "sdk/"), "/", "-")+".txt")
+			path := filepath.Join(goRoot(), "tests", "architecture", "testdata", "public-surface", strings.ReplaceAll(strings.TrimPrefix(pkg, "sdk/"), "/", "-")+".txt")
 			if os.Getenv("ALVA_UPDATE_GO_SURFACE") == "1" {
 				if err = os.WriteFile(path, []byte(actual), 0644); err != nil {
 					t.Fatal(err)

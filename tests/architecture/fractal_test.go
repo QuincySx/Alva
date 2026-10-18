@@ -7,12 +7,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
-
-func goRoot() string { _, source, _, _ := runtime.Caller(0); return filepath.Dir(filepath.Dir(source)) }
 
 func TestFractalSourceHeadersAndDirectories(t *testing.T) {
 	directories := map[string]bool{}

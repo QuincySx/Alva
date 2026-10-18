@@ -9,7 +9,6 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,8 +20,7 @@ const module = "github.com/QuincySx/Alva/"
 type importGraph map[string][]string
 
 func TestSourceDependencyBoundaries(t *testing.T) {
-	_, source, _, _ := runtime.Caller(0)
-	root := filepath.Dir(filepath.Dir(source))
+	root := goRoot()
 	graph := make(importGraph)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -111,7 +109,7 @@ func under(name, prefix string) bool { return name == prefix || strings.HasPrefi
 // Graph membership also catches a future workspace top-level directory, rather
 // than letting an outdated list turn a local package into a standard-library one.
 func workspacePackage(name string) bool {
-	for _, prefix := range []string{"sdk", "integration", "extension", "harness", "platform", "apps", commandRoot, "architecture"} {
+	for _, prefix := range []string{"sdk", "integration", "extension", "harness", "platform", "apps", commandRoot, "tests", "tools"} {
 		if under(name, prefix) {
 			return true
 		}
@@ -120,7 +118,7 @@ func workspacePackage(name string) bool {
 }
 
 func legacyWorkspacePackage(name string) bool {
-	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "native", "storage", "sandbox", "apps/cmd"} {
+	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "native", "storage", "sandbox", "apps/cmd", "architecture"} {
 		if under(name, prefix) {
 			return true
 		}
@@ -129,6 +127,9 @@ func legacyWorkspacePackage(name string) bool {
 }
 
 func forbidden(root, dependency string, local bool) string {
+	if (under(dependency, "tests") || under(dependency, "tools")) && !under(root, "tests") && !under(root, "tools") {
+		return "production packages cannot depend on repository validation or maintenance tools"
+	}
 	if under(root, "extension/utility/timer") {
 		if (local && !under(dependency, "sdk") && !under(dependency, "extension/utility/timer")) || (!local && strings.Contains(dependency, ".")) {
 			return "portable timer Tool may depend only on standard library and SDK, never native Plugin/storage/host"
@@ -333,6 +334,9 @@ func TestFirewallRejectsContainerAndTransitiveBypasses(t *testing.T) {
 		"platform cannot import an entry":       {"platform/system/process": {"cmd/alva"}},
 		"products cannot import an entry":       {"apps/hub/product": {"cmd/alva-hub"}},
 		"retired command location":              {"cmd/alva": {"apps/cmd/alva"}},
+		"production cannot import validation":   {"harness": {"tests/architecture"}},
+		"production cannot import probes":       {"apps/direct": {"tests/extensibility"}},
+		"production cannot import tools":        {"cmd/alva": {"tools/qa"}},
 		"transitive CLI engine import":          {"cmd/alva": {"platform/host"}, "platform/host": {"integration/engine"}},
 		"transitive desktop Hub import":         {"apps/desktop": {"platform/host"}, "platform/host": {"apps/hub"}},
 		"transitive desktop entry adapter":      {"cmd/alva-desktop": {"apps/desktop"}, "apps/desktop": {"integration/engine/alva"}},

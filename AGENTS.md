@@ -31,7 +31,7 @@ Middleware 注入。确有缺陷可审计修复；抽象合并须先说明独立
 - 不隐式发现旧配置、凭据或会话，不添加历史格式/数据兼容桥，不删除用户数据或外部共享缓存。
 - 桌面采用固定 MyGo 自绘；无需 Rust/React/WebView/npm。QuickJS-NG 的固定 WASM 资产及 C 重建桥属于当前 Go 宿主能力，必须保留来源、哈希与许可。
 - 遵守 [FRACTAL-DOCS.md](./FRACTAL-DOCS.md)：源码三行头、逐级 AGENTS.md 及级联地图更新。
-- 公开面变化须显式更新 `architecture/testdata/public-surface`；依赖和分形闸在 `architecture`。
+- 公开面变化须显式更新 `tests/architecture/testdata/public-surface`；依赖和分形闸在 `architecture`。
 - 测试、构建、真实平台/UI/外部账户验收分别报告；Go 转正不等于所有平台或产品验收完成，状态见 [MIGRATION](./MIGRATION.md)。
 - 小步提交，每个逻辑改动独立 commit；使用 feat:/fix:/refactor:/chore:，非显然原因写入 body。
 - 维护 AGPL-3.0-only 与第三方许可/归属；见根 LICENSE、NOTICE。
@@ -55,7 +55,8 @@ go mod verify
 | `apps/` | L6 direct/Gateway 与 L7 Hub；CLI/桌面/HTTP/MCP/Worker 程序入口在 cmd，Hub desktop/server 共用 bootstrap/product |
 | `integration/` | 模型/协议/引擎适配；仅 engine 根契约为 L4.5，具体 adapter 是产品桥接 |
 | `platform/` | host 执行/审批 owner、system OS 原语、storage、sandbox 实现 |
-| `architecture/` | tagged import 图、公开快照、分形检查与第三方消费者式实验 |
+| `tests/` | architecture 静态闸/公开快照/分形检查与独立 extensibility 消费者实验 |
+| `tools/` | 显式维护和手工验收工具，不进入生产执行或普通测试路径 |
 | `docs/` | 当前 Go 架构、治理、ADR 与明确标注的结构审查提案；实现状态以 MIGRATION.md 为准 |
 | `.github/` | 唯一维护的 Go CI，无 Rust 构建/测试工作流 |
 | `CONTEXT.md` | 领域词汇，不替代实际接口或验收记录 |

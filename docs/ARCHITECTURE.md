@@ -47,7 +47,8 @@ Tool、Plugin、Middleware 各有独立职责；AgentLoop、Graph、EngineRuntim
 - 取消须传播并真实 join；物理未完成的资源仍由原 owner 持有，关闭重试不能重放副作用。
 - 文件/媒体/大结果/MCP/历史引用优先；直接父授权和 child 自有事实/日志不因共享 Bus 而放宽。
 
-`architecture` 按真实 tagged imports 强制依赖图、公开面和分形文档。
+`tests/architecture` 按真实 tagged imports 强制依赖图、公开面和分形文档；
+`tests/extensibility` 独立运行 SDK 消费者实验，手工窗口工具位于 `tools/qa`。
 Bus 与 Registrar 的治理见 [BUS-RULES](./BUS-RULES.md)、[REGISTRAR-RULES](./REGISTRAR-RULES.md)。
 
 ## 技术栈与历史
@@ -63,7 +64,7 @@ Rust 及旧 UI/构建工具已存于 `archive/rust-final-2026-10-18`；旧架构
 
 ## 2026-10-18 全仓目录审查与整理方案
 
-本节保留开始整理时的审查基线与路径。用户已授权实施，根 cmd 已落地；分步结果见
+本节保留开始整理时的审查基线与路径。用户已授权实施，根 cmd 与验证/手工工具已归位；分步结果见
 [MIGRATION](../MIGRATION.md#2026-10-18-全仓结构整理落地进行中)，未完成步骤继续按下述边界推进。
 
 本轮核对全部 728 个 Go 文件的 package/import 声明、跨 build tag 的 84 个包目录及 114 份

@@ -30,7 +30,7 @@ def main():
         parser.error("This bundle/launch probe is macOS-only; Windows has a separate native CI job.")
     if not 0 <= args.hold_seconds <= 60:
         parser.error("hold-seconds must be0..60")
-    module = pathlib.Path(__file__).resolve().parent.parent
+    module = pathlib.Path(__file__).resolve().parents[2]
     root = pathlib.Path(tempfile.mkdtemp(prefix="alva-native-window-qa-"))
     print("Own QA artifacts: " + str(root), flush=True)
     bundle = root / "AlvaWindowQA.app"

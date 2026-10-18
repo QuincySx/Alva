@@ -1,7 +1,7 @@
 # Bus 使用边界
 
 当前实现为 [sdk/kernel/bus](../sdk/kernel/bus/AGENTS.md)，只依赖标准库。
-公开面以 `architecture/testdata/public-surface/kernel-bus.txt` 为准。
+公开面以 `tests/architecture/testdata/public-surface/kernel-bus.txt` 为准。
 
 ## 类型化能力
 

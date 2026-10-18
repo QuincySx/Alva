@@ -1,7 +1,7 @@
 # Registrar 贡献边界
 
 当前契约在 [sdk/agent/core](../sdk/agent/core/AGENTS.md)。
-公开方法由 `architecture/testdata/public-surface/agent-core.txt` 显式记录。
+公开方法由 `tests/architecture/testdata/public-surface/agent-core.txt` 显式记录。
 
 ## 当前契约
 
@@ -20,5 +20,5 @@ Register 返回后其 Registrar 同步封闭，Seal 后注册集不可写；Fina
 服务容器，不为某个产品增加设置/存储/权限/观测读取面。既有读取方法不构成继续扩张的理由。
 公开 API 增删改须同批显式更新快照，并说明收益、损失及外部源码兼容影响。
 
-在 Go module 根目录执行 `go test -mod=readonly ./architecture/... ./sdk/agent/core`。
+在 Go module 根目录执行 `go test -mod=readonly ./tests/... ./sdk/agent/core`。
 公开快照和依赖闸是执行证据，不宣称存在另一套已删除的脚本/lint。

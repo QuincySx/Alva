@@ -11,7 +11,7 @@ SDK、direct harness 与 Hub 保留独立职责。技术栈已正式切换；能
 运行时通过具体接口与依赖关系组合能力；这些编号不表示请求执行的先后阶段。
 例如 L1 的 [contracts.go](./sdk/kernel/abi/contracts.go) 定义接口，L2 的
 [loop.go](./sdk/kernel/core/loop.go) 实现循环，文件前三行的 POS 也分别标明其层级职责。
-实际依赖由 [架构防火墙](./architecture/boundaries_test.go) 检查，不靠目录说明自行保证。
+实际依赖由 [架构防火墙](./tests/architecture/boundaries_test.go) 检查，不靠目录说明自行保证。
 
 目录先分“SDK / 扩展 / 默认配方 / 用户产品”，再把外部集成与平台实现单独归类。
 这是原有职责的重新摆放，不合并抽象、不增加旧路径别名，也不表示剩余功能已迁完。
@@ -23,7 +23,8 @@ harness/      L5      我们的 BaseAgent 默认配方
 apps/         L6/L7   direct 产品、Gateway、Hub 与可执行程序入口
 integration/  横向    外部模型 / 协议 / 引擎适配
 platform/     横向    执行 owner / OS 原语 / 存储 / WASM 实现
-architecture/ 验证    import 防火墙、公开面与分形文档闸
+tests/        验证    import 防火墙、公开面、分形闸与 SDK 消费者实验
+tools/        手工    显式维护与本机验收工具
 ```
 
 | 层级 | 实际目录 | 这一层回答什么问题 |

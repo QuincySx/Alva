@@ -40,7 +40,7 @@ jobs:
       - name: Windows actual WASI SDK file roundtrip and native file capabilities
         run: go test -mod=readonly -count=1 ./platform/sandbox/host -run 'TestWindowsWASI|TestWASIReadonlyCreate|TestWASIActualSDKModelToolModelAndReferenceRetrieval|TestActualQuickJS|TestScriptHeapStack|TestScriptFuelExhaustionAfterLoopEntryCancelsOwner'
       - name: Windows portable SDK and architecture
-        run: go test -mod=readonly -count=1 ./sdk/... ./architecture
+        run: go test -mod=readonly -count=1 ./sdk/... ./tests/architecture
       - name: All Windows native commands without cgo
         run: go build -mod=readonly -tags desktop ./cmd/...
       - name: Windows platform static checks
