@@ -2,7 +2,7 @@
 > 本地产品复用的JSON歧义与资源边界，不拥有业务schema或网络执行。
 
 ## 地位
-Native transport helper，可由Hub HTTP、独立Gateway及入口配置消费；SDK不反向依赖。
+纯 JSON helper，可由 Hub HTTP、Gateway、入口配置与 portable extension Tools 消费；只依赖标准库与 wire，不拥有 native 资源，SDK 不反向依赖。
 ## 逻辑
 Validate检查完整object/Unicode/重复键/64层深度，保留未知protocol字段供codec诊断。
 ValidateObject额外按具体DTO精确字段名检查，拒绝root null、大小写别名与未知字段。

@@ -1,6 +1,6 @@
 // INPUT: Bounded JSON bytes and an optional concrete transport DTO type
 // OUTPUT: Validate and ValidateObject reject malformed Unicode, duplicate keys, excessive depth and ambiguous fields
-// POS: [platform / host primitive] Shared native JSON boundary independent of HTTP products, execution and model conversion
+// POS: [platform / pure helper] Shared bounded JSON validation independent of OS resources, products, execution and model conversion
 package strictjson
 
 import (

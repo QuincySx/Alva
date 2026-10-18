@@ -1,23 +1,19 @@
-// INPUT: bytes, context, crypto/rand, encoding/hex/json, errors/io, filepath, reflect/sync/time, core/security, ABI/wire, native session, platform/system/strictjson.
+// INPUT: context, JSON, errors, filepath/reflect/sync/time, portable interaction, core/security, ABI/wire and native session.
 // OUTPUT: Explicit human-question Plugin/Config, exact ask_human Tool and reference-only durable answer receipts.
-// POS: [L4 extension] Real handler waits are cancellable, retained as facts and never interpreted as permission approvals.
-package interaction
+// POS: [L4 native adapter] Native question authority, Guard, concurrency, deadlines and durable intent/outcome wrap shared question operations.
+package native
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"path/filepath"
 	"reflect"
 	"sync"
 	"time"
 
+	interaction "github.com/QuincySx/Alva/extension/interaction"
 	"github.com/QuincySx/Alva/platform/storage/session"
-	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -28,7 +24,7 @@ type Config struct {
 	Repository            *session.Repository
 	Owner, SessionID, Cwd string
 	Guard                 *security.Guard
-	Handler               Handler
+	Handler               interaction.Handler
 	Timeout               time.Duration
 }
 type Plugin struct {
@@ -64,7 +60,15 @@ func New(ctx context.Context, c Config) (*Plugin, error) {
 		return nil, err
 	}
 	p := &Plugin{config: c, log: log}
-	p.tool = &questionTool{plugin: p}
+	references, err := c.Repository.BoundReferences(ctx, c.Owner, c.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	tool, err := interaction.NewTool(c.Handler, references)
+	if err != nil {
+		return nil, err
+	}
+	p.tool = &questionTool{Tool: tool, plugin: p}
 	return p, nil
 }
 func (*Plugin) Name() string        { return "interaction" }
@@ -101,63 +105,23 @@ func (p *Plugin) OnRunEnd(_ context.Context, r abi.RuntimeContext, _ error) erro
 	return nil
 }
 
-type questionTool struct{ plugin *Plugin }
+type questionTool struct {
+	abi.Tool
+	plugin *Plugin
+}
 
-func (*questionTool) Name() string { return "ask_human" }
-func (*questionTool) Description() string {
-	return "Ask a real human clarification and wait for a response; optional 2..4 choices/multi-select. Returns sanitized full question/answer references; never grants permissions or reads ambient stdin."
-}
-func (*questionTool) ParametersSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","additionalProperties":false,"required":["question"],"properties":{"question":{"type":"string","maxLength":8192},"header":{"type":"string","maxLength":1024},"options":{"type":"array","minItems":2,"maxItems":4,"items":{"type":"object","additionalProperties":false,"required":["label"],"properties":{"label":{"type":"string"},"value":{"type":"string"}}}},"multi_select":{"type":"boolean"},"metadata":{"type":"object"}}}`)
-}
 func (*questionTool) Scheduling(wire.ToolCall) abi.Scheduling {
 	return abi.Scheduling{ConcurrentSafe: true, ManagesOwnTimeout: true}
 }
-func (*questionTool) IsReadOnly(wire.ToolCall) bool { return true }
-func (*questionTool) DescribeEffect(wire.ToolCall) abi.Effect {
-	return abi.Effect{Kind: abi.EffectRead, Description: "Human clarification only, explicitly not authorization for host side effects"}
-}
+
 func (t *questionTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error) {
 	var zero wire.ToolResult
 	p := t.plugin
 	if e.ActualTool != t || t != p.tool || call.ID == "" || call.Name != t.Name() || e.CallID != call.ID {
 		return zero, errors.New("question requires actual dispatched tool/call identity")
 	}
-	if !small(string(call.Arguments), 32<<10) {
-		return zero, errors.New("question arguments exceed 32 KiB UTF-8")
-	}
-	var q Question
-	if err := strictjson.ValidateObject(call.Arguments, &q); err != nil {
-		return zero, err
-	}
-	d := json.NewDecoder(bytes.NewReader(call.Arguments))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&q); err != nil {
-		return zero, err
-	}
-	if d.Decode(new(any)) != io.EOF {
-		return zero, errors.New("one question object required")
-	}
-	// Input identity fields are forbidden even though host DTOs have them.
-	var fields map[string]json.RawMessage
-	json.Unmarshal(call.Arguments, &fields)
-	for key, value := range fields {
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return zero, errors.New("question fields cannot be null")
-		}
-		if key != "question" && key != "header" && key != "options" && key != "multi_select" && key != "metadata" {
-			return zero, errors.New("host question identity is not model input")
-		}
-	}
-	var random [16]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		return zero, err
-	}
-	q.ID = "question-" + hex.EncodeToString(random[:])
-	q.SessionID = e.SessionID
-	q.RunID = e.RunID
-	q.CallID = e.CallID
-	if err := q.Validate(); err != nil {
+	q, err := interaction.ParseQuestion(e, call)
+	if err != nil {
 		return zero, err
 	}
 	if err := p.config.Guard.Authorize(ctx, e, call, t.DescribeEffect(call)); err != nil {
@@ -172,38 +136,31 @@ func (t *questionTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 	life := p.life
 	p.mu.Unlock()
 	defer func() { p.mu.Lock(); p.pending--; p.mu.Unlock() }()
-	question, err := p.retain(ctx, "human-question", q.ID, q)
-	if err != nil {
-		return zero, err
-	}
-	if err = p.append(ctx, "question_intent", map[string]any{"question_id": q.ID, "run_id": e.RunID, "call_id": call.ID, "question": question}); err != nil {
-		return zero, err
-	}
 	deadline, cancel := context.WithTimeout(life, p.config.Timeout)
 	stop := context.AfterFunc(ctx, cancel)
 	defer cancel()
 	defer stop()
-	answer, runErr := p.config.Handler.Ask(deadline, CloneQuestion(q))
-	if deadline.Err() != nil {
-		runErr = errors.Join(runErr, deadline.Err())
-	}
-	var resolved ResolvedAnswer
-	if runErr == nil {
-		resolved, runErr = q.Resolve(answer)
+	intent := false
+	receipt, runErr := interaction.Ask(deadline, q, p.config.Handler, func(ctx context.Context, kind, name string, value any) (wire.Reference, error) {
+		ref, err := p.retain(ctx, kind, name, value)
+		if err == nil && kind == "human-question" {
+			err = p.append(ctx, "question_intent", map[string]any{"question_id": q.ID, "run_id": e.RunID, "call_id": call.ID, "question": ref})
+			intent = err == nil
+		}
+		return ref, err
+	})
+	if !intent {
+		return zero, runErr
 	}
 	cleanup, end := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer end()
-	var reference wire.Reference
-	if runErr == nil {
-		reference, runErr = p.retain(cleanup, "human-answer", q.ID, resolved)
-	}
-	runErr = errors.Join(runErr, p.append(cleanup, "question_outcome", map[string]any{"question_id": q.ID, "run_id": e.RunID, "call_id": call.ID, "answer": reference, "answered": runErr == nil, "notice": "Human clarification is not permission approval"}))
+	runErr = errors.Join(runErr, p.append(cleanup, "question_outcome", map[string]any{"question_id": q.ID, "run_id": e.RunID, "call_id": call.ID, "answer": receipt.Answer, "answered": runErr == nil, "notice": "Human clarification is not permission approval"}))
 	if runErr != nil {
 		return zero, runErr
 	}
-	raw, _ := json.Marshal(map[string]any{"question_id": q.ID, "question": question, "answer": reference, "structured": resolved.Structured, "selected": resolved.Selected, "notice": "Use bounded context_read/search for the actual human answer; this is not host authorization"})
-	return wire.ToolResult{CallID: call.ID, Content: []wire.ContentBlock{{Kind: wire.ContentText, Text: string(raw)}}}, nil
+	return receipt.Result(call.ID)
 }
+
 func (p *Plugin) retain(ctx context.Context, kind, name string, value any) (wire.Reference, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {

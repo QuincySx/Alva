@@ -1,7 +1,7 @@
-// INPUT: context, encoding/json, errors, testing, Task/core, kernel/bus/wire and native session fixtures
+// INPUT: context, encoding/json, errors, testing, Task/core, kernel/bus/wire and native session fixtures; portable capability contracts
 // OUTPUT: Actual Service replacement, authority retention and default state isolation regressions
 // POS: [L4 extension] A configured planning backend owns business state while the existing native log owns execution and reference evidence.
-package planning
+package native
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"errors"
 	"testing"
 
+	planning "github.com/QuincySx/Alva/extension/planning"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -17,20 +18,20 @@ import (
 )
 
 type alternateService struct {
-	Service
-	created []TaskRecord
+	planning.Service
+	created []planning.TaskRecord
 	bad     bool
 }
 
-func (s *alternateService) Create(ctx context.Context, request CreateRequest) (TaskRecord, error) {
+func (s *alternateService) Create(ctx context.Context, request planning.CreateRequest) (planning.TaskRecord, error) {
 	if err := ctx.Err(); err != nil {
-		return TaskRecord{}, err
+		return planning.TaskRecord{}, err
 	}
 	task, err := agentabi.NewTask(agentabi.TaskLocalWorkflow, request.Title, "", "")
 	if err != nil {
-		return TaskRecord{}, err
+		return planning.TaskRecord{}, err
 	}
-	value := TaskRecord{Task: task, Description: request.Description}
+	value := planning.TaskRecord{Task: task, Description: request.Description}
 	if s.bad {
 		value.Metadata = json.RawMessage(`{"unfinished":`)
 	}
@@ -69,7 +70,7 @@ func TestPlanningActuallyConsumesConfiguredService(t *testing.T) {
 						t.Fatal("custom task lost bounded native evidence", block.ToolResult)
 					}
 					_, raw, err := f.repo.ReadArtifactFull(t.Context(), f.c.Owner, f.c.SessionID, receipt.Detail.URI, 128<<10)
-					var retained TaskRecord
+					var retained planning.TaskRecord
 					if err != nil || json.Unmarshal(raw, &retained) != nil || retained.Task.Title != "external business state" || retained.Description != "retained detail" {
 						t.Fatal("source projection not retained in actual session", string(raw), err)
 					}
@@ -86,7 +87,7 @@ func TestPlanningActuallyConsumesConfiguredService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provided, ok := bus.Resolve[Service](agent.Bus())
+	provided, ok := bus.Resolve[planning.Service](agent.Bus())
 	if !ok || provided != external || p.Service() != external {
 		t.Fatal("Tool, getter and bus did not share the accepted Service")
 	}
@@ -141,7 +142,7 @@ func TestPlanningReplacementStillRequiresActualSession(t *testing.T) {
 func TestPlanningRejectsUnencodableServiceDetail(t *testing.T) {
 	f := newFixture(t)
 	service := &alternateService{bad: true}
-	value, err := service.Create(t.Context(), CreateRequest{Title: "invalid backend projection"})
+	value, err := service.Create(t.Context(), planning.CreateRequest{Title: "invalid backend projection"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,23 +1,19 @@
-# L4 · Interaction Extension
-> 真实人类提问/回答，与 HITL 权限审批严格分离。
+# L4 · Portable Interaction Tools
+> 真实人类问答与引用回执，不要求原生产品装配。
 
 ## 地位
-
-可选 Plugin；真实 Handler 缺失不能注册假等待或返回虚构答案。
+普通可选工具与问答契约；只依赖标准库、SDK 和纯 strictjson。Handler 与引用后端由宿主显式绑定。
 
 ## 逻辑
-
-实际工具/会话/run/cwd、Guard 通过后，问题完整脱敏 artifact/intent 先保存，再等待显式 Handler。回答解析实际选项/自由文字，全文留同会话引用；模型仅小 receipt 后按需读取。宿主 QuestionBroker 独立于 ApprovalBroker，产品按实际根/typed 子关系筛选。
+NewTool(handler, references) 可直接注册到 SDK Builder.Tool；严格解析问题，身份仅来自执行上下文，真正同步等待 Handler，再校验答案并保留完整引用。ParseQuestion/Ask/Receipt 由普通 Tool 与 native 适配共同消费。普通 Tool 不自报管理超时，遵循宿主 timeout middleware 与调用 context；原生适配才自报管理超时，继续应用自身配置与 run 生命周期。
 
 ## 约束
-
-Handler所有nil-capable typed-nil形式在构造时拒绝；输入严格校验重复键/Unicode/精确字段，call ID非空。
-不读 ambient stdin，不把回答当 shell/file/network 授权；没有自动重放。问题8KiB/标题1KiB/metadata4KiB、2..4选项、答案64KiB、每run最多4并发，等待最多30分钟；取消/过期/旧run晚答拒绝。Handler 需真实响应 ctx；不以遗留 goroutine 假造完成。产品 UI/HTTP 接线由产品 owner 消费，未接时不可广告可用。
+不是权限审批，不读取 ambient stdin；没有自动重放。Handler/引用后端 typed-nil 拒绝，取消后晚答不接受，不用遗留 goroutine 假造完成。问题8KiB/标题1KiB/metadata4KiB、2..4选项、答案64KiB；输入拒绝重复键、错误 Unicode、未知或错误大小写字段与模型伪造身份。引用后端负责宿主存储范围与脱敏；native/ 保留原生 authority、Guard、并发限额、intent/outcome 与期限。
 
 ## 业务域清单
-
-| 名称 | 文件/子目录 | 职责 |
-|---|---|---|
-| 问答契约 | `question.go` | 有界真实身份、选项和答案校验，与权限无关 |
-| Plugin | `plugin.go` | 实际 ask_human、handler等待和完整事实/引用 |
-| 回归 | `plugin_test.go` | 实际宿主broker长回答落引用、选择解析、无handler/身份拒绝 |
+| 文件/子目录 | 职责 |
+|---|---|
+| question.go | Question/Choice/Answer/Handler、有界验证与选项解析 |
+| tool.go | 普通 Tool、共享问题解析/真实等待/证据保存/引用回执 |
+| tool_test.go | 真内存 SDK、大回答引用、同步取消/晚答拒绝、严格解析与实际宿主超时 |
+| native/ | 会话/Guard/并发/期限与耐久问答 journal 适配，复用父包能力 |

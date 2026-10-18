@@ -1,7 +1,7 @@
 // INPUT: context, encoding/json, errors, filepath, strings, testing/time, SDK/security, native session artifacts.
 // OUTPUT: Real next-request config consumer, durable/CAS state, live registry/schema references and cancellable timer regressions.
 // POS: [L4 extension] Tests reject placeholder configuration/search and preserve original system and conversation facts.
-package utility
+package native
 
 import (
 	"context"
@@ -208,5 +208,39 @@ func TestRealSleepCancelAndBounds(t *testing.T) {
 		if tool.Name() == "sleep" && tool.Scheduling(wire.ToolCall{}).ExecutionMode != abi.Coordinator {
 			t.Fatal("sleep can hold global execution lock")
 		}
+	}
+}
+
+func TestNativeUtilityDelegationKeepsSessionAndGuard(t *testing.T) {
+	f := newFixture(t)
+	denied := errors.New("host denied the actual preference write")
+	approvals := 0
+	f.c.Guard, _ = security.NewGuard(f.c.Cwd, nil, nil, security.NewPermissionManager(security.Ask, security.ApprovalFunc(func(context.Context, security.ApprovalRequest) (security.ApprovalDecision, error) {
+		approvals++
+		return security.ApprovalDecision{}, denied
+	})))
+	var err error
+	f.p, err = New(t.Context(), f.c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.start(t)
+	var tool abi.Tool
+	for _, actual := range f.p.Tools() {
+		if actual.Name() == "config" {
+			tool = actual
+		}
+	}
+	call := wire.ToolCall{ID: "set", Name: "config", Arguments: json.RawMessage(`{"action":"set","key":"response.language","value":"zh-TW"}`)}
+	execution := abi.ToolExecutionContext{ActualTool: tool, Session: core.NewMemorySession(f.c.SessionID), SessionID: f.c.SessionID, RunID: "run", CallID: "set", Workspace: f.c.Cwd}
+	if _, err := tool.Execute(t.Context(), execution, call); err == nil || approvals != 0 {
+		t.Fatal("same-ID foreign session borrowed native authority", approvals, err)
+	}
+	execution.Session = f.log
+	if _, err := tool.Execute(t.Context(), execution, call); !errors.Is(err, denied) || approvals != 1 {
+		t.Fatal("portable delegate bypassed native Guard", approvals, err)
+	}
+	if snapshot, err := f.p.Preferences(t.Context()); err != nil || len(snapshot.Values) != 0 {
+		t.Fatal("denied operation reached the preference backend", snapshot, err)
 	}
 }

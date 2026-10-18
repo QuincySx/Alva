@@ -78,14 +78,14 @@ jobs:
           CGO_ENABLED: '0'
           GOOS: js
           GOARCH: wasm
-        run: go build -mod=readonly ./sdk/... ./integration/llm/codec
+        run: go build -mod=readonly ./sdk/... ./integration/llm/codec ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer
       - name: WASIp1-portable SDK
         env:
           CGO_ENABLED: '0'
           GOOS: wasip1
           GOARCH: wasm
         run: |
-          go build -mod=readonly ./sdk/... ./integration/llm/codec
+          go build -mod=readonly ./sdk/... ./integration/llm/codec ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer
           go build -mod=readonly -o build/alva-worker.wasm ./cmd/alva-worker-wasm
       - name: Native executables without cgo
         env:

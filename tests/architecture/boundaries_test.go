@@ -141,6 +141,14 @@ func forbidden(root, dependency string, local bool) string {
 			return "portable timer Tool may depend only on standard library and SDK, never native Plugin/storage/host"
 		}
 	}
+	// These packages implement portable operations. A same-named native child
+	// is a consumer, never an implicit dependency of the ordinary Tools.
+	switch root {
+	case "extension/planning", "extension/interaction", "extension/utility", "platform/system/strictjson":
+		if (local && dependency != root && !under(dependency, "sdk") && dependency != "platform/system/strictjson") || (!local && strings.Contains(dependency, ".")) {
+			return "portable extension operations may use only SDK, standard library and the pure strictjson helper, never native adapters or storage"
+		}
+	}
 	if under(root, "integration/llm/codec/internal/magpie") {
 		allowed := map[string]bool{"bytes": true, "cmp": true, "crypto/sha256": true, "encoding/base64": true, "encoding/hex": true, "encoding/json": true, "errors": true, "fmt": true, "maps": true, "net/netip": true, "net/url": true, "path": true, "regexp": true, "slices": true, "sort": true, "strconv": true, "strings": true, "sync/atomic": true, "time": true, "unicode/utf8": true, "github.com/tidwall/gjson": true}
 		if !allowed[dependency] {
@@ -366,6 +374,12 @@ func TestFirewallRejectsContainerAndTransitiveBypasses(t *testing.T) {
 		"timer is not its native Plugin":        {"extension/utility/timer": {"extension/utility"}},
 		"timer cannot load native storage":      {"extension/utility/timer": {"platform/storage/session"}},
 		"timer cannot load external SQLite":     {"extension/utility/timer": {"github.com/ncruces/go-sqlite3"}},
+		"planning cannot load native adapter":   {"extension/planning": {"extension/planning/native"}},
+		"question cannot load native storage":   {"extension/interaction": {"platform/storage/session"}},
+		"utility cannot load host execution":    {"extension/utility": {"platform/host"}},
+		"portable helper cannot hide SQLite":    {"extension/utility": {"platform/system/strictjson"}, "platform/system/strictjson": {"github.com/ncruces/go-sqlite3"}},
+		"portable question cannot load browser": {"extension/interaction": {"extension/browser"}},
+		"portable planning stays provider-free": {"extension/planning": {"integration/llm/provider"}},
 		"SDK new local top directory":           {"sdk/agent/core": {"future/runtime"}, "future/runtime": nil},
 		"codec new local top directory":         {"integration/llm/codec": {"future/runtime"}, "future/runtime": nil},
 		"SDK third party via another SDK":       {"sdk/agent/core": {"sdk/kernel/abi"}, "sdk/kernel/abi": {"example.com/runtime"}},

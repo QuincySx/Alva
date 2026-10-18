@@ -1,24 +1,20 @@
-# L4 · Utility Extension
-> 真正可取消 sleep、实际 live registry 检索与有实际消费者的无害配置。
+# L4 · Portable Utility Tools
+> 独立偏好配置、实际工具目录检索与可取消 timer。
 
 ## 地位
-
-可选 Plugin，不向 kernel 增加产品 setter，不搬 Rust config/tool_search 的旧 stub。
+普通工具能力；不要求 SQLite、原生会话、Guard 或 Plugin。只依赖标准库、SDK 和纯 strictjson。
 
 ## 逻辑
-
-config/tool_search验证实际 Tool/session/run/cwd 与 Guard 后执行。config 三个明确 presentation key 用同会话 typed snapshot/CAS，BeforeModel 真正影响下一请求；tool_search 读取 live AgentState.Tools 实际快照，小目录与选中 schema ref。
-sleep复用timer子包的同一个普通Tool实现，独立SDK可直接注册timer.NewTool而不装配本原生Plugin。它只消费调用ctx，不读会话或宿主资源，不需要为等待打开SQLite、恢复偏好或启动Middleware。
+NewConfigTool(PreferenceStore) 只消费明确 presentation key；ApplyPreferences 可从已有 BeforeModel hook 调用，使下一请求消费同一后端，不污染原始历史。NewSearchTool(snapshot, retain) 每次读取实际 live registry，只在明确选择 schema 时保存全文引用，不执行被发现的工具。timer/ 为独立 sleep Tool。需要原生产品政策时，native/ 将相同工具装入既有同名 utility Plugin。
 
 ## 约束
-
-配置仅 response.language/verbosity/format 明确枚举，绝不 provider/key/权限/工具授权。目录最多512项，匹配name与每description前4KiB，模型preview256字节（明确截断）；schema最大64KiB，先保存后小引用，不触发MCP/AEP。sleep≤5分钟；取消不报完成。产品下一轮opt-in，不自动继承child；装配host security时仍提交实际工具实例，不以名字猜授权。独立timer不携带任何宿主授权。
+PreferenceStore 由宿主绑定，拥有并发/持久化并返回 detached snapshot；工具与请求投影独立校验三类允许值，不能借自有后端注入 provider/key/权限。普通工具没有默认 middleware；宿主明确选择 ApplyPreferences 的消费 hook。目录512项、说明扫描4KiB/preview256字节、schema64KiB、回执16KiB；拒绝输入歧义与无效引用，不触发 MCP/AEP 启动。原生 CAS、身份、授权、脱敏与 next-request 行为继续由 native 适配执行。
 
 ## 业务域清单
-
-| 名称 | 文件/子目录 | 职责 |
-|---|---|---|
-| Plugin | `plugin.go` | 单事实偏好/CAS恢复、真实BeforeModel消费者与生命周期 |
-| Tools | `tools.go` | 原生实际注册表/选中schema引用与配置 |
-| Portable timer | `timer/` | 无native依赖的普通sleep Tool，独立SDK与本Plugin共用，无新增Plugin类别 |
-| 回归 | `plugin_test.go` | 真正下一请求/原system保留、CAS恢复、live registry/ref和timer取消 |
+| 文件/子目录 | 职责 |
+|---|---|
+| tools.go | 独立 config/tool_search 与严格参数/实际 Tool 绑定、实时目录和 schema refs |
+| preferences.go | PreferenceStore/快照/值校验及共享 request-only 投影 |
+| tools_test.go | 真内存 SDK 下一请求偏好、late registry/schema 和不安全后端输出拒绝 |
+| timer/ | 无原生依赖的可取消 sleep Tool |
+| native/ | 原生 utility Plugin、偏好 snapshot/CAS 与具体会话/Guard/引用适配 |

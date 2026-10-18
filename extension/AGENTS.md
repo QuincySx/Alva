@@ -3,11 +3,11 @@
 
 ## 地位
 
-具体实现与插件 wrapper；由 app 默认配方或产品显式注册。
+普通能力与可选原生适配；Tool 可以直接安装，Plugin 只负责组合贡献，由 harness/产品显式注册。
 
 ## 逻辑
 
-安全插件调用独立 sdk/agent/security 能力，工具通过真实宿主边界执行。
+安全插件调用独立 sdk/agent/security 能力，工具通过真实宿主边界执行。planning、interaction、utility 的根包提供无原生依赖的普通工具，native/ 子包保留会话、Guard、审计、引用和持久化政策并复用同一实现；单点能力不被迫装配 Plugin。纯 strictjson helper 不拥有 OS/存储资源。
 
 ## 约束
 
@@ -32,7 +32,7 @@
 | Browser | `browser/` | 七实际Tool、显式owned私有profile/启动risk/HITL，join实际Tool/事实与进程收尾，全量大结果仅引用 |
 | Shell | `shell/` | 明确shell/clean env、同一真实global lease持至reap，run-owned后台stdin/output/kill、审批/管理调用取消与join及脱敏完整引用 |
 | Web | `web/` | 明确network opt-in、无ambient proxy/凭据、审批/risk取消、逐跳安全URL/DNS与有界原文/HTML文本引用，搜索不冒充完整SERP |
-| Planning | `planning/` | 实际Tool消费可替换Service；默认typed任务/DAG与单事实CAS，保留native执行/引用authority，不注册假plan-mode stub |
-| Interaction | `interaction/` | 独立问题broker与真实回答/取消，非审批假扮回答，长文本仅同会话refs |
-| Utility | `utility/` | 独立零native依赖timer Tool与原生Plugin共用；live工具目录/schema refs、session偏好CAS和下一request消费者 |
+| Planning | `planning/` | 普通七工具直接消费 Service/详情 writer；native/ 包装默认 typed 任务/DAG/CAS 与执行/引用 authority |
+| Interaction | `interaction/` | Handler+引用后端驱动的普通问答工具；native/ 保留会话/审批分离、期限和完整 journal |
+| Utility | `utility/` | 普通偏好/实时目录与独立 timer；native/ 保留偏好 CAS、Guard、schema 脱敏 refs 与下一 request 消费 |
 | Notebook | `notebook/` | 受管JSON cell编辑、pinned祖先与明确hash/mode冲突检查，严格参数/保护字段，不执行notebook或冒充OS hash-CAS |

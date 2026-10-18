@@ -17,7 +17,7 @@ Open只构造AutomationCoordinator不Start；native UI/HTTP入口显式Start其�
 | 文件 | 职责 |
 |---|---|
 | assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；live仅构造cold Gateway，Close先取消/join其真实handler |
-| tools.go | 六类可选Plugin真实装配、same-session问题broker、actual tool信任与Shell跨轮Session owner/attempt Lease与Web物理收尾 |
+| tools.go | 六类可选Plugin真实装配（planning/interaction/utility 显式导入 native 适配，普通 Tool 根包不再绑定原生产品）、same-session问题broker、actual tool信任与Shell跨轮Session owner/attempt Lease与Web物理收尾 |
 | assembly_test.go | no-start、真实demo跨重启native resume、route绑定与未批准零副作用回归 |
 | options_test.go | actual registered factory→local HTTP system role；opt-in请求轮数/系统prompt实际传给harness，不只改Descriptor |
 | subagent_test.go | 真实四次local model/root-child HITL、typed关系、引用隔离与冷Inspector闭环 |

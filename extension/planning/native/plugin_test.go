@@ -1,7 +1,7 @@
-// INPUT: context, encoding/json, errors, filepath, strings, testing, Task/core/security and native facts.
+// INPUT: context, encoding/json, errors, filepath, strings, testing, Task/core/security and native facts; portable capability contracts
 // OUTPUT: Durable real Task/Plan recovery, DAG/transition/metadata/output/CAS and exact identity regressions.
 // POS: [L4 extension] Tests prove actual bookkeeping and persistence without claiming execution or permission-mode changes.
-package planning
+package native
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	planning "github.com/QuincySx/Alva/extension/planning"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -66,28 +67,28 @@ func TestRealDurableWorkflowDAGNotesAndColdRecovery(t *testing.T) {
 	f := newFixture(t)
 	s := f.p.Service()
 	ctx := context.Background()
-	a, err := s.Create(ctx, CreateRequest{Title: "Actual A", Description: "full description", Metadata: json.RawMessage(`{"safe":"kept","api_key":"fixture-secret"}`)})
+	a, err := s.Create(ctx, planning.CreateRequest{Title: "Actual A", Description: "full description", Metadata: json.RawMessage(`{"safe":"kept","api_key":"fixture-secret"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.Create(ctx, CreateRequest{Title: "Actual B", BlockedBy: []string{a.Task.ID}})
+	b, err := s.Create(ctx, planning.CreateRequest{Title: "Actual B", BlockedBy: []string{a.Task.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Update(ctx, UpdateRequest{ID: b.Task.ID, Status: agentabi.TaskRunning}); err == nil {
+	if _, err = s.Update(ctx, planning.UpdateRequest{ID: b.Task.ID, Status: agentabi.TaskRunning}); err == nil {
 		t.Fatal("unsatisfied dependency started")
 	}
-	if _, err = s.Update(ctx, UpdateRequest{ID: a.Task.ID, BlockedBy: []string{b.Task.ID}}); err == nil {
+	if _, err = s.Update(ctx, planning.UpdateRequest{ID: a.Task.ID, BlockedBy: []string{b.Task.ID}}); err == nil {
 		t.Fatal("dependency cycle accepted")
 	}
-	if _, err = s.Update(ctx, UpdateRequest{ID: a.Task.ID, Status: agentabi.TaskRunning}); err != nil {
+	if _, err = s.Update(ctx, planning.UpdateRequest{ID: a.Task.ID, Status: agentabi.TaskRunning}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Update(ctx, UpdateRequest{ID: a.Task.ID, Status: agentabi.TaskSucceeded}); err != nil {
+	if _, err = s.Update(ctx, planning.UpdateRequest{ID: a.Task.ID, Status: agentabi.TaskSucceeded}); err != nil {
 		t.Fatal(err)
 	}
 	output := "actual manual note🙂"
-	if _, err = s.Update(ctx, UpdateRequest{ID: b.Task.ID, Status: agentabi.TaskRunning, AppendOutput: &output}); err != nil {
+	if _, err = s.Update(ctx, planning.UpdateRequest{ID: b.Task.ID, Status: agentabi.TaskRunning, AppendOutput: &output}); err != nil {
 		t.Fatal(err)
 	}
 	note, err := s.SetNotes(ctx, "real plan🙂\nNo workspace write")
@@ -118,7 +119,7 @@ func TestRealDurableWorkflowDAGNotesAndColdRecovery(t *testing.T) {
 	if strings.Contains(string(first.Metadata), "fixture-secret") || !strings.Contains(string(first.Metadata), "kept") {
 		t.Fatal("cache diverged from canonical redaction")
 	}
-	if _, err = rs.Update(ctx, UpdateRequest{ID: a.Task.ID, Status: agentabi.TaskRunning}); err == nil {
+	if _, err = rs.Update(ctx, planning.UpdateRequest{ID: a.Task.ID, Status: agentabi.TaskRunning}); err == nil {
 		t.Fatal("terminal reopened")
 	}
 	if _, _, err = f.repo.LatestRecord(ctx, "foreign", "native", "alva.planning", "state_snapshot"); err == nil {
@@ -131,10 +132,10 @@ func TestStalePlanningCacheCannotOverwriteNewerFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = f.p.Service().Create(context.Background(), CreateRequest{Title: "committed"}); err != nil {
+	if _, err = f.p.Service().Create(context.Background(), planning.CreateRequest{Title: "committed"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = other.Service().Create(context.Background(), CreateRequest{Title: "must not overwrite"}); !errors.Is(err, session.ErrRevisionConflict) {
+	if _, err = other.Service().Create(context.Background(), planning.CreateRequest{Title: "must not overwrite"}); !errors.Is(err, session.ErrRevisionConflict) {
 		t.Fatal(err)
 	}
 	fresh, err := New(context.Background(), f.c)
@@ -182,7 +183,7 @@ func TestToolsActuallyConsumeServiceAndNoFakePermissionTools(t *testing.T) {
 	if _, err = create.Execute(context.Background(), e, call); err == nil {
 		t.Fatal("forged tool granted write")
 	}
-	if _, err = create.decode(json.RawMessage(`{"subject":"x","invented":true}`)); err == nil {
+	if _, err = create.Execute(context.Background(), abi.ToolExecutionContext{ActualTool: create, Session: f.log, SessionID: "native", RunID: "run", CallID: "bad", Workspace: f.c.Cwd}, wire.ToolCall{ID: "bad", Name: create.Name(), Arguments: json.RawMessage(`{"subject":"x","invented":true}`)}); err == nil {
 		t.Fatal("ignored unsupported field")
 	}
 }

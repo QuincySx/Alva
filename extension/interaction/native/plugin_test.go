@@ -1,7 +1,7 @@
 // INPUT: context, encoding/json, errors, filepath, strings, testing/time, SDK/security, host QuestionBroker and native facts.
 // OUTPUT: Real question/answer references, structured selection, cancellation and no-handler/no-authority regressions.
 // POS: [L4 extension] The actual host broker is a tested consumer, with no fake stdin wait or approval implication.
-package interaction_test
+package native_test
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/extension/interaction"
+	interactionnative "github.com/QuincySx/Alva/extension/interaction/native"
 	"github.com/QuincySx/Alva/platform/host"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -40,7 +41,7 @@ func TestRealHumanHandlerAnswerIsDurableReferenceNotInlineOrApproval(t *testing.
 	guard, _ := security.NewGuard(cwd, nil, nil, security.NewPermissionManager(security.Ask, nil))
 	broker, _ := host.NewQuestionBroker(4)
 	defer broker.Close()
-	p, err := interaction.New(ctx, interaction.Config{Repository: repo, Owner: "owner", SessionID: "native", Cwd: cwd, Guard: guard, Handler: broker})
+	p, err := interactionnative.New(ctx, interactionnative.Config{Repository: repo, Owner: "owner", SessionID: "native", Cwd: cwd, Guard: guard, Handler: broker})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +109,7 @@ func TestRealHumanHandlerAnswerIsDurableReferenceNotInlineOrApproval(t *testing.
 		t.Fatal("duplicate option accepted")
 	}
 	var absent interaction.HandlerFunc
-	if _, err = interaction.New(ctx, interaction.Config{Repository: repo, Owner: "owner", SessionID: "native", Cwd: cwd, Guard: guard, Handler: absent}); err == nil {
+	if _, err = interactionnative.New(ctx, interactionnative.Config{Repository: repo, Owner: "owner", SessionID: "native", Cwd: cwd, Guard: guard, Handler: absent}); err == nil {
 		t.Fatal("typed nil handler accepted")
 	}
 	_, err = tool.Execute(ctx, e, call)

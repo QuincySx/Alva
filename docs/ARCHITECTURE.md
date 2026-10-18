@@ -38,6 +38,12 @@ Plugin 注册同步封闭贡献，Seal 后注册集固定，Finalize 只读接�
 Tool、Plugin、Middleware 各有独立职责；AgentLoop、Graph、EngineRuntime 各有实际消费者，
 不合成统一 runtime，也不为未来可能性预加 hook。
 
+planning/interaction/utility 根包为普通工具能力，可以只用内存 SDK 与宿主绑定的服务/引用运行。
+各自 native/ 子包才依赖具体会话、Guard 和持久证据；Hub 装配明确导入该适配，不把这些政策
+变成普通工具的前置条件。原生适配复用同一 schema/业务操作，保留 Plugin.Name、工具名与记录
+namespace。工具目录读取调用方的实时 registry；偏好投影由明确的 BeforeModel hook 消费。
+只有标准库、SDK 与纯 strictjson helper 可进入这三个根包，传递依赖也受静态闸约束。
+
 ## 强制边界
 
 - SDK 不得直接/传递依赖 integration、platform、extension、harness、apps 或具体第三方 Provider/UI。
@@ -71,6 +77,9 @@ extension/                   L4；按能力组织的可选工具/插件/中间�
   files/                     模型参数、引用读取、备份与编辑政策
   security/                  actual Tool 身份/effect/HITL 装配
   diagnostics/               显式诊断命令与可替换 Manager
+  planning/                  普通 Service 驱动的任务工具；native/ 为原生会话适配
+  interaction/               普通 Handler 问答/引用；native/ 为原生 journal/期限适配
+  utility/                   普通偏好/实时目录、timer/；native/ 为原生 CAS/授权适配
 harness/                     L5 默认配方
 integration/                 llm / protocol / engine 外部边界
 platform/

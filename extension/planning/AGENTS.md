@@ -1,28 +1,19 @@
-# L4 · Planning Extension
-> SDK typed Task 驱动的真实手动工作流与持久 Plan 笔记。
+# L4 · Portable Planning Tools
+> 绑定业务 Service 与详情保存函数的普通任务/计划工具。
 
 ## 地位
-
-可选 Plugin/Service；状态只住同 native typed-record authority，非 kernel setter。
+通用可选能力；只依赖标准库、SDK 和纯 strictjson 校验，不依赖原生存储、Guard、工作目录或 Plugin 生命周期。
 
 ## 逻辑
-
-实际 Tool/session/cwd/run + Guard/HITL 后消费同一Service；Config.Service显式替换、Service()与typed bus均返回已接受实例，普通nil才选默认nativeService，typed-nil拒绝。替换时不读取/写入默认planning snapshot或迁移旧状态，外部Service的生命周期、并发、校验和业务持久化由提供者负责。
-默认local_workflow Task严格转换、依赖DAG、owner/metadata/notes真正保存；128 KiB状态快照用单SQLite事务compare-and-append防旧cache覆盖。恢复只取exact namespace/type最新metadata与有界正文，不加载无关conversation。大详情/备注仅refs。
+NewTools(Service, retain) 返回七个普通 Tool；可直接注册到 SDK Builder.Tool。Service 拥有业务校验、并发与持久化，retain 保存完整 TaskRecord 并返回宿主可读取的引用。工具消费同一实例、保留严格参数/实际 Tool 与 call 绑定、分页及输出限额；不启动进程/Agent，也不改变权限模式。
 
 ## 约束
-
-纯任务记录不启动/停止进程或 agent、不虚构 output path。task_stop 只取消 workflow；task_output 只读显式 append 的备注。todo_write 保存会话笔记，不偷偷写 CLAUDE.md/任意 path。旧 Rust enter/exit plan tool 仅文案 stub，未照搬：本插件不注册虚假的模式切换工具，也不调用共享 PM 全局 SetMode。正确的独立 policy-change 准入、可信宿主批准与直接父 ceiling 尚待接线；未声称权限收紧/解除已完成。工作区 worktree 是另一能力，未冒充已迁。
-
-默认后端128 tasks、每项20 deps/32 notes、description4KiB、metadata4KiB、notes64KiB、状态128KiB；超界/记录失败明确报错。恢复不可重放执行。Service是已绑定的可信host capability，不接受用户owner/session授权输入。
-此Plugin的实际native log/Guard与会话引用authority保持：替换业务Service不替换执行身份，也不把session字符串当授权。外部Service的输出引用必须能由本实际会话reader读取；详情投影严格编码、≤128KiB并保留到本会话，不将marshal失败当空成功，也不宣称外部业务状态天然耐久。
+绑定由可信宿主提供，不接受模型输入 owner/session 存储授权。typed-nil Service/缺失 writer 拒绝；详情编码/保存失败不返回成功，也不重放已提交的业务操作。普通工具不替代宿主授权。原生产品导入 native/，保留原会话 authority、审批、CAS 快照、脱敏引用与 middleware。
 
 ## 业务域清单
-
-| 名称 | 文件/子目录 | 职责 |
-|---|---|---|
-| Service | `service.go` | SDK Task、真实 DAG/更新/Plan 引用、冷恢复与乐观原子快照 |
-| Plugin | `plugin.go` | 同会话权限与生命周期、bus 能力装配 |
-| Tools | `tools.go` | 七实际 Task/Plan 消费者，详情/输出分页引用 |
-| 回归 | `plugin_test.go` | 真实恢复/DAG/状态/元数据/备注、旧缓存冲突与身份/坏快照失败 |
-| 替换回归 | `replacement_test.go` | 真SDK消费自有Service、bus/getter同实例、原生详情证据、默认状态隔离及身份/坏投影/取消拒绝 |
+| 文件/子目录 | 职责 |
+|---|---|
+| service.go | TaskRecord/TaskPage、请求 DTO 与可替换 Service 契约 |
+| tools.go | NewTools、七工具的唯一 schema/解析/业务消费与有界引用回执 |
+| tools_test.go | 无原生组件的真 SDK create/get、引用、严格输入与保存失败 |
+| native/ | 原生 Plugin、默认持久后端、授权与详情证据适配；复用父包工具 |

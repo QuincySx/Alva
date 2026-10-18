@@ -6,16 +6,16 @@ package bootstrap
 import (
 	"context"
 	"errors"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"time"
 
 	"github.com/QuincySx/Alva/apps/hub"
-	"github.com/QuincySx/Alva/extension/interaction"
+	interactionnative "github.com/QuincySx/Alva/extension/interaction/native"
 	"github.com/QuincySx/Alva/extension/notebook"
-	"github.com/QuincySx/Alva/extension/planning"
+	planningnative "github.com/QuincySx/Alva/extension/planning/native"
 	"github.com/QuincySx/Alva/extension/shell"
-	"github.com/QuincySx/Alva/extension/utility"
+	utilitynative "github.com/QuincySx/Alva/extension/utility/native"
 	"github.com/QuincySx/Alva/extension/web"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -27,21 +27,21 @@ func (a *Application) optionalTools(ctx context.Context, owner, native, cwd stri
 		*trusted = append(*trusted, tools...)
 	}
 	if s.Planning {
-		p, err := planning.New(ctx, planning.Config{Repository: a.Repository, Owner: owner, SessionID: native, Cwd: cwd, Guard: g})
+		p, err := planningnative.New(ctx, planningnative.Config{Repository: a.Repository, Owner: owner, SessionID: native, Cwd: cwd, Guard: g})
 		if err != nil {
 			return err
 		}
 		add(p, p.Tools())
 	}
 	if s.Utility {
-		p, err := utility.New(ctx, utility.Config{Repository: a.Repository, Owner: owner, SessionID: native, Cwd: cwd, Guard: g})
+		p, err := utilitynative.New(ctx, utilitynative.Config{Repository: a.Repository, Owner: owner, SessionID: native, Cwd: cwd, Guard: g})
 		if err != nil {
 			return err
 		}
 		add(p, p.Tools())
 	}
 	if s.Interaction {
-		p, err := interaction.New(ctx, interaction.Config{Repository: a.Repository, Owner: owner, SessionID: native, Cwd: cwd, Guard: g, Handler: a.Questions})
+		p, err := interactionnative.New(ctx, interactionnative.Config{Repository: a.Repository, Owner: owner, SessionID: native, Cwd: cwd, Guard: g, Handler: a.Questions})
 		if err != nil {
 			return err
 		}

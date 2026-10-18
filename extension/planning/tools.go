@@ -1,6 +1,6 @@
-// INPUT: bytes, context, encoding/json, errors/io, agent Task, ABI/wire and native artifacts.
-// OUTPUT: Real typed task creation/read/update/dependencies/cancel/output and durable plan-note Tools.
-// POS: [L4 extension] Actual manual workflow state and references are returned without pretending background execution or permission changes.
+// INPUT: bytes, context, encoding/json, errors/io/reflect/utf8, strictjson, agent Task and ABI/wire; portable capability contracts
+// OUTPUT: NewTools binds seven ordinary Task/Plan Tools to a Service and explicit detail writer.
+// POS: [L4 extension] Workflow operations and bounded references run without a native Plugin, database, Guard or lifecycle.
 package planning
 
 import (
@@ -9,16 +9,44 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
+	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/system/strictjson"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 type planningTool struct {
-	plugin *Plugin
-	name   string
+	service Service
+	retain  func(context.Context, TaskRecord) (wire.Reference, error)
+	name    string
+}
+
+// NewTools installs no middleware or services. The host binds Service and retain
+// to its own scope; neither accepts model-supplied storage authority. retain
+// preserves a full task projection and returns a reference readable by that host.
+func NewTools(service Service, retain func(context.Context, TaskRecord) (wire.Reference, error)) ([]abi.Tool, error) {
+	if missingService(service) || retain == nil {
+		return nil, errors.New("planning service and detail writer required")
+	}
+	var tools []abi.Tool
+	for _, name := range []string{"task_create", "task_get", "task_list", "task_update", "task_stop", "task_output", "todo_write"} {
+		tools = append(tools, &planningTool{service: service, retain: retain, name: name})
+	}
+	return tools, nil
+}
+func missingService(value Service) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Func, reflect.Map, reflect.Slice, reflect.Interface, reflect.Chan:
+		return v.IsNil()
+	}
+	return false
 }
 
 func (t *planningTool) Name() string { return t.name }
@@ -36,7 +64,7 @@ func (t *planningTool) DescribeEffect(wire.ToolCall) abi.Effect {
 	if t.IsReadOnly(wire.ToolCall{}) {
 		kind = abi.EffectRead
 	}
-	return abi.Effect{Kind: kind, Description: "Read or change durable session-owned workflow bookkeeping only; not permission policy or process execution"}
+	return abi.Effect{Kind: kind, Description: "Read or change host-bound workflow bookkeeping only; not permission policy or process execution"}
 }
 func (t *planningTool) ParametersSchema() json.RawMessage {
 	properties := map[string]any{}
@@ -85,18 +113,26 @@ func (t *planningTool) ParametersSchema() json.RawMessage {
 }
 
 type arguments struct {
-	Subject, Description, Owner, Content, AppendOutput *string
-	ID                                                 string `json:"task_id"`
-	Status                                             agentabi.TaskStatus
-	Metadata                                           json.RawMessage
-	BlockedBy                                          []string `json:"blocked_by"`
-	After, Limit                                       int
+	Subject      *string             `json:"subject"`
+	Description  *string             `json:"description"`
+	Owner        *string             `json:"owner"`
+	Content      *string             `json:"content"`
+	AppendOutput *string             `json:"append_output"`
+	ID           string              `json:"task_id"`
+	Status       agentabi.TaskStatus `json:"status"`
+	Metadata     json.RawMessage     `json:"metadata"`
+	BlockedBy    []string            `json:"blocked_by"`
+	After        int                 `json:"after"`
+	Limit        int                 `json:"limit"`
 }
 
 func (t *planningTool) decode(raw json.RawMessage) (arguments, error) {
 	var a arguments
-	if !bounded(string(raw), 128<<10) {
+	if !utf8.Valid(raw) || len(raw) > 128<<10 {
 		return a, errors.New("planning input exceeds 128 KiB UTF-8")
+	}
+	if err := strictjson.ValidateObject(raw, &a); err != nil {
+		return a, err
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
@@ -144,21 +180,14 @@ func (t *planningTool) decode(raw json.RawMessage) (arguments, error) {
 }
 func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error) {
 	var zero wire.ToolResult
-	if e.ActualTool != t || e.CallID != call.ID || call.Name != t.name {
+	if e.ActualTool != t || call.ID == "" || e.CallID != call.ID || call.Name != t.name {
 		return zero, errors.New("planning requires actual dispatched tool/call identity")
 	}
 	a, err := t.decode(call.Arguments)
 	if err != nil {
 		return zero, err
 	}
-	p := t.plugin
-	if err = p.check(e); err != nil {
-		return zero, err
-	}
-	if err = p.config.Guard.Authorize(ctx, e, call, t.DescribeEffect(call)); err != nil {
-		return zero, err
-	}
-	if err = p.check(e); err != nil {
+	if err := ctx.Err(); err != nil {
 		return zero, err
 	}
 	value := func(s *string) string {
@@ -170,11 +199,11 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 	var body any
 	switch t.name {
 	case "task_create":
-		task, err := p.service.Create(ctx, CreateRequest{Title: value(a.Subject), Description: value(a.Description), Owner: value(a.Owner), Metadata: a.Metadata, BlockedBy: a.BlockedBy})
+		task, err := t.service.Create(ctx, CreateRequest{Title: value(a.Subject), Description: value(a.Description), Owner: value(a.Owner), Metadata: a.Metadata, BlockedBy: a.BlockedBy})
 		if err != nil {
 			return zero, err
 		}
-		body, err = p.detail(ctx, task)
+		body, err = t.detail(ctx, task)
 		if err != nil {
 			return zero, err
 		}
@@ -183,16 +212,16 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 		if t.name == "task_stop" {
 			status = agentabi.TaskCancelled
 		}
-		task, err := p.service.Update(ctx, UpdateRequest{ID: a.ID, Title: a.Subject, Description: a.Description, Owner: a.Owner, Status: status, Metadata: a.Metadata, BlockedBy: a.BlockedBy, AppendOutput: a.AppendOutput})
+		task, err := t.service.Update(ctx, UpdateRequest{ID: a.ID, Title: a.Subject, Description: a.Description, Owner: a.Owner, Status: status, Metadata: a.Metadata, BlockedBy: a.BlockedBy, AppendOutput: a.AppendOutput})
 		if err != nil {
 			return zero, err
 		}
-		body, err = p.detail(ctx, task)
+		body, err = t.detail(ctx, task)
 		if err != nil {
 			return zero, err
 		}
 	case "task_get", "task_output":
-		task, found, err := p.service.Get(ctx, a.ID)
+		task, found, err := t.service.Get(ctx, a.ID)
 		if err != nil {
 			return zero, err
 		}
@@ -200,7 +229,7 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 			return result(call.ID, map[string]any{"found": false, "task_id": a.ID}, true)
 		}
 		if t.name == "task_get" {
-			body, err = p.detail(ctx, task)
+			body, err = t.detail(ctx, task)
 			if err != nil {
 				return zero, err
 			}
@@ -212,7 +241,7 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 			body = map[string]any{"task_id": a.ID, "references": task.Output[a.After:end], "next": end, "has_more": end < len(task.Output), "notice": "Only explicitly appended manual workflow notes, not process execution logs"}
 		}
 	case "task_list":
-		page, err := p.service.List(ctx, a.Status, a.After, a.Limit)
+		page, err := t.service.List(ctx, a.Status, a.After, a.Limit)
 		if err != nil {
 			return zero, err
 		}
@@ -220,13 +249,13 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 		for _, r := range page.Tasks {
 			items = append(items, map[string]any{"id": r.Task.ID, "kind": r.Task.Kind, "status": r.Task.Status})
 		}
-		notes, err := p.service.Notes(ctx)
+		notes, err := t.service.Notes(ctx)
 		if err != nil {
 			return zero, err
 		}
 		body = map[string]any{"tasks": items, "next": page.Next, "has_more": page.HasMore, "revision": page.Revision, "plan_notes": notes}
 	case "todo_write":
-		ref, err := p.service.SetNotes(ctx, value(a.Content))
+		ref, err := t.service.SetNotes(ctx, value(a.Content))
 		if err != nil {
 			return zero, err
 		}
@@ -234,6 +263,9 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 			return zero, err
 		}
 		body = map[string]any{"notes": ref, "notice": "Configured session plan notes replaced; no workspace file or permission policy changed"}
+	}
+	if err := ctx.Err(); err != nil {
+		return zero, err
 	}
 	return result(call.ID, body, false)
 }
@@ -247,7 +279,7 @@ func result(id string, body any, isError bool) (wire.ToolResult, error) {
 	}
 	return wire.ToolResult{CallID: id, IsError: isError, Content: []wire.ContentBlock{{Kind: wire.ContentText, Text: string(raw)}}}, nil
 }
-func (p *Plugin) detail(ctx context.Context, task TaskRecord) (any, error) {
+func (t *planningTool) detail(ctx context.Context, task TaskRecord) (any, error) {
 	raw, err := json.Marshal(task)
 	if err != nil {
 		return nil, err
@@ -255,9 +287,12 @@ func (p *Plugin) detail(ctx context.Context, task TaskRecord) (any, error) {
 	if len(raw) > 128<<10 {
 		return nil, errors.New("configured planning detail exceeds 128 KiB")
 	}
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: "planning-task-detail", Name: task.Task.ID, MediaType: "application/json", Processing: "Configured planning Service task projection at this read, retained in this native session; backend owns business-state persistence; no execution, permission change or automatic model delivery implied", Data: raw, Text: true})
+	ref, err := t.retain(ctx, task)
 	if err != nil {
-		return nil, &abi.SessionError{Operation: "retain planning detail", SessionID: p.config.SessionID, Err: err}
+		return nil, err
 	}
-	return map[string]any{"task_id": task.Task.ID, "status": task.Task.Status, "kind": task.Task.Kind, "detail": info.Reference()}, nil
+	if err := ref.Validate(); err != nil {
+		return nil, err
+	}
+	return map[string]any{"task_id": task.Task.ID, "status": task.Task.Status, "kind": task.Task.Kind, "detail": ref}, nil
 }

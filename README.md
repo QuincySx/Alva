@@ -76,7 +76,16 @@ kernel 不能依赖 agent。上层可以显式消费下层或横向实现，不�
 direct CLI/desktop 直连 harness 与 host，不经 EngineRuntime；Hub core 只看 engine 根契约，
 具体 Alva/外部适配器在 `apps/hub/bootstrap` 装配。共享呈现在 `apps/ui`，不依赖 direct/Hub 或执行 owner。
 
-扩展可按能力直接安装普通Tool：独立SDK使用`Tool(timer.NewTool())`（[`extension/utility/timer`](./extension/utility/timer/AGENTS.md)）即可等待，不需要SQLite或原生会话；Utility Plugin复用同一实现。原生planning可通过`Config.Service`替换业务后端，Tool/getter/bus使用同一实例；实际native执行审计和详情引用authority仍保留，外部后端的持久化由提供者负责。
+扩展可直接作为普通 Tool 安装，无需原生 Plugin、SQLite 或工作目录：
+
+| 能力 | 普通工具入口 | 宿主提供 |
+|---|---|---|
+| 任务/计划 | [`planning.NewTools`](./extension/planning/AGENTS.md) | Service 与完整详情引用 writer |
+| 人类问答 | [`interaction.NewTool`](./extension/interaction/AGENTS.md) | Handler 与引用后端 |
+| 偏好/工具目录 | [`utility.NewConfigTool / NewSearchTool`](./extension/utility/AGENTS.md) | PreferenceStore 或实时目录/选中 schema writer |
+| 等待 | [`timer.NewTool`](./extension/utility/timer/AGENTS.md) | 无额外服务 |
+
+这些入口直接使用 SDK `Builder.Tool`；偏好投影通过一个普通 `BeforeModel` hook 调用 `utility.ApplyPreferences`，安装工具不自动改变请求。原生 Hub 导入对应 `native/` 适配，复用相同工具实现并保留会话、Guard、审计、引用和持久化；同名默认 Plugin 替换规则不变。
 
 一周后回来建议这样读：
 

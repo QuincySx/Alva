@@ -20,7 +20,7 @@ process 提供自有进程组/真实回收，media 提供显式字节派生与�
 | Owned process | `process/` | 明确argv、清洁环境、自有进程组/真实cleanup与有界原字节流framing |
 | Explicit media | `media/` | 原字节有界真实派生和完整来源，不自动向模型投递 |
 | Loopback HTTP gate | `loopback/` | 共享numeric Host/Origin/256-bit Bearer，不引入Hub/协议/执行政策 |
-| Strict JSON | `strictjson/` | 共用 Unicode/重复键/深度/DTO 精确字段校验，适用于工具/配置/协议，不读取 HTTP 或 OS 资源 |
+| Strict JSON | `strictjson/` | 共用 Unicode/重复键/深度/DTO 精确字段校验，适用于 portable 工具/配置/协议，不读取 HTTP 或 OS 资源，传递依赖限标准库与 SDK |
 | Secret input | `secretinput/` | 命令stdin有界读与真实管道取消，无后台secret reader |
 | Windows file line input | `lineinput/` | sole-reader文件/pipe逐行可取消、无readahead，不决定REPL/审批或secret政策；console明确unsupported |
 | Terminal text | `terminaltext/` | direct/Hub CLI共用的纯C0/C1显示转义，不更改模型/执行参数或原始历史 |

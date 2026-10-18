@@ -50,7 +50,7 @@ go mod verify
 |---|---|
 | `cmd/` | 八个可执行程序入口：CLI、桌面、HTTP、MCP 调试桥与 WASIp1 Worker |
 | `sdk/` | L0 wire/bus/沙箱 ABI；L1 kernel 契约；L2 通用循环；L2.3 Agent 语义；L2.5 装配；L3 能力库 |
-| `extension/` | L4 可选 Tool/Plugin/Middleware |
+| `extension/` | L4 可选 Tool/Plugin/Middleware；planning/interaction/utility 根包是普通能力，native/ 才绑定原生会话政策 |
 | `harness/` | L5 默认配方、同名替换、引用/历史/子会话政策 |
 | `apps/` | L6 direct/Gateway 与 L7 Hub；CLI/桌面/HTTP/MCP/Worker 程序入口在 cmd，Hub desktop/server 共用 bootstrap/product |
 | `integration/` | 模型/协议/引擎适配；仅 engine 根契约为 L4.5，具体 adapter 是产品桥接 |

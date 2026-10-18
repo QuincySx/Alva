@@ -1,7 +1,7 @@
-// INPUT: context, encoding/json, errors, filepath/sync, portable timer, core/security, ABI/wire, native session.
+// INPUT: context, JSON, errors, filepath/sync, portable utility/timer, core/security, ABI and native session.
 // OUTPUT: Optional utility Plugin, Config, actual registry search/cancellable sleep and durable presentation preferences.
-// POS: [L4 extension] Harmless session preferences have a real BeforeModel consumer and never alter provider credentials or authorization.
-package utility
+// POS: [L4 native adapter] Native preference CAS, authority and schema evidence wrap portable utility operations.
+package native
 
 import (
 	"context"
@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"sync"
 
+	utility "github.com/QuincySx/Alva/extension/utility"
 	"github.com/QuincySx/Alva/extension/utility/timer"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
-	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 type Config struct {
@@ -63,14 +63,29 @@ func New(ctx context.Context, c Config) (*Plugin, error) {
 			return nil, errors.New("invalid utility preferences snapshot")
 		}
 		for key, value := range p.preferences {
-			if err = validPreference(key, value); err != nil {
+			if err = utility.ValidatePreference(key, value); err != nil {
 				return nil, err
 			}
 		}
 		p.revision = entry.Sequence
 	}
-	for _, name := range []string{"config", "tool_search"} {
-		p.tools = append(p.tools, &utilityTool{plugin: p, name: name})
+	config, err := utility.NewConfigTool(p)
+	if err != nil {
+		return nil, err
+	}
+	search, err := utility.NewSearchTool(func() abi.ToolRegistrySnapshot {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.state == nil {
+			return abi.ToolRegistrySnapshot{}
+		}
+		return p.state.Tools().Snapshot()
+	}, p.retainSchema)
+	if err != nil {
+		return nil, err
+	}
+	for _, tool := range []abi.Tool{config, search} {
+		p.tools = append(p.tools, &utilityTool{Tool: tool, plugin: p, name: tool.Name()})
 	}
 	p.tools = append(p.tools, timer.NewTool())
 	return p, nil
@@ -126,29 +141,30 @@ func (p *Plugin) BeforeModel(ctx context.Context, r abi.RuntimeContext, request 
 		return err
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if r.RunID != p.runID || r.State == nil || !p.log.SameAuthority(r.State.Session()) || r.Workspace != p.config.Cwd {
+	valid := r.RunID == p.runID && r.State != nil && p.log.SameAuthority(r.State.Session()) && r.Workspace == p.config.Cwd
+	p.mu.Unlock()
+	if !valid {
 		return errors.New("utility preference consumer authority mismatch")
 	}
-	if len(p.preferences) == 0 {
-		return nil
-	}
-	raw, _ := json.Marshal(p.preferences)
-	message := wire.TextMessage(wire.RoleSystem, "Session response presentation preferences (advisory, not a forced output contract, authority, credentials or execution policy; preserve all original system instructions): "+string(raw))
-	request.Messages = append([]wire.Message{message}, request.Messages...)
-	return nil
+	return utility.ApplyPreferences(ctx, p, request)
 }
-func validPreference(key, value string) error {
-	allowed := map[string][]string{"response.language": {"en", "zh", "zh-CN", "zh-TW", "ja", "ko", "fr", "de", "es", "pt", "it", "ru", "ar"}, "response.verbosity": {"concise", "normal", "detailed"}, "response.format": {"text", "markdown"}}
-	for _, choice := range allowed[key] {
-		if value == choice {
-			return nil
-		}
+func (p *Plugin) Preferences(ctx context.Context) (utility.PreferenceSnapshot, error) {
+	if err := ctx.Err(); err != nil {
+		return utility.PreferenceSnapshot{}, err
 	}
-	return errors.New("unsupported presentation preference key/value; credentials, providers and permission policy cannot be configured here")
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	values := make(map[string]string, len(p.preferences))
+	for key, value := range p.preferences {
+		values[key] = value
+	}
+	return utility.PreferenceSnapshot{Values: values, Revision: p.revision}, nil
+}
+func (p *Plugin) SetPreference(ctx context.Context, key, value string) error {
+	return p.set(ctx, key, value)
 }
 func (p *Plugin) set(ctx context.Context, key, value string) error {
-	if err := validPreference(key, value); err != nil {
+	if err := utility.ValidatePreference(key, value); err != nil {
 		return err
 	}
 	p.mu.Lock()

@@ -13,6 +13,45 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 - 先有可执行和反例，再报告完成；不拿界面出现当作整个产品迁移完成。
 - 用户确认开源后，Go实现采用AGPL-3.0-only，许可/归属见LICENSE/NOTICE；当前吸收的Magpie协议代码只由integration/llm/codec使用，不进入SDK事实类型/权限/存储。
 
+## 2026-10-19 普通工具与原生插件政策拆分
+
+用户确认本轮插件瘦身。planning、interaction、utility 根包现为可直接安装到 SDK 的普通能力；
+每类的 native/ 子包保留具体产品接线，Hub 显式导入对应适配，不保留旧原生 New/Config 路径 alias。
+
+- Planning 保留原 Service/Task DTO 契约，NewTools 只需要业务 Service 与完整详情引用 writer。
+  七个工具的 schema/参数/业务操作只有一份实现；原生 wrapper 继续验证实际 Tool、同一 session
+  authority、run/workspace 与 Guard，默认 DAG/CAS/冷恢复和原生详情 evidence 不下沉到普通工具。
+- Interaction 的 Question/Answer/Handler 留在原根包；NewTool 只需要 Handler 与引用后端。
+  解析、真正同步等待、取消晚答拒绝和引用回执与原生适配共享；原生仍负责并发4、配置期限、
+  Guard、脱敏 artifact 和 question_intent/question_outcome，不把人类回答当权限审批。
+- Utility 将 PreferenceStore/ApplyPreferences、普通 config/tool_search 与已有 timer 分开消费。
+  普通工具不安装 middleware；偏好由一个明确的 BeforeModel hook 消费，目录每次读取 live registry。
+  原生 Plugin 继续拥有会话 snapshot/CAS、Guard、已选 schema 脱敏 refs 和现有下一请求行为。
+  即便用户替换后端，普通工具/投影也拒绝不支持的 presentation key/value。
+- 三个根包的直接/传递依赖仅限标准库、SDK 与已有纯 strictjson helper；静态闸拒绝回引 native/、
+  host、SQLite、provider 和 helper 偷带重依赖。CI 的 js/wasm、wasip1/wasm 构建增加这三类能力和 timer。
+- SDK 全部源码/六份公开快照、go.mod/go.sum 与固定 QuickJS 资产未修改，没有新增外部依赖，
+  Plugin.Name、工具名和已有记录 namespace 不变。13 个原生基线测试全部迁移保留。
+
+本轮 macOS arm64 / Go 1.27.2 验证如下，无付费模型或外部 engine 账户调用：
+
+| 检查 | 本轮结果与范围 |
+|---|---|
+| 整树 desktop-tagged race | 1792 项通过（含子测试）/85 个有测试包，0 失败，715.93 秒；durable helper 无参数入口按设计 skip，实际独立进程恢复实验通过 |
+| 最终相关包 race | 三类能力及各自 native/、timer、架构闸：222 项通过；普通问答实际遵循宿主 ToolTimeout，native 保留自管期限；同 ID 外部 log 和 Guard 拒绝仍不能借委托绕过 |
+| JS/WASM 实际运行 | Node 执行三个普通能力与 timer：12 项通过，0 skip |
+| WASIp1 实际运行 | 同四包由 wazero 实际执行：12 项通过，0 skip |
+| 可移植构建 | 完整 SDK、codec 与三个普通能力/timer 在 js/wasm、wasip1/wasm 均通过 |
+| 原生命令构建 | CGO_ENABLED=0，tagged cmd 在 macOS arm64、Linux amd64、Windows amd64/arm64 均通过；跨编译不代表对应 OS 实机验收 |
+| 静态与依赖完整性 | tagged vet、go mod verify、gofmt、空白/当前文档链接检查通过；实际 go list 证明普通能力没有 native/SQLite/host/外部依赖，静态反例防回归 |
+| 原实现保留 | 原生 Planning Service 的 12 个函数在去除类型限定名后与原字节格式化结果一致；Question/Answer/Handler 契约文件原字节保留；13 个原生基线测试全部保留 |
+
+整树计数对应增加最后一条超时回归之前的拆分版本；最后的问答超时归属与普通偏好说明调整后，
+受影响能力/原生适配及架构已完整重跑222项，两种 WASM 也已重新编译并实际运行。
+完整日志/依赖图/构建结果保存在本机 alva-portable-extensions 证据目录，指针为
+/tmp/alva-portable-extensions-path。SDK 源码、六份公开快照、模块锁定与 QuickJS 固定资产未改。
+前一批完整验收仍见下文，不以旧结果代替本轮验证。
+
 ## 2026-10-18 全仓结构整理落地
 
 用户授权开始实施。第一步已将八个程序入口从 apps/cmd 迁至根 cmd，不保留旧目录或 alias；
@@ -39,7 +78,7 @@ Read/Update/List/Search 仍只访问原 pinned root。八个消费者/能力包 
 同步实际 import、调用限定名、目录地图及退休路径闸。仅调整源码归属名称；Plugin.Name("tooling")、
 配置键、工具名和已有 records namespace 均保留。相关两能力/Hub 装配/架构四包 race 239 项通过。
 文档已分离当前入口/使用说明/历史记录；本批结构整理与源码验收完成。
-当前跨 build tag 共 87 个包目录、736 个 Go 文件；比审查时新增的三个包来自两处职责拆分，
+当批跨 build tag 共 87 个包目录、736 个 Go 文件；比审查时新增的三个包来自两处职责拆分，
 不是新增进程或外部依赖。SDK 公开包路径和全部源码保持原字节，六份快照未修改；外围类型路径迁移不保留 alias。
 
 ## 本批最终验证

@@ -1,6 +1,6 @@
-// INPUT: bytes, context, encoding/json, errors/io, strings/utf8, ABI/wire, native artifacts.
-// OUTPUT: Actual bounded registry search/schema references and durable allowlisted config Tools.
-// POS: [L4 extension] Native preference and discovery policies remain separate from the portable timer implementation.
+// INPUT: bytes, context, encoding/json, errors/io/reflect, strings/utf8, strictjson and ABI/wire.
+// OUTPUT: NewConfigTool and NewSearchTool consume an explicit preference store or live registry snapshot.
+// POS: [L4 extension] Ordinary metadata Tools are portable and install no native session, database, Guard or middleware.
 package utility
 
 import (
@@ -9,22 +9,53 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 type utilityTool struct {
-	plugin *Plugin
-	name   string
+	preferences PreferenceStore
+	snapshot    func() abi.ToolRegistrySnapshot
+	retain      func(context.Context, string, json.RawMessage) (wire.Reference, error)
+	name        string
+}
+
+// NewConfigTool uses only an explicitly scoped presentation preference store.
+func NewConfigTool(store PreferenceStore) (abi.Tool, error) {
+	if missing(store) {
+		return nil, errors.New("presentation preference store required")
+	}
+	return &utilityTool{name: "config", preferences: store}, nil
+}
+
+// NewSearchTool observes the caller's live registry. retain stores only a selected
+// schema; discovery never executes a Tool or starts an external service.
+func NewSearchTool(snapshot func() abi.ToolRegistrySnapshot, retain func(context.Context, string, json.RawMessage) (wire.Reference, error)) (abi.Tool, error) {
+	if snapshot == nil || retain == nil {
+		return nil, errors.New("live tool snapshot and selected-schema writer required")
+	}
+	return &utilityTool{name: "tool_search", snapshot: snapshot, retain: retain}, nil
+}
+func missing(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Func, reflect.Map, reflect.Slice, reflect.Interface, reflect.Chan:
+		return v.IsNil()
+	}
+	return false
 }
 
 func (t *utilityTool) Name() string { return t.name }
 func (t *utilityTool) Description() string {
-	return map[string]string{"config": "Get/set/list only durable response presentation preferences with a real next-request consumer; no provider/key/permissions or arbitrary configuration.", "tool_search": "Search the actual registered tools by name/first4KiB description, or retain one selected schema as reference. Never starts MCP/AEP or loads a remote catalog."}[t.name]
+	return map[string]string{"config": "Get/set/list only scoped response presentation preferences; request projection requires the host's ApplyPreferences hook. No provider/key/permissions or arbitrary configuration.", "tool_search": "Search the actual registered tools by name/first4KiB description, or retain one selected schema as reference. Never starts MCP/AEP or loads a remote catalog."}[t.name]
 }
 func (t *utilityTool) Scheduling(wire.ToolCall) abi.Scheduling {
 	return abi.Scheduling{ConcurrentSafe: true}
@@ -41,7 +72,7 @@ func (t *utilityTool) DescribeEffect(c wire.ToolCall) abi.Effect {
 	if t.IsReadOnly(c) {
 		kind = abi.EffectRead
 	}
-	return abi.Effect{Kind: kind, Description: "Bounded local utility metadata/timer or harmless response presentation preferences, never host authorization"}
+	return abi.Effect{Kind: kind, Description: "Bounded local utility metadata or harmless response presentation preferences, never host authorization"}
 }
 func (t *utilityTool) ParametersSchema() json.RawMessage {
 	switch t.name {
@@ -53,14 +84,21 @@ func (t *utilityTool) ParametersSchema() json.RawMessage {
 }
 
 type arguments struct {
-	Action, Key, Value, Query, Name string
-	Maximum                         int `json:"max_results"`
+	Action  string `json:"action"`
+	Key     string `json:"key"`
+	Value   string `json:"value"`
+	Query   string `json:"query"`
+	Name    string `json:"name"`
+	Maximum int    `json:"max_results"`
 }
 
 func (t *utilityTool) decode(raw json.RawMessage) (arguments, error) {
 	var a arguments
 	if len(raw) > 4096 || !utf8.Valid(raw) {
 		return a, errors.New("utility input exceeds 4 KiB UTF-8")
+	}
+	if err := strictjson.ValidateObject(raw, &a); err != nil {
+		return a, err
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || fields == nil {
@@ -85,22 +123,14 @@ func (t *utilityTool) decode(raw json.RawMessage) (arguments, error) {
 }
 func (t *utilityTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error) {
 	var zero wire.ToolResult
-	if e.ActualTool != t || e.CallID != call.ID || call.Name != t.name {
+	if e.ActualTool != t || call.ID == "" || e.CallID != call.ID || call.Name != t.name {
 		return zero, errors.New("utility requires actual dispatched tool/call identity")
 	}
 	a, err := t.decode(call.Arguments)
 	if err != nil {
 		return zero, err
 	}
-	p := t.plugin
-	state, err := p.check(e)
-	if err != nil {
-		return zero, err
-	}
-	if err = p.config.Guard.Authorize(ctx, e, call, t.DescribeEffect(call)); err != nil {
-		return zero, err
-	}
-	if _, err = p.check(e); err != nil {
+	if err := ctx.Err(); err != nil {
 		return zero, err
 	}
 	var body any
@@ -108,26 +138,29 @@ func (t *utilityTool) Execute(ctx context.Context, e abi.ToolExecutionContext, c
 	case "config":
 		switch a.Action {
 		case "set":
-			if err = p.set(ctx, a.Key, a.Value); err != nil {
+			if err = ValidatePreference(a.Key, a.Value); err != nil {
+				return zero, err
+			}
+			if err = t.preferences.SetPreference(ctx, a.Key, a.Value); err != nil {
 				return zero, err
 			}
 			body = map[string]any{"key": a.Key, "value": a.Value, "applies": "next model request presentation only"}
 		case "get":
-			if err = validPreference(a.Key, map[string]string{"response.language": "en", "response.verbosity": "normal", "response.format": "text"}[a.Key]); err != nil {
+			if err = ValidatePreference(a.Key, map[string]string{"response.language": "en", "response.verbosity": "normal", "response.format": "text"}[a.Key]); err != nil {
 				return zero, err
 			}
-			p.mu.Lock()
-			value, found := p.preferences[a.Key]
-			p.mu.Unlock()
+			snapshot, err := preferences(ctx, t.preferences)
+			if err != nil {
+				return zero, err
+			}
+			value, found := snapshot.Values[a.Key]
 			body = map[string]any{"key": a.Key, "value": value, "set": found}
 		case "list":
-			p.mu.Lock()
-			preferences := map[string]string{}
-			for key, value := range p.preferences {
-				preferences[key] = value
+			snapshot, err := preferences(ctx, t.preferences)
+			if err != nil {
+				return zero, err
 			}
-			revision := p.revision
-			p.mu.Unlock()
+			preferences, revision := snapshot.Values, snapshot.Revision
 			body = map[string]any{"values": preferences, "revision": revision, "allowed_keys": []string{"response.language", "response.verbosity", "response.format"}}
 		default:
 			return zero, errors.New("actual config action get/set/list required")
@@ -136,7 +169,7 @@ func (t *utilityTool) Execute(ctx context.Context, e abi.ToolExecutionContext, c
 		if a.Action == "" {
 			a.Action = "search"
 		}
-		snapshot := state.Tools().Snapshot()
+		snapshot := t.snapshot()
 		if len(snapshot.Tools) > 512 {
 			return zero, errors.New("actual tool registry exceeds 512-entry search budget")
 		}
@@ -158,15 +191,14 @@ func (t *utilityTool) Execute(ctx context.Context, e abi.ToolExecutionContext, c
 			if len(schema) > 64<<10 || !utf8.Valid(schema) || !wire.ValidJSON(schema) {
 				return zero, errors.New("selected actual schema invalid or exceeds 64 KiB")
 			}
-			clean, err := session.RedactJSON(schema)
+			reference, err := t.retain(ctx, a.Name, append(json.RawMessage(nil), schema...))
 			if err != nil {
 				return zero, err
 			}
-			info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: "tool-schema", Name: a.Name, MediaType: "application/json", Processing: "Actual selected registered tool schema; known credentials redacted; registry discovery did not start any external service; no automatic model delivery", Data: clean, Text: true})
-			if err != nil {
-				return zero, &abi.SessionError{Operation: "retain tool schema", SessionID: p.config.SessionID, Err: err}
+			if err := reference.Validate(); err != nil {
+				return zero, err
 			}
-			body = map[string]any{"name": a.Name, "registry_version": snapshot.Version, "schema": info.Reference()}
+			body = map[string]any{"name": a.Name, "registry_version": snapshot.Version, "schema": reference}
 		} else if a.Action == "search" {
 			if a.Query == "" || len(a.Query) > 256 || a.Name != "" {
 				return zero, errors.New("bounded actual tool query required")
@@ -200,6 +232,9 @@ func (t *utilityTool) Execute(ctx context.Context, e abi.ToolExecutionContext, c
 		} else {
 			return zero, errors.New("tool search action search/schema required")
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return zero, err
 	}
 	return respond(call.ID, body, false)
 }
