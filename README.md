@@ -6,6 +6,13 @@ SDK、direct harness 与 Hub 保留独立职责。技术栈已正式切换；能
 
 ## 先看地图：L0 → L7
 
+**看分层从这里开始。** 下表的目录链接进入各层 AGENTS.md，那里写当前职责、接口/文件清单和依赖边界。
+完整架构定义见 [ARCHITECTURE](./docs/ARCHITECTURE.md#分层)。L0–L7 是架构职责编号，
+运行时通过具体接口与依赖关系组合能力；这些编号不表示请求执行的先后阶段。
+例如 L1 的 [contracts.go](./sdk/kernel/abi/contracts.go) 定义接口，L2 的
+[loop.go](./sdk/kernel/core/loop.go) 实现循环，文件前三行的 POS 也分别标明其层级职责。
+实际依赖由 [架构防火墙](./architecture/boundaries_test.go) 检查，不靠目录说明自行保证。
+
 目录先分“SDK / 扩展 / 默认配方 / 用户产品”，再把外部集成与平台实现单独归类。
 这是原有职责的重新摆放，不合并抽象、不增加旧路径别名，也不表示剩余功能已迁完。
 
@@ -13,7 +20,7 @@ SDK、direct harness 与 Hub 保留独立职责。技术栈已正式切换；能
 sdk/          L0–L3   第三方可直接使用的可移植 SDK
 extension/    L4      可选 Tool / Plugin / Middleware
 harness/      L5      我们的 BaseAgent 默认配方
-apps/         L6/L7   direct 产品、Gateway、Hub 与薄命令入口
+apps/         L6/L7   direct 产品、Gateway、Hub 与可执行程序入口
 integration/  横向    外部模型 / 协议 / 引擎适配
 platform/     横向    执行 owner / OS 原语 / 存储 / WASM 实现
 architecture/ 验证    import 防火墙、公开面与分形文档闸
@@ -21,17 +28,34 @@ architecture/ 验证    import 防火墙、公开面与分形文档闸
 
 | 层级 | 实际目录 | 这一层回答什么问题 |
 |---|---|---|
-| L0 | `sdk/llm/wire`、`sdk/kernel/bus`、`sdk/sandbox/abi` | 消息/媒体/用量如何表达，能力如何协调，跨沙箱 ABI 是什么；没有 I/O 或授权政策 |
-| L1 | `sdk/kernel/abi` | 循环只需要哪些模型、工具、会话与中间件契约 |
-| L2 | `sdk/kernel/core` | 如何运行循环、结算模型/工具事实、执行 hook 与处理取消 |
-| L2.3 | `sdk/agent/abi` | Task/Scope/Spawn/Phase 等 Agent 语义是什么；内核不反向依赖 |
-| L2.5 | `sdk/agent/core` | 如何注册 Plugin、晚期接线、构建 SDK Agent |
-| L3 | `sdk/agent/{context,memory,security,analytics,graph}` | 可复用能力；graph 与 AgentLoop 是平行 runtime |
-| L4 | `extension` | 哪些具体工具与可选行为可以安装；不是给内核加功能 |
-| L4.5 | `integration/engine` **仅根契约包** | Hub 如何统一驱动完整 Agent；不是 Model/Provider |
-| L5 | `harness` | 我们如何选择默认 Plugin、引用策略、历史/Pending 和子会话配方 |
-| L6 | `apps/direct`、`apps/desktop`、`apps/gateway`、direct 命令入口 | 用户直接聊天或显式调用模型 API；Gateway 不运行 Agent |
-| L7 | `apps/hub` 与 Hub 命令入口 | 多引擎会话、branch/Turn/Attempt、Team、自动化和产品服务/UI |
+| L0 | [sdk/llm/wire](./sdk/llm/wire/AGENTS.md)、[sdk/kernel/bus](./sdk/kernel/bus/AGENTS.md)、[sdk/sandbox/abi](./sdk/sandbox/abi/AGENTS.md) | 消息/媒体/用量如何表达，能力如何协调，跨沙箱 ABI 是什么；没有 I/O 或授权政策 |
+| L1 | [sdk/kernel/abi](./sdk/kernel/abi/AGENTS.md) | 循环只需要哪些模型、工具、会话与中间件契约 |
+| L2 | [sdk/kernel/core](./sdk/kernel/core/AGENTS.md) | 如何运行循环、结算模型/工具事实、执行 hook 与处理取消 |
+| L2.3 | [sdk/agent/abi](./sdk/agent/abi/AGENTS.md) | Task/Scope/Spawn/Phase 等 Agent 语义是什么；内核不反向依赖 |
+| L2.5 | [sdk/agent/core](./sdk/agent/core/AGENTS.md) | 如何注册 Plugin、晚期接线、构建 SDK Agent |
+| L3 | [sdk/agent 下的 context/memory/security/analytics/graph](./sdk/agent/AGENTS.md) | 可复用能力；graph 与 AgentLoop 是平行 runtime |
+| L4 | [extension](./extension/AGENTS.md) | 哪些具体工具与可选行为可以安装；不是给内核加功能 |
+| L4.5 | [integration/engine](./integration/engine/AGENTS.md) **仅根契约包** | Hub 如何统一驱动完整 Agent；不是 Model/Provider |
+| L5 | [harness](./harness/AGENTS.md) | 我们如何选择默认 Plugin、引用策略、历史/Pending 和子会话配方 |
+| L6 | [apps/direct](./apps/direct/AGENTS.md)、[apps/desktop](./apps/desktop/AGENTS.md)、[apps/gateway](./apps/gateway/AGENTS.md)、direct 程序入口 | 用户直接聊天或显式调用模型 API；Gateway 不运行 Agent |
+| L7 | [apps/hub](./apps/hub/AGENTS.md) 与 Hub 程序入口 | 多引擎会话、branch/Turn/Attempt、Team、自动化和产品服务/UI |
+
+### 程序入口：cmd 与 CLI
+
+当前八个入口在 [apps/cmd](./apps/cmd/AGENTS.md)。cmd 表示可执行程序的启动代码，CLI 表示终端交互形态。
+各目录都是独立 main 包；使用相应产品时才启动对应程序。
+
+| 交互/运行形态 | 程序入口 |
+|---|---|
+| 终端 CLI | [alva](./apps/cmd/alva/AGENTS.md)、[alva-hub](./apps/cmd/alva-hub/AGENTS.md) |
+| 桌面窗口 | [alva-desktop](./apps/cmd/alva-desktop/AGENTS.md)、[alva-hub-desktop](./apps/cmd/alva-hub-desktop/AGENTS.md) |
+| HTTP 服务 | [alva-gateway](./apps/cmd/alva-gateway/AGENTS.md)、[alva-hub-server](./apps/cmd/alva-hub-server/AGENTS.md) |
+| MCP 调试桥 | [alva-devtools-mcp](./apps/cmd/alva-devtools-mcp/AGENTS.md) |
+| WASIp1 沙箱 Worker | [alva-worker-wasm](./apps/cmd/alva-worker-wasm/AGENTS.md) |
+
+迁往根 cmd 的建议仍是 [结构整理提案](./docs/ARCHITECTURE.md#优先落地的结构)，当前构建命令继续使用 apps/cmd。
+
+### 横向支撑与依赖边界
 
 横向目录不是一条“全部在 SDK 之下”的严格层级：
 

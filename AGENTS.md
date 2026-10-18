@@ -6,7 +6,7 @@
 ## 地位
 
 Go 是唯一受维护的实现，项目名为 Alva。go.mod 位于仓库根目录，module path 为 `github.com/QuincySx/Alva`；没有外层 go/ 容器。
-进入代码前先读 [README.md](./README.md)，再进入对应目录的 AGENTS.md。
+进入代码前先读 [README.md 的可点击分层地图](./README.md#先看地图l0--l7)与程序入口表，再进入对应目录的 AGENTS.md。
 Rust 实现、旧前端及配套工具已按用户明确要求提交归档并退出工作树；历史标签为
 `archive/rust-final-2026-10-18`。不得为了参考历史重新引入运行桥或旧路径 alias。
 
@@ -51,10 +51,10 @@ go mod verify
 | `sdk/` | L0 wire/bus/沙箱 ABI；L1 kernel 契约；L2 通用循环；L2.3 Agent 语义；L2.5 装配；L3 能力库 |
 | `extension/` | L4 可选 Tool/Plugin/Middleware |
 | `harness/` | L5 默认配方、同名替换、引用/历史/子会话政策 |
-| `apps/` | L6 direct/Gateway 与 L7 Hub；命令在 apps/cmd，Hub desktop/server 共用 bootstrap/product |
+| `apps/` | L6 direct/Gateway 与 L7 Hub；CLI/桌面/HTTP/MCP/Worker 程序入口在 apps/cmd，Hub desktop/server 共用 bootstrap/product |
 | `integration/` | 模型/协议/引擎适配；仅 engine 根契约为 L4.5，具体 adapter 是产品桥接 |
 | `platform/` | host 执行/审批 owner、system OS 原语、storage、sandbox 实现 |
 | `architecture/` | tagged import 图、公开快照、分形检查与第三方消费者式实验 |
-| `docs/` | 当前 Go 架构、治理与 ADR；实现状态以 MIGRATION.md 为准 |
+| `docs/` | 当前 Go 架构、治理、ADR 与明确标注的结构审查提案；实现状态以 MIGRATION.md 为准 |
 | `.github/` | 唯一维护的 Go CI，无 Rust 构建/测试工作流 |
 | `CONTEXT.md` | 领域词汇，不替代实际接口或验收记录 |

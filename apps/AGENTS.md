@@ -7,7 +7,7 @@
 
 ## 逻辑
 
-`cmd` 仅解析显式参数并拥有进程退出；direct CLI/desktop 直接消费 harness，Hub desktop/server 消费同一 `apps/hub/bootstrap` 装配，Gateway 则只处理显式模型协议请求，不启动 Agent。
+`cmd` 容纳 CLI、桌面、HTTP 服务、MCP 调试桥与 WASIp1 Worker 的独立 main 入口，拥有参数/交互流程及进程启动退出；可复用能力留在产品与 SDK。direct CLI/desktop 直接消费 harness，Hub desktop/server 消费同一 `apps/hub/bootstrap` 装配，Gateway 则只处理显式模型协议请求，不启动 Agent。
 
 基础 `desktop` 拥有共享自绘控件与 direct 界面，Hub 界面位于 `apps/hub/desktop`；后者可消费基础控件，前者不反向依赖 Hub/engine。Hub 核心产品事实只依赖 engine contract，具体存储、服务、装配与界面继续分包。
 

@@ -24,7 +24,17 @@ host 执行/审批所有权与 system 底层 OS 原语分开；纯 sandbox ABI �
 目录是自有源码 package 的分组，不是外部依赖数量或多进程数量。下列历史 checkpoint 的命令已按当前
 等价路径标注；这些历史结果本身不替代重排后的独立构建与架构复验，也不改变剩余验收项。
 
-## 2026-10-18 Alva 根 module 正式化（最新）
+## 2026-10-18 全仓结构复审（仅提案）
+
+已核对跨 build tag 的 84 个包目录、728 个 Go 文件的 package/import 声明和 114 份受版本管理的
+目录地图；不是全树实现逐行审计。完整覆盖表、问题证据、目标目录和分步验收见
+[架构中的全仓目录审查](./docs/ARCHITECTURE.md#2026-10-18-全仓目录审查整理提案尚未迁移)。
+保留 SDK/扩展/harness/适配/宿主职责，建议优先根 cmd、共享 UI 与 direct 页面拆分、验证/手工工具归位，
+再提取 builtin 受限文件系统。产品是否 internal 化是外部可见性决策，不随整理自动实施。
+本轮只更新审查文档，生产目录、module、SDK 公开面、固定资产及运行行为未改。
+当前结构的 architecture 与 extensibility 两包共 176 项测试通过；不替代下方整树/平台验收。
+
+## 2026-10-18 Alva 根 module 正式化
 
 用户进一步要求去掉最外层“go”命名并核对 Go 官方规范。按单模块仓库指南
 https://go.dev/doc/modules/managing-source，将 go.mod 与全部实现提升到仓库根目录，

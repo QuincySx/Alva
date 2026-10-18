@@ -1,5 +1,5 @@
-# L6/L7 · Go Entrypoints
-> 直接消费 harness 与 native runtime 的独立命令入口。
+# L6/L7 · 可执行程序入口
+> CLI、桌面、HTTP 服务、MCP 调试桥与 WASIp1 Worker 的启动代码。
 
 ## 地位
 
@@ -7,7 +7,7 @@
 
 ## 逻辑
 
-显式参数选择本地 demo 或 live，创建 runner/controller，退出时执行 owner cleanup。
+cmd 表示可执行程序入口集合，CLI 是其中的终端交互形态。每个子目录是独立 main 包，按显式参数装配对应产品并拥有启动/退出流程；Agent 产品创建 runner/controller，Gateway 只处理模型 API，Worker 在 WASIp1 guest 中运行。退出按所属资源 owner 执行 cleanup。
 
 ## 约束
 
