@@ -42,18 +42,18 @@ architecture/ 验证    import 防火墙、公开面与分形文档闸
 
 ### 程序入口：cmd 与 CLI
 
-当前八个入口在 [apps/cmd](./apps/cmd/AGENTS.md)。cmd 表示可执行程序的启动代码，CLI 表示终端交互形态。
+当前八个入口在 [cmd](./cmd/AGENTS.md)。cmd 表示可执行程序的启动代码，CLI 表示终端交互形态。
 各目录都是独立 main 包；使用相应产品时才启动对应程序。
 
 | 交互/运行形态 | 程序入口 |
 |---|---|
-| 终端 CLI | [alva](./apps/cmd/alva/AGENTS.md)、[alva-hub](./apps/cmd/alva-hub/AGENTS.md) |
-| 桌面窗口 | [alva-desktop](./apps/cmd/alva-desktop/AGENTS.md)、[alva-hub-desktop](./apps/cmd/alva-hub-desktop/AGENTS.md) |
-| HTTP 服务 | [alva-gateway](./apps/cmd/alva-gateway/AGENTS.md)、[alva-hub-server](./apps/cmd/alva-hub-server/AGENTS.md) |
-| MCP 调试桥 | [alva-devtools-mcp](./apps/cmd/alva-devtools-mcp/AGENTS.md) |
-| WASIp1 沙箱 Worker | [alva-worker-wasm](./apps/cmd/alva-worker-wasm/AGENTS.md) |
+| 终端 CLI | [alva](./cmd/alva/AGENTS.md)、[alva-hub](./cmd/alva-hub/AGENTS.md) |
+| 桌面窗口 | [alva-desktop](./cmd/alva-desktop/AGENTS.md)、[alva-hub-desktop](./cmd/alva-hub-desktop/AGENTS.md) |
+| HTTP 服务 | [alva-gateway](./cmd/alva-gateway/AGENTS.md)、[alva-hub-server](./cmd/alva-hub-server/AGENTS.md) |
+| MCP 调试桥 | [alva-devtools-mcp](./cmd/alva-devtools-mcp/AGENTS.md) |
+| WASIp1 沙箱 Worker | [alva-worker-wasm](./cmd/alva-worker-wasm/AGENTS.md) |
 
-迁往根 cmd 的建议仍是 [结构整理提案](./docs/ARCHITECTURE.md#优先落地的结构)，当前构建命令继续使用 apps/cmd。
+程序入口已迁至根 cmd；其余结构整理的原始评估见 [结构审查](./docs/ARCHITECTURE.md#优先落地的结构)。
 
 ### 横向支撑与依赖边界
 
@@ -92,9 +92,9 @@ Go 实现采用 [GNU AGPL-3.0-only](./LICENSE) 开源，第三方声明见 [NOTI
 使用 Go 1.27.2；本目录的 `.tool-versions` 固定本地工具版本。go.mod 位于仓库根目录，module path 为 `github.com/QuincySx/Alva`；以下命令直接在仓库根目录执行。
 
 ```sh
-go run ./apps/cmd/alva --demo --prompt '你好，Alva'
-go run -tags desktop ./apps/cmd/alva-desktop --demo
-go run -tags desktop ./apps/cmd/alva-hub-desktop --demo --data-dir /absolute/private/alva-go
+go run ./cmd/alva --demo --prompt '你好，Alva'
+go run -tags desktop ./cmd/alva-desktop --demo
+go run -tags desktop ./cmd/alva-hub-desktop --demo --data-dir /absolute/private/alva-go
 ```
 
 demo 是真实走模型接口 → echo 工具 → 模型接口的本地确定性 fixture，不调用模型账户。
@@ -105,9 +105,9 @@ live 必须显式指定完整 endpoint 和 model，不发现环境变量或旧�
 可选 `--api-key-stdin` 从标准输入读取密钥，不能把密钥放进命令参数。
 
 ```sh
-go run ./apps/cmd/alva --live --endpoint https://example.invalid/v1/chat/completions --model MODEL --api-key-stdin --prompt '你好'
-go run -tags desktop ./apps/cmd/alva-desktop --live --endpoint https://example.invalid/v1/chat/completions --model MODEL --api-key-stdin
-go run -tags desktop ./apps/cmd/alva-hub-desktop --data-dir /absolute/private/alva-go --live --provider-kind openai_responses --endpoint https://example.invalid/v1/responses --model MODEL --api-key-stdin
+go run ./cmd/alva --live --endpoint https://example.invalid/v1/chat/completions --model MODEL --api-key-stdin --prompt '你好'
+go run -tags desktop ./cmd/alva-desktop --live --endpoint https://example.invalid/v1/chat/completions --model MODEL --api-key-stdin
+go run -tags desktop ./cmd/alva-hub-desktop --data-dir /absolute/private/alva-go --live --provider-kind openai_responses --endpoint https://example.invalid/v1/responses --model MODEL --api-key-stdin
 ```
 
 示例地址是占位符，需替换为自己的服务；提供密钥后以 EOF 结束输入。live 会产生实际服务费用。
@@ -125,8 +125,8 @@ Skills 与只读 Inspector；未完成项仍见迁移矩阵，不以基础控件
 同源 headless 入口是 `alva-hub-server`，不嵌入旧 React 页面：
 
 ```sh
-go run ./apps/cmd/alva-hub-server --new-token
-go run ./apps/cmd/alva-hub-server --demo --data-dir /absolute/private/alva-go-server --secrets-stdin
+go run ./cmd/alva-hub-server --new-token
+go run ./cmd/alva-hub-server --demo --data-dir /absolute/private/alva-go-server --secrets-stdin
 ```
 
 第二条从 stdin pipe/显式重定向文件读取 `{"token":"第一条生成的token"}` 后 EOF；不支持不可取消的交互终端。
@@ -140,7 +140,7 @@ API 路由与限制见 [server/AGENTS.md](./apps/hub/server/AGENTS.md)；SSE 使
 只读 Devtools MCP 可以连接上述已运行的 Hub HTTP，复用实际产品归属校验：
 
 ```sh
-go run ./apps/cmd/alva-devtools-mcp --hub http://127.0.0.1:PORT --token-fd 3 3</absolute/private/hub-token
+go run ./cmd/alva-devtools-mcp --hub http://127.0.0.1:PORT --token-fd 3 3</absolute/private/hub-token
 ```
 
 `hub-token` 为单独、显式提供的原始 bearer 文件（不是 server 的 secrets JSON）；token 不进 argv、URL、环境或 MCP stdout。
@@ -151,8 +151,8 @@ stdin/stdout 专用于 MCP stdio。`hub_inspect` 只读会话小索引、历史�
 两个自绘桌面也可显式启用独立 UI 调试服务，默认关闭、默认只读：
 
 ```sh
-go run -tags desktop ./apps/cmd/alva-hub-desktop --demo --data-dir /absolute/private/alva-go --debug-listen 127.0.0.1:0 --startup-secrets-stdin </absolute/private/startup-secrets.json
-go run ./apps/cmd/alva-devtools-mcp --ui http://127.0.0.1:PORT --token-file /absolute/private/ui-token
+go run -tags desktop ./cmd/alva-hub-desktop --demo --data-dir /absolute/private/alva-go --debug-listen 127.0.0.1:0 --startup-secrets-stdin </absolute/private/startup-secrets.json
+go run ./cmd/alva-devtools-mcp --ui http://127.0.0.1:PORT --token-file /absolute/private/ui-token
 ```
 
 startup JSON 为 `{"debug_token":"独立256-bit随机token"}`，live 可另带 `api_key`；与 raw `--api-key-stdin` 互斥。
@@ -161,7 +161,7 @@ startup JSON 为 `{"debug_token":"独立256-bit随机token"}`，live 可另带 `
 MCP提供日志/动态level读取、实际视图状态/revision、产品语义树和注册窗口PNG；不导出框架内部layout，也不截取全屏。
 如需UI action，桌面增加 `--debug-controls`，MCP增加 `--ui-controls`；Send还需桌面独立 `--debug-execution`，仍走实际产品审批/计费。
 action必须带当前revision和唯一operation ID；原ID重试只返回原结果。凭据编辑页拒绝截图，诊断shutdown不停止Agent。
-详见 [UI diagnostics](./apps/debug/AGENTS.md) 和 [命令约束](./apps/cmd/alva-devtools-mcp/AGENTS.md)。
+详见 [UI diagnostics](./apps/debug/AGENTS.md) 和 [命令约束](./cmd/alva-devtools-mcp/AGENTS.md)。
 
 direct/Hub Inspector均有当前页LLM/Tools/Middleware分类和显式JSONL导出；导出包含选中native snapshot的所有record种类，UI搜索/分类不代表导出选择。Hub可额外包含验证过的typed children，文件和媒体保留引用。原生写自己的私有exports目录且不覆盖旧文件；认证HTTP `/v1/sessions/ID/inspector-bundle?branch=BRANCH` 只下载bytes，不写宿主路径。8MiB/2048 records/32 sessions/8hop任一超限或hash错误均明确失败，不返回半份成功。
 
@@ -174,8 +174,8 @@ Hub 原生面板或认证 HTTP `/v1/gateway` 还可显式启动/停止内嵌模�
 独立模型 Gateway 与 Hub/Agent runtime 分离，共享同一个provider传输与codec：
 
 ```sh
-go run ./apps/cmd/alva-gateway --new-token
-go run ./apps/cmd/alva-gateway --secrets-stdin
+go run ./cmd/alva-gateway --new-token
+go run ./cmd/alva-gateway --secrets-stdin
 ```
 
 第二条通过pipe或显式重定向文件读以下JSON并以EOF结束；示例地址是占位符，key只在内存：
@@ -204,13 +204,13 @@ go test -mod=readonly -race -p 1 -tags desktop ./...
 go vet ./...
 go vet -tags desktop ./...
 go mod verify
-CGO_ENABLED=0 go build -o build/alva ./apps/cmd/alva
-CGO_ENABLED=0 go build -o build/alva-gateway ./apps/cmd/alva-gateway
-CGO_ENABLED=0 go build -o build/alva-hub-server ./apps/cmd/alva-hub-server
-CGO_ENABLED=0 go build -o build/alva-devtools-mcp ./apps/cmd/alva-devtools-mcp
-CGO_ENABLED=0 go build -o build/alva-hub ./apps/cmd/alva-hub
-CGO_ENABLED=0 go build -tags desktop -o build/alva-desktop ./apps/cmd/alva-desktop
-CGO_ENABLED=0 go build -tags desktop -o build/alva-hub-desktop ./apps/cmd/alva-hub-desktop
+CGO_ENABLED=0 go build -o build/alva ./cmd/alva
+CGO_ENABLED=0 go build -o build/alva-gateway ./cmd/alva-gateway
+CGO_ENABLED=0 go build -o build/alva-hub-server ./cmd/alva-hub-server
+CGO_ENABLED=0 go build -o build/alva-devtools-mcp ./cmd/alva-devtools-mcp
+CGO_ENABLED=0 go build -o build/alva-hub ./cmd/alva-hub
+CGO_ENABLED=0 go build -tags desktop -o build/alva-desktop ./cmd/alva-desktop
+CGO_ENABLED=0 go build -tags desktop -o build/alva-hub-desktop ./cmd/alva-hub-desktop
 ```
 
 普通测试不启动窗口；带 `desktop` 的测试使用 MyGo Tester，不调用真实模型。
@@ -219,7 +219,7 @@ SDK 同时执行跨目标编译；WASIp1 worker已有真实fresh-host执行回�
 ```sh
 CGO_ENABLED=0 GOOS=js GOARCH=wasm go build ./sdk/... ./integration/llm/codec
 CGO_ENABLED=0 GOOS=wasip1 GOARCH=wasm go build ./sdk/... ./integration/llm/codec
-CGO_ENABLED=0 GOOS=wasip1 GOARCH=wasm go build -o build/alva-worker.wasm ./apps/cmd/alva-worker-wasm
+CGO_ENABLED=0 GOOS=wasip1 GOARCH=wasm go build -o build/alva-worker.wasm ./cmd/alva-worker-wasm
 ```
 
 脚本能力使用固定QuickJS-NG v0.17.0 core WASM，936,180字节（约0.89MiB），每次调用独立实例，由Go宿主执行。
@@ -271,9 +271,9 @@ Rust本身未实现的完整LSP/网络embedding/自动LLM memory提取和worktre
 Hub CLI与direct `alva`分开，复用Hub desktop/server的同一个bootstrap/product权威（不能并发打开同一私有DB）：
 
 ```sh
-go run ./apps/cmd/alva-hub --data-dir /absolute/new-go-hub --prompt '你好'
-go run ./apps/cmd/alva-hub --data-dir /absolute/new-go-hub --sessions
-go run ./apps/cmd/alva-hub --data-dir /absolute/new-go-hub --session PRODUCT_ID --repl
+go run ./cmd/alva-hub --data-dir /absolute/new-go-hub --prompt '你好'
+go run ./cmd/alva-hub --data-dir /absolute/new-go-hub --sessions
+go run ./cmd/alva-hub --data-dir /absolute/new-go-hub --session PRODUCT_ID --repl
 ```
 
 REPL支持`/session`、`/sessions`、`/engine alva|claude|codex|pi`、`/history [after]`、`/quit`。
@@ -285,7 +285,7 @@ live的API key用独立`--api-key-fd 3`（显式regular/pipe FD3..10），不占
 Direct原生CLI也可显式`--repl`，仍直接消费harness（不经Hub/EngineRuntime）：
 
 ```sh
-go run ./apps/cmd/alva --demo --repl --data-dir /absolute/new-direct-go-history
+go run ./cmd/alva --demo --repl --data-dir /absolute/new-direct-go-history
 ```
 
 同会话多轮，`/session /help /quit`本地处理；live配置可用单独`--api-key-fd 3`，REPL不与`--api-key-stdin`混用。
@@ -302,7 +302,7 @@ Hub引擎的执行能力与检查能力分别声明：认证`GET /v1/engines`只
 
 项目名为 Alva，单一 module 使用仓库地址 `github.com/QuincySx/Alva`，没有外层 go/ 容器。
 这遵循 [Go 官方的单模块仓库指南](https://go.dev/doc/modules/managing-source)。
-SDK、扩展、harness、产品与横向适配的职责不因 module 提升而合并；入口继续位于 apps/cmd。
+SDK、扩展、harness、产品与横向适配的职责不因 module 提升而合并；入口继续位于 cmd。
 
 最终 Rust 完整快照为 `archive/rust-final-2026-10-18`（`1d675f730223`），含源码、锁文件、
 旧前端和审查资料。旧代码仅在 Git 历史中，查阅可用：

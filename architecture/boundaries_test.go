@@ -111,7 +111,7 @@ func under(name, prefix string) bool { return name == prefix || strings.HasPrefi
 // Graph membership also catches a future workspace top-level directory, rather
 // than letting an outdated list turn a local package into a standard-library one.
 func workspacePackage(name string) bool {
-	for _, prefix := range []string{"sdk", "integration", "extension", "harness", "platform", "apps", "architecture"} {
+	for _, prefix := range []string{"sdk", "integration", "extension", "harness", "platform", "apps", commandRoot, "architecture"} {
 		if under(name, prefix) {
 			return true
 		}
@@ -120,7 +120,7 @@ func workspacePackage(name string) bool {
 }
 
 func legacyWorkspacePackage(name string) bool {
-	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "cmd", "native", "storage", "sandbox"} {
+	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "native", "storage", "sandbox", "apps/cmd"} {
 		if under(name, prefix) {
 			return true
 		}
@@ -182,7 +182,7 @@ func forbidden(root, dependency string, local bool) string {
 			return "portable SDK must remain standard-library only"
 		}
 	}
-	if under(dependency, "github.com/egoist/mygo") && !under(root, "apps/desktop") && !under(root, "apps/hub/desktop") && !under(root, "apps/cmd") {
+	if under(dependency, "github.com/egoist/mygo") && !desktopPackage(root) && !under(root, commandRoot) {
 		return "desktop framework is confined to desktop products and command entries, not all apps"
 	}
 	if root == "integration/engine" {
@@ -195,12 +195,15 @@ func forbidden(root, dependency string, local bool) string {
 			return "Hub dispatcher depends only on the engine contract root and standard library, never its own product/bootstrap subpackages"
 		}
 	}
-	if root == "apps/cmd/alva" || root == "apps/cmd/alva-desktop" || under(root, "apps/desktop") || under(root, "apps/direct") {
+	if root == "cmd/alva" || root == "cmd/alva-desktop" || under(root, "apps/desktop") || under(root, "apps/direct") {
 		if under(dependency, "integration/engine") || under(dependency, "apps/hub") {
 			return "native harness entry cannot depend on multi-engine Hub runtime"
 		}
 	}
-	if !under(root, "apps") && under(dependency, "apps") {
+	if under(dependency, commandRoot) && !under(root, commandRoot) {
+		return "libraries and products cannot depend on executable entrypoints"
+	}
+	if !under(root, "apps") && !under(root, commandRoot) && under(dependency, "apps") {
 		return "SDK, harness, integrations and platform cannot depend upward on applications"
 	}
 	return ""
@@ -266,8 +269,8 @@ func TestFirewallRejectsKernelAgentAndFrameworkLeakage(t *testing.T) {
 		{"sdk/sandbox/abi": {"sdk/kernel/abi"}},
 		{"sdk/sandbox/abi": {"github.com/tetratelabs/wazero"}},
 		{"sdk/kernel/abi": {"github.com/example/js-engine"}},
-		{"apps/cmd/alva": {"integration/engine"}},
-		{"apps/cmd/alva-desktop": {"apps/hub"}},
+		{"cmd/alva": {"integration/engine"}},
+		{"cmd/alva-desktop": {"apps/hub"}},
 		{"sdk/kernel/abi": {"integration/llm/codec"}, "integration/llm/codec": {"github.com/QuantumNous/new-api/relaykit/dto"}},
 		{"harness": {"github.com/QuantumNous/new-api/relaykit/dto"}},
 		{"integration/llm/provider": {"github.com/QuantumNous/new-api/relaykit/dto"}},
@@ -292,16 +295,16 @@ func TestFirewallAcceptsSeparateSDKHarnessAndNativeUI(t *testing.T) {
 		"sdk/agent/core": {"sdk/kernel/core", "sdk/kernel/abi"}, "harness": {"sdk/agent/core"},
 		"sdk/sandbox/abi": {"sdk/llm/wire", "encoding/json"},
 		"platform/host":   {"harness"}, "apps/desktop": {"platform/host", "github.com/egoist/mygo/ui"},
-		"apps/cmd/alva": {"platform/host"}, "apps/cmd/alva-desktop": {"apps/desktop"},
+		"cmd/alva": {"platform/host"}, "cmd/alva-desktop": {"apps/desktop"},
 		"apps/gateway": {"integration/llm/codec"}, "integration/llm/provider": {"integration/llm/codec"},
 		"integration/llm/codec":                 {"sdk/llm/wire", "integration/llm/codec/internal/magpie"},
 		"integration/llm/codec/internal/magpie": {"encoding/json", "github.com/tidwall/gjson"},
 		"integration/engine":                    {"context"}, "apps/hub": {"integration/engine", "sync"},
-		"apps/hub/product":          {"apps/hub", "integration/engine/alva"},
-		"integration/engine/alva":   {"harness"},
-		"apps/hub/desktop":          {"apps/hub/product", "github.com/egoist/mygo/ui"},
-		"apps/cmd/alva-hub-desktop": {"apps/hub/desktop"},
-		"apps/cmd/alva-hub":         {"apps/hub/bootstrap", "apps/hub/product"},
+		"apps/hub/product":        {"apps/hub", "integration/engine/alva"},
+		"integration/engine/alva": {"harness"},
+		"apps/hub/desktop":        {"apps/hub/product", "github.com/egoist/mygo/ui"},
+		"cmd/alva-hub-desktop":    {"apps/hub/desktop"},
+		"cmd/alva-hub":            {"apps/hub/bootstrap", "apps/hub/product"},
 	}
 	if failures := validate(graph); len(failures) != 0 {
 		t.Fatal(failures)
@@ -325,13 +328,17 @@ func TestFirewallRejectsContainerAndTransitiveBypasses(t *testing.T) {
 		"Hub bootstrap is not desktop":          {"apps/hub/bootstrap": {"github.com/egoist/mygo/ui"}},
 		"apps prefix is not desktop":            {"apps/other": {"github.com/egoist/mygo/ui"}},
 		"desktop prefix is exact":               {"apps/desktop-extra": {"github.com/egoist/mygo/ui"}},
-		"command prefix is exact":               {"apps/cmd-extra": {"github.com/egoist/mygo/ui"}},
-		"transitive CLI engine import":          {"apps/cmd/alva": {"platform/host"}, "platform/host": {"integration/engine"}},
+		"command prefix is exact":               {"cmd-extra": {"github.com/egoist/mygo/ui"}},
+		"SDK cannot import an unscanned entry":  {"sdk/agent/core": {"cmd/future"}},
+		"platform cannot import an entry":       {"platform/system/process": {"cmd/alva"}},
+		"products cannot import an entry":       {"apps/hub/product": {"cmd/alva-hub"}},
+		"retired command location":              {"cmd/alva": {"apps/cmd/alva"}},
+		"transitive CLI engine import":          {"cmd/alva": {"platform/host"}, "platform/host": {"integration/engine"}},
 		"transitive desktop Hub import":         {"apps/desktop": {"platform/host"}, "platform/host": {"apps/hub"}},
-		"transitive desktop entry adapter":      {"apps/cmd/alva-desktop": {"apps/desktop"}, "apps/desktop": {"integration/engine/alva"}},
+		"transitive desktop entry adapter":      {"cmd/alva-desktop": {"apps/desktop"}, "apps/desktop": {"integration/engine/alva"}},
 		"persistent direct is not a Hub bridge": {"apps/direct": {"platform/host"}, "platform/host": {"apps/hub/product"}},
 		"transitive harness apps import":        {"harness": {"platform/host"}, "platform/host": {"apps/desktop"}},
-		"system upwards apps import":            {"platform/system/process": {"apps/cmd/alva"}},
+		"system upwards apps import":            {"platform/system/process": {"cmd/alva"}},
 		"storage upwards apps import":           {"platform/storage/session": {"apps/hub"}},
 		"engine adapter upwards apps":           {"integration/engine/alva": {"apps/hub/product"}},
 		"protocol upwards apps":                 {"integration/protocol/mcp": {"apps/hub/bootstrap"}},

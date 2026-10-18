@@ -40,7 +40,7 @@ def main():
         plistlib.dump({"CFBundleExecutable": executable.name, "CFBundleIdentifier": "work.alva.window.qa." + str(time.time_ns()), "CFBundleName": "AlvaWindowQA", "CFBundlePackageType": "APPL", "NSHighResolutionCapable": True}, output)
     command = "alva-hub-desktop" if args.app == "hub" else "alva-desktop"
     environment = dict(os.environ, CGO_ENABLED="0", GOPROXY="off", GOTOOLCHAIN="local")
-    subprocess.run(["go", "build", "-mod=readonly", "-tags", "desktop", "-o", str(executable), "./apps/cmd/" + command], cwd=module, env=environment, check=True)
+    subprocess.run(["go", "build", "-mod=readonly", "-tags", "desktop", "-o", str(executable), "./cmd/" + command], cwd=module, env=environment, check=True)
     credential = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
     invocation = [str(executable), "--demo", "--debug-listen", "127.0.0.1:0", "--debug-controls", "--debug-execution", "--startup-secrets-stdin"]
     invocation += ["--data-dir", str(root / "data")]

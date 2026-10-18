@@ -16,7 +16,7 @@
 
 根目录静态闸不联网、不执行被扫描包、不依赖 go list 或外部 lint 安装；失败给出完整依赖路径。
 `extensibility/`是独立执行的消费者实验，显式调用SDK与原生临时存储；不参与静态扫描实现，不被生产依赖，不声称实验等于完整产品支持。
-MyGo 只允许 `apps/desktop`、`apps/hub/desktop`、`apps/cmd`，不允许整个 apps 容器。
+MyGo 只允许 `apps/desktop`、`apps/hub/desktop`、`cmd`，不允许整个 apps 容器。
 `apps/hub` 核心只看标准库与 `integration/engine` 根契约，不能回引自身 product/bootstrap/sqlite/server/desktop。
 引擎根契约只依赖标准库；direct CLI/Desktop 不得传递进入 engine 或 Hub。
 SDK、harness、integration、platform、extension 不得向上依赖 apps；L0 检查含未知新增 workspace 包。
@@ -32,6 +32,7 @@ manual native_window_qa.py不由Go测试或CI隐式运行；仅显式--run会编
 |---|---|
 | `boundaries_test.go` | import 图扫描、边界和回归反例 |
 | `layout_test.go` | 分层目录、纯容器地图存在与旧平铺目录不得复生的回归 |
+| `paths_test.go` | 程序入口与桌面角色路径；负例仍以独立字面路径验证精确边界 |
 | `conversion_test.go` | 吸收 Magpie 的固定来源/许可/本地哈希与 RelayKit 已移除的离线闸 |
 | `fractal_test.go` | 所有源码（含tagged/helper）三行头与目录分形文档强制检查 |
 | `surface_test.go` / `testdata` | SDK公开面AST快照与扫描器反例，须显式审核更新 |

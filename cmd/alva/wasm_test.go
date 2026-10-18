@@ -57,8 +57,8 @@ func cliWorker(t *testing.T) string {
 		}
 		defer os.RemoveAll(directory)
 		target := filepath.Join(directory, "worker.wasm")
-		cmd := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-mod=readonly", "-o", target, "./apps/cmd/alva-worker-wasm")
-		cmd.Dir = "../../.."
+		cmd := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-mod=readonly", "-o", target, "./cmd/alva-worker-wasm")
+		cmd.Dir = "../.."
 		cmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm", "GOPROXY=off")
 		if data, err := cmd.CombinedOutput(); err != nil {
 			wasmFixtureErr = fmt.Errorf("guest build: %w: %s", err, data)

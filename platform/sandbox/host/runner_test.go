@@ -49,7 +49,7 @@ func modules(t *testing.T) ([]byte, []byte) {
 		for _, item := range []struct {
 			name, target string
 			dest         *[]byte
-		}{{"worker", "./apps/cmd/alva-worker-wasm", &workerModule}, {"probe", "./platform/sandbox/host/testdata/probe", &probeModule}} {
+		}{{"worker", "./cmd/alva-worker-wasm", &workerModule}, {"probe", "./platform/sandbox/host/testdata/probe", &probeModule}} {
 			output := filepath.Join(directory, item.name+".wasm")
 			command := exec.Command(filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-mod=readonly", "-o", output, item.target)
 			command.Dir = "../../.."

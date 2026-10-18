@@ -16,7 +16,7 @@ func TestLayeredDirectoryLayout(t *testing.T) {
 		"sdk/agent/abi", "sdk/agent/core", "sdk/agent/context", "sdk/agent/memory", "sdk/agent/security", "sdk/agent/graph", "sdk/sandbox/abi",
 		"extension", "harness", "integration/llm/codec", "integration/llm/provider", "integration/protocol", "integration/engine",
 		"platform/system", "platform/host", "platform/storage", "platform/sandbox/host", "platform/sandbox/guest",
-		"apps/cmd", "apps/desktop", "apps/hub", "apps/hub/bootstrap", "apps/hub/desktop", "apps/gateway", "architecture",
+		commandRoot, directDesktopRoot, "apps/hub", "apps/hub/bootstrap", hubDesktopRoot, "apps/gateway", "architecture",
 	} {
 		t.Run(directory, func(t *testing.T) {
 			info, err := os.Stat(filepath.Join(goRoot(), directory))
@@ -26,7 +26,7 @@ func TestLayeredDirectoryLayout(t *testing.T) {
 		})
 	}
 	for _, retired := range []string{
-		"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "cmd", "native", "storage", "sandbox",
+		"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "apps/cmd", "native", "storage", "sandbox",
 		"apps/hub/native", "apps/desktop/hub", "platform/sandbox/abi",
 		"platform/httpjson", "platform/loopback", "platform/media", "platform/process", "platform/secretinput",
 	} {
@@ -46,7 +46,7 @@ func TestLayerContainerMaps(t *testing.T) {
 		"sdk", "sdk/llm", "sdk/kernel", "sdk/agent", "sdk/sandbox",
 		"integration", "integration/llm", "integration/protocol",
 		"platform", "platform/system", "platform/storage", "platform/sandbox",
-		"extension", "apps", "apps/cmd",
+		"extension", "apps", "cmd",
 	} {
 		t.Run(directory, func(t *testing.T) {
 			path := filepath.Join(goRoot(), directory, "AGENTS.md")

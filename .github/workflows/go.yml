@@ -34,7 +34,7 @@ jobs:
       - name: Real Windows DACL, LockFileEx, atomic job and inherited stdin regressions
         run: go test -mod=readonly -count=1 ./platform/system/privatefs ./platform/storage/sqlite ./platform/system/process ./platform/system/secretinput ./platform/system/lineinput
       - name: Actual portable UI diagnostic HTTP and private-file MCP stdio
-        run: go test -mod=readonly -count=1 ./apps/debug ./apps/cmd/alva-devtools-mcp
+        run: go test -mod=readonly -count=1 ./apps/debug ./cmd/alva-devtools-mcp
       - name: Windows read-only media stdin and delete-on-close snapshots
         run: go test -mod=readonly -count=1 ./platform/system/media -run 'TestMediaSnapshotHelper|TestWindowsInputSnapshotAndHandleBinding'
       - name: Windows actual WASI SDK file roundtrip and native file capabilities
@@ -42,9 +42,9 @@ jobs:
       - name: Windows portable SDK and architecture
         run: go test -mod=readonly -count=1 ./sdk/... ./architecture
       - name: All Windows native commands without cgo
-        run: go build -mod=readonly -tags desktop ./apps/cmd/...
+        run: go build -mod=readonly -tags desktop ./cmd/...
       - name: Windows platform static checks
-        run: go vet -mod=readonly -tags desktop ./platform/... ./extension/loader ./integration/engine/process ./apps/cmd/...
+        run: go vet -mod=readonly -tags desktop ./platform/... ./extension/loader ./integration/engine/process ./cmd/...
   test:
     strategy:
       fail-fast: false
@@ -86,15 +86,15 @@ jobs:
           GOARCH: wasm
         run: |
           go build -mod=readonly ./sdk/... ./integration/llm/codec
-          go build -mod=readonly -o build/alva-worker.wasm ./apps/cmd/alva-worker-wasm
+          go build -mod=readonly -o build/alva-worker.wasm ./cmd/alva-worker-wasm
       - name: Native executables without cgo
         env:
           CGO_ENABLED: '0'
         run: |
-          go build -mod=readonly -o build/alva ./apps/cmd/alva
-          go build -mod=readonly -o build/alva-gateway ./apps/cmd/alva-gateway
-          go build -mod=readonly -o build/alva-hub-server ./apps/cmd/alva-hub-server
-          go build -mod=readonly -o build/alva-hub ./apps/cmd/alva-hub
-          go build -mod=readonly -o build/alva-devtools-mcp ./apps/cmd/alva-devtools-mcp
-          go build -mod=readonly -tags desktop -o build/alva-desktop ./apps/cmd/alva-desktop
-          go build -mod=readonly -tags desktop -o build/alva-hub-desktop ./apps/cmd/alva-hub-desktop
+          go build -mod=readonly -o build/alva ./cmd/alva
+          go build -mod=readonly -o build/alva-gateway ./cmd/alva-gateway
+          go build -mod=readonly -o build/alva-hub-server ./cmd/alva-hub-server
+          go build -mod=readonly -o build/alva-hub ./cmd/alva-hub
+          go build -mod=readonly -o build/alva-devtools-mcp ./cmd/alva-devtools-mcp
+          go build -mod=readonly -tags desktop -o build/alva-desktop ./cmd/alva-desktop
+          go build -mod=readonly -tags desktop -o build/alva-hub-desktop ./cmd/alva-hub-desktop
