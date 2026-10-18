@@ -4,7 +4,6 @@
 package shell
 
 import (
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"

@@ -6,7 +6,6 @@
 package hubdesktop
 
 import (
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/extension/shell"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"

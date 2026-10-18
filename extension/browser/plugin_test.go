@@ -4,7 +4,6 @@
 package browser
 
 import (
-	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	securityplugin "github.com/QuincySx/Alva/extension/security"
 	host "github.com/QuincySx/Alva/platform/host/browser"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
