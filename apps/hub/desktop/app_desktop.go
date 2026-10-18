@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	view "github.com/QuincySx/Alva/apps/desktop"
-	"github.com/QuincySx/Alva/apps/desktop/modules"
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
+	view "github.com/QuincySx/Alva/apps/ui/chat"
+	"github.com/QuincySx/Alva/apps/ui/modules"
 	"github.com/QuincySx/Alva/extension/interaction"
 	"github.com/QuincySx/Alva/integration/protocol/skill"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"

@@ -16,7 +16,7 @@ Go 是唯一受维护的实现，module 根目录就是仓库根目录，module 
 | L4 | extension | 可选 Tool/Plugin/Middleware |
 | L4.5 | integration/engine 根契约 | Hub 驱动完整 Agent 的轻量契约 |
 | L5 | harness | BaseAgent 默认配方、引用策略、历史与子会话政策 |
-| L6/L7 | apps | direct、Gateway、Hub 及薄命令入口 |
+| L6/L7 | apps；根 cmd 启动 | direct、Gateway、Hub 与共享 apps/ui 呈现；direct 桌面位于 apps/direct/desktop |
 
 integration/platform 为横向责任组，不代表所有内容都处于 SDK 之下。
 LLM codec/provider 分开转换与传输；协议不拥有授权和持久化政策。
@@ -64,7 +64,7 @@ Rust 及旧 UI/构建工具已存于 `archive/rust-final-2026-10-18`；旧架构
 
 ## 2026-10-18 全仓目录审查与整理方案
 
-本节保留开始整理时的审查基线与路径。用户已授权实施，根 cmd 与验证/手工工具已归位；分步结果见
+本节保留开始整理时的审查基线与路径。用户已授权实施，根 cmd、共享 UI/direct 页面与验证/手工工具已归位；分步结果见
 [MIGRATION](../MIGRATION.md#2026-10-18-全仓结构整理落地进行中)，未完成步骤继续按下述边界推进。
 
 本轮核对全部 728 个 Go 文件的 package/import 声明、跨 build tag 的 84 个包目录及 114 份

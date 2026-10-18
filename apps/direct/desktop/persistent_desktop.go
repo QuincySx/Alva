@@ -1,4 +1,4 @@
-// INPUT: Direct application Service, native Controller observation and MyGo window dispatcher
+// INPUT: Direct application Service, native Controller observation and MyGo window dispatcher; shared chat presentation
 // OUTPUT: PersistentPage and RunPersistent with cold selection/history and actual Send/Stop/approval/file actions
 // POS: [L6 application] Durable direct UI observes the existing harness owner without EngineRuntime or Hub.
 //go:build desktop
@@ -7,11 +7,12 @@ package desktop
 
 import (
 	"context"
+	chat "github.com/QuincySx/Alva/apps/ui/chat"
 	"time"
 
 	"github.com/QuincySx/Alva/apps/debug"
-	"github.com/QuincySx/Alva/apps/desktop/modules"
 	"github.com/QuincySx/Alva/apps/direct"
+	"github.com/QuincySx/Alva/apps/ui/modules"
 	"github.com/QuincySx/Alva/platform/host"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
@@ -24,8 +25,8 @@ import (
 type PersistentPage struct {
 	inspectExportBusy                           bool
 	Service                                     *direct.Service
-	model                                       *Model
-	chat                                        *NativeView
+	model                                       *chat.Model
+	chat                                        *chat.NativeView
 	ctx                                         context.Context
 	window                                      *mygo.Window
 	updates                                     chan func()
@@ -55,11 +56,10 @@ type PersistentPage struct {
 }
 
 func NewPersistentPage(service *direct.Service) *PersistentPage {
-	m := NewModel(service.Demo())
+	m := chat.NewModelWithRetention(service.Demo(), 128)
 	m.RouteLabel = service.RouteLabel()
-	m.maxRows = 128
 	p := &PersistentPage{Service: service, model: m, ctx: context.Background(), updates: make(chan func(), 8), title: "New conversation", drafts: make(map[string]string)}
-	p.chat = NewNativeView(m)
+	p.chat = chat.NewNativeView(m)
 	p.chat.SetMarkdownOptions(modules.NewRegistry().Options())
 	p.chat.Send = p.send
 	p.chat.Stop = p.stop
@@ -165,7 +165,7 @@ func (p *PersistentPage) selectSession(id string) {
 	p.inspectAfter = nil
 	p.model.Messages = nil
 	p.model.ActiveRunID = ""
-	p.model.Status = Idle
+	p.model.Status = chat.Idle
 	p.model.Error = ""
 	p.model.Draft = p.drafts[id]
 	p.problem = ""
@@ -215,11 +215,11 @@ func (p *PersistentPage) loadHistory(before uint64) {
 		})
 	}()
 }
-func directRows(rows []direct.ConversationRow) []Message {
-	result := make([]Message, 0, len(rows))
+func directRows(rows []direct.ConversationRow) []chat.Message {
+	result := make([]chat.Message, 0, len(rows))
 	for _, row := range rows {
 		if row.Message == nil {
-			result = append(result, Message{ID: row.ID, Role: "Stored message", Text: row.Processing + "\n" + row.Reference.URI, Status: Completed})
+			result = append(result, chat.Message{ID: row.ID, Role: "Stored message", Text: row.Processing + "\n" + row.Reference.URI, Status: chat.Completed})
 			continue
 		}
 		message := row.Message
@@ -240,12 +240,12 @@ func directRows(rows []direct.ConversationRow) []Message {
 				text += "\n[Typed " + string(block.Kind) + " content retained; inspect original record: " + row.Reference.URI + "]"
 			}
 		}
-		result = append(result, Message{ID: row.ID, Role: role, Text: text, Status: Completed})
+		result = append(result, chat.Message{ID: row.ID, Role: role, Text: text, Status: chat.Completed})
 	}
 	return result
 }
 func (p *PersistentPage) attachRun(run direct.Run) {
-	wasStopping := p.run.ID == run.ID && p.model.Status == Stopping
+	wasStopping := p.run.ID == run.ID && p.model.Status == chat.Stopping
 	if p.detachRun != nil {
 		p.detachRun()
 		p.detachRun = nil
@@ -256,15 +256,12 @@ func (p *PersistentPage) attachRun(run direct.Run) {
 		p.problem = err.Error()
 		return
 	}
-	p.model.Status = Status(snapshot.Status)
-	p.model.lastSeq = 0
+	p.model.AttachRun(run.ID, chat.Status(snapshot.Status))
 	if snapshot.Status != host.RunRunning {
-		p.model.ActiveRunID = ""
 		return
 	}
-	p.model.ActiveRunID = run.ID
 	if wasStopping {
-		p.model.Status = Stopping
+		p.model.Status = chat.Stopping
 	}
 	if !p.reviewing {
 		found := false
@@ -277,12 +274,12 @@ func (p *PersistentPage) attachRun(run direct.Run) {
 			last := &p.model.Messages[len(p.model.Messages)-1]
 			if last.Role == "Alva" && last.Text == snapshot.Text {
 				last.RunID = run.ID
-				last.Status = Running
+				last.Status = chat.Running
 				found = true
 			}
 		}
 		if !found {
-			p.model.Messages = append(p.model.Messages, Message{ID: run.ID + "/observed", RunID: run.ID, Role: "Alva", Status: Running, Text: snapshot.Text})
+			p.model.Messages = append(p.model.Messages, chat.Message{ID: run.ID + "/observed", RunID: run.ID, Role: "Alva", Status: chat.Running, Text: snapshot.Text})
 		}
 	}
 	life, detach := context.WithCancel(p.ctx)
@@ -295,7 +292,7 @@ func (p *PersistentPage) attachRun(run direct.Run) {
 			if p.selected != id || p.generation != generation || p.run.ID != run.ID {
 				return
 			}
-			p.model.Observe(run.ID, snapshot.HighWater, snapshot.Text, Status(snapshot.Status), snapshot.Error)
+			p.model.Observe(run.ID, snapshot.HighWater, snapshot.Text, chat.Status(snapshot.Status), snapshot.Error)
 			if snapshot.Status != host.RunRunning {
 				p.approvals = nil
 				p.refreshSessions(p.sessionAfter)
@@ -346,20 +343,20 @@ func (p *PersistentPage) send() {
 			p.refreshSessions(p.sessionAfter)
 			if snapshot, err := run.Controller.Snapshot(run.ID); err == nil && snapshot.Status != host.RunRunning {
 				p.model.ActiveRunID = ""
-				p.model.Status = Status(snapshot.Status)
+				p.model.Status = chat.Status(snapshot.Status)
 				p.loadHistory(0)
 			}
 		})
 	}()
 }
 func (p *PersistentPage) stop() {
-	if p.model.ActiveRunID == "" || p.busy || p.model.Status == Stopping {
+	if p.model.ActiveRunID == "" || p.busy || p.model.Status == chat.Stopping {
 		return
 	}
 	p.changed()
 	id := p.model.RequestStop()
 	if err := p.Service.Stop(p.selected, id); err != nil {
-		p.model.Status = Running
+		p.model.Status = chat.Running
 		p.problem = err.Error()
 	}
 }

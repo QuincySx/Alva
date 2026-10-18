@@ -1,4 +1,4 @@
-// INPUT: Actual direct native session/page/composer/approval/Inspector state and MyGo controls
+// INPUT: Actual direct native session/page/composer/approval/Inspector state and MyGo controls; shared chat presentation
 // OUTPUT: PersistentPage.Build with bounded session/history/typed-record views and explicit user actions
 // POS: [L6 application] Native persistent direct presentation never becomes the conversation fact authority.
 //go:build desktop
@@ -7,6 +7,7 @@ package desktop
 
 import (
 	"fmt"
+	chat "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -145,7 +146,7 @@ func (p *PersistentPage) buildDirectInspector(c *ui.Context) {
 		ui.Button(c, "Search / reset Inspector").Disabled(p.inspectorBusy).OnClick(func() { p.inspectAfter = nil; p.loadInspector(0, 0) })
 		ui.Scroll(c).Label("Record metadata page").Height(220).Gap(6).Children(func() {
 			for _, entry := range p.inspector.Entries {
-				if !InspectionGroupVisible(entry, p.inspectGroup) {
+				if !chat.InspectionGroupVisible(entry, p.inspectGroup) {
 					continue
 				}
 				entry := entry

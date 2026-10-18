@@ -1,4 +1,4 @@
-// INPUT:  context, MyGo window/update, host.Controller
+// INPUT:  context, MyGo window/update, host.Controller; shared chat presentation
 // OUTPUT: Run and RunWithDebug native desktop entry points with optional separately owned diagnostics
 // POS: [L6 application]    Binds runtime-owned execution to UI-thread-confined native presentation
 //go:build desktop
@@ -8,6 +8,7 @@ package desktop
 import (
 	"context"
 	"github.com/QuincySx/Alva/apps/debug"
+	chat "github.com/QuincySx/Alva/apps/ui/chat"
 
 	"github.com/QuincySx/Alva/platform/host"
 	"github.com/egoist/mygo"
@@ -20,9 +21,9 @@ func Run(controller *host.Controller, demo bool, routeLabel string) error {
 }
 
 func RunWithDebug(controller *host.Controller, demo bool, routeLabel string, diagnostics *debug.Server) error {
-	m := NewModel(demo)
+	m := chat.NewModel(demo)
 	m.RouteLabel = routeLabel
-	v := NewNativeView(m)
+	v := newDirectView(m)
 	if diagnostics != nil && !diagnostics.Closed() {
 		v.diagnosticLog = diagnostics.Logger()
 	}
@@ -57,7 +58,7 @@ func RunWithDebug(controller *host.Controller, demo bool, routeLabel string, dia
 				return
 			}
 			m.Admitted(id, prompt)
-			v.list.ScrollToEnd()
+			v.ScrollToEnd()
 			go observe(observerCtx, controller, id, func(snapshot host.RunSnapshot) {
 				applied := make(chan struct{})
 				window.Update(func() {
@@ -66,7 +67,7 @@ func RunWithDebug(controller *host.Controller, demo bool, routeLabel string, dia
 					}
 					defer close(applied)
 					if observerCtx.Err() == nil {
-						m.Observe(snapshot.ID, snapshot.HighWater, snapshot.Text, Status(snapshot.Status), snapshot.Error)
+						m.Observe(snapshot.ID, snapshot.HighWater, snapshot.Text, chat.Status(snapshot.Status), snapshot.Error)
 					}
 				})
 				// Window.Update is asynchronous. Bound this observer to one queued
@@ -91,7 +92,7 @@ func RunWithDebug(controller *host.Controller, demo bool, routeLabel string, dia
 			v.traceUI("stop")
 			if id := m.RequestStop(); id != "" {
 				if err := controller.Stop(id); err != nil {
-					m.Status, m.Error = Running, "Stop request failed: "+err.Error()
+					m.Status, m.Error = chat.Running, "Stop request failed: "+err.Error()
 				}
 			}
 		}

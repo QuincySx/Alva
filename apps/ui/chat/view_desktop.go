@@ -1,13 +1,12 @@
 // INPUT:  MyGo ui/markdown and the UI-thread-confined presentation model
 // OUTPUT: NativeView, NewNativeView, Build
-// POS: [L6 application]    Native self-drawn chat surface with virtualized keyed rows and explicit actions
+// POS: [L6 shared UI] Native self-drawn chat surface with virtualized keyed rows and explicit actions
 //go:build desktop
 
-package desktop
+package chat
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -16,16 +15,13 @@ import (
 // NativeView holds persistent widget state, never build-pass Elements.
 // Send/Stop callbacks execute on the UI thread, not inside runtime goroutines.
 type NativeView struct {
-	Model             *Model
-	Send              func()
-	Stop              func()
-	Busy              bool
-	LargePasteHint    string
-	diagnosticLog     *slog.Logger
-	diagnosticFrame   func()
-	diagnosticChanged func()
-	list              ui.ListState
-	markdown          *markdown.Options
+	Model          *Model
+	Send           func()
+	Stop           func()
+	Busy           bool
+	LargePasteHint string
+	list           ui.ListState
+	markdown       *markdown.Options
 }
 
 func NewNativeView(model *Model) *NativeView {
@@ -33,31 +29,12 @@ func NewNativeView(model *Model) *NativeView {
 }
 
 func (v *NativeView) Build(c *ui.Context) {
-	if v.diagnosticFrame != nil {
-		defer v.diagnosticFrame()
-	}
 	m := v.Model
-	v.list.Key = func(i int) any { return m.Messages[i].ID }
-	v.list.Label = func(i int) string { return m.Messages[i].Role }
-	ui.Column(c).Fill().Padding(16).Gap(10).Children(func() {
-		ui.Row(c).Gap(12).Children(func() {
-			ui.Text(c, "ALVA · Go native foundation").FontSize(20).Bold().Grow(1)
-			mode := "LIVE · explicit provider"
-			if m.RouteLabel != "" {
-				mode = "LIVE · " + m.RouteLabel
-			}
-			if m.Demo {
-				mode = "DEMO · local fixture, no model service"
-			}
-			ui.Text(c, mode).FontSize(12).TextColor(c.Theme().TextMuted)
-		})
-		ui.Text(c, "Self-drawn MyGo · no WebView, React, JavaScript or frontend server").FontSize(12).TextColor(c.Theme().TextMuted)
-		ui.Text(c, "In-process conversation only. Closing this app loses this session; restarting does not restore old Rust data.").FontSize(12)
-		ui.Text(c, "This volatile mode sends text only. Use --data-dir for durable direct sessions, file references, approvals and Inspector; Hub owns multi-engine branches and teams.").FontSize(12).TextColor(c.Theme().TextMuted)
+	ui.Column(c).Fill().Gap(10).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Text(c, m.StatusText()).Role(ui.RoleStatus).FontSize(13).Grow(1)
-			if len(m.Messages) > 0 && !v.list.AtEnd() {
-				ui.Button(c, "Jump to latest").OnClick(v.list.ScrollToEnd)
+			if len(m.Messages) > 0 && !v.AtEnd() {
+				ui.Button(c, "Jump to latest").OnClick(v.ScrollToEnd)
 			}
 		})
 		if m.Error != "" {

@@ -16,7 +16,7 @@
 
 根目录静态闸不联网、不执行被扫描包、不依赖 go list 或外部 lint 安装；失败给出完整依赖路径。
 `../extensibility/`是独立执行的消费者实验，显式调用SDK与原生临时存储；不参与静态扫描实现，不被生产依赖，不声称实验等于完整产品支持。
-MyGo 只允许 `apps/desktop`、`apps/hub/desktop`、`cmd`，不允许整个 apps 容器。
+MyGo 只允许 `apps/direct/desktop`、`apps/hub/desktop`、`apps/ui/chat`、`apps/ui/modules` 与 `cmd`，不允许整个 apps/ui 或 apps 容器。共享 UI 不得直接/传递依赖 direct、Hub、harness、host 或 engine。
 `apps/hub` 核心只看标准库与 `integration/engine` 根契约，不能回引自身 product/bootstrap/sqlite/server/desktop。
 引擎根契约只依赖标准库；direct CLI/Desktop 不得传递进入 engine 或 Hub。
 SDK、harness、integration、platform、extension 不得向上依赖 apps；L0 检查含未知新增 workspace 包。

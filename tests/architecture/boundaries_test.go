@@ -118,7 +118,7 @@ func workspacePackage(name string) bool {
 }
 
 func legacyWorkspacePackage(name string) bool {
-	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "native", "storage", "sandbox", "apps/cmd", "architecture"} {
+	for _, prefix := range []string{"llm", "kernel", "agent", "app", "host", "desktop", "protocol", "engine", "hub", "native", "storage", "sandbox", "apps/cmd", "architecture", "apps/desktop"} {
 		if under(name, prefix) {
 			return true
 		}
@@ -129,6 +129,9 @@ func legacyWorkspacePackage(name string) bool {
 func forbidden(root, dependency string, local bool) string {
 	if (under(dependency, "tests") || under(dependency, "tools")) && !under(root, "tests") && !under(root, "tools") {
 		return "production packages cannot depend on repository validation or maintenance tools"
+	}
+	if under(root, "apps/ui") && (under(dependency, "apps/direct") || under(dependency, "apps/hub") || under(dependency, "harness") || under(dependency, "platform/host") || under(dependency, "integration/engine")) {
+		return "shared presentation cannot acquire product or execution ownership"
 	}
 	if under(root, "extension/utility/timer") {
 		if (local && !under(dependency, "sdk") && !under(dependency, "extension/utility/timer")) || (!local && strings.Contains(dependency, ".")) {
@@ -196,7 +199,7 @@ func forbidden(root, dependency string, local bool) string {
 			return "Hub dispatcher depends only on the engine contract root and standard library, never its own product/bootstrap subpackages"
 		}
 	}
-	if root == "cmd/alva" || root == "cmd/alva-desktop" || under(root, "apps/desktop") || under(root, "apps/direct") {
+	if root == "cmd/alva" || root == "cmd/alva-desktop" || under(root, "apps/direct/desktop") || under(root, "apps/direct") {
 		if under(dependency, "integration/engine") || under(dependency, "apps/hub") {
 			return "native harness entry cannot depend on multi-engine Hub runtime"
 		}
@@ -295,8 +298,8 @@ func TestFirewallAcceptsSeparateSDKHarnessAndNativeUI(t *testing.T) {
 		"sdk/kernel/abi": {"sdk/llm/wire", "context"}, "sdk/kernel/core": {"sdk/kernel/abi", "sdk/llm/wire"},
 		"sdk/agent/core": {"sdk/kernel/core", "sdk/kernel/abi"}, "harness": {"sdk/agent/core"},
 		"sdk/sandbox/abi": {"sdk/llm/wire", "encoding/json"},
-		"platform/host":   {"harness"}, "apps/desktop": {"platform/host", "github.com/egoist/mygo/ui"},
-		"cmd/alva": {"platform/host"}, "cmd/alva-desktop": {"apps/desktop"},
+		"platform/host":   {"harness"}, "apps/direct/desktop": {"platform/host", "github.com/egoist/mygo/ui"},
+		"cmd/alva": {"platform/host"}, "cmd/alva-desktop": {"apps/direct/desktop"},
 		"apps/gateway": {"integration/llm/codec"}, "integration/llm/provider": {"integration/llm/codec"},
 		"integration/llm/codec":                 {"sdk/llm/wire", "integration/llm/codec/internal/magpie"},
 		"integration/llm/codec/internal/magpie": {"encoding/json", "github.com/tidwall/gjson"},
@@ -328,7 +331,14 @@ func TestFirewallRejectsContainerAndTransitiveBypasses(t *testing.T) {
 		"Hub product is not desktop":            {"apps/hub/product": {"github.com/egoist/mygo/ui"}},
 		"Hub bootstrap is not desktop":          {"apps/hub/bootstrap": {"github.com/egoist/mygo/ui"}},
 		"apps prefix is not desktop":            {"apps/other": {"github.com/egoist/mygo/ui"}},
-		"desktop prefix is exact":               {"apps/desktop-extra": {"github.com/egoist/mygo/ui"}},
+		"desktop prefix is exact":               {"apps/direct/desktop-extra": {"github.com/egoist/mygo/ui"}},
+		"shared UI cannot own direct":           {"apps/ui/chat": {"apps/direct"}},
+		"shared UI cannot own Hub":              {"apps/ui/chat": {"apps/hub/product"}},
+		"shared UI cannot own execution":        {"apps/ui/modules": {"platform/host"}},
+		"shared UI cannot inherit execution":    {"apps/ui/chat": {"platform/storage/session"}, "platform/storage/session": {"harness"}},
+		"shared UI cannot own engines":          {"apps/ui/chat": {"integration/engine"}},
+		"UI container is not an allowlist":      {"apps/ui/other": {"github.com/egoist/mygo/ui"}},
+		"chat prefix is exact":                  {"apps/ui/chat-extra": {"github.com/egoist/mygo/ui"}},
 		"command prefix is exact":               {"cmd-extra": {"github.com/egoist/mygo/ui"}},
 		"SDK cannot import an unscanned entry":  {"sdk/agent/core": {"cmd/future"}},
 		"platform cannot import an entry":       {"platform/system/process": {"cmd/alva"}},
@@ -338,10 +348,10 @@ func TestFirewallRejectsContainerAndTransitiveBypasses(t *testing.T) {
 		"production cannot import probes":       {"apps/direct": {"tests/extensibility"}},
 		"production cannot import tools":        {"cmd/alva": {"tools/qa"}},
 		"transitive CLI engine import":          {"cmd/alva": {"platform/host"}, "platform/host": {"integration/engine"}},
-		"transitive desktop Hub import":         {"apps/desktop": {"platform/host"}, "platform/host": {"apps/hub"}},
-		"transitive desktop entry adapter":      {"cmd/alva-desktop": {"apps/desktop"}, "apps/desktop": {"integration/engine/alva"}},
+		"transitive desktop Hub import":         {"apps/direct/desktop": {"platform/host"}, "platform/host": {"apps/hub"}},
+		"transitive desktop entry adapter":      {"cmd/alva-desktop": {"apps/direct/desktop"}, "apps/direct/desktop": {"integration/engine/alva"}},
 		"persistent direct is not a Hub bridge": {"apps/direct": {"platform/host"}, "platform/host": {"apps/hub/product"}},
-		"transitive harness apps import":        {"harness": {"platform/host"}, "platform/host": {"apps/desktop"}},
+		"transitive harness apps import":        {"harness": {"platform/host"}, "platform/host": {"apps/direct/desktop"}},
 		"system upwards apps import":            {"platform/system/process": {"cmd/alva"}},
 		"storage upwards apps import":           {"platform/storage/session": {"apps/hub"}},
 		"engine adapter upwards apps":           {"integration/engine/alva": {"apps/hub/product"}},

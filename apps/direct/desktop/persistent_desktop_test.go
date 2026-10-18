@@ -1,4 +1,4 @@
-// INPUT: Actual MyGo controls, durable direct Service and local HTTP file-tool approval fixture
+// INPUT: Actual MyGo controls, durable direct Service and local HTTP file-tool approval fixture; shared chat presentation
 // OUTPUT: Cold native session/create/composer/Inspector and cross-pane exact approval acceptance
 // POS: [L6 application] Headless direct UI tests use temporary native facts and no Hub, external accounts or OS window.
 //go:build desktop
@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	chat "github.com/QuincySx/Alva/apps/ui/chat"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -99,7 +100,7 @@ func TestPersistentNativeHomeCreateSendAndInspectorAreActualDirectPaths(t *testi
 		t.Fatal(err)
 	}
 	pumpPersistent(t, p, tester, func() bool {
-		return !p.busy && p.model.Status == Completed && p.model.ActiveRunID == "" && len(p.model.Messages) > 0
+		return !p.busy && p.model.Status == chat.Completed && p.model.ActiveRunID == "" && len(p.model.Messages) > 0
 	})
 	if !tester.HasText("Tool result: native persistent explicit Send") || p.selected != id {
 		t.Fatal("actual durable direct answer not rendered")
@@ -208,7 +209,7 @@ func TestPersistentNativeApprovalRemainsVisibleInInspectorAndUsesExactRequest(t 
 	if err := tester.Click("Allow once"); err != nil {
 		t.Fatal(err)
 	}
-	pumpPersistent(t, p, tester, func() bool { return !p.busy && p.model.Status == Completed && len(p.approvals) == 0 })
+	pumpPersistent(t, p, tester, func() bool { return !p.busy && p.model.Status == chat.Completed && len(p.approvals) == 0 })
 	raw, err := os.ReadFile(filepath.Join(workspace, "approved.txt"))
 	if err != nil || string(raw) != "native actual approval" || calls.Load() != 2 {
 		t.Fatal("actual UI approval did not settle normal file tool", err)

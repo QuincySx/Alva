@@ -1,4 +1,4 @@
-// INPUT: Actual direct UI model/callbacks, observer lifetime and own-window dispatch/capture functions
+// INPUT: Actual direct UI model/callbacks, observer lifetime and own-window dispatch/capture functions; shared chat presentation
 // OUTPUT: NativeView diagnostic owner with bounded real view state and normal UI methods
 // POS: [L6 application] Debug Send/Stop use the same callbacks as rendered controls, never another harness or execution path.
 //go:build desktop
@@ -11,13 +11,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	chat "github.com/QuincySx/Alva/apps/ui/chat"
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/debug"
 	"github.com/QuincySx/Alva/platform/system/httpjson"
 )
 
-func (v *NativeView) traceUI(method string) {
+func (v *directView) traceUI(method string) {
 	if v.diagnosticChanged != nil {
 		v.diagnosticChanged()
 	}
@@ -26,11 +27,11 @@ func (v *NativeView) traceUI(method string) {
 	}
 }
 
-func (v *NativeView) Diagnostic(owner context.Context, enqueue func(func()), capture func() ([]byte, error), bounds func() *debug.Bounds) (*debug.View, []debug.Method, error) {
+func (v *directView) Diagnostic(owner context.Context, enqueue func(func()), capture func() ([]byte, error), bounds func() *debug.Bounds) (*debug.View, []debug.Method, error) {
 	snapshot := func() debug.Snapshot {
 		m := v.Model
 		hash := sha256.Sum256([]byte(m.Draft))
-		state := map[string]any{"demo": m.Demo, "route": m.RouteLabel, "status": m.Status, "active_run_id": m.ActiveRunID, "sequence": m.lastSeq, "busy": v.Busy, "draft_bytes": len(m.Draft), "draft_sha256": hex.EncodeToString(hash[:]), "message_rows": len(m.Messages), "can_send": m.CanSend() && !v.Busy, "can_stop": m.ActiveRunID != "" && m.Status != Stopping && !v.Busy, "has_error": m.Error != ""}
+		state := map[string]any{"demo": m.Demo, "route": m.RouteLabel, "status": m.Status, "active_run_id": m.ActiveRunID, "sequence": m.LastSequence(), "busy": v.Busy, "draft_bytes": len(m.Draft), "draft_sha256": hex.EncodeToString(hash[:]), "message_rows": len(m.Messages), "can_send": m.CanSend() && !v.Busy, "can_stop": m.ActiveRunID != "" && m.Status != chat.Stopping && !v.Busy, "has_error": m.Error != ""}
 		if len(m.Draft) <= 8192 {
 			state["draft"] = m.Draft
 		} else {
@@ -54,7 +55,7 @@ func (v *NativeView) Diagnostic(owner context.Context, enqueue func(func()), cap
 			if err := json.Unmarshal(raw, &args); err != nil {
 				return err
 			}
-			if !utf8.ValidString(args.Text) || len(args.Text) > MaxDraftBytes || v.Busy || v.Model.ActiveRunID != "" {
+			if !utf8.ValidString(args.Text) || len(args.Text) > chat.MaxDraftBytes || v.Busy || v.Model.ActiveRunID != "" {
 				return errors.New("composer is busy or draft exceeds its actual budget")
 			}
 			v.Model.Draft = args.Text
@@ -71,12 +72,12 @@ func (v *NativeView) Diagnostic(owner context.Context, enqueue func(func()), cap
 			}
 			v.Send()
 		case "stop":
-			if v.Stop == nil || v.Busy || v.Model.ActiveRunID == "" || v.Model.Status == Stopping {
+			if v.Stop == nil || v.Busy || v.Model.ActiveRunID == "" || v.Model.Status == chat.Stopping {
 				return errors.New("actual Stop control is disabled")
 			}
 			v.Stop()
 		case "latest":
-			v.list.ScrollToEnd()
+			v.ScrollToEnd()
 		default:
 			return errors.New("undeclared direct UI action")
 		}

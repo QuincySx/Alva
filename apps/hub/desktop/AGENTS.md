@@ -1,7 +1,7 @@
 # L7 · Hub native UI product
 > 独立Hub产品UI，复用基础自绘controls但不污染直接harness入口的依赖图。
 ## 地位
-仅通过 apps/hub/product 共享 UI 无关业务；共享 apps/desktop 基础控件包绝不反向依赖本包。
+仅通过 apps/hub/product 共享 UI 无关业务；共享 apps/ui/chat 与 apps/ui/modules 控件包不依赖 direct、Hub 或执行 owner。
 ## 逻辑
 apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只提交引用清单与读取有限产品历史；本包仅拥有页面交互、轮询与展示转换。
 原生窗口独立250ms观察时钟最多一个排队UI closure，进度/审批与终态查询不依赖Build或compositor重绘；关闭observer取消时钟，过期closure不查询或Stop。自绘Build仅呈现当前状态。

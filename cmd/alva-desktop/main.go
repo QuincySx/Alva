@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/apps/debug"
-	"github.com/QuincySx/Alva/apps/desktop"
 	"github.com/QuincySx/Alva/apps/direct"
+	"github.com/QuincySx/Alva/apps/direct/desktop"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/host"

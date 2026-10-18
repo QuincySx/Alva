@@ -11,10 +11,10 @@ import (
 	"reflect"
 	"testing"
 
-	view "github.com/QuincySx/Alva/apps/desktop"
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	productstore "github.com/QuincySx/Alva/apps/hub/sqlite"
+	view "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/egoist/mygo/ui"

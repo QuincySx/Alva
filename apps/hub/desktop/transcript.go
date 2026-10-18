@@ -5,8 +5,8 @@ package hubdesktop
 
 import (
 	"encoding/json"
-	view "github.com/QuincySx/Alva/apps/desktop"
 	"github.com/QuincySx/Alva/apps/hub"
+	view "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/integration/engine"
 	"strconv"
 )

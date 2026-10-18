@@ -34,7 +34,12 @@ desktop-tagged 全入口构建及实际 CLI/WASIp1 附件/历史/宿主凭据隔
 手工窗口探针放 tools/qa/native_window.py；集中 module 根定位并更新 CI/文档。
 补生产包不得导入 tests/tools 的反例。新位置两包 189 项通过，durable helper 无参数入口按设计 skip，
 实际独立进程恢复实验通过；手工工具仅验证 --help 与语法，不启动窗口或声称实机验收。
-后续继续 UI/验证工具归位、builtin 能力提取、命名/文档整理及最终整树验收。
+第三步完成 apps/ui/chat、apps/ui/modules 与 apps/direct/desktop 拆分；Hub 直接复用共享控件，
+direct 产品说明/窗口/诊断/订阅留在所属产品。仅增加呈现保留上限构造、只读高水位及已存在运行的
+观察重绑方法，不导出可变 ListState/内部序号，不修改 SDK 契约。保留 64/128 行政策、真实 Send/Stop、
+诊断、虚拟列表与阅读锚点；新增共享 UI 不得取得 direct/Hub/harness/host/engine 的传递依赖反例。
+共享 UI/direct/Hub/桌面入口/架构六包 desktop-tagged race 共 237 项通过；实机窗口另验。
+后续继续 builtin 能力提取、命名/文档整理及最终整树验收。
 
 ## 2026-10-18 全仓结构复审（审查基线）
 

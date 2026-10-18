@@ -3,7 +3,7 @@
 
 ## 地位
 
-消费 harness、platform/host 与 apps/desktop，不经过 EngineRuntime、不让 SDK 依赖 UI；所有文件受 `desktop` build tag 控制。
+消费 harness、platform/host 与 apps/direct/desktop，不经过 EngineRuntime、不让 SDK 依赖 UI；所有文件受 `desktop` build tag 控制。
 
 ## 逻辑
 

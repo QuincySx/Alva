@@ -14,9 +14,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	view "github.com/QuincySx/Alva/apps/desktop"
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
+	view "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/egoist/mygo/ui"
 )
 

@@ -14,8 +14,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/debug"
-	"github.com/QuincySx/Alva/apps/desktop"
 	"github.com/QuincySx/Alva/apps/hub/product"
+	"github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/platform/system/httpjson"
 )
 
@@ -35,7 +35,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 		for _, session := range p.sessions {
 			ids = append(ids, session.ID)
 		}
-		state := map[string]any{"demo": p.Service.Demo, "session_id": p.selected, "pane": p.pane, "generation": p.generation, "status": p.model.Status, "active_run_id": p.model.ActiveRunID, "busy": p.busy, "pane_busy": p.paneBusy, "draft_bytes": len(p.model.Draft), "draft_sha256": hex.EncodeToString(hash[:]), "message_rows": len(p.model.Messages), "history_sequence": p.transcript.Last, "sessions": ids, "pending_approvals": len(p.approvals), "pending_questions": len(p.questions), "player_busy": p.playerBusy, "gateway_busy": p.gatewayBusy, "can_send": p.selected != "" && p.pane == "" && !p.busy && !p.chat.Busy && p.model.CanSend(), "can_stop": p.selected != "" && p.pane == "" && !p.busy && !p.chat.Busy && p.model.ActiveRunID != "" && p.model.Status != desktop.Stopping, "has_problem": p.problem != ""}
+		state := map[string]any{"demo": p.Service.Demo, "session_id": p.selected, "pane": p.pane, "generation": p.generation, "status": p.model.Status, "active_run_id": p.model.ActiveRunID, "busy": p.busy, "pane_busy": p.paneBusy, "draft_bytes": len(p.model.Draft), "draft_sha256": hex.EncodeToString(hash[:]), "message_rows": len(p.model.Messages), "history_sequence": p.transcript.Last, "sessions": ids, "pending_approvals": len(p.approvals), "pending_questions": len(p.questions), "player_busy": p.playerBusy, "gateway_busy": p.gatewayBusy, "can_send": p.selected != "" && p.pane == "" && !p.busy && !p.chat.Busy && p.model.CanSend(), "can_stop": p.selected != "" && p.pane == "" && !p.busy && !p.chat.Busy && p.model.ActiveRunID != "" && p.model.Status != chat.Stopping, "has_problem": p.problem != ""}
 		state["composer_busy"] = p.chat.Busy
 		state["export_busy"] = p.inspectExportBusy
 		state["inspector_branch"] = p.inspectBranch
@@ -74,7 +74,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 			if err := json.Unmarshal(raw, &args); err != nil {
 				return err
 			}
-			if !utf8.ValidString(args.Text) || len(args.Text) > desktop.MaxDraftBytes || p.busy || p.chat.Busy || p.pane != "" || p.selected == "" || p.model.ActiveRunID != "" {
+			if !utf8.ValidString(args.Text) || len(args.Text) > chat.MaxDraftBytes || p.busy || p.chat.Busy || p.pane != "" || p.selected == "" || p.model.ActiveRunID != "" {
 				return errors.New("actual composer is busy or over budget")
 			}
 			p.model.Draft = args.Text
@@ -169,7 +169,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 			}
 			p.send()
 		case "stop":
-			if p.selected == "" || p.busy || p.chat.Busy || p.pane != "" || p.model.ActiveRunID == "" || p.model.Status == desktop.Stopping {
+			if p.selected == "" || p.busy || p.chat.Busy || p.pane != "" || p.model.ActiveRunID == "" || p.model.Status == chat.Stopping {
 				return errors.New("actual Stop control is disabled")
 			}
 			p.stop()

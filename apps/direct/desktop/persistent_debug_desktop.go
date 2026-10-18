@@ -1,4 +1,4 @@
-// INPUT: Actual persistent direct page state, UI dispatcher and registered own-window capture
+// INPUT: Actual persistent direct page state, UI dispatcher and registered own-window capture; shared chat presentation
 // OUTPUT: PersistentPage diagnostic semantic tree and declared normal UI actions
 // POS: [L6 application] Native diagnostics do not grant a new execution/approval or history scope.
 //go:build desktop
@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/QuincySx/Alva/apps/debug"
+	chat "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/platform/system/httpjson"
 )
 
@@ -86,7 +87,7 @@ func (p *PersistentPage) Diagnostic(ctx context.Context, enqueue func(func()), c
 			if err := json.Unmarshal(raw, &args); err != nil {
 				return err
 			}
-			if p.selected == "" || p.pane != "" || p.busy || p.chat.Busy || p.model.ActiveRunID != "" || len(args.Text) > MaxDraftBytes {
+			if p.selected == "" || p.pane != "" || p.busy || p.chat.Busy || p.model.ActiveRunID != "" || len(args.Text) > chat.MaxDraftBytes {
 				return errors.New("actual composer disabled")
 			}
 			p.model.Draft = args.Text
@@ -103,7 +104,7 @@ func (p *PersistentPage) Diagnostic(ctx context.Context, enqueue func(func()), c
 			}
 			p.send()
 		case "stop":
-			if p.pane != "" || p.busy || p.model.ActiveRunID == "" || p.model.Status == Stopping {
+			if p.pane != "" || p.busy || p.model.ActiveRunID == "" || p.model.Status == chat.Stopping {
 				return errors.New("actual Stop disabled")
 			}
 			p.stop()

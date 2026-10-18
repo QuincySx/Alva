@@ -1,7 +1,7 @@
 # 横向支撑 · L4.5 Engine 根契约与产品适配
 > Engine 是完整 Agent harness，不是模型 Provider；Hub 只消费此层的执行、独立检查与声明契约。
 ## 地位
-仅本目录根契约包属于 L4.5：不依赖 SDK、harness、platform/storage 或 apps/desktop。具体 adapter 在独立子包，不能反向成为 Hub core 的依赖；整个 integration/engine 容器不因此成为 SDK 层。
+仅本目录根契约包属于 L4.5：不依赖 SDK、harness、platform/storage 或 apps。具体 adapter 在独立子包，不能反向成为 Hub core 的依赖；整个 integration/engine 容器不因此成为 SDK 层。
 ## 逻辑
 Execute 的 context 属于执行所有者；Cancel 只是请求，真实 Completed 才收尾。Error fatal 后仅允许 Completed，工具必须配对，大结果用 qualified native reference。
 ExecutionActivity独立表示native build/prepare启动前事实，必须先await耐久report再启动；ToolIntent.NoSideEffect不覆盖这些工作，Activity不冒充ToolStart/End或完成。

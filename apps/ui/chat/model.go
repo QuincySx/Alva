@@ -1,7 +1,7 @@
 // INPUT:  errors, fmt, strings
 // OUTPUT: Model, Message, Status and bounded presentation state transitions
 // POS: [L6 application]    Go native foundation presentation state without framework or runtime ownership
-package desktop
+package chat
 
 import (
 	"errors"
@@ -50,7 +50,29 @@ type Model struct {
 }
 
 func NewModel(demo bool) *Model {
-	return &Model{Demo: demo, Status: Idle, maxRows: 64}
+	return NewModelWithRetention(demo, 64)
+}
+
+// NewModelWithRetention configures presentation retention only, never model history.
+// At least one user/assistant pair must fit; an invalid value is a programming error.
+func NewModelWithRetention(demo bool, rows int) *Model {
+	if rows < 2 {
+		panic("chat presentation must retain at least one user/assistant pair")
+	}
+	return &Model{Demo: demo, Status: Idle, maxRows: rows}
+}
+
+// LastSequence reports the presentation's observed high-water mark to diagnostics.
+func (m *Model) LastSequence() uint64 { return m.lastSeq }
+
+// AttachRun binds a newly attached observer without consuming a draft or adding rows.
+// The product must detach the previous observer before reattaching.
+func (m *Model) AttachRun(runID string, status Status) {
+	m.lastSeq, m.Status = 0, status
+	m.ActiveRunID = ""
+	if status == Running || status == Stopping {
+		m.ActiveRunID = runID
+	}
 }
 
 func (m *Model) CanSend() bool {

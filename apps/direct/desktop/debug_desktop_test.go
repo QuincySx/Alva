@@ -1,4 +1,4 @@
-// INPUT: Actual MyGo Tester/composer callbacks and authenticated diagnostic HTTP transport
+// INPUT: Actual MyGo Tester/composer callbacks and authenticated diagnostic HTTP transport; shared chat presentation
 // OUTPUT: UI-thread-bound state/action/capture, at-most-once Send and truthful Stop regressions
 // POS: [L6 application] Headless native view acceptance never opens an OS window or invokes a model account.
 //go:build desktop
@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	chat "github.com/QuincySx/Alva/apps/ui/chat"
 	"image/png"
 	"testing"
 	"time"
@@ -27,8 +28,8 @@ func TestDiagnosticActionsUseActualNativeComposerAndCallbacks(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close(context.Background())
-	m := NewModel(true)
-	v := NewNativeView(m)
+	m := chat.NewModel(true)
+	v := newDirectView(m)
 	sends, stops := 0, 0
 	v.Send = func() {
 		sends++
@@ -44,6 +45,9 @@ func TestDiagnosticActionsUseActualNativeComposerAndCallbacks(t *testing.T) {
 		}
 	}
 	tester := ui.NewTester(v.Build, 900, 720)
+	if sends != 0 || !tester.HasText("DEMO · local fixture, no model service") {
+		t.Fatal("direct framing must describe the actual route without starting work")
+	}
 	queue := make(chan func(), 1)
 	owner, methods, err := v.Diagnostic(ctx, func(fn func()) { queue <- fn }, func() ([]byte, error) {
 		var b bytes.Buffer
@@ -139,7 +143,7 @@ func TestDiagnosticActionsUseActualNativeComposerAndCallbacks(t *testing.T) {
 	if result := action("disabled-send", "send", map[string]any{}); result.Status != "rejected" || sends != 1 {
 		t.Fatal("disabled Send was invoked", result)
 	}
-	if result := action("stop", "stop", map[string]any{}); result.Status != "applied" || stops != 1 || m.Status != Stopping {
+	if result := action("stop", "stop", map[string]any{}); result.Status != "applied" || stops != 1 || m.Status != chat.Stopping {
 		t.Fatal("Stop did not wait for acknowledgement", result)
 	}
 	if result := action("disabled-stop", "stop", map[string]any{}); result.Status != "rejected" || stops != 1 {

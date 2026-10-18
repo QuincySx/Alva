@@ -1,7 +1,7 @@
 // INPUT:  testing, errors, strings
 // OUTPUT: headless presentation state transition regression tests
 // POS: [L6 application]    Native foundation tests independent from MyGo and platform libraries
-package desktop
+package chat
 
 import (
 	"errors"
@@ -92,5 +92,26 @@ func TestFailureReasonSurvivesTheNextRun(t *testing.T) {
 	m.Admitted("next", "second")
 	if m.Error != "" || m.Messages[1].Error != "provider connection failed" || m.Messages[1].Status != Failed {
 		t.Fatal("new run erased the prior failure evidence")
+	}
+}
+
+func TestPresentationRetentionAndReattachedObserver(t *testing.T) {
+	m := NewModelWithRetention(true, 128)
+	for i := range 100 {
+		m.Admitted(strings.Repeat("r", i+1), "prompt")
+		m.Observe(m.ActiveRunID, 20, "answer", Completed, "")
+	}
+	if len(m.Messages) != 128 || m.LastSequence() != 20 {
+		t.Fatal("product retention or observed sequence was lost")
+	}
+	draft, rows := "unsent draft", len(m.Messages)
+	m.Draft = draft
+	m.AttachRun("reattached", Running)
+	if !m.Observe("reattached", 1, "current snapshot", Running, "") || m.LastSequence() != 1 || m.Draft != draft || len(m.Messages) != rows {
+		t.Fatal("reattaching must reset observation without admitting or replaying a prompt")
+	}
+	m.AttachRun("reattached", Completed)
+	if m.ActiveRunID != "" || m.Observe("reattached", 2, "late", Running, "") {
+		t.Fatal("a terminal attachment must reject late progress")
 	}
 }

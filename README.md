@@ -20,7 +20,8 @@ SDK、direct harness 与 Hub 保留独立职责。技术栈已正式切换；能
 sdk/          L0–L3   第三方可直接使用的可移植 SDK
 extension/    L4      可选 Tool / Plugin / Middleware
 harness/      L5      我们的 BaseAgent 默认配方
-apps/         L6/L7   direct 产品、Gateway、Hub 与可执行程序入口
+apps/         L6/L7   direct 产品、Gateway、Hub 与共享呈现
+cmd/          入口    CLI、桌面、HTTP、MCP 桥与 WASIp1 Worker
 integration/  横向    外部模型 / 协议 / 引擎适配
 platform/     横向    执行 owner / OS 原语 / 存储 / WASM 实现
 tests/        验证    import 防火墙、公开面、分形闸与 SDK 消费者实验
@@ -38,7 +39,7 @@ tools/        手工    显式维护与本机验收工具
 | L4 | [extension](./extension/AGENTS.md) | 哪些具体工具与可选行为可以安装；不是给内核加功能 |
 | L4.5 | [integration/engine](./integration/engine/AGENTS.md) **仅根契约包** | Hub 如何统一驱动完整 Agent；不是 Model/Provider |
 | L5 | [harness](./harness/AGENTS.md) | 我们如何选择默认 Plugin、引用策略、历史/Pending 和子会话配方 |
-| L6 | [apps/direct](./apps/direct/AGENTS.md)、[apps/desktop](./apps/desktop/AGENTS.md)、[apps/gateway](./apps/gateway/AGENTS.md)、direct 程序入口 | 用户直接聊天或显式调用模型 API；Gateway 不运行 Agent |
+| L6 | [apps/direct](./apps/direct/AGENTS.md)、[apps/direct/desktop](./apps/direct/desktop/AGENTS.md)、[apps/gateway](./apps/gateway/AGENTS.md)、direct 程序入口 | 用户直接聊天或显式调用模型 API；Gateway 不运行 Agent |
 | L7 | [apps/hub](./apps/hub/AGENTS.md) 与 Hub 程序入口 | 多引擎会话、branch/Turn/Attempt、Team、自动化和产品服务/UI |
 
 ### 程序入口：cmd 与 CLI
@@ -73,7 +74,7 @@ tools/        手工    显式维护与本机验收工具
 依赖方向由实际 import 防火墙验证：SDK 不能依赖 integration/platform/extension/harness/apps；
 kernel 不能依赖 agent。上层可以显式消费下层或横向实现，不允许反向偷带产品政策。
 direct CLI/desktop 直连 harness 与 host，不经 EngineRuntime；Hub core 只看 engine 根契约，
-具体 Alva/外部适配器在 `apps/hub/bootstrap` 装配。基础 desktop 不反向依赖 Hub。
+具体 Alva/外部适配器在 `apps/hub/bootstrap` 装配。共享呈现在 `apps/ui`，不依赖 direct/Hub 或执行 owner。
 
 扩展可按能力直接安装普通Tool：独立SDK使用`Tool(timer.NewTool())`（[`extension/utility/timer`](./extension/utility/timer/AGENTS.md)）即可等待，不需要SQLite或原生会话；Utility Plugin复用同一实现。原生planning可通过`Config.Service`替换业务后端，Tool/getter/bus使用同一实例；实际native执行审计和详情引用authority仍保留，外部后端的持久化由提供者负责。
 

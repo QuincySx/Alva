@@ -8,8 +8,8 @@ package hubdesktop
 import (
 	"encoding/json"
 	"fmt"
-	view "github.com/QuincySx/Alva/apps/desktop"
 	"github.com/QuincySx/Alva/apps/hub/product"
+	view "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"

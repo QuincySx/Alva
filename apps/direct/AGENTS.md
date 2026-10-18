@@ -15,3 +15,5 @@ owner为独立alva-desktop，不读取CLI/Hub/旧Rust历史。无engine/Hub/MyGo
 | export.go | 显式已选direct root的JSONL副本，只写自己的exports私有目录，随机exclusive文件名、不覆盖已有文件 |
 | artifacts.go | 明确选择文件的原始保存、会话草稿refs与成功准入后消费，不自动抓媒体 |
 | service_test.go | 真实SDK/SQLite重启零重放、HTTP引用/逐调用文件审批、foreign会话拒绝与Close保留DB owner |
+
+| Direct desktop | `desktop/` | 窗口/订阅/诊断与耐久页面；共享聊天呈现在 apps/ui，不进入 Hub/engine |

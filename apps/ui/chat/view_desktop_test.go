@@ -3,7 +3,7 @@
 // POS: [L6 application]    Proves native view input without launching a window or external services
 //go:build desktop
 
-package desktop
+package chat
 
 import (
 	"fmt"
@@ -27,7 +27,7 @@ func TestNativeComposerRequiresExplicitSend(t *testing.T) {
 		m.Admitted("test-run", prompt)
 	}
 	tt := ui.NewTester(v.Build, 900, 720)
-	if sends != 0 || !tt.HasText("DEMO · local fixture, no model service") {
+	if sends != 0 || !tt.HasText("Type a message below. Nothing has been sent.") {
 		t.Fatal("startup must be truthful and must not send")
 	}
 	if err := tt.Click("Send"); err != nil {

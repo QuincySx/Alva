@@ -1,7 +1,7 @@
 // INPUT: Native record metadata and versioned kernel audit vocabulary
 // OUTPUT: InspectionGroup and InspectionGroupVisible for current-page native Inspector presentation
 // POS: [L6 application] Categorization changes only the visible page, never query cursors, model history or native facts.
-package desktop
+package chat
 
 import (
 	"github.com/QuincySx/Alva/platform/storage/session"
