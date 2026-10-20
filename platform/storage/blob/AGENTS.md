@@ -14,6 +14,7 @@ Store 只有不可变 Put 和有界 Read。64位十六进制随机 key、32MiB �
 | 文件/目录 | 职责 |
 |---|---|
 | store.go | 不可变对象端口、边界验证、opaque key 与显式 retention 值 |
-| conformance_test.go | 同一验收覆盖内存/真实目录、并发发布、取消、所有权和边界 |
+| conformance_test.go | 内存/真实目录调用同一blobtest套件；保留各adapter容量/重开/link验收 |
+| blobtest/ | 后端作者可复用的Run：并发不可变发布、取消、字节所有权和有界读，不引入具体adapter |
 | memory/ | 有对象数/字节上限的纯内存临时存储 |
 | directory/ | pinned directory 的原子发布、本地或合规挂载目录适配 |

@@ -5,6 +5,35 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
 
+## 2026-10-20 SDK外部接入、存储契约验收与CI平台修正
+
+本批继续保留既有内核/Tool/Plugin/Middleware与共享存储插口，SDK的129个既有Go源码保持原字节。
+
+- 对照实际主分支[CI运行39431189813](https://github.com/QuincySx/Alva/actions/runs/39431189813)：Ubuntu成功；Windows在DACL继承owner假设、路径别名、SQLite URI和匿名pipe deadline处失败；macOS完整race尚未结束即触及20分钟job上限。旧运行的失败不因本地构建通过而改写。
+- Windows原始路径先于Abs检查，拒绝会被规范化抹掉的尾随点/空格、设备/UNC和drive-relative别名；不创建被拒别名的规范目标。
+- 保留严格current-user owner检查。继承DACL不等于继承owner，管理员token可有不同默认owner；测试分别验证继承的user-only ACE与严格owner准入，不把Administrators放进生产允许集合。
+- SQLite使用escaped opaque file URI，固定驱动的实际VFS收到原始native filename，不把盘符当authority或额外加前导slash；真实驱动probe在每种OS验证Windows路径，实际磁盘测试覆盖空格/#/%/Unicode及Unix合法反斜线/问号路径并重开读取。
+- 匿名pipe测试不要求Windows不支持的SetWriteDeadline，仍验证1MiB实际drain、保持producer打开时取消、借用文件复用和后续字节；失败路径关闭并join全部fixture worker。
+- Linux/macOS job预算45分钟、Windows25分钟、每测试包6分钟；保留完整race、-p1、vet与后续portable gates，未通过删除测试解决超时。
+- examples/sdk-agent是独立module，只用公开SDK。程序注入模型/日志/服务，Plugin注册Tool与BeforeModel；同源码在native/Node/WASIp1实际执行正常model→tool→model和工具内取消。模块身份、依赖图、已提交输出与取消outcome均验证；空GOMODCACHE、GOPROXY=off也能列出完整依赖图，无第三方实现包。
+- 公开storagetest.RunRepository/RunBindings及blobtest.Run供外部实现复用fresh factory。共同验收owner/authority、原子CAS+交付、固定高水位、有界历史/引用、执行claim、父子因果、身份竞争绑定和不可变竞争发布；复用既有SDK sessiontest，不增加运行时层或云backend。
+- SQLite经opaque wrapper、bindings、memory/directory blob运行同一套语义；持久性/损坏/中途故障/跨进程锁/Close重试仍由具体adapter验收。架构闸禁止生产直接或传递导入testing/这些helper，新增两个公共测试入口快照，现有SDK公开契约不变。
+
+本批验证（macOS arm64 / Go1.27.2，无真实模型/云账户调用）：
+
+| 检查 | 本批结果与范围 |
+|---|---|
+| 整仓desktop-tagged race | 92个有测试包、1932个测试/子测试通过，0失败，674.98秒；运行期间800个Go源码/模块文件无变化。两个无参数跨进程helper按设计skip，真实恢复/崩溃用例均执行；另9包无独立测试文件 |
+| 外部SDK消费者 | 独立module身份/公开依赖图及native正常/工具内取消通过；同一源码Node/WASIp1各两种模式均实际成功。空模块缓存、关闭proxy/sumdb的依赖图检查成功，仅六个公开SDK包与消费者 |
+| 存储契约验收 | opaque Repository和bindings共17个测试/子测试通过；memory/directory共用公开blobtest，竞争CAS/绑定、原子投递、有界读取与越权拒绝均通过；整仓race已包含全部用例 |
+| portable实际执行 | JS/WASM与WASIp1各7个测试包、42个测试/子测试通过；原生目录用例明确skip，3包仅构建。原plan/question/schema消费者与新SDK消费者均实际运行 |
+| 跨平台构建 | CGO_ENABLED=0、desktop tag全部命令与storage/privatefs在macOS arm64、Linux amd64、Windows amd64/arm64通过；WASIp1 Worker通过。Windows两架构各5个相关测试二进制编译通过；不等于Windows实机通过 |
+| 静态/文档/接口 | 全树desktop vet、go mod verify、gofmt、diff空白、workflow YAML解析通过；分层/公开快照/分形闸包含在整仓测试中。新公开面仅两个测试helper包，129个SDK Go文件和根模块文件原字节保留 |
+
+证据指针`/tmp/alva-sdk-acceptance-path`包含完整JSONL、源码hash、实际WASM回执和各目标构建结果。
+本批本地验收不包含新改动的Windows实机/远程CI复验；前述旧主分支运行仍按失败/超时记录。外部module的v0.0.0+相对replace仅是当前checkout接入，不声称已发布版本。
+
+
 ## 2026-10-20 统一存储插口贯穿修正
 
 用户明确要求：不是增加内存/云盘实现，而是从内到外只依赖同一插口，由程序/组件/插件装配决定放入什么。

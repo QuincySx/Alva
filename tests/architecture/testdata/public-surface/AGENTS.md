@@ -22,6 +22,8 @@
 | sandbox ABI | sandbox-abi.txt | 纯宿主/guest能力数据 |
 | storage ports | platform-storage.txt | 各层共用的组合插口、返回值与错误；不包含具体数据库 |
 | immutable bytes | platform-storage-blob.txt | 两方法字节端口、retention与共享错误 |
+| storage conformance | platform-storage-storagetest.txt | factory驱动的Repository/BindingStore公共测试入口，不是运行时能力 |
+| byte conformance | platform-storage-blob-blobtest.txt | 不依赖具体adapter的不可变字节公共测试入口 |
 
 2026-10-18：Alva module 提升到仓库根目录；六份快照仅同步 github.com/QuincySx/Alva 的 import 身份，保留原类型/字段/方法契约，不留旧 module alias。
 

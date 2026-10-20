@@ -213,7 +213,7 @@ Hub引擎的执行能力与检查能力分别声明：认证`GET /v1/engines`只
 通过真实 Go AEP loader 互操作测试。它是插件侧客户端，不是第二套 Agent 实现；普通 Go 构建/运行
 不要求 Python，执行 Python 插件时才显式选择解释器和宿主批准。
 
-## 第三方 SDK
+## 第三方 SDK 与存储组件验收
 
 [`examples/sdk-agent`](../examples/sdk-agent/README.md) 有自己的 go.mod，只导入公开 SDK。程序选择模型、会话与服务，Plugin 贡献一个 Tool 和一个 BeforeModel hook。同一源码可在 native、Node 和 WASIp1 运行：
 
@@ -224,11 +224,27 @@ go -C examples/sdk-agent run -mod=readonly . cancel
 
 run 经过真实默认循环的 model→tool→model，输出来自已提交消息；cancel 在实际工具进入后取消，再检查已结算的 cancelled outcome。模型/服务是确定性 fixture，不需账户。独立 go.mod 的相对 replace 指向本 checkout；复制到外部应用时移除 replace 并固定真实提交或已发布版本。
 
+替换存储组件时，以下公共测试入口接收调用方的 fresh factory；factory 在每个子测试创建空组件并注册 Cleanup，测试等待并发操作完成后才交还资源：
+
+| 组件插口 | 可复用入口 | 验收范围 |
+|---|---|---|
+| 纯 SDK 日志 | `sdk/kernel/abi/sessiontest.Run` | 原子记录、真实身份、匹配outcome、buffer所有权、投影、取消 |
+| 应用事实 Repository | `platform/storage/storagetest.RunRepository` | 复用SDK套件；owner/authority、竞争CAS+原子交付、高水位/有界历史、引用范围、claim及父子因果 |
+| 身份绑定组件 | `platform/storage/storagetest.RunBindings` | create-or-verify、重复幂等、owner/workspace冲突、竞争创建与预取消 |
+| 不可变字节组件 | `platform/storage/blob/blobtest.Run` | 同值幂等、异值冲突、竞争完整发布、有界读、buffer所有权与预取消；fixture至少4对象/64KiB |
+
+这些包仅供测试导入，生产消费者继续使用原插口。后端还须独立证明声明的持久性、容量、损坏/中途故障、跨进程锁和 Close 重试；通过内存测试不证明云服务有日志事务。当前 SQLite/opaque wrapper、bindings 和内存/目录 blob 均运行同一公共套件。
+
+```sh
+go test -mod=readonly -race ./tests/storagecontract ./platform/storage/blob/...
+go test -mod=readonly ./tests/extensibility -run TestExternalModuleSDKConsumer
+```
+
 ## 可选持久等待 API
 
 [`harness/durable`](../harness/durable/AGENTS.md) 是显式安装的 harness 能力，默认 CLI/Hub 尚未自动启用。
 它复用普通 SDK Agent；Backend 的四个方法是 Log、Claim、Load、Commit，存储可替换。
-NewMemoryBackend 是进程内参考实现；native.Open 绑定现有私有 repository 的同一会话和事实数据库。
+NewMemoryBackend 是进程内参考实现；journal.Open 绑定现有私有 repository 的同一会话和事实数据库。
 
 装配流程：
 

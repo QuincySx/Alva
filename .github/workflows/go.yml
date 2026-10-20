@@ -41,6 +41,8 @@ jobs:
         run: go test -mod=readonly -count=1 ./platform/sandbox/host -run 'TestWindowsWASI|TestWASIReadonlyCreate|TestWASIActualSDKModelToolModelAndReferenceRetrieval|TestActualQuickJS|TestScriptHeapStack|TestScriptFuelExhaustionAfterLoopEntryCancelsOwner'
       - name: Windows portable SDK and architecture
         run: go test -mod=readonly -count=1 ./sdk/... ./tests/architecture
+      - name: Windows storage contract and external module consumers
+        run: go test -mod=readonly -count=1 ./tests/storagecontract ./tests/extensibility -run 'TestRepositoryConformance|TestBindingConformance|TestExternalModuleSDKConsumer'
       - name: All Windows native commands without cgo
         run: go build -mod=readonly -tags desktop ./cmd/...
       - name: Windows platform static checks
@@ -81,7 +83,7 @@ jobs:
           GOOS: js
           GOARCH: wasm
         run: |
-          go build -mod=readonly ./sdk/... ./integration/llm/codec ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./platform/storage/blob ./platform/storage/blob/memory
+          go build -mod=readonly ./sdk/... ./integration/llm/codec ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./harness/durable/journal ./platform/storage ./platform/storage/redaction ./platform/storage/storagetest ./platform/storage/blob ./platform/storage/blob/memory
           # Go's JS startup has a small argv/env area; pass no ambient host env.
           go test -mod=readonly -count=1 -exec="env -i $(node -p process.execPath) $(go env GOROOT)/lib/wasm/wasm_exec_node.js" ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./platform/storage/blob ./platform/storage/blob/memory
           go build -mod=readonly -o "$RUNNER_TEMP/portable-consumer-js.wasm" ./tests/extensibility/testdata/portable-agent
@@ -100,7 +102,7 @@ jobs:
           GOOS: wasip1
           GOARCH: wasm
         run: |
-          go build -mod=readonly ./sdk/... ./integration/llm/codec ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./platform/storage/blob ./platform/storage/blob/memory
+          go build -mod=readonly ./sdk/... ./integration/llm/codec ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./harness/durable/journal ./platform/storage ./platform/storage/redaction ./platform/storage/storagetest ./platform/storage/blob ./platform/storage/blob/memory
           go build -mod=readonly -o build/alva-worker.wasm ./cmd/alva-worker-wasm
           go test -mod=readonly -count=1 -exec="$RUNNER_TEMP/alva-wasip1-test run" ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./platform/storage/blob ./platform/storage/blob/memory
           go build -mod=readonly -o "$RUNNER_TEMP/portable-consumer-wasip1.wasm" ./tests/extensibility/testdata/portable-agent

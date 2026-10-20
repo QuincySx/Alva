@@ -109,7 +109,7 @@ func under(name, prefix string) bool { return name == prefix || strings.HasPrefi
 // Graph membership also catches a future workspace top-level directory, rather
 // than letting an outdated list turn a local package into a standard-library one.
 func workspacePackage(name string) bool {
-	for _, prefix := range []string{"sdk", "integration", "extension", "harness", "platform", "apps", commandRoot, "tests", "tools"} {
+	for _, prefix := range []string{"sdk", "integration", "extension", "harness", "platform", "apps", commandRoot, "tests", "tools", "examples"} {
 		if under(name, prefix) {
 			return true
 		}
@@ -127,6 +127,15 @@ func legacyWorkspacePackage(name string) bool {
 }
 
 func forbidden(root, dependency string, local bool) string {
+	if (testSupport(dependency) || dependency == "testing") && !testSupport(root) && !under(root, "tests") && !under(root, "tools") {
+		return "runtime packages cannot depend on testing or conformance helpers"
+	}
+	if under(root, "examples") && local && !under(dependency, "sdk") && dependency != root {
+		return "external SDK examples may use only public SDK packages and standard library"
+	}
+	if under(dependency, "examples") && !under(root, "examples") {
+		return "external consumer examples are not runtime dependencies"
+	}
 	if under(root, "platform/system/privatefs") && local && dependency != root {
 		return "private filesystem primitives cannot depend on storage implementations or execution/product policy"
 	}
@@ -247,6 +256,10 @@ func forbidden(root, dependency string, local bool) string {
 		return "SDK, harness, integrations and platform cannot depend upward on applications"
 	}
 	return ""
+}
+
+func testSupport(name string) bool {
+	return under(name, "sdk/kernel/abi/sessiontest") || under(name, "platform/storage/storagetest") || under(name, "platform/storage/blob/blobtest")
 }
 
 func concreteStorage(name string) bool {

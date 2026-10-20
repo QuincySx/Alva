@@ -1,7 +1,7 @@
 # Storage contract acceptance helpers
 > 仅按契约装饰调用方提供的存储，不暴露或发现原生实现。
 ## 地位
-测试支撑；生产代码不可依赖。直接消费共享storage/SDK契约，不导入SQLite/native适配。
+测试支撑；生产代码不可依赖。装饰器只消费共享storage/SDK契约；独立_test文件显式选择临时provider进行共同验收。
 ## 逻辑
 Provider包裹存储、会话和引用返回值；actual SameAuthority遵守同一provider和底层真实权威。
 记录方法调用次数，让装配测试确认同一插入组件贯穿产品、harness、工具和引用路径。
@@ -11,3 +11,4 @@ Provider包裹存储、会话和引用返回值；actual SameAuthority遵守同�
 | 文件 | 职责 |
 |---|---|
 | provider.go | Opaque storage/session/reference decorators and safe call observations |
+| acceptance_test.go | 实际native provider经opaque接口运行公开storagetest；bindings独立验收，无账号或用户历史 |

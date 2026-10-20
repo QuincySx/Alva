@@ -153,7 +153,7 @@ func surface(directory string) (string, error) {
 }
 
 func TestPublicSDKSurfaceSnapshot(t *testing.T) {
-	for _, pkg := range []string{"sdk/llm/wire", "sdk/kernel/bus", "sdk/kernel/abi", "sdk/kernel/core", "sdk/agent/abi", "sdk/agent/core", "sdk/sandbox/abi", "platform/storage", "platform/storage/blob"} {
+	for _, pkg := range []string{"sdk/llm/wire", "sdk/kernel/bus", "sdk/kernel/abi", "sdk/kernel/core", "sdk/agent/abi", "sdk/agent/core", "sdk/sandbox/abi", "platform/storage", "platform/storage/blob", "platform/storage/storagetest", "platform/storage/blob/blobtest"} {
 		t.Run(pkg, func(t *testing.T) {
 			actual, err := surface(filepath.Join(goRoot(), pkg))
 			if err != nil {

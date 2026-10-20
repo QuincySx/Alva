@@ -10,4 +10,4 @@ Read-only repository permissions; no accounts, credentials, live MCP, automatic 
 ## 业务域清单
 | 目录 | 职责 |
 |---|---|
-| workflows | Go source/runtime/build gates, including actual portable-tool/durable/telemetry/blob-memory Node/WASIp1 execution and independent consumer programs |
+| workflows | Go source/runtime/build gates, including actual portable-tool/durable/telemetry/blob-memory Node/WASIp1 execution, external SDK modules and reusable storage conformance |

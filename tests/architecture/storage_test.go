@@ -75,6 +75,10 @@ func TestStorageFirewallRejectsBackendLeaks(t *testing.T) {
 		"external runtime selects bindings":     {"integration/engine/process": {"platform/storage/bindings"}},
 		"memory service selects backend":        {"extension/memory": {"platform/storage/memory"}},
 		"directory primitive inherits database": {"platform/system/privatefs": {"platform/storage/sqlite"}},
+		"runtime imports conformance helper":    {"extension/media": {"platform/storage/storagetest"}},
+		"runtime hides test helper dependency":  {"sdk/kernel/abi": {"sdk/kernel/abi/helper"}, "sdk/kernel/abi/helper": {"sdk/kernel/abi/sessiontest"}},
+		"external example pulls platform":       {"examples/sdk-agent": {"platform/storage"}},
+		"conformance helper chooses database":   {"platform/storage/storagetest": {"platform/storage/session"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if failures := validate(graph); len(failures) == 0 {

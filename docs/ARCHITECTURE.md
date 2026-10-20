@@ -88,6 +88,7 @@ namespace。工具目录读取调用方的实时 registry；偏好投影由明�
 失败可留下孤立字节，不自动重试/删除，不声称分布式事务。账号与实现选型均留外部装配。
 
 契约、具体实现和产品默认是三件事；本轮纠正依赖方向与贯穿方式，不增加云provider、隐式数据迁移或新内核存储类型。
+公开验收入口在`platform/storage/storagetest`、`platform/storage/blob/blobtest`及SDK的`sessiontest`；只由测试导入，factory由后端作者供应，权限/原子性语义与现有插口相同。它们不构成新的运行时层，也不替代持久化/故障/跨进程验收。
 独立module消费者在`examples/sdk-agent`，只导入公开SDK；默认循环、Plugin/Tool/Middleware和真实工具内取消在native/Node/WASIp1共用源码。接入验收不修改内核契约或产品默认。
 
 ## 强制边界

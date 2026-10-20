@@ -33,6 +33,7 @@ RecordRetention与artifact retention分别如实声明；临时字节不冒充�
 |---|---|---|
 | Shared ports | contracts.go | 会话/记录/因果关系/引用/记忆/身份绑定的组合契约与共享错误 |
 | Shared values | values.go | 与实现无关的DTO、游标、引用与检查结果 |
+| Contract acceptance | storagetest/ | 对外可复用的Repository/BindingStore语义测试；factory选择后端，生产不依赖 |
 | Immutable bytes | blob/ | Put/bounded Read契约及显式目录/易失内存适配 |
 | Native sessions | session/ | SQLite typed facts/catalog与授权/hash，不拥有模型历史选择政策 |
 | Persistent memory | memory/ | 可选namespaced SQLite FTS/vector实现，Bind交回SDK接口 |

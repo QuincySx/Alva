@@ -26,6 +26,7 @@ planning/interaction/utility 根包与纯 strictjson helper 只能直接/传递�
 harness/durable 根包保持纯编排，只可用标准库、SDK、普通interaction和strictjson；native存储适配不得反向进入根包，传递反例持续验证。
 platform/storage/blob根契约和adapter仅可标准库与根契约；根不依赖adapter，内存不继承SQL/SDK/执行/产品；含直接/传递反例。
 显式 module import 即使没有被扫描的源节点也保留 workspace 身份，不能伪装成标准库依赖。
+外部examples消费者限标准库/公开SDK，不能作为生产依赖；sessiontest/storagetest/blobtest及testing不可由运行时包直接或传递引入。公共测试入口也有显式公开快照。
 旧目录和 import 路径不保留，布局回归拒绝旧名或 symlink 兼容桥。
 纯容器目录即使没有 Go 源文件也必须保留含分形四节的地图文档。
 手工窗口工具在 ../../tools/qa/native_window.py，不由本包、Go测试或CI隐式运行。
