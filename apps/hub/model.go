@@ -146,22 +146,32 @@ type Claim struct {
 	Attempt Attempt
 	Handoff *Handoff
 }
-type Store interface {
-	CreateSession(context.Context, string, string, Target) (Session, error)
-	ListSessions(context.Context, int) ([]Session, error)
-	PageSessions(context.Context, string, SessionCursor, int) (SessionPage, error)
+
+// ExecutionStore is the complete persistence authority needed by Runtime.
+// Optional settings and product browsing never become runtime dependencies.
+type ExecutionStore interface {
 	Detail(context.Context, string) (Detail, error)
-	Switch(context.Context, string, Target, string) (Branch, error)
-	SetFallback(context.Context, string, []Target) error
 	BeginTurn(context.Context, string, string) (Claim, error)
 	BeginTurnOnBranch(context.Context, string, string, string) (Claim, error)
 	BeginFallback(context.Context, string, Target) (Claim, error)
 	Record(context.Context, string, engine.Event, bool) error
 	FinishTurn(context.Context, string, engine.Outcome) error
+}
+
+type SessionStore interface {
+	CreateSession(context.Context, string, string, Target) (Session, error)
+	ListSessions(context.Context, int) ([]Session, error)
+	PageSessions(context.Context, string, SessionCursor, int) (SessionPage, error)
+	Switch(context.Context, string, Target, string) (Branch, error)
+	SetFallback(context.Context, string, []Target) error
 	History(context.Context, string, uint64, int) ([]HistoryEntry, error)
 	HistoryBefore(context.Context, string, uint64, int) ([]HistoryEntry, error)
 	ReadHandoff(context.Context, string, string) (*Handoff, error)
 	BindNative(context.Context, string, string, string) error
+	Recover(context.Context) error
+}
+
+type SettingsStore interface {
 	Settings(context.Context, string) (Settings, error)
 	SaveSettings(context.Context, Settings) error
 	ReplaceMCP(context.Context, string, []MCPServer) error
@@ -179,7 +189,14 @@ type Store interface {
 	ReplaceAEP(context.Context, string, []AEPBundle) error
 	SetAEPEnabled(context.Context, string, string, bool, bool) error
 	RecordSkillArchive(context.Context, string, string) error
-	Recover(context.Context) error
+}
+
+// Store composes the product service's ports. One SQLite implementation keeps
+// the existing transactions; consumers may require only the port they use.
+type Store interface {
+	ExecutionStore
+	SessionStore
+	SettingsStore
 }
 
 func NewID(prefix string) (string, error) {

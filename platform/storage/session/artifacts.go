@@ -1,6 +1,6 @@
-// INPUT: context, crypto/sha256, database/sql, encoding/hex, unicode/utf8, agent/context, llm/wire.
+// INPUT: context, database/sql, hashes, explicit blob.Store, agent/context and llm/wire.
 // OUTPUT: ArtifactInput, ArtifactInfo, ArtifactPage, owned artifact APIs and BoundReferences.
-// POS: [platform / durable storage] Session-owned immutable chunk bytes shared by facts and reference retrieval.
+// POS: [platform / storage] Owns artifact authorization/hash metadata with inline or explicitly configured immutable bytes.
 package session
 
 import (
@@ -9,11 +9,11 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/QuincySx/Alva/platform/storage/blob"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -66,7 +66,7 @@ func artifactID(uri string) (string, error) {
 }
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 
-func putArtifactTx(ctx context.Context, tx *sql.Tx, id string, input ArtifactInput, maxBytes int) (ArtifactInfo, error) {
+func putArtifactTx(ctx context.Context, tx *sql.Tx, id string, input ArtifactInput, maxBytes int, external *BlobConfig) (ArtifactInfo, error) {
 	if len(input.Data) > maxBytes {
 		return ArtifactInfo{}, errors.New("artifact byte budget exceeded")
 	}
@@ -89,9 +89,27 @@ func putArtifactTx(ctx context.Context, tx *sql.Tx, id string, input ArtifactInp
 	if err != nil {
 		return ArtifactInfo{}, err
 	}
+	var objectKey string
+	if external != nil {
+		objectKey, err = blob.NewKey()
+		if err != nil {
+			return ArtifactInfo{}, err
+		}
+		// A successful immutable upload precedes the atomic metadata commit.
+		// Failure/rollback can leave an orphan object, never a committed partial
+		// reference. The repository does not retry or delete uncertain uploads.
+		if err = external.Store.Put(ctx, objectKey, input.Data); err != nil {
+			return ArtifactInfo{}, err
+		}
+	}
 	info := ArtifactInfo{ID: key, SessionID: id, Kind: input.Kind, Name: input.Name, MediaType: input.MediaType, Processing: input.Processing, SHA256: sha, Bytes: int64(len(input.Data)), Text: input.Text}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO artifacts(id,session_id,kind,name,media_type,processing,sha256,bytes,is_text,created_ns) VALUES(?,?,?,?,?,?,?,?,?,?)", info.ID, id, input.Kind, input.Name, input.MediaType, input.Processing, sha, len(input.Data), input.Text, time.Now().UTC().UnixNano()); err != nil {
 		return ArtifactInfo{}, err
+	}
+	if external != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_blobs(artifact_id,object_key) VALUES(?,?)", key, objectKey); err != nil {
+			return ArtifactInfo{}, err
+		}
 	}
 	for offset := 0; offset < len(input.Data); offset += ChunkBytes {
 		end := offset + ChunkBytes
@@ -99,7 +117,11 @@ func putArtifactTx(ctx context.Context, tx *sql.Tx, id string, input ArtifactInp
 			end = len(input.Data)
 		}
 		chunk := input.Data[offset:end]
-		if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_chunks(artifact_id,chunk_index,data,sha256) VALUES(?,?,?,?)", key, offset/ChunkBytes, chunk, digest(chunk)); err != nil {
+		stored := chunk
+		if external != nil {
+			stored = []byte{}
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_chunks(artifact_id,chunk_index,data,sha256) VALUES(?,?,?,?)", key, offset/ChunkBytes, stored, digest(chunk)); err != nil {
 			return ArtifactInfo{}, err
 		}
 	}
@@ -109,6 +131,9 @@ func putArtifactTx(ctx context.Context, tx *sql.Tx, id string, input ArtifactInp
 func (r *Repository) PutArtifact(ctx context.Context, owner, id string, input ArtifactInput) (ArtifactInfo, error) {
 	if input.Kind == "typed-record-json" {
 		return ArtifactInfo{}, errors.New("typed record artifacts are owned by AppendRecords")
+	}
+	if r.blobs != nil && r.blobs.Retention == blob.Volatile {
+		input.Processing += "; artifact bytes are process-lifetime only, not restart-durable"
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -123,7 +148,7 @@ func (r *Repository) PutArtifact(ctx context.Context, owner, id string, input Ar
 	if err = authorize(ctx, tx, owner, id); err != nil {
 		return ArtifactInfo{}, err
 	}
-	info, err := putArtifactTx(ctx, tx, id, input, MaxArtifactBytes)
+	info, err := putArtifactTx(ctx, tx, id, input, MaxArtifactBytes, r.blobs)
 	if err != nil {
 		return ArtifactInfo{}, err
 	}
@@ -157,7 +182,7 @@ func (r *Repository) readRangeLocked(ctx context.Context, info ArtifactInfo, off
 	if end == offset {
 		return []byte{}, nil
 	}
-	rows, err := r.db.QueryContext(ctx, "SELECT chunk_index,data,sha256 FROM artifact_chunks WHERE artifact_id=? AND chunk_index>=? AND chunk_index<=? ORDER BY chunk_index", info.ID, offset/ChunkBytes, (end-1)/ChunkBytes)
+	rows, err := r.db.QueryContext(ctx, "SELECT c.chunk_index,c.data,c.sha256,coalesce(b.object_key,'') FROM artifact_chunks c LEFT JOIN artifact_blobs b ON b.artifact_id=c.artifact_id WHERE c.artifact_id=? AND c.chunk_index>=? AND c.chunk_index<=? ORDER BY c.chunk_index", info.ID, offset/ChunkBytes, (end-1)/ChunkBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -167,12 +192,16 @@ func (r *Repository) readRangeLocked(ctx context.Context, info ArtifactInfo, off
 	for rows.Next() {
 		var index int64
 		var chunk []byte
-		var sha string
-		if err = rows.Scan(&index, &chunk, &sha); err != nil {
+		var sha, objectKey string
+		if err = rows.Scan(&index, &chunk, &sha, &objectKey); err != nil {
 			return nil, err
 		}
-		if index != expected || len(chunk) > ChunkBytes || digest(chunk) != sha {
+		if index != expected {
 			return nil, errors.New("artifact chunk integrity verification failed")
+		}
+		chunk, err = r.chunkData(ctx, index, info.Bytes, chunk, sha, objectKey, nil)
+		if err != nil {
+			return nil, err
 		}
 		expected++
 		start := int64(0)
@@ -227,22 +256,27 @@ func (r *Repository) readFullLocked(ctx context.Context, key string, bytesLimit 
 	if total > int64(bytesLimit) || total < 0 {
 		return nil, errors.New("runtime record body budget exceeded")
 	}
-	rows, err := r.db.QueryContext(ctx, "SELECT chunk_index,data,sha256 FROM artifact_chunks WHERE artifact_id=? ORDER BY chunk_index", key)
+	rows, err := r.db.QueryContext(ctx, "SELECT c.chunk_index,c.data,c.sha256,coalesce(b.object_key,'') FROM artifact_chunks c LEFT JOIN artifact_blobs b ON b.artifact_id=c.artifact_id WHERE c.artifact_id=? ORDER BY c.chunk_index", key)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	data := make([]byte, 0, int(total))
 	expected := 0
+	var readWindow blobWindow
 	for rows.Next() {
 		var index int
 		var chunk []byte
-		var hash string
-		if err = rows.Scan(&index, &chunk, &hash); err != nil {
+		var hash, objectKey string
+		if err = rows.Scan(&index, &chunk, &hash, &objectKey); err != nil {
 			return nil, err
 		}
-		if index != expected || len(chunk) > ChunkBytes || digest(chunk) != hash {
+		if index != expected {
 			return nil, errors.New("record artifact chunk integrity verification failed")
+		}
+		chunk, err = r.chunkData(ctx, int64(index), total, chunk, hash, objectKey, &readWindow)
+		if err != nil {
+			return nil, err
 		}
 		expected++
 		if len(data)+len(chunk) > bytesLimit {
@@ -340,7 +374,7 @@ func (b *References) SearchText(ctx context.Context, uri, query string, limit in
 }
 
 func (r *Repository) searchArtifactLocked(ctx context.Context, info ArtifactInfo, query string, limit int) ([]agentcontext.TextMatch, error) {
-	rows, err := r.db.QueryContext(ctx, "SELECT chunk_index,data,sha256 FROM artifact_chunks WHERE artifact_id=? ORDER BY chunk_index", info.ID)
+	rows, err := r.db.QueryContext(ctx, "SELECT c.chunk_index,c.data,c.sha256,coalesce(b.object_key,'') FROM artifact_chunks c LEFT JOIN artifact_blobs b ON b.artifact_id=c.artifact_id WHERE c.artifact_id=? ORDER BY c.chunk_index", info.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -349,15 +383,20 @@ func (r *Repository) searchArtifactLocked(ctx context.Context, info ArtifactInfo
 	var carry string
 	var expected int64
 	var nextMatch int64
+	var readWindow blobWindow
 	for rows.Next() {
 		var index int64
 		var data []byte
-		var sha string
-		if err = rows.Scan(&index, &data, &sha); err != nil {
+		var sha, objectKey string
+		if err = rows.Scan(&index, &data, &sha, &objectKey); err != nil {
 			return nil, err
 		}
-		if index != expected || len(data) > ChunkBytes || digest(data) != sha {
+		if index != expected {
 			return nil, errors.New("search artifact chunk integrity verification failed")
+		}
+		data, err = r.chunkData(ctx, index, info.Bytes, data, sha, objectKey, &readWindow)
+		if err != nil {
+			return nil, err
 		}
 		expected++
 		window := carry + string(data)
@@ -404,7 +443,7 @@ func (r *Repository) searchArtifactLocked(ctx context.Context, info ArtifactInfo
 		return nil, err
 	}
 	if expected != (info.Bytes+ChunkBytes-1)/ChunkBytes {
-		return nil, fmt.Errorf("artifact search has missing chunks")
+		return nil, errors.New("artifact search has missing chunks")
 	}
 	return matches, nil
 }

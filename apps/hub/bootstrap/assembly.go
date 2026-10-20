@@ -380,6 +380,7 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 				plugin, childErr = subagent.New(subagent.Config{SessionID: nativeID, Factory: factory, Guard: guard, References: backend, Timeout: 2 * time.Minute, MaxIterations: 16, MaxDepth: 3, MaxChildren: 8, MaxParallelModels: 2})
 				if childErr == nil {
 					plugins = append(plugins, plugin)
+					loaded = append(loaded, plugin)
 					trustedTools = append(trustedTools, plugin.Tool())
 				}
 			}

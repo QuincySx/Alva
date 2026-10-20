@@ -1,4 +1,4 @@
-// INPUT: context, database/sql, crypto/rand, sync, storage/sqlite, kernel/abi.
+// INPUT: context, database/sql, crypto/rand, sync, storage/sqlite and optional immutable blob binding.
 // OUTPUT: Repository, Session, Open and owner-bound lifecycle/list/run-claim APIs.
 // POS: [platform / durable storage] Single native execution authority independent of Hub product records and runtime construction.
 package session
@@ -28,6 +28,7 @@ type Repository struct {
 	lock   *sqlite.Lock
 	closed bool
 	active map[string]bool
+	blobs  *BlobConfig
 }
 type Session struct {
 	repository *Repository
@@ -46,6 +47,10 @@ type SessionPage struct {
 }
 
 func Open(ctx context.Context, directory string) (*Repository, error) {
+	return open(ctx, directory, nil)
+}
+
+func open(ctx context.Context, directory string, blobs *BlobConfig) (*Repository, error) {
 	lock, err := sqlite.LockDatabase(directory, "native.sqlite")
 	if err != nil {
 		return nil, err
@@ -55,11 +60,14 @@ func Open(ctx context.Context, directory string) (*Repository, error) {
 		lock.Close()
 		return nil, err
 	}
-	r := &Repository{db: db, lock: lock, active: make(map[string]bool)}
+	r := &Repository{db: db, lock: lock, active: make(map[string]bool), blobs: blobs}
 	if err = r.initialize(ctx); err == nil {
 		// Auxiliary access path for the bounded model working view. Existing
 		// new-Go repositories gain the index without changing facts or format.
 		_, err = db.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS conversation_tail ON records(session_id,seq DESC) WHERE kind='conversation'")
+	}
+	if err == nil {
+		err = r.bindBlobs(ctx)
 	}
 	if err != nil {
 		db.Close()
@@ -74,11 +82,19 @@ func (r *Repository) initialize(ctx context.Context) error {
 	if err := r.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version != 0 && version != 1 && version != 2 {
+	if version != 0 && version != 1 && version != 2 && version != 3 {
 		return errors.New("unsupported native database schema; no legacy import is performed")
 	}
-	if version == 2 {
+	if version == 3 {
 		return nil
+	}
+	if version == 2 {
+		_, err := r.db.ExecContext(ctx, `BEGIN IMMEDIATE;
+CREATE TABLE blob_binding(singleton INTEGER PRIMARY KEY CHECK(singleton=1),id TEXT NOT NULL,retention TEXT NOT NULL);
+CREATE TABLE artifact_blobs(artifact_id TEXT PRIMARY KEY REFERENCES artifacts(id),object_key TEXT NOT NULL UNIQUE);
+PRAGMA user_version=3;
+COMMIT;`)
+		return err
 	}
 	if version == 1 {
 		// New-Go schema evolution only: this is an auxiliary causal index,
@@ -87,7 +103,10 @@ func (r *Repository) initialize(ctx context.Context) error {
 CREATE TABLE child_links(child_id TEXT PRIMARY KEY REFERENCES sessions(id),parent_id TEXT NOT NULL REFERENCES sessions(id),link_seq INTEGER NOT NULL,link_id TEXT NOT NULL,FOREIGN KEY(parent_id,link_seq) REFERENCES records(session_id,seq));
 PRAGMA user_version=2;
 COMMIT;`)
-		return err
+		if err != nil {
+			return err
+		}
+		return r.initialize(ctx)
 	}
 	var tables int
 	if err := r.db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tables); err != nil {
@@ -109,7 +128,10 @@ CREATE UNIQUE INDEX tool_outcome_identity ON records(session_id,run_id,call_id) 
 CREATE TABLE child_links(child_id TEXT PRIMARY KEY REFERENCES sessions(id),parent_id TEXT NOT NULL REFERENCES sessions(id),link_seq INTEGER NOT NULL,link_id TEXT NOT NULL,FOREIGN KEY(parent_id,link_seq) REFERENCES records(session_id,seq));
 PRAGMA user_version=2;
 COMMIT;`)
-	return err
+	if err != nil {
+		return err
+	}
+	return r.initialize(ctx)
 }
 
 func (r *Repository) Close() error {

@@ -347,31 +347,6 @@ func (c *Controller) Close(ctx context.Context) error {
 }
 
 func cloneEvent(event RecordedEvent) RecordedEvent {
-	if event.Event.Message != nil {
-		message := wire.CloneMessages([]wire.Message{*event.Event.Message})[0]
-		event.Event.Message = &message
-	}
-	if event.Event.ContentBlock != nil {
-		block := wire.CloneContent([]wire.ContentBlock{*event.Event.ContentBlock})[0]
-		event.Event.ContentBlock = &block
-	}
-	if event.Event.ToolCall != nil {
-		call := *event.Event.ToolCall
-		call.Arguments = append([]byte(nil), call.Arguments...)
-		event.Event.ToolCall = &call
-	}
-	if event.Event.ToolResult != nil {
-		result := *event.Event.ToolResult
-		result.Content = wire.CloneContent(result.Content)
-		event.Event.ToolResult = &result
-	}
-	if event.Event.Record != nil {
-		record := *event.Event.Record
-		event.Event.Record = &record
-	}
-	if event.Event.Usage != nil {
-		usage := wire.CloneUsage(*event.Event.Usage)
-		event.Event.Usage = &usage
-	}
+	event.Event = abi.CloneEvent(event.Event)
 	return event
 }

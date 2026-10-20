@@ -19,6 +19,16 @@ import (
 // The caller must obtain owner/nativeID from its trusted session binding. These
 // are not independent credentials accepted from UI fields.
 func NativeSessionPlugins(ctx context.Context, repository *session.Repository, owner, nativeID string) ([]core.Plugin, error) {
+	return nativeSessionPlugins(ctx, repository, owner, nativeID, true)
+}
+
+// NativeSessionViews supplies context/references/history when an explicit outer
+// execution owner (such as durable.Controller) already holds the native claim.
+// It grants no execution claim and must not be used by an unowned runner.
+func NativeSessionViews(ctx context.Context, repository *session.Repository, owner, nativeID string) ([]core.Plugin, error) {
+	return nativeSessionPlugins(ctx, repository, owner, nativeID, false)
+}
+func nativeSessionPlugins(ctx context.Context, repository *session.Repository, owner, nativeID string, claim bool) ([]core.Plugin, error) {
 	if repository == nil {
 		return nil, errors.New("native session repository required")
 	}
@@ -26,11 +36,8 @@ func NativeSessionPlugins(ctx context.Context, repository *session.Repository, o
 	if err != nil {
 		return nil, err
 	}
-	source, err := repository.BoundContextSource(ctx, owner, nativeID)
-	if err != nil {
-		return nil, err
-	}
-	return []core.Plugin{&nativeContextPlugin{source: source}, &nativeSessionPlugin{repository: repository, owner: owner, id: nativeID, history: &nativeHistoryTool{repository: repository, owner: owner, id: nativeID}}, NewContextRetrievalPlugin(nativeID, backend)}, nil
+	source := &nativeContextSource{repository: repository, owner: owner, id: nativeID}
+	return []core.Plugin{&nativeContextPlugin{source: source}, &nativeSessionPlugin{repository: repository, owner: owner, id: nativeID, claim: claim, history: &nativeHistoryTool{repository: repository, owner: owner, id: nativeID}}, NewContextRetrievalPlugin(nativeID, backend)}, nil
 }
 
 // Source and context lifecycle are separate contributions so child communication
@@ -46,18 +53,22 @@ type nativeSessionPlugin struct {
 	repository *session.Repository
 	owner, id  string
 	history    *nativeHistoryTool
+	claim      bool
 }
 
 func (*nativeSessionPlugin) Name() string { return "native-session" }
 func (p *nativeSessionPlugin) Register(_ context.Context, r *core.Registrar) error {
 	// Claim the actual native log before any other run-start side effects.
-	if err := r.Middleware(&nativeRunClaim{repository: p.repository, owner: p.owner, id: p.id}, -10000); err != nil {
-		return err
+	if p.claim {
+		if err := r.Middleware(&nativeRunClaim{repository: p.repository, owner: p.owner, id: p.id}, -10000); err != nil {
+			return err
+		}
 	}
 	if err := r.Tool(p.history); err != nil {
 		return err
 	}
-	return r.SystemPrompt("This actual native session has durable typed execution records and session-owned artifacts. native_history lists/searches small record references; context_read/context_search explicitly read those references. Original artifact bytes are retained with hashes. The model working view keeps a bounded recent user-turn tail and marks omitted history with explicit retrieval references; it does not summarize the prefix. No compression, frame extraction or media understanding is implied. Interrupted tools are marked execution-unknown and are never automatically replayed.")
+	retention := p.repository.ArtifactStorage()
+	return r.SystemPrompt("This actual native session has durable typed execution records and session-owned artifacts. Artifact byte retention is " + string(retention.Retention) + ". native_history lists/searches small record references; context_read/context_search explicitly read those references. Original artifact bytes are retained with hashes within that declared lifetime. The model working view keeps a bounded recent user-turn tail and marks omitted history with explicit retrieval references; it does not summarize the prefix. No compression, frame extraction or media understanding is implied. Interrupted tools are marked execution-unknown and are never automatically replayed.")
 }
 
 type nativeRunClaim struct {

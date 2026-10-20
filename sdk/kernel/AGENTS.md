@@ -7,7 +7,7 @@ SDK 下层，不能直接或传递依赖 sdk/agent、harness、platform、apps�
 
 ## 逻辑
 
-`abi` 定义循环所需最小词汇，`core` 执行，`bus` 提供独立能力注册原语。
+`abi` 定义循环所需最小词汇，`core` 执行并产生可选通用诊断观察，具体保存/编码属于外围Plugin，`bus` 提供独立能力注册原语。
 
 ## 约束
 

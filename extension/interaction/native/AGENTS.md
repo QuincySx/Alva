@@ -23,3 +23,5 @@ Handler所有nil-capable typed-nil形式在构造时拒绝；输入严格校验�
 | 回归 | `plugin_test.go` | 实际宿主broker长回答落引用、选择解析、无handler/身份拒绝 |
 
 通用 Tool 的构造不进入本包；只有需要原生会话、权限与耐久证据的产品装配才导入本 `native` 适配。Plugin.Name、工具名与既有记录 namespace 保持。
+
+原生装配始终配置引用输出；question_outcome 分别记录 answered（已接受有效答案）与 answer_retained（答案证据已保存），后续保存/结算失败不把已答写成未答。AnswerReceivedError 保留关联信息，不自动再次提问。

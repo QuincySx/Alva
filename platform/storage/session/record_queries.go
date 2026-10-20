@@ -1,5 +1,5 @@
 // INPUT: context, database/sql, encoding/json, errors/time/utf8, kernel/abi.
-// OUTPUT: Owner-scoped LatestRecord metadata and atomic compare-and-append extension snapshots.
+// OUTPUT: Owner-scoped LatestRecord metadata and atomic compare-and-append snapshots with optional typed record batches.
 // POS: [platform / durable storage] Durable optional-capability state is restored from the same typed fact authority without reading unrelated history.
 package session
 
@@ -56,7 +56,7 @@ func (r *Repository) LatestRecord(ctx context.Context, owner, id, namespace, kin
 // AppendExtensionSnapshot is optional native optimistic concurrency, not a new
 // kernel requirement. The previous exact stream sequence and the typed append
 // are checked in one transaction. Stale caches cannot overwrite newer facts.
-func (s *Session) AppendExtensionSnapshot(ctx context.Context, namespace, kind string, expected uint64, payload json.RawMessage) (abi.SessionRecord, error) {
+func (s *Session) AppendExtensionSnapshot(ctx context.Context, namespace, kind string, expected uint64, payload json.RawMessage, additional ...abi.SessionRecord) (abi.SessionRecord, error) {
 	r := s.repository
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -78,7 +78,14 @@ func (s *Session) AppendExtensionSnapshot(ctx context.Context, namespace, kind s
 	if current != expected {
 		return abi.SessionRecord{}, ErrRevisionConflict
 	}
-	records, err := appendTx(ctx, tx, s.id, []abi.SessionRecord{{Kind: abi.RecordExtension, Namespace: namespace, Type: kind, SchemaVersion: 1, Payload: payload}})
+	batch := []abi.SessionRecord{{Kind: abi.RecordExtension, Namespace: namespace, Type: kind, SchemaVersion: 1, Payload: payload}}
+	for _, record := range additional {
+		if record.Namespace == namespace && record.Type == kind {
+			return abi.SessionRecord{}, errors.New("additional records cannot replace the compared snapshot stream")
+		}
+		batch = append(batch, record)
+	}
+	records, err := appendTx(ctx, tx, s.id, batch)
 	if err != nil {
 		return abi.SessionRecord{}, err
 	}

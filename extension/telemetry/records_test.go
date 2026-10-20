@@ -1,7 +1,7 @@
 // INPUT: Pure prepared requests, model identity metadata and explicit optional provider cache counters
 // OUTPUT: Stable versus dynamic fingerprint and cache reporting presence regressions
-// POS: [L2 kernel runtime] Audit metadata never guesses provider caching or stores request bodies.
-package core
+// POS: [L4 optional telemetry] Audit metadata never guesses provider caching or stores request bodies.
+package telemetry
 
 import (
 	"context"

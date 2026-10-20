@@ -10,7 +10,7 @@
 解析非测试 Go 源码 imports，含 `desktop` 条件文件，验证直接及传递依赖。
 `sdk` 保留 L0/L1/L2/L2.3/L2.5/L3 细分职责；`extension` 为 L4、`harness` 为 L5、
 `apps` 为 L6/L7；`integration` 与 `platform` 是横向协议/原生支撑，不是绕过边界的容器。
-公开快照扫描 `sdk` 中原有五个契约包和纯sandbox ABI；路径迁移只更新其 import 身份，不建立旧路径别名。
+公开快照扫描 `sdk` 中wire/bus/kernel ABI/kernel core/agent ABI/agent core和纯sandbox ABI；路径迁移只更新其 import 身份，不建立旧路径别名。
 
 ## 约束
 
@@ -23,6 +23,8 @@ SDK、harness、integration、platform、extension 不得向上依赖 apps；L0 
 platform/host/workspace 是独立叶子，不得依赖 extension/harness/storage 或 host 父包；模型引用/备份政策留 extension/files。
 extension/utility/timer是已抽出的portable Tool叶子，直接/传递只可标准库与SDK，不能重新拉入父native Plugin、SQLite/host或第三方依赖；负例持续验证而非仅凭包名宣称轻量。
 planning/interaction/utility 根包与纯 strictjson helper 只能直接/传递依赖标准库、SDK 和该 helper，禁止回引 native/、具体存储/host/外部依赖；含同名前缀子包与 helper 偷带 SQLite 的反例。
+harness/durable 根包保持纯编排，只可用标准库、SDK、普通interaction和strictjson；native存储适配不得反向进入根包，传递反例持续验证。
+platform/storage/blob根契约和adapter仅可标准库与根契约；根不依赖adapter，内存不继承SQL/SDK/执行/产品；含直接/传递反例。
 显式 module import 即使没有被扫描的源节点也保留 workspace 身份，不能伪装成标准库依赖。
 旧目录和 import 路径不保留，布局回归拒绝旧名或 symlink 兼容桥。
 纯容器目录即使没有 Go 源文件也必须保留含分形四节的地图文档。

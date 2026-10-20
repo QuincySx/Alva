@@ -20,7 +20,7 @@ import (
 // This host supplies only the business operations exercised below. Embedding
 // Service makes any unexpected operation fail visibly instead of faking success.
 type workflow struct {
-	planning.Service
+	planning.TaskService
 	created []planning.TaskRecord
 }
 
@@ -61,13 +61,13 @@ func TestWorkflowToolsRunInStandaloneMemorySDK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tools, err := planning.NewTools(backend, func(ctx context.Context, record planning.TaskRecord) (wire.Reference, error) {
+	tools, err := planning.NewTaskTools(planning.TaskToolsConfig{Service: backend, RetainDetail: func(ctx context.Context, record planning.TaskRecord) (wire.Reference, error) {
 		raw, err := json.Marshal(record)
 		if err != nil {
 			return wire.Reference{}, err
 		}
 		return refs.StoreText(ctx, string(raw))
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestWorkflowToolsRunInStandaloneMemorySDK(t *testing.T) {
 func TestWorkflowRejectsAmbiguityAndPreservesDetailFailure(t *testing.T) {
 	backend := &workflow{}
 	retainErr := errors.New("reference store unavailable")
-	tools, err := planning.NewTools(backend, func(context.Context, planning.TaskRecord) (wire.Reference, error) { return wire.Reference{}, retainErr })
+	tools, err := planning.NewTaskTools(planning.TaskToolsConfig{Service: backend, RetainDetail: func(context.Context, planning.TaskRecord) (wire.Reference, error) { return wire.Reference{}, retainErr }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestWorkflowRejectsAmbiguityAndPreservesDetailFailure(t *testing.T) {
 	if !errors.Is(err, retainErr) || len(result.Content) != 0 || len(backend.created) != 1 {
 		t.Fatal("failed evidence claimed success or replayed the business operation", result, err)
 	}
-	if _, err := planning.NewTools((*workflow)(nil), func(context.Context, planning.TaskRecord) (wire.Reference, error) { return wire.Reference{}, nil }); err == nil {
+	if _, err := planning.NewTaskTools(planning.TaskToolsConfig{Service: (*workflow)(nil)}); err == nil {
 		t.Fatal("nil backend admitted")
 	}
 }

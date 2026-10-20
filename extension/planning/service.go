@@ -1,5 +1,5 @@
 // INPUT: context, encoding/json, agent Task and llm/wire.
-// OUTPUT: TaskRecord, TaskPage, CreateRequest, UpdateRequest and replaceable Service.
+// OUTPUT: TaskRecord, TaskPage, request DTOs, TaskService and the native bundle Service.
 // POS: [L4 extension] Portable workflow contracts contain no native execution, storage or authorization policy.
 package planning
 
@@ -39,14 +39,20 @@ type UpdateRequest struct {
 	AppendOutput              *string
 }
 
-// Service is an explicitly bound host capability. Implementations own task
-// validation, concurrency and persistence; they grant no execution authority.
-// Output references must remain readable through the actual session's reader.
-type Service interface {
+// TaskService owns task validation, concurrency and persistence, without plan
+// storage or execution authority. Errors do not imply that no effect occurred.
+type TaskService interface {
 	Create(context.Context, CreateRequest) (TaskRecord, error)
 	Get(context.Context, string) (TaskRecord, bool, error)
 	List(context.Context, agentabi.TaskStatus, int, int) (TaskPage, error)
 	Update(context.Context, UpdateRequest) (TaskRecord, error)
+}
+
+// Service is the complete native planning bundle. Small consumers need only
+// TaskService or the write callback accepted by NewPlanTool. Output references
+// must remain readable through the actual session's reader.
+type Service interface {
+	TaskService
 	SetNotes(context.Context, string) (wire.Reference, error)
 	Notes(context.Context) (*wire.Reference, error)
 }

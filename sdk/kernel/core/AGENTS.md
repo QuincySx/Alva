@@ -47,8 +47,9 @@ ContextRuntime协调七hooks和独立ContextApply，只改变provider工作集�
 模型wrapper的Tools/Config传输投影不自动改写logical RunConfig+BeforeModel的工具执行许可；多尝试输出来源不通过现有任意Go回调自动证明。
 ToolTimeout同步等待实际退出；Dangling只补工作集未知结果、不重放；LoopDetection使用AgentState typed extensions，实例可共享。
 ModelConfig每次调用deep clone；disable/allowlist既过滤schema也限制实际工具调用。模型完整块通过共享StreamAccumulator保持顺序/签名/媒体元数据。
-middleware各实际hook以阶段打包为一条alva.kernel.audit/middleware_hook_batch，保留run/call、实际layer index、进入/展开顺序、inclusive耗时及固定错误类别；无prompt/result/原始private错误正文。before/after/start/input/end与prepare/wrap都覆盖，未实现的可选Go接口不虚构调用。完整tool outcome先按模型顺序真实settle，再append其阶段审计；audit失败保留typed SessionError并补齐剩余调用，绝不重执行或标NoSideEffect。取消用独立5秒cleanup保存证据；已有tool/end cleanup不重置deadline。
-LLM审计在BeforeModel之后capture实际模型、与intent同事务提交versioned cache-base/tool-schema指纹；base仅configured稳定system+实际identity+有序effective schemas，实际prepared system另存hash，动态system/history不混入稳定base。wrapper仍可retry/改transport，审计明确是logical request的model接口观测。每个响应首输出/流摘要最多各一条，尾部合批提交，不逐token写盘；只含计数/时间/固定outcome与真实usage的hit/write/miss/unreported，不含正文/私有错误。记录失败保留SessionError、结算model并拒绝Tool执行。Phase其余timeline observation仍未逐项等价，不宣称完整Rust表面已迁完。
+可选DiagnosticObserver通过显式Bus能力装配，缺失时不持久化诊断。内核只提供实际hook次序/inclusive耗时与无正文流计数；指纹、cache分类、记录schema和具体保存政策由extension/telemetry拥有。诊断保存失败调用observer.ReportFailure后继续，真实hook错误仍按原语义返回；intent/outcome/恢复事实/Flush错误始终中断。模型和工具的执行事实不经过observer。
+全部wrapper之后的实际ModelRequest在Stream前校验wire消息/工具定义/ModelConfig，不依赖诊断指纹偶然充当校验器。观察器拿独立request副本，不能修改真实调用。流/阶段诊断有界合批，不逐token写盘。
+
 
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
@@ -59,8 +60,9 @@ LLM审计在BeforeModel之后capture实际模型、与intent同事务提交versi
 | Tool waves | `tool_batch.go` | 冲突感知并行与模型顺序settlement |
 | Tool preparation | `tool_prepare.go` | intent前改参/替代结果与失败批次原子结算 |
 | Frozen execution | `tool_execute.go` | post-intent参数不可变与真实execution authority绑定 |
-| Hook audit | `hook_audit.go` | typed阶段批次、实际顺序/inclusive耗时、固定错误类别与真实settle后耐久审计 |
-| LLM audit | `llm_audit.go`, `llm_audit_test.go` | versioned稳定base/实际schema与prepared system指纹、cache presence分类与无正文有界stream观测 |
+| Hook observations | `hook_audit.go` | typed阶段观察、实际顺序/inclusive耗时、固定错误类别，无具体持久化schema |
+| Optional diagnostics | `diagnostics.go` | 窄DiagnosticObserver、独立request副本、显式报告诊断失败而不改变执行 |
+| Stream observations | `llm_audit.go` | 无正文计数/耗时/usage，指纹及具体记录已在extension/telemetry |
 | Context lifecycle | `context_runtime.go` / `context_runtime_test.go` | 七hooks/prepare/budget、只读Source选择/归属/失败不回退与deepcopy |
 | Hygiene | `builtins.go`, `loop_detection.go` | 同步超时、dangling修复、运行态循环检测 |
 | Event transport | `events.go` | BoundedEventSink 的 lossless/backpressure/cancel/close |

@@ -27,7 +27,7 @@ var ErrSessionNotRunning = errors.New("Hub session is not running")
 var ErrSessionBusy = errors.New("Hub session already running")
 
 type Runtime struct {
-	store       Store
+	store       ExecutionStore
 	mu          sync.Mutex
 	engines     map[string]engine.Runtime
 	descriptors map[string]engine.Descriptor
@@ -37,7 +37,7 @@ type Runtime struct {
 	actions     map[*workspaceAction]struct{}
 }
 
-func New(store Store) *Runtime {
+func New(store ExecutionStore) *Runtime {
 	return &Runtime{store: store, engines: make(map[string]engine.Runtime), descriptors: make(map[string]engine.Descriptor), active: make(map[string]*activeRun), workspaces: newWorkspaceRegistry()}
 }
 

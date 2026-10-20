@@ -1,11 +1,10 @@
-// INPUT: context, encoding/json, errors, sync/time, kernel/abi
-// OUTPUT: Private typed stage-wide middleware audit batches and failure-safe durable append
-// POS: [L2 kernel runtime] Generic loop observation records identity/order/inclusive time, never prompt/result bodies or private error text.
+// INPUT: context, errors, sync/time and kernel/abi
+// OUTPUT: Typed generic stage-wide middleware observations for an optional observer
+// POS: [L2 kernel runtime] Measures identity/order/inclusive time without owning diagnostic schemas or persistence policy.
 package core
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -13,7 +12,7 @@ import (
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
 
-type hookObservation struct {
+type HookObservation struct {
 	MiddlewareName string `json:"middleware_name"`
 	LayerIndex     int    `json:"layer_index"`
 	DurationMS     int64  `json:"duration_ms"`
@@ -26,7 +25,7 @@ type hookBatch struct {
 	RunID      string            `json:"run_id"`
 	Hook       string            `json:"hook"`
 	ToolCallID string            `json:"tool_call_id,omitempty"`
-	Calls      []hookObservation `json:"calls"`
+	Calls      []HookObservation `json:"calls"`
 }
 
 func newHookBatch(runID, hook, callID string) *hookBatch {
@@ -36,7 +35,7 @@ func (b *hookBatch) observe(layer abi.Middleware, index int, started time.Time, 
 	if b == nil {
 		return
 	}
-	entry := hookObservation{MiddlewareName: layer.Name(), LayerIndex: index, DurationMS: max(0, time.Since(started).Milliseconds()), Outcome: "ok", Timing: "inclusive"}
+	entry := HookObservation{MiddlewareName: layer.Name(), LayerIndex: index, DurationMS: max(0, time.Since(started).Milliseconds()), Outcome: "ok", Timing: "inclusive"}
 	if err != nil {
 		entry.Outcome = "error"
 		entry.ErrorSummary = "hook_failure"
@@ -53,49 +52,45 @@ func (b *hookBatch) observe(layer abi.Middleware, index int, started time.Time, 
 	b.Calls = append(b.Calls, entry)
 	b.mu.Unlock()
 }
-func (b *hookBatch) record() (abi.SessionRecord, bool) {
+func (b *hookBatch) trace() (HookTrace, bool) {
 	if b == nil {
-		return abi.SessionRecord{}, false
+		return HookTrace{}, false
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if len(b.Calls) == 0 {
-		return abi.SessionRecord{}, false
+		return HookTrace{}, false
 	}
-	data, _ := json.Marshal(struct {
-		RunID      string            `json:"run_id"`
-		Hook       string            `json:"hook"`
-		ToolCallID string            `json:"tool_call_id,omitempty"`
-		Calls      []hookObservation `json:"calls"`
-	}{b.RunID, b.Hook, b.ToolCallID, b.Calls})
-	return abi.SessionRecord{Kind: abi.RecordExtension, Namespace: "alva.kernel.audit", Type: "middleware_hook_batch", SchemaVersion: 1, Payload: data}, true
+	return HookTrace{RunID: b.RunID, Hook: b.Hook, ToolCallID: b.ToolCallID, Calls: append([]HookObservation(nil), b.Calls...)}, true
 }
-func commitHookBatches(ctx context.Context, session abi.ConversationLog, batches ...*hookBatch) error {
+func commitHookBatches(ctx context.Context, session abi.ConversationLog, observer DiagnosticObserver, batches ...*hookBatch) {
+	if observer == nil {
+		return
+	}
 	cleanup, cancel := settlementContext(ctx)
 	defer cancel()
-	return appendHookBatches(cleanup, session, batches...)
+	appendHookBatches(cleanup, session, observer, batches...)
 }
-
-// appendHookBatches reuses an already-owned cleanup deadline. Nested tool/end
-// settlement must not silently reset the outer five-second cleanup window.
-func appendHookBatches(ctx context.Context, session abi.ConversationLog, batches ...*hookBatch) error {
-	var records []abi.SessionRecord
+func appendHookBatches(ctx context.Context, session abi.ConversationLog, observer DiagnosticObserver, batches ...*hookBatch) {
+	if observer == nil {
+		return
+	}
+	var traces []HookTrace
 	for _, batch := range batches {
-		if record, ok := batch.record(); ok {
-			records = append(records, record)
+		if trace, ok := batch.trace(); ok {
+			traces = append(traces, trace)
 		}
 	}
-	if len(records) == 0 {
-		return nil
+	if len(traces) == 0 {
+		return
 	}
-	_, err := appendRecords(ctx, session, records)
-	return err
+	reportDiagnostic(ctx, observer, session, "middleware hooks", observer.Hooks(ctx, session, traces))
 }
 
 // invokeHookPhase only observes actual implemented hooks; missing optional Go
 // interfaces aren't fabricated calls. A failed hook stops before-phases and
 // after-phases just as before; OnRunEnd uses its explicit always-cleanup loop.
-func invokeHookPhase(ctx context.Context, session abi.ConversationLog, runID, hook string, layers []abi.Middleware, reverse bool, invoke func(abi.Middleware) (bool, error)) error {
+func invokeHookPhase(ctx context.Context, session abi.ConversationLog, observer DiagnosticObserver, runID, hook string, layers []abi.Middleware, reverse bool, invoke func(abi.Middleware) (bool, error)) error {
 	batch := newHookBatch(runID, hook, "")
 	var hookErr error
 	for n := 0; n < len(layers); n++ {
@@ -113,7 +108,8 @@ func invokeHookPhase(ctx context.Context, session abi.ConversationLog, runID, ho
 			break
 		}
 	}
-	return errors.Join(hookErr, commitHookBatches(ctx, session, batch))
+	commitHookBatches(ctx, session, observer, batch)
+	return hookErr
 }
 
 type toolHookAudit struct{ before, wrap, after *hookBatch }

@@ -23,8 +23,10 @@
 |---|---|---|
 | Native Service | `service.go` | 消费父包 Service/Task 契约，真实 DAG/更新/Plan 引用、冷恢复与乐观原子快照 |
 | Plugin | `plugin.go` | 同会话权限与生命周期、bus 能力装配 |
-| Tools | `tools.go` | 父包七 Tool 的实际身份/Guard 适配与原生详情保留 |
+| Tools | `tools.go` | 父包六任务 Tool 与独立计划 Tool 的实际身份/Guard 适配、详情保留与原生 task_list 的计划引用投影 |
 | 回归 | `plugin_test.go` | 真实恢复/DAG/状态/元数据/备注、旧缓存冲突与身份/坏快照失败 |
 | 替换回归 | `replacement_test.go` | 真SDK消费自有Service、bus/getter同实例、原生详情证据、默认状态隔离及身份/坏投影/取消拒绝 |
 
 通用 Tool 的构造不进入本包；只有需要原生会话、权限与耐久证据的产品装配才导入本 `native` 适配。Plugin.Name、工具名与既有记录 namespace 保持。
+
+已确认 snapshot 提交后再 flush/投影失败使用父包 CommittedError，不暗示可重试；Task ID/call ID 在实际工具入口关联。任务详情仍强制经本会话引用 writer，不因父包新增无存储模式回退全文。

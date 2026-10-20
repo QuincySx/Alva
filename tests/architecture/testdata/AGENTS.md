@@ -13,4 +13,4 @@ public-surface由AST机械生成，并在接口审查后显式更新。
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
-| public-surface | public-surface/ | wire、bus、kernel/agent ABI与装配公开面 |
+| public-surface | public-surface/ | wire、bus、kernel/agent ABI、可替换kernel core与装配公开面 |

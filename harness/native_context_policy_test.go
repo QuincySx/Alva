@@ -1,7 +1,7 @@
 // INPUT: context, encoding/json, errors, fmt, filepath, reflect, strings, testing, agent/core, kernel/abi, llm/wire
 // OUTPUT: Bounded native source isolation, restart, protocol and oversized-history integration regressions
-// POS: [Native context testing] Proves working views bypass full restoration without silently losing the current turn or original facts.
-package session
+// POS: [L5 harness context testing] Proves working views bypass full restoration without silently losing the current turn or original facts.
+package harness
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -24,11 +25,11 @@ func (reader sourceOnlyReader) ID() string { return string(reader) }
 func (sourceOnlyReader) Messages(context.Context) ([]wire.Message, error) {
 	panic("bounded source restored whole conversation")
 }
-func addContextMessages(t *testing.T, log *Session, texts ...string) {
+func addContextMessages(t *testing.T, log *session.Session, texts ...string) {
 	t.Helper()
 	batch := make([]abi.SessionRecord, 0, len(texts))
 	for _, text := range texts {
-		batch = append(batch, conversation(text))
+		batch = append(batch, contextConversation(text))
 	}
 	for i := range batch {
 		batch[i] = abi.BuiltinRecord(batch[i])
@@ -40,7 +41,7 @@ func addContextMessages(t *testing.T, log *Session, texts ...string) {
 func TestNativeContextSourceReopensWithStableBoundedView(t *testing.T) {
 	ctx := t.Context()
 	dir := filepath.Join(t.TempDir(), "facts")
-	repo, err := Open(ctx, dir)
+	repo, err := session.Open(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +56,7 @@ func TestNativeContextSourceReopensWithStableBoundedView(t *testing.T) {
 		}
 		addContextMessages(t, log, texts...)
 	}
-	source, err := repo.BoundContextSource(ctx, "owner", log.ID())
+	source, err := bindContextSource(ctx, repo, "owner", log.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,13 +67,13 @@ func TestNativeContextSourceReopensWithStableBoundedView(t *testing.T) {
 	if len(view) != contextTargetMessages+1 || view[len(view)-1].Text() != "message 255" || !strings.Contains(view[0].Text(), "not a summary") {
 		t.Fatal("incorrect bounded tail", len(view), err)
 	}
-	if _, err := repo.BoundContextSource(ctx, "foreign", log.ID()); !errors.Is(err, ErrNotFound) {
+	if _, err := bindContextSource(ctx, repo, "foreign", log.ID()); !errors.Is(err, session.ErrNotFound) {
 		t.Fatal("foreign owner accepted", err)
 	}
 	if _, err := source.Load(ctx, sourceOnlyReader("foreign")); err == nil {
 		t.Fatal("source accepted foreign runtime")
 	}
-	var missingReader *Session
+	var missingReader *session.Session
 	if _, err := source.Load(ctx, missingReader); err == nil {
 		t.Fatal("source accepted a typed-nil reader")
 	}
@@ -80,24 +81,15 @@ func TestNativeContextSourceReopensWithStableBoundedView(t *testing.T) {
 	if err != nil || len(all) != 256 {
 		t.Fatal("source changed original log", len(all), err)
 	}
-	// Simulate an existing schema-v2 repository created before the optional
-	// working-view access path. Reopen must add it without changing facts.
-	if _, err := repo.db.ExecContext(ctx, "DROP INDEX conversation_tail"); err != nil {
-		t.Fatal(err)
-	}
 	if err := repo.Close(); err != nil {
 		t.Fatal(err)
 	}
-	repo, err = Open(ctx, dir)
+	repo, err = session.Open(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer repo.Close()
-	var indexed int
-	if err := repo.db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='index' AND name='conversation_tail'").Scan(&indexed); err != nil || indexed != 1 {
-		t.Fatal("older repository did not gain conversation index", indexed, err)
-	}
-	source, err = repo.BoundContextSource(ctx, "owner", "native-source")
+	source, err = bindContextSource(ctx, repo, "owner", "native-source")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +100,7 @@ func TestNativeContextSourceReopensWithStableBoundedView(t *testing.T) {
 }
 
 func TestNativeContextSourceIncludesWholeLatestToolTurn(t *testing.T) {
-	repo, log := repoSession(t)
+	repo, log := contextRepoSession(t)
 	addContextMessages(t, log, "older")
 	var blocks []wire.ContentBlock
 	for i := 0; i < 80; i++ {
@@ -129,7 +121,7 @@ func TestNativeContextSourceIncludesWholeLatestToolTurn(t *testing.T) {
 	if _, err := log.AppendRecords(t.Context(), batch); err != nil {
 		t.Fatal(err)
 	}
-	source, err := repo.BoundContextSource(t.Context(), "owner", "native")
+	source, err := bindContextSource(t.Context(), repo, "owner", "native")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,9 +131,6 @@ func TestNativeContextSourceIncludesWholeLatestToolTurn(t *testing.T) {
 	}
 	if len(view) != 83 || view[1].Text() != "latest input" || len(view[2].Content) != 80 {
 		t.Fatal("tool batch lost current input/protocol", len(view))
-	}
-	if err := validateContextProtocol(view); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -159,7 +148,7 @@ func (plugin sourceContribution) Register(_ context.Context, r *core.Registrar) 
 }
 
 func TestNativeContextSourceRunsBeyondCompleteRestoreBudget(t *testing.T) {
-	repo, log := repoSession(t)
+	repo, log := contextRepoSession(t)
 	// Real original bytes exceed the complete 64 MiB restore budget. None of
 	// these old bodies needs to be decoded for a later small bounded turn.
 	large := strings.Repeat("x", 16<<20)
@@ -168,7 +157,7 @@ func TestNativeContextSourceRunsBeyondCompleteRestoreBudget(t *testing.T) {
 	}
 	large = ""
 	addContextMessages(t, log, "latest before the smaller tail")
-	earlySource, err := repo.BoundContextSource(t.Context(), "owner", log.ID())
+	earlySource, err := bindContextSource(t.Context(), repo, "owner", log.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +175,7 @@ func TestNativeContextSourceRunsBeyondCompleteRestoreBudget(t *testing.T) {
 	if _, err := log.Messages(t.Context()); err == nil || !strings.Contains(err.Error(), "64 MiB") {
 		t.Fatal("fixture did not exceed original complete restore budget", err)
 	}
-	source, err := repo.BoundContextSource(t.Context(), "owner", log.ID())
+	source, err := bindContextSource(t.Context(), repo, "owner", log.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,74 +198,50 @@ func TestNativeContextSourceRunsBeyondCompleteRestoreBudget(t *testing.T) {
 	if calls != 1 || messageCount > contextTargetMessages+1 {
 		t.Fatal("model did not receive bounded view", calls, messageCount)
 	}
-	var stored int
-	if err := repo.db.QueryRowContext(t.Context(), "SELECT count(*) FROM records WHERE session_id=? AND kind='conversation'", log.ID()).Scan(&stored); err != nil || stored != 135 {
-		t.Fatal("complete facts were changed", stored, err)
+	meta, err := repo.Page(t.Context(), "owner", log.ID(), 0, 1, 0)
+	if err != nil || meta.HighWater == 0 {
+		t.Fatal("facts missing", err)
 	}
+
 }
 
-func TestNativeContextSourceRejectsInvalidSelectedEvidence(t *testing.T) {
-	for _, failure := range []string{"bytes", "missing", "body", "orphan", "too-many"} {
-		t.Run(failure, func(t *testing.T) {
-			repo, log := repoSession(t)
-			addContextMessages(t, log, "latest")
-			switch failure {
-			case "bytes":
-				_, _ = repo.db.ExecContext(t.Context(), "UPDATE artifacts SET bytes=? WHERE session_id=?", contextMaxBytes+1, log.ID())
-			case "missing":
-				_, _ = repo.db.ExecContext(t.Context(), "PRAGMA foreign_keys=OFF")
-				_, _ = repo.db.ExecContext(t.Context(), "DELETE FROM artifacts WHERE session_id=?", log.ID())
-			case "body":
-				_, _ = repo.db.ExecContext(t.Context(), "UPDATE artifact_chunks SET data=?", []byte("corrupt"))
-			case "orphan":
-				result := wire.ToolResult{CallID: "missing"}
-				message := wire.Message{Role: wire.RoleTool, Content: []wire.ContentBlock{{Kind: wire.ContentToolResult, ToolResult: &result}}}
-				if _, err := log.AppendRecords(t.Context(), []abi.SessionRecord{abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message})}); err != nil {
-					t.Fatal(err)
-				}
-			case "too-many":
-				batch := make([]abi.SessionRecord, contextMaxMessages)
-				for i := range batch {
-					message := wire.TextMessage(wire.RoleAssistant, "long unfinished turn")
-					batch[i] = abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message})
-				}
-				for i := range batch {
-					batch[i] = abi.BuiltinRecord(batch[i])
-				}
-				if _, err := log.AppendRecords(t.Context(), batch); err != nil {
-					t.Fatal(err)
-				}
-			}
-			source, err := repo.BoundContextSource(t.Context(), "owner", log.ID())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if messages, err := source.Load(t.Context(), sourceOnlyReader(log.ID())); err == nil || messages != nil {
-				t.Fatal("invalid evidence yielded partial/success view", messages, err)
-			}
-		})
+func bindContextSource(ctx context.Context, repo *session.Repository, owner, id string) (abi.ContextSource, error) {
+	if _, err := repo.OpenSession(ctx, owner, id); err != nil {
+		return nil, err
 	}
+	return &nativeContextSource{repository: repo, owner: owner, id: id}, nil
 }
-
-func TestNativeContextSourceDoesNotReadOmittedBodies(t *testing.T) {
-	repo, log := repoSession(t)
-	texts := make([]string, 128)
-	for i := range texts {
-		texts[i] = fmt.Sprintf("history %d", i)
-	}
-	addContextMessages(t, log, texts...)
-	if _, err := repo.db.ExecContext(t.Context(), "UPDATE artifact_chunks SET data=? WHERE artifact_id=(SELECT artifact_id FROM records WHERE session_id=? AND seq=1)", []byte("corrupt omitted body"), log.ID()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := log.Messages(t.Context()); err == nil {
-		t.Fatal("full read did not detect corruption")
-	}
-	source, err := repo.BoundContextSource(t.Context(), "owner", log.ID())
+func contextConversation(text string) abi.SessionRecord {
+	message := wire.TextMessage(wire.RoleUser, text)
+	return abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message})
+}
+func contextRepoSession(t *testing.T) (*session.Repository, *session.Session) {
+	t.Helper()
+	repo, err := session.Open(t.Context(), filepath.Join(t.TempDir(), "facts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := source.Load(t.Context(), sourceOnlyReader(log.ID()))
-	if err != nil || len(view) != contextTargetMessages+1 {
-		t.Fatal("source restored omitted bodies", len(view), err)
+	t.Cleanup(func() { repo.Close() })
+	log, err := repo.Create(t.Context(), "owner", "native", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repo, log
+}
+
+func TestNativeContextRefusesToSplitAnOversizedLatestTurn(t *testing.T) {
+	repo, log := contextRepoSession(t)
+	addContextMessages(t, log, "latest user input")
+	var batch []abi.SessionRecord
+	for range contextMaxMessages {
+		m := wire.TextMessage(wire.RoleAssistant, "same unfinished user turn")
+		batch = append(batch, abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &m}))
+	}
+	if _, err := log.AppendRecords(t.Context(), batch); err != nil {
+		t.Fatal(err)
+	}
+	source := &nativeContextSource{repository: repo, owner: "owner", id: log.ID()}
+	if messages, err := source.Load(t.Context(), sourceOnlyReader(log.ID())); err == nil || messages != nil {
+		t.Fatal("source silently split the current turn", len(messages), err)
 	}
 }

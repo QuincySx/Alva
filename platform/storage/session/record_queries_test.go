@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
 	"path/filepath"
 	"testing"
 )
@@ -49,6 +50,32 @@ func TestExactTypedStreamMetadataAndOptimisticAppend(t *testing.T) {
 	}
 	if len(records) != 3 {
 		t.Fatal("failed compare wrote a fact")
+	}
+}
+
+func TestSnapshotAndResultMessageCommitAtomically(t *testing.T) {
+	r, log := repoSession(t)
+	message := wire.TextMessage(wire.RoleUser, "external result")
+	first, err := log.AppendExtensionSnapshot(t.Context(), "alva.test", "snapshot", 0, json.RawMessage(`{"delivered":true}`), abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if messages, err := log.Messages(t.Context()); err != nil || len(messages) != 1 {
+		t.Fatal(messages, err)
+	}
+	if _, err := log.AppendExtensionSnapshot(t.Context(), "alva.test", "snapshot", 0, json.RawMessage(`{}`), abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message})); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatal(err)
+	}
+	bad := wire.Message{Role: "invalid"}
+	if _, err := log.AppendExtensionSnapshot(t.Context(), "alva.test", "snapshot", first.Sequence, json.RawMessage(`{}`), abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &bad})); err == nil {
+		t.Fatal("invalid result message partially committed")
+	}
+	entry, _, err := r.LatestRecord(t.Context(), "owner", log.ID(), "alva.test", "snapshot")
+	if err != nil || entry.Sequence != first.Sequence {
+		t.Fatal("CAS state advanced without delivery", entry, err)
+	}
+	if messages, err := log.Messages(t.Context()); err != nil || len(messages) != 1 {
+		t.Fatal("delivery duplicated on rejected commit", messages, err)
 	}
 }
 

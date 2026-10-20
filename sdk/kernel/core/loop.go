@@ -76,6 +76,7 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 	if err != nil {
 		return err
 	}
+	diagnostics, _ := bus.Resolve[DiagnosticObserver](config.Bus)
 	runtime := abi.RuntimeContext{RunID: runID, State: config.State, Workspace: config.Workspace, Capabilities: config.Bus}
 	session := config.State.Session()
 	var touchedLogs []abi.ConversationLog
@@ -110,7 +111,7 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 				runErr = errors.Join(runErr, err)
 			}
 		}
-		runErr = errors.Join(runErr, appendHookBatches(cleanup, endLog, endAudit))
+		appendHookBatches(cleanup, endLog, diagnostics, endAudit)
 		current := config.State.Session()
 		touch(current)
 		for _, log := range touchedLogs {
@@ -132,7 +133,7 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := invokeHookPhase(ctx, session, runID, "on_run_start", config.Middleware, false, func(layer abi.Middleware) (bool, error) {
+	if err := invokeHookPhase(ctx, session, diagnostics, runID, "on_run_start", config.Middleware, false, func(layer abi.Middleware) (bool, error) {
 		if hook, ok := layer.(abi.RunStartHook); ok {
 			return true, hook.OnRunStart(ctx, runtime)
 		}
@@ -162,7 +163,7 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 		for _, record := range committed {
 			if record.Message != nil {
 				message := *record.Message
-				if err := invokeHookPhase(ctx, session, runID, "input_committed", config.Middleware, false, func(layer abi.Middleware) (bool, error) {
+				if err := invokeHookPhase(ctx, session, diagnostics, runID, "input_committed", config.Middleware, false, func(layer abi.Middleware) (bool, error) {
 					if hook, ok := layer.(abi.InputCommittedHook); ok {
 						return true, hook.InputCommitted(ctx, runtime, wire.CloneMessages([]wire.Message{message})[0])
 					}
@@ -228,7 +229,7 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 			}
 		}
 		request.Messages = append(systemMessages, request.Messages...)
-		if err := invokeHookPhase(ctx, session, runID, "before_model", config.Middleware, false, func(layer abi.Middleware) (bool, error) {
+		if err := invokeHookPhase(ctx, session, diagnostics, runID, "before_model", config.Middleware, false, func(layer abi.Middleware) (bool, error) {
 			if hook, ok := layer.(abi.BeforeModelHook); ok {
 				return true, hook.BeforeModel(ctx, invocationRuntime, &request)
 			}
@@ -251,27 +252,31 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 			return err
 		}
 		actualModel := config.State.Model()
-		startAudit, err := modelStartAudit(runID, requestID, config.SystemPrompt, actualModel, request)
-		if err != nil {
-			return err
-		}
-		if _, err := appendRecords(ctx, session, []abi.SessionRecord{startAudit, {Kind: abi.RecordModelIntent, ModelIntent: &abi.ModelIntent{RequestID: requestID}}}); err != nil {
+		if _, err := appendRecords(ctx, session, []abi.SessionRecord{{Kind: abi.RecordModelIntent, ModelIntent: &abi.ModelIntent{RequestID: requestID}}}); err != nil {
 			return fmt.Errorf("commit model intent: %w", err)
+		}
+		if diagnostics != nil {
+			observed := abi.ModelRequest{Messages: wire.CloneMessages(request.Messages), Tools: cloneDefinitions(request.Tools), Config: wire.CloneModelConfig(request.Config)}
+			reportDiagnostic(ctx, diagnostics, session, "model start", diagnostics.ModelStart(ctx, session, ModelObservation{RunID: runID, RequestID: requestID, SystemPrompt: config.SystemPrompt, Model: actualModel, Request: observed}))
 		}
 		modelAudit := newHookBatch(runID, "wrap_model", "")
 		admissionAudit := newHookBatch(runID, "admit_model", "")
-		observation := newStreamObservation(runID, requestID)
+		var observation *StreamObservation
+		if diagnostics != nil {
+			observation = newStreamObservation(runID, requestID)
+		}
 		message, calls, usage, streamErr := collectObserved(ctx, wrappedModel{runtime: invocationRuntime, middleware: config.Middleware, audit: modelAudit, admission: admissionAudit, actual: actualModel}, request, config.MaxResponseBytes, emit, observation)
-		cleanup, stopAudit := settlementContext(ctx)
-		_, auditErr := appendRecords(cleanup, session, observation.records(usage, errors.Join(streamErr, ctx.Err())))
-		stopAudit()
-		streamErr = errors.Join(streamErr, auditErr)
-		streamErr = errors.Join(streamErr, commitHookBatches(ctx, session, modelAudit, admissionAudit))
+		if diagnostics != nil {
+			cleanup, stopAudit := settlementContext(ctx)
+			reportDiagnostic(cleanup, diagnostics, session, "model stream", diagnostics.ModelEnd(cleanup, session, observation.snapshot(usage, errors.Join(streamErr, ctx.Err()))))
+			stopAudit()
+		}
+		commitHookBatches(ctx, session, diagnostics, modelAudit, admissionAudit)
 		if streamErr == nil {
 			streamErr = ctx.Err()
 		}
 		if streamErr == nil {
-			streamErr = invokeHookPhase(ctx, session, runID, "after_model", config.Middleware, true, func(layer abi.Middleware) (bool, error) {
+			streamErr = invokeHookPhase(ctx, session, diagnostics, runID, "after_model", config.Middleware, true, func(layer abi.Middleware) (bool, error) {
 				if hook, ok := layer.(abi.AfterModelHook); ok {
 					return true, hook.AfterModel(ctx, invocationRuntime, &message)
 				}
@@ -367,7 +372,7 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 		committedMessage := wire.CloneMessages([]wire.Message{*committed[0].Message})[0]
 		messageReference := reference(session.ID(), committed[0])
 		emitErr := emit(abi.Event{Kind: abi.EventMessageCommitted, Message: &committedMessage, Record: &messageReference})
-		emitErr = errors.Join(emitErr, commitHookBatches(ctx, session, prepareAudit...))
+		commitHookBatches(ctx, session, diagnostics, prepareAudit...)
 		if prepareErr != nil {
 			return errors.Join(prepareErr, emitErr)
 		}
@@ -383,7 +388,7 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 			cancel()
 			return errors.Join(err, settleErr)
 		}
-		batchConfig := ToolBatchConfig{Session: session, Middleware: config.Middleware, Workspace: config.Workspace, Bus: config.Bus, MaxConcurrentTools: config.MaxConcurrentTools, PreparedResults: preparedResults}
+		batchConfig := ToolBatchConfig{Session: session, Middleware: config.Middleware, Workspace: config.Workspace, Bus: config.Bus, MaxConcurrentTools: config.MaxConcurrentTools, PreparedResults: preparedResults, Diagnostics: diagnostics}
 		if err := (ToolBatchCoordinator{}).Execute(ctx, batchConfig, runID, calls, committed[2:], tools, contextRuntime, emit); err != nil {
 			return err
 		}
@@ -400,7 +405,7 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 func collect(ctx context.Context, model abi.LanguageModel, request abi.ModelRequest, maxBytes int, emit func(abi.Event) error) (wire.Message, []wire.ToolCall, *wire.Usage, error) {
 	return collectObserved(ctx, model, request, maxBytes, emit, nil)
 }
-func collectObserved(ctx context.Context, model abi.LanguageModel, request abi.ModelRequest, maxBytes int, emit func(abi.Event) error, observation *streamObservation) (wire.Message, []wire.ToolCall, *wire.Usage, error) {
+func collectObserved(ctx context.Context, model abi.LanguageModel, request abi.ModelRequest, maxBytes int, emit func(abi.Event) error, observation *StreamObservation) (wire.Message, []wire.ToolCall, *wire.Usage, error) {
 	accumulator := wire.NewStreamAccumulator(maxBytes)
 	var callbackErr error
 	var callbackMu sync.Mutex

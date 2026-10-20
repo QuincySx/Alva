@@ -10,8 +10,8 @@ Do not treat archived Rust paths or competitor examples as active implementation
 ## 业务域清单
 | 路径 | 职责 |
 |---|---|
-| ARCHITECTURE.md | Current Go architecture, physical layout and owners |
-| USAGE.md | Root-run commands, live/demo/HTTP/WASM, build verification and data lifecycle |
+| ARCHITECTURE.md | Current Go architecture, physical layout, owners and consumer-specific storage ports |
+| USAGE.md | Root-run commands, live/demo/HTTP/WASM, optional durable-wait/object storage APIs, build verification and data lifecycle |
 | history/ | Complete dated Go checkpoints and initial repository layout review |
 | BUS-RULES.md | Typed capabilities and explicit bounded notifications |
 | REGISTRAR-RULES.md | Assembly contribution boundaries |

@@ -19,6 +19,7 @@
 |---|---|---|
 | Files | `files/` | 严格文件参数、实际会话绑定、引用读取与备份写入；宿主根句柄位于 platform/host/workspace |
 | Security | `security/` | 安全 wrapper、实际 Tool 值身份验证与 effect/HITL 闸 |
+| Telemetry | `telemetry/` | 可选诊断编码/持久化与显式失败报告；不控制执行事实 |
 | Model retry | `modelretry/` | 显式有界次数/字节/数量/总期限的同模型重试，失败流私有，完整成功流才发布 |
 | Tool validation | `toolvalidation/` | 可替换默认schema校验，准备阶段拒绝与冻结执行前复核，不把依赖引入SDK |
 | Skills | `skill/` | 元数据提示与按需Skill Tool，替换仓库同样执行参数/实际调用/输出/取消边界，完整正文按会话引用读取 |
@@ -32,7 +33,7 @@
 | Browser | `browser/` | 七实际Tool、显式owned私有profile/启动risk/HITL，join实际Tool/事实与进程收尾，全量大结果仅引用 |
 | Shell | `shell/` | 明确shell/clean env、同一真实global lease持至reap，run-owned后台stdin/output/kill、审批/管理调用取消与join及脱敏完整引用 |
 | Web | `web/` | 明确network opt-in、无ambient proxy/凭据、审批/risk取消、逐跳安全URL/DNS与有界原文/HTML文本引用，搜索不冒充完整SERP |
-| Planning | `planning/` | 普通七工具直接消费 Service/详情 writer；native/ 包装默认 typed 任务/DAG/CAS 与执行/引用 authority |
-| Interaction | `interaction/` | Handler+引用后端驱动的普通问答工具；native/ 保留会话/审批分离、期限和完整 journal |
-| Utility | `utility/` | 普通偏好/实时目录与独立 timer；native/ 保留偏好 CAS、Guard、schema 脱敏 refs 与下一 request 消费 |
+| Planning | `planning/` | 独立计划/六任务工具只消费写入函数或 TaskService，可选详情 writer；native/ 包装默认 typed 任务/DAG/CAS 与执行/引用 authority |
+| Interaction | `interaction/` | Handler驱动的普通问答工具，可选引用后端；native/ 保留会话/审批分离、期限和完整 journal |
+| Utility | `utility/` | 独立偏好/实时目录与 timer，可选 Schema writer；native/ 保留偏好 CAS、Guard、schema 脱敏 refs 与下一 request 消费 |
 | Notebook | `notebook/` | 受管JSON cell编辑、pinned祖先与明确hash/mode冲突检查，严格参数/保护字段，不执行notebook或冒充OS hash-CAS |

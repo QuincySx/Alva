@@ -37,7 +37,40 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 	// The checked native wrapper is the host authority; only its private delegate
 	// receives a rebound implementation identity, never an untrusted named Tool.
 	e.ActualTool = t.Tool
-	return t.Tool.Execute(ctx, e, call)
+	result, err := t.Tool.Execute(ctx, e, call)
+	if err != nil || result.IsError || t.name != "task_list" {
+		return result, err
+	}
+	// The native bundle combines tasks and plans. Its existing list projection
+	// remains here; ordinary task-only consumers need no plan reader.
+	notes, err := p.service.Notes(ctx)
+	if err != nil {
+		return wire.ToolResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return wire.ToolResult{}, err
+	}
+	if len(result.Content) != 1 || result.Content[0].Kind != wire.ContentText {
+		return wire.ToolResult{}, errors.New("invalid task list projection")
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &body); err != nil || body == nil {
+		return wire.ToolResult{}, errors.New("invalid task list object")
+	}
+	data, err := json.Marshal(notes)
+	if err != nil {
+		return wire.ToolResult{}, err
+	}
+	body["plan_notes"] = data
+	data, err = json.Marshal(body)
+	if err != nil {
+		return wire.ToolResult{}, err
+	}
+	if len(data) > 16<<10 {
+		return wire.ToolResult{}, errors.New("native task list receipt exceeds 16 KiB")
+	}
+	result.Content[0].Text = string(data)
+	return result, nil
 }
 func (p *Plugin) detail(ctx context.Context, task planning.TaskRecord) (wire.Reference, error) {
 	raw, err := json.Marshal(task)

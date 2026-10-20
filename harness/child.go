@@ -38,8 +38,9 @@ type ChildToolBinding struct {
 type BoundChildTool struct {
 	Tool abi.Tool
 	// Plugin, when nonnil, registers Tool itself; the factory does not also add it.
-	Plugin core.Plugin
-	Close  func(context.Context) error
+	Plugin          core.Plugin
+	Close           func(context.Context) error
+	CleanupComplete func() bool
 	// Next explicitly grants permission to rebind this capability for a further
 	// direct descendant. Nil means this child cannot delegate it again.
 	Next ChildToolBinder
@@ -124,13 +125,14 @@ func (factory *NativeChildFactory) Prepare(ctx context.Context, request subagent
 		return child, &abi.SessionError{Operation: "create child/link", SessionID: c.ParentID, Err: err}
 	}
 	log := creation.Session
-	var closers []func(context.Context) error
-	closeAll := func(cleanup context.Context) error {
-		var err error
-		for i := len(closers) - 1; i >= 0; i-- {
-			err = errors.Join(err, closers[i](cleanup))
+	resources := &childResources{}
+	closeChild := func(cleanup context.Context) error {
+		err := resources.Close(cleanup)
+		status := "closed"
+		if err != nil {
+			status = "cleanup_failed"
 		}
-		return err
+		return errors.Join(err, childLifecycle(cleanup, log, creation.Link, status, err, resources.CleanupComplete()))
 	}
 	// Failed setup retains the created child and a truthful failure fact; no
 	// deletion, retry or fake successful execution can hide a partial setup.
@@ -140,10 +142,15 @@ func (factory *NativeChildFactory) Prepare(ctx context.Context, request subagent
 		}
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		if err := closeAll(cleanup); err != nil {
+		if err := resources.Close(cleanup); err != nil {
 			resultErr = errors.Join(resultErr, subagent.ErrChildCleanup, err)
 		}
 		resultErr = errors.Join(resultErr, childLifecycle(cleanup, log, creation.Link, "prepare_failed", resultErr))
+		if !resources.CleanupComplete() {
+			child.Close, child.CleanupComplete = closeChild, resources.CleanupComplete
+		} else {
+			child.Close, child.CleanupComplete = nil, nil
+		}
 	}()
 	refs, err := c.Repository.BoundReferences(ctx, c.Owner, log.ID())
 	if err != nil {
@@ -163,7 +170,7 @@ func (factory *NativeChildFactory) Prepare(ctx context.Context, request subagent
 	for _, binding := range bindings {
 		bound, err := binding.Bind(ctx, ChildBinding{ParentID: c.ParentID, SessionID: log.ID(), Workspace: c.Cwd, References: refs, Guard: c.Guard})
 		if bound.Close != nil {
-			closers = append(closers, bound.Close)
+			resources.add(bound.Close, bound.CleanupComplete)
 		}
 		if err != nil {
 			return child, err
@@ -193,6 +200,7 @@ func (factory *NativeChildFactory) Prepare(ctx context.Context, request subagent
 	if err != nil {
 		return child, err
 	}
+	resources.add(spawn.Close, spawn.CleanupComplete)
 	plugins = append(plugins, spawn)
 	trusted = append(trusted, spawn.Tool())
 	securityPlugin := NewSecurityPlugin(c.Guard, trusted, plugins...)
@@ -213,14 +221,7 @@ func (factory *NativeChildFactory) Prepare(ctx context.Context, request subagent
 	if err != nil {
 		return child, err
 	}
-	child = subagent.Child{Runner: &nativeChildRunner{inner: agent, log: log, link: creation.Link}, Session: log, Link: creation.Link, Close: func(cleanup context.Context) error {
-		err := closeAll(cleanup)
-		status := "closed"
-		if err != nil {
-			status = "cleanup_failed"
-		}
-		return errors.Join(err, childLifecycle(cleanup, log, creation.Link, status, err))
-	}}
+	child = subagent.Child{Runner: &nativeChildRunner{inner: agent, log: log, link: creation.Link}, Session: log, Link: creation.Link, Close: closeChild, CleanupComplete: resources.CleanupComplete}
 	return child, nil
 }
 
@@ -250,7 +251,7 @@ func (runner *nativeChildRunner) Run(ctx context.Context, input []wire.Message, 
 	defer cancel()
 	return errors.Join(err, childLifecycle(cleanup, runner.log, runner.link, status, err))
 }
-func childLifecycle(ctx context.Context, log abi.ConversationLog, link abi.RecordReference, status string, cause error) error {
+func childLifecycle(ctx context.Context, log abi.ConversationLog, link abi.RecordReference, status string, cause error, physicalComplete ...bool) error {
 	message := ""
 	if cause != nil {
 		message = cause.Error()
@@ -265,7 +266,11 @@ func childLifecycle(ctx context.Context, log abi.ConversationLog, link abi.Recor
 	if status == "closed" || status == "cleanup_failed" {
 		phase = "resource_cleanup"
 	}
-	payload, _ := json.Marshal(map[string]any{"status": status, "phase": phase, "parent_link": link, "error": message, "notice": "Actual scoped child lifecycle; sdk_run completed does not imply resource cleanup completed. Parent link is metadata, not permission to read another session"})
+	value := map[string]any{"status": status, "phase": phase, "parent_link": link, "error": message, "notice": "Actual scoped child lifecycle; sdk_run completed does not imply resource cleanup completed. Parent link is metadata, not permission to read another session"}
+	if phase == "resource_cleanup" && len(physicalComplete) == 1 {
+		value["physical_complete"] = physicalComplete[0]
+	}
+	payload, _ := json.Marshal(value)
 	_, err := log.AppendRecords(ctx, []abi.SessionRecord{{Kind: abi.RecordExtension, Namespace: "alva.agent", Type: "child_lifecycle", SchemaVersion: 1, Payload: payload}})
 	if err != nil {
 		return &abi.SessionError{Operation: "commit child lifecycle", SessionID: log.ID(), Err: err}
@@ -306,6 +311,6 @@ func MCPChildBinding(plugin *managedmcp.Plugin) ChildToolBinding {
 			return BoundChildTool{}, err
 		}
 		next := MCPChildBinding(child)
-		return BoundChildTool{Tool: child.Tool(), Plugin: child, Close: child.Close, Next: next.Bind}, nil
+		return BoundChildTool{Tool: child.Tool(), Plugin: child, Close: child.Close, CleanupComplete: child.CleanupComplete, Next: next.Bind}, nil
 	}}
 }

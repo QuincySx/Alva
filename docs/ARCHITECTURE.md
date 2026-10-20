@@ -15,7 +15,7 @@ Go 是唯一受维护的实现，module 根目录就是仓库根目录，module 
 | L3 | sdk/agent/{context,memory,security,analytics,graph} | 可复用能力；Graph 是独立 runtime |
 | L4 | extension | 可选 Tool/Plugin/Middleware |
 | L4.5 | integration/engine 根契约 | Hub 驱动完整 Agent 的轻量契约 |
-| L5 | harness | BaseAgent 默认配方、引用策略、历史与子会话政策 |
+| L5 | harness | BaseAgent默认配方、引用/历史/子会话政策；可选durable等待Controller |
 | L6/L7 | apps；根 cmd 启动 | direct、Gateway、Hub 与共享 apps/ui 呈现；direct 桌面位于 apps/direct/desktop |
 
 integration/platform 为横向责任组，不代表所有内容都处于 SDK 之下。
@@ -38,11 +38,39 @@ Plugin 注册同步封闭贡献，Seal 后注册集固定，Finalize 只读接�
 Tool、Plugin、Middleware 各有独立职责；AgentLoop、Graph、EngineRuntime 各有实际消费者，
 不合成统一 runtime，也不为未来可能性预加 hook。
 
-planning/interaction/utility 根包为普通工具能力，可以只用内存 SDK 与宿主绑定的服务/引用运行。
+planning/interaction/utility 根包为普通工具能力，可以只用内存 SDK 与宿主绑定的小服务运行；引用输出由配置显式选择。计划写入与任务CRUD可分别安装，原生政策继续在 native/ 装配。
 各自 native/ 子包才依赖具体会话、Guard 和持久证据；Hub 装配明确导入该适配，不把这些政策
 变成普通工具的前置条件。原生适配复用同一 schema/业务操作，保留 Plugin.Name、工具名与记录
 namespace。工具目录读取调用方的实时 registry；偏好投影由明确的 BeforeModel hook 消费。
 只有标准库、SDK 与纯 strictjson helper 可进入这三个根包，传递依赖也受静态闸约束。
+
+历史窗口选择及省略提示在harness，storage只提供固定高水位、有界元数据与hash/protocol验证。Hub Runtime只要求六方法ExecutionStore，产品浏览/Settings仍由各自consumer使用，同一SQLite事务保持。
+可选telemetry Plugin拥有指纹/诊断schema及报告政策；kernel只给通用观察值，纯SDK缺失即不保存诊断。诊断失败报告后继续，执行intent/outcome、恢复证据和Flush失败仍中断。
+
+可选[durable harness](../harness/durable/AGENTS.md)复用现有Plugin/Tool/hooks和四方法Backend，支持持久等待、受参数约束的一次性审批/问题结果与原子继续投递。MemoryBackend明确volatile；native adapter使用同一个native repository。等待成功持久化后可退出进程；running/interrupted不自动重放，外部任务启动/取消仍归实际owner。当前CLI/Hub未自动启用该可选API。
+
+## 存储替换边界
+
+存储按实际一致性需求拆端口，不增加一个包含所有数据库/文件操作的全局 Store：
+
+| 消费者/数据 | 端口 | 要求及当前实现 |
+|---|---|---|
+| 内核执行事实/对话 | `abi.ConversationLog` | 原子 AppendRecords、失败可见；SDK MemorySession 或 native SQLite；不要求路径/SQL/云账户 |
+| 模型文本引用 | `context.ReferenceBackend` | 会话绑定、有界读/搜；MemoryReferences 或 native 授权 adapter |
+| 可选持久等待 | `durable.Backend` | 实际 Log、独占 Claim、Load、状态+结果同次原子 CAS；内存/native 两实现 |
+| Hub 执行及产品数据 | `ExecutionStore` / `SessionStore` / `SettingsStore` 等 | 按 consumer 分割，具体 SQLite 组合保留事务；不与 native 执行事实混成一张日志 |
+| 文件/媒体/工具大对象字节 | [`blob.Store`](../platform/storage/blob/AGENTS.md) | 不可变 Put + bounded Read，写后读可见；目录与有容量上限的内存两实现 |
+| 原生执行文件 | `host/workspace` | 实际 pinned OS roots、Guard、受限本地操作；云盘存储不自动授予 shell/path 权限 |
+
+native `OpenWithBlobs` 将新 artifact 字节交给显式 adapter，元数据、会话归属和每块/full hash 仍在原 catalog；
+typed fact JSON 继续与日志索引同事务。先发布不可变对象，再原子提交引用；失败可留下孤立字节，但不能提交半份引用。
+不声称云盘与数据库具备分布式事务，不自动重试/删除不确定上传。
+数据库记录非秘密 namespace ID 和 retention，重开缺失/换绑直接拒绝；历史 inline 字节不搬迁、不删除。
+临时内存明确 process-lifetime，引用及提示词不会冒充重启耐久性。适配器生命周期和账号由宿主拥有。
+
+未来云盘/WebDAV/S3等通过专用 adapter 接入 immutable byte 端口；普通挂载目录只有满足原子发布/Sync 才能用 directory adapter。
+若要替换事实数据库，必须实现 ConversationLog/实际 claim/CAS 等对应契约，不能用普通网盘上传模拟事务。
+SDK 已可全内存运行；本次不增加内核存储后端类型，也不自动装配真实云服务。
 
 ## 强制边界
 
@@ -77,16 +105,19 @@ extension/                   L4；按能力组织的可选工具/插件/中间�
   files/                     模型参数、引用读取、备份与编辑政策
   security/                  actual Tool 身份/effect/HITL 装配
   diagnostics/               显式诊断命令与可替换 Manager
-  planning/                  普通 Service 驱动的任务工具；native/ 为原生会话适配
-  interaction/               普通 Handler 问答/引用；native/ 为原生 journal/期限适配
+  telemetry/                 可选无正文诊断编码/保存，失败显式报告
+  planning/                  独立计划/TaskService 任务工具，可选引用输出；native/ 为原生会话适配
+  interaction/               普通 Handler 问答、可选引用输出；native/ 为原生 journal/期限适配
   utility/                   普通偏好/实时目录、timer/；native/ 为原生 CAS/授权适配
-harness/                     L5 默认配方
+harness/                     L5 默认配方、历史窗口选择与强恢复事实
+  durable/                   可选等待/审批/问题恢复，native/复用既有事实存储
 integration/                 llm / protocol / engine 外部边界
 platform/
   host/                      Controller、command/browser 资源 owner
     workspace/               独立 pinned 文件系统叶子，不依赖 host 父包
   system/                    底层宿主原语，严格 JSON 校验在 strictjson
-  storage/                   native facts/artifacts、memory 与 SQLite 原语
+  storage/                   native facts/catalog、可插拔blob、persistent memory 与 SQLite 原语
+    blob/                    immutable byte端口；directory与volatile memory适配器
   sandbox/                   实际 host/guest 与固定 QuickJS 资产
 apps/
   direct/                    直接产品会话/执行 owner

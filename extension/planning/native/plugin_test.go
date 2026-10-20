@@ -196,3 +196,34 @@ func TestMalformedDurablePlanDoesNotBecomeEmptySuccess(t *testing.T) {
 		t.Fatal("bad stored state silently empty")
 	}
 }
+
+func TestNativeBundleKeepsPlanReferenceInTaskList(t *testing.T) {
+	f := newFixture(t)
+	ref, err := f.p.Service().SetNotes(t.Context(), "native plan stays available")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := abi.NewAgentState(modelFunc(func(context.Context, abi.ModelRequest, func(wire.StreamChunk) error) error { return nil }), f.log, f.p.Tools())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.p.OnRunStart(t.Context(), abi.RuntimeContext{RunID: "run", State: state, Workspace: f.c.Cwd}); err != nil {
+		t.Fatal(err)
+	}
+	var list abi.Tool
+	for _, tool := range f.p.Tools() {
+		if tool.Name() == "task_list" {
+			list = tool
+		}
+	}
+	if list == nil {
+		t.Fatal("no task list")
+	}
+	result, err := list.Execute(t.Context(), abi.ToolExecutionContext{ActualTool: list, Session: f.log, SessionID: f.c.SessionID, RunID: "run", CallID: "list", Workspace: f.c.Cwd}, wire.ToolCall{ID: "list", Name: list.Name(), Arguments: json.RawMessage(`{}`)})
+	var body struct {
+		Notes *wire.Reference `json:"plan_notes"`
+	}
+	if err != nil || json.Unmarshal([]byte(result.Content[0].Text), &body) != nil || body.Notes == nil || body.Notes.URI != ref.URI || strings.Contains(result.Content[0].Text, "native plan stays available") {
+		t.Fatal("native plan retrieval changed or leaked inline", result, err)
+	}
+}

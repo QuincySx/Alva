@@ -27,3 +27,36 @@ func TestChildFactoryErrorStillClosesReturnedOwner(t *testing.T) {
 		t.Fatal("partial child ownership/error was lost", closed, err)
 	}
 }
+
+func TestFailedChildCleanupRemainsOwnedForRetry(t *testing.T) {
+	p, _, execution := setup(t, nil, nil)
+	closed := 0
+	p.config.Factory = ChildFactoryFunc(func(context.Context, ChildRequest) (Child, error) {
+		return Child{Close: func(context.Context) error {
+			closed++
+			if closed < 3 {
+				return context.DeadlineExceeded
+			}
+			return nil
+		}}, errors.New("setup failed")
+	})
+	_, err := execute(t, p, execution, `{"task":"work"}`)
+	if !errors.Is(err, ErrChildCleanup) || closed != 1 {
+		t.Fatal(err, closed)
+	}
+	if err := p.OnRunEnd(context.Background(), abi.RuntimeContext{RunID: execution.RunID}, err); !errors.Is(err, ErrChildCleanup) || closed != 2 {
+		t.Fatal(err, closed)
+	}
+	if p.CleanupComplete() {
+		t.Fatal("unfinished child forgotten")
+	}
+	if err := p.OnRunStart(context.Background(), abi.RuntimeContext{RunID: "next", State: p.state}); err == nil {
+		t.Fatal("new run admitted over pending cleanup")
+	}
+	if err := p.Close(context.Background()); err != nil || !p.CleanupComplete() || closed != 3 {
+		t.Fatal("cleanup retry lost", err, closed)
+	}
+	if err := p.Close(context.Background()); err != nil || closed != 3 {
+		t.Fatal("completed cleanup repeated", err, closed)
+	}
+}

@@ -64,7 +64,7 @@ func New(ctx context.Context, c Config) (*Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
-	tool, err := interaction.NewTool(c.Handler, references)
+	tool, err := interaction.NewTool(interaction.ToolConfig{Handler: c.Handler, References: references})
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +154,11 @@ func (t *questionTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 	}
 	cleanup, end := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer end()
-	runErr = errors.Join(runErr, p.append(cleanup, "question_outcome", map[string]any{"question_id": q.ID, "run_id": e.RunID, "call_id": call.ID, "answer": receipt.Answer, "answered": runErr == nil, "notice": "Human clarification is not permission approval"}))
+	runErr = errors.Join(runErr, p.append(cleanup, "question_outcome", map[string]any{"question_id": q.ID, "run_id": e.RunID, "call_id": call.ID, "answer": receipt.Answer, "answered": receipt.Answered, "answer_retained": receipt.Answer.URI != "", "notice": "Human clarification is not permission approval"}))
 	if runErr != nil {
+		if receipt.Answered {
+			return zero, &interaction.AnswerReceivedError{QuestionID: q.ID, Err: runErr}
+		}
 		return zero, runErr
 	}
 	return receipt.Result(call.ID)

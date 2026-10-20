@@ -73,14 +73,14 @@ func New(ctx context.Context, c Config) (*Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
-	search, err := utility.NewSearchTool(func() abi.ToolRegistrySnapshot {
+	search, err := utility.NewSearchTool(utility.SearchConfig{Snapshot: func() abi.ToolRegistrySnapshot {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if p.state == nil {
 			return abi.ToolRegistrySnapshot{}
 		}
 		return p.state.Tools().Snapshot()
-	}, p.retainSchema)
+	}, RetainSchema: p.retainSchema})
 	if err != nil {
 		return nil, err
 	}

@@ -15,6 +15,7 @@ import (
 
 type ToolBatchCoordinator struct{}
 type ToolBatchConfig struct {
+	Diagnostics        DiagnosticObserver
 	Session            abi.ConversationLog
 	Middleware         []abi.Middleware
 	Workspace          string
@@ -122,7 +123,7 @@ func (ToolBatchCoordinator) Execute(ctx context.Context, config ToolBatchConfig,
 			// Settle real execution facts FIRST. Observation failure must not
 			// erase its outcome, suggest NoSideEffect, or re-execute the call.
 			if commitErr == nil && outcome.audit != nil {
-				waveErr = errors.Join(waveErr, appendHookBatches(cleanup, config.Session, outcome.audit.before, outcome.audit.wrap, outcome.audit.after))
+				appendHookBatches(cleanup, config.Session, config.Diagnostics, outcome.audit.before, outcome.audit.wrap, outcome.audit.after)
 			}
 			cancel()
 			waveErr = errors.Join(waveErr, executionErr)

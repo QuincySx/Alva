@@ -29,13 +29,13 @@ func TestQuestionToolRunsInStandaloneMemorySDK(t *testing.T) {
 	refs, _ := agentcontext.NewMemoryReferences("portable-question", 1<<20)
 	answer := strings.Repeat("actual human text ", 2000)
 	asks := 0
-	tool, err := interaction.NewTool(interaction.HandlerFunc(func(_ context.Context, q interaction.Question) (interaction.Answer, error) {
+	tool, err := interaction.NewTool(interaction.ToolConfig{Handler: interaction.HandlerFunc(func(_ context.Context, q interaction.Question) (interaction.Answer, error) {
 		asks++
 		if q.SessionID != "portable-question" || q.RunID == "" || q.CallID != "ask" || q.Prompt != "Which result?" {
 			t.Fatal("question lost actual runtime identity", q)
 		}
 		return interaction.Answer{Text: &answer}, nil
-	}), refs)
+	}), References: refs})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,12 +83,12 @@ func TestQuestionToolRunsInStandaloneMemorySDK(t *testing.T) {
 func TestQuestionCancellationJoinsHandlerAndRejectsLateAnswer(t *testing.T) {
 	refs, _ := agentcontext.NewMemoryReferences("s", 1<<20)
 	joined := false
-	tool, err := interaction.NewTool(interaction.HandlerFunc(func(ctx context.Context, _ interaction.Question) (interaction.Answer, error) {
+	tool, err := interaction.NewTool(interaction.ToolConfig{Handler: interaction.HandlerFunc(func(ctx context.Context, _ interaction.Question) (interaction.Answer, error) {
 		<-ctx.Done()
 		joined = true
 		late := "late answer is not accepted"
 		return interaction.Answer{Text: &late}, nil
-	}), refs)
+	}), References: refs})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,10 +103,10 @@ func TestQuestionCancellationJoinsHandlerAndRejectsLateAnswer(t *testing.T) {
 func TestQuestionValidatesWithoutHarness(t *testing.T) {
 	refs, _ := agentcontext.NewMemoryReferences("s", 1<<20)
 	asks := 0
-	tool, _ := interaction.NewTool(interaction.HandlerFunc(func(context.Context, interaction.Question) (interaction.Answer, error) {
+	tool, _ := interaction.NewTool(interaction.ToolConfig{Handler: interaction.HandlerFunc(func(context.Context, interaction.Question) (interaction.Answer, error) {
 		asks++
 		return interaction.Answer{}, errors.New("invalid input reached handler")
-	}), refs)
+	}), References: refs})
 	execution := abi.ToolExecutionContext{ActualTool: tool, SessionID: "s", RunID: "r", CallID: "c"}
 	for _, raw := range []string{`{"question":"x","SessionID":"foreign"}`, `{"question":"x","question":"y"}`, `{"question":"\ud800"}`, `{"question":"x","options":[{"label":"A","Label":"B"},{"label":"C"}]}`} {
 		if _, err := tool.Execute(t.Context(), execution, wire.ToolCall{ID: "c", Name: "ask_human", Arguments: json.RawMessage(raw)}); err == nil {
@@ -117,21 +117,21 @@ func TestQuestionValidatesWithoutHarness(t *testing.T) {
 		t.Fatal("bad input reached a human")
 	}
 	var handler interaction.HandlerFunc
-	if _, err := interaction.NewTool(handler, refs); err == nil {
+	if _, err := interaction.NewTool(interaction.ToolConfig{Handler: handler, References: refs}); err == nil {
 		t.Fatal("typed nil handler admitted")
 	}
 }
 
 func TestOrdinaryQuestionUsesHostToolTimeout(t *testing.T) {
 	refs, _ := agentcontext.NewMemoryReferences("s", 1<<20)
-	tool, err := interaction.NewTool(interaction.HandlerFunc(func(ctx context.Context, _ interaction.Question) (interaction.Answer, error) {
+	tool, err := interaction.NewTool(interaction.ToolConfig{Handler: interaction.HandlerFunc(func(ctx context.Context, _ interaction.Question) (interaction.Answer, error) {
 		deadline, ok := ctx.Deadline()
 		if !ok || time.Until(deadline) > time.Second {
 			return interaction.Answer{}, errors.New("ordinary question bypassed the host timeout")
 		}
 		<-ctx.Done()
 		return interaction.Answer{}, ctx.Err()
-	}), refs)
+	}), References: refs})
 	if err != nil {
 		t.Fatal(err)
 	}

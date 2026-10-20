@@ -24,3 +24,5 @@ sleep复用timer子包的同一个普通Tool实现，独立SDK可直接注册tim
 | 回归 | `plugin_test.go` | 真正在下一请求消费/保留原system、CAS恢复、live registry/ref/timer取消与委托后同ID外部log拒绝/Guard不绕过 |
 
 通用 Tool 的构造不进入本包；只有需要原生会话、权限与耐久证据的产品装配才导入本 `native` 适配。Plugin.Name、工具名与既有记录 namespace 保持。
+
+父包 config/search 为独立实现；本适配显式配置 RetainSchema，继续只返回已脱敏的实际会话Schema引用，无保存失败后的inline回退。

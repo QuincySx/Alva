@@ -33,7 +33,7 @@ func TestLLMStreamAuditIsBoundedMetadataAndRetainsFailure(t *testing.T) {
 			}
 			return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
 		})
-		err := build(t, core.NewBuilder(m, s).SystemPrompt("private-system-marker")).Run(context.Background(), []wire.Message{wire.TextMessage(wire.RoleUser, "private-input-marker")}, discard)
+		err := build(t, auditedBuilder(m, s).SystemPrompt("private-system-marker")).Run(context.Background(), []wire.Message{wire.TextMessage(wire.RoleUser, "private-input-marker")}, discard)
 		if fail && !errors.Is(err, private) || !fail && err != nil {
 			t.Fatal("stream outcome changed", err)
 		}
@@ -87,38 +87,37 @@ func (s *llmAuditFailureLog) AppendRecords(ctx context.Context, batch []abi.Sess
 	}
 	return s.MemorySession.AppendRecords(ctx, batch)
 }
-func TestLLMAuditFailureSettlesModelAndPreventsTools(t *testing.T) {
+func TestLLMAuditFailureDoesNotChangeExecutionFacts(t *testing.T) {
 	failure := errors.New("audit persistence fixture")
 	s := &llmAuditFailureLog{MemorySession: core.NewMemorySession("llm-audit-fail"), failure: failure}
-	called := false
-	m := modelFunc(func(_ context.Context, _ abi.ModelRequest, emit func(wire.StreamChunk) error) error {
-		if err := emit(callChunk("call")); err != nil {
-			return err
-		}
-		return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
-	})
+	called := 0
+	m := batchModel([]string{"call"})
 	tool := &testTool{execute: func(context.Context, abi.ToolExecutionContext, wire.ToolCall) (wire.ToolResult, error) {
-		called = true
+		called++
 		return wire.ToolResult{}, nil
 	}}
-	err := build(t, core.NewBuilder(m, s).Tool(tool)).Run(context.Background(), []wire.Message{wire.TextMessage(wire.RoleUser, "input")}, discard)
-	var typed *abi.SessionError
-	if !errors.Is(err, failure) || !errors.As(err, &typed) || called {
-		t.Fatal("audit failure disappeared or authorized execution", err, called)
+	err := build(t, auditedBuilder(m, s).Tool(tool)).Run(t.Context(), []wire.Message{wire.TextMessage(wire.RoleUser, "input")}, discard)
+	if err != nil || called != 1 || !s.failed {
+		t.Fatal("optional audit affected execution", err, called)
 	}
-	settled := false
 	for _, r := range records(t, s) {
-		if r.ToolIntent != nil {
-			t.Fatal("tool intent authorized despite audit failure")
+		if r.ModelOutcome != nil && r.ModelOutcome.Status != abi.OutcomeSucceeded {
+			t.Fatal("diagnostic relabelled model", r.ModelOutcome)
 		}
-		if r.ModelOutcome != nil {
-			settled = true
-			if r.ModelOutcome.Status != abi.OutcomeFailed {
-				t.Fatal("audit-failed model falsely succeeded")
-			}
+		if r.ToolOutcome != nil && r.ToolOutcome.Status != abi.OutcomeSucceeded {
+			t.Fatal("diagnostic relabelled tool", r.ToolOutcome)
 		}
 	}
-	if !settled {
-		t.Fatal("audit failure left an unsettled model request")
+}
+func TestPureSDKDoesNotRequireOptionalTelemetry(t *testing.T) {
+	s := core.NewMemorySession("pure-sdk")
+	err := build(t, core.NewBuilder(textModel("answer"), s)).Run(t.Context(), nil, discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range records(t, s) {
+		if r.Namespace == "alva.kernel.audit" {
+			t.Fatal("SDK installed a telemetry policy")
+		}
 	}
 }

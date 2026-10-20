@@ -11,7 +11,8 @@ Default tool-validation Plugin validates prepared arguments and frozen actual ex
 显式配置ContextSystem时，按名默认context-budget Plugin在最终模型接口检查完整输入估计（含tools/后置注入），用户可同名替换。无Counter的JSON rune/4仅粗略估计，不是真实provider/多模态token保证；无有限预算不宣称硬限制。纯SDK显式注册BudgetAdmission。
 ContextSystem setter复制配置描述符，使SDK上下文准备和默认最终准入共享同一份已接受政策；调用方之后修改原struct不能提高实际准入预算。服务实现本身仍按显式所有权共享。
 
-NativeSessionPlugins通过独立native-context-source Plugin贡献近期turn的有界工作视图，不覆盖用户ContextSystem或child通信hooks。完整事实仍由原Session读取；工作视图超限或损坏时显式失败，不回退全量读取，不把省略notice冒充摘要。
+NativeSessionPlugins通过独立native-context-source Plugin贡献近期turn的有界工作视图；选择及省略提示属于本层，storage只做固定高水位的有界metadata/hash读取。NativeSessionViews供已有显式执行claim的owner只安装context/history/refs。默认telemetry Plugin拥有可选诊断政策，按名可替换；诊断失败显式报告后继续，执行/恢复事实及Flush仍严格失败。原生工作视图不覆盖用户ContextSystem或child通信hooks。完整事实仍由原Session读取；工作视图超限或损坏时显式失败，不回退全量读取，不把省略notice冒充摘要。
+NativeSessionPlugins读取实际Repository的artifact retention，提示词明确区分持久事实与process-lifetime字节；底层可用OpenWithBlobs绑定显式adapter，本层不发现云盘、不持有云凭据、不改变工具授权。
 ## 约束
 Pending is opt-in, binds one actual session/run, and holds at most 128 messages/1 MiB with 16 KiB per message. Cancellation only retracts unread entries; committing/committed entries cannot be retracted. Commit failure is explicitly uncertain and never automatically retried. Queue itself is process-lifetime; only committed messages are durable through the supplied session. It injects after general ContextRuntime prepare, so its hard queue bounds are not a claim of a second whole-request context-window compression pass. No automatic completion follow-up loop is implied.
 Default demo/live factories remain explicitly volatile unless supplied a native session and NativeSessionPlugins. Persistent references use the same owned SQLite facts/artifacts, not a second transcript. Large tool text and matched, already-executed historical arguments above 4 KiB become references only in model request copies; unresolved/current calls and original execution facts are unchanged. Native/volatile backends deduplicate repeated identical projection. SDK read/search tools have actual-session gates and bounded encoded output. Native metadata browsing never restores runtime; native_history requires the exact dispatched Tool/call and strict 4KiB JSON with exact schema fields, duplicate/Unicode rejection. Default security trusts only actual explicitly registered tools and harness-owned reference/history contributions; unknown contributions require explicit host approval. Host filesystem resolution/tool capabilities require explicit granted workspace and extension/files assembly, not a fake sandbox claim. API keys stay in model transport memory, never native store metadata. Media bytes may be retained but no processing or model delivery is implied. Full runtime history reads retain explicit budgets; bounded Inspector APIs are separate.
@@ -23,6 +24,10 @@ Default demo/live factories remain explicitly volatile unless supplied a native 
 | Reference policy | context.go | Product large-text/unselected-media DTO projection against explicitly bound SDK backends/tools |
 | Media projection regressions | media_test.go | Tool media never auto-delivers or fetches URLs; complete owned references and fail-closed budgets |
 | Native recipe | native.go | Actual-session run claim/recovery、独立bounded ContextSource、durable backend和bounded history |
+| Native context policy | native_context.go / native_context_policy_test.go | Whole recent-turn selection and omitted-history wording over bounded storage primitives |
+| Typed recovery evidence | recovery.go / recovery_test.go | Persist post-operation recovery facts independently of errors.Join text; failure stays fatal |
+| Optional durable waits | durable/ | Pluggable CAS/claim storage, persisted waits/approvals/questions, explicit continuation and native cross-process no replay |
+| Child resources | child_resources.go | Setup/recursive child resource ownership and physical cleanup retry |
 | Native child recipe | child.go | Actual durable child lifecycle, exact-instance capability rebinding and fresh recursive assembly |
 | Child regressions | child_test.go | Real three-generation SDK/SQLite loops, reduced grants, HITL, actual source identities and reference isolation |
 | Pending recipe | pending.go | Opt-in bounded interjections, atomic next-model commit and explicit commit uncertainty |
@@ -33,6 +38,7 @@ Default demo/live factories remain explicitly volatile unless supplied a native 
 | Validation regressions | validation_test.go | 默认坏参数不执行与同名默认Plugin替换 |
 | Final budget acceptance | context_budget_test.go | 有限预算baseline、late wrapper拒绝实际IO、按名替换及配置描述符所有权 |
 | Native regressions | native_test.go | Reopened durable turns, metadata browsing and actual-session ownership |
+| Storage composition | storage_test.go | 同一实际SDK model/tool/model通过目录/临时内存取有界引用，事实保持及retention真实提示 |
 | Native context regressions | `native_context_test.go` | Source与显式ContextSystem同时装配，保留AlwaysPresent政策并跑真model/tool/model |
 | Argument regressions | arguments_test.go | Matched historical-call projection, exact current execution, unchanged facts, full retrieval and idempotent prepares |
 

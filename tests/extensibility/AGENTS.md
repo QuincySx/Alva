@@ -5,6 +5,7 @@
 tests 下独立于静态 architecture 闸的测试包；仅通过公开 SDK/原生存储接口构建小型实现，不被生产源码依赖。
 
 ## 逻辑
+独立 portable-agent CLI 消费者以同一源码在 native、JS/WASM 和 WASIp1 实际运行；只安装一个普通工具，不需要 Plugin、数据库、引用后端或读取工具。它是明确的本地 fixture，不是产品 CLI 默认能力或真实人工/模型通道。
 四种不同执行需求分别验证接入位置、既有语义复用范围和仍需新契约的限制。普通上下文与多 Agent 实验使用真实默认循环；双向实验明确替换 loop；持久实验通过独立测试子进程重新打开专属0700临时 SQLite目录。持久文件排除js/wasip1，其余三类可独立进行WASM测试编译。
 
 ## 约束
@@ -14,6 +15,8 @@ tests 下独立于静态 architecture 闸的测试包；仅通过公开 SDK/原�
 | 文件 | 职责 |
 |---|---|
 | `support_test.go` | 最小模型、工具、Plugin 与真实 Run 的私有测试装配；读工具显式可并发，写工具SerialGlobal |
+| `portable_consumer_test.go` | 编译并启动独立 native CLI 子进程，检查计划/问答/实时Schema实际输出 |
+| `testdata/` | 同一普通能力消费者源码；CI 额外执行其 Node 与 wazero 版本 |
 | `context_test.go` | 无四层 Store/压缩动作的检索工作视图，完整工具协议与原始事实保留；Source失败零次全读，不声称成功路径有界恢复 |
 | `multiagent_test.go` | 外围 BSP 调度独立 Agent，真实并行工具、会话隔离；持有取消后的真实工作验证先join再返回 |
 | `duplex_test.go` | Plugin 注入双向传输、替换 loop，流中输入、背压和取消所有权 |

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"github.com/QuincySx/Alva/extension/telemetry"
 	"github.com/QuincySx/Alva/extension/toolvalidation"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
@@ -103,6 +104,7 @@ func (b *Builder) Build(ctx context.Context) (*core.Agent, error) {
 		return nil, errors.New("harness workspace must be absolute")
 	}
 	builder := core.NewBuilder(b.model, b.session).Workspace(workspace)
+	builder.Middleware(RecoveryEvidence(), -9000)
 	if b.prompt != "" {
 		builder.SystemPrompt(b.prompt)
 	}
@@ -145,7 +147,7 @@ func (b *Builder) Build(ctx context.Context) (*core.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	defaults := []core.Plugin{NewMemoryPlugin(), securityplugin.NewSecurityPlugin(guard, knownTools), SystemContextPlugin{}, retrieval, toolvalidation.New()}
+	defaults := []core.Plugin{NewMemoryPlugin(), securityplugin.NewSecurityPlugin(guard, knownTools), SystemContextPlugin{}, retrieval, toolvalidation.New(), telemetry.New(nil)}
 	if b.contextSystem != nil {
 		defaults = append(defaults, contextBudgetPlugin{system: b.contextSystem})
 	}

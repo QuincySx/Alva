@@ -50,11 +50,11 @@ go mod verify
 |---|---|
 | `cmd/` | 八个可执行程序入口：CLI、桌面、HTTP、MCP 调试桥与 WASIp1 Worker |
 | `sdk/` | L0 wire/bus/沙箱 ABI；L1 kernel 契约；L2 通用循环；L2.3 Agent 语义；L2.5 装配；L3 能力库 |
-| `extension/` | L4 可选 Tool/Plugin/Middleware；planning/interaction/utility 根包是普通能力，native/ 才绑定原生会话政策 |
-| `harness/` | L5 默认配方、同名替换、引用/历史/子会话政策 |
+| `extension/` | L4 可选 Tool/Plugin/Middleware；planning/interaction/utility 根包是可独立安装的普通能力（引用输出可选），native/ 才绑定原生会话政策 |
+| `harness/` | L5 默认配方、同名替换、引用/历史选择/子会话政策；durable/为可选可插拔等待恢复 |
 | `apps/` | L6 direct/Gateway 与 L7 Hub；CLI/桌面/HTTP/MCP/Worker 程序入口在 cmd，Hub desktop/server 共用 bootstrap/product |
 | `integration/` | 模型/协议/引擎适配；仅 engine 根契约为 L4.5，具体 adapter 是产品桥接 |
-| `platform/` | host 执行/审批 owner、独立 workspace 文件能力、system 底层宿主原语、storage、sandbox 实现 |
+| `platform/` | host 执行/审批 owner、独立 workspace 文件能力、system 底层原语、storage facts/catalog与可插拔blob、sandbox |
 | `tests/` | architecture 静态闸/公开快照/分形检查与独立 extensibility 消费者实验 |
 | `tools/` | 显式维护和手工验收工具，不进入生产执行或普通测试路径 |
 | `docs/` | 当前架构、使用说明、治理/ADR 与完整 history；实现状态以根 MIGRATION.md 为准 |

@@ -159,7 +159,7 @@ func appendTx(ctx context.Context, tx *sql.Tx, id string, input []abi.SessionRec
 		if err != nil {
 			return nil, err
 		}
-		info, err := putArtifactTx(ctx, tx, id, ArtifactInput{Kind: "typed-record-json", Name: record.ID, MediaType: "application/json", Processing: "Complete committed typed record JSON; inspection only reads requested byte ranges, never resumes execution", Data: encoded, Text: true}, maxRecordBytes)
+		info, err := putArtifactTx(ctx, tx, id, ArtifactInput{Kind: "typed-record-json", Name: record.ID, MediaType: "application/json", Processing: "Complete committed typed record JSON; inspection only reads requested byte ranges, never resumes execution", Data: encoded, Text: true}, maxRecordBytes, nil)
 		if err != nil {
 			return nil, err
 		}

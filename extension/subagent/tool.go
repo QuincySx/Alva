@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -31,17 +32,8 @@ func (*agentTool) Description() string {
 }
 func (t *agentTool) ParametersSchema() json.RawMessage {
 	schema := map[string]any{"type": "object", "additionalProperties": false, "required": []string{"task"}, "properties": map[string]any{"task": map[string]any{"type": "string", "minLength": 1, "maxLength": 65536}, "role": map[string]any{"type": "string", "maxLength": 128}, "agent_type": map[string]any{"type": "string", "maxLength": 128}, "system_prompt": map[string]any{"type": "string", "maxLength": 16384}, "tools": map[string]any{"type": "array", "maxItems": 128, "items": map[string]any{"type": "string"}}, "model": map[string]any{"type": "string", "maxLength": 256}, "timeout_ms": map[string]any{"type": "integer", "minimum": 1}, "max_iterations": map[string]any{"type": "integer", "minimum": 1, "maximum": 256}, "comms": map[string]any{"type": "array", "maxItems": 4, "items": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"kind", "config"}, "properties": map[string]any{"kind": map[string]string{"type": "string"}, "config": map[string]string{"type": "object"}}}}}}
-	t.plugin.mu.Lock()
-	active, state := t.plugin.scope, t.plugin.state
-	t.plugin.mu.Unlock()
-	if active != nil {
-		names := t.plugin.grantableNames(active, state)
-		if len(names) > 0 {
-			schema["properties"].(map[string]any)["tools"].(map[string]any)["items"] = map[string]any{"type": "string", "enum": names}
-		} else {
-			schema["properties"].(map[string]any)["tools"].(map[string]any)["maxItems"] = 0
-		}
-	}
+	// Authorization is evaluated against the actual parent at execution time.
+	// A registered Tool's schema cannot change without a registry replacement.
 	data, _ := json.Marshal(schema)
 	return data
 }
@@ -212,10 +204,11 @@ func (t *agentTool) Execute(ctx context.Context, execution abi.ToolExecutionCont
 		}
 	}
 	child, err := p.config.Factory.Prepare(deadline, ChildRequest{Parent: execution.Session, ParentRunID: runID, SpawnCallID: call.ID, Workspace: execution.Workspace, Scope: childScope, Model: model, Grants: tools, Hooks: hooks, Budget: budget, Templates: p.config.Templates, Models: p.config.Models, Communications: p.config.Communications})
+	owner := p.ownChild(child)
 	if err != nil {
 		if child.Close != nil {
 			cleanup, end := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			closeErr := child.Close(cleanup)
+			closeErr := p.closeChild(cleanup, owner)
 			end()
 			if closeErr != nil {
 				err = errors.Join(err, ErrChildCleanup, closeErr)
@@ -228,53 +221,42 @@ func (t *agentTool) Execute(ctx context.Context, execution abi.ToolExecutionCont
 		defer end()
 		var closeErr error
 		if child.Close != nil {
-			closeErr = child.Close(cleanup)
+			closeErr = p.closeChild(cleanup, owner)
 		}
 		return wire.ToolResult{}, errors.Join(errors.New("factory did not bind the actual child scope/session"), closeErr)
 	}
-	var latest strings.Builder
-	refused, nonText := false, 0
+	selected := childOutput{sessionID: childScope.SessionID()}
+	var callbackErr error
+	var callbackMu sync.Mutex
+	callbackOpen := true
 	childErr := child.Runner.Run(deadline, []wire.Message{wire.TextMessage(wire.RoleUser, input.Task)}, func(event abi.Event) error {
+		callbackMu.Lock()
+		defer callbackMu.Unlock()
+		if !callbackOpen {
+			return errors.New("child callback after actual Runner exit")
+		}
+		if callbackErr != nil {
+			return callbackErr
+		}
 		if event.Record != nil && event.Record.SessionID != childScope.SessionID() {
-			return errors.New("child event forged a different native session source")
+			callbackErr = errors.New("child event forged a different native session source")
+			return callbackErr
 		}
-		switch event.Kind {
-		case abi.EventToolStarted:
-			latest.Reset()
-			refused = false
-			nonText = 0
-		case abi.EventTextDelta:
-			if latest.Len()+len(event.Text) > 1<<20 {
-				return errors.New("selected child output exceeds 1 MiB")
-			}
-			latest.WriteString(event.Text)
-		case abi.EventContentBlock:
-			if event.ContentBlock != nil {
-				text := ""
-				switch event.ContentBlock.Kind {
-				case wire.ContentText:
-					text = event.ContentBlock.Text
-				case wire.ContentRefusal:
-					if event.ContentBlock.Refusal != nil {
-						text = "[Refusal] " + event.ContentBlock.Refusal.Text
-						refused = true
-					}
-				case wire.ContentReasoning, wire.ContentProviderState:
-				default:
-					nonText++
-				}
-				if latest.Len()+len(text) > 1<<20 {
-					return errors.New("selected child output exceeds 1 MiB")
-				}
-				latest.WriteString(text)
-			}
-		}
-		return nil
+		callbackErr = selected.observe(event)
+		return callbackErr
 	})
+	callbackMu.Lock()
+	callbackOpen = false
+	childErr = errors.Join(childErr, callbackErr)
+	callbackMu.Unlock()
+	if childErr == nil && !selected.committed && selected.text.Len() > 0 {
+		childErr = errors.New("child returned a stream draft without a committed final response")
+	}
+	latest, refused, nonText := &selected.text, selected.refused, selected.nonText
 	cleanup, end := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer end()
 	if child.Close != nil {
-		if err := child.Close(cleanup); err != nil {
+		if err := p.closeChild(cleanup, owner); err != nil {
 			childErr = errors.Join(childErr, ErrChildCleanup, err)
 		}
 	}
@@ -313,7 +295,7 @@ func (t *agentTool) Execute(ctx context.Context, execution abi.ToolExecutionCont
 			}
 		}
 	}
-	data, err := json.Marshal(map[string]any{"child_session_id": childScope.SessionID(), "child_scope_id": childSnapshot.ID, "parent_link": child.Link, "selected_output": reference, "is_error": childErr != nil || refused, "outcome": status, "refused": refused, "non_text_blocks_not_delivered": nonText, "source_notice": "Only selected final/partial text/refusal is retained in this parent session. Non-text output remains in child records and is not delivered as fabricated text. Child complete history/artifacts/MCP logs remain independent; the parent link grants no text-reading permission. Interrupted work is not replayed."})
+	data, err := json.Marshal(map[string]any{"child_session_id": childScope.SessionID(), "child_scope_id": childSnapshot.ID, "parent_link": child.Link, "selected_output": reference, "selected_output_committed": selected.committed, "is_error": childErr != nil || refused, "outcome": status, "refused": refused, "non_text_blocks_not_delivered": nonText, "source_notice": "A successful selected answer comes from the effective committed final response. Uncommitted text is partial failure evidence only. Non-text output remains in child records. Child history/artifacts/MCP logs remain independent; the parent link grants no text-reading permission. Interrupted work is not replayed."})
 	if err != nil {
 		return wire.ToolResult{}, errors.Join(childErr, err)
 	}

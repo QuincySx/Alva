@@ -8,6 +8,7 @@ import (
 	"errors"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -113,7 +114,7 @@ func (model wrappedModel) Stream(ctx context.Context, request abi.ModelRequest, 
 		}
 		// Keep the checked request separate from every validator's owned copy.
 		frozen := cloneModelRequest(request)
-		if err := frozen.Config.Validate(); err != nil {
+		if err := validateModelRequest(frozen); err != nil {
 			return err
 		}
 		for i, layer := range model.middleware {
@@ -200,4 +201,23 @@ func (model wrappedModel) Stream(ctx context.Context, request abi.ModelRequest, 
 	invocation.mu.Lock()
 	defer invocation.mu.Unlock()
 	return mergeInvocationErrors(err, invocation.failure)
+}
+
+// Request integrity is an execution mechanism, independent of optional
+// telemetry, provider schema dialects or product context policies.
+func validateModelRequest(request abi.ModelRequest) error {
+	if err := request.Config.Validate(); err != nil {
+		return err
+	}
+	for _, message := range request.Messages {
+		if err := message.Validate(); err != nil {
+			return err
+		}
+	}
+	for _, tool := range request.Tools {
+		if tool.Name == "" || !utf8.ValidString(tool.Name) || !utf8.ValidString(tool.Description) || !wire.ValidJSON(tool.Parameters) {
+			return errors.New("model request contains an invalid tool definition")
+		}
+	}
+	return nil
 }

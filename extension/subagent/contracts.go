@@ -23,6 +23,9 @@ type Child struct {
 	Session abi.ConversationLog
 	Link    abi.RecordReference
 	Close   func(context.Context) error
+	// Optional physical completion evidence, independent of journal errors.
+	// Without it, Close must return nil only after cleanup actually completes.
+	CleanupComplete func() bool
 }
 type ChildRequest struct {
 	Parent                              abi.ConversationLog

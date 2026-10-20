@@ -1,0 +1,266 @@
+func (*LoopDetectionMiddleware) Name() string
+
+func (*LoopDetectionMiddleware) OnRunEnd(_ context.Context, runtime abi.RuntimeContext, _ error) error
+
+func (*LoopDetectionMiddleware) OnRunStart(_ context.Context, runtime abi.RuntimeContext) error
+
+func (DanglingToolCallMiddleware) BeforeModel(_ context.Context, _ abi.RuntimeContext, request *abi.ModelRequest) error
+
+func (DanglingToolCallMiddleware) Name() string
+
+func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.Message, emit func(abi.Event) error) (runErr error)
+
+func (ToolBatchCoordinator) Execute(ctx context.Context, config ToolBatchConfig, runID string, calls []wire.ToolCall, intents []abi.SessionRecord, tools map[string]abi.Tool, runtime *ContextRuntime, emit func(abi.Event) error) error
+
+func (ToolTimeoutMiddleware) Name() string
+
+func (middleware *LoopDetectionMiddleware) AfterModel(_ context.Context, runtime abi.RuntimeContext, message *wire.Message) error
+
+func (middleware ToolTimeoutMiddleware) WrapTool(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall, next abi.ToolFunc) (wire.ToolResult, error)
+
+func (model wrappedModel) Stream(ctx context.Context, request abi.ModelRequest, emit func(wire.StreamChunk) error) error
+
+func (reader contextReader) ID() string
+
+func (reader contextReader) Messages(ctx context.Context) ([]wire.Message, error)
+
+func (runtime *ContextRuntime) AfterTurn(ctx context.Context) error
+
+func (runtime *ContextRuntime) Bootstrap(ctx context.Context) error
+
+func (runtime *ContextRuntime) Dispose(ctx context.Context) error
+
+func (runtime *ContextRuntime) Load(ctx context.Context, log abi.ConversationReader, source abi.ContextSource) ([]wire.Message, error)
+
+func (runtime *ContextRuntime) OnMessage(ctx context.Context, message wire.Message) error
+
+func (runtime *ContextRuntime) Prepare(ctx context.Context, prompt []string, messages []wire.Message) ([]string, []wire.Message, error)
+
+func (s *BoundedEventSink) Close()
+
+func (s *BoundedEventSink) Emit(ctx context.Context, event abi.Event) error
+
+func (s *BoundedEventSink) Events() <-chan abi.Event
+
+func (s callbackSink) Emit(ctx context.Context, event abi.Event) error
+
+func NewBoundedEventSink(capacity int) (*BoundedEventSink, error)
+
+func NewContextRuntime(agentID string, system *abi.ContextSystem) *ContextRuntime
+
+func NewLoopDetectionMiddleware(warn, hard, window int) (*LoopDetectionMiddleware, error)
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"reflect"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/kernel/bus"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"sort"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"reflect"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/kernel/bus"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"sync"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"time"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"time"
+
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+import (
+	"context"
+	"errors"
+	"sync"
+
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+import (
+	"context"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+import (
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"time"
+)
+
+type AgentLoop interface {
+	Run(context.Context, RunConfig, []wire.Message, func(abi.Event) error) error
+}
+
+type BoundedEventSink struct {
+}
+
+type ContextRuntime struct {
+}
+
+type DanglingToolCallMiddleware struct{}
+
+type DefaultAgentLoop struct{}
+
+type DiagnosticObserver interface {
+	ModelStart(context.Context, abi.ConversationLog, ModelObservation) error
+	ModelEnd(context.Context, abi.ConversationLog, StreamObservation) error
+	Hooks(context.Context, abi.ConversationLog, []HookTrace) error
+	ReportFailure(context.Context, string, string, error)
+}
+
+type HookObservation struct {
+	MiddlewareName string `json:"middleware_name"`
+	LayerIndex     int    `json:"layer_index"`
+	DurationMS     int64  `json:"duration_ms"`
+	Outcome        string `json:"outcome"`
+	ErrorSummary   string `json:"error_summary,omitempty"`
+	Timing         string `json:"timing"`
+}
+
+type HookTrace struct {
+	RunID      string            `json:"run_id"`
+	Hook       string            `json:"hook"`
+	ToolCallID string            `json:"tool_call_id,omitempty"`
+	Calls      []HookObservation `json:"calls"`
+}
+
+type LoopDetectionMiddleware struct {
+	OnWarning func(abi.RuntimeContext, int)
+}
+
+type ModelObservation struct {
+	RunID, RequestID, SystemPrompt string
+	Model                          abi.LanguageModel
+	Request                        abi.ModelRequest
+}
+
+type RunConfig struct {
+	State              *abi.AgentState
+	Middleware         []abi.Middleware
+	SystemPrompt       string
+	MaxIterations      int
+	MaxResponseBytes   int
+	Workspace          string
+	Bus                bus.Handle
+	ContextSystem      *abi.ContextSystem
+	ContextSource      abi.ContextSource
+	MaxConcurrentTools int
+	ModelConfig        wire.ModelConfig
+}
+
+type StreamObservation struct {
+	RunID       string      `json:"run_id"`
+	RequestID   string      `json:"request_id"`
+	Events      uint64      `json:"event_count"`
+	Visible     uint64      `json:"visible_event_count"`
+	Text        uint64      `json:"text_delta_count"`
+	Reasoning   uint64      `json:"reasoning_delta_count"`
+	Tools       uint64      `json:"tool_delta_count"`
+	FirstEvent  *int64      `json:"first_event_ms"`
+	FirstOutput *int64      `json:"time_to_first_output_ms"`
+	FirstToken  *int64      `json:"time_to_first_token_ms"`
+	Duration    int64       `json:"stream_duration_ms"`
+	Outcome     string      `json:"outcome"`
+	FirstKind   string      `json:"first_output_kind,omitempty"`
+	Usage       *wire.Usage `json:"-"`
+}
+
+type ToolBatchConfig struct {
+	Diagnostics        DiagnosticObserver
+	Session            abi.ConversationLog
+	Middleware         []abi.Middleware
+	Workspace          string
+	Bus                bus.Handle
+	MaxConcurrentTools int
+	PreparedResults    map[string]wire.ToolResult
+}
+
+type ToolBatchCoordinator struct{}
+
+type ToolTimeoutMiddleware struct{ Timeout time.Duration }
+
+var ErrSinkClosed = errors.New("event sink closed")
+
+var ErrToolTimeout = errors.New("tool exceeded timeout; waited for actual exit; side effects may have occurred")

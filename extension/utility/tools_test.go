@@ -109,10 +109,10 @@ func TestSearchReadsActualLiveRegistryAndOnlyRetainsSelectedSchema(t *testing.T)
 	refs, _ := agentcontext.NewMemoryReferences("portable-catalog", 1<<20)
 	var agent *core.Agent
 	retained := 0
-	search, err := utility.NewSearchTool(func() abi.ToolRegistrySnapshot { return agent.State().Tools().Snapshot() }, func(ctx context.Context, _ string, raw json.RawMessage) (wire.Reference, error) {
+	search, err := utility.NewSearchTool(utility.SearchConfig{Snapshot: func() abi.ToolRegistrySnapshot { return agent.State().Tools().Snapshot() }, RetainSchema: func(ctx context.Context, _ string, raw json.RawMessage) (wire.Reference, error) {
 		retained++
 		return refs.StoreText(ctx, string(raw))
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

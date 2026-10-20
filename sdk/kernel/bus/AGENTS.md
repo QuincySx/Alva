@@ -23,12 +23,14 @@ Handle只限制注册集写入，不使取出的服务只读，也不授予工�
 |---|---|---|
 | `*core.ToolLockRegistry` | Hub SharedLocksPlugin | Shell/Notebook核对实际共享实例与执行lease |
 | `*harness.PendingService` | PendingPlugin | host.Controller的显式Steer/PendingMessages |
+| `kernel/core.DiagnosticObserver` | 可选telemetry Plugin（harness默认按名可替换） | DefaultAgentLoop；缺失不写诊断，失败显式报告、执行事实不经此口 |
+| `*durable.Controller` | 可选durable Plugin | Controller.Start/Resume验证Agent实际装配同一owner，缺失在IO前拒绝 |
 | `agentabi.AnalyticsSink` | Analytics Plugin | 独立Middleware观察实际生命周期 |
 | `*memory.Service` | harness默认/可替换Memory Plugin | 暂无生产Resolve；工具直接持有已配置服务，测试验证对外发现/替换 |
 | `planning.Service` | Planning Plugin | 暂无生产Resolve；实际工具持有同一服务 |
 | `tooling.Manager` | diagnostics Plugin | 暂无生产Resolve；实际工具直接持有manager |
 
-共7处Provide、5处Resolve生产源码调用点，不是运行次数。Topic由Blackboard封装发布/订阅接口，当前协作走历史读取和context hooks，仓内暂无实际生产订阅者；不能把封装存在当成通知驱动闭环。
+实际调用点以源码/静态import闸为准，不把词法调用点数当运行次数。Topic由Blackboard封装发布/订阅接口，当前协作走历史读取和context hooks，仓内暂无实际生产订阅者；不能把封装存在当成通知驱动闭环。
 StateCell、BusPlugin/StartPlugins和TopicFor的裁剪决策与对外源码兼容损失见根MIGRATION；本包不另留同名兼容入口。
 
 ## 业务域清单

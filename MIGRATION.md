@@ -13,6 +13,76 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 - 先有可执行和反例，再报告完成；不拿界面出现当作整个产品迁移完成。
 - 用户确认开源后，Go实现采用AGPL-3.0-only，许可/归属见LICENSE/NOTICE；当前吸收的Magpie协议代码只由integration/llm/codec使用，不进入SDK事实类型/权限/存储。
 
+## 2026-10-20 逐层审计后的边界与耐久等待
+
+- 修复SubAgent成功输出使用stream草稿、子资源setup/cleanup失败丢owner、host重放共享ProviderState、已注册SubAgent schema随run改变四个已复现缺陷。实际AfterModel commit优先，未提交文本只作为失败partial证据；未完成物理资源留给原owner Close重试，Hub attempt registry包含SubAgent。
+- 历史近期turn选择/省略提示移至harness；storage提供固定高水位、metadata copy、有界hash/protocol读取，不包含模型提示。Hub Runtime只依赖六方法ExecutionStore，设置/浏览保留typed组合端口和原SQLite事务。
+- 指纹/cache/诊断记录编码移至可选extension/telemetry；harness按名默认安装，纯SDK默认无诊断保存。保存失败显式报告后继续；执行事实、恢复事实与Flush仍严格失败。实际Stream前保留独立wire请求完整性检查，不能依赖指纹校验。
+- 已提交业务/已接受答案提供Recovery DTO与schema1 RecoveryRecord，默认harness在Join/timeout外保存恢复证据；Error文本不是稳定JSON协议。
+- 新增可选harness/durable Controller，Backend只有实际Log/Claim/Load/原子CAS Commit四方法。普通Tool/hooks支持等待退出、精确审批/问题、外部结果和一次原子投递。native适配复用同一facts repository，不新增DB；MemoryBackend明确volatile。
+- 跨进程external/approval恢复与副作用写入后exit42的unknown/no replay已由真实测试子进程验证。过期、错binding、旧revision、未知版本、不完整收尾拒绝继续；running/interrupted需检查后明确Abandon。普通CLI/Hub未自动启用该可选API，外部job调度和UI/HTTP接线不冒充完成。
+- L1与Plugin/Registrar未为持久等待新增hook/enum；新增kernel/core公开快照审阅可选通用DiagnosticObserver，扩展编码在外。
+- 存储按consumer保留ConversationLog/ReferenceBackend/durable.Backend/Hub stores；新增两方法blob.Store，原生OpenWithBlobs真实接入目录/有容量上限内存。会话授权、hash、分页/搜索共用，typed facts仍同SQLite事务。schema v3只增binding/object catalog，不搬迁/删除既有数据；ID/retention换绑或缺失拒绝打开。volatile字节明确标记，上传不确定失败不提交引用、不重试/删除。云账号/provider与产品CLI设置未自动装配，不宣称普通网盘支持原子日志事务。
+
+本轮验证（macOS arm64 / Go1.27.2，无真实模型或云账户调用）：
+
+| 检查 | 结果与范围 |
+|---|---|
+| 完整desktop-tagged race | 89个有测试包、1873个测试/子测试通过（1962个pass事件含package），0失败，738.77秒；运行期间源码未变化。2个无参数子进程helper按设计skip，实际跨进程用例已执行；另5包没有独立测试文件 |
+| 收尾目录边界补测 | 整仓通过后补充clean路径再Lstat，拒绝末尾slash的symlink根；blob后端共用验收及实际harness model/tool/model补测14个测试/子测试通过，0失败；其后无其他Go改动 |
+| JS/WASM与WASIp1实际执行 | 两种目标各7个有测试包、43个测试/子测试通过；纯内存blob、普通工具、telemetry和durable实际运行；仅原生目录用例按平台skip。plan/question/schema独立消费者两目标均通过 |
+| 跨目标构建 | 完整SDK、codec、普通工具、telemetry、durable与blob/memory在JS/WASM及WASIp1构建通过；WASIp1 Worker构建通过 |
+| 原生命令及blob适配构建 | CGO_ENABLED=0、desktop tag全部原生命令在macOS arm64、Linux amd64、Windows amd64/arm64均通过；blob全部适配器也在四目标构建通过。跨编译不等于对应OS或挂载服务的实机验收 |
+| 静态与文档 | 最终tagged全树vet、go mod verify、gofmt、diff空白和81个修改文档本地目标检查通过；架构/公开面/分形闸已包含在整仓结果中 |
+
+完整JSONL、最终补测、WASM执行和跨平台构建结果在本机证据目录，指针为`/tmp/alva-layer-fix-path`。
+真实云provider、产品CLI存储设置和默认CLI/Hub持久等待交互未装配；可选API与默认产品行为分别验收。
+下方2026-10-19表是此前批次记录。
+
+## 2026-10-19 工具安装粒度与失败回执整顿
+
+用户确认对照 Pi/Eino/ADK/Deep Agents/Pydantic AI 后的实施建议。本轮沿现有 Tool、Plugin、
+Middleware 边界调整外围能力，不新增内核 hook、统一 runtime 或另一套插件系统。
+
+- Planning 的 `NewTaskTools(TaskToolsConfig)` 只消费四方法 `TaskService`；`NewPlanTool(write)`
+  独立安装 todo_write，不要求任务 CRUD 或引用存储。原生完整 `Service` 继续组合任务/笔记，
+  native Plugin 明确组合六任务与一计划工具。通用任务列表不要求计划读取；原生组合包继续在输出适配中保留 plan_notes 引用。
+- 通用任务详情、人类问答、选中工具 Schema 默认返回完整有界结果；配置 `RetainDetail`、
+  `ToolConfig.References` 或 `SearchConfig.RetainSchema` 才使用引用输出。JSON 回执最多16KiB，
+  超界明确失败，不截断冒充完整；已配置存储失败绝不退回全文。原生插件始终显式配置原有引用政策。
+- `planning.CommittedError` 区分已知业务提交后的详情保存/编码/呈现/取消失败，保留实际 call/task ID
+  与只查询恢复的提示，原始原因可 Unwrap。默认 native snapshot 确认 append 后的 flush 失败同样标记；
+  一般后端错误不被解释为零副作用。实际默认循环保留此错误与 conversation outcome，不自动重放。
+- `interaction.AnswerReceivedError` 保留已接受答案的 question ID，输出失败不自动再次询问。
+  native question_outcome 分别记录 answered 与 answer_retained，保存失败不把已答写成未答。
+  同步等待保持真实取消/join；本轮没有把内存等待或 journal 冒充跨进程暂停恢复。
+- Utility 的 config 与 search 改为独立实现，私有公共 helper 不再持有两类工具的混合服务字段；
+  偏好下一 request 投影、计时器、真实 live registry、Guard 与原生 CAS 政策继续保持原职责。
+- 新增独立 `tests/extensibility/testdata/portable-agent` 消费者：同一程序通过公开 Builder.Tool 和
+  默认循环在 native CLI、JS/WASM 与 WASIp1 执行 plan/question/schema，零 Plugin、数据库、
+  引用存储或读取工具。确定性模型/答案明确属于 fixture，不改变 Alva CLI/worker 的产品默认工具集。
+- CI 新增 Node/wazero 的真实普通工具测试和独立消费者执行；Node 只接收空环境，避免 Go JS
+  启动区继承宿主环境导致长度超限。wazero runner 从现有固定模块依赖构建，无新增第三方依赖。
+- SDK 源码、六份公开快照、go.mod/go.sum 与固定 QuickJS 资产未修改。外围构造签名显式更新，
+  没有旧入口 alias；Plugin.Name、工具名及已有记录 namespace 保持。
+
+本轮验证（macOS arm64 / Go 1.27.2，无付费模型或外部账户调用）：
+
+| 检查 | 结果与范围 |
+|---|---|
+| 相关扩展 race | 七个普通/原生能力包通过，最终所有新增回归均已纳入下列整仓结果 |
+| JS/WASM 实际运行 | Node 执行四个普通能力包：25项通过，0 skip；三种独立消费者模式全部通过 |
+| WASIp1 实际运行 | wazero 执行同四包：25项通过，0 skip；三种独立消费者模式全部通过 |
+| 跨目标构建 | 完整 SDK、codec、planning/interaction/utility/timer 在 js/wasm、wasip1/wasm 均通过 |
+| 完整 desktop-tagged race | 1811项通过（含子测试）/85个有测试包，0失败，1033.75秒；1个无参数durable helper按设计skip，实际跨进程恢复实验通过；另3个包没有测试文件 |
+| 独立原生 CLI 消费者 | plan/question/schema 三种模式均通过真实子进程和默认SDK循环执行 |
+| 原生命令构建 | CGO_ENABLED=0 + desktop tag，macOS arm64、Linux amd64、Windows amd64/arm64均通过；跨编译不代表对应OS实机验收 |
+| WASIp1 Worker 构建 | 实际 cmd/alva-worker-wasm 构建通过；该命令产品工具集未因消费者fixture自动扩展 |
+| 静态与完整性 | 全树及独立消费者tagged vet、go mod verify、全树gofmt、diff空白及本轮修改的66个本地文档目标检查通过 |
+
+完整日志和逐项结果在本机 alva-extension-review 证据目录，指针 `/tmp/alva-extension-review-path`。
+新增消费者验证可复用能力的接入；产品 CLI/worker 未自动新增工具，不据此宣称新增产品渠道已经装配。
+
 ## 2026-10-19 普通工具与原生插件政策拆分
 
 用户确认本轮插件瘦身。planning、interaction、utility 根包现为可直接安装到 SDK 的普通能力；

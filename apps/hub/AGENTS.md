@@ -5,13 +5,14 @@
 ## 逻辑
 产品先认领耐久 Turn/Attempt，再执行引擎；自动 fallback 串行、固定同一Turn，显式账户/计费授权快照且只有 startup/rate-limit、无可能副作用才可用。Stop 不重放。EngineBranch 保留 native identity，手动切换可返回旧分支；handoff 仅索引/引用、不复制全部原始历史。
 ## 约束
+Runtime仅消费六方法ExecutionStore；设置/浏览由实际产品consumer要求，SQLite实现及事务不拆分。
 产品 ID 永远不等于 native ID。UI 只观察已提交产品历史，不拥有执行取消。可恢复 Error 不释放 active；唯一 Completed 收尾。SQLite产品store在子包，与native session.sqlite隔离，不读旧Rust DB。
 引擎回调在产品层串行提交；首次校验/持久化错误锁存，adapter忽略错误或后补成功也必须失败且不fallback。Execute返回后关闭回调准入，迟到回调不能修改facts。
 Completed后的真实Execute返回错误也不能让Turn成功或fallback；原始engine事件保留，产品记录execution_owner_failure并失败收尾，不能用早到事件覆盖owner错误。
 ## 业务域清单
 | 文件/目录 | 职责 |
 |---|---|
-| model.go | 产品事实、Store接口与版本化交接索引 |
+| model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引 |
 | runtime.go | 独立Descriptor registry/冷能力查询及engine registry、串行执行、取消/审批路由与授权fallback |
 | descriptor_test.go | 第五engine声明/不可替换、纯冷读与snapshot切片隔离、关闭后拒绝注册 |
 | settings.go / aep.go | next-turn私有MCP/AEP进程snapshot、native SubAgent opt-in纯值与预算，不引入protocol/进程依赖 |

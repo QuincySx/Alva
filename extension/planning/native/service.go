@@ -169,12 +169,12 @@ func (s *nativeService) save(ctx context.Context, next state) error {
 	// uncommitted cache that differs from the actual stored fact.
 	var committed state
 	if err = json.Unmarshal(record.Payload, &committed); err != nil {
-		return err
+		return &planning.CommittedError{Operation: "planning_snapshot", Err: err}
 	}
 	s.state = committed
 	s.revision = record.Sequence
 	if err = s.log.Flush(ctx); err != nil {
-		return &abi.SessionError{Operation: "flush planning snapshot", SessionID: s.id, Err: err}
+		return &planning.CommittedError{Operation: "planning_snapshot", Err: &abi.SessionError{Operation: "flush planning snapshot", SessionID: s.id, Err: err}}
 	}
 	return nil
 }
@@ -189,6 +189,10 @@ func (s *nativeService) Create(ctx context.Context, a planning.CreateRequest) (p
 	next := cloneState(s.state)
 	next.Tasks = append(next.Tasks, r)
 	if err = s.save(ctx, next); err != nil {
+		var committed *planning.CommittedError
+		if errors.As(err, &committed) {
+			return planning.TaskRecord{}, &planning.CommittedError{Operation: "task_create", TaskID: task.ID, Err: err}
+		}
 		return planning.TaskRecord{}, err
 	}
 	return cloneState(s.state).Tasks[len(s.state.Tasks)-1], nil
@@ -292,6 +296,10 @@ func (s *nativeService) Update(ctx context.Context, a planning.UpdateRequest) (p
 		}
 	}
 	if err := s.save(ctx, next); err != nil {
+		var committed *planning.CommittedError
+		if errors.As(err, &committed) {
+			return planning.TaskRecord{}, &planning.CommittedError{Operation: "task_update", TaskID: a.ID, Err: err}
+		}
 		return planning.TaskRecord{}, err
 	}
 	return cloneState(s.state).Tasks[index], nil

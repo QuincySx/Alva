@@ -38,9 +38,11 @@ tools/        手工    显式维护与本机验收工具
 | L3 | [sdk/agent 下的 context/memory/security/analytics/graph](./sdk/agent/AGENTS.md) | 可复用能力；graph 与 AgentLoop 是平行 runtime |
 | L4 | [extension](./extension/AGENTS.md) | 哪些具体工具与可选行为可以安装；不是给内核加功能 |
 | L4.5 | [integration/engine](./integration/engine/AGENTS.md) **仅根契约包** | Hub 如何统一驱动完整 Agent；不是 Model/Provider |
-| L5 | [harness](./harness/AGENTS.md) | 我们如何选择默认 Plugin、引用策略、历史/Pending 和子会话配方 |
+| L5 | [harness](./harness/AGENTS.md) | 默认Plugin、引用/历史/子会话政策；[可选持久等待](./harness/durable/AGENTS.md) |
 | L6 | [apps/direct](./apps/direct/AGENTS.md)、[apps/direct/desktop](./apps/direct/desktop/AGENTS.md)、[apps/gateway](./apps/gateway/AGENTS.md)、direct 程序入口 | 用户直接聊天或显式调用模型 API；Gateway 不运行 Agent |
 | L7 | [apps/hub](./apps/hub/AGENTS.md) 与 Hub 程序入口 | 多引擎会话、branch/Turn/Attempt、Team、自动化和产品服务/UI |
+
+纯SDK默认不安装诊断保存政策；默认harness的telemetry Plugin可按名替换，诊断失败报告后继续，执行事实失败仍中断。可选durable Controller支持外部结果、审批和问题跨进程等待/继续；native适配复用原会话存储，尚未自动接入默认CLI/Hub交互。
 
 ### 程序入口：cmd 与 CLI
 
@@ -68,7 +70,7 @@ tools/        手工    显式维护与本机验收工具
 | `integration/engine/{alva,process}` | Alva 消费完整 L5 harness；process 按 Vendor 共享实现 Claude/Codex/Pi，不是三个独立 adapter 包，也不是 SDK |
 | `platform/host` | Agent 执行/取消/订阅、审批与问题 broker、command/browser 资源所有权；可消费 harness Runner |
 | `platform/system` | 更底层的 owned process、媒体派生/播放、loopback、严格 JSON 与可取消秘密输入 |
-| `platform/storage` | 私有 SQLite、原始 typed records/artifacts、可选持久 memory；不合并 Hub 产品事实 |
+| `platform/storage` | 原始typed facts/catalog、[可插拔blob](./platform/storage/blob/AGENTS.md)（目录/临时内存）、私有SQLite与可选持久memory；不合并Hub事实 |
 | `platform/sandbox` | native wazero 宿主与 WASIp1 SDK guest；共享纯 ABI 单独留在 `sdk/sandbox/abi` |
 
 依赖方向由实际 import 防火墙验证：SDK 不能依赖 integration/platform/extension/harness/apps；
@@ -80,12 +82,18 @@ direct CLI/desktop 直连 harness 与 host，不经 EngineRuntime；Hub core 只
 
 | 能力 | 普通工具入口 | 宿主提供 |
 |---|---|---|
-| 任务/计划 | [`planning.NewTools`](./extension/planning/AGENTS.md) | Service 与完整详情引用 writer |
-| 人类问答 | [`interaction.NewTool`](./extension/interaction/AGENTS.md) | Handler 与引用后端 |
-| 偏好/工具目录 | [`utility.NewConfigTool / NewSearchTool`](./extension/utility/AGENTS.md) | PreferenceStore 或实时目录/选中 schema writer |
+| 任务 | [`planning.NewTaskTools`](./extension/planning/AGENTS.md) | TaskService；详情引用 writer 可选 |
+| 独立计划 | [`planning.NewPlanTool`](./extension/planning/AGENTS.md) | 一个计划写入函数；不要求任务服务或引用存储 |
+| 人类问答 | [`interaction.NewTool`](./extension/interaction/AGENTS.md) | ToolConfig.Handler；引用后端可选 |
+| 偏好/工具目录 | [`utility.NewConfigTool / NewSearchTool`](./extension/utility/AGENTS.md) | PreferenceStore 或 SearchConfig.Snapshot；Schema writer 可选 |
 | 等待 | [`timer.NewTool`](./extension/utility/timer/AGENTS.md) | 无额外服务 |
 
 这些入口直接使用 SDK `Builder.Tool`；偏好投影通过一个普通 `BeforeModel` hook 调用 `utility.ApplyPreferences`，安装工具不自动改变请求。原生 Hub 导入对应 `native/` 适配，复用相同工具实现并保留会话、Guard、审计、引用和持久化；同名默认 Plugin 替换规则不变。
+
+通用入口没有引用后端时只返回完整且有界的结果（JSON 回执最多 16 KiB），超界明确失败，不截断冒充完整。
+显式配置引用政策后保存失败不会退回全文。任务提交后的回执失败通过 `planning.CommittedError`
+保留实际 call/task ID；已收到有效人类回答后的保存/呈现失败通过 `interaction.AnswerReceivedError`
+保留 question ID。二者经现有内核错误路径留下恢复提示，调用方应查询事实而非自动重复操作。
 
 一周后回来建议这样读：
 

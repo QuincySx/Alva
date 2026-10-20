@@ -213,6 +213,83 @@ Hub引擎的执行能力与检查能力分别声明：认证`GET /v1/engines`只
 通过真实 Go AEP loader 互操作测试。它是插件侧客户端，不是第二套 Agent 实现；普通 Go 构建/运行
 不要求 Python，执行 Python 插件时才显式选择解释器和宿主批准。
 
+## 可选持久等待 API
+
+[`harness/durable`](../harness/durable/AGENTS.md) 是显式安装的 harness 能力，默认 CLI/Hub 尚未自动启用。
+它复用普通 SDK Agent；Backend 的四个方法是 Log、Claim、Load、Commit，存储可替换。
+NewMemoryBackend 是进程内参考实现；native.Open 绑定现有私有 repository 的同一会话和事实数据库。
+
+装配流程：
+
+```go
+backend, err := durableNative.Open(ctx, repository, owner, nativeID)
+if err != nil { return err }
+// 实际 Agent 使用同一个 backend.Log()。
+waits, err := durable.New(durable.Config{Backend: backend, TTL: time.Hour})
+if err != nil { return err }
+views, err := harness.NativeSessionViews(ctx, repository, owner, nativeID)
+if err != nil { return err }
+builder := core.NewBuilder(model, backend.Log()).Plugin(waits)
+for _, view := range views {
+    builder.Plugin(view)
+}
+agent, err := builder.Build(ctx)
+if err != nil { return err }
+// 以下为运行生命周期，outcome/err 均交还宿主。
+outcome, err := waits.Start(ctx, agent, input, emit)
+```
+
+上述core为sdk/agent/core，durable为harness/durable，durableNative为harness/durable/native。
+`outcome.Suspended` 表示真实执行及收尾已经退出并保存waiting检查点，没有成功/失败终态事件。
+宿主应展示`outcome.Requests`；新进程重建相同装配后可用`waits.Snapshot(ctx)`读取，不必保留等待goroutine。
+
+宿主确认结果后调用`waits.Resolve(ctx, durable.Resolution{RequestID: id, Binding: binding, Result: rawJSON})`，
+再`waits.Resume(ctx, agent, emit)`。Binding必须来自当前真实会话的待办；它只用于核对所审内容，不是独立访问凭据。
+审批结果为`{"allow":true|false}`，问答结果为interaction.Answer，外部结果为有界JSON。
+Controller实现普通security.ApprovalHandler与interaction.Handler，宿主可以显式注入原有Guard/问答工具；
+审批匹配会话、工具、原参数哈希与效果，消费一次且受期限约束。`await_external`仅提交数据，不启动外部任务。
+
+原生大结果先保存同会话引用，模型按需用context_read/search读取；结果交付和running状态同事务CAS，不能重复投递。
+未知版本、过期、陈旧revision或running/interrupted不自动重放；检查原始事实后可明确Abandon，
+这不代表外部任务已停止或已回滚。Controller拥有执行claim，原生装配使用NativeSessionViews，
+不重复安装NativeSessionPlugins的claim。实际外部job的启动、取消和收尾仍由宿主owner负责。
+
+实际退出/重开与副作用后崩溃不重放验收：`go test -mod=readonly ./harness/durable/...`。
+
+## 可插拔存储 API
+
+内核日志由 `abi.ConversationLog` 注入；SDK `core.MemorySession` 与
+`context.MemoryReferences` 不需要本地目录。可选等待的 `durable.Backend` 独立要求原子CAS/实际执行claim。
+原生产品默认仍使用私有SQLite；新artifact字节可以显式替换后端，事实JSON和授权metadata保留在原事务：
+
+```go
+// blob 为 platform/storage/blob；blobDirectory 为其 directory 子包。
+objects, err := blobDirectory.Open("/absolute/host-owned/object-directory")
+if err != nil { return err }
+defer objects.Close() // host 拥有adapter；须在所有使用者结束后关闭
+repository, err := session.OpenWithBlobs(ctx, "/absolute/private/native-data", session.BlobConfig{
+    ID: "workspace-objects-v1", // 非秘密部署namespace，不能放凭据或URL
+    Retention: blob.Persistent,
+    Store: objects,
+})
+if err != nil { return err }
+defer repository.Close()
+// 继续使用同一Repository创建session、NativeSessionPlugins及具体原生能力。
+```
+
+临时对象可以用 `blob/memory.New(memory.Limits{Bytes: 64 << 20, Objects: 1024})`，
+并明确设置 `Retention: blob.Volatile`；引用会标记进程生命周期，进程结束后字节不会恢复。
+全内存运行可直接使用SDK日志/引用及durable.MemoryBackend，不必为了临时字节打开SQLite。
+
+云盘/网盘适配器只需实现两方法 `Put(ctx,key,data)` 和 `Read(ctx,key,offset,limit)`；
+必须创建完整不可变对象、同key异内容报冲突、写后可读、返回自有buffer并遵守预算/取消。
+directory adapter要求hard-link原子发布和file/directory Sync，不支持的挂载必须明确报错或使用专用API adapter。
+真实云账号/provider、产品CLI设置和后台迁移任务尚未装配，不隐式扫描挂载点或读取云凭据。
+已有inline数据不迁移；外部存储的namespace ID/retention绑定后，缺失或替换adapter会拒绝打开。
+错误上传可能留下孤立对象，不自动重试/删除；外部字节不具备与数据库的分布式事务，也不授予文件执行权限。
+
+共用后端验收：`go test -mod=readonly -race ./platform/storage/blob/... ./platform/storage/session`。
+
 ## 仓库布局与历史
 
 项目名为 Alva，单一 module 使用仓库地址 `github.com/QuincySx/Alva`，没有外层 go/ 容器。

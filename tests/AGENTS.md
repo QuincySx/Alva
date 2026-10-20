@@ -11,4 +11,4 @@ architecture 离线检查源码依赖、公开快照、分形文档和固定转�
 | 路径 | 职责 |
 |---|---|
 | architecture/ | 静态依赖、布局、分形、公开面及来源闸 |
-| extensibility/ | 上下文、多 Agent、双向 transport 与独立进程恢复实验 |
+| extensibility/ | 上下文、多 Agent、双向 transport、独立进程恢复与跨目标普通工具CLI消费者 |

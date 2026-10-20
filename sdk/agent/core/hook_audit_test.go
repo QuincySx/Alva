@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/QuincySx/Alva/extension/telemetry"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -108,13 +109,17 @@ func twoRoundModel() abi.LanguageModel {
 		return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
 	})
 }
+func auditedBuilder(model abi.LanguageModel, log abi.ConversationLog) *core.Builder {
+	return core.NewBuilder(model, log).Plugin(telemetry.New(nil))
+}
+
 func TestMiddlewareAuditBatchesWholeStagesAndPreservesOnionOrder(t *testing.T) {
 	s := core.NewMemorySession("audit")
 	tool := &testTool{execute: func(context.Context, abi.ToolExecutionContext, wire.ToolCall) (wire.ToolResult, error) {
 		time.Sleep(3 * time.Millisecond)
 		return wire.ToolResult{Content: []wire.ContentBlock{{Kind: wire.ContentText, Text: "private-tool-body"}}}, nil
 	}}
-	a := build(t, core.NewBuilder(twoRoundModel(), s).Tool(tool).Middleware(auditedLayer{name: "outer"}).Middleware(auditedLayer{name: "inner"}))
+	a := build(t, auditedBuilder(twoRoundModel(), s).Tool(tool).Middleware(auditedLayer{name: "outer"}).Middleware(auditedLayer{name: "inner"}))
 	if err := a.Run(context.Background(), []wire.Message{wire.TextMessage(wire.RoleUser, "private-input-body")}, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -185,12 +190,15 @@ func (s *auditFailureLog) Flush(ctx context.Context) error {
 	s.flushed = true
 	return s.MemorySession.Flush(ctx)
 }
-func TestToolAuditFailureKeepsActualOutcomeAndBackfillsWithoutReplay(t *testing.T) {
+func TestToolAuditFailureReportsAndKeepsExecutingWithoutReplay(t *testing.T) {
 	disk := errors.New("private-audit-disk-secret")
 	s := &auditFailureLog{MemorySession: core.NewMemorySession("audit-failure"), hook: "wrap_tool", failure: disk}
 	executed, models := 0, 0
 	m := modelFunc(func(_ context.Context, _ abi.ModelRequest, emit func(wire.StreamChunk) error) error {
 		models++
+		if models > 1 {
+			return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
+		}
 		if err := emit(callChunk("first")); err != nil {
 			return err
 		}
@@ -203,9 +211,9 @@ func TestToolAuditFailureKeepsActualOutcomeAndBackfillsWithoutReplay(t *testing.
 		executed++
 		return wire.ToolResult{}, nil
 	}}
-	err := build(t, core.NewBuilder(m, s).Tool(tool).Middleware(auditedLayer{name: "layer"})).Run(context.Background(), nil, discard)
-	var sessionErr *abi.SessionError
-	if !errors.Is(err, disk) || !errors.As(err, &sessionErr) || abi.OnlyCancellation(err) || executed != 1 || models != 1 || !s.flushed {
+	var reported []telemetry.Failure
+	err := build(t, core.NewBuilder(m, s).Plugin(telemetry.New(func(_ context.Context, f telemetry.Failure) { reported = append(reported, f) })).Tool(tool).Middleware(auditedLayer{name: "layer"})).Run(context.Background(), nil, discard)
+	if err != nil || len(reported) != 2 || !errors.Is(reported[0].Err, disk) || executed != 2 || models != 2 || !s.flushed {
 		t.Fatal("audit failure swallowed/re-executed", err, executed, models, s.flushed)
 	}
 	var outcomes []abi.ToolOutcome
@@ -214,22 +222,23 @@ func TestToolAuditFailureKeepsActualOutcomeAndBackfillsWithoutReplay(t *testing.
 			outcomes = append(outcomes, *r.ToolOutcome)
 		}
 	}
-	if len(outcomes) != 2 || outcomes[0].CallID != "first" || outcomes[0].Status != abi.OutcomeSucceeded || outcomes[1].CallID != "second" || outcomes[1].Status != abi.OutcomeCancelled {
+	if len(outcomes) != 2 || outcomes[0].CallID != "first" || outcomes[0].Status != abi.OutcomeSucceeded || outcomes[1].CallID != "second" || outcomes[1].Status != abi.OutcomeSucceeded {
 		t.Fatal("real settled execution lost", outcomes)
 	}
 }
-func TestCancelledHookAndAuditFailureKeepBothCausesWithoutPrivateSummary(t *testing.T) {
+func TestCancelledHookReportsOptionalAuditFailureWithoutPrivateSummary(t *testing.T) {
 	disk := errors.New("private-disk-detail")
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &auditFailureLog{MemorySession: core.NewMemorySession("cancel-audit"), hook: "before_model", failure: disk}
 	hook := &runtimeHooks{before: func(abi.RuntimeContext, *abi.ModelRequest) error { cancel(); return context.Canceled }}
-	err := build(t, core.NewBuilder(textModel("never"), s).Middleware(hook)).Run(ctx, nil, discard)
-	if !errors.Is(err, context.Canceled) || !errors.Is(err, disk) || abi.OnlyCancellation(err) {
+	var reported []telemetry.Failure
+	err := build(t, core.NewBuilder(textModel("never"), s).Plugin(telemetry.New(func(_ context.Context, f telemetry.Failure) { reported = append(reported, f) })).Middleware(hook)).Run(ctx, nil, discard)
+	if !errors.Is(err, context.Canceled) || !abi.OnlyCancellation(err) || len(reported) != 1 || !errors.Is(reported[0].Err, disk) {
 		t.Fatal("cancel hid storage failure", err)
 	}
 	s2 := core.NewMemorySession("fixed-summary")
 	private := errors.New("api_key=must-not-copy-private-hook-error")
-	err = build(t, core.NewBuilder(textModel("never"), s2).Middleware(auditedLayer{name: "private", beforeError: private})).Run(context.Background(), nil, discard)
+	err = build(t, auditedBuilder(textModel("never"), s2).Middleware(auditedLayer{name: "private", beforeError: private})).Run(context.Background(), nil, discard)
 	if !errors.Is(err, private) {
 		t.Fatal(err)
 	}
@@ -251,7 +260,7 @@ func TestIntentionalVetoStillAuditsAfterHooksAndNoWrapperOrSideEffect(t *testing
 		executed++
 		return wire.ToolResult{}, nil
 	}}
-	if err := build(t, core.NewBuilder(twoRoundModel(), s).Tool(tool).Middleware(auditedLayer{name: "outer", block: true}).Middleware(auditedLayer{name: "inner"})).Run(context.Background(), nil, discard); err != nil {
+	if err := build(t, auditedBuilder(twoRoundModel(), s).Tool(tool).Middleware(auditedLayer{name: "outer", block: true}).Middleware(auditedLayer{name: "inner"})).Run(context.Background(), nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	values := auditRecords(t, s)

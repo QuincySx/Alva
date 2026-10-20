@@ -31,7 +31,7 @@ ToolLockRegistry是可选跨Agent资源锁；Coordinator不重复加锁，全局
 非ConcurrentSafe工具即使未声明资源，在跨Agent registry内也保守作为全局屏障；不把空claims当作可安全并发。
 单函数适配器覆盖已有11个typed hooks，每个只实现一个目标可选接口；nil函数、空/非法UTF-8名字在注册时失败，直接调用无效适配器也返回error。没有空hook或透传wrapper，审计只计真实调用。
 PrepareTool适配器原样转发Runtime与本轮ActualTool，和提交后的BeforeTool/WrapTool严格分离，不让AEP改参绕过本轮工具绑定与资源规划。
-Analytics/provider工厂属于agent独立能力和ABI，不藏入core；kernel真实hook与LLM cache指纹/无正文流摘要已有耐久审计，其余Rust phase timeline与完整fixtures尚未逐项等价验收。
+Analytics/provider工厂属于agent独立能力和ABI，不藏入core；kernel提供可选通用hook/流观察；指纹/诊断保存由显式telemetry Plugin提供，纯SDK默认不安装，诊断失败报告后继续；真实执行事实失败仍中断，其余Rust phase timeline与完整fixtures尚未逐项等价验收。
 
 普通单点贡献可在Plugin.Register中直接写`return r.Middleware(core.BeforeModel("my-context", fn))`；需要组合多钩子时注册多个适配器，或提供实现所需typed接口的现有Middleware。无需Phase/Effect/Order声明。少数顺序要求写在注册处，如`r.Middleware(layer, 1500)`；Finalize观察的Assembly.Middleware就是排定后的真实顺序。
 
@@ -52,10 +52,11 @@ Analytics/provider工厂属于agent独立能力和ABI，不藏入core；kernel�
 | Runtime regressions | `state_hooks_test.go`, `config_test.go`, `concurrency_test.go` | live state、每次配置与真实并行settlement |
 | Preparation regression | `prepare_test.go` | 原声明/有效参数、冲突重算、替代结果、原子失败与改参拒绝 |
 | Wrapper lifetime | `tool_contract_test.go` | next lease、迟到拒绝、真实错误不可吞、mixed veto与after收尾 |
+| Request integrity | `request_integrity_test.go` | 无telemetry时BeforeModel/WrapModel坏schema仍在实际Stream前拒绝 |
 | Durable output | `committed_event_test.go` | 完整assistant耐久事实/实际ID、deepcopy、失败append/partial与投递失败settlement |
 | Model binding | `model_binding_test.go` | BeforeModel生效、wrapper/并发SetModel下次生效、多next仍绑定同实际模型 |
 | Model lifetime | `model_lease_test.go` | 已进入next真实join、迟到next/callback拒绝、transport retry及并发chunk协议错误保留 |
 | Invocation acceptance | `invocation_test.go` | 真实身份/会话与工具目录绑定、只读准入/修复重试、公开失败与重复continuation |
 | Working source acceptance | `context_source_test.go` | 贡献封闭/重复/typed-nil、实际只读reader、失败不回全量与原事实保留 |
-| Hook audit | `hook_audit_test.go` | 阶段而非逐层写、洋葱顺序/真实call、固定错误无正文、settle后审计失败/取消/veto回归 |
-| LLM audit | `llm_audit_test.go` | 2000chunk只产固定审计条数、正文/私有错误不泄露、cache显式0与审计存储失败拒绝Tool并配对结算 |
+| Hook audit | `hook_audit_test.go` | 阶段而非逐层写、洋葱顺序/真实call、固定错误无正文、可选保存失败仅报告、真实settle/取消/veto回归 |
+| LLM audit | `llm_audit_test.go` | 2000chunk只产固定审计条数、正文/私有错误不泄露、cache显式0、可选保存失败继续与纯SDK无诊断默认项 |

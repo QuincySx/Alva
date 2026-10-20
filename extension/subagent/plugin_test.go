@@ -128,6 +128,27 @@ func TestSelectedOutputBoundariesRefusalAndForgedSource(t *testing.T) {
 		}
 		return nil
 	}, nil)
+	// A refusal is only a completed answer once its actual fact is committed.
+	original := p.config.Factory
+	p.config.Factory = ChildFactoryFunc(func(ctx context.Context, request ChildRequest) (Child, error) {
+		child, err := original.Prepare(ctx, request)
+		if err != nil {
+			return child, err
+		}
+		stream := child.Runner
+		child.Runner = runFunc(func(ctx context.Context, input []wire.Message, emit func(abi.Event) error) error {
+			if err := stream.Run(ctx, input, emit); err != nil {
+				return err
+			}
+			records, err := child.Session.AppendRecords(ctx, []abi.SessionRecord{abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &wire.Message{Role: wire.RoleAssistant, Content: []wire.ContentBlock{{Kind: wire.ContentRefusal, Refusal: &wire.Refusal{Text: "cannot comply🙂"}}}}})})
+			if err != nil {
+				return err
+			}
+			r := records[0]
+			return emit(abi.Event{Kind: abi.EventMessageCommitted, Message: r.Message, Record: &abi.RecordReference{SessionID: child.Session.ID(), RecordID: r.ID, Sequence: r.Sequence}})
+		})
+		return child, nil
+	})
 	result, err := execute(t, p, execution, `{"task":"work"}`)
 	if err != nil || !result.IsError {
 		t.Fatal(result, err)

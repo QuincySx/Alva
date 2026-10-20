@@ -1,5 +1,5 @@
 // INPUT: bytes, context, encoding/json, errors/io/reflect/utf8, strictjson, agent Task and ABI/wire; portable capability contracts
-// OUTPUT: NewTools binds seven ordinary Task/Plan Tools to a Service and explicit detail writer.
+// OUTPUT: NewTaskTools binds six task Tools to TaskService with optional retained detail.
 // POS: [L4 extension] Workflow operations and bounded references run without a native Plugin, database, Guard or lifecycle.
 package planning
 
@@ -19,25 +19,30 @@ import (
 )
 
 type planningTool struct {
-	service Service
+	service TaskService
 	retain  func(context.Context, TaskRecord) (wire.Reference, error)
 	name    string
 }
 
-// NewTools installs no middleware or services. The host binds Service and retain
-// to its own scope; neither accepts model-supplied storage authority. retain
-// preserves a full task projection and returns a reference readable by that host.
-func NewTools(service Service, retain func(context.Context, TaskRecord) (wire.Reference, error)) ([]abi.Tool, error) {
-	if missingService(service) || retain == nil {
-		return nil, errors.New("planning service and detail writer required")
+// TaskToolsConfig selects business state and optional reference-first output.
+// Without RetainDetail, complete task detail must fit the 16 KiB inline budget.
+// A writer failure is never silently replaced by inline content.
+type TaskToolsConfig struct {
+	Service      TaskService
+	RetainDetail func(context.Context, TaskRecord) (wire.Reference, error)
+}
+
+func NewTaskTools(config TaskToolsConfig) ([]abi.Tool, error) {
+	if missingService(config.Service) {
+		return nil, errors.New("task service required")
 	}
 	var tools []abi.Tool
-	for _, name := range []string{"task_create", "task_get", "task_list", "task_update", "task_stop", "task_output", "todo_write"} {
-		tools = append(tools, &planningTool{service: service, retain: retain, name: name})
+	for _, name := range []string{"task_create", "task_get", "task_list", "task_update", "task_stop", "task_output"} {
+		tools = append(tools, &planningTool{service: config.Service, retain: config.RetainDetail, name: name})
 	}
 	return tools, nil
 }
-func missingService(value Service) bool {
+func missingService(value TaskService) bool {
 	if value == nil {
 		return true
 	}
@@ -51,7 +56,7 @@ func missingService(value Service) bool {
 
 func (t *planningTool) Name() string { return t.name }
 func (t *planningTool) Description() string {
-	return map[string]string{"task_create": "Create a manual workflow task through the configured Service; no process/agent is started and no output path invented.", "task_get": "Get real same-session task metadata and full retained task detail reference.", "task_list": "Page real same-session manual tasks, with exact status filtering and revision.", "task_update": "Update title/description/owner/metadata/dependencies/status or append a note reference through the configured Service. Strict transitions/dependency DAG; not execution.", "task_stop": "Cancel a manual workflow record, not an operating-system process or agent. Use the actual execution owner's stop API for those.", "task_output": "Return bounded references to explicitly appended workflow output notes, not synthetic process output.", "todo_write": "Replace configured session plan notes. Does not edit CLAUDE.md or arbitrary files, and does not change actual permission mode."}[t.name]
+	return map[string]string{"task_create": "Create a manual workflow task through the configured Service; no process/agent is started and no output path invented.", "task_get": "Get task metadata and bounded complete detail, inline or retained under the host output policy.", "task_list": "Page real same-session manual tasks, with exact status filtering and revision.", "task_update": "Update title/description/owner/metadata/dependencies/status or append a note reference through the configured Service. Strict transitions/dependency DAG; not execution.", "task_stop": "Cancel a manual workflow record, not an operating-system process or agent. Use the actual execution owner's stop API for those.", "task_output": "Return bounded references to explicitly appended workflow output notes, not synthetic process output."}[t.name]
 }
 func (*planningTool) Scheduling(wire.ToolCall) abi.Scheduling {
 	return abi.Scheduling{ExecutionMode: abi.SerialGlobal}
@@ -96,9 +101,6 @@ func (t *planningTool) ParametersSchema() json.RawMessage {
 		str("status", 32)
 		str("append_output", 64<<10)
 		required = []string{"task_id"}
-	case "todo_write":
-		str("content", 64<<10)
-		required = []string{"content"}
 	}
 	if t.name == "task_create" || t.name == "task_update" {
 		properties["metadata"] = map[string]any{"type": "object"}
@@ -116,7 +118,6 @@ type arguments struct {
 	Subject      *string             `json:"subject"`
 	Description  *string             `json:"description"`
 	Owner        *string             `json:"owner"`
-	Content      *string             `json:"content"`
 	AppendOutput *string             `json:"append_output"`
 	ID           string              `json:"task_id"`
 	Status       agentabi.TaskStatus `json:"status"`
@@ -197,15 +198,23 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 		return *s
 	}
 	var body any
+	var committed *TaskRecord
+	finishError := func(err error) (wire.ToolResult, error) {
+		if committed != nil {
+			return zero, &CommittedError{Operation: t.name, CallID: call.ID, TaskID: committed.Task.ID, Err: err}
+		}
+		return zero, err
+	}
 	switch t.name {
 	case "task_create":
 		task, err := t.service.Create(ctx, CreateRequest{Title: value(a.Subject), Description: value(a.Description), Owner: value(a.Owner), Metadata: a.Metadata, BlockedBy: a.BlockedBy})
 		if err != nil {
-			return zero, err
+			return zero, correlateCommit(err, t.name, call.ID)
 		}
+		committed = &task
 		body, err = t.detail(ctx, task)
 		if err != nil {
-			return zero, err
+			return finishError(err)
 		}
 	case "task_update", "task_stop":
 		status := a.Status
@@ -214,11 +223,12 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 		}
 		task, err := t.service.Update(ctx, UpdateRequest{ID: a.ID, Title: a.Subject, Description: a.Description, Owner: a.Owner, Status: status, Metadata: a.Metadata, BlockedBy: a.BlockedBy, AppendOutput: a.AppendOutput})
 		if err != nil {
-			return zero, err
+			return zero, correlateCommit(err, t.name, call.ID)
 		}
+		committed = &task
 		body, err = t.detail(ctx, task)
 		if err != nil {
-			return zero, err
+			return finishError(err)
 		}
 	case "task_get", "task_output":
 		task, found, err := t.service.Get(ctx, a.ID)
@@ -249,25 +259,16 @@ func (t *planningTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 		for _, r := range page.Tasks {
 			items = append(items, map[string]any{"id": r.Task.ID, "kind": r.Task.Kind, "status": r.Task.Status})
 		}
-		notes, err := t.service.Notes(ctx)
-		if err != nil {
-			return zero, err
-		}
-		body = map[string]any{"tasks": items, "next": page.Next, "has_more": page.HasMore, "revision": page.Revision, "plan_notes": notes}
-	case "todo_write":
-		ref, err := t.service.SetNotes(ctx, value(a.Content))
-		if err != nil {
-			return zero, err
-		}
-		if err := ref.Validate(); err != nil {
-			return zero, err
-		}
-		body = map[string]any{"notes": ref, "notice": "Configured session plan notes replaced; no workspace file or permission policy changed"}
+		body = map[string]any{"tasks": items, "next": page.Next, "has_more": page.HasMore, "revision": page.Revision}
 	}
 	if err := ctx.Err(); err != nil {
-		return zero, err
+		return finishError(err)
 	}
-	return result(call.ID, body, false)
+	valueResult, err := result(call.ID, body, false)
+	if err != nil {
+		return finishError(err)
+	}
+	return valueResult, nil
 }
 func result(id string, body any, isError bool) (wire.ToolResult, error) {
 	raw, err := json.Marshal(body)
@@ -286,6 +287,9 @@ func (t *planningTool) detail(ctx context.Context, task TaskRecord) (any, error)
 	}
 	if len(raw) > 128<<10 {
 		return nil, errors.New("configured planning detail exceeds 128 KiB")
+	}
+	if t.retain == nil {
+		return map[string]any{"task_id": task.Task.ID, "status": task.Task.Status, "kind": task.Task.Kind, "detail": task}, nil
 	}
 	ref, err := t.retain(ctx, task)
 	if err != nil {

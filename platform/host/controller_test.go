@@ -5,6 +5,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -13,6 +14,44 @@ import (
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
+
+func TestReplayProviderStateDoesNotShareObserverMemory(t *testing.T) {
+	call := wire.ToolCall{ID: "c", Name: "test", Arguments: json.RawMessage(`{}`), ProviderState: []wire.ProviderState{{Provider: "gemini", Data: json.RawMessage(`{"signature":"opaque"}`)}}}
+	c := NewController(runnerFunc(func(_ context.Context, _ []wire.Message, emit func(abi.Event) error) error {
+		return emit(abi.Event{Kind: abi.EventToolStarted, ToolCall: &call})
+	}), 8)
+	id, err := c.StartPrompt(context.Background(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, c, id)
+	for i := 0; i < 2; i++ {
+		events, stop, err := c.Subscribe(id, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for event := range events {
+			if event.Event.ToolCall == nil {
+				continue
+			}
+			found = true
+			state := &event.Event.ToolCall.ProviderState[0]
+			if state.Provider != "gemini" || string(state.Data) != `{"signature":"opaque"}` {
+				t.Fatal("observer mutated replay", state)
+			}
+			state.Provider = "observer-mutated"
+			state.Data[0] = 'x'
+		}
+		stop()
+		if !found {
+			t.Fatal("tool event missing")
+		}
+	}
+	if call.ProviderState[0].Provider != "gemini" || call.ProviderState[0].Data[0] != '{' {
+		t.Fatal("runner memory shared")
+	}
+}
 
 type runnerFunc func(context.Context, []wire.Message, func(abi.Event) error) error
 

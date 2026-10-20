@@ -303,3 +303,58 @@ func TestNativeChildSetupFailureKeepsTruthfulDurableChildWithoutExecution(t *tes
 		t.Fatal("failed setup executed model/user turn", messages, err)
 	}
 }
+
+func TestNativeChildSetupFailureTransfersUnfinishedCleanup(t *testing.T) {
+	ctx := t.Context()
+	cwd := t.TempDir()
+	repo, err := session.Open(ctx, filepath.Join(t.TempDir(), "facts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	parent, err := repo.Create(ctx, "owner", "root", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard, err := security.NewGuard(cwd, nil, nil, security.NewPermissionManager(security.Ask, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := echoTool{}
+	closed := 0
+	failure := errors.New("binder failed")
+	factory, err := NewNativeChildFactory(ctx, NativeChildConfig{Repository: repo, Owner: "owner", ParentID: "root", Cwd: cwd, Guard: guard, Bindings: []ChildToolBinding{{Parent: tool, Bind: func(context.Context, ChildBinding) (BoundChildTool, error) {
+		return BoundChildTool{Close: func(context.Context) error {
+			closed++
+			if closed == 1 {
+				return context.DeadlineExceeded
+			}
+			return nil
+		}}, failure
+	}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := scope.NewRoot(demoModel{}, []abi.Tool{tool}, scope.Config{SessionID: "root", Timeout: time.Second, MaxIterations: 3, MaxDepth: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childScope, err := root.SpawnChild(ctx, agentabi.ChildScopeConfig{Role: "child"}, []string{"echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	budget, _ := subagent.NewBudget(2, 1)
+	if _, err := parent.AppendRecords(ctx, []abi.SessionRecord{abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolIntent, ToolIntent: &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "call", Name: "agent", Arguments: json.RawMessage(`{}`)}}})}); err != nil {
+		t.Fatal(err)
+	}
+	child, err := factory.Prepare(ctx, subagent.ChildRequest{Parent: parent, ParentRunID: "run", SpawnCallID: "call", Workspace: cwd, Scope: childScope, Model: demoModel{}, Grants: []abi.Tool{tool}, Budget: budget})
+	if !errors.Is(err, failure) || !errors.Is(err, subagent.ErrChildCleanup) || closed != 1 || child.Close == nil || child.CleanupComplete == nil || child.CleanupComplete() {
+		t.Fatal("unfinished setup owner lost", child, err, closed)
+	}
+	if err := child.Close(ctx); err != nil || !child.CleanupComplete() || closed != 2 {
+		t.Fatal("setup cleanup not retryable", err, closed)
+	}
+	if err := child.Close(ctx); err != nil || closed != 2 {
+		t.Fatal("successful close replayed", err, closed)
+	}
+}

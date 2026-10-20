@@ -149,6 +149,8 @@ func TestRuntimeCommitOrFallbackReadFailureNeverLeavesTurnRunning(t *testing.T) 
 	}
 }
 
+type executionOnlyStore struct{ hub.ExecutionStore }
+
 func TestRuntimeReturnedFailureAfterCompletionCannotLeaveSuccessfulTurn(t *testing.T) {
 	ctx := context.Background()
 	store := newStore(t)
@@ -157,7 +159,8 @@ func TestRuntimeReturnedFailureAfterCompletionCannotLeaveSuccessfulTurn(t *testi
 		t.Fatal(err)
 	}
 	failure := errors.New("engine cleanup failed after early Completed")
-	r := hub.New(store)
+	// A runnable persistence port has no Settings/MCP/media/UI methods.
+	r := hub.New(executionOnlyStore{store})
 	if err = r.Register("fixture", runtimeFunc{control: true, run: func(_ context.Context, _ engine.Request, emit func(engine.Event) error) error {
 		if err := emit(engine.Event{Kind: engine.SessionStarted, SessionID: "native"}); err != nil {
 			return err

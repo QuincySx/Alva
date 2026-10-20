@@ -118,7 +118,7 @@ func TestFunctionHooksKeepSelectedDispatchAndActualAudit(t *testing.T) {
 		}
 		return nil
 	}}
-	a := build(t, core.NewBuilder(batchModel([]string{"call"}), log).Tool(tool).Plugin(p))
+	a := build(t, auditedBuilder(batchModel([]string{"call"}), log).Tool(tool).Plugin(p))
 	if err := a.Run(t.Context(), []wire.Message{wire.TextMessage(wire.RoleUser, "one real model/tool/model")}, discard); err != nil {
 		t.Fatal(err)
 	}

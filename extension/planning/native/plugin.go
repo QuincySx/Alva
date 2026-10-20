@@ -16,6 +16,7 @@ import (
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/kernel/bus"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 type Config struct {
@@ -55,10 +56,18 @@ func New(ctx context.Context, c Config) (*Plugin, error) {
 		}
 	}
 	p := &Plugin{config: c, log: log, service: selected}
-	tools, err := planning.NewTools(selected, p.detail)
+	tools, err := planning.NewTaskTools(planning.TaskToolsConfig{Service: selected, RetainDetail: p.detail})
 	if err != nil {
 		return nil, err
 	}
+	plan, err := planning.NewPlanTool(func(ctx context.Context, content string) (*wire.Reference, error) {
+		ref, err := selected.SetNotes(ctx, content)
+		return &ref, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	tools = append(tools, plan)
 	for _, tool := range tools {
 		p.tools = append(p.tools, &planningTool{Tool: tool, plugin: p, name: tool.Name()})
 	}

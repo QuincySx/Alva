@@ -1,10 +1,11 @@
-// INPUT: context, errors, reflect, sync, time, agent/abi/core/context/scope/security, kernel/abi.
-// OUTPUT: Config, Plugin, New, Tool, scope lifecycle and selected template/model contracts.
+// INPUT: context/JSON/errors/reflect/sync/time, agent/abi/core/context/scope/security, kernel/abi and llm/wire.
+// OUTPUT: Config/Plugin/New/Tool, stable catalog context, scope lifecycle and retryable Close/CleanupComplete.
 // POS: [L4 extension] Optional recursive agent Tool Plugin binds actual runtime state without inheriting root tools or logs.
 package subagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 type Config struct {
@@ -32,13 +34,15 @@ type Config struct {
 	Communications                                          *agentabi.CommunicationRegistry
 }
 type Plugin struct {
-	mu     sync.Mutex
-	config Config
-	tool   *agentTool
-	scope  *scope.SpawnScope
-	budget *Budget
-	state  *abi.AgentState
-	runID  string
+	mu       sync.Mutex
+	config   Config
+	tool     *agentTool
+	scope    *scope.SpawnScope
+	budget   *Budget
+	state    *abi.AgentState
+	runID    string
+	children map[*childOwner]struct{}
+	closed   bool
 }
 
 func New(config Config) (*Plugin, error) {
@@ -82,7 +86,7 @@ func (p *Plugin) OnRunStart(ctx context.Context, runtime abi.RuntimeContext) err
 	if runtime.State == nil || runtime.State.Session().ID() != p.config.SessionID || runtime.RunID == "" {
 		return errors.New("subagent actual session/run mismatch")
 	}
-	// Snapshot outside p.mu: registry queries this Tool's live schema.
+	// Capture actual parent instances before binding this run.
 	tools := runtime.State.Tools().Snapshot().Tools
 	if catalog, ok := p.config.Factory.(GrantCatalog); ok {
 		var supported []abi.Tool
@@ -117,6 +121,9 @@ func (p *Plugin) OnRunStart(ctx context.Context, runtime abi.RuntimeContext) err
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.closed || len(p.children) > 0 {
+		return errors.New("subagent owner is closed or still owns unfinished child cleanup")
+	}
 	if p.runID != "" {
 		return errors.New("subagent Plugin already active")
 	}
@@ -171,7 +178,51 @@ func (p *Plugin) grantableNames(active *scope.SpawnScope, state *abi.AgentState)
 	}
 	return result
 }
-func (p *Plugin) OnRunEnd(_ context.Context, runtime abi.RuntimeContext, _ error) error {
+
+// Advertise the current host restriction in this request's context, rather
+// than changing the schema of an already registered executable instance.
+func (p *Plugin) BeforeModel(_ context.Context, runtime abi.RuntimeContext, request *abi.ModelRequest) error {
+	if _, restricted := p.config.Factory.(GrantCatalog); !restricted {
+		return nil
+	}
+	p.mu.Lock()
+	active, state, runID := p.scope, p.state, p.runID
+	p.mu.Unlock()
+	if state == nil || runtime.State != state || runtime.RunID != runID {
+		return errors.New("subagent catalog is not bound to this active run")
+	}
+	names := p.grantableNames(active, state)
+	if names == nil {
+		names = []string{}
+	}
+	data, err := json.Marshal(names)
+	if err != nil {
+		return err
+	}
+	if len(data) > 32<<10 {
+		return errors.New("subagent delegation catalog exceeds 32 KiB")
+	}
+	message := wire.TextMessage(wire.RoleSystem, "The agent tool may delegate only these current direct-parent host tool names: "+string(data)+". An empty array grants no host tools. This context describes availability, not permission to execute effects.")
+	// Preserve the configured stable system prefix and conversation tail. A
+	// system contribution must not displace the latest user/tool message.
+	prefix := 0
+	for prefix < len(request.Messages) && request.Messages[prefix].Role == wire.RoleSystem {
+		prefix++
+	}
+	messages := make([]wire.Message, 0, len(request.Messages)+1)
+	messages = append(messages, request.Messages[:prefix]...)
+	messages = append(messages, message)
+	request.Messages = append(messages, request.Messages[prefix:]...)
+	return nil
+}
+func (p *Plugin) OnRunEnd(ctx context.Context, runtime abi.RuntimeContext, _ error) error {
+	p.mu.Lock()
+	owned := p.runID == runtime.RunID
+	p.mu.Unlock()
+	if !owned {
+		return nil
+	}
+	err := p.closeChildren(ctx)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.runID == runtime.RunID {
@@ -181,5 +232,5 @@ func (p *Plugin) OnRunEnd(_ context.Context, runtime abi.RuntimeContext, _ error
 		p.runID = ""
 		p.state = nil
 	}
-	return nil
+	return err
 }
