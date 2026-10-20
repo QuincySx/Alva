@@ -1,0 +1,8 @@
+# INPUT: Explicit JavaScript entry and locally bundled author SDK
+# OUTPUT: Plugin identity, runtime and requested callback capabilities
+# POS: Author manifest; host approval is separate
+name = "javascript-echo"
+version = "1"
+runtime = "javascript"
+entry = "echo.mjs"
+requested_capabilities = ["host:log", "host:state.get_metadata"]

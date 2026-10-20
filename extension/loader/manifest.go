@@ -58,6 +58,10 @@ func (m Manifest) Validate() error {
 		if !strings.HasSuffix(m.Entry, ".js") && !strings.HasSuffix(m.Entry, ".mjs") && !strings.HasSuffix(m.Entry, ".cjs") {
 			return errors.New("JavaScript Plugin entry extension invalid")
 		}
+	} else if m.Runtime == "wasm" {
+		if !strings.HasSuffix(m.Entry, ".wasm") {
+			return errors.New("WASM Plugin entry must be .wasm")
+		}
 	} else {
 		return errors.New("unsupported Plugin runtime")
 	}

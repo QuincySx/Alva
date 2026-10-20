@@ -209,9 +209,18 @@ Ask按actual request ID只批准当前调用，非交互Ask继续拒绝写入；
 
 Hub引擎的执行能力与检查能力分别声明：认证`GET /v1/engines`只返回实际装配能力，不探测账户或程序。Inspector元数据/2KiB原文/JSONL均消费独立EngineInspector，`/v1/sessions/ID/inspector-events?branch=BRANCH`以native durable Sequence（`Last-Event-ID`）观察新metadata，断线不Stop。外部engine当前检查能力明确unsupported；Alva已绑定实际harness的MaxTurns/SystemPrompt，Claude已接原生append/max-turns参数；Codex/Pi不降级system role为user文字，未接线的选项与fast-mode不会显示为支持。
 
-可选 Python 插件作者 SDK 位于 [integration/protocol/aep/python](../integration/protocol/aep/python/README.md)，
-通过真实 Go AEP loader 互操作测试。它是插件侧客户端，不是第二套 Agent 实现；普通 Go 构建/运行
-不要求 Python，执行 Python 插件时才显式选择解释器和宿主批准。
+可选作者插件复用同一个 AEP v0.1 协议、Plugin/Tool/Middleware、审批和会话引用：
+
+| 写法 | 作者入口 | 执行方式 |
+|---|---|---|
+| Go | [公开 SDK 示例](../examples/sdk-agent/README.md) | 编译进程序的原生 Plugin，也可将整个 SDK 消费者编译到 Node/WASIp1 |
+| JavaScript | [作者 SDK、声明与完整 bundle 示例](../integration/protocol/aep/javascript/README.md) | 显式 Node20+ 原生子进程；无运行时npm依赖，代码具有宿主访问权 |
+| WASIp1 | [独立模块构建示例](../examples/aep-wasm/README.md) | `runtime="wasm"`、`.wasm` entry，由Go内嵌wazero加载，无目录/环境/网络 |
+| Python | [现有作者 SDK](../integration/protocol/aep/python/README.md) | 显式解释器的原生子进程 |
+
+JS/Python填写绝对interpreter路径；WASM的interpreter/args/env全部留空。Hub Desktop的Session settings → AEP Plugins先检查保存disabled pin，再明确批准下一Turn执行；pin改变后拒绝运行，不fallback到原生解释器。
+编程接入使用`extension/loader`，上层程序提供会话存储、Guard和launch-risk回调；返回的非nil Plugin拥有bundle，即使同返未完成收尾错误也须保留owner并继续Close。
+普通Go构建不需要Node/Python或外部WASM命令。QuickJS-NG仍用于现有受限脚本能力，与Node作者插件独立；浏览器`js/wasm`不冒充WASIp1插件ABI。检查、批准、构建与实际运行验收分别记录。
 
 ## 第三方 SDK 与存储组件验收
 

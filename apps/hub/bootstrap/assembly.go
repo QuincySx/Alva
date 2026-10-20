@@ -428,6 +428,10 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 				return request.ReportActivity(engine.Activity{ID: "aep:" + entry.SHA256, Name: "Approved AEP " + entry.Name, Effect: engine.EffectUnknown})
 			}})
 			if err != nil {
+				if plugin != nil {
+					loaded = append(loaded, plugin)
+					return nil, err
+				}
 				return nil, errors.Join(err, nativeCloseFailure(nativeID, "close rejected AEP snapshot", bundle.Close()))
 			}
 			loaded = append(loaded, plugin)

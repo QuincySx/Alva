@@ -1,6 +1,6 @@
-// INPUT: Approved immutable bundle/interpreter, actual native session and explicit launch-risk recorder
+// INPUT: Approved immutable native/WASIp1 bundle, actual native session and explicit launch-risk recorder
 // OUTPUT: OpenPlugin, Plugin SDK registration, one reference-first gateway, owned Close and CleanupComplete
-// POS: [L4 extension] AEP subprocess Plugin host above portable SDK, never a Rust compatibility bridge or OS sandbox
+// POS: [L4 extension] AEP Plugin host over owned native or isolated WASIp1 execution, outside portable SDK
 package loader
 
 import (
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/integration/protocol/aep"
+	wasmplugin "github.com/QuincySx/Alva/platform/sandbox/plugin"
 	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/platform/system/process"
@@ -22,9 +23,9 @@ import (
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
-// OpenPlugin consumes ownership of Bundle only on success. The owner must keep
-// the returned Plugin alive until execution has ended, then Close it. Native
-// code has host access; an owner-only snapshot is NOT an OS execution sandbox.
+// PluginConfig selects an explicitly approved bundle and execution mode.
+// Native code has host access; a private snapshot is not an OS sandbox. WASIp1
+// runs embedded without native interpreter, environment, files or network.
 type PluginConfig struct {
 	Bundle             *Bundle
 	Interpreter        string
@@ -35,7 +36,7 @@ type PluginConfig struct {
 	Owner, NativeID    string
 	Guard              *security.Guard
 	ApprovedHostAccess bool
-	// Must commit possible native side effects before any subprocess launch.
+	// Must commit execution risk before any native or embedded launch.
 	// Hub binds this to its actual Request.ReportActivity; no name-only claim.
 	BeforeLaunch func(context.Context) error
 }
@@ -63,9 +64,16 @@ type Plugin struct {
 	gateway    *pluginGateway
 }
 
-func OpenPlugin(ctx context.Context, config PluginConfig) (_ *Plugin, result error) {
-	if config.Bundle == nil || config.Interpreter == "" || storage.Missing(config.Repository) || config.NativeID == "" || config.Guard == nil || !config.ApprovedHostAccess || config.BeforeLaunch == nil || !filepath.IsAbs(config.Workspace) {
+// OpenPlugin transfers Bundle ownership whenever it returns a non-nil Plugin,
+// including an error with incomplete physical cleanup. Keep that owner and
+// retry Close until CleanupComplete. A nil Plugin leaves Bundle with the caller.
+func OpenPlugin(ctx context.Context, config PluginConfig) (owned *Plugin, result error) {
+	if config.Bundle == nil || storage.Missing(config.Repository) || config.NativeID == "" || config.Guard == nil || !config.ApprovedHostAccess || config.BeforeLaunch == nil || !filepath.IsAbs(config.Workspace) {
 		return nil, errors.New("AEP requires approved bundle/interpreter, actual private session/guard/workspace and pre-launch activity recorder")
+	}
+	wasm := config.Bundle.manifest.Runtime == "wasm"
+	if wasm && (config.Interpreter != "" || len(config.InterpreterArgs) != 0 || len(config.Env) != 0) || !wasm && config.Interpreter == "" {
+		return nil, errors.New("WASM Plugins use the embedded runtime without interpreter/args/env; native Plugins require an explicit interpreter")
 	}
 	log, err := config.Repository.OpenSession(ctx, config.Owner, config.NativeID)
 	if err != nil {
@@ -107,7 +115,18 @@ func OpenPlugin(ctx context.Context, config PluginConfig) (_ *Plugin, result err
 		args = append(args, "-u")
 	}
 	args = append(args, config.Bundle.Entry())
-	c, err := aep.Open(ctx, aep.Config{Name: manifest.Name, PluginVersion: manifest.Version, Process: process.Config{Command: config.Interpreter, Args: args, Env: env, Cwd: config.Bundle.Root()}, RequestedCapabilities: manifest.RequestedCapabilities, RequestTimeout: 120 * time.Second, HostCapabilities: aep.HostCapabilities{StateAccess: []string{"messages", "metadata", "tool_calls"}, Events: pluginEvents, HostAPI: []string{"log", "notify", "emit_metric", "state.get_messages", "state.get_metadata", "state.count_tokens", "state.read_reference", "state.search_reference"}}}, p, aep.ObserverFunc(func(ctx context.Context, event aep.IOEvent) error {
+	protocol := aep.Config{Name: manifest.Name, PluginVersion: manifest.Version, Process: process.Config{Command: config.Interpreter, Args: args, Env: env, Cwd: config.Bundle.Root()}, RequestedCapabilities: manifest.RequestedCapabilities, RequestTimeout: 120 * time.Second, HostCapabilities: aep.HostCapabilities{StateAccess: []string{"messages", "metadata", "tool_calls"}, Events: pluginEvents, HostAPI: []string{"log", "notify", "emit_metric", "state.get_messages", "state.get_metadata", "state.count_tokens", "state.read_reference", "state.search_reference"}}}
+	if wasm {
+		module, err := readRegular(ctx, config.Bundle.root, manifest.Entry, wasmplugin.MaxModuleBytes)
+		if err != nil {
+			return nil, err
+		}
+		protocol.Process = process.Config{}
+		protocol.Start = func(ctx context.Context) (aep.Peer, error) {
+			return wasmplugin.Start(ctx, wasmplugin.Config{Module: module})
+		}
+	}
+	c, err := aep.Open(ctx, protocol, p, aep.ObserverFunc(func(ctx context.Context, event aep.IOEvent) error {
 		p.mu.Lock()
 		runID := p.runID
 		p.mu.Unlock()
@@ -115,6 +134,10 @@ func OpenPlugin(ctx context.Context, config PluginConfig) (_ *Plugin, result err
 		return err
 	}))
 	if err != nil {
+		if c != nil {
+			p.client = c
+			return p, err
+		}
 		return nil, err
 	}
 	p.client = c
@@ -123,6 +146,9 @@ func OpenPlugin(ctx context.Context, config PluginConfig) (_ *Plugin, result err
 			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			result = errors.Join(result, c.Close(cleanup))
+			if !c.CleanupComplete() {
+				owned = p
+			}
 		}
 	}()
 	handshake := c.Handshake()

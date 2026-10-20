@@ -14,6 +14,8 @@
 
 ## 约束
 
+platform/sandbox/plugin是标准库/wazero叶子，不依赖AEP、SDK、host授权、存储或产品；由实际消费者接入协议。AEP和WASM peer新增公开面快照，既有SDK快照不变。
+
 根目录静态闸不联网、不执行被扫描包、不依赖 go list 或外部 lint 安装；失败给出完整依赖路径。
 `../extensibility/`是独立执行的消费者实验，显式调用SDK与原生临时存储；不参与静态扫描实现，不被生产依赖，不声称实验等于完整产品支持。
 MyGo 只允许 `apps/direct/desktop`、`apps/hub/desktop`、`apps/ui/chat`、`apps/ui/modules` 与 `cmd`，不允许整个 apps/ui 或 apps 容器。共享 UI 不得直接/传递依赖 direct、Hub、harness、host 或 engine。

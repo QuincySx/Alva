@@ -9,6 +9,8 @@ Native SubAgent必须显式opt-in，其Plugin也进入exact attempt资源registr
 媒体默认off，启用仅下一Alva Turn注册actual media Tool；可选decoder只消费明确两exe+独立host批准的snapshot，不发现程序。模型视觉支持仅由operator Config.ImageCapable声明并绑定exact provider/model，未知拒绝select，demo不能自称支持；原始上传不自动投递，实际JPEG选择只进入一个请求副本。
 Browser只消费显式批准snapshot并注册actual7个Tools，同Guard/先耐久risk；每run fresh private profile，不读用户浏览器、登录、keychain或已有配置。构造/保存不启动，正常结束/取消/early失败都由exact attempt资源registry收尾，清理未完成不关facts。未委派给native child。
 ## 约束
+
+AEP native与独立WASIp1沿同一配方装配。OpenPlugin返回非nil+error时保留至pending runner resources，重试Close完成后才能移除快照；不能用失败后的native fallback或重新执行代替清理。
 无全局配置/凭据读取。持久route必须等于实际构建的model/provider/account/billing。Close超时不能关掉活跃执行下的事实存储，可显式重试。UI与HTTP仅消费同一Service，不复制recipe。
 Open只构造AutomationCoordinator不Start；native UI/HTTP入口显式Start其本地timer，Application.Close在Teams/Runtime之前关admission owner，保留已认领普通Turn的runtime所有权。
 独立Shell Sessions资源owner显式延长actual attempt的Hub workspace lease及SDK global lease到reap；每轮Lease只拥有generation reservation，不把observer退出当Stop。正常Turn可跨轮读/写；fresh Guard/reporter只在idle重绑，实际exe/env/cwd/authority不可变；Application.Close在Runtime之后、facts之前取消/join所有Shell owner，strong journal error和physical completion分开。Hooks同样注册actual attempt资源，独立Notify/finalizer未退出不得关facts，run-end join超时保留强失败且owner Close不重放final hooks。MCP同样注册actual attempt资源，不仅靠OnRunEnd；审批/工具回调、worker/process和native journal均完成后才允许关facts。Native resource registry保留真实未完成physical cleanup的factory/runner，阻止同product新Turn，并让Application.Close先重试精确owned资源（包含SubAgent）再关facts；journal强错误和物理cleanup完成是两个事实，不能互相覆盖。
@@ -16,6 +18,8 @@ Open只构造AutomationCoordinator不Start；native UI/HTTP入口显式Start其�
 OpenStores为必传插口，OpenMemory/OpenBindings只在相应组件启用时需要；不存在或失败不选默认后端。stock Local*配方集中storage.go，普通assembly/tools只看同一共享契约。ProductStorage显式声明原生路由resolver，防止换实现后审批能力丢失。工厂部分资源、adapter未接管binding和Close失败均保留真实owner；构造清理未完成时返回Application及error供Close重试。
 
 ## 业务域清单
+
+独立插件验收：`portable_aep_test.go` 实际装配JS作者示例/Go编译WASIp1模块，检查无执行、明确批准、下一Turn状态回调、shutdown证据及快照收尾。
 | 文件 | 职责 |
 |---|---|
 | assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；live仅构造cold Gateway，Close先取消/join其真实handler |

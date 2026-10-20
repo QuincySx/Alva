@@ -1,11 +1,12 @@
-// INPUT: JSON values, explicit host capability grants and native owned process configuration
-// OUTPUT: AEP version, handshake/tool/action contracts, Handler, Observer and Config
+// INPUT: JSON values, explicit host capability grants and owned native or embedded execution
+// OUTPUT: AEP version, handshake/tool/action contracts, Handler, Observer, Peer and Config
 // POS: [integration / external protocol] Third-party Plugin protocol, distinct from SDK policy, bundle loading and persistence
 package aep
 
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"time"
 
 	"github.com/QuincySx/Alva/platform/system/process"
@@ -40,11 +41,30 @@ type Handshake struct {
 type Config struct {
 	Name, PluginVersion string
 	Process             process.Config
+	// Start selects an explicit owned peer, for example an embedded WASIp1
+	// instance. It is mutually exclusive with Process. A failing factory owns
+	// any partial resources and must settle them before returning an error.
+	Start func(context.Context) (Peer, error)
 	// These are independently approved manifest grants, not permissions supplied
 	// by the child handshake. No undeclared callback is ever invoked.
 	RequestedCapabilities          []string
 	HostCapabilities               HostCapabilities
 	ConnectTimeout, RequestTimeout time.Duration
+}
+
+// Peer owns one bidirectional execution endpoint. Accessors return stable,
+// non-nil byte streams. Natural exit drains stdout/stderr through EOF;
+// BeginClose must unblock stream IO and Close must join actual execution.
+// CleanupComplete is physical completion, independently of retained errors.
+type Peer interface {
+	Input() io.WriteCloser
+	Output() io.ReadCloser
+	Errors() io.ReadCloser
+	BeginClose()
+	Close(context.Context) error
+	Wait(context.Context) error
+	ExitCode() (int, bool)
+	CleanupComplete() bool
 }
 type Handler interface {
 	Handle(context.Context, string, json.RawMessage) (json.RawMessage, error)

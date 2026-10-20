@@ -1,0 +1,203 @@
+const (
+	HandleExpired    = -32000
+	CapabilityDenied = -32001
+	InvalidParams    = -32602
+	MethodNotFound   = -32601
+)
+
+const FrameLimit = 16 << 20
+
+const Version = "0.1.0"
+
+func (*observerError) Error() string
+
+func (c *Client) Call(ctx context.Context, method string, params any) (json.RawMessage, error)
+
+func (c *Client) CleanupComplete() bool
+
+func (c *Client) Close(ctx context.Context) error
+
+func (c *Client) Handshake() Handshake
+
+func (c *Client) Notify(ctx context.Context, method string, params any) error
+
+func (c *Client) Shutdown(ctx context.Context) error
+
+func (e *CallbackError) Error() string
+
+func (e *observerError) Unwrap() error
+
+func (f HandlerFunc) Handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
+
+func (f ObserverFunc) Record(ctx context.Context, event IOEvent) error
+
+func (p nativePeer) Errors() io.ReadCloser
+
+func (p nativePeer) Input() io.WriteCloser
+
+func (p nativePeer) Output() io.ReadCloser
+
+func MessageFromDTO(m MessageDTO) (wire.Message, error)
+
+func MessageToDTO(m wire.Message) (MessageDTO, error)
+
+func Open(ctx context.Context, config Config, handler Handler, observer Observer) (*Client, error)
+
+func ToolResultToDTO(result wire.ToolResult) (ToolResultDTO, error)
+
+import (
+	"bufio"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"reflect"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/platform/system/process"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"time"
+
+	"github.com/QuincySx/Alva/platform/system/process"
+)
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+type Action struct {
+	Action            string          `json:"action"`
+	Reason            string          `json:"reason,omitempty"`
+	ModifiedArguments json.RawMessage `json:"modified_arguments,omitempty"`
+	Result            json.RawMessage `json:"result,omitempty"`
+	Messages          json.RawMessage `json:"messages,omitempty"`
+	Response          json.RawMessage `json:"response,omitempty"`
+}
+
+type CallbackError struct{ Code int }
+
+type Client struct {
+}
+
+type Config struct {
+	Name, PluginVersion string
+	Process             process.Config
+
+	Start func(context.Context) (Peer, error)
+
+	RequestedCapabilities          []string
+	HostCapabilities               HostCapabilities
+	ConnectTimeout, RequestTimeout time.Duration
+}
+
+type ContentDTO struct {
+	Type          string                `json:"type"`
+	Text          string                `json:"text,omitempty"`
+	ID            string                `json:"id,omitempty"`
+	Name          string                `json:"name,omitempty"`
+	Input         json.RawMessage       `json:"input,omitempty"`
+	Content       []ContentDTO          `json:"content,omitempty"`
+	IsError       bool                  `json:"is_error,omitempty"`
+	Data          json.RawMessage       `json:"data,omitempty"`
+	MediaType     string                `json:"media_type,omitempty"`
+	URL           string                `json:"url,omitempty"`
+	Detail        string                `json:"detail,omitempty"`
+	Width         int                   `json:"width,omitempty"`
+	Height        int                   `json:"height,omitempty"`
+	Provenance    *wire.MediaProvenance `json:"provenance,omitempty"`
+	Signature     string                `json:"signature,omitempty"`
+	RedactedData  string                `json:"redacted_data,omitempty"`
+	Provider      string                `json:"provider,omitempty"`
+	ToolCallID    string                `json:"tool_call_id,omitempty"`
+	ProviderState []wire.ProviderState  `json:"provider_state,omitempty"`
+	Reference     *wire.Reference       `json:"reference,omitempty"`
+	Audio         *wire.Audio           `json:"audio,omitempty"`
+	Video         *wire.Video           `json:"video,omitempty"`
+}
+
+type Handler interface {
+	Handle(context.Context, string, json.RawMessage) (json.RawMessage, error)
+}
+
+type HandlerFunc func(context.Context, string, json.RawMessage) (json.RawMessage, error)
+
+type Handshake struct {
+	ProtocolVersion string     `json:"protocolVersion"`
+	Plugin          PluginInfo `json:"plugin"`
+	Tools           []Tool     `json:"tools"`
+	Subscriptions   []string   `json:"eventSubscriptions"`
+	Capabilities    []string   `json:"requestedCapabilities"`
+}
+
+type HostCapabilities struct {
+	StateAccess []string `json:"stateAccess"`
+	Events      []string `json:"events"`
+	HostAPI     []string `json:"hostApi"`
+}
+
+type IOEvent struct {
+	Direction string
+	Frame     json.RawMessage
+	At        time.Time
+}
+
+type MessageDTO struct {
+	ID           string       `json:"id,omitempty"`
+	Role         wire.Role    `json:"role"`
+	Content      []ContentDTO `json:"content"`
+	Usage        *wire.Usage  `json:"usage,omitempty"`
+	ResponseID   string       `json:"response_id,omitempty"`
+	FinishReason string       `json:"finish_reason,omitempty"`
+
+	Timestamp *int64 `json:"timestamp,omitempty"`
+}
+
+type Observer interface {
+	Record(context.Context, IOEvent) error
+}
+
+type ObserverFunc func(context.Context, IOEvent) error
+
+type Peer interface {
+	Input() io.WriteCloser
+	Output() io.ReadCloser
+	Errors() io.ReadCloser
+	BeginClose()
+	Close(context.Context) error
+	Wait(context.Context) error
+	ExitCode() (int, bool)
+	CleanupComplete() bool
+}
+
+type PluginInfo struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
+	Author      string `json:"author,omitempty"`
+}
+
+type Tool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema"`
+}
+
+type ToolResultDTO struct {
+	Content []ContentDTO `json:"content"`
+	IsError bool         `json:"is_error"`
+}

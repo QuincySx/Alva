@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -220,6 +221,61 @@ func newPluginFixture(t *testing.T, mode string, before func(context.Context) er
 		t.Cleanup(func() { _ = bundle.Close() })
 		args = []string{"-s", "-S"}
 		env = map[string]string{"PYTHONPATH": filepath.Clean(filepath.Join(filepath.Dir(filename), "../..", "integration", "protocol", "aep", "python")), "PYTHONDONTWRITEBYTECODE": "1"}
+	}
+	if mode == "javascript-sdk" || mode == "wasm-sdk" {
+		_, filename, _, ok := runtime.Caller(0)
+		if !ok {
+			t.Fatal("fixture source path unavailable")
+		}
+		root := filepath.Clean(filepath.Join(filepath.Dir(filename), "../.."))
+		if err = bundle.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if mode == "javascript-sdk" {
+			executable, err = exec.LookPath("node")
+			if err != nil {
+				t.Skip("Node is optional for Go runtime; JS author acceptance requires explicit Node")
+			}
+			manifest.Runtime, manifest.Entry = "javascript", "main.mjs"
+			for destination, origin := range map[string]string{"main.mjs": filepath.Join(root, "extension/loader/testdata/sdk_fixture.mjs"), "alva-sdk.mjs": filepath.Join(root, "integration/protocol/aep/javascript/index.mjs")} {
+				data, err := os.ReadFile(origin)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(source, destination), data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		} else {
+			executable = ""
+			manifest.Runtime, manifest.Entry = "wasm", "plugin.wasm"
+			compile, stop := context.WithTimeout(t.Context(), 2*time.Minute)
+			defer stop()
+			cmd := exec.CommandContext(compile, "go", "build", "-mod=readonly", "-o", filepath.Join(source, "plugin.wasm"), ".")
+			cmd.Dir = filepath.Join(root, "examples/aep-wasm")
+			cmd.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm", "CGO_ENABLED=0", "GOWORK=off", "GOPROXY=off", "GOSUMDB=off")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("WASM author build: %v / %s", err, output)
+			}
+		}
+		args = nil
+		data, err := os.ReadFile(filepath.Join(source, "alva.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		data = []byte(strings.ReplaceAll(strings.ReplaceAll(string(data), `runtime = "python"`, `runtime = "`+manifest.Runtime+`"`), `entry = "main.py"`, `entry = "`+manifest.Entry+`"`))
+		if err := os.WriteFile(filepath.Join(source, "alva.toml"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		manifest, err = ReadManifest(t.Context(), source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bundle, err = Stage(t.Context(), source, parent, manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = bundle.Close() })
 	}
 	if len(environments) != 0 {
 		for key, value := range environments[0] {
@@ -517,8 +573,14 @@ func TestPluginJournalBudgetFailsBeforeAnotherDurableWrite(t *testing.T) {
 	}
 }
 
-func TestCheckedInPythonSDKMutationsUseActualProtocol(t *testing.T) {
-	f := newPluginFixture(t, "python-sdk", nil)
+func TestAuthorSDKMutationsUseActualProtocol(t *testing.T) {
+	for _, mode := range []string{"python-sdk", "javascript-sdk", "wasm-sdk"} {
+		t.Run(mode, func(t *testing.T) { testAuthorMutations(t, mode) })
+	}
+}
+
+func testAuthorMutations(t *testing.T, mode string) {
+	f := newPluginFixture(t, mode, nil)
 	tool := &targetTool{}
 	turn := 0
 	observedErrorResult := false
@@ -534,7 +596,7 @@ func TestCheckedInPythonSDKMutationsUseActualProtocol(t *testing.T) {
 			}
 		}
 		if !found {
-			return errors.New("real Python SDK modify_messages not applied")
+			return errors.New("actual author hook modify_messages not applied")
 		}
 		if turn == 1 {
 			if err := emit(wire.StreamChunk{Kind: wire.ChunkToolCall, ToolCall: &wire.ToolCall{ID: "target-call", Name: "target", Arguments: json.RawMessage(`{"path":"declared"}`)}}); err != nil {

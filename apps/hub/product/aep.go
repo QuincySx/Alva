@@ -19,7 +19,7 @@ import (
 
 // SaveAEPDraft is a native/operator host-file operation, not a browser upload.
 // Inspection copies and removes bounded snapshots but never starts an
-// interpreter. Every edit clears approval, including interpreter/args/env-only
+// interpreter or WASM module. Every edit clears approval, including interpreter/args/env-only
 // edits. A saved path is NOT a pin on the interpreter binary itself.
 func (s *HubService) SaveAEPDraft(ctx context.Context, id, raw string) error {
 	if len(raw) > 64<<10 {
@@ -62,6 +62,9 @@ func (s *HubService) SaveAEPDraft(ctx context.Context, id, raw string) error {
 			if err != nil {
 				return err
 			}
+			if err := validateAEPRuntime(entries[i], manifest); err != nil {
+				return err
+			}
 			bundle, err := loader.Stage(ctx, entries[i].SourceDirectory, parent, manifest)
 			if err != nil {
 				return err
@@ -79,8 +82,9 @@ func (s *HubService) SaveAEPDraft(ctx context.Context, id, raw string) error {
 }
 
 // StagePinnedAEP returns caller-owned immutable code for an already separately
-// approved product setting. Callers transfer ownership only on OpenPlugin
-// success; no source edit, manifest change or unapproved entry is accepted.
+// approved product setting. A non-nil OpenPlugin result owns it, including a
+// partial-cleanup error; otherwise the caller closes it. No edited or unapproved
+// source is accepted.
 func StagePinnedAEP(ctx context.Context, entry hub.AEPBundle, parent string) (*loader.Bundle, error) {
 	if !entry.Enabled || !entry.HostAccessApproved {
 		return nil, errors.New("AEP entry is not explicitly enabled and approved")
@@ -90,6 +94,9 @@ func StagePinnedAEP(ctx context.Context, entry hub.AEPBundle, parent string) (*l
 	}
 	manifest, err := loader.ReadManifest(ctx, entry.SourceDirectory)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateAEPRuntime(entry, manifest); err != nil {
 		return nil, err
 	}
 	if manifest.Name != entry.Name || manifest.Version != entry.Version {
@@ -103,4 +110,15 @@ func StagePinnedAEP(ctx context.Context, entry hub.AEPBundle, parent string) (*l
 		return nil, errors.Join(errors.New("AEP code pin changed since inspection; edit and approve again"), bundle.Close())
 	}
 	return bundle, nil
+}
+
+func validateAEPRuntime(entry hub.AEPBundle, manifest loader.Manifest) error {
+	if manifest.Runtime == "wasm" {
+		if entry.Interpreter != "" || len(entry.InterpreterArgs) != 0 || len(entry.Env) != 0 {
+			return errors.New("WASM AEP uses the embedded runtime; leave interpreter/args/env empty")
+		}
+	} else if entry.Interpreter == "" {
+		return errors.New("native AEP requires an explicit absolute interpreter")
+	}
+	return nil
 }

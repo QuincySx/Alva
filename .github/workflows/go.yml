@@ -31,6 +31,11 @@ jobs:
           cache-dependency-path: go.sum
       - run: go mod download
       - run: go mod verify
+      - name: JavaScript author SDK and actual JS-WASM plugin acceptance
+        run: |
+          node -e "if (Number(process.versions.node.split('.')[0]) < 20) process.exit(1)"
+          node --test integration/protocol/aep/javascript/test/runtime.test.mjs
+          go test -mod=readonly -count=1 ./integration/protocol/aep ./platform/sandbox/plugin ./extension/loader ./apps/hub/bootstrap -run 'TestAuthorSDK|TestPortable|TestWASMPlugin|TestRealMemory|TestTotalIO|TestHardLifetime|TestNaturalExit|TestOpenRetains|TestOwnedTransport|TestExplicitTransport'
       - name: Real Windows DACL, LockFileEx, atomic job and inherited stdin regressions
         run: go test -mod=readonly -count=1 ./platform/system/privatefs ./platform/storage/sqlite ./platform/system/process ./platform/system/secretinput ./platform/system/lineinput
       - name: Actual portable UI diagnostic HTTP and private-file MCP stdio
@@ -70,6 +75,10 @@ jobs:
       - run: go mod verify
       - name: Formatting
         run: test -z "$(gofmt -l .)"
+      - name: JavaScript author SDK runtime
+        run: |
+          node -e "if (Number(process.versions.node.split('.')[0]) < 20) process.exit(1)"
+          node --test integration/protocol/aep/javascript/test/runtime.test.mjs
       - name: Full native and headless race regressions
         # Metered SDK and CLI cases include native compilation in their real
         # wall-clock budget. Do not compete cold compilers across packages;

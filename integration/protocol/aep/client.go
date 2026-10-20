@@ -1,4 +1,4 @@
-// INPUT: bounded bidirectional AEP JSON-RPC stdio, explicit host callbacks and owned process exit observation
+// INPUT: bounded bidirectional AEP JSON-RPC streams, explicit host callbacks and owned execution peers
 // OUTPUT: Open, Client.Call, Notify, Handshake, Shutdown, Close and CleanupComplete
 // POS: [integration / external protocol] Owned Plugin I/O with bounded callback workers, fail-closed recording and no replay
 package aep
@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +31,7 @@ type callback struct {
 }
 type Client struct {
 	config            Config
-	p                 *process.Process
+	p                 Peer
 	handler           Handler
 	observer          Observer
 	ctx               context.Context
@@ -104,13 +105,40 @@ func Open(ctx context.Context, config Config, handler Handler, observer Observer
 		}
 		grants["host/"+name] = true
 	}
-	p, err := process.Start(config.Process)
+	if config.Start != nil && !reflect.DeepEqual(config.Process, process.Config{}) {
+		return nil, errors.New("AEP requires exactly one execution transport")
+	}
+	var p Peer
+	var err error
+	if config.Start != nil {
+		p, err = config.Start(ctx)
+	} else {
+		var native *process.Process
+		native, err = process.Start(config.Process)
+		if err == nil {
+			p = nativePeer{native}
+		}
+	}
 	if err != nil {
 		return nil, err
+	}
+	if missingEndpoint(p) {
+		return nil, errors.New("AEP transport is missing")
 	}
 	worker, cancel := context.WithCancel(context.Background())
 	c := &Client{config: config, p: p, handler: handler, observer: observer, ctx: worker, cancel: cancel, done: make(chan struct{}), workersDone: make(chan struct{}), write: make(chan struct{}, 1), gate: make(chan struct{}, 1), queue: make(chan callback, 128), grants: grants, seen: map[string]bool{}}
 	c.ioDone, c.shutdownGate = make(chan struct{}), make(chan struct{}, 1)
+	if missingEndpoint(p.Input()) || missingEndpoint(p.Output()) || missingEndpoint(p.Errors()) {
+		close(c.workersDone)
+		close(c.ioDone)
+		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		err := errors.Join(errors.New("AEP transport has missing streams"), c.Close(cleanup))
+		if !c.CleanupComplete() {
+			return c, err
+		}
+		return nil, err
+	}
 	c.streams.Add(2)
 	go func() { c.streams.Wait(); close(c.ioDone) }()
 	c.wg.Add(10)
@@ -136,9 +164,24 @@ func Open(ctx context.Context, config Config, handler Handler, observer Observer
 	if err != nil {
 		cleanup, end := context.WithTimeout(context.Background(), 5*time.Second)
 		defer end()
-		return nil, errors.Join(err, c.Close(cleanup))
+		err = errors.Join(err, c.Close(cleanup))
+		if !c.CleanupComplete() {
+			return c, err // retain the actual owner for explicit Close retry
+		}
+		return nil, err
 	}
 	return c, nil
+}
+
+func missingEndpoint(p any) bool {
+	if p == nil {
+		return true
+	}
+	switch reflect.ValueOf(p).Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflect.ValueOf(p).IsNil()
+	}
+	return false
 }
 func (c *Client) validateHandshake() error {
 	h := c.handshake
@@ -258,7 +301,7 @@ func (c *Client) send(ctx context.Context, value any) error {
 		c.fail(err)
 		return err
 	}
-	n, err := c.p.Stdin.Write(append(data, '\n'))
+	n, err := c.p.Input().Write(append(data, '\n'))
 	if err != nil || n != len(data)+1 {
 		c.fail(errors.New("AEP stdin write failed"))
 		return errors.New("AEP stdin write failed")
@@ -333,7 +376,7 @@ func (c *Client) Notify(ctx context.Context, method string, params any) error {
 func (c *Client) stdout() {
 	defer c.wg.Done()
 	defer c.streams.Done()
-	reader := bufio.NewReaderSize(c.p.Stdout, 4096)
+	reader := bufio.NewReaderSize(c.p.Output(), 4096)
 	for {
 		data, readErr := readFrame(reader)
 		if readErr != nil {
@@ -473,7 +516,7 @@ func readFrame(reader *bufio.Reader) ([]byte, error) {
 func (c *Client) stderr() {
 	defer c.streams.Done()
 	defer c.wg.Done()
-	err := process.ReadLines(c.p.Stderr, 1<<20, func(line process.StreamLine) error {
+	err := process.ReadLines(c.p.Errors(), 1<<20, func(line process.StreamLine) error {
 		value := map[string]any{"complete": line.Complete, "truncated": line.Truncated}
 		if utf8.Valid(line.Data) {
 			value["text"] = string(line.Data)
@@ -586,7 +629,7 @@ func (c *Client) Shutdown(ctx context.Context) error {
 	defer cancel()
 	_, err := c.call(grace, "shutdown", nil, true)
 	if err == nil {
-		_ = c.p.Stdin.Close()
+		_ = c.p.Input().Close()
 		select {
 		case <-c.ioDone:
 		case <-grace.Done():
@@ -616,6 +659,12 @@ func (c *Client) CleanupComplete() bool {
 }
 
 type observerError struct{ cause error }
+
+type nativePeer struct{ *process.Process }
+
+func (p nativePeer) Input() io.WriteCloser { return p.Stdin }
+func (p nativePeer) Output() io.ReadCloser { return p.Stdout }
+func (p nativePeer) Errors() io.ReadCloser { return p.Stderr }
 
 func (*observerError) Error() string   { return "AEP observer failed; interaction stopped" }
 func (e *observerError) Unwrap() error { return e.cause }

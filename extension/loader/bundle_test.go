@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 func writeBundle(t *testing.T, source, pin string) Manifest {
@@ -36,8 +38,8 @@ requested_capabilities = ["host:log"]
 }
 func privateParent(t *testing.T) string {
 	t.Helper()
-	path := t.TempDir()
-	if err := os.Chmod(path, 0700); err != nil {
+	path, err := privatefs.EnsureDir(filepath.Join(t.TempDir(), "private"))
+	if err != nil {
 		t.Fatal(err)
 	}
 	return path

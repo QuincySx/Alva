@@ -139,6 +139,9 @@ func forbidden(root, dependency string, local bool) string {
 	if under(root, "platform/system/privatefs") && local && dependency != root {
 		return "private filesystem primitives cannot depend on storage implementations or execution/product policy"
 	}
+	if under(root, "platform/sandbox/plugin") && dependency != root && !under(dependency, "github.com/tetratelabs/wazero") && (local || strings.Contains(dependency, ".")) {
+		return "WASM plugin execution peer may use only stdlib and wazero; protocol, SDK, grants and storage belong to consumers"
+	}
 	if root == "platform/storage" || root == "platform/storage/redaction" {
 		if (local && dependency != root && dependency != "platform/storage/blob" && !under(dependency, "sdk")) || (!local && strings.Contains(dependency, ".")) {
 			return "shared storage contracts and redaction cannot select a provider or import execution/product policy"
@@ -400,6 +403,10 @@ func TestFirewallRejectsContainerAndTransitiveBypasses(t *testing.T) {
 		"workspace cannot own file tools":        {"platform/host/workspace": {"extension/files"}},
 		"workspace cannot own harness":           {"platform/host/workspace": {"harness"}},
 		"workspace cannot own controller":        {"platform/host/workspace": {"platform/host"}},
+		"WASM peer cannot own protocol":          {"platform/sandbox/plugin": {"integration/protocol/aep"}},
+		"WASM peer cannot own SDK":               {"platform/sandbox/plugin": {"sdk/kernel/abi"}},
+		"WASM peer cannot own storage":           {"platform/sandbox/plugin": {"platform/storage"}},
+		"WASM peer cannot inherit product":       {"platform/sandbox/plugin": {"github.com/tetratelabs/wazero"}, "github.com/tetratelabs/wazero": {"apps/hub"}},
 		"shared UI cannot own Hub":               {"apps/ui/chat": {"apps/hub/product"}},
 		"shared UI cannot own execution":         {"apps/ui/modules": {"platform/host"}},
 		"shared UI cannot inherit execution":     {"apps/ui/chat": {"platform/storage/session"}, "platform/storage/session": {"harness"}},

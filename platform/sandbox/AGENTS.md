@@ -23,3 +23,4 @@ guest 的文件调用走 WASI，网络及 unsandboxed escalation 只能走独立
 |---|---|
 | `host` | native runner、Unix/Windows目录能力（Windows原生未验收）、逐跳 fetch、升级授权与观察；job冷编译预算与QuickJS独立执行期限分开 |
 | `guest` | WASIp1 import proxy、真 SDK agent 与 WASI 文件工具 |
+| `plugin` | 独立WASIp1插件的受限stdio执行peer；无AEP/SDK/存储依赖，协议/授权由外层装配 |

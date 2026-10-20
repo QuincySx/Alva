@@ -1,0 +1,10 @@
+{
+  "name": "@alva/aep",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": { "types": "./index.d.ts", "import": "./index.mjs" } },
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test test/runtime.test.mjs" },
+  "license": "AGPL-3.0-only"
+}

@@ -17,7 +17,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | inspector.go | 消费registered EngineInspector；分支/最多8hop真实typed child授权、小索引/搜索/2KiB正文DTO/背压live metadata、默认禁用MCP导入 |
 | export.go | 精确branch/typed child授权的bounded JSONL；HTTP只返回bytes，native显式保存到私有exports，不接受client host/native path |
 | approvals.go | 真实running root/typed child权限路由，不接受UI childID或借用父权限 |
-| aep.go | native-only显式source检查与disabled pin保存、下一Turn严格StagePinnedAEP；不是HTTP任意host-path导入 |
+| aep.go / aep_test.go | native/operator-only显式source检查、JS/Python解释器或嵌入WASIp1模式绑定、disabled pin/批准/变更拒绝；不执行检查或开放HTTP任意path导入 |
 | commands.go | native/operator-only显式Hooks/diagnostics JSON disabled编辑，不读取或执行命令，也不作为HTTP任意命令导入 |
 | tools.go / questions.go | native严格工具JSON编辑与显式下一Turn开关；actual root/typed ancestry过滤的独立真人问题/回答，不借用审批授权 |
 | browser.go | native/operator-only browser严格JSON disabled编辑，不发现exe/启动进程/导入用户profile，不是HTTP任意host-path入口 |

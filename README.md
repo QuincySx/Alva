@@ -25,7 +25,7 @@ cmd/          入口    CLI、桌面、HTTP、MCP 桥与 WASIp1 Worker
 integration/  横向    外部模型 / 协议 / 引擎适配
 platform/     横向    执行 owner / OS 原语 / 存储 / WASM 实现
 tests/        验证    import 防火墙、公开面、分形闸与 SDK 消费者实验
-examples/     接入    独立 module 的公开 SDK 示例，native/Node/WASIp1共用源码
+examples/     接入    独立 module 的公开 SDK 示例与可单独加载的 WASIp1 插件
 tools/        手工    显式维护与本机验收工具
 ```
 
@@ -97,6 +97,8 @@ direct CLI/desktop 直连 harness 与 host，不经 EngineRuntime；Hub core 只
 显式配置引用政策后保存失败不会退回全文。任务提交后的回执失败通过 `planning.CommittedError`
 保留实际 call/task ID；已收到有效人类回答后的保存/呈现失败通过 `interaction.AnswerReceivedError`
 保留 question ID。二者经现有内核错误路径留下恢复提示，调用方应查询事实而非自动重复操作。
+
+第三方插件可用 [Go SDK](./examples/sdk-agent/README.md)、[JavaScript作者SDK](./integration/protocol/aep/javascript/README.md)，或编译为[独立WASIp1模块](./examples/aep-wasm/README.md)。JS/Python原生子进程与独立WASM沿同一AEP协议接入Plugin/Tool/Middleware；WASM由Go内嵌运行时加载，无宿主目录/环境/网络。具体选择、批准和构建方式见各示例。
 
 一周后回来建议这样读：
 

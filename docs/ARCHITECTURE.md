@@ -91,6 +91,8 @@ namespace。工具目录读取调用方的实时 registry；偏好投影由明�
 公开验收入口在`platform/storage/storagetest`、`platform/storage/blob/blobtest`及SDK的`sessiontest`；只由测试导入，factory由后端作者供应，权限/原子性语义与现有插口相同。它们不构成新的运行时层，也不替代持久化/故障/跨进程验收。
 独立module消费者在`examples/sdk-agent`，只导入公开SDK；默认循环、Plugin/Tool/Middleware和真实工具内取消在native/Node/WASIp1共用源码。接入验收不修改内核契约或产品默认。
 
+外部Plugin仍复用AEP协议与现有Plugin/Tool/Middleware：JS/Python由显式解释器执行，独立WASIp1模块由`platform/sandbox/plugin`执行，再由`integration/protocol/aep`消费owned Peer。执行peer只依赖标准库/wazero，不认识协议/SDK/授权/存储；`extension/loader`拥有快照、能力上限、Guard、引用和journal，Hub产品拥有检查/批准及下一Turn选择。WASM不接收目录/环境/网络，自有总内存/IO/时间限额。此分工不把整套SDK编译WASM、QuickJS脚本和独立插件合成统一runtime，也不给内核新增runtime枚举或hook。
+
 ## 强制边界
 
 - SDK 不得直接/传递依赖 integration、platform、extension、harness、apps 或具体第三方 Provider/UI。

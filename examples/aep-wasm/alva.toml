@@ -1,0 +1,8 @@
+# INPUT: Explicit bounded WASIp1 module compiled from main.go
+# OUTPUT: AEP plugin identity and capability request
+# POS: Author-owned manifest; does not grant host filesystem or network access
+name = "fixture"
+version = "1"
+runtime = "wasm"
+entry = "plugin.wasm"
+requested_capabilities = ["host:log", "host:state.get_metadata", "host:state.get_messages"]

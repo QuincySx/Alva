@@ -36,7 +36,13 @@ func ValidateAEP(entries []AEPBundle) error {
 			return errors.New("AEP bundle identity must be unique and bounded")
 		}
 		seen[entry.ID] = true
-		for _, path := range []string{entry.SourceDirectory, entry.Interpreter} {
+		paths := []string{entry.SourceDirectory}
+		if entry.Interpreter != "" {
+			paths = append(paths, entry.Interpreter)
+		} else if len(entry.InterpreterArgs) != 0 || len(entry.Env) != 0 {
+			return errors.New("embedded WASM AEP does not accept interpreter arguments or environment")
+		}
+		for _, path := range paths {
 			if !filepath.IsAbs(path) || len(path) > 4096 || !utf8.ValidString(path) || strings.ContainsRune(path, 0) {
 				return errors.New("explicit absolute AEP source and interpreter paths required")
 			}

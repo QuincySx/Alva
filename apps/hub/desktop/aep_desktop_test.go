@@ -46,7 +46,7 @@ func TestNativeAEPInspectAndApprovalAreExplicitWithoutExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, page)
-	if !tester.HasText("Native AEP Plugins · explicit next-turn snapshots") {
+	if !tester.HasText("AEP Plugins · explicit next-turn snapshots") {
 		t.Fatal("native Plugin pane missing")
 	}
 	raw, _ := json.Marshal([]hub.AEPBundle{{ID: "ui-fixture", SourceDirectory: source, Interpreter: filepath.Join(source, "explicit-not-started-interpreter"), Enabled: true, HostAccessApproved: true}})
@@ -62,7 +62,7 @@ func TestNativeAEPInspectAndApprovalAreExplicitWithoutExecution(t *testing.T) {
 	if page.problem != "" || len(page.settings.AEP) != 1 || page.settings.AEP[0].Enabled || len(page.settings.AEP[0].SHA256) != 64 {
 		t.Fatal("UI inspect bypassed disabled pin", page.problem)
 	}
-	if err = tester.Click("Approve inspected code and full host access next turn"); err != nil {
+	if err = tester.Click("Approve inspected code and requested access next turn"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, page)

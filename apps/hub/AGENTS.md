@@ -3,6 +3,8 @@
 ## 地位
 本包只依赖 engine contract 与标准库，具体 adapter/SQLite/UI 在外层装配。
 ## 逻辑
+
+AEP产品快照仍由程序选择组件：显式interpreter供JS/Python，空interpreter供manifest验证后的嵌入式WASIp1；核心只做有界纯值验证，不读取manifest或启动runtime。
 产品先认领耐久 Turn/Attempt，再执行引擎；自动 fallback 串行、固定同一Turn，显式账户/计费授权快照且只有 startup/rate-limit、无可能副作用才可用。Stop 不重放。EngineBranch 保留 native identity，手动切换可返回旧分支；handoff 仅索引/引用、不复制全部原始历史。
 ## 约束
 Runtime仅消费六方法ExecutionStore；设置/浏览由实际产品consumer要求，SQLite实现及事务不拆分。

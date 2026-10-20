@@ -1,0 +1,49 @@
+const MaxModuleBytes = 8 << 20
+
+func (p *Peer) BeginClose()
+
+func (p *Peer) CleanupComplete() bool
+
+func (p *Peer) Close(ctx context.Context) error
+
+func (p *Peer) Errors() io.ReadCloser
+
+func (p *Peer) ExitCode() (int, bool)
+
+func (p *Peer) Input() io.WriteCloser
+
+func (p *Peer) Output() io.ReadCloser
+
+func (p *Peer) Wait(ctx context.Context) error
+
+func (w budgetInput) Close() error
+
+func (w budgetInput) Write(data []byte) (int, error)
+
+func (w budgetOutput) Write(data []byte) (int, error)
+
+func Start(ctx context.Context, config Config) (*Peer, error)
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"sync"
+	"time"
+
+	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"github.com/tetratelabs/wazero/sys"
+)
+
+type Config struct {
+	Module      []byte
+	MemoryBytes uint64
+	MaxIOBytes  uint64
+	WallClock   time.Duration
+}
+
+type Peer struct {
+}

@@ -24,6 +24,8 @@
 | immutable bytes | platform-storage-blob.txt | 两方法字节端口、retention与共享错误 |
 | storage conformance | platform-storage-storagetest.txt | factory驱动的Repository/BindingStore公共测试入口，不是运行时能力 |
 | byte conformance | platform-storage-blob-blobtest.txt | 不依赖具体adapter的不可变字节公共测试入口 |
+| AEP protocol | integration-protocol-aep.txt | 实际Plugin协议、独占Process/Peer选择与物理owner契约，不进入SDK |
+| WASM execution | platform-sandbox-plugin.txt | 独立WASIp1模块配置和stdio执行owner，不含协议或存储 |
 
 2026-10-18：Alva module 提升到仓库根目录；六份快照仅同步 github.com/QuincySx/Alva 的 import 身份，保留原类型/字段/方法契约，不留旧 module alias。
 

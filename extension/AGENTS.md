@@ -24,7 +24,7 @@
 | Tool validation | `toolvalidation/` | 可替换默认schema校验，准备阶段拒绝与冻结执行前复核，不把依赖引入SDK |
 | Skills | `skill/` | 元数据提示与按需Skill Tool，替换仓库同样执行参数/实际调用/输出/取消边界，完整正文按会话引用读取 |
 | Managed MCP | `mcp/` | 按需单 gateway、实际Tool/native authority、审批至进程收尾的owned stdio 与同会话完整脱敏 journal |
-| Subprocess loader | `loader/` | 安全 bundle、AEP七钩子/过期句柄、实际调用gateway、审批取消/join与同会话完整脱敏I/O；产品设置接线继续 |
+| Plugin loader | `loader/` | 安全bundle、JS/Python原生与独立WASIp1运行、同一AEP七钩子/gateway/审批/引用/取消join，Hub下一Turn装配 |
 | Memory | `memory/` | 显式 service 替换、实际调用/严格参数与引用工具、受控 MEMORY.md 扫描与结构化笔记提取 |
 | SubAgent | `subagent/` | SDK scope驱动的真实独立native子会话、直接父实际值授权与有限递归；可执行贡献/Attach返回值在child IO前校验，部分setup返回owner也收尾 |
 | Hooks | `hooks/` | 显式授权外部Hook与严格控制JSON、pre-intent改参、Notify取消/join、terminal Close/physical cleanup和真实输入/输出引用 |

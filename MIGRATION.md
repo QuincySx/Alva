@@ -5,6 +5,31 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
 
+## 2026-10-20 JavaScript作者SDK与独立WASIp1插件补齐
+
+按用户“补齐”要求，补上JS作者入口/真实互操作和独立`.wasm`加载。继续保留既有Tool/Plugin/Middleware、共享存储插口与SDK依赖方向；129个SDK Go文件、根go.mod/go.sum和既有SDK公开快照未改。
+
+- `integration/protocol/aep/javascript`提供本地零npm运行时依赖的Node20+作者SDK、TypeScript声明、七类hook/action和完整echo bundle；异步反向回调不死锁，事件handle到期后不可复用，帧/队列总字节/请求/回调有硬限。默认消息页匹配实际宿主上限，工具RPC与hook result各用本来正确的协议字段。包尚未发布npm。
+- `platform/sandbox/plugin`只依赖标准库/wazero，执行独立WASIp1 command模块，fresh实例、实际memory/双向stdio/总期限限制，无preopen/env/network/custom host import。不把浏览器js/wasm冒充此ABI；此入口使用时间预算，未新增instruction fuel。
+- AEP协议增加owned `Peer`与显式`Config.Start`，native Process和embedded peer二选一，不重连、不fallback。初始化/关闭失败时，非nil返回值保留未完成owner供Close重试；物理CleanupComplete与保留错误分开。loader统一审批/实际Tool校验/引用/journal与七钩子，未新增内核runtime枚举或Plugin系统。
+- Hub产品验证manifest/runtime和显式解释器绑定；WASM要求interpreter/args/env全空。检查与批准不执行；下个Turn加载，pin变化拒绝。bootstrap保留部分初始化owner；UI说明原生与WASM真实授权差异。
+- `examples/aep-wasm`是独立go.mod、标准库协议作者示例，不链接host/Agent runtime；实际测试编译后通过同一loader和Hub装配。JS/WASM工具成功/失败、effective args/模型/工具结果修改、进入后取消并join、不可继承环境/宿主文件均有真实回归。
+- 新增AEP/WASM peer公开面快照与leaf依赖反例；CI显式执行Node SDK测试及JS/WASIp1真实验收，Node缺失不得伪装全通过。普通Go构建不要求Node/Python/外部WASM runner；QuickJS-NG继续服务既有受限脚本能力。
+
+本批验证（macOS arm64 / Go1.27.2 / Node24.19.0，无真实模型或云账户调用）：
+
+| 检查 | 结果与范围 |
+|---|---|
+| 整仓desktop-tagged race | 93个有测试包、1973个测试/子测试通过，0失败，882.94秒；853个受验收Go/JS/声明/脚本/模块/协议配置文件在执行期间未变。两个无参数跨进程helper按设计skip，其实际用例均执行；9包无独立测试文件 |
+| JS作者SDK | Node内置test及package test命令均7项通过，0 skip；反向回调、过期状态、工具错误、取消join、帧/总队列字节与重复ID均实际执行。TypeScript声明已提供，未额外安装TS编译器 |
+| 实际插件/Hub | JS/WASIp1实际model/tool修改、远程工具成功/失败、进入后取消、真实执行/快照收尾、宿主环境/文件不可继承；Hub检查/批准不执行、下一Turn实际metadata回调与shutdown证据均纳入完整race |
+| Go portable实际执行 | Node与WASIp1各7个测试包、42个测试/子测试通过；原生目录用例明确skip。plan/question/schema消费者及独立SDK消费者run/cancel两种模式在两目标均实际运行成功 |
+| 跨平台构建 | cgo-free desktop-tagged全部命令在macOS arm64、Linux amd64、Windows amd64/arm64通过；WASIp1 Worker通过。新增插件涉及的6包测试二进制在Windows两架构全部编译通过，不等于实机执行 |
+| 静态/接口/文档 | 全树desktop vet、go mod verify、gofmt与diff空白检查通过，workflow经Ruby YAML解析；依赖/公开快照/分形闸包含在完整race。129个SDK源码、11份既有公开快照、根模块文件与固定QuickJS资产均为原字节 |
+
+证据指针`/tmp/alva-aep-completion-path`保存完整JSONL、冻结源码hash和跨目标执行/构建回执。本机验证不冒充远程CI、Windows原生运行、其他语言WASIp1工具链或真实OS窗口验收。
+
+
 ## 2026-10-20 SDK外部接入、存储契约验收与CI平台修正
 
 本批继续保留既有内核/Tool/Plugin/Middleware与共享存储插口，SDK的129个既有Go源码保持原字节。
