@@ -47,7 +47,7 @@ func Open(ctx context.Context, directory, name string, initializers ...func(*sql
 	if err = file.Close(); err != nil {
 		return nil, err
 	}
-	dsn := (&url.URL{Scheme: "file", Path: path}).String() + "?_txlock=immediate"
+	dsn := databaseURI(path)
 	db, err := driver.Open(dsn, func(connection *sqlite3.Conn) error {
 		for _, pragma := range []string{"PRAGMA foreign_keys=ON", "PRAGMA journal_mode=DELETE", "PRAGMA synchronous=FULL", "PRAGMA busy_timeout=5000"} {
 			if err := connection.Exec(pragma); err != nil {
@@ -74,6 +74,14 @@ func Open(ctx context.Context, directory, name string, initializers ...func(*sql
 		return nil, fmt.Errorf("configure private SQLite: %w", err)
 	}
 	return db, nil
+}
+
+func databaseURI(path string) string {
+	// The pinned driver passes SQLite's decoded filename to Go's OS VFS.
+	// Preserve the validated native path exactly: a Windows drive must not
+	// become a URI authority or acquire a synthetic leading slash. Opaque
+	// percent-encoding also keeps literal ?, #, %, and Unix backslashes safe.
+	return (&url.URL{Scheme: "file", Opaque: url.PathEscape(path), RawQuery: "_txlock=immediate"}).String()
 }
 
 type Lock struct {

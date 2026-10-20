@@ -11,6 +11,9 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/ncruces/go-sqlite3/driver"
+	"github.com/ncruces/go-sqlite3/vfs"
+
 	"github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
@@ -20,6 +23,37 @@ func requireUnix(t *testing.T) {
 		t.Skip("Unix mode-bit assertions; Windows has separate native DACL/LockFileEx regressions")
 	}
 }
+
+type filenameProbe struct {
+	vfs.VFS
+	observed string
+}
+
+func (p *filenameProbe) FullPathname(path string) (string, error) {
+	p.observed = path
+	return "", errors.New("fixture stops before OS access")
+}
+
+func TestWindowsURIReachesActualDriverVFSUnchanged(t *testing.T) {
+	probe := &filenameProbe{VFS: vfs.Find("")}
+	const name = "alva-uri-contract"
+	vfs.Register(name, probe)
+	defer vfs.Unregister(name)
+	// The pinned driver has one portable SQLite parser on every OS. Observe
+	// its actual VFS boundary without accessing a Windows drive on Unix.
+	for _, path := range []string{`C:\Users\fixture #percent%中\actual.sqlite`, `D:/fixture/actual.sqlite`} {
+		probe.observed = ""
+		db, err := driver.Open(databaseURI(path) + "&vfs=" + name)
+		if err != nil {
+			t.Fatal("URI failed before reaching SQLite", err)
+		}
+		err = db.PingContext(t.Context())
+		db.Close()
+		if err == nil || probe.observed != path {
+			t.Fatalf("driver changed native path %q to %q: %v", path, probe.observed, err)
+		}
+	}
+}
 func privateTestDir(t *testing.T) string {
 	t.Helper()
 	dir, err := privatefs.EnsureDir(filepath.Join(t.TempDir(), "private"))
@@ -27,6 +61,41 @@ func privateTestDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+func TestDatabaseURIKeepsEscapedNativePath(t *testing.T) {
+	names := []string{"spaces #percent%中"}
+	if runtime.GOOS != "windows" {
+		names = append(names, `literal\backslash?query`)
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), name)
+			db, err := Open(t.Context(), dir, "fixture.sqlite")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(t.Context(), "CREATE TABLE facts(value TEXT); INSERT INTO facts VALUES('correct path')"); err != nil {
+				db.Close()
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if info, err := os.Stat(filepath.Join(dir, "fixture.sqlite")); err != nil || info.Size() == 0 {
+				t.Fatal("SQLite did not write the validated native path", err)
+			}
+			db, err = Open(t.Context(), dir, "fixture.sqlite")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			var value string
+			if err := db.QueryRowContext(t.Context(), "SELECT value FROM facts").Scan(&value); err != nil || value != "correct path" {
+				t.Fatal("URI changed database identity", err)
+			}
+		})
+	}
 }
 func TestPrivateDatabaseAndExclusiveOwner(t *testing.T) {
 	requireUnix(t)

@@ -6,6 +6,8 @@ EnsureDir/OpenFile两项在各平台提供同名入口；额外DACL检查/只读
 ## 逻辑
 Unix复用原有0700/0600、UID、single-link和SameFile检查；最终symlink拒绝，合法祖先alias解析。
 Windows新建时附带protected current-user-only DACL；按handle校验owner/ACE/reparse/hardlink。
+原始路径拼写先于Windows Abs检查，拒绝被规范化抹掉的尾随点/空格、设备/UNC及drive-relative别名。
+子文件继承DACL不等于继承owner；普通OS创建的journal可采用token默认owner，严格CheckFile仍只接受current-user owner。
 不支持的ownership平台明确失败。数据库锁继续归storage/sqlite，不随目录操作进入消费者。
 ## 约束
 不修复或收紧既有宽权限对象，不读取配置/账号。Windows只接受普通本地drive路径；实机验收独立。

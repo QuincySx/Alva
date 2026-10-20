@@ -5,6 +5,7 @@
 Private database plumbing for explicit storage implementations. Other components use system/privatefs for private directories without inheriting SQL.
 ## 逻辑
 `LockDatabase` acquires an exclusive process lock before a writable owner opens a database; the caller closes both independently. `Open` returns one configured `database/sql.DB` and never imports historical data. Explicit host connection initializers can register optional built-in extensions such as FTS5; safety PRAGMAs and initializers run for every actual connection/reconnection, not only the first.
+Validated native paths use opaque percent-escaped file URIs. The pinned portable SQLite parser passes the exact decoded filename to Go's VFS: Windows drives never become an authority or gain a synthetic leading slash; Unix literal backslashes remain filename bytes. A real-driver VFS probe verifies Windows filenames on every OS. SQLite-created journals inherit the private DACL, while the database/lock retain explicitly checked current-user ownership.
 ## 约束
 Existing final symlinks, non-regular/hardlinked files, foreign ownership or broad access are rejected without changing existing permissions. Unix uses 0700/0600 and flock; Windows uses creation-time protected owner-only DACLs, handle checks and nonblocking LockFileEx. Files created by SQLite inherit the private directory ACE. Only basename database names are accepted. WAL is not used; foreign keys and FULL sync are enabled. Windows runtime acceptance remains separate from cross-compilation.
 ## 业务域清单

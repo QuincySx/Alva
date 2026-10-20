@@ -17,7 +17,7 @@ concurrency:
 jobs:
   windows-native:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       GOTOOLCHAIN: local
       CGO_ENABLED: '0'
@@ -51,7 +51,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # The full serialized race suite includes cold WASM/CLI builds. The
+    # previous 20m job expired on macOS before later gates could run.
+    timeout-minutes: 45
     env:
       GOTOOLCHAIN: local
     steps:
@@ -70,7 +72,7 @@ jobs:
         # Metered SDK and CLI cases include native compilation in their real
         # wall-clock budget. Do not compete cold compilers across packages;
         # each package's actual concurrency/race tests still run unchanged.
-        run: go test -mod=readonly -race -p 1 -count=1 -tags desktop ./...
+        run: go test -mod=readonly -race -p 1 -timeout 6m -count=1 -tags desktop ./...
       - name: Static checks and tagged dependency firewall
         run: go vet -mod=readonly -tags desktop ./...
       - name: Browser-portable SDK

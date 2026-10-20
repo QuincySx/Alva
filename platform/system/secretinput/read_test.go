@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -33,17 +34,23 @@ func TestActualPipeCancellationSettlesReaderAndRetainsCallerFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer read.Close()
-	defer write.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	reuseCtx, reuseCancel := context.WithCancel(context.Background())
+	var workers sync.WaitGroup
+	defer func() {
+		cancel()
+		reuseCancel()
+		read.Close()
+		write.Close()
+		workers.Wait()
+	}()
 	done := make(chan error, 1)
-	go func() { _, err := Read(ctx, read, 1<<20); done <- err }()
+	workers.Go(func() { _, err := Read(ctx, read, 1<<20); done <- err })
 	// Larger than the default native pipe buffers: completion requires a real
 	// reader to drain data. Producer stays open, so the bounded read must still
 	// wait for EOF (or one byte beyond its exact limit) after this write.
 	wrote := make(chan error, 1)
-	go func() { _, err := write.Write(bytes.Repeat([]byte("s"), 1<<20)); wrote <- err }()
+	workers.Go(func() { _, err := write.Write(bytes.Repeat([]byte("s"), 1<<20)); wrote <- err })
 	select {
 	case err = <-wrote:
 		if err != nil {
@@ -68,14 +75,31 @@ func TestActualPipeCancellationSettlesReaderAndRetainsCallerFile(t *testing.T) {
 	}
 	// The cancellation callback is settled before a fresh caller reuses stdin.
 	reused := make(chan error, 1)
-	go func() { _, err := Read(context.Background(), read, 1<<20); reused <- err }()
-	if err = write.SetWriteDeadline(time.Now().Add(3 * time.Second)); err != nil {
-		t.Fatal(err)
+	workers.Go(func() {
+		data, err := Read(reuseCtx, read, 1<<20)
+		// Cancellation may leave unread producer bytes in the pipe. A new
+		// borrower must still receive the subsequent suffix exactly once.
+		if err == nil && (!bytes.HasSuffix(data, []byte("next")) || len(bytes.Trim(bytes.TrimSuffix(data, []byte("next")), "s")) != 0) {
+			err = errors.New("reused pipe lost or changed producer bytes")
+		}
+		reused <- err
+	})
+	// Anonymous Windows pipes do not implement write deadlines. Keep a real
+	// producer, bound the observation, and close/join both sides on failure.
+	wroteNext := make(chan error, 1)
+	workers.Go(func() {
+		_, err := write.Write([]byte("next"))
+		write.Close()
+		wroteNext <- err
+	})
+	select {
+	case err = <-wroteNext:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("borrowed pipe did not accept the next producer")
 	}
-	if _, err = write.Write([]byte("next")); err != nil {
-		t.Fatal(err)
-	}
-	write.Close()
 	select {
 	case err = <-reused:
 		if err != nil {

@@ -35,10 +35,40 @@ func TestProtectedCreationAndInheritedFilePrivacy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "journal"), []byte("inherited private bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"actual.sqlite", "journal"} {
-		if err := CheckFile(filepath.Join(dir, name)); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
+	if err := CheckFile(filepath.Join(dir, "actual.sqlite")); err != nil {
+		t.Fatal(err)
+	}
+	// DACL inheritance and default ownership are independent Windows rules.
+	// An elevated creator can default to the Administrators group as owner;
+	// do not weaken the production current-user owner check to accommodate it.
+	journal := filepath.Join(dir, "journal")
+	sd, err := windows.GetNamedSecurityInfo(journal, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil || dacl == nil || dacl.AceCount != 1 {
+		t.Fatal("child did not inherit the private DACL", err)
+	}
+	var ace *windows.ACCESS_ALLOWED_ACE
+	if err := windows.GetAce(dacl, 0, &ace); err != nil {
+		t.Fatal(err)
+	}
+	sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+	if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Header.AceFlags&windows.INHERITED_ACE == 0 || ace.Mask&fileAllAccess != fileAllAccess || !sid.IsValid() || !sid.Equals(user.User.Sid) {
+		t.Fatal("child inherited access for a principal other than the current user")
+	}
+	owner, _, err := sd.Owner()
+	if err != nil || owner == nil {
+		t.Fatal("child owner missing", err)
+	}
+	err = CheckFile(journal)
+	if owner.Equals(user.User.Sid) && err != nil || !owner.Equals(user.User.Sid) && err == nil {
+		t.Fatalf("inherited ACL must not substitute for current-user ownership: %v", err)
 	}
 	read, err := OpenRead(filepath.Join(dir, "actual.sqlite"))
 	if err != nil {
@@ -102,10 +132,13 @@ func TestHardlinksAndAlternativeNamesAreRejected(t *testing.T) {
 			t.Fatal("hardlinked file opened writable")
 		}
 	}
-	for _, path := range []string{filepath.Join(dir, "file:stream"), filepath.Join(dir, "trailing."), filepath.Join(dir, "NUL.txt"), `\\server\share\private`, `\\?\C:\private`} {
+	for _, path := range []string{filepath.Join(dir, "file:stream"), filepath.Join(dir, "trailing."), filepath.Join(dir, "trailing "), filepath.Join(dir, "trailing.", "nested"), filepath.Join(dir, "NUL.txt"), `\\server\share\private`, `\\?\C:\private`, `C:relative-private`} {
 		if _, err := EnsureDir(path); err == nil {
-			t.Fatal("alias/device/remote path accepted")
+			t.Fatalf("alias/device/remote path accepted: %q", path)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "trailing")); !os.IsNotExist(err) {
+		t.Fatal("alias rejection changed the canonical target", err)
 	}
 }
 

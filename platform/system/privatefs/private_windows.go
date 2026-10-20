@@ -23,6 +23,11 @@ func localPath(path string) (string, error) {
 	if path == "" || !utf8.ValidString(path) || strings.ContainsRune(path, 0) {
 		return "", errors.New("explicit local private path required")
 	}
+	// GetFullPathName (used by Abs) can erase trailing dots/spaces. Reject
+	// aliases in the original spelling before Windows canonicalizes it.
+	if err := checkPathSpelling(path); err != nil {
+		return "", err
+	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
@@ -31,17 +36,8 @@ func localPath(path string) (string, error) {
 	if len(volume) != 2 || volume[1] != ':' || len(absolute) > 16<<10 {
 		return "", errors.New("private storage requires a bounded local drive path; UNC/device paths are unsupported")
 	}
-	for _, part := range strings.Split(strings.TrimPrefix(absolute[len(volume):], `\`), `\`) {
-		if part == "" {
-			continue
-		}
-		if !filepath.IsLocal(part) || strings.ContainsAny(part, ":*?\"<>|") || strings.TrimRight(part, ". ") != part {
-			return "", errors.New("private path aliases and alternate data streams are rejected")
-		}
-		base := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
-		if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" || (len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9') {
-			return "", errors.New("private path contains a reserved device name")
-		}
+	if err := checkPathSpelling(absolute); err != nil {
+		return "", err
 	}
 	root, _ := windows.UTF16PtrFromString(volume + `\`)
 	if kind := windows.GetDriveType(root); kind != windows.DRIVE_FIXED && kind != windows.DRIVE_REMOVABLE {
@@ -52,6 +48,27 @@ func localPath(path string) (string, error) {
 		return "", errors.New("private storage requires a local filesystem with persistent ACLs")
 	}
 	return absolute, nil
+}
+
+func checkPathSpelling(path string) error {
+	path = strings.ReplaceAll(path, "/", `\`)
+	volume := filepath.VolumeName(path)
+	if len(path) > 16<<10 || (volume != "" && (len(volume) != 2 || volume[1] != ':' || len(path) < 3 || path[2] != '\\')) {
+		return errors.New("private storage requires a bounded local drive path; UNC/device and drive-relative paths are unsupported")
+	}
+	for _, part := range strings.Split(path[len(volume):], `\`) {
+		if part == "" || part == "." || part == ".." {
+			continue
+		}
+		if !filepath.IsLocal(part) || strings.ContainsAny(part, ":*?\"<>|") || strings.TrimRight(part, ". ") != part {
+			return errors.New("private path aliases and alternate data streams are rejected")
+		}
+		base := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
+		if base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" || (len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9') {
+			return errors.New("private path contains a reserved device name")
+		}
+	}
+	return nil
 }
 
 func nativePath(path string) *uint16 {
