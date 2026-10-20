@@ -213,6 +213,17 @@ Hub引擎的执行能力与检查能力分别声明：认证`GET /v1/engines`只
 通过真实 Go AEP loader 互操作测试。它是插件侧客户端，不是第二套 Agent 实现；普通 Go 构建/运行
 不要求 Python，执行 Python 插件时才显式选择解释器和宿主批准。
 
+## 第三方 SDK
+
+[`examples/sdk-agent`](../examples/sdk-agent/README.md) 有自己的 go.mod，只导入公开 SDK。程序选择模型、会话与服务，Plugin 贡献一个 Tool 和一个 BeforeModel hook。同一源码可在 native、Node 和 WASIp1 运行：
+
+```sh
+go -C examples/sdk-agent run -mod=readonly . run
+go -C examples/sdk-agent run -mod=readonly . cancel
+```
+
+run 经过真实默认循环的 model→tool→model，输出来自已提交消息；cancel 在实际工具进入后取消，再检查已结算的 cancelled outcome。模型/服务是确定性 fixture，不需账户。独立 go.mod 的相对 replace 指向本 checkout；复制到外部应用时移除 replace 并固定真实提交或已发布版本。
+
 ## 可选持久等待 API
 
 [`harness/durable`](../harness/durable/AGENTS.md) 是显式安装的 harness 能力，默认 CLI/Hub 尚未自动启用。

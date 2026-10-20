@@ -25,6 +25,7 @@ cmd/          入口    CLI、桌面、HTTP、MCP 桥与 WASIp1 Worker
 integration/  横向    外部模型 / 协议 / 引擎适配
 platform/     横向    执行 owner / OS 原语 / 存储 / WASM 实现
 tests/        验证    import 防火墙、公开面、分形闸与 SDK 消费者实验
+examples/     接入    独立 module 的公开 SDK 示例，native/Node/WASIp1共用源码
 tools/        手工    显式维护与本机验收工具
 ```
 

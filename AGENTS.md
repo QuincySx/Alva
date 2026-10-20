@@ -57,6 +57,7 @@ go mod verify
 | `integration/` | 模型/协议/引擎适配；仅 engine 根契约为 L4.5，具体 adapter 是产品桥接 |
 | `platform/` | host 执行/审批 owner、独立 workspace 文件能力、system 底层原语、storage共享契约及独立facts/memory/bindings/blob实现、sandbox |
 | `tests/` | architecture 静态闸/公开快照/分形检查与独立 extensibility 消费者实验 |
+| `examples/` | 独立go.mod的公开SDK接入示例；应用注入组件，同源码执行native/两类WASM |
 | `tools/` | 显式维护和手工验收工具，不进入生产执行或普通测试路径 |
 | `docs/` | 当前架构、使用说明、治理/ADR 与完整 history；实现状态以根 MIGRATION.md 为准 |
 | `.github/` | 唯一维护的 Go CI，无 Rust 构建/测试工作流 |

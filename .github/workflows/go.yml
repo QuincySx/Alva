@@ -88,6 +88,10 @@ jobs:
           for mode in plan question schema; do
             env -i "$(node -p process.execPath)" "$(go env GOROOT)/lib/wasm/wasm_exec_node.js" "$RUNNER_TEMP/portable-consumer-js.wasm" "$mode"
           done
+          (cd examples/sdk-agent && GOWORK=off go build -mod=readonly -o "$RUNNER_TEMP/external-sdk-js.wasm" .)
+          for mode in run cancel; do
+            env -i "$(node -p process.execPath)" "$(go env GOROOT)/lib/wasm/wasm_exec_node.js" "$RUNNER_TEMP/external-sdk-js.wasm" "$mode"
+          done
       - name: Pinned WASIp1 test runner
         run: go build -mod=readonly -o "$RUNNER_TEMP/alva-wasip1-test" github.com/tetratelabs/wazero/cmd/wazero
       - name: WASIp1-portable SDK
@@ -102,6 +106,10 @@ jobs:
           go build -mod=readonly -o "$RUNNER_TEMP/portable-consumer-wasip1.wasm" ./tests/extensibility/testdata/portable-agent
           for mode in plan question schema; do
             "$RUNNER_TEMP/alva-wasip1-test" run "$RUNNER_TEMP/portable-consumer-wasip1.wasm" "$mode"
+          done
+          (cd examples/sdk-agent && GOWORK=off go build -mod=readonly -o "$RUNNER_TEMP/external-sdk-wasip1.wasm" .)
+          for mode in run cancel; do
+            "$RUNNER_TEMP/alva-wasip1-test" run "$RUNNER_TEMP/external-sdk-wasip1.wasm" "$mode"
           done
       - name: Native executables without cgo
         env:
