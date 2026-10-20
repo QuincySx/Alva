@@ -11,9 +11,11 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/ncruces/go-sqlite3/ext/fts5"
+
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/sqlite"
 	"github.com/QuincySx/Alva/sdk/agent/memory"
-	"github.com/ncruces/go-sqlite3/ext/fts5"
 )
 
 var ErrClosed = errors.New("memory store is closed")
@@ -34,6 +36,7 @@ type Backend struct {
 }
 
 var _ memory.Backend = (*Backend)(nil)
+var _ storage.MemoryStore = (*Store)(nil)
 
 func Open(ctx context.Context, directory string) (*Store, error) {
 	lock, err := sqlite.LockDatabase(directory, "memory.sqlite")
@@ -85,7 +88,7 @@ func (s *Store) initialize(ctx context.Context) error {
 
 // namespace is supplied by trusted product/workspace assembly, never accepted
 // from model arguments as a grant to another workspace's memory.
-func (s *Store) Bind(namespace string) (*Backend, error) {
+func (s *Store) Bind(namespace string) (memory.Backend, error) {
 	if !namespacePattern.MatchString(namespace) {
 		return nil, errors.New("bounded opaque memory namespace required")
 	}

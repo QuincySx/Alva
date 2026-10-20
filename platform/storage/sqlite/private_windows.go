@@ -1,5 +1,5 @@
 // INPUT: Windows private filesystem creation/ownership checks and LockFileEx native locks
-// OUTPUT: EnsurePrivateDir, privateFile and real exclusive database owner lock on Windows
+// OUTPUT: Real exclusive database owner lock on Windows
 // POS: [platform / durable storage] DACL protection replaces Unix mode bits without changing database or session authority.
 //go:build windows
 
@@ -9,12 +9,9 @@ import (
 	"errors"
 	"os"
 
-	"github.com/QuincySx/Alva/platform/system/privatefs"
 	"golang.org/x/sys/windows"
 )
 
-func EnsurePrivateDir(path string) (string, error) { return privatefs.EnsureDir(path) }
-func privateFile(path string) (*os.File, error)    { return privatefs.OpenFile(path) }
 func lockFile(file *os.File) error {
 	err := windows.LockFileEx(windows.Handle(file.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &windows.Overlapped{})
 	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {

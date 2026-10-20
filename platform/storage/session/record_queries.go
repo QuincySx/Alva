@@ -11,41 +11,40 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
 
-var ErrRevisionConflict = errors.New("extension snapshot revision changed; no write committed")
-
 // LatestRecord reads only metadata for the exact requested typed stream.
 // Its reference remains session-owned; it is not a cross-session grant.
-func (r *Repository) LatestRecord(ctx context.Context, owner, id, namespace, kind string) (RecordEntry, bool, error) {
+func (r *Repository) LatestRecord(ctx context.Context, owner, id, namespace, kind string) (storage.RecordEntry, bool, error) {
 	if namespace == "" || kind == "" || len(namespace) > 128 || len(kind) > 128 || !utf8.ValidString(namespace+kind) {
-		return RecordEntry{}, false, errors.New("bounded exact record namespace/type required")
+		return storage.RecordEntry{}, false, errors.New("bounded exact record namespace/type required")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return RecordEntry{}, false, ErrClosed
+		return storage.RecordEntry{}, false, storage.ErrClosed
 	}
 	if err := authorize(ctx, r.db, owner, id); err != nil {
-		return RecordEntry{}, false, err
+		return storage.RecordEntry{}, false, err
 	}
-	var entry RecordEntry
+	var entry storage.RecordEntry
 	var parent sql.NullString
 	var created int64
-	var info ArtifactInfo
+	var info storage.ArtifactInfo
 	// LEFT JOIN deliberately preserves a corrupt record row: missing/foreign
 	// artifact metadata must fail its scan, not masquerade as no snapshot.
 	err := r.db.QueryRowContext(ctx, `SELECT r.id,r.seq,r.kind,r.namespace,r.type,r.schema_version,r.parent_json,r.summary,r.time_ns,a.id,a.media_type,a.processing,a.sha256,a.bytes FROM records r LEFT JOIN artifacts a ON a.id=r.artifact_id AND a.session_id=r.session_id WHERE r.session_id=? AND r.namespace=? AND r.type=? ORDER BY r.seq DESC LIMIT 1`, id, namespace, kind).Scan(&entry.ID, &entry.Sequence, &entry.Kind, &entry.Namespace, &entry.Type, &entry.SchemaVersion, &parent, &entry.Summary, &created, &info.ID, &info.MediaType, &info.Processing, &info.SHA256, &info.Bytes)
 	if errors.Is(err, sql.ErrNoRows) {
-		return RecordEntry{}, false, nil
+		return storage.RecordEntry{}, false, nil
 	}
 	if err != nil {
-		return RecordEntry{}, false, err
+		return storage.RecordEntry{}, false, err
 	}
 	if parent.Valid {
 		if err = json.Unmarshal([]byte(parent.String), &entry.Parent); err != nil {
-			return RecordEntry{}, false, err
+			return storage.RecordEntry{}, false, err
 		}
 	}
 	entry.Time = time.Unix(0, created).UTC()
@@ -61,7 +60,7 @@ func (s *Session) AppendExtensionSnapshot(ctx context.Context, namespace, kind s
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return abi.SessionRecord{}, ErrClosed
+		return abi.SessionRecord{}, storage.ErrClosed
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -76,7 +75,7 @@ func (s *Session) AppendExtensionSnapshot(ctx context.Context, namespace, kind s
 		return abi.SessionRecord{}, err
 	}
 	if current != expected {
-		return abi.SessionRecord{}, ErrRevisionConflict
+		return abi.SessionRecord{}, storage.ErrRevisionConflict
 	}
 	batch := []abi.SessionRecord{{Kind: abi.RecordExtension, Namespace: namespace, Type: kind, SchemaVersion: 1, Payload: payload}}
 	for _, record := range additional {

@@ -12,7 +12,7 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/integration/engine"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -34,7 +34,7 @@ func (s *HubService) boundBranch(ctx context.Context, id, branchID string) (hub.
 type InspectorPage struct {
 	NativeID        string                        `json:"native_id"`
 	Capabilities    engine.InspectionCapabilities `json:"capabilities"`
-	Entries         []session.RecordEntry
+	Entries         []storage.RecordEntry
 	Next, HighWater uint64
 	HasMore         bool
 	Processing      string
@@ -76,8 +76,8 @@ func (s *HubService) inspectionTarget(ctx context.Context, id, branchID string, 
 	}
 	return inspector, scope, nil
 }
-func productEntry(entry engine.InspectionEntry) session.RecordEntry {
-	result := session.RecordEntry{ID: entry.ID, Sequence: entry.Sequence, Time: entry.Time, Kind: abi.RecordKind(entry.Kind), Namespace: entry.Namespace, Type: entry.Type, SchemaVersion: entry.SchemaVersion, Summary: entry.Summary, Value: wire.Reference{URI: entry.Value.URI, MediaType: entry.Value.MediaType, SHA256: entry.Value.SHA256, Bytes: entry.Value.Bytes, Processing: entry.Value.Processing}}
+func productEntry(entry engine.InspectionEntry) storage.RecordEntry {
+	result := storage.RecordEntry{ID: entry.ID, Sequence: entry.Sequence, Time: entry.Time, Kind: abi.RecordKind(entry.Kind), Namespace: entry.Namespace, Type: entry.Type, SchemaVersion: entry.SchemaVersion, Summary: entry.Summary, Value: wire.Reference{URI: entry.Value.URI, MediaType: entry.Value.MediaType, SHA256: entry.Value.SHA256, Bytes: entry.Value.Bytes, Processing: entry.Value.Processing}}
 	if entry.Parent != nil {
 		result.Parent = &abi.RecordReference{SessionID: entry.Parent.SessionID, RecordID: entry.Parent.RecordID, Sequence: entry.Parent.Sequence}
 	}

@@ -20,7 +20,7 @@ import (
 )
 
 func TestHTTPColdEngineDescriptionAndDurableInspectorStreamResume(t *testing.T) {
-	f := newFixture(t, bootstrap.Config{Demo: true})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true})
 	var descriptions []engine.Description
 	if err := json.Unmarshal(body(t, f.request(t, "GET", "/v1/engines", nil, nil), 200), &descriptions); err != nil {
 		t.Fatal(err)

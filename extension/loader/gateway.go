@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -133,7 +133,7 @@ func (g *pluginGateway) Execute(ctx context.Context, execution abi.ToolExecution
 			if args.Query != "" && !strings.Contains(strings.ToLower(tool.Name+" "+tool.Description), strings.ToLower(args.Query)) {
 				continue
 			}
-			schema, err := session.RedactJSON(tool.InputSchema, p.journal.secrets...)
+			schema, err := redaction.RedactJSON(tool.InputSchema, p.journal.secrets...)
 			if err != nil {
 				return wire.ToolResult{}, p.poison(err)
 			}
@@ -187,7 +187,7 @@ func (p *Plugin) resultReference(ctx context.Context, callID string, data json.R
 	if !wire.ValidJSON(data) {
 		return wire.ToolResult{}, errors.New("invalid Plugin result JSON")
 	}
-	redacted, redactErr := session.RedactJSON(data, p.journal.secrets...)
+	redacted, redactErr := redaction.RedactJSON(data, p.journal.secrets...)
 	if redactErr != nil {
 		return wire.ToolResult{}, p.poison(redactErr)
 	}

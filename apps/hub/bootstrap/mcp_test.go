@@ -85,7 +85,7 @@ func TestMCPActualAssemblyOwnsLazyWorkerUntilPhysicalCleanup(t *testing.T) {
 	}))
 	defer server.Close()
 	var err error
-	app, err = Open(ctx, Config{DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "fixture"}})
+	app, err = Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "fixture"}})
 	if err != nil {
 		t.Fatal(err)
 	}

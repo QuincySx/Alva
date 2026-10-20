@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 
 	mediaextension "github.com/QuincySx/Alva/extension/media"
-	private "github.com/QuincySx/Alva/platform/storage/sqlite"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 // MediaPlayback is an explicit native UI action. Construction reads the one
@@ -31,7 +31,7 @@ func (s *HubService) MediaPlayback(ctx context.Context, id, branchID, manifestUR
 	if manifest.Artifact.MediaType != "video/mp4" || manifest.Output.Operation.Kind != "transcode_video" {
 		return mediaextension.Manifest{}, nil, errors.New("play only completed silent transcode derivatives, not original media")
 	}
-	directory, err := private.EnsurePrivateDir(filepath.Join(s.DataDirectory, "media-playback"))
+	directory, err := private.EnsureDir(filepath.Join(s.DataDirectory, "media-playback"))
 	if err != nil {
 		return mediaextension.Manifest{}, nil, err
 	}

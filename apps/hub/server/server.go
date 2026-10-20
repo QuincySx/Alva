@@ -6,7 +6,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,7 +20,7 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/system/loopback"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -304,7 +303,7 @@ func reply(w http.ResponseWriter, value any, err error) {
 }
 func operationError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, sql.ErrNoRows), errors.Is(err, session.ErrNotFound):
+	case errors.Is(err, hub.ErrNotFound), errors.Is(err, storage.ErrNotFound):
 		fail(w, 404)
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		fail(w, 408)

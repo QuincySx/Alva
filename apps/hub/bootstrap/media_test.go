@@ -24,7 +24,7 @@ import (
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/llm/provider"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 )
 
 func TestNativeMediaActualRecipeIsExplicitAndSelectedForOneRequest(t *testing.T) {
@@ -74,7 +74,7 @@ func TestNativeMediaActualRecipeIsExplicitAndSelectedForOneRequest(t *testing.T)
 			}))
 			defer server.Close()
 			dir := filepath.Join(t.TempDir(), "private")
-			config := Config{DataDirectory: dir, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "actual-image-route"}, ImageCapable: capable}
+			config := Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: dir, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "actual-image-route"}, ImageCapable: capable}
 			a, err := Open(ctx, config)
 			if err != nil {
 				t.Fatal(err)
@@ -130,7 +130,7 @@ func TestNativeMediaActualRecipeIsExplicitAndSelectedForOneRequest(t *testing.T)
 			if err != nil || len(preview) == 0 || manifest.Artifact.MediaType != "image/jpeg" || len(manifest.Output.Losses) == 0 || manifest.Source.SHA256 != upload.Info.SHA256 {
 				t.Fatal("actual provenance/preview missing", err)
 			}
-			_, saved, err := a.Repository.ReadArtifactFull(ctx, s.ID, nativeID, sourceURI, session.MaxArtifactBytes)
+			_, saved, err := a.Repository.ReadArtifactFull(ctx, s.ID, nativeID, sourceURI, storage.MaxArtifactBytes)
 			if err != nil || !bytes.Equal(saved, original.Bytes()) {
 				t.Fatal("original bytes changed", err)
 			}
@@ -200,7 +200,7 @@ func awaitMediaTerminal(t *testing.T, a *Application, id string) hub.Detail {
 }
 
 func TestDemoCannotClaimOperatorImageCapability(t *testing.T) {
-	if _, err := Open(context.Background(), Config{DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true, ImageCapable: true}); err == nil {
+	if _, err := Open(context.Background(), Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true, ImageCapable: true}); err == nil {
 		t.Fatal("demo pretended to understand images")
 	}
 }

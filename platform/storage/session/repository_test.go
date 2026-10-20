@@ -12,6 +12,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -20,7 +21,7 @@ func conversation(text string) abi.SessionRecord {
 	message := wire.TextMessage(wire.RoleUser, text)
 	return abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message})
 }
-func repoSession(t *testing.T) (*Repository, *Session) {
+func repoSession(t *testing.T) (*Repository, storage.Session) {
 	t.Helper()
 	r, err := Open(context.Background(), filepath.Join(t.TempDir(), "private"))
 	if err != nil {
@@ -155,14 +156,14 @@ func TestOwnerAndSessionBoundArtifactsCannotBeReadByHashOrURI(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, scope := range [][2]string{{"other", "native"}, {"other", "foreign"}, {"owner", "sibling"}} {
-		if _, err := r.ReadArtifact(ctx, scope[0], scope[1], reference.URI, 0, 100); !errors.Is(err, ErrNotFound) {
+		if _, err := r.ReadArtifact(ctx, scope[0], scope[1], reference.URI, 0, 100); !errors.Is(err, storage.ErrNotFound) {
 			t.Fatalf("foreign scope granted: %v", err)
 		}
 	}
 	if _, err := r.ReadArtifact(ctx, "owner", "native", "alva-artifact://"+reference.SHA256, 0, 100); err == nil {
 		t.Fatal("hash granted global read")
 	}
-	if _, err := r.OpenSession(ctx, "owner", "missing"); !errors.Is(err, ErrNotFound) {
+	if _, err := r.OpenSession(ctx, "owner", "missing"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal(err)
 	}
 	list, _ := r.List(ctx, "owner", "", 100)
@@ -252,7 +253,7 @@ func TestRecoveryMarksUnknownWithoutReplayingOrImplicitReads(t *testing.T) {
 		t.Fatal("interruption pretended to be success/not-executed")
 	}
 	again, err := r.Recover(ctx, "owner", "native")
-	if err != nil || again != (RecoveryReport{}) {
+	if err != nil || again != (storage.RecoveryReport{}) {
 		t.Fatalf("recovery repeated work: %+v %v", again, err)
 	}
 }
@@ -264,10 +265,10 @@ func TestRunClaimPreventsRecoveryAndConcurrentExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = r.Recover(ctx, "owner", "native"); !errors.Is(err, ErrActive) {
+	if _, err = r.Recover(ctx, "owner", "native"); !errors.Is(err, storage.ErrActive) {
 		t.Fatalf("live recovery allowed: %v", err)
 	}
-	if _, _, err = r.BeginRun(ctx, "owner", "native"); !errors.Is(err, ErrActive) {
+	if _, _, err = r.BeginRun(ctx, "owner", "native"); !errors.Is(err, storage.ErrActive) {
 		t.Fatal("parallel run claim granted")
 	}
 	if err = r.Close(); err == nil {

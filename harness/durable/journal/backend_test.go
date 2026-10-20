@@ -1,7 +1,7 @@
 // INPUT: Explicit local test subprocesses, private SQLite, actual SDK and security approval bindings.
 // OUTPUT: Cross-process external/approval resume and crash-after-side-effect no-replay acceptance.
 // POS: [L5 native harness testing] Real process exit/reopen proves durability separately from volatile rendezvous behavior.
-package native_test
+package journal_test
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/harness/durable"
-	native "github.com/QuincySx/Alva/harness/durable/native"
+	native "github.com/QuincySx/Alva/harness/durable/journal"
 	"github.com/QuincySx/Alva/platform/storage/blob"
 	blobmemory "github.com/QuincySx/Alva/platform/storage/blob/memory"
 	"github.com/QuincySx/Alva/platform/storage/session"
@@ -148,7 +148,7 @@ func TestDurableProcessHelper(t *testing.T) {
 	})
 	// This Controller owns BeginRun. Views contribute refs/history/context and
 	// deliberately do not acquire a second native execution claim.
-	views, err := harness.NativeSessionViews(t.Context(), repo, "owner", "native")
+	views, err := harness.SessionViews(t.Context(), repo, "owner", "native")
 	if err != nil {
 		t.Fatal(err)
 	}

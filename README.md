@@ -70,13 +70,15 @@ tools/        手工    显式维护与本机验收工具
 | `integration/engine/{alva,process}` | Alva 消费完整 L5 harness；process 按 Vendor 共享实现 Claude/Codex/Pi，不是三个独立 adapter 包，也不是 SDK |
 | `platform/host` | Agent 执行/取消/订阅、审批与问题 broker、command/browser 资源所有权；可消费 harness Runner |
 | `platform/system` | 更底层的 owned process、媒体派生/播放、loopback、严格 JSON 与可取消秘密输入 |
-| `platform/storage` | 原始typed facts/catalog、[可插拔blob](./platform/storage/blob/AGENTS.md)（目录/临时内存）、私有SQLite与可选持久memory；不合并Hub事实 |
+| `platform/storage` | [共享存储插口](./platform/storage/AGENTS.md)、同一会话/引用/DTO契约及独立facts/memory/bindings/blob实现；选型留在程序装配，不合并Hub事实 |
 | `platform/sandbox` | native wazero 宿主与 WASIp1 SDK guest；共享纯 ABI 单独留在 `sdk/sandbox/abi` |
 
 依赖方向由实际 import 防火墙验证：SDK 不能依赖 integration/platform/extension/harness/apps；
 kernel 不能依赖 agent。上层可以显式消费下层或横向实现，不允许反向偷带产品政策。
 direct CLI/desktop 直连 harness 与 host，不经 EngineRuntime；Hub core 只看 engine 根契约，
 具体 Alva/外部适配器在 `apps/hub/bootstrap` 装配。共享呈现在 `apps/ui`，不依赖 direct/Hub 或执行 owner。
+
+存储组件由外层一次选择：direct消费必传Storage，Hub消费必传Stores工厂；工具、harness、Inspector与UI沿同一契约工作，不识别具体数据库、不暗选默认后端。见[存储边界](./docs/ARCHITECTURE.md#存储替换边界)。
 
 扩展可直接作为普通 Tool 安装，无需原生 Plugin、SQLite 或工作目录：
 

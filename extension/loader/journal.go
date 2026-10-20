@@ -9,15 +9,23 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+	storage.Records
+	storage.References
+}
+
 type pluginJournal struct {
 	mu                sync.Mutex
-	log               *session.Session
-	repository        *session.Repository
+	log               storage.Session
+	repository        Storage
 	owner, id, plugin string
 	cache             []json.RawMessage
 	bytes             int
@@ -40,9 +48,9 @@ func (j *pluginJournal) record(ctx context.Context, runID, direction string, val
 		return fail(err)
 	}
 	if direction == "stderr" || direction == "invalid_incoming" || direction == "incomplete_incoming" {
-		frame, err = session.RedactStreamFrame(frame, j.secrets...)
+		frame, err = redaction.RedactStreamFrame(frame, j.secrets...)
 	} else {
-		frame, err = session.RedactJSON(frame, j.secrets...)
+		frame, err = redaction.RedactJSON(frame, j.secrets...)
 	}
 	if err != nil {
 		return fail(err)

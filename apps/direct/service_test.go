@@ -22,15 +22,27 @@ import (
 
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/host"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"github.com/QuincySx/Alva/tests/storagecontract"
 )
 
 func fixture(t *testing.T, config Config) *Service {
 	t.Helper()
 	if config.DataDirectory == "" {
 		config.DataDirectory = filepath.Join(t.TempDir(), "data")
+	}
+	if config.Storage == nil {
+		var err error
+		config.Storage, err = session.Open(t.Context(), config.DataDirectory)
+		if err == nil {
+			config.Storage = storagecontract.Wrap(config.Storage)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	s, err := Open(t.Context(), config)
 	if err != nil {
@@ -44,6 +56,17 @@ func fixture(t *testing.T, config Config) *Service {
 		}
 	})
 	return s
+}
+
+func TestDirectMissingStorageDoesNotSelectDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "unopened")
+	if service, err := Open(t.Context(), Config{DataDirectory: path, Demo: true}); err == nil {
+		service.Close(t.Context())
+		t.Fatal("component selected a default backend")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("missing storage component performed IO", err)
+	}
 }
 func waitRun(t *testing.T, run Run) host.RunSnapshot {
 	t.Helper()
@@ -155,7 +178,7 @@ func TestDirectUploadsStayReferencesAndForeignFactsRemainUnavailable(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.History(t.Context(), foreign.ID(), "", 0, 0); !errors.Is(err, session.ErrNotFound) {
+	if _, err := s.History(t.Context(), foreign.ID(), "", 0, 0); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("foreign facts exposed", err)
 	}
 	run, err := s.Start(t.Context(), id, "inspect only a relevant range if needed")

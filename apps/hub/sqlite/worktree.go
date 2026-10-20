@@ -38,7 +38,10 @@ func worktreeWorker(ctx context.Context, tx *sql.Tx, lead, team, worker string) 
 	}
 	return w, parent, child, nil
 }
-func (s *Store) BeginWorkerWorktree(ctx context.Context, lead, team, worker string) (hub.Worker, error) {
+func (s *Store) BeginWorkerWorktree(ctx context.Context, lead, team, worker string) (providerResult0 hub.Worker, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var parent, child hub.Session
@@ -68,7 +71,10 @@ func (s *Store) BeginWorkerWorktree(ctx context.Context, lead, team, worker stri
 	})
 	return w, err
 }
-func (s *Store) FinishWorkerWorktree(ctx context.Context, lead, team, worker string, revision uint64, binding hub.WorktreeBinding, problem string) (hub.Worker, error) {
+func (s *Store) FinishWorkerWorktree(ctx context.Context, lead, team, worker string, revision uint64, binding hub.WorktreeBinding, problem string) (providerResult0 hub.Worker, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var parent, child hub.Session
@@ -115,7 +121,10 @@ func boundedWorktreeProblem(problem string) string {
 	}
 	return ""
 }
-func (s *Store) SaveWorkerEvidence(ctx context.Context, lead, team, worker string, revision uint64, evidence hub.WorktreeEvidence) (hub.Worker, error) {
+func (s *Store) SaveWorkerEvidence(ctx context.Context, lead, team, worker string, revision uint64, evidence hub.WorktreeEvidence) (providerResult0 hub.Worker, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var err error
@@ -136,7 +145,10 @@ func (s *Store) SaveWorkerEvidence(ctx context.Context, lead, team, worker strin
 	})
 	return w, err
 }
-func (s *Store) BeginWorkerAdoption(ctx context.Context, lead, team, worker string, revision uint64, evidenceID string) (hub.Worker, error) {
+func (s *Store) BeginWorkerAdoption(ctx context.Context, lead, team, worker string, revision uint64, evidenceID string) (providerResult0 hub.Worker, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var err error
@@ -156,7 +168,10 @@ func (s *Store) BeginWorkerAdoption(ctx context.Context, lead, team, worker stri
 	})
 	return w, err
 }
-func (s *Store) FinishWorkerAdoption(ctx context.Context, lead, team, worker string, revision uint64, problem string) (hub.Worker, error) {
+func (s *Store) FinishWorkerAdoption(ctx context.Context, lead, team, worker string, revision uint64, problem string) (providerResult0 hub.Worker, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, err := teamRecord(ctx, tx, lead, team); err != nil {
@@ -200,7 +215,10 @@ func checkWorkerWorkspaceAdmission(ctx context.Context, tx *sql.Tx, id string) e
 	}
 	return nil
 }
-func (s *Store) RecoverWorktrees(ctx context.Context) error {
+func (s *Store) RecoverWorktrees(ctx context.Context) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE hub_workers SET data=json_set(data,'$.worktree.state','removal_unknown','$.worktree.problem','Application exited during explicitly approved worktree removal; inspect retained branch/history/evidence, no automatic retry.','$.worktree.revision',coalesce(json_extract(data,'$.worktree.revision'),0)+1) WHERE json_extract(data,'$.worktree.state')='removing'`); err != nil {
 			return err
@@ -220,7 +238,10 @@ func validRemovalReview(review hub.WorktreeRemovalReview) bool {
 	decoded, err := hex.DecodeString(review.Head)
 	return err == nil && (len(decoded) == 20 || len(decoded) == 32) && review.Files >= 0 && review.Files <= 4096 && review.Bytes >= 0 && review.Bytes <= 128<<20 && review.CreatedAt > 0
 }
-func (s *Store) SaveWorkerRemovalReview(ctx context.Context, lead, team, worker string, revision uint64, review hub.WorktreeRemovalReview) (hub.Worker, error) {
+func (s *Store) SaveWorkerRemovalReview(ctx context.Context, lead, team, worker string, revision uint64, review hub.WorktreeRemovalReview) (providerResult0 hub.Worker, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var err error
@@ -237,7 +258,10 @@ func (s *Store) SaveWorkerRemovalReview(ctx context.Context, lead, team, worker 
 	})
 	return w, err
 }
-func (s *Store) BeginWorkerRemoval(ctx context.Context, lead, team, worker string, revision uint64, snapshot string) (hub.Worker, error) {
+func (s *Store) BeginWorkerRemoval(ctx context.Context, lead, team, worker string, revision uint64, snapshot string) (providerResult0 hub.Worker, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var err error
@@ -258,7 +282,10 @@ func (s *Store) BeginWorkerRemoval(ctx context.Context, lead, team, worker strin
 	})
 	return w, err
 }
-func (s *Store) FinishWorkerRemoval(ctx context.Context, lead, team, worker string, revision uint64, success bool) (hub.Worker, error) {
+func (s *Store) FinishWorkerRemoval(ctx context.Context, lead, team, worker string, revision uint64, success bool) (providerResult0 hub.Worker, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, err := teamRecord(ctx, tx, lead, team); err != nil {

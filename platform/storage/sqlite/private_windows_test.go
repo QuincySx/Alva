@@ -15,8 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/platform/system/privatefs"
 	"golang.org/x/sys/windows"
+
+	"github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 func TestWindowsLockHelper(t *testing.T) {
@@ -42,7 +43,7 @@ func TestWindowsLockHelper(t *testing.T) {
 }
 
 func TestWindowsDurableDatabaseAndProcessOwner(t *testing.T) {
-	dir, err := EnsurePrivateDir(filepath.Join(t.TempDir(), "actual-private"))
+	dir, err := privatefs.EnsureDir(filepath.Join(t.TempDir(), "actual-private"))
 	if err != nil {
 		t.Fatal(err)
 	}

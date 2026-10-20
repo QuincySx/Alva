@@ -1,4 +1,4 @@
-// INPUT: context, crypto/sha256, encoding/hex/json, errors, fmt, strings, time, utf8, host/command, kernel/abi, storage/session.
+// INPUT: context, crypto/sha256, encoding/hex/json, errors, fmt, strings, time, utf8, host/command, kernel/abi, shared storage contracts.
 // OUTPUT: Native diagnostic Manager with prior activity, explicit process execution and owned reference evidence.
 // POS: [L4 extension] Command success is not misrepresented as parsed diagnostics or a silent empty no-server result.
 package diagnostics
@@ -16,7 +16,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/platform/host/command"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -151,7 +152,7 @@ func (p *Plugin) retain(ctx context.Context, profileID, kind string, data []byte
 	known := []string{}
 	for _, entry := range p.config.Profiles {
 		if entry.ID == profileID {
-			known = session.EnvironmentSecrets(entry.Process.Env)
+			known = redaction.EnvironmentSecrets(entry.Process.Env)
 			break
 		}
 	}
@@ -159,10 +160,10 @@ func (p *Plugin) retain(ctx context.Context, profileID, kind string, data []byte
 	var sanitized []byte
 	var err error
 	if json.Valid([]byte(text)) {
-		sanitized, err = session.RedactJSON([]byte(text), known...)
+		sanitized, err = redaction.RedactJSON([]byte(text), known...)
 	} else {
 		encoded, _ := json.Marshal(text)
-		sanitized, err = session.RedactJSON(encoded, known...)
+		sanitized, err = redaction.RedactJSON(encoded, known...)
 		if err == nil {
 			err = json.Unmarshal(sanitized, &text)
 			sanitized = []byte(text)
@@ -171,7 +172,7 @@ func (p *Plugin) retain(ctx context.Context, profileID, kind string, data []byte
 	if err != nil {
 		return wire.Reference{}, err
 	}
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: "diagnostic-" + kind, Name: profileID, MediaType: "text/plain; charset=utf-8", Processing: fmt.Sprintf("Known-credential-redacted diagnostic %s; JSON normalized; complete_capture=%v; original_utf8=%v; captured_source_bytes=%d; incomplete_tail_omitted_bytes=%d; invalid UTF-8 replaced; no parsing or model delivery", kind, complete, valid, sourceBytes, omittedTail), Data: sanitized, Text: true})
+	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: "diagnostic-" + kind, Name: profileID, MediaType: "text/plain; charset=utf-8", Processing: fmt.Sprintf("Known-credential-redacted diagnostic %s; JSON normalized; complete_capture=%v; original_utf8=%v; captured_source_bytes=%d; incomplete_tail_omitted_bytes=%d; invalid UTF-8 replaced; no parsing or model delivery", kind, complete, valid, sourceBytes, omittedTail), Data: sanitized, Text: true})
 	if err != nil {
 		return wire.Reference{}, &abi.SessionError{Operation: "retain diagnostic " + kind, SessionID: p.config.SessionID, Err: err}
 	}

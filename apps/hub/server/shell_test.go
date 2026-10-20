@@ -45,7 +45,7 @@ func TestHTTPShellJobSurvivesTwoActualTurnsAndOperatorStopReaps(t *testing.T) {
 		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", data)
 	}))
 	defer upstream.Close()
-	f := newFixture(t, bootstrap.Config{ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
 	session := create(t, f, "cross-turn shell")
 	prefix := "/v1/sessions/" + session.ID
 	if err := f.app.Store.ReplaceTools(t.Context(), session.ID, hub.ToolSettings{Shell: hub.ShellSettings{Executable: "/bin/sh"}}); err != nil {

@@ -86,7 +86,7 @@ func TestExecutedArgumentsProjectionUsesSameDurableAuthority(t *testing.T) {
 		}
 		return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
 	})
-	plugins, err := NativeSessionPlugins(ctx, repo, "owner", "actual")
+	plugins, err := SessionPlugins(ctx, repo, "owner", "actual")
 	if err != nil {
 		t.Fatal(err)
 	}

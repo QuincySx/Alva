@@ -32,7 +32,7 @@ func (f *cleanupFixture) Close(ctx context.Context) error {
 func (f *cleanupFixture) CleanupComplete() bool { return f.complete.Load() }
 func TestApplicationCloseKeepsFactsUntilOwnedCleanupPhysicallyCompletes(t *testing.T) {
 	ctx := context.Background()
-	a, err := Open(ctx, Config{DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
+	a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func (unusedHookModel) Stream(context.Context, abi.ModelRequest, func(wire.Strea
 }
 func TestApplicationCloseJoinsActualHookNotificationBeforeFacts(t *testing.T) {
 	ctx := context.Background()
-	a, err := Open(ctx, Config{DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
+	a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
 	if err != nil {
 		t.Fatal(err)
 	}

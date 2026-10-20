@@ -1,4 +1,4 @@
-// INPUT: context, encoding/base64/json, errors, io, sync/time/utf8, agent Task, ABI/wire, native/process, storage/session.
+// INPUT: context, encoding/base64/json, errors, io, sync/time/utf8, agent Task, ABI/wire, native/process, shared storage contracts.
 // OUTPUT: Owned process jobs with bounded redacted frame references, real task lifecycle, stdin and physical cleanup evidence.
 // POS: [L4 extension] Background execution is run-owned and retains the shared global lease until actual process-group cleanup.
 package shell
@@ -14,7 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/platform/system/process"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -67,11 +68,11 @@ func (p *Plugin) retain(ctx context.Context, kind, name string, raw []byte, fram
 		frame["complete"] = framing[0].Complete
 	}
 	encoded, _ := json.Marshal(frame)
-	clean, err := session.RedactStreamFrame(encoded, session.EnvironmentSecrets(p.config.Env)...)
+	clean, err := redaction.RedactStreamFrame(encoded, redaction.EnvironmentSecrets(p.config.Env)...)
 	if err != nil {
 		return wire.Reference{}, err
 	}
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: kind, Name: name, MediaType: "application/json", Processing: "Captured frame envelope describes exact framing/redaction/omission; known fields and explicitly configured environment values redacted; binary explicitly base64; no automatic model delivery", Data: clean, Text: true})
+	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: kind, Name: name, MediaType: "application/json", Processing: "Captured frame envelope describes exact framing/redaction/omission; known fields and explicitly configured environment values redacted; binary explicitly base64; no automatic model delivery", Data: clean, Text: true})
 	if err != nil {
 		return wire.Reference{}, &abi.SessionError{Operation: "retain shell " + kind, SessionID: p.config.SessionID, Err: err}
 	}

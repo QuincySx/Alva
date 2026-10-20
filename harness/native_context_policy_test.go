@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -25,7 +26,7 @@ func (reader sourceOnlyReader) ID() string { return string(reader) }
 func (sourceOnlyReader) Messages(context.Context) ([]wire.Message, error) {
 	panic("bounded source restored whole conversation")
 }
-func addContextMessages(t *testing.T, log *session.Session, texts ...string) {
+func addContextMessages(t *testing.T, log storage.Session, texts ...string) {
 	t.Helper()
 	batch := make([]abi.SessionRecord, 0, len(texts))
 	for _, text := range texts {
@@ -67,13 +68,13 @@ func TestNativeContextSourceReopensWithStableBoundedView(t *testing.T) {
 	if len(view) != contextTargetMessages+1 || view[len(view)-1].Text() != "message 255" || !strings.Contains(view[0].Text(), "not a summary") {
 		t.Fatal("incorrect bounded tail", len(view), err)
 	}
-	if _, err := bindContextSource(ctx, repo, "foreign", log.ID()); !errors.Is(err, session.ErrNotFound) {
+	if _, err := bindContextSource(ctx, repo, "foreign", log.ID()); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("foreign owner accepted", err)
 	}
 	if _, err := source.Load(ctx, sourceOnlyReader("foreign")); err == nil {
 		t.Fatal("source accepted foreign runtime")
 	}
-	var missingReader *session.Session
+	var missingReader storage.Session
 	if _, err := source.Load(ctx, missingReader); err == nil {
 		t.Fatal("source accepted a typed-nil reader")
 	}
@@ -205,7 +206,7 @@ func TestNativeContextSourceRunsBeyondCompleteRestoreBudget(t *testing.T) {
 
 }
 
-func bindContextSource(ctx context.Context, repo *session.Repository, owner, id string) (abi.ContextSource, error) {
+func bindContextSource(ctx context.Context, repo storage.Repository, owner, id string) (abi.ContextSource, error) {
 	if _, err := repo.OpenSession(ctx, owner, id); err != nil {
 		return nil, err
 	}
@@ -215,7 +216,7 @@ func contextConversation(text string) abi.SessionRecord {
 	message := wire.TextMessage(wire.RoleUser, text)
 	return abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message})
 }
-func contextRepoSession(t *testing.T) (*session.Repository, *session.Session) {
+func contextRepoSession(t *testing.T) (storage.Repository, storage.Session) {
 	t.Helper()
 	repo, err := session.Open(t.Context(), filepath.Join(t.TempDir(), "facts"))
 	if err != nil {

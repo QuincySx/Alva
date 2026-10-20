@@ -27,4 +27,4 @@ JSON 回执最多16KiB，详情最多128KiB；无引用模式超界明确失败�
 | commit.go | 已知提交后回执失败的 typed error、Recovery DTO/Record、关联标识与有界恢复提示 |
 | tools_test.go | 无原生组件的真 SDK create/get、引用、严格输入与保存失败 |
 | recovery_test.go | 独立计划、默认循环已提交错误结算、无存储读取恢复和超界不重放 |
-| native/ | 原生 Plugin、默认持久后端、授权与详情证据适配；复用父包工具 |
+| native/ | 原生 Plugin、默认typed-state政策、共享会话插口、授权与详情证据适配；复用父包工具 |

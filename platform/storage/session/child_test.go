@@ -9,6 +9,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -19,7 +20,7 @@ func TestCreateChildRequiresActualIntentAndCommitsExactLinkAtomically(t *testing
 	if _, err := repo.CreateChild(ctx, "owner", parent.ID(), "child", "run", "call", "scope"); err == nil {
 		t.Fatal("created child without committed parent intent")
 	}
-	if _, err := repo.OpenSession(ctx, "owner", "child"); !errors.Is(err, ErrNotFound) {
+	if _, err := repo.OpenSession(ctx, "owner", "child"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("partial child leaked", err)
 	}
 	intent := abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolIntent, ToolIntent: &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "call", Name: "agent", Arguments: json.RawMessage(`{"task":"independent"}`)}}})
@@ -27,7 +28,7 @@ func TestCreateChildRequiresActualIntentAndCommitsExactLinkAtomically(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = repo.CreateChild(ctx, "foreign", parent.ID(), "child", "run", "call", "scope"); !errors.Is(err, ErrNotFound) {
+	if _, err = repo.CreateChild(ctx, "foreign", parent.ID(), "child", "run", "call", "scope"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("foreign owner granted", err)
 	}
 	creation, err := repo.CreateChild(ctx, "owner", parent.ID(), "child", "run", "call", "scope")
@@ -73,7 +74,7 @@ func TestCreateChildRequiresActualIntentAndCommitsExactLinkAtomically(t *testing
 	}
 	refs, _ := repo.BoundReferences(ctx, "owner", parent.ID())
 	ref, _ := refs.StoreText(ctx, "parent private body")
-	if _, err = repo.ReadArtifact(ctx, "owner", "child", ref.URI, 0, 1024); !errors.Is(err, ErrNotFound) {
+	if _, err = repo.ReadArtifact(ctx, "owner", "child", ref.URI, 0, 1024); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("causal link granted history access", err)
 	}
 }
@@ -134,10 +135,10 @@ func TestParentLinkDoesNotInventOrScanOldMetadataRelations(t *testing.T) {
 	if _, err := repo.Create(ctx, "owner", "metadata-only-child", parent.ID()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.ParentLink(ctx, "owner", "metadata-only-child"); !errors.Is(err, ErrNotFound) {
+	if _, err := repo.ParentLink(ctx, "owner", "metadata-only-child"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("metadata relation became typed grant", err)
 	}
-	if _, err := repo.ParentLink(ctx, "foreign", "metadata-only-child"); !errors.Is(err, ErrNotFound) {
+	if _, err := repo.ParentLink(ctx, "foreign", "metadata-only-child"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("foreign reverse metadata disclosure", err)
 	}
 }

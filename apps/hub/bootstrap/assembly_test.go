@@ -17,6 +17,7 @@ import (
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/llm/provider"
+	"github.com/QuincySx/Alva/tests/storagecontract"
 )
 
 func closeApp(t *testing.T, a *Application) {
@@ -61,7 +62,7 @@ func awaitTerminal(t *testing.T, a *Application, id string) hub.Detail {
 func TestSharedAssemblyStartupAndNativeResumeAcrossReopen(t *testing.T) {
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "private")
-	a, err := Open(ctx, Config{DataDirectory: dir, Demo: true})
+	a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: dir, Demo: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestSharedAssemblyStartupAndNativeResumeAcrossReopen(t *testing.T) {
 		t.Fatal("missing native authority", err)
 	}
 	closeApp(t, a)
-	b, err := Open(ctx, Config{DataDirectory: dir, Demo: true})
+	b, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: dir, Demo: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestLiveOpenMakesNoHTTPCallsAndRejectsMislabeledRoute(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); http.Error(w, "must not call", 500) }))
 	defer server.Close()
-	a, err := Open(context.Background(), Config{DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL + "/chat", Model: "explicit-model"}})
+	a, err := Open(context.Background(), Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL + "/chat", Model: "explicit-model"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestLiveOpenMakesNoHTTPCallsAndRejectsMislabeledRoute(t *testing.T) {
 }
 func TestUnapprovedExternalRejectedBeforeCreatingPrivateData(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "private")
-	_, err := Open(context.Background(), Config{DataDirectory: dir, Demo: true, External: []ExternalEngine{{Vendor: "codex", Command: "not-started"}}})
+	_, err := Open(context.Background(), Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: dir, Demo: true, External: []ExternalEngine{{Vendor: "codex", Command: "not-started"}}})
 	if err == nil {
 		t.Fatal("unapproved external accepted")
 	}
@@ -153,3 +154,18 @@ func TestUnapprovedExternalRejectedBeforeCreatingPrivateData(t *testing.T) {
 		t.Fatal("invalid admission mutated data directory")
 	}
 }
+
+// testStores hides every concrete session/log/reference handle. All existing
+// end-to-end assembly, child, Plugin and recovery cases use the same slots.
+func testStores(ctx context.Context, directory string) (Stores, error) {
+	stores, err := LocalStores(ctx, directory)
+	if stores.Sessions != nil {
+		stores.Sessions = storagecontract.Wrap(stores.Sessions)
+	}
+	if stores.Product != nil {
+		stores.Product = productPorts{stores.Product}
+	}
+	return stores, err
+}
+
+type productPorts struct{ ProductStorage }

@@ -25,6 +25,7 @@ import (
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/host"
+	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/secretinput"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 )
@@ -168,10 +169,15 @@ func prepareDesktop(ctx context.Context, args []string, input io.Reader, diagnos
 		}
 	}
 	if *dataDirectory != "" {
-		service, err := direct.Open(ctx, direct.Config{DataDirectory: *dataDirectory, Workspace: *workspace, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: provider.Config{Endpoint: *endpoint, Model: *model, APIKey: apiKey}})
+		repository, err := session.Open(ctx, *dataDirectory)
 		if err != nil {
 			closeDiagnostic()
 			return nil, err
+		}
+		service, err := direct.Open(ctx, direct.Config{Storage: repository, DataDirectory: *dataDirectory, Workspace: *workspace, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: provider.Config{Endpoint: *endpoint, Model: *model, APIKey: apiKey}})
+		if err != nil {
+			closeDiagnostic()
+			return nil, errors.Join(err, repository.Close())
 		}
 		if *selected != "" {
 			if _, err := service.Metadata(ctx, *selected); err != nil {

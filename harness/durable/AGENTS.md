@@ -33,4 +33,4 @@ Backend 四个端口：实际 Log、独占 Claim、Load、原子 CAS Commit（�
 | tool.go | 无外部副作用的 await_external 数据提交工具 |
 | memory.go | 明确 volatile 的同日志原子内存 reference backend |
 | controller_test.go | 真 SDK 等待/继续、审批边界、问题、过期与未知版本验收 |
-| native/ | 现有 native repository 的耐久实现与真实多进程崩溃验收 |
+| journal/ | 共享事实插口之上的耐久适配与真实多进程崩溃验收；不选择数据库 |

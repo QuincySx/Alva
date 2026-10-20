@@ -9,6 +9,8 @@ Runtime仅消费六方法ExecutionStore；设置/浏览由实际产品consumer�
 产品 ID 永远不等于 native ID。UI 只观察已提交产品历史，不拥有执行取消。可恢复 Error 不释放 active；唯一 Completed 收尾。SQLite产品store在子包，与native session.sqlite隔离，不读旧Rust DB。
 引擎回调在产品层串行提交；首次校验/持久化错误锁存，adapter忽略错误或后补成功也必须失败且不fallback。Execute返回后关闭回调准入，迟到回调不能修改facts。
 Completed后的真实Execute返回错误也不能让Turn成功或fallback；原始engine事件保留，产品记录execution_owner_failure并失败收尾，不能用早到事件覆盖owner错误。
+NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统一缺失对象语义，不泄漏SQL实现。Runtime仍仅要求ExecutionStore六方法，不因Service的完整profile扩大执行依赖。
+
 ## 业务域清单
 | 文件/目录 | 职责 |
 |---|---|

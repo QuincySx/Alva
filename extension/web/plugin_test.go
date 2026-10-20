@@ -17,6 +17,7 @@ import (
 	"time"
 
 	securityplugin "github.com/QuincySx/Alva/extension/security"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -31,8 +32,8 @@ func (f modelFunc) Stream(c context.Context, r abi.ModelRequest, e func(wire.Str
 }
 
 type fixture struct {
-	repo    *session.Repository
-	log     *session.Session
+	repo    storage.Repository
+	log     storage.Session
 	cwd     string
 	guard   *security.Guard
 	reports atomic.Int32

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/QuincySx/Alva/harness"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	memorysqlite "github.com/QuincySx/Alva/platform/storage/memory"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/memory"
@@ -27,9 +28,9 @@ import (
 
 type fixture struct {
 	plugin    *Plugin
-	backend   *memorysqlite.Backend
-	repo      *session.Repository
-	log       *session.Session
+	backend   memory.Backend
+	repo      storage.Repository
+	log       storage.Session
 	cwd       string
 	calls     int
 	approvals atomic.Int32
@@ -150,7 +151,7 @@ func TestRebindOnlyOneExplicitMemoryCapabilityAndOwnReferences(t *testing.T) {
 	if err != nil || !strings.Contains(page.Text, "child selected") {
 		t.Fatal(page, err)
 	}
-	if _, err = f.repo.ReadArtifact(ctx, "product", "actual", ref.URI, 0, 1024); !errors.Is(err, session.ErrNotFound) {
+	if _, err = f.repo.ReadArtifact(ctx, "product", "actual", ref.URI, 0, 1024); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("parent received child search reference authority", err)
 	}
 	if _, err = child.Execute(ctx, abi.ToolExecutionContext{SessionID: "actual", RunID: "run", CallID: call.ID, ActualTool: child}, call); err == nil {
@@ -304,7 +305,7 @@ func TestMemoryReplacementRecipeAndPermissionDenial(t *testing.T) {
 	if _, found, err := f.backend.GetFile(context.Background(), "denied"); err != nil || found {
 		t.Fatal("denied write changed memory", err)
 	}
-	native, err := harness.NativeSessionPlugins(context.Background(), f.repo, "product", f.log.ID())
+	native, err := harness.SessionPlugins(context.Background(), f.repo, "product", f.log.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

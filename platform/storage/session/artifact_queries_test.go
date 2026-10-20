@@ -8,6 +8,8 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+
+	"github.com/QuincySx/Alva/platform/storage"
 )
 
 func TestArtifactIndexStableMembershipAndVerifiedFullRead(t *testing.T) {
@@ -20,9 +22,9 @@ func TestArtifactIndexStableMembershipAndVerifiedFullRead(t *testing.T) {
 	if _, err = r.Create(ctx, "owner", "actual", ""); err != nil {
 		t.Fatal(err)
 	}
-	put := func(name, text string) ArtifactInfo {
+	put := func(name, text string) storage.ArtifactInfo {
 		t.Helper()
-		v, e := r.PutArtifact(ctx, "owner", "actual", ArtifactInput{Kind: "media-test", Name: name, MediaType: "text/plain", Processing: "explicit fixture, no delivery", Data: []byte(text), Text: true})
+		v, e := r.PutArtifact(ctx, "owner", "actual", storage.ArtifactInput{Kind: "media-test", Name: name, MediaType: "text/plain", Processing: "explicit fixture, no delivery", Data: []byte(text), Text: true})
 		if e != nil {
 			t.Fatal(e)
 		}

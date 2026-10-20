@@ -4,6 +4,37 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 技术栈决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)，当前结构见 [ARCHITECTURE](./docs/ARCHITECTURE.md)，运行说明见 [USAGE](./docs/USAGE.md)。
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
+
+## 2026-10-20 统一存储插口贯穿修正
+
+用户明确要求：不是增加内存/云盘实现，而是从内到外只依赖同一插口，由程序/组件/插件装配决定放入什么。
+本批修正此前只抽artifact字节而消费者仍依赖具体Repository的缺口。
+
+- platform/storage根包集中共享端口、Session/ConversationTail接口、DTO与错误；原生provider实现它，消费者只组合所需能力。
+- harness/各类证据插件/Inspector/direct/Hub/界面全部移除具体会话类型；SessionPlugins/SessionViews和journal等待适配不选择数据库。
+- Direct必传Storage；Hub必传StoresFactory，Memory/Bindings按启用需求显式供应。stock Local配方只在外层选择，缺失/失败无fallback。
+- 外部process adapter不再自己创建身份数据库，改接BindingStore；原engine.sqlite实现只迁移归属，不变table/数据。
+- Hub required native路由resolver成为显式消费契约；缺失对象使用hub.ErrNotFound，不让Tool/HTTP识别sql.ErrNoRows。
+- 共享脱敏脱离具体session包；私有路径操作归system/privatefs，避免创建目录传递引入SQL。
+- 构造部分资源、Close失败与实际join后存储关闭继续保留exact owner；尚未清理完的Open返回Application及error供重试。
+- Direct与Hub实际执行测试隐藏具体provider/session/reference类型；外部引擎fixture同样只交接口。架构闸拒绝具体provider/SQL泄漏与同包绕过stock配方。
+- SDK契约没有因存储替换扩大；新增共享storage/blob公开快照，不增加云后端或隐式迁移。
+
+本批最终验证（macOS arm64 / Go 1.27.2，无真实模型、外部engine账号或云账号调用）：
+
+| 检查 | 本批结果与范围 |
+|---|---|
+| 完整desktop-tagged race | 91个有测试包、1902个测试/子测试通过，0失败，794.05秒；运行期间Go源码和模块文件无变化。2个无参数子进程helper按设计skip，实际恢复/崩溃用例均执行；另8包无独立测试文件 |
+| 接口贯穿验收 | Direct/Hub全套fixture隐藏具体provider/session/reference类型，外部process fixture隐藏binding实现；实际Turn、父子会话、审批、引用、冷Inspector、无fallback及failed-close/部分构造owner均通过 |
+| JS/WASM、WASIp1实际执行 | 两目标各7个测试包、43个测试/子测试通过；普通工具/telemetry/durable/内存blob及三种独立消费者模式均成功。原生目录用例按平台skip，3包仅编译无测试 |
+| 共享契约可移植性 | storage根契约、纯redaction与durable/journal在两种WASM目标构建通过；SDK未引入平台依赖 |
+| 跨平台构建 | CGO_ENABLED=0、desktop tag全部命令和storage实现/privatefs在macOS arm64、Linux amd64、Windows amd64/arm64构建通过；WASIp1 Worker通过；Windows privatefs/SQLite测试二进制编译通过。跨编译不等于Windows/Linux实机验收 |
+| 公开面与分层 | storage/blob新增显式快照、具体provider/SQL泄漏及配方位置的正反例、全仓分形文档已纳入整仓结果；相较本批修改前131个SDK源码/模块文件保持原字节 |
+| 静态与文档 | 全树tagged vet、go mod verify、gofmt与diff空白通过；本批47个修改Markdown的82个本地目标有效 |
+
+完整JSONL、源码hash、portable和跨平台构建结果保存在本机证据目录，指针`/tmp/alva-storage-contract-path`。
+本批完成的是统一插口与装配选择；未增加真实云provider、后台迁移或产品存储选择UI。以下较早批次结果独立保留。
+
 ## 已确认约束
 
 - 每个抽象先保留，包或接口合并须给出独立职责、真实消费者、收益、损失供用户讨论。

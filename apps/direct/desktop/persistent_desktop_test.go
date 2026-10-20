@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	chat "github.com/QuincySx/Alva/apps/ui/chat"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,15 +18,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/QuincySx/Alva/apps/direct"
-	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/egoist/mygo/ui"
+
+	"github.com/QuincySx/Alva/apps/direct"
+	chat "github.com/QuincySx/Alva/apps/ui/chat"
+	"github.com/QuincySx/Alva/integration/llm/provider"
+	"github.com/QuincySx/Alva/platform/storage/session"
 )
 
 func persistentFixture(t *testing.T, config direct.Config) (*PersistentPage, *ui.Tester) {
 	t.Helper()
 	if config.DataDirectory == "" {
 		config.DataDirectory = filepath.Join(t.TempDir(), "data")
+	}
+	if config.Storage == nil {
+		var err error
+		config.Storage, err = session.Open(t.Context(), config.DataDirectory)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	service, err := direct.Open(t.Context(), config)
 	if err != nil {

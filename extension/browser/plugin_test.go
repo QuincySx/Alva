@@ -17,6 +17,7 @@ import (
 
 	securityplugin "github.com/QuincySx/Alva/extension/security"
 	host "github.com/QuincySx/Alva/platform/host/browser"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -27,8 +28,8 @@ import (
 const explicitChrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 type fixture struct {
-	repo      *session.Repository
-	log       *session.Session
+	repo      storage.Repository
+	log       storage.Session
 	cwd, temp string
 	guard     *security.Guard
 	approvals int
@@ -206,7 +207,7 @@ func TestRealBrowserRecipeRunsCatalogWithHITLAndReferenceOnlyEvidence(t *testing
 		t.Fatal("full original source tail lost", matches, err)
 	}
 	other, _ := f.repo.Create(context.Background(), "owner", "sibling", "")
-	if _, err = f.repo.ReadArtifact(context.Background(), "owner", other.ID(), source.URI, 0, 2048); !errors.Is(err, session.ErrNotFound) {
+	if _, err = f.repo.ReadArtifact(context.Background(), "owner", other.ID(), source.URI, 0, 2048); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("sibling source grant", err)
 	}
 }

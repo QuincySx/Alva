@@ -17,6 +17,8 @@
 默认后端128 tasks、每项20 deps/32 notes、description4KiB、metadata4KiB、notes64KiB、状态128KiB；超界/记录失败明确报错。恢复不可重放执行。Service是已绑定的可信host capability，不接受用户owner/session授权输入。
 此Plugin的实际native log/Guard与会话引用authority保持：替换业务Service不替换执行身份，也不把session字符串当授权。外部Service的输出引用必须能由本实际会话reader读取；详情投影严格编码、≤128KiB并保留到本会话，不将marshal失败当空成功，也不宣称外部业务状态天然耐久。
 
+存储只消费本包按需组合的共享storage能力插口；会话/引用/DTO/错误从同一契约返回，不导入具体session.Repository或SQL实现。后端由上层程序/插件装配选择，组件不回落默认库、不downcast实现，不持有存储Close。
+
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |

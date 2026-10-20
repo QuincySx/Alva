@@ -120,21 +120,23 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	if err = transportConfig.Validate(); err != nil {
 		return err
 	}
-	config := bootstrap.Config{DataDirectory: *directory, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: provider.Config{Endpoint: *endpoint, Model: *model, APIKey: secrets.APIKey}, ImageCapable: *imageCapable, GitExecutable: *gitExecutable, GitHostAccessApproved: *gitApproved}
+	config := bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, DataDirectory: *directory, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: provider.Config{Endpoint: *endpoint, Model: *model, APIKey: secrets.APIKey}, ImageCapable: *imageCapable, GitExecutable: *gitExecutable, GitHostAccessApproved: *gitApproved}
 	for _, entry := range []struct{ vendor, command string }{{"claude", *claude}, {"codex", *codex}, {"pi", *pi}} {
 		if entry.command != "" {
 			config.External = append(config.External, bootstrap.ExternalEngine{Vendor: entry.vendor, Command: entry.command, ApprovedHostAccess: *approved})
 		}
 	}
 	application, err := bootstrap.Open(ctx, config)
+	if application != nil {
+		defer func() {
+			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result = errors.Join(result, application.Close(cleanup))
+		}()
+	}
 	if err != nil {
 		return err
 	}
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		result = errors.Join(result, application.Close(cleanup))
-	}()
 	handler, err := server.New(application.Service, transportConfig)
 	if err != nil {
 		return err

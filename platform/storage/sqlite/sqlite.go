@@ -1,5 +1,5 @@
 // INPUT: context, database/sql, platform-private paths, net/url and ncruces SQLite driver.
-// OUTPUT: Open, EnsurePrivateDir, LockDatabase and owned Lock lifecycle.
+// OUTPUT: Open, LockDatabase and owned Lock lifecycle.
 // POS: [platform / durable storage] Shared native SQLite host plumbing with explicit private-file and process ownership.
 package sqlite
 
@@ -16,6 +16,8 @@ import (
 
 	"github.com/ncruces/go-sqlite3"
 	"github.com/ncruces/go-sqlite3/driver"
+
+	"github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 var ErrLocked = errors.New("database is already owned by another process")
@@ -26,7 +28,7 @@ func safePath(directory, name string) (string, error) {
 	if !databaseName.MatchString(name) {
 		return "", errors.New("database filename must be a bounded .sqlite basename")
 	}
-	canonical, err := EnsurePrivateDir(directory)
+	canonical, err := privatefs.EnsureDir(directory)
 	if err != nil {
 		return "", err
 	}
@@ -38,7 +40,7 @@ func Open(ctx context.Context, directory, name string, initializers ...func(*sql
 	if err != nil {
 		return nil, err
 	}
-	file, err := privateFile(path)
+	file, err := privatefs.OpenFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +87,7 @@ func LockDatabase(directory, name string) (*Lock, error) {
 	if err != nil {
 		return nil, err
 	}
-	file, err := privateFile(path + ".lock")
+	file, err := privatefs.OpenFile(path + ".lock")
 	if err != nil {
 		return nil, err
 	}

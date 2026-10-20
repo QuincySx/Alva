@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, errors, filepath, sync/time, core/security, ABI/bus/wire, native/process, storage/session.
+// INPUT: context, encoding/json, errors, filepath, sync/time, core/security, ABI/bus/wire, native/process, shared storage contracts.
 // OUTPUT: Explicit host-approved shell Config, Activity and run-owned Plugin with Close/CleanupComplete and exact Tools.
 // POS: [L4 extension] Optional host shell owns every process and global lease; no implicit shell access or OS sandbox claim.
 package shell
@@ -11,19 +11,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/kernel/bus"
 )
 
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+}
+
 type Activity struct {
 	ID, Name, SessionID, RunID, CallID string
 	Effect                             abi.EffectKind
 }
 type Config struct {
-	Repository                        *session.Repository
+	Repository                        Storage
 	Owner, SessionID, Cwd, Executable string
 	Env                               map[string]string
 	Guard                             *security.Guard
@@ -36,7 +41,7 @@ type Config struct {
 }
 type Plugin struct {
 	config         Config
-	log            *session.Session
+	log            storage.Session
 	mu             sync.Mutex
 	runID          string
 	life           context.Context
@@ -58,7 +63,7 @@ type Plugin struct {
 }
 
 func New(ctx context.Context, c Config) (*Plugin, error) {
-	if c.Repository == nil || c.Guard == nil || c.Locks == nil || c.Report == nil || !c.ApprovedHostAccess || !filepath.IsAbs(c.Cwd) || !filepath.IsAbs(c.Executable) || len(c.Env) > 128 {
+	if storage.Missing(c.Repository) || c.Guard == nil || c.Locks == nil || c.Report == nil || !c.ApprovedHostAccess || !filepath.IsAbs(c.Cwd) || !filepath.IsAbs(c.Executable) || len(c.Env) > 128 {
 		return nil, errors.New("explicit approved shell executable/cwd, actual native authority, shared locks, guard and risk reporter required")
 	}
 	env := map[string]string{}

@@ -1,0 +1,37 @@
+const MaxObjectBytes = 32 << 20
+
+const MaxReadBytes = 64 << 10
+
+const Persistent Retention = "persistent"
+
+const Volatile Retention = "process-lifetime"
+
+func NewKey() (string, error)
+
+func ValidKey(key string) bool
+
+func ValidatePut(key string, data []byte) error
+
+func ValidateRead(key string, offset int64, limit int) error
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+)
+
+type Retention string
+
+type Store interface {
+	Put(context.Context, string, []byte) error
+	Read(context.Context, string, int64, int) ([]byte, error)
+}
+
+var ErrConflict = errors.New("immutable blob key already contains different bytes")
+
+var ErrInvalid = errors.New("invalid bounded blob key, data or range")
+
+var ErrLimit = errors.New("blob storage budget exceeded")
+
+var ErrNotFound = errors.New("blob is unavailable")

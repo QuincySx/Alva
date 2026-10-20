@@ -16,6 +16,8 @@ actual Tool/session/run/cwd 与 Guard/HITL 后，Coordinator 自持实际 shared
 Tool参数及原notebook均拒绝重复键，避免editable/deletable保护字段被最后值覆盖；参数拒绝大小写别名。
 仅现有 .ipynb、格式4.5+、20MiB/10000cells、源码128KiB；不自动upgrade/create、执行code或媒体理解。metadata.editable/deletable false 拒绝。原bytes/准备结果未脱敏按原件保留供恢复，只引用不自动入模，intent/outcome仍规范脱敏。Snapshot复用原root逐级pin父目录、祖先/target symlink和特权mode拒绝、保留mode+原子rename；同Workspace mutex/实际共享lease保护合作写者，旧hash拒绝已观察竞争。明确存在不合作外部writer最后check→rename窗口，不声称OS hash-CAS；失败可能已写时不得自动重放。
 
+存储只消费本包按需组合的共享storage能力插口；会话/引用/DTO/错误从同一契约返回，不导入具体session.Repository或SQL实现。后端由上层程序/插件装配选择，组件不回落默认库、不downcast实现，不持有存储Close。
+
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |

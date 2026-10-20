@@ -59,7 +59,7 @@ func TestManagedWorktreeActualWorkerWriteAndExplicitDurableAdoption(t *testing.T
 		fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", data)
 	}))
 	defer server.Close()
-	config := Config{DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "worktree-fixture"}, GitExecutable: "/usr/bin/git", GitHostAccessApproved: true}
+	config := Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "worktree-fixture"}, GitExecutable: "/usr/bin/git", GitHostAccessApproved: true}
 	a, err := Open(ctx, config)
 	if err != nil {
 		t.Fatal(err)

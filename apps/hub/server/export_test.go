@@ -16,7 +16,7 @@ import (
 )
 
 func TestHTTPInspectorBundleIsExactColdScopedDownloadWithoutHostWrites(t *testing.T) {
-	f := newFixture(t, bootstrap.Config{Demo: true})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true})
 	root, foreign := create(t, f, "bundle"), create(t, f, "foreign")
 	prefix := "/v1/sessions/" + root.ID
 	body(t, f.request(t, "POST", prefix+"/turns", []byte(`{"prompt":"only the original demo turn"}`), nil), 202)

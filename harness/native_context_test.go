@@ -54,7 +54,7 @@ func TestNativeSourceCoexistsWithExplicitContextLifecycle(t *testing.T) {
 	if _, err := log.AppendRecords(t.Context(), batch); err != nil {
 		t.Fatal(err)
 	}
-	plugins, err := NativeSessionPlugins(t.Context(), repo, "owner", log.ID())
+	plugins, err := SessionPlugins(t.Context(), repo, "owner", log.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	planning "github.com/QuincySx/Alva/extension/planning"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -26,8 +27,8 @@ func (f modelFunc) Stream(c context.Context, r abi.ModelRequest, e func(wire.Str
 }
 
 type fixture struct {
-	repo *session.Repository
-	log  *session.Session
+	repo storage.Repository
+	log  storage.Session
 	c    Config
 	p    *Plugin
 }
@@ -135,7 +136,7 @@ func TestStalePlanningCacheCannotOverwriteNewerFacts(t *testing.T) {
 	if _, err = f.p.Service().Create(context.Background(), planning.CreateRequest{Title: "committed"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = other.Service().Create(context.Background(), planning.CreateRequest{Title: "must not overwrite"}); !errors.Is(err, session.ErrRevisionConflict) {
+	if _, err = other.Service().Create(context.Background(), planning.CreateRequest{Title: "must not overwrite"}); !errors.Is(err, storage.ErrRevisionConflict) {
 		t.Fatal(err)
 	}
 	fresh, err := New(context.Background(), f.c)

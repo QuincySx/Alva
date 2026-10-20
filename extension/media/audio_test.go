@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -54,7 +54,7 @@ func TestActualAudioToolRetainsVerifiedSamplesAndRejectsModelSelection(t *testin
 	binary.LittleEndian.PutUint16(input[34:], 16)
 	copy(input[36:], "data")
 	binary.LittleEndian.PutUint32(input[40:], 32000)
-	f.source, err = f.repo.PutArtifact(t.Context(), "owner", f.log.ID(), session.ArtifactInput{Kind: "input-attachment", Name: "original.wav", MediaType: "audio/wave", Processing: "original only", Data: input})
+	f.source, err = f.repo.PutArtifact(t.Context(), "owner", f.log.ID(), storage.ArtifactInput{Kind: "input-attachment", Name: "original.wav", MediaType: "audio/wave", Processing: "original only", Data: input})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestActualAudioToolRetainsVerifiedSamplesAndRejectsModelSelection(t *testin
 	// must fail before any player or binary preview can consume the bytes.
 	manifest.Output.DurationMillis++
 	raw, _ := json.Marshal(manifest)
-	spoof, err := f.repo.PutArtifact(t.Context(), "owner", f.log.ID(), session.ArtifactInput{Kind: "media-manifest", Name: f.source.ID, MediaType: "application/json", Data: raw, Text: true, Processing: "negative fixture"})
+	spoof, err := f.repo.PutArtifact(t.Context(), "owner", f.log.ID(), storage.ArtifactInput{Kind: "media-manifest", Name: f.source.ID, MediaType: "application/json", Data: raw, Text: true, Processing: "negative fixture"})
 	if err != nil {
 		t.Fatal(err)
 	}

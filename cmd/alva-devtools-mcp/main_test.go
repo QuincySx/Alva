@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/integration/protocol/mcp"
-	"github.com/QuincySx/Alva/platform/storage/sqlite"
 	"github.com/QuincySx/Alva/platform/system/loopback"
+	privatefs "github.com/QuincySx/Alva/platform/system/privatefs"
 	"github.com/QuincySx/Alva/platform/system/process"
 )
 
@@ -138,7 +138,7 @@ func TestActualUIDevtoolsCommandUsesExplicitPrivateFileWithoutTokenInProtocol(t 
 	}))
 	defer upstream.Close()
 	directory := filepath.Join(t.TempDir(), "private")
-	if _, err := sqlite.EnsurePrivateDir(directory); err != nil {
+	if _, err := privatefs.EnsureDir(directory); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(directory, "explicit-token")

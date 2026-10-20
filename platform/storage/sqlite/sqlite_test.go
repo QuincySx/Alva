@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 func requireUnix(t *testing.T) {
@@ -20,7 +22,7 @@ func requireUnix(t *testing.T) {
 }
 func privateTestDir(t *testing.T) string {
 	t.Helper()
-	dir, err := EnsurePrivateDir(filepath.Join(t.TempDir(), "private"))
+	dir, err := privatefs.EnsureDir(filepath.Join(t.TempDir(), "private"))
 	if err != nil {
 		t.Fatal(err)
 	}

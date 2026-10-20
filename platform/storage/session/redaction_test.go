@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -43,7 +45,7 @@ func TestConfiguredLiteralValuesAreRedactedAcrossStreamRepresentations(t *testin
 			}
 			raw, _ := json.Marshal(frame)
 			original := append([]byte(nil), raw...)
-			clean, err := RedactStreamFrame(raw, test.secrets...)
+			clean, err := redaction.RedactStreamFrame(raw, test.secrets...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,7 +75,7 @@ func TestConfiguredLiteralValuesAreRedactedAcrossStreamRepresentations(t *testin
 
 func TestTruncatedCaptureOmitsCredentialPrefixInsteadOfClaimingOriginalBytes(t *testing.T) {
 	for _, raw := range []json.RawMessage{json.RawMessage(`{"text":"partial-configured-cred","truncated":true,"complete":false}`), json.RawMessage(`{"text":"partial-configured-cred","complete":false}`)} {
-		clean, err := RedactStreamFrame(raw, "partial-configured-credential")
+		clean, err := redaction.RedactStreamFrame(raw, "partial-configured-credential")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -91,12 +93,12 @@ func TestTruncatedCaptureOmitsCredentialPrefixInsteadOfClaimingOriginalBytes(t *
 func TestEnvironmentSecretsSnapshotIsExplicitAndExcessPatternsFailClosed(t *testing.T) {
 	t.Setenv("ALVA_AMBIENT_CREDENTIAL", "ambient-must-not-be-discovered")
 	env := map[string]string{"API_KEY": "x", "CUSTOM": "private-override", "LANG": "C", "EMPTY": ""}
-	values := EnvironmentSecrets(env)
+	values := redaction.EnvironmentSecrets(env)
 	env["CUSTOM"] = "changed-after-snapshot"
 	if len(values) != 2 || values[0] != "private-override" || values[1] != "x" {
 		t.Fatal("explicit immutable deterministic snapshot lost", values)
 	}
-	clean, err := RedactJSON(json.RawMessage(`{"message":"ambient-must-not-be-discovered"}`), values...)
+	clean, err := redaction.RedactJSON(json.RawMessage(`{"message":"ambient-must-not-be-discovered"}`), values...)
 	if err != nil || !bytes.Contains(clean, []byte("ambient-must-not-be-discovered")) {
 		t.Fatal("ambient environment read", string(clean), err)
 	}
@@ -104,7 +106,7 @@ func TestEnvironmentSecretsSnapshotIsExplicitAndExcessPatternsFailClosed(t *test
 	for i := 0; i < 513; i++ {
 		values = append(values, fmt.Sprintf("opaque-%04d", i))
 	}
-	if _, err := RedactJSON(json.RawMessage(`{"message":"safe"}`), values...); err == nil {
+	if _, err := redaction.RedactJSON(json.RawMessage(`{"message":"safe"}`), values...); err == nil {
 		t.Fatal("excessive credential patterns silently skipped")
 	}
 }
@@ -168,7 +170,7 @@ func TestStreamFrameRedactionKeepsOrdinaryBytesButCoversEncodedAndPartialKeys(t 
 			}
 			raw, _ := json.Marshal(frame)
 			original := append([]byte(nil), raw...)
-			clean, err := RedactStreamFrame(raw)
+			clean, err := redaction.RedactStreamFrame(raw)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -208,7 +210,7 @@ func TestStreamFrameRedactionKeepsOrdinaryBytesButCoversEncodedAndPartialKeys(t 
 				t.Fatal("processing hidden")
 			}
 			for range 3 {
-				reclean, err := RedactJSON(clean)
+				reclean, err := redaction.RedactJSON(clean)
 				if err != nil || !bytes.Equal(reclean, clean) {
 					t.Fatal("canonical durable processing changed sanitized frame", string(clean), string(reclean), err)
 				}
@@ -217,7 +219,7 @@ func TestStreamFrameRedactionKeepsOrdinaryBytesButCoversEncodedAndPartialKeys(t 
 		})
 	}
 	for _, raw := range []string{`{}`, `{"text":"x","base64":"eA=="}`, `{"base64":"!!!!"}`, `{"text":null}`, `{"base64":null}`, `[]`} {
-		if _, err := RedactStreamFrame(json.RawMessage(raw)); err == nil {
+		if _, err := redaction.RedactStreamFrame(json.RawMessage(raw)); err == nil {
 			t.Fatal("invalid IO envelope accepted", raw)
 		}
 	}
@@ -226,14 +228,14 @@ func TestStreamFrameRedactionKeepsOrdinaryBytesButCoversEncodedAndPartialKeys(t 
 func TestKnownJSONTextMarkersAreRedactedWithoutDecodingBusinessBase64(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte("api_key=ordinary-base64-business-data"))
 	raw, _ := json.Marshal(map[string]any{"text": `{"api_key" : "json-text-secret","safe":"complete-body"}`, "base64_business": encoded})
-	clean, err := RedactJSON(raw)
+	clean, err := redaction.RedactJSON(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(clean), "json-text-secret") || !strings.Contains(string(clean), encoded) || !strings.Contains(string(clean), "complete-body") {
 		t.Fatal("known plaintext redaction recursed into unrelated base64 or leaked", string(clean))
 	}
-	if _, err := RedactJSON(json.RawMessage(`{} {"api_key":"not-ignored"}`)); err == nil {
+	if _, err := redaction.RedactJSON(json.RawMessage(`{} {"api_key":"not-ignored"}`)); err == nil {
 		t.Fatal("trailing JSON silently omitted from journal sanitization")
 	}
 }
@@ -241,12 +243,12 @@ func TestKnownJSONTextMarkersAreRedactedWithoutDecodingBusinessBase64(t *testing
 func TestOriginalArtifactMaximumAndDistinctProcessingMetadata(t *testing.T) {
 	repo, _ := repoSession(t)
 	ctx := context.Background()
-	input := ArtifactInput{Kind: "upload", Name: "video-original.bin", MediaType: "application/octet-stream", Processing: "Original bytes only; no compression, extraction, transcription or model delivery", Data: make([]byte, MaxArtifactBytes)}
+	input := storage.ArtifactInput{Kind: "upload", Name: "video-original.bin", MediaType: "application/octet-stream", Processing: "Original bytes only; no compression, extraction, transcription or model delivery", Data: make([]byte, storage.MaxArtifactBytes)}
 	first, err := repo.PutArtifact(ctx, "owner", "native", input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Bytes != MaxArtifactBytes || first.SHA256 != digest(input.Data) {
+	if first.Bytes != storage.MaxArtifactBytes || first.SHA256 != digest(input.Data) {
 		t.Fatal("20MiB original/hash changed")
 	}
 	duplicate, err := repo.PutArtifact(ctx, "owner", "native", input)

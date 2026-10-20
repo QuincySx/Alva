@@ -12,7 +12,8 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/integration/protocol/aep"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/platform/system/process"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -30,7 +31,7 @@ type PluginConfig struct {
 	InterpreterArgs    []string
 	Env                map[string]string
 	Workspace          string
-	Repository         *session.Repository
+	Repository         Storage
 	Owner, NativeID    string
 	Guard              *security.Guard
 	ApprovedHostAccess bool
@@ -42,7 +43,7 @@ type PluginConfig struct {
 type Plugin struct {
 	config     PluginConfig
 	client     *aep.Client
-	log        *session.Session
+	log        storage.Session
 	refs       agentcontext.ReferenceBackend
 	journal    *pluginJournal
 	catalog    wire.Reference
@@ -63,7 +64,7 @@ type Plugin struct {
 }
 
 func OpenPlugin(ctx context.Context, config PluginConfig) (_ *Plugin, result error) {
-	if config.Bundle == nil || config.Interpreter == "" || config.Repository == nil || config.NativeID == "" || config.Guard == nil || !config.ApprovedHostAccess || config.BeforeLaunch == nil || !filepath.IsAbs(config.Workspace) {
+	if config.Bundle == nil || config.Interpreter == "" || storage.Missing(config.Repository) || config.NativeID == "" || config.Guard == nil || !config.ApprovedHostAccess || config.BeforeLaunch == nil || !filepath.IsAbs(config.Workspace) {
 		return nil, errors.New("AEP requires approved bundle/interpreter, actual private session/guard/workspace and pre-launch activity recorder")
 	}
 	log, err := config.Repository.OpenSession(ctx, config.Owner, config.NativeID)
@@ -85,7 +86,7 @@ func OpenPlugin(ctx context.Context, config PluginConfig) (_ *Plugin, result err
 	config.Env = env
 	p := &Plugin{config: config, log: log, refs: refs, gate: make(chan struct{}, 1), subscribed: map[string]bool{}}
 	p.gateway = &pluginGateway{plugin: p}
-	p.journal = &pluginJournal{log: log, repository: config.Repository, owner: config.Owner, id: config.NativeID, plugin: config.Bundle.manifest.Name, secrets: session.EnvironmentSecrets(env)}
+	p.journal = &pluginJournal{log: log, repository: config.Repository, owner: config.Owner, id: config.NativeID, plugin: config.Bundle.manifest.Name, secrets: redaction.EnvironmentSecrets(env)}
 	// The full native startup fact is retained before asking the product to
 	// commit its attempt-risk edge. Neither failure permits automatic replay.
 	if _, err = p.journal.record(ctx, "", "launch_intent", map[string]any{"snapshot_sha256": config.Bundle.Digest(), "host_access_approved": true, "execution": "not_started", "source_notice": pluginSource}); err != nil {
@@ -133,7 +134,7 @@ func OpenPlugin(ctx context.Context, config PluginConfig) (_ *Plugin, result err
 	if err != nil {
 		return nil, err
 	}
-	catalog, err = session.RedactJSON(catalog, p.journal.secrets...)
+	catalog, err = redaction.RedactJSON(catalog, p.journal.secrets...)
 	if err != nil {
 		return nil, err
 	}

@@ -144,7 +144,7 @@ func TestRealServerStopsAndReleasesApplicationLocks(t *testing.T) {
 	if strings.Contains(output.String(), token) {
 		t.Fatal("startup printed token")
 	}
-	a, err := bootstrap.Open(context.Background(), bootstrap.Config{DataDirectory: dir, Demo: true})
+	a, err := bootstrap.Open(context.Background(), bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, DataDirectory: dir, Demo: true})
 	if err != nil {
 		t.Fatal("locks not released", err)
 	}

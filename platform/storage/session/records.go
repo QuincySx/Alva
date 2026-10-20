@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -23,42 +25,12 @@ const maxRuntimeBytes = 64 << 20
 // Account for retained decoded record/key overhead as well as stored bytes.
 const runtimeRecordOverhead = 512
 
-type RecordEntry struct {
-	ID            string               `json:"id"`
-	Sequence      uint64               `json:"sequence"`
-	Time          time.Time            `json:"time"`
-	Kind          abi.RecordKind       `json:"kind"`
-	Namespace     string               `json:"namespace"`
-	Type          string               `json:"type"`
-	SchemaVersion uint32               `json:"schema_version"`
-	Parent        *abi.RecordReference `json:"parent,omitempty"`
-	Summary       string               `json:"summary"`
-	Value         wire.Reference       `json:"value"`
-}
-type RecordPage struct {
-	Entries   []RecordEntry `json:"entries"`
-	Next      uint64        `json:"next"`
-	HighWater uint64        `json:"high_water"`
-	HasMore   bool          `json:"has_more"`
-}
-type RecordMatch struct {
-	Entry   RecordEntry `json:"entry"`
-	Offset  int64       `json:"offset"`
-	Snippet string      `json:"snippet"`
-}
-type SearchPage struct {
-	Matches   []RecordMatch `json:"matches"`
-	Next      uint64        `json:"next"`
-	HighWater uint64        `json:"high_water"`
-	HasMore   bool          `json:"has_more"`
-}
-
 func (s *Session) AppendRecords(ctx context.Context, input []abi.SessionRecord) ([]abi.SessionRecord, error) {
 	r := s.repository
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return nil, ErrClosed
+		return nil, storage.ErrClosed
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -84,7 +56,7 @@ func appendTx(ctx context.Context, tx *sql.Tx, id string, input []abi.SessionRec
 	}
 	owned := abi.CloneRecords(input)
 	for index := range owned {
-		if err := RedactRecord(&owned[index]); err != nil {
+		if err := redaction.RedactRecord(&owned[index]); err != nil {
 			return nil, err
 		}
 		record := owned[index]
@@ -159,7 +131,7 @@ func appendTx(ctx context.Context, tx *sql.Tx, id string, input []abi.SessionRec
 		if err != nil {
 			return nil, err
 		}
-		info, err := putArtifactTx(ctx, tx, id, ArtifactInput{Kind: "typed-record-json", Name: record.ID, MediaType: "application/json", Processing: "Complete committed typed record JSON; inspection only reads requested byte ranges, never resumes execution", Data: encoded, Text: true}, maxRecordBytes, nil)
+		info, err := putArtifactTx(ctx, tx, id, storage.ArtifactInput{Kind: "typed-record-json", Name: record.ID, MediaType: "application/json", Processing: "Complete committed typed record JSON; inspection only reads requested byte ranges, never resumes execution", Data: encoded, Text: true}, maxRecordBytes, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -275,7 +247,7 @@ func (s *Session) Records(ctx context.Context, after uint64) ([]abi.SessionRecor
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return nil, ErrClosed
+		return nil, storage.ErrClosed
 	}
 	return r.runtimeRecordsLocked(ctx, s.owner, s.id, after, false)
 }
@@ -284,7 +256,7 @@ func (s *Session) Messages(ctx context.Context) ([]wire.Message, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return nil, ErrClosed
+		return nil, storage.ErrClosed
 	}
 	records, err := r.runtimeRecordsLocked(ctx, s.owner, s.id, 0, true)
 	if err != nil {
@@ -297,36 +269,36 @@ func (s *Session) Messages(ctx context.Context) ([]wire.Message, error) {
 	return messages, nil
 }
 
-func (r *Repository) pageLocked(ctx context.Context, owner, id string, after uint64, limit int, highWater uint64) (RecordPage, error) {
+func (r *Repository) pageLocked(ctx context.Context, owner, id string, after uint64, limit int, highWater uint64) (storage.RecordPage, error) {
 	if limit < 1 || limit > 100 {
-		return RecordPage{}, errors.New("record page limit must be 1..100")
+		return storage.RecordPage{}, errors.New("record page limit must be 1..100")
 	}
 	if err := authorize(ctx, r.db, owner, id); err != nil {
-		return RecordPage{}, err
+		return storage.RecordPage{}, err
 	}
 	var current uint64
 	if err := r.db.QueryRowContext(ctx, "SELECT next_seq-1 FROM sessions WHERE id=?", id).Scan(&current); err != nil {
-		return RecordPage{}, err
+		return storage.RecordPage{}, err
 	}
 	if highWater == 0 {
 		highWater = current
 	}
 	if highWater > current || after > highWater {
-		return RecordPage{}, errors.New("record cursor is ahead of committed high-water")
+		return storage.RecordPage{}, errors.New("record cursor is ahead of committed high-water")
 	}
 	rows, err := r.db.QueryContext(ctx, `SELECT r.id,r.seq,r.kind,r.namespace,r.type,r.schema_version,r.parent_json,r.summary,a.id,a.media_type,a.processing,a.sha256,a.bytes,r.time_ns FROM records r JOIN artifacts a ON a.id=r.artifact_id WHERE r.session_id=? AND r.seq>? AND r.seq<=? ORDER BY r.seq LIMIT ?`, id, after, highWater, limit+1)
 	if err != nil {
-		return RecordPage{}, err
+		return storage.RecordPage{}, err
 	}
 	defer rows.Close()
-	page := RecordPage{Next: after, HighWater: highWater}
+	page := storage.RecordPage{Next: after, HighWater: highWater}
 	for rows.Next() {
-		var entry RecordEntry
+		var entry storage.RecordEntry
 		var parent sql.NullString
-		var info ArtifactInfo
+		var info storage.ArtifactInfo
 		var created int64
 		if err = rows.Scan(&entry.ID, &entry.Sequence, &entry.Kind, &entry.Namespace, &entry.Type, &entry.SchemaVersion, &parent, &entry.Summary, &info.ID, &info.MediaType, &info.Processing, &info.SHA256, &info.Bytes, &created); err != nil {
-			return RecordPage{}, err
+			return storage.RecordPage{}, err
 		}
 		if len(page.Entries) == limit {
 			page.HasMore = true
@@ -334,7 +306,7 @@ func (r *Repository) pageLocked(ctx context.Context, owner, id string, after uin
 		}
 		if parent.Valid {
 			if err = json.Unmarshal([]byte(parent.String), &entry.Parent); err != nil {
-				return RecordPage{}, errors.New("stored record parent metadata is invalid")
+				return storage.RecordPage{}, errors.New("stored record parent metadata is invalid")
 			}
 		}
 		entry.Time = time.Unix(0, created).UTC()
@@ -344,11 +316,11 @@ func (r *Repository) pageLocked(ctx context.Context, owner, id string, after uin
 	}
 	return page, rows.Err()
 }
-func (r *Repository) Page(ctx context.Context, owner, id string, after uint64, limit int, highWater uint64) (RecordPage, error) {
+func (r *Repository) Page(ctx context.Context, owner, id string, after uint64, limit int, highWater uint64) (storage.RecordPage, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return RecordPage{}, ErrClosed
+		return storage.RecordPage{}, storage.ErrClosed
 	}
 	return r.pageLocked(ctx, owner, id, after, limit, highWater)
 }
@@ -356,20 +328,20 @@ func (r *Repository) Page(ctx context.Context, owner, id string, after uint64, l
 // Search is literal over serialized typed record JSON, one first match/record.
 // It scans at most 100 records and approximately 1 MiB (one larger record may
 // exceed that byte budget), returning an explicit continuation high-water.
-func (r *Repository) Search(ctx context.Context, owner, id, query string, after uint64, limit int, highWater uint64) (SearchPage, error) {
+func (r *Repository) Search(ctx context.Context, owner, id, query string, after uint64, limit int, highWater uint64) (storage.SearchPage, error) {
 	if query == "" || len(query) > 256 || !utf8.ValidString(query) || limit < 1 || limit > 20 {
-		return SearchPage{}, errors.New("literal record search requires 1..256 UTF-8 bytes and 1..20 matches")
+		return storage.SearchPage{}, errors.New("literal record search requires 1..256 UTF-8 bytes and 1..20 matches")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return SearchPage{}, ErrClosed
+		return storage.SearchPage{}, storage.ErrClosed
 	}
 	page, err := r.pageLocked(ctx, owner, id, after, 100, highWater)
 	if err != nil {
-		return SearchPage{}, err
+		return storage.SearchPage{}, err
 	}
-	result := SearchPage{Next: after, HighWater: page.HighWater}
+	result := storage.SearchPage{Next: after, HighWater: page.HighWater}
 	scanned := int64(0)
 	for _, entry := range page.Entries {
 		if scanned > 0 && scanned+entry.Value.Bytes > 1<<20 {
@@ -377,16 +349,16 @@ func (r *Repository) Search(ctx context.Context, owner, id, query string, after 
 		}
 		info, err := r.artifactInfoLocked(ctx, owner, id, entry.Value.URI)
 		if err != nil {
-			return SearchPage{}, err
+			return storage.SearchPage{}, err
 		}
 		matches, err := r.searchArtifactLocked(ctx, info, query, 1)
 		if err != nil {
-			return SearchPage{}, err
+			return storage.SearchPage{}, err
 		}
 		scanned += entry.Value.Bytes
 		result.Next = entry.Sequence
 		if len(matches) > 0 {
-			result.Matches = append(result.Matches, RecordMatch{Entry: entry, Offset: matches[0].Offset, Snippet: matches[0].Text})
+			result.Matches = append(result.Matches, storage.RecordMatch{Entry: entry, Offset: matches[0].Offset, Snippet: matches[0].Text})
 			if len(result.Matches) == limit {
 				break
 			}

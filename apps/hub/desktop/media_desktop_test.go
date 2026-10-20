@@ -14,11 +14,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
+
 	"github.com/QuincySx/Alva/apps/hub/product"
 	mediaextension "github.com/QuincySx/Alva/extension/media"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
-	"github.com/egoist/mygo/ui"
 )
 
 func TestNativeMediaMetadataIsColdAndJPEGPreviewIsExplicit(t *testing.T) {
@@ -48,13 +49,13 @@ func TestNativeMediaMetadataIsColdAndJPEGPreviewIsExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	derived, err := service.Repository.PutArtifact(ctx, s.ID, branch.NativeSessionID, session.ArtifactInput{Kind: "media-derivative", Name: upload.Info.ID, MediaType: output.MediaType, Data: output.Data, Processing: output.Operation.Description})
+	derived, err := service.Repository.PutArtifact(ctx, s.ID, branch.NativeSessionID, storage.ArtifactInput{Kind: "media-derivative", Name: upload.Info.ID, MediaType: output.MediaType, Data: output.Data, Processing: output.Operation.Description})
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifest := mediaextension.Manifest{Version: 1, Source: upload.Reference, Artifact: derived.Reference(), Output: output, Processing: "actual local processing fixture; no model delivery"}
 	data, _ := json.Marshal(manifest)
-	_, err = service.Repository.PutArtifact(ctx, s.ID, branch.NativeSessionID, session.ArtifactInput{Kind: "media-manifest", Name: upload.Info.ID, MediaType: "application/json", Text: true, Data: data, Processing: "actual image provenance only"})
+	_, err = service.Repository.PutArtifact(ctx, s.ID, branch.NativeSessionID, storage.ArtifactInput{Kind: "media-manifest", Name: upload.Info.ID, MediaType: "application/json", Text: true, Data: data, Processing: "actual image provenance only"})
 	if err != nil {
 		t.Fatal(err)
 	}

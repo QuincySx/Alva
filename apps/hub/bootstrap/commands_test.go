@@ -66,7 +66,7 @@ func TestNativeHookAndDiagnosticSettingsRunOnlyAtApprovedBoundaries(t *testing.T
 				fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", data)
 			}))
 			defer server.Close()
-			a, err := Open(ctx, Config{DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "fixture"}})
+			a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "fixture"}})
 			if err != nil {
 				t.Fatal(err)
 			}

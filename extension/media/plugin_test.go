@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/QuincySx/Alva/harness"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -34,11 +35,11 @@ func (modelFunc) ProviderID() string { return "fixture-provider" }
 func (modelFunc) ModelID() string    { return "fixture-image-model" }
 
 type mediaFixture struct {
-	repo      *session.Repository
-	log       *session.Session
+	repo      storage.Repository
+	log       storage.Session
 	plugin    *Plugin
 	cwd       string
-	source    session.ArtifactInfo
+	source    storage.ArtifactInfo
 	original  []byte
 	approvals int
 }
@@ -87,7 +88,7 @@ func newFixture(t *testing.T, allow, imageCapable bool) *mediaFixture {
 		t.Fatal(err)
 	}
 	f.original = raw.Bytes()
-	f.source, err = repo.PutArtifact(ctx, "owner", log.ID(), session.ArtifactInput{Kind: "input-attachment", Name: "original.png", MediaType: "image/png", Processing: "Original bytes retained; no compression, extraction or model delivery", Data: f.original})
+	f.source, err = repo.PutArtifact(ctx, "owner", log.ID(), storage.ArtifactInput{Kind: "input-attachment", Name: "original.png", MediaType: "image/png", Processing: "Original bytes retained; no compression, extraction or model delivery", Data: f.original})
 	if err != nil {
 		t.Fatal(err)
 	}

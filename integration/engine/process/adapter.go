@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, owned native/process, storage/sqlite and engine
+// INPUT: context, encoding/json, owned native/process, system/privatefs and engine
 // OUTPUT: Adapter for explicit Claude/Codex/Pi JSONL processes with bounded private journals
 // POS: [integration / native external-engine adapter] Native vendor harness bridge with no shell, ambient configuration or fabricated sessions
 package process
@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,12 +22,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/integration/engine"
-	"github.com/QuincySx/Alva/platform/storage/session"
-	private "github.com/QuincySx/Alva/platform/storage/sqlite"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	owned "github.com/QuincySx/Alva/platform/system/process"
 )
 
 type Config struct {
+	Bindings           storage.BindingStore
 	Vendor             string
 	Command            string
 	PrefixArgs         []string
@@ -39,28 +40,32 @@ type Config struct {
 	MaxJournalBytes    int64
 }
 type Adapter struct {
-	config     Config
-	mu         sync.Mutex
-	active     map[string]context.CancelFunc
-	db         *sql.DB
-	lock       *private.Lock
-	lifetime   context.Context
-	stop       context.CancelFunc
-	wg         sync.WaitGroup
-	closed     bool
-	closeOnce  sync.Once
-	closedDone chan struct{}
-	closeErr   error
+	config      Config
+	mu          sync.Mutex
+	active      map[string]context.CancelFunc
+	closeMu     sync.Mutex
+	storeClosed bool
+	lifetime    context.Context
+	stop        context.CancelFunc
+	wg          sync.WaitGroup
+	closed      bool
+	closeOnce   sync.Once
+	closedDone  chan struct{}
 }
 
 var nativeID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
+// New takes ownership of Bindings only on success. The supplying assembly
+// retains it on error; the adapter never selects or substitutes a store.
 func New(config Config) (*Adapter, error) {
 	if config.Vendor != "codex" && config.Vendor != "claude" && config.Vendor != "pi" {
 		return nil, errors.New("unknown JSONL engine vendor")
 	}
 	if !config.ApprovedHostAccess {
 		return nil, errors.New("external engine requires explicit host/account access approval")
+	}
+	if storage.Missing(config.Bindings) {
+		return nil, errors.New("external engine requires identity storage supplied by assembly")
 	}
 	if config.Timeout == 0 {
 		config.Timeout = 10 * time.Minute
@@ -74,7 +79,7 @@ func New(config Config) (*Adapter, error) {
 	if config.MaxJournalBytes < 4096 || config.MaxJournalBytes > 64<<20 {
 		return nil, errors.New("engine journal budget must be 4 KiB..64 MiB")
 	}
-	dir, err := private.EnsurePrivateDir(config.StateDirectory)
+	dir, err := private.EnsureDir(config.StateDirectory)
 	if err != nil {
 		return nil, err
 	}
@@ -88,22 +93,8 @@ func New(config Config) (*Adapter, error) {
 		env[key] = value
 	}
 	config.Env = env
-	lock, err := private.LockDatabase(dir, "engine.sqlite")
-	if err != nil {
-		return nil, err
-	}
-	db, err := private.Open(context.Background(), dir, "engine.sqlite")
-	if err != nil {
-		lock.Close()
-		return nil, err
-	}
-	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS native_bindings(id TEXT PRIMARY KEY,owner TEXT NOT NULL,cwd TEXT NOT NULL)`); err != nil {
-		db.Close()
-		lock.Close()
-		return nil, err
-	}
 	lifetime, stop := context.WithCancel(context.Background())
-	return &Adapter{config: config, active: make(map[string]context.CancelFunc), db: db, lock: lock, lifetime: lifetime, stop: stop, closedDone: make(chan struct{})}, nil
+	return &Adapter{config: config, active: make(map[string]context.CancelFunc), lifetime: lifetime, stop: stop, closedDone: make(chan struct{})}, nil
 }
 func (a *Adapter) Capabilities() engine.Capabilities {
 	return engine.Capabilities{Streaming: true, Resume: true, Cancel: true}
@@ -208,7 +199,7 @@ func (j *journal) write(direction string, value string, complete ...bool) error 
 		j.failure = err
 		return err
 	}
-	data, err = session.RedactStreamFrame(data, j.secrets...)
+	data, err = redaction.RedactStreamFrame(data, j.secrets...)
 	if err != nil {
 		j.failure = err
 		return err
@@ -262,7 +253,7 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	if err != nil {
 		return err
 	}
-	dir, err := private.EnsurePrivateDir(filepath.Join(a.config.StateDirectory, "journals"))
+	dir, err := private.EnsureDir(filepath.Join(a.config.StateDirectory, "journals"))
 	if err != nil {
 		return err
 	}
@@ -272,7 +263,7 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	}
 	defer file.Close()
 	j := &journal{file: file, limit: a.config.MaxJournalBytes}
-	j.secrets = session.EnvironmentSecrets(a.config.Env)
+	j.secrets = redaction.EnvironmentSecrets(a.config.Env)
 	ctx, cancel := context.WithTimeout(parent, a.config.Timeout)
 	defer cancel()
 	detach := context.AfterFunc(a.lifetime, cancel)
@@ -291,7 +282,7 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	}
 	// Private HOME blocks accidental reads of existing CLI accounts/configuration;
 	// credentials must be supplied explicitly through the approved environment.
-	home, err := private.EnsurePrivateDir(filepath.Join(a.config.StateDirectory, "home"))
+	home, err := private.EnsureDir(filepath.Join(a.config.StateDirectory, "home"))
 	if err != nil {
 		return err
 	}

@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	planning "github.com/QuincySx/Alva/extension/planning"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -20,7 +20,7 @@ import (
 )
 
 type Config struct {
-	Repository            *session.Repository
+	Repository            Storage
 	Owner, SessionID, Cwd string
 	Guard                 *security.Guard
 	// Service is a trusted host-supplied business backend, bound to this
@@ -30,7 +30,7 @@ type Config struct {
 }
 type Plugin struct {
 	config  Config
-	log     *session.Session
+	log     storage.Session
 	service planning.Service
 	mu      sync.Mutex
 	runID   string
@@ -38,7 +38,7 @@ type Plugin struct {
 }
 
 func New(ctx context.Context, c Config) (*Plugin, error) {
-	if c.Repository == nil || c.Guard == nil || !filepath.IsAbs(c.Cwd) {
+	if storage.Missing(c.Repository) || c.Guard == nil || !filepath.IsAbs(c.Cwd) {
 		return nil, errors.New("actual native planning authority/cwd/guard required")
 	}
 	if c.Service != nil && missingService(c.Service) {

@@ -60,11 +60,17 @@ func nextAutomation(at, minutes int64) (int64, error) {
 	return at + interval, nil
 }
 
-func (s *Store) Automation(ctx context.Context, owner, id string) (hub.Automation, error) {
+func (s *Store) Automation(ctx context.Context, owner, id string) (providerResult0 hub.Automation, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	return automation(ctx, s.db, owner, id)
 }
 
-func (s *Store) ListAutomations(ctx context.Context, owner string) ([]hub.Automation, error) {
+func (s *Store) ListAutomations(ctx context.Context, owner string) (providerResult0 []hub.Automation, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	if _, err := read[hub.Session](ctx, s.db, `SELECT data FROM hub_sessions WHERE id=?`, owner); err != nil {
 		return nil, err
 	}
@@ -98,7 +104,10 @@ func (s *Store) ListAutomations(ctx context.Context, owner string) ([]hub.Automa
 	return result, nil
 }
 
-func (s *Store) CreateAutomation(ctx context.Context, owner string, draft hub.AutomationDraft) (hub.Automation, error) {
+func (s *Store) CreateAutomation(ctx context.Context, owner string, draft hub.AutomationDraft) (providerResult0 hub.Automation, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var a hub.Automation
 	if err := draft.Validate(); err != nil {
 		return a, err
@@ -131,7 +140,10 @@ func (s *Store) CreateAutomation(ctx context.Context, owner string, draft hub.Au
 	return a, err
 }
 
-func (s *Store) UpdateAutomation(ctx context.Context, owner, id string, revision uint64, draft hub.AutomationDraft) (hub.Automation, error) {
+func (s *Store) UpdateAutomation(ctx context.Context, owner, id string, revision uint64, draft hub.AutomationDraft) (providerResult0 hub.Automation, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var a hub.Automation
 	if err := draft.Validate(); err != nil {
 		return a, err
@@ -161,7 +173,10 @@ func (s *Store) UpdateAutomation(ctx context.Context, owner, id string, revision
 	return a, err
 }
 
-func (s *Store) SetAutomationEnabled(ctx context.Context, owner, id string, revision uint64, enabled, accountAndBillingApproved bool) (hub.Automation, error) {
+func (s *Store) SetAutomationEnabled(ctx context.Context, owner, id string, revision uint64, enabled, accountAndBillingApproved bool) (providerResult0 hub.Automation, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var a hub.Automation
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var err error
@@ -203,7 +218,10 @@ func (s *Store) SetAutomationEnabled(ctx context.Context, owner, id string, revi
 	return a, err
 }
 
-func (s *Store) DeleteAutomation(ctx context.Context, owner, id string, revision uint64) error {
+func (s *Store) DeleteAutomation(ctx context.Context, owner, id string, revision uint64) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		a, err := automation(ctx, tx, owner, id)
 		if err != nil {
@@ -220,7 +238,10 @@ func (s *Store) DeleteAutomation(ctx context.Context, owner, id string, revision
 	})
 }
 
-func (s *Store) DueAutomations(ctx context.Context, at int64) ([]hub.AutomationTick, error) {
+func (s *Store) DueAutomations(ctx context.Context, at int64) (providerResult0 []hub.AutomationTick, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	rows, err := s.db.QueryContext(ctx, `SELECT id,session,json_extract(data,'$.revision') FROM hub_automations WHERE enabled=1 AND running='' AND next>0 AND next<=? ORDER BY next,rowid LIMIT 100`, at)
 	if err != nil {
 		return nil, err
@@ -249,7 +270,10 @@ func dueAutomation(ctx context.Context, tx *sql.Tx, tick hub.AutomationTick, at 
 	return a, next, err
 }
 
-func (s *Store) ClaimAutomation(ctx context.Context, tick hub.AutomationTick, at int64) (hub.Claim, error) {
+func (s *Store) ClaimAutomation(ctx context.Context, tick hub.AutomationTick, at int64) (providerResult0 hub.Claim, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var claim hub.Claim
 	var rejected error
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
@@ -290,7 +314,10 @@ func (s *Store) ClaimAutomation(ctx context.Context, tick hub.AutomationTick, at
 	return claim, errors.Join(err, rejected)
 }
 
-func (s *Store) SkipBusyAutomation(ctx context.Context, tick hub.AutomationTick, at int64) error {
+func (s *Store) SkipBusyAutomation(ctx context.Context, tick hub.AutomationTick, at int64) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		a, next, err := dueAutomation(ctx, tx, tick, at)
 		if err != nil {
@@ -302,7 +329,10 @@ func (s *Store) SkipBusyAutomation(ctx context.Context, tick hub.AutomationTick,
 	})
 }
 
-func (s *Store) PauseInvalidAutomation(ctx context.Context, tick hub.AutomationTick) error {
+func (s *Store) PauseInvalidAutomation(ctx context.Context, tick hub.AutomationTick) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		a, err := automation(ctx, tx, tick.SessionID, tick.ID)
 		if err != nil {

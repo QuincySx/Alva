@@ -127,6 +127,20 @@ func legacyWorkspacePackage(name string) bool {
 }
 
 func forbidden(root, dependency string, local bool) string {
+	if under(root, "platform/system/privatefs") && local && dependency != root {
+		return "private filesystem primitives cannot depend on storage implementations or execution/product policy"
+	}
+	if root == "platform/storage" || root == "platform/storage/redaction" {
+		if (local && dependency != root && dependency != "platform/storage/blob" && !under(dependency, "sdk")) || (!local && strings.Contains(dependency, ".")) {
+			return "shared storage contracts and redaction cannot select a provider or import execution/product policy"
+		}
+	}
+	if concreteStorage(dependency) && !storageComposition(root) && !storageImplementation(root) {
+		return "storage consumers must use shared ports throughout; concrete providers belong only to implementation or explicit outer composition"
+	}
+	if (dependency == "database/sql" || under(dependency, "github.com/ncruces/go-sqlite3")) && !storageImplementation(root) && !storageComposition(root) {
+		return "SQL is private to storage implementations, never a consumer's error or persistence protocol"
+	}
 	if under(root, "platform/storage/blob") {
 		allowedLocal := dependency == "platform/storage/blob" || dependency == root
 		if (local && !allowedLocal) || (!local && strings.Contains(dependency, ".")) {
@@ -233,6 +247,21 @@ func forbidden(root, dependency string, local bool) string {
 		return "SDK, harness, integrations and platform cannot depend upward on applications"
 	}
 	return ""
+}
+
+func concreteStorage(name string) bool {
+	for _, prefix := range []string{"platform/storage/session", "platform/storage/memory", "platform/storage/bindings", "platform/storage/blob/directory", "platform/storage/blob/memory", "apps/hub/sqlite"} {
+		if under(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+func storageComposition(name string) bool {
+	return under(name, commandRoot) || name == "apps/hub/bootstrap"
+}
+func storageImplementation(name string) bool {
+	return concreteStorage(name) || name == "platform/storage/sqlite"
 }
 
 func TestFirewallRejectsTransitiveHostDependency(t *testing.T) {
@@ -390,7 +419,7 @@ func TestFirewallRejectsContainerAndTransitiveBypasses(t *testing.T) {
 		"timer cannot load native storage":       {"extension/utility/timer": {"platform/storage/session"}},
 		"timer cannot load external SQLite":      {"extension/utility/timer": {"github.com/ncruces/go-sqlite3"}},
 		"planning cannot load native adapter":    {"extension/planning": {"extension/planning/native"}},
-		"durable cannot load its native adapter": {"harness/durable": {"harness/durable/native"}},
+		"durable cannot load its native adapter": {"harness/durable": {"harness/durable/journal"}},
 		"durable cannot inherit native storage":  {"harness/durable": {"extension/interaction"}, "extension/interaction": {"platform/storage/session"}},
 		"durable cannot load a provider":         {"harness/durable": {"integration/llm/provider"}},
 		"question cannot load native storage":    {"extension/interaction": {"platform/storage/session"}},

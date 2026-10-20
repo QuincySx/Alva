@@ -14,7 +14,7 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/extension/loader"
-	private "github.com/QuincySx/Alva/platform/storage/sqlite"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 // SaveAEPDraft is a native/operator host-file operation, not a browser upload.
@@ -53,7 +53,7 @@ func (s *HubService) SaveAEPDraft(ctx context.Context, id, raw string) error {
 		return err
 	}
 	if len(entries) > 0 {
-		parent, err := private.EnsurePrivateDir(filepath.Join(s.DataDirectory, "aep-snapshots"))
+		parent, err := private.EnsureDir(filepath.Join(s.DataDirectory, "aep-snapshots"))
 		if err != nil {
 			return err
 		}

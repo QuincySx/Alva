@@ -55,7 +55,7 @@ func TestRealMemoryFTSVectorCacheAndRestart(t *testing.T) {
 	if err != nil || len(hidden) != 0 {
 		t.Fatal("foreign namespace visible", err)
 	}
-	if _, found, err := other.GetCachedEmbedding(ctx, "local-fixture", "hash"); err != nil || found {
+	if _, found, err := other.(*Backend).GetCachedEmbedding(ctx, "local-fixture", "hash"); err != nil || found {
 		t.Fatal("hash gave foreign embedding", err)
 	}
 	if err = store.Close(); err != nil {
@@ -71,7 +71,7 @@ func TestRealMemoryFTSVectorCacheAndRestart(t *testing.T) {
 	if err != nil || !ok || restored != file {
 		t.Fatal("file metadata not durable", err)
 	}
-	cached, ok, err := backend.GetCachedEmbedding(ctx, "local-fixture", "hash")
+	cached, ok, err := backend.(*Backend).GetCachedEmbedding(ctx, "local-fixture", "hash")
 	if err != nil || !ok || len(cached) != 2 || cached[0] != 1 {
 		t.Fatal("embedding not durable", err)
 	}
@@ -119,11 +119,11 @@ func TestAtomicReplacePrevalidationAndFTSCommit(t *testing.T) {
 	defer store.Close()
 	backend, _ := store.Bind("project")
 	file := memory.File{Path: "memory-entry", Hash: "old", Size: 3}
-	if err = backend.ReplaceFile(ctx, file, []memory.Chunk{{Path: file.Path, StartLine: 1, EndLine: 1, Text: "oldmarker"}}); err != nil {
+	if err = backend.(memory.FileReplacer).ReplaceFile(ctx, file, []memory.Chunk{{Path: file.Path, StartLine: 1, EndLine: 1, Text: "oldmarker"}}); err != nil {
 		t.Fatal(err)
 	}
 	file.Hash = "new"
-	if err = backend.ReplaceFile(ctx, file, []memory.Chunk{{Path: file.Path, StartLine: 1, EndLine: 1, Text: "newmarker"}, {Path: "foreign", StartLine: 2, EndLine: 2, Text: "invalid"}}); err == nil {
+	if err = backend.(memory.FileReplacer).ReplaceFile(ctx, file, []memory.Chunk{{Path: file.Path, StartLine: 1, EndLine: 1, Text: "newmarker"}, {Path: "foreign", StartLine: 2, EndLine: 2, Text: "invalid"}}); err == nil {
 		t.Fatal("invalid replacement accepted")
 	}
 	metadata, ok, err := backend.GetFile(ctx, file.Path)
@@ -134,7 +134,7 @@ func TestAtomicReplacePrevalidationAndFTSCommit(t *testing.T) {
 	if err != nil || len(old) != 1 {
 		t.Fatal("failed replacement deleted prior FTS", err)
 	}
-	if err = backend.ReplaceFile(ctx, file, []memory.Chunk{{Path: file.Path, StartLine: 1, EndLine: 1, Text: "newmarker"}}); err != nil {
+	if err = backend.(memory.FileReplacer).ReplaceFile(ctx, file, []memory.Chunk{{Path: file.Path, StartLine: 1, EndLine: 1, Text: "newmarker"}}); err != nil {
 		t.Fatal(err)
 	}
 	old, err = backend.FTSSearch(ctx, "oldmarker", 10)

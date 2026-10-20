@@ -1,4 +1,4 @@
-// INPUT: bytes, encoding/base64/json, errors, io, strings, unicode/utf8, x/net/html, storage/session.
+// INPUT: bytes, encoding/base64/json, errors, io, strings, unicode/utf8, x/net/html, shared storage contracts.
 // OUTPUT: Bounded HTML text conversion, known-credential source redaction and explicit Instant Answer parsing.
 // POS: [L4 extension] Derived web text states its real processing and never implies media understanding or exhaustive search.
 package web
@@ -12,8 +12,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
 	"golang.org/x/net/html"
+
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 )
 
 func sanitize(data []byte) ([]byte, bool, error) {
@@ -24,7 +25,7 @@ func sanitize(data []byte) ([]byte, bool, error) {
 		frame["base64"] = base64.StdEncoding.EncodeToString(data)
 	}
 	raw, _ := json.Marshal(frame)
-	clean, err := session.RedactStreamFrame(raw)
+	clean, err := redaction.RedactStreamFrame(raw)
 	if err != nil {
 		return nil, false, err
 	}

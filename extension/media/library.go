@@ -15,16 +15,23 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+	storage.ArtifactReader
+	storage.References
+}
+
 type Library struct {
-	repository *session.Repository
-	log        *session.Session
+	repository Storage
+	log        storage.Session
 	owner, id  string
 }
 type Manifest struct {
@@ -54,8 +61,8 @@ type Receipt struct {
 	Processing  string    `json:"processing"`
 }
 
-func NewLibrary(ctx context.Context, repository *session.Repository, owner, id string) (*Library, error) {
-	if repository == nil || owner == "" || id == "" {
+func NewLibrary(ctx context.Context, repository Storage, owner, id string) (*Library, error) {
+	if storage.Missing(repository) || owner == "" || id == "" {
 		return nil, errors.New("actual native media authority required")
 	}
 	log, err := repository.OpenSession(ctx, owner, id)
@@ -64,37 +71,37 @@ func NewLibrary(ctx context.Context, repository *session.Repository, owner, id s
 	}
 	return &Library{repository: repository, log: log, owner: owner, id: id}, nil
 }
-func (l *Library) source(ctx context.Context, uri string) (session.ArtifactInfo, error) {
+func (l *Library) source(ctx context.Context, uri string) (storage.ArtifactInfo, error) {
 	info, err := l.repository.ArtifactMetadata(ctx, l.owner, l.id, uri)
 	if err != nil {
-		return session.ArtifactInfo{}, err
+		return storage.ArtifactInfo{}, err
 	}
 	if info.Kind != "input-attachment" {
-		return session.ArtifactInfo{}, errors.New("media source must be an original upload in this actual native session")
+		return storage.ArtifactInfo{}, errors.New("media source must be an original upload in this actual native session")
 	}
 	return info, nil
 }
-func (l *Library) Original(ctx context.Context, uri string) (session.ArtifactInfo, []byte, error) {
+func (l *Library) Original(ctx context.Context, uri string) (storage.ArtifactInfo, []byte, error) {
 	info, err := l.source(ctx, uri)
 	if err != nil {
-		return session.ArtifactInfo{}, nil, err
+		return storage.ArtifactInfo{}, nil, err
 	}
-	_, data, err := l.repository.ReadArtifactFull(ctx, l.owner, l.id, uri, session.MaxArtifactBytes)
+	_, data, err := l.repository.ReadArtifactFull(ctx, l.owner, l.id, uri, storage.MaxArtifactBytes)
 	return info, data, err
 }
 
-func (l *Library) ListArtifacts(ctx context.Context, sourceURI string, after, highWater uint64) (session.ArtifactIndexPage, error) {
+func (l *Library) ListArtifacts(ctx context.Context, sourceURI string, after, highWater uint64) (storage.ArtifactIndexPage, error) {
 	source, err := l.source(ctx, sourceURI)
 	if err != nil {
-		return session.ArtifactIndexPage{}, err
+		return storage.ArtifactIndexPage{}, err
 	}
 	return l.repository.PageArtifacts(ctx, l.owner, l.id, "media-manifest", source.ID, after, highWater, 4)
 }
 
-func (l *Library) Sources(ctx context.Context, after, highWater uint64) (session.ArtifactIndexPage, error) {
+func (l *Library) Sources(ctx context.Context, after, highWater uint64) (storage.ArtifactIndexPage, error) {
 	return l.repository.PageArtifacts(ctx, l.owner, l.id, "input-attachment", "", after, highWater, 4)
 }
-func (l *Library) Selections(ctx context.Context, after, highWater uint64) (session.ArtifactIndexPage, error) {
+func (l *Library) Selections(ctx context.Context, after, highWater uint64) (storage.ArtifactIndexPage, error) {
 	return l.repository.PageArtifacts(ctx, l.owner, l.id, "media-selection", "", after, highWater, 4)
 }
 
@@ -244,7 +251,7 @@ func (l *Library) ReadDerivative(ctx context.Context, manifestURI string) (Manif
 	return manifest, data, err
 }
 
-func (l *Library) saveOutputs(ctx context.Context, source session.ArtifactInfo, outputs []nativemedia.Output) ([]wire.Reference, error) {
+func (l *Library) saveOutputs(ctx context.Context, source storage.ArtifactInfo, outputs []nativemedia.Output) ([]wire.Reference, error) {
 	existing, err := l.repository.PageArtifacts(ctx, l.owner, l.id, "media-manifest", source.ID, 0, 0, 64)
 	if err != nil {
 		return nil, err
@@ -257,7 +264,7 @@ func (l *Library) saveOutputs(ctx context.Context, source session.ArtifactInfo, 
 		if out.Operation.InputSHA256 != source.SHA256 || len(out.Data) == 0 {
 			return nil, errors.New("processor output source mismatch or empty result")
 		}
-		info, err := l.repository.PutArtifact(ctx, l.owner, l.id, session.ArtifactInput{Kind: "media-derivative", Name: source.ID, MediaType: out.MediaType, Processing: out.Operation.Description, Data: out.Data})
+		info, err := l.repository.PutArtifact(ctx, l.owner, l.id, storage.ArtifactInput{Kind: "media-derivative", Name: source.ID, MediaType: out.MediaType, Processing: out.Operation.Description, Data: out.Data})
 		if err != nil {
 			return nil, err
 		}
@@ -272,7 +279,7 @@ func (l *Library) saveOutputs(ctx context.Context, source session.ArtifactInfo, 
 		if len(data) > 16<<10 {
 			return nil, errors.New("media manifest exceeds 16 KiB")
 		}
-		entry, err := l.repository.PutArtifact(ctx, l.owner, l.id, session.ArtifactInput{Kind: "media-manifest", Name: source.ID, MediaType: "application/json", Processing: "Complete derivative processing/provenance manifest; no media delivery", Data: data, Text: true})
+		entry, err := l.repository.PutArtifact(ctx, l.owner, l.id, storage.ArtifactInput{Kind: "media-manifest", Name: source.ID, MediaType: "application/json", Processing: "Complete derivative processing/provenance manifest; no media delivery", Data: data, Text: true})
 		if err != nil {
 			return nil, err
 		}
@@ -322,7 +329,7 @@ func (l *Library) prepare(ctx context.Context, runID, callID, route, reason stri
 	if len(data) > 16<<10 {
 		return Selection{}, wire.Reference{}, errors.New("selection provenance exceeds 16 KiB")
 	}
-	entry, err := l.repository.PutArtifact(ctx, l.owner, l.id, session.ArtifactInput{Kind: "media-selection", Name: value.ID, MediaType: "application/json", Processing: value.Processing, Data: data, Text: true})
+	entry, err := l.repository.PutArtifact(ctx, l.owner, l.id, storage.ArtifactInput{Kind: "media-selection", Name: value.ID, MediaType: "application/json", Processing: value.Processing, Data: data, Text: true})
 	if err != nil {
 		return Selection{}, wire.Reference{}, err
 	}
@@ -342,7 +349,7 @@ func (l *Library) receipt(ctx context.Context, selection Selection, state string
 	if err != nil {
 		return wire.Reference{}, err
 	}
-	info, err := l.repository.PutArtifact(ctx, l.owner, l.id, session.ArtifactInput{Kind: "media-receipt", Name: selection.ID, MediaType: "application/json", Processing: value.Processing, Data: data, Text: true})
+	info, err := l.repository.PutArtifact(ctx, l.owner, l.id, storage.ArtifactInput{Kind: "media-receipt", Name: selection.ID, MediaType: "application/json", Processing: value.Processing, Data: data, Text: true})
 	if err != nil {
 		return wire.Reference{}, err
 	}
@@ -355,16 +362,16 @@ func (l *Library) receipt(ctx context.Context, selection Selection, state string
 	return info.Reference(), nil
 }
 
-func (l *Library) Receipts(ctx context.Context, selectionID string, after, highWater uint64) (session.ArtifactIndexPage, error) {
+func (l *Library) Receipts(ctx context.Context, selectionID string, after, highWater uint64) (storage.ArtifactIndexPage, error) {
 	if len(selectionID) != 32 {
-		return session.ArtifactIndexPage{}, errors.New("explicit selection identity required")
+		return storage.ArtifactIndexPage{}, errors.New("explicit selection identity required")
 	}
 	owned, err := l.repository.PageArtifacts(ctx, l.owner, l.id, "media-selection", selectionID, 0, 0, 1)
 	if err != nil {
-		return session.ArtifactIndexPage{}, err
+		return storage.ArtifactIndexPage{}, err
 	}
 	if len(owned.Entries) != 1 || owned.HasMore {
-		return session.ArtifactIndexPage{}, errors.New("selection unavailable in this actual native session")
+		return storage.ArtifactIndexPage{}, errors.New("selection unavailable in this actual native session")
 	}
 	return l.repository.PageArtifacts(ctx, l.owner, l.id, "media-receipt", selectionID, after, highWater, 5)
 }

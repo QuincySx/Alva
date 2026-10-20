@@ -7,19 +7,20 @@ package desktop
 
 import (
 	"context"
-	chat "github.com/QuincySx/Alva/apps/ui/chat"
 	"time"
+
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 
 	"github.com/QuincySx/Alva/apps/debug"
 	"github.com/QuincySx/Alva/apps/direct"
+	chat "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/apps/ui/modules"
 	"github.com/QuincySx/Alva/platform/host"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
-	"github.com/egoist/mygo"
-	"github.com/egoist/mygo/ui"
 )
 
 type PersistentPage struct {
@@ -43,8 +44,8 @@ type PersistentPage struct {
 	run                                         direct.Run
 	detachRun                                   context.CancelFunc
 	approvals                                   []security.ApprovalRequest
-	attachments                                 []session.ArtifactInfo
-	inspector                                   session.RecordPage
+	attachments                                 []storage.ArtifactInfo
+	inspector                                   storage.RecordPage
 	inspectAfter                                []uint64
 	inspectCursor                               uint64
 	inspectQuery                                string
@@ -159,7 +160,7 @@ func (p *PersistentPage) selectSession(id string) {
 	p.attachments = nil
 	p.inspectURI = ""
 	p.inspectText = agentcontext.TextPage{}
-	p.inspector = session.RecordPage{}
+	p.inspector = storage.RecordPage{}
 	p.inspectGroup = ""
 	p.inspectExportPath = ""
 	p.inspectAfter = nil
@@ -182,7 +183,7 @@ func (p *PersistentPage) loadHistory(before uint64) {
 	go func() {
 		meta, err := p.Service.Metadata(p.ctx, id)
 		var page direct.HistoryPage
-		var attachments []session.ArtifactInfo
+		var attachments []storage.ArtifactInfo
 		if err == nil {
 			page, err = p.Service.Conversation(p.ctx, id, before)
 			attachments = p.Service.DraftAttachments(id)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/QuincySx/Alva/integration/protocol/aep"
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -135,8 +136,8 @@ func TestPluginProcessHelper(t *testing.T) {
 
 type pluginFixture struct {
 	p         *Plugin
-	repo      *session.Repository
-	log       *session.Session
+	repo      storage.Repository
+	log       storage.Session
 	workspace string
 }
 

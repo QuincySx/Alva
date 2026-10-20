@@ -1,4 +1,4 @@
-// INPUT: context, errors, os, sync, time, agent/core, agent/security, kernel/abi, protocol/mcp, storage/session.
+// INPUT: context, errors, os, sync, time, agent/core, agent/security, kernel/abi, protocol/mcp, shared storage contracts.
 // OUTPUT: Config, Plugin, New, Close, CleanupComplete, Stats.
 // POS: [L4 extension] Explicit approved stdio snapshot with lazy owned MCP workers and one actual-session gateway.
 package managedmcp
@@ -14,7 +14,8 @@ import (
 	"unicode/utf8"
 
 	protocol "github.com/QuincySx/Alva/integration/protocol/mcp"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -23,7 +24,7 @@ import (
 // Servers is an already approved, immutable product snapshot. New never scans
 // existing configuration, installs software, reads credentials or starts I/O.
 type Config struct {
-	Repository      *session.Repository
+	Repository      Storage
 	Owner, NativeID string
 	Guard           *security.Guard
 	Servers         []protocol.Config
@@ -53,7 +54,7 @@ type Plugin struct {
 }
 
 func New(ctx context.Context, config Config) (*Plugin, error) {
-	if config.Repository == nil || config.Guard == nil || config.NativeID == "" || len(config.Servers) > 32 {
+	if storage.Missing(config.Repository) || config.Guard == nil || config.NativeID == "" || len(config.Servers) > 32 {
 		return nil, errors.New("MCP requires explicit durable native session, security guard and at most 32 approved servers")
 	}
 	log, err := config.Repository.OpenSession(ctx, config.Owner, config.NativeID)
@@ -83,7 +84,7 @@ func New(ctx context.Context, config Config) (*Plugin, error) {
 			environment[key] = value
 		}
 		item.Process.Env = environment
-		p.journal.secrets[item.ID] = session.EnvironmentSecrets(environment)
+		p.journal.secrets[item.ID] = redaction.EnvironmentSecrets(environment)
 		p.servers = append(p.servers, &server{config: item})
 	}
 	return p, nil

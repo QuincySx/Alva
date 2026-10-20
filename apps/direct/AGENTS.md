@@ -2,9 +2,9 @@
 > 直接harness桌面的耐久会话与资源owner，不经过EngineRuntime或Hub产品存储。
 
 ## 地位
-独立原生应用层；消费现有harness/host、native SessionRepository与可选文件Plugin，不合并SDK或Hub的抽象。
+独立原生应用层；消费现有harness/host、调用方必传的storage.Repository与可选文件Plugin，不合并SDK或Hub的抽象。
 ## 逻辑
-显式数据根打开私有native SQLite，Open/List/History只冷读。创建会话写版本化应用metadata；只有显式Send才装配该会话的实际harness/Controller。恢复绑定原workspace与route指纹，凭据只在本进程transport。最多16个retained binding、一个active root；UI退订不Stop。
+程序入口选择存储后传入Config.Storage；Open只消费该组件，缺失直接拒绝，List/History只冷读。数据根只用于产品显式导出等OS操作，不隐含数据库选择。创建会话写版本化应用metadata；只有显式Send才装配该会话的实际harness/Controller。恢复绑定原workspace与route指纹，凭据只在本进程transport。最多16个retained binding、一个active root；UI退订不Stop。
 ## 约束
 owner为独立alva-desktop，不读取CLI/Hub/旧Rust历史。无engine/Hub/MyGo依赖或环境凭据发现。workspace文件工具只有明确项目绑定且live时安装，Ask逐实际session/run/call审批；shell/network/MCP不因workspace默认授权。附件保存原字节和引用，8文件/40MiB、20MiB/文件，不自动送原件或处理媒体。Close先取消并joinController，再释放文件/审批/存储；失败保留owner供重试。
 ## 业务域清单

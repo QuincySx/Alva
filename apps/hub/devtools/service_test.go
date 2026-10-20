@@ -13,17 +13,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/QuincySx/Alva/apps/hub/bootstrap"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/apps/hub/server"
 	"github.com/QuincySx/Alva/platform/system/loopback"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestActualDevtoolsMCPReadsOwnedIndexesAndSelectedRecordsWithoutReplay(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	app, err := bootstrap.Open(ctx, bootstrap.Config{DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
+	app, err := bootstrap.Open(ctx, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
 	if err != nil {
 		t.Fatal(err)
 	}

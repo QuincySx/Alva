@@ -76,7 +76,7 @@ func TestOptInNativeChildHITLAndTypedColdInspector(t *testing.T) {
 	}))
 	defer upstream.Close()
 	ctx := context.Background()
-	a, err := Open(ctx, Config{DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
+	a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
 	if err != nil {
 		t.Fatal(err)
 	}

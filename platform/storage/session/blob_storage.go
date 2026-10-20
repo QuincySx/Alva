@@ -1,5 +1,5 @@
 // INPUT: context, database/sql, reflect, immutable blob storage contracts and native chunk metadata.
-// OUTPUT: BlobConfig, BlobStorageInfo, OpenWithBlobs and verified external chunk retention.
+// OUTPUT: BlobConfig, storage.BlobStorageInfo, OpenWithBlobs and verified external chunk retention.
 // POS: [storage adapter] Keeps metadata/facts atomic while explicit host adapters retain immutable artifact bytes.
 package session
 
@@ -9,6 +9,7 @@ import (
 	"errors"
 	"reflect"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/blob"
 )
 
@@ -20,11 +21,6 @@ type BlobConfig struct {
 	ID        string
 	Retention blob.Retention
 	Store     blob.Store
-}
-
-type BlobStorageInfo struct {
-	ID        string         `json:"id"`
-	Retention blob.Retention `json:"retention"`
 }
 
 // OpenWithBlobs routes newly retained non-record artifacts to an explicit Store.
@@ -47,11 +43,11 @@ func OpenWithBlobs(ctx context.Context, directory string, config BlobConfig) (*R
 
 // ArtifactStorage describes the configured byte retention, not the retention
 // of typed execution facts. It exposes no object namespace or credentials.
-func (r *Repository) ArtifactStorage() BlobStorageInfo {
+func (r *Repository) ArtifactStorage() storage.BlobStorageInfo {
 	if r.blobs == nil {
-		return BlobStorageInfo{ID: "native-sqlite", Retention: blob.Persistent}
+		return storage.BlobStorageInfo{ID: "native-sqlite", Retention: blob.Persistent}
 	}
-	return BlobStorageInfo{ID: r.blobs.ID, Retention: r.blobs.Retention}
+	return storage.BlobStorageInfo{ID: r.blobs.ID, Retention: r.blobs.Retention}
 }
 
 func (r *Repository) bindBlobs(ctx context.Context) error {

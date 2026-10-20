@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -24,7 +25,7 @@ func TestNativeRecipeRejectsSameIDForeignLogBeforeModel(t *testing.T) {
 	if _, err := repo.Create(t.Context(), "owner", "native", ""); err != nil {
 		t.Fatal(err)
 	}
-	plugins, err := NativeSessionPlugins(t.Context(), repo, "owner", "native")
+	plugins, err := SessionPlugins(t.Context(), repo, "owner", "native")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestFailedParallelRunCannotReleaseAnotherNativeClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer claim.OnRunEnd(context.Background(), first, nil)
-	if err := claim.OnRunStart(t.Context(), second); !errors.Is(err, session.ErrActive) {
+	if err := claim.OnRunStart(t.Context(), second); !errors.Is(err, storage.ErrActive) {
 		t.Fatal("parallel claim unexpectedly admitted", err)
 	}
 	if err := claim.OnRunEnd(t.Context(), second, nil); err != nil {
@@ -109,7 +110,7 @@ func TestFailedParallelRunCannotReleaseAnotherNativeClaim(t *testing.T) {
 		release()
 		t.Fatal("failed parallel run released the active owner's native claim")
 	}
-	if !errors.Is(err, session.ErrActive) {
+	if !errors.Is(err, storage.ErrActive) {
 		t.Fatal(err)
 	}
 }

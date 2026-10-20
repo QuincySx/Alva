@@ -9,7 +9,10 @@ import (
 	"errors"
 )
 
-func (s *Store) NativeOwner(ctx context.Context, engineID, nativeID string) (string, error) {
+func (s *Store) NativeOwner(ctx context.Context, engineID, nativeID string) (providerResult0 string, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	if engineID == "" || nativeID == "" || len(engineID) > 256 || len(nativeID) > 256 {
 		return "", errors.New("bounded actual engine/native identity required")
 	}

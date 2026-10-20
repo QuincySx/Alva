@@ -10,8 +10,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	filetools "github.com/QuincySx/Alva/extension/files"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"io"
 	"os"
 	"os/signal"
@@ -21,10 +19,13 @@ import (
 	"syscall"
 	"time"
 
+	filetools "github.com/QuincySx/Alva/extension/files"
 	memoryplugin "github.com/QuincySx/Alva/extension/memory"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/host"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	memorysqlite "github.com/QuincySx/Alva/platform/storage/memory"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/secretinput"
@@ -191,8 +192,8 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 			return err
 		}
 	}
-	var repository *session.Repository
-	var native *session.Session
+	var repository storage.Repository
+	var native storage.Session
 	if *dataDir != "" {
 		var err error
 		repository, err = session.Open(ctx, *dataDir)
@@ -241,7 +242,7 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	}
 	var plugins []core.Plugin
 	if native != nil {
-		plugins, err = harness.NativeSessionPlugins(ctx, repository, cliOwner, native.ID())
+		plugins, err = harness.SessionPlugins(ctx, repository, cliOwner, native.ID())
 		if err != nil {
 			return err
 		}

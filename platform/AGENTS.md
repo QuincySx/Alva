@@ -13,6 +13,8 @@ host 保有 Agent 根执行、审批/问题 rendezvous 与 command/browser 资�
 
 SDK 不反向依赖本目录；只有实际 consumer 的显式配置决定访问和授权。执行取消必须等待物理收尾，不以 UI 退订、EOF 或 context bit 冒充回收。Windows DACL/LockFileEx/创建时Job已实现，真实Windows运行与Unix fd3/非Unix沙箱adapter的缺口单独列入MIGRATION.md；fuel与独立QuickJS WASM核心已有实际回归，交叉编译不代替平台运行验收。
 
+storage根包是纯契约，各子目录才是provider；选型属于外层装配。system/privatefs独立提供私有目录/文件，不让调用方因创建目录而依赖数据库。
+
 ## 业务域清单
 
 | 目录 | 职责 |

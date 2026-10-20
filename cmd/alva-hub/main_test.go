@@ -22,7 +22,7 @@ import (
 
 	productstore "github.com/QuincySx/Alva/apps/hub/sqlite"
 	"github.com/QuincySx/Alva/integration/engine"
-	"github.com/QuincySx/Alva/platform/storage/sqlite"
+	privatefs "github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 func TestMain(m *testing.M) {
@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestPortableExplicitPrivateKeyFileKeepsHubCommandInputIndependent(t *testing.T) {
-	directory, err := sqlite.EnsurePrivateDir(filepath.Join(t.TempDir(), "private"))
+	directory, err := privatefs.EnsureDir(filepath.Join(t.TempDir(), "private"))
 	if err != nil {
 		t.Fatal(err)
 	}

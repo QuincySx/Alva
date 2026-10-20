@@ -16,7 +16,7 @@ import (
 
 	protocol "github.com/QuincySx/Alva/integration/protocol/browser"
 	host "github.com/QuincySx/Alva/platform/host/browser"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -269,7 +269,7 @@ func (t *browserTool) Execute(ctx context.Context, e abi.ToolExecutionContext, c
 			var snapshot protocol.Snapshot
 			snapshot, runErr = client.Snapshot(deadline, a.Mode, a.Selector)
 			if runErr == nil {
-				ref, err := p.retain(deadline, session.ArtifactInput{Kind: "browser-snapshot", Name: snapshot.Mode, MediaType: "text/plain; charset=utf-8", Processing: snapshot.Processing, Data: []byte(snapshot.Content), Text: true})
+				ref, err := p.retain(deadline, storage.ArtifactInput{Kind: "browser-snapshot", Name: snapshot.Mode, MediaType: "text/plain; charset=utf-8", Processing: snapshot.Processing, Data: []byte(snapshot.Content), Text: true})
 				runErr = err
 				body = map[string]any{"status": "source_retained", "source": ref, "mode": snapshot.Mode, "tab": snapshot.Tab, "processing": snapshot.Processing}
 			}
@@ -284,7 +284,7 @@ func (t *browserTool) Execute(ctx context.Context, e abi.ToolExecutionContext, c
 			var shot protocol.Screenshot
 			shot, runErr = client.Screenshot(deadline, protocol.ScreenshotOptions{Format: a.Format, Quality: quality, FullPage: a.FullPage, Selector: a.Selector})
 			if runErr == nil {
-				ref, err := p.retain(deadline, session.ArtifactInput{Kind: "browser-screenshot", Name: "screenshot." + shot.Format, MediaType: "image/" + shot.Format, Processing: shot.Processing, Data: shot.Data})
+				ref, err := p.retain(deadline, storage.ArtifactInput{Kind: "browser-screenshot", Name: "screenshot." + shot.Format, MediaType: "image/" + shot.Format, Processing: shot.Processing, Data: shot.Data})
 				runErr = err
 				imageBody := map[string]any{"status": "image_retained_not_delivered", "source": ref, "format": shot.Format, "width": shot.Width, "height": shot.Height, "processing": shot.Processing}
 				if shot.Format == "jpeg" {
@@ -305,7 +305,7 @@ func (t *browserTool) Execute(ctx context.Context, e abi.ToolExecutionContext, c
 	data, err := json.Marshal(body)
 	runErr = errors.Join(runErr, err)
 	if runErr == nil && len(data) > 4096 {
-		ref, err := p.retain(cleanup, session.ArtifactInput{Kind: "browser-result", Name: t.name, MediaType: "application/json", Processing: "Complete browser operation metadata JSON; source evidence only, not automatically delivered in full", Data: data, Text: true})
+		ref, err := p.retain(cleanup, storage.ArtifactInput{Kind: "browser-result", Name: t.name, MediaType: "application/json", Processing: "Complete browser operation metadata JSON; source evidence only, not automatically delivered in full", Data: data, Text: true})
 		runErr = err
 		data, _ = json.Marshal(map[string]any{"source": ref, "notice": "Complete operation metadata retained; retrieve only relevant bounded ranges"})
 	}

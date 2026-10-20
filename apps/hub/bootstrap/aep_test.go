@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +22,7 @@ import (
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/engine/alva"
 	"github.com/QuincySx/Alva/integration/protocol/aep"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
@@ -65,7 +65,7 @@ func TestNativeAEPHelper(t *testing.T) {
 
 func TestAEPActualProcessIsClosedIfInitialEngineObservationFails(t *testing.T) {
 	ctx := context.Background()
-	a, err := Open(ctx, Config{DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
+	a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func assertAEPSnapshotsRemoved(t *testing.T, a *Application) {
 
 func TestNativeAEPPinApprovalAndNextTurnActualLaunch(t *testing.T) {
 	ctx := context.Background()
-	a, err := Open(ctx, Config{DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
+	a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestNativeAEPPinApprovalAndNextTurnActualLaunch(t *testing.T) {
 
 func TestNativeAEPPinChangesFailBeforeAnyProcessStarts(t *testing.T) {
 	ctx := context.Background()
-	a, err := Open(ctx, Config{DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
+	a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestNativeAEPPinChangesFailBeforeAnyProcessStarts(t *testing.T) {
 
 func TestNativeAEPHandshakeFailureIsDurableAndOwned(t *testing.T) {
 	ctx := context.Background()
-	a, err := Open(ctx, Config{DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
+	a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), Demo: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,8 +6,6 @@ package bootstrap
 import (
 	"context"
 	"errors"
-	filetools "github.com/QuincySx/Alva/extension/files"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"path/filepath"
 	"sync"
 	"time"
@@ -15,10 +13,10 @@ import (
 	"github.com/QuincySx/Alva/apps/gateway"
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
-	productstore "github.com/QuincySx/Alva/apps/hub/sqlite"
 	"github.com/QuincySx/Alva/apps/hub/worktree"
 	browserextension "github.com/QuincySx/Alva/extension/browser"
 	diagnostictools "github.com/QuincySx/Alva/extension/diagnostics"
+	filetools "github.com/QuincySx/Alva/extension/files"
 	"github.com/QuincySx/Alva/extension/hooks"
 	"github.com/QuincySx/Alva/extension/loader"
 	managedmcp "github.com/QuincySx/Alva/extension/mcp"
@@ -36,10 +34,10 @@ import (
 	"github.com/QuincySx/Alva/integration/protocol/skill"
 	"github.com/QuincySx/Alva/platform/host"
 	browserhost "github.com/QuincySx/Alva/platform/host/browser"
-	memorysqlite "github.com/QuincySx/Alva/platform/storage/memory"
-	"github.com/QuincySx/Alva/platform/storage/session"
-	private "github.com/QuincySx/Alva/platform/storage/sqlite"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	ownedprocess "github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/memory"
@@ -55,6 +53,9 @@ type ExternalEngine struct {
 	ApprovedHostAccess bool
 }
 type Config struct {
+	OpenStores    StoresFactory
+	OpenMemory    MemoryFactory
+	OpenBindings  BindingsFactory
 	DataDirectory string
 	Demo          bool
 	ProviderKind  provider.Kind
@@ -67,8 +68,8 @@ type Config struct {
 	GitHostAccessApproved bool
 }
 type Application struct {
-	Store      *productstore.Store
-	Repository *session.Repository
+	Store      ProductStorage
+	Repository storage.Repository
 	Runtime    *hub.Runtime
 	Approvals  *host.ApprovalBroker
 	Questions  *host.QuestionBroker
@@ -76,18 +77,28 @@ type Application struct {
 	Targets    []hub.Target
 	Service    *product.HubService
 	external   []*vendorengine.Adapter
-	closeMu    sync.Mutex
-	closed     bool
-	closeErr   error
-	memoryMu   sync.Mutex
-	memory     *memorysqlite.Store
-	pendingMu  sync.Mutex
-	pending    map[*ownedRunner]struct{}
+	// Factories may return a resource alongside an error. Until an adapter
+	// accepts ownership, the application retains that exact supplied store.
+	uninstalledBindings []storage.BindingStore
+	closeMu             sync.Mutex
+	closed              bool
+	closeErr            error
+	memoryMu            sync.Mutex
+	memory              storage.MemoryStore
+	memoryErr           error
+	openMemory          MemoryFactory
+	pendingMu           sync.Mutex
+	pending             map[*ownedRunner]struct{}
 }
 
-// Open reads only the explicit new Go product databases. It creates no session,
+// Open uses only the factories selected by the program. It creates no session,
 // executes no model/CLI/MCP process, and discovers no ambient account material.
-func Open(ctx context.Context, config Config) (_ *Application, result error) {
+// A failed construction normally returns nil. If physical cleanup is incomplete,
+// it returns the retained Application with the error so Close can be retried.
+func Open(ctx context.Context, config Config) (application *Application, result error) {
+	if config.OpenStores == nil {
+		return nil, errors.New("Hub assembly requires an explicit storage factory")
+	}
 	if config.DataDirectory == "" {
 		return nil, errors.New("explicit data directory required")
 	}
@@ -122,28 +133,35 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 		}
 		seen[entry.Vendor] = true
 	}
-	dir, err := private.EnsurePrivateDir(config.DataDirectory)
+	dir, err := private.EnsureDir(config.DataDirectory)
 	if err != nil {
 		return nil, err
 	}
-	a := &Application{}
+	a := &Application{openMemory: config.OpenMemory}
 	defer func() {
 		if result != nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			result = errors.Join(result, a.Close(cleanup))
+			if !a.closed {
+				application = a
+			}
 		}
 	}()
-	store, err := productstore.Open(ctx, filepath.Join(dir, "product"))
+	selected, err := config.OpenStores(ctx, dir)
+	if !storage.Missing(selected.Product) {
+		a.Store = selected.Product
+	}
+	if !storage.Missing(selected.Sessions) {
+		a.Repository = selected.Sessions
+	}
 	if err != nil {
 		return nil, err
 	}
-	a.Store = store
-	repository, err := session.Open(ctx, filepath.Join(dir, "native"))
-	if err != nil {
-		return nil, err
+	if a.Store == nil || a.Repository == nil {
+		return nil, errors.New("storage factory returned incomplete or typed-nil providers")
 	}
-	a.Repository = repository
+	store, repository := a.Store, a.Repository
 	a.Shells = shell.NewSessions()
 	runtime := hub.New(store)
 	a.Runtime = runtime
@@ -198,7 +216,7 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 		if request.Model != expected.ModelID || request.Provider != expected.ProviderID || request.AccountSource != expected.AccountSource || request.BillingRoute != expected.BillingRoute {
 			return nil, errors.New("saved Alva route differs from explicit process configuration; choose the configured route or start a new conversation")
 		}
-		var log *session.Session
+		var log storage.Session
 		var err error
 		if resume {
 			log, err = repository.OpenSession(ctx, request.OwnerID, nativeID)
@@ -208,7 +226,7 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 		if err != nil {
 			return nil, err
 		}
-		plugins, err := harness.NativeSessionPlugins(ctx, repository, request.OwnerID, nativeID)
+		plugins, err := harness.SessionPlugins(ctx, repository, request.OwnerID, nativeID)
 		if err != nil {
 			return nil, err
 		}
@@ -258,7 +276,7 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 				if !settings.MediaDecoder.HostAccessApproved {
 					return nil, errors.New("media decoder snapshot lacks explicit host approval")
 				}
-				decoderDirectory, err := private.EnsurePrivateDir(filepath.Join(dir, "media-decoder"))
+				decoderDirectory, err := private.EnsureDir(filepath.Join(dir, "media-decoder"))
 				if err != nil {
 					return nil, err
 				}
@@ -288,7 +306,7 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 			return nil, err
 		}
 		if settings.Browser.Enabled {
-			browserDirectory, err := private.EnsurePrivateDir(filepath.Join(dir, "browser-profiles"))
+			browserDirectory, err := private.EnsureDir(filepath.Join(dir, "browser-profiles"))
 			if err != nil {
 				return nil, err
 			}
@@ -392,7 +410,7 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 			if !entry.Enabled {
 				continue
 			}
-			parent, err := private.EnsurePrivateDir(filepath.Join(dir, "aep-snapshots"))
+			parent, err := private.EnsureDir(filepath.Join(dir, "aep-snapshots"))
 			if err != nil {
 				return nil, err
 			}
@@ -468,11 +486,26 @@ func Open(ctx context.Context, config Config) (_ *Application, result error) {
 		}
 	}
 	for _, entry := range config.External {
-		adapter, err := vendorengine.New(vendorengine.Config{Vendor: entry.Vendor, Command: entry.Command, PrefixArgs: entry.PrefixArgs, Env: entry.Env, StateDirectory: filepath.Join(dir, "engines", entry.Vendor), ApprovedHostAccess: entry.ApprovedHostAccess})
+		if config.OpenBindings == nil {
+			return nil, errors.New("external runtime identity storage was not installed by assembly")
+		}
+		stateDirectory := filepath.Join(dir, "engines", entry.Vendor)
+		bindings, err := config.OpenBindings(ctx, stateDirectory)
+		if !storage.Missing(bindings) {
+			a.uninstalledBindings = append(a.uninstalledBindings, bindings)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if storage.Missing(bindings) {
+			return nil, errors.New("binding factory returned a missing or typed-nil provider")
+		}
+		adapter, err := vendorengine.New(vendorengine.Config{Bindings: bindings, Vendor: entry.Vendor, Command: entry.Command, PrefixArgs: entry.PrefixArgs, Env: entry.Env, StateDirectory: stateDirectory, ApprovedHostAccess: entry.ApprovedHostAccess})
 		if err != nil {
 			return nil, err
 		}
 		a.external = append(a.external, adapter)
+		a.uninstalledBindings = a.uninstalledBindings[:len(a.uninstalledBindings)-1]
 		if err = runtime.RegisterDescriptor(entry.Vendor, adapter.Descriptor()); err != nil {
 			return nil, err
 		}
@@ -538,6 +571,13 @@ func (a *Application) Close(ctx context.Context) error {
 			return err
 		}
 	}
+	for len(a.uninstalledBindings) > 0 {
+		last := len(a.uninstalledBindings) - 1
+		if err := a.uninstalledBindings[last].Close(); err != nil {
+			return err
+		}
+		a.uninstalledBindings = a.uninstalledBindings[:last]
+	}
 	var err = shellCloseErr
 	// Failed early observation/cleanup can outlive the execution's terminal
 	// status. The application still owns those exact resources, and never
@@ -564,14 +604,21 @@ func (a *Application) Close(ctx context.Context) error {
 	}
 	a.memoryMu.Lock()
 	if a.memory != nil {
-		err = errors.Join(err, a.memory.Close())
+		if closeErr := a.memory.Close(); closeErr != nil {
+			a.memoryMu.Unlock()
+			return errors.Join(err, closeErr)
+		}
 	}
 	a.memoryMu.Unlock()
 	if a.Repository != nil {
-		err = errors.Join(err, a.Repository.Close())
+		if closeErr := a.Repository.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
 	}
 	if a.Store != nil {
-		err = errors.Join(err, a.Store.Close())
+		if closeErr := a.Store.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
 	}
 	a.closed = true
 	a.closeErr = err

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/blob"
 	"github.com/QuincySx/Alva/platform/storage/blob/directory"
 	"github.com/QuincySx/Alva/platform/storage/blob/memory"
@@ -128,7 +129,7 @@ func TestArtifactBackendsPreserveNativeContract(t *testing.T) {
 				t.Fatal("metadata fetched content", err)
 			}
 			for _, binding := range []struct{ owner, id string }{{"other", log.ID()}, {"owner", "sibling"}} {
-				if _, err = repo.ReadArtifact(t.Context(), binding.owner, binding.id, ref.URI, 0, 64); !errors.Is(err, ErrNotFound) || observed.reads != reads {
+				if _, err = repo.ReadArtifact(t.Context(), binding.owner, binding.id, ref.URI, 0, 64); !errors.Is(err, storage.ErrNotFound) || observed.reads != reads {
 					t.Fatal("unauthorized blob lookup", err)
 				}
 			}
@@ -140,7 +141,7 @@ func TestArtifactBackendsPreserveNativeContract(t *testing.T) {
 			if err != nil || len(matches) != 1 || matches[0].Offset != 4090 {
 				t.Fatal("cross-chunk search", matches, err)
 			}
-			_, data, err := repo.ReadArtifactFull(t.Context(), "owner", log.ID(), ref.URI, MaxArtifactBytes)
+			_, data, err := repo.ReadArtifactFull(t.Context(), "owner", log.ID(), ref.URI, storage.MaxArtifactBytes)
 			if err != nil || string(data) != text {
 				t.Fatal("full hash read", err)
 			}
@@ -166,7 +167,7 @@ func TestArtifactBackendsPreserveNativeContract(t *testing.T) {
 			if err != nil || len(messages) != 1 || messages[0].Content[0].Reference.URI != ref.URI {
 				t.Fatal("reopened same facts", err)
 			}
-			_, data, err = repo.ReadArtifactFull(t.Context(), "owner", log.ID(), ref.URI, MaxArtifactBytes)
+			_, data, err = repo.ReadArtifactFull(t.Context(), "owner", log.ID(), ref.URI, storage.MaxArtifactBytes)
 			if err != nil || string(data) != text {
 				t.Fatal("reopened external content", err)
 			}
@@ -185,7 +186,7 @@ func TestBlobPublicationFailureNeverCommitsReferenceOrRetries(t *testing.T) {
 	if _, err = repo.Create(t.Context(), "owner", "session", ""); err != nil {
 		t.Fatal(err)
 	}
-	_, err = repo.PutArtifact(t.Context(), "owner", "session", ArtifactInput{Kind: "output", MediaType: "text/plain", Processing: "actual output", Data: []byte("may already exist remotely"), Text: true})
+	_, err = repo.PutArtifact(t.Context(), "owner", "session", storage.ArtifactInput{Kind: "output", MediaType: "text/plain", Processing: "actual output", Data: []byte("may already exist remotely"), Text: true})
 	if err == nil || store.puts != 1 {
 		t.Fatal("uncertain upload must fail without retry", err, store.puts)
 	}
@@ -214,7 +215,7 @@ func TestRemoteFullReadUsesBoundedWindowsWithChunkHashes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, data, err := repo.ReadArtifactFull(t.Context(), "owner", "session", ref.URI, MaxArtifactBytes)
+	_, data, err := repo.ReadArtifactFull(t.Context(), "owner", "session", ref.URI, storage.MaxArtifactBytes)
 	expected := (len(text) + blob.MaxReadBytes - 1) / blob.MaxReadBytes
 	if err != nil || string(data) != text || store.reads != expected {
 		t.Fatal("full read not amortized/bounded", store.reads, expected, err)
@@ -229,7 +230,7 @@ func TestRemoteFullReadUsesBoundedWindowsWithChunkHashes(t *testing.T) {
 	if _, err = repo.db.ExecContext(t.Context(), "UPDATE artifact_chunks SET sha256=? WHERE artifact_id=? AND chunk_index=3", strings.Repeat("0", 64), key); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = repo.ReadArtifactFull(t.Context(), "owner", "session", ref.URI, MaxArtifactBytes); err == nil {
+	if _, _, err = repo.ReadArtifactFull(t.Context(), "owner", "session", ref.URI, storage.MaxArtifactBytes); err == nil {
 		t.Fatal("window bypassed per-chunk catalog integrity")
 	}
 }
@@ -281,7 +282,7 @@ func TestBlobBindingRejectsMissingSubstitutionAndPreservesExistingInlineBytes(t 
 	if _, err = repo.Create(t.Context(), "owner", "session", ""); err != nil {
 		t.Fatal(err)
 	}
-	old, err := repo.PutArtifact(t.Context(), "owner", "session", ArtifactInput{Kind: "original", MediaType: "application/octet-stream", Processing: "original inline bytes", Data: []byte{0, 1, 2, 3}})
+	old, err := repo.PutArtifact(t.Context(), "owner", "session", storage.ArtifactInput{Kind: "original", MediaType: "application/octet-stream", Processing: "original inline bytes", Data: []byte{0, 1, 2, 3}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	native "github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -80,7 +81,7 @@ func writePhase(ctx context.Context, session abi.ConversationLog, phase approval
 	return err
 }
 
-func finishApproval(ctx context.Context, session *native.Session) error {
+func finishApproval(ctx context.Context, session storage.Session) error {
 	phase, err := readPhase(ctx, session)
 	if err != nil {
 		return err
@@ -104,7 +105,7 @@ func finishApproval(ctx context.Context, session *native.Session) error {
 
 // This is a business-stage coordinator, not an instruction-level continuation.
 // BeginRun serializes ownership and settles any old unknown execution first.
-func runApprovalWorkflow(ctx context.Context, repository *native.Repository, session *native.Session, directory, requestID string, approve, crash bool) error {
+func runApprovalWorkflow(ctx context.Context, repository storage.Repository, session storage.Session, directory, requestID string, approve, crash bool) error {
 	_, release, err := repository.BeginRun(ctx, workflowOwner, workflowSession)
 	if err != nil {
 		return err
@@ -160,7 +161,7 @@ func runApprovalWorkflow(ctx context.Context, repository *native.Repository, ses
 	return nil
 }
 
-func approvalPlugin(session *native.Session, directory string, crash bool) plugin {
+func approvalPlugin(session storage.Session, directory string, crash bool) plugin {
 	return plugin{name: "approval-workflow", register: func(_ context.Context, r *core.Registrar) error {
 		if err := r.Tool(tool{name: "request_approval", execute: func(ctx context.Context, _ abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error) {
 			phase, err := readPhase(ctx, session)
@@ -233,7 +234,7 @@ func TestDurableProbeProcess(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	var session *native.Session
+	var session storage.Session
 	if mode == "prepare" {
 		session, err = repository.Create(ctx, workflowOwner, workflowSession, "")
 	} else {

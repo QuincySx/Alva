@@ -10,8 +10,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	filetools "github.com/QuincySx/Alva/extension/files"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,10 +17,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	filetools "github.com/QuincySx/Alva/extension/files"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/host"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -34,6 +34,7 @@ const metadataNamespace = "alva.direct"
 const metadataType = "session"
 
 type Config struct {
+	Storage                  storage.Repository
 	DataDirectory, Workspace string
 	Demo                     bool
 	ProviderKind             provider.Kind
@@ -69,19 +70,22 @@ type binding struct {
 }
 type Service struct {
 	mu              sync.Mutex
-	repository      *session.Repository
+	repository      storage.Repository
 	config          Config
 	model           abi.LanguageModel
 	route           string
 	approvals       *host.ApprovalBroker
 	bindings        map[string]*binding
-	drafts          map[string][]session.ArtifactInfo
+	drafts          map[string][]storage.ArtifactInfo
 	closing, closed bool
 }
 
 func Open(ctx context.Context, config Config) (*Service, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if storage.Missing(config.Storage) {
+		return nil, errors.New("direct application requires storage supplied by assembly")
 	}
 	if config.DataDirectory == "" || !filepath.IsAbs(config.DataDirectory) {
 		return nil, errors.New("explicit absolute direct data directory required")
@@ -116,11 +120,7 @@ func Open(ctx context.Context, config Config) (*Service, error) {
 		Endpoint, Model string
 	}{config.Demo, config.ProviderKind, config.Provider.Endpoint, config.Provider.Model})
 	fingerprint := sha256.Sum256(raw)
-	repository, err := session.Open(ctx, config.DataDirectory)
-	if err != nil {
-		return nil, err
-	}
-	return &Service{repository: repository, config: config, model: model, route: hex.EncodeToString(fingerprint[:]), approvals: host.NewApprovalBroker(32), bindings: make(map[string]*binding), drafts: make(map[string][]session.ArtifactInfo)}, nil
+	return &Service{repository: config.Storage, config: config, model: model, route: hex.EncodeToString(fingerprint[:]), approvals: host.NewApprovalBroker(32), bindings: make(map[string]*binding), drafts: make(map[string][]storage.ArtifactInfo)}, nil
 }
 func canonicalWorkspace(path string) (string, error) {
 	if !filepath.IsAbs(path) {
@@ -150,7 +150,7 @@ func (s *Service) Create(ctx context.Context, title string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return "", session.ErrClosed
+		return "", storage.ErrClosed
 	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -202,7 +202,7 @@ func (s *Service) Metadata(ctx context.Context, id string) (Metadata, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return Metadata{}, session.ErrClosed
+		return Metadata{}, storage.ErrClosed
 	}
 	return s.metadata(ctx, id)
 }
@@ -210,7 +210,7 @@ func (s *Service) List(ctx context.Context, after string) (SessionPage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return SessionPage{}, session.ErrClosed
+		return SessionPage{}, storage.ErrClosed
 	}
 	page, err := s.repository.List(ctx, owner, after, 64)
 	if err != nil {
@@ -261,7 +261,7 @@ func (s *Service) bind(ctx context.Context, id string) (*binding, error) {
 	if err != nil {
 		return nil, err
 	}
-	plugins, err := harness.NativeSessionPlugins(ctx, s.repository, owner, id)
+	plugins, err := harness.SessionPlugins(ctx, s.repository, owner, id)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +322,7 @@ func (s *Service) Start(ctx context.Context, id, prompt string) (Run, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return Run{}, session.ErrClosed
+		return Run{}, storage.ErrClosed
 	}
 	for _, b := range s.bindings {
 		if b.lastRun != "" {

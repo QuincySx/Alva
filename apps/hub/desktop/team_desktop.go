@@ -7,17 +7,17 @@ package hubdesktop
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/egoist/mygo/ui"
+
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
-	"github.com/egoist/mygo/ui"
 )
 
 func (p *NativePage) selectedWorker() (hub.Worker, bool) {
@@ -58,7 +58,7 @@ func (p *NativePage) loadTeam() {
 			if p.teamLead != lead || p.pane != "team" {
 				return
 			}
-			if errors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, hub.ErrNotFound) {
 				p.team = hub.TeamDetail{}
 				p.problem = ""
 				return

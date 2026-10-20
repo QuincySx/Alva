@@ -11,7 +11,10 @@ import (
 	"github.com/QuincySx/Alva/apps/hub"
 )
 
-func (s *Store) ReplaceAEP(ctx context.Context, id string, entries []hub.AEPBundle) error {
+func (s *Store) ReplaceAEP(ctx context.Context, id string, entries []hub.AEPBundle) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	entries = append([]hub.AEPBundle(nil), entries...)
 	for i := range entries {
 		entries[i].Enabled = false
@@ -37,7 +40,10 @@ func (s *Store) ReplaceAEP(ctx context.Context, id string, entries []hub.AEPBund
 	})
 }
 
-func (s *Store) SetAEPEnabled(ctx context.Context, id, bundleID string, enabled, approved bool) error {
+func (s *Store) SetAEPEnabled(ctx context.Context, id, bundleID string, enabled, approved bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
 		if err != nil {

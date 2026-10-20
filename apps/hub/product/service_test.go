@@ -16,6 +16,7 @@ import (
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/engine/alva"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -44,7 +45,7 @@ func fixture(t *testing.T) (*HubService, chan engine.Request) {
 	requests := make(chan engine.Request, 8)
 	adapter := alva.New(func(ctx context.Context, id string, request engine.Request, resume bool) (harness.Runner, error) {
 		requests <- request
-		var log *session.Session
+		var log storage.Session
 		var err error
 		if resume {
 			log, err = repo.OpenSession(ctx, request.OwnerID, id)
@@ -54,7 +55,7 @@ func fixture(t *testing.T) (*HubService, chan engine.Request) {
 		if err != nil {
 			return nil, err
 		}
-		plugins, err := harness.NativeSessionPlugins(ctx, repo, request.OwnerID, id)
+		plugins, err := harness.SessionPlugins(ctx, repo, request.OwnerID, id)
 		if err != nil {
 			return nil, err
 		}
@@ -196,15 +197,15 @@ func TestUploadBudgetAndParkedBranchKeepDraft(t *testing.T) {
 }
 
 type switchBeforeAdmission struct {
-	hub.Store
+	ServiceStore
 	target hub.Target
 }
 
 func (s switchBeforeAdmission) BeginTurnOnBranch(ctx context.Context, id, branch, prompt string) (hub.Claim, error) {
-	if _, err := s.Store.Switch(ctx, id, s.target, "concurrent explicit route change"); err != nil {
+	if _, err := s.ServiceStore.Switch(ctx, id, s.target, "concurrent explicit route change"); err != nil {
 		return hub.Claim{}, err
 	}
-	return s.Store.BeginTurnOnBranch(ctx, id, branch, prompt)
+	return s.ServiceStore.BeginTurnOnBranch(ctx, id, branch, prompt)
 }
 func TestSelectedFileManifestCannotRaceIntoAnotherBranch(t *testing.T) {
 	s, requests := fixture(t)
@@ -219,7 +220,7 @@ func TestSelectedFileManifestCannotRaceIntoAnotherBranch(t *testing.T) {
 	}
 	target := s.DefaultTarget
 	target.ModelID = "different route"
-	wrapped := switchBeforeAdmission{Store: s.Store, target: target}
+	wrapped := switchBeforeAdmission{ServiceStore: s.Store, target: target}
 	s.Store = wrapped
 	s.Runtime = hub.New(wrapped)
 	t.Cleanup(func() { _ = s.Runtime.Close(ctx) })

@@ -36,14 +36,20 @@ func (s *Store) changeTools(ctx context.Context, id string, change func(*hub.Too
 		return saveSettings(ctx, tx, value)
 	})
 }
-func (s *Store) ReplaceTools(ctx context.Context, id string, value hub.ToolSettings) error {
+func (s *Store) ReplaceTools(ctx context.Context, id string, value hub.ToolSettings) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	value = disabledTools(value)
 	if err := value.Validate(); err != nil {
 		return err
 	}
 	return s.changeTools(ctx, id, func(target *hub.ToolSettings) error { *target = value; return nil })
 }
-func (s *Store) SetToolEnabled(ctx context.Context, id, kind string, enabled, approved bool) error {
+func (s *Store) SetToolEnabled(ctx context.Context, id, kind string, enabled, approved bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.changeTools(ctx, id, func(v *hub.ToolSettings) error {
 		switch kind {
 		case "planning":

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/QuincySx/Alva/platform/system/terminaltext"
 	"io"
 	"os"
 	"os/signal"
@@ -24,6 +23,7 @@ import (
 	"github.com/QuincySx/Alva/apps/hub/bootstrap"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/system/secretinput"
+	"github.com/QuincySx/Alva/platform/system/terminaltext"
 )
 
 func main() {
@@ -120,7 +120,7 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 	if len(*prompt) > 32<<10 || !utf8.ValidString(*prompt) {
 		return errors.New("prompt exceeds32KiB or is not UTF-8")
 	}
-	config := bootstrap.Config{DataDirectory: *directory, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: provider.Config{Endpoint: *endpoint, Model: *model}}
+	config := bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, DataDirectory: *directory, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: provider.Config{Endpoint: *endpoint, Model: *model}}
 	if *keyFD != 0 || *keyFile != "" {
 		if *keyFD != 0 && (*keyFD < 3 || *keyFD > 10) {
 			return errors.New("explicit API key fd must be3..10")
@@ -161,14 +161,16 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 		return ctx.Err()
 	}
 	app, err := bootstrap.Open(ctx, config)
+	if app != nil {
+		defer func() {
+			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			result = errors.Join(result, app.Close(cleanup))
+		}()
+	}
 	if err != nil {
 		return err
 	}
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		result = errors.Join(result, app.Close(cleanup))
-	}()
 	c := &cli{app: app, input: newInput(input), output: output, diagnostic: diagnostic, session: *selected, timeout: *timeout, ask: *permission == "ask"}
 	defer c.input.close()
 	if *engineID != "" {

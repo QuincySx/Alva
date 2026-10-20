@@ -14,12 +14,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/blob"
 	"github.com/QuincySx/Alva/platform/storage/sqlite"
 )
 
-var ErrNotFound = errors.New("native session or artifact is unavailable to this owner")
-var ErrActive = errors.New("native session already has an active run")
-var ErrClosed = errors.New("native repository is closed")
 var opaqueID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 type Repository struct {
@@ -34,17 +33,11 @@ type Session struct {
 	repository *Repository
 	owner, id  string
 }
-type SessionInfo struct {
-	ID        string    `json:"id"`
-	ParentID  string    `json:"parent_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	HighWater uint64    `json:"high_water"`
-}
-type SessionPage struct {
-	Sessions []SessionInfo `json:"sessions"`
-	Next     string        `json:"next"`
-	HasMore  bool          `json:"has_more"`
-}
+
+func (*Repository) RecordRetention() blob.Retention { return blob.Persistent }
+
+var _ storage.Repository = (*Repository)(nil)
+var _ storage.Session = (*Session)(nil)
 
 func Open(ctx context.Context, directory string) (*Repository, error) {
 	return open(ctx, directory, nil)
@@ -156,14 +149,14 @@ func newID() (string, error) {
 	return hex.EncodeToString(data[:]), nil
 }
 
-func (r *Repository) Create(ctx context.Context, owner, id, parentID string) (*Session, error) {
+func (r *Repository) Create(ctx context.Context, owner, id, parentID string) (storage.Session, error) {
 	if !validIdentity(owner) || !validIdentity(id) || (parentID != "" && !validIdentity(parentID)) {
 		return nil, errors.New("bounded opaque owner and session identities required")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return nil, ErrClosed
+		return nil, storage.ErrClosed
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -194,22 +187,22 @@ type queryer interface {
 
 func authorize(ctx context.Context, q queryer, owner, id string) error {
 	if !validIdentity(owner) || !validIdentity(id) {
-		return ErrNotFound
+		return storage.ErrNotFound
 	}
 	var exists int
 	err := q.QueryRowContext(ctx, "SELECT 1 FROM sessions WHERE owner=? AND id=?", owner, id).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
+		return storage.ErrNotFound
 	}
 	return err
 }
 
 // OpenSession is a read-only lookup: it does not create, recover or load history.
-func (r *Repository) OpenSession(ctx context.Context, owner, id string) (*Session, error) {
+func (r *Repository) OpenSession(ctx context.Context, owner, id string) (storage.Session, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return nil, ErrClosed
+		return nil, storage.ErrClosed
 	}
 	if err := authorize(ctx, r.db, owner, id); err != nil {
 		return nil, err
@@ -217,29 +210,29 @@ func (r *Repository) OpenSession(ctx context.Context, owner, id string) (*Sessio
 	return &Session{repository: r, owner: owner, id: id}, nil
 }
 
-func (r *Repository) List(ctx context.Context, owner, after string, limit int) (SessionPage, error) {
+func (r *Repository) List(ctx context.Context, owner, after string, limit int) (storage.SessionPage, error) {
 	if !validIdentity(owner) || (after != "" && !validIdentity(after)) {
-		return SessionPage{}, ErrNotFound
+		return storage.SessionPage{}, storage.ErrNotFound
 	}
 	if limit < 1 || limit > 100 {
-		return SessionPage{}, errors.New("session page limit must be 1..100")
+		return storage.SessionPage{}, errors.New("session page limit must be 1..100")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return SessionPage{}, ErrClosed
+		return storage.SessionPage{}, storage.ErrClosed
 	}
 	rows, err := r.db.QueryContext(ctx, "SELECT id,coalesce(parent_id,''),created_ns,next_seq-1 FROM sessions WHERE owner=? AND id>? ORDER BY id LIMIT ?", owner, after, limit+1)
 	if err != nil {
-		return SessionPage{}, err
+		return storage.SessionPage{}, err
 	}
 	defer rows.Close()
-	page := SessionPage{}
+	page := storage.SessionPage{}
 	for rows.Next() {
-		var info SessionInfo
+		var info storage.SessionInfo
 		var created int64
 		if err = rows.Scan(&info.ID, &info.ParentID, &created, &info.HighWater); err != nil {
-			return SessionPage{}, err
+			return storage.SessionPage{}, err
 		}
 		if len(page.Sessions) == limit {
 			page.HasMore = true
@@ -260,28 +253,28 @@ func (s *Session) Flush(ctx context.Context) error {
 	s.repository.mu.Lock()
 	defer s.repository.mu.Unlock()
 	if s.repository.closed {
-		return ErrClosed
+		return storage.ErrClosed
 	}
 	return nil
 }
 
 // BeginRun is the sole run-claim path: recovery and ownership precede execution.
 // The release function is idempotent and must be deferred by the runtime owner.
-func (r *Repository) BeginRun(ctx context.Context, owner, id string) (RecoveryReport, func(), error) {
+func (r *Repository) BeginRun(ctx context.Context, owner, id string) (storage.RecoveryReport, func(), error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return RecoveryReport{}, nil, ErrClosed
+		return storage.RecoveryReport{}, nil, storage.ErrClosed
 	}
 	if err := authorize(ctx, r.db, owner, id); err != nil {
-		return RecoveryReport{}, nil, err
+		return storage.RecoveryReport{}, nil, err
 	}
 	if r.active[id] {
-		return RecoveryReport{}, nil, ErrActive
+		return storage.RecoveryReport{}, nil, storage.ErrActive
 	}
 	report, err := r.recoverLocked(ctx, owner, id)
 	if err != nil {
-		return RecoveryReport{}, nil, err
+		return storage.RecoveryReport{}, nil, err
 	}
 	r.active[id] = true
 	var once sync.Once

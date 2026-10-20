@@ -9,14 +9,15 @@ import (
 	"encoding/json"
 	"fmt"
 
-	mediaextension "github.com/QuincySx/Alva/extension/media"
-	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/egoist/mygo/ui"
+
+	mediaextension "github.com/QuincySx/Alva/extension/media"
+	"github.com/QuincySx/Alva/platform/storage"
 )
 
 type MediaPane struct {
 	Branch, Mode, SourceURI, SelectionID string
-	Page                                 session.ArtifactIndexPage
+	Page                                 storage.ArtifactIndexPage
 	Cursor                               uint64
 	Back                                 []uint64
 	JSON, ManifestURI                    string
@@ -66,7 +67,7 @@ func (p *NativePage) loadMedia(after, high uint64) {
 	p.media.JSON, p.media.ManifestURI, p.media.Bitmap, p.media.PreviewBytes = "", "", nil, 0
 	p.paneBusy = true
 	go func() {
-		var page session.ArtifactIndexPage
+		var page storage.ArtifactIndexPage
 		var err error
 		switch mode {
 		case "sources":

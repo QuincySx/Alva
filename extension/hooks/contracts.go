@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, time, agent/core, native/process, storage/session, llm/wire.
+// INPUT: context, encoding/json, time, agent/core, native/process, shared storage contracts, llm/wire.
 // OUTPUT: Event, Entry, Config, Activity, Input, Output and Receipt for explicitly approved lifecycle commands.
 // POS: [L4 extension] Hook configuration and typed execution evidence stay outside SDK and engine-specific product contracts.
 package hooks
@@ -8,12 +8,17 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
+
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+}
 
 type Event string
 
@@ -49,7 +54,7 @@ type Activity struct {
 	Effect                             abi.EffectKind
 }
 type Config struct {
-	Repository            *session.Repository
+	Repository            Storage
 	Owner, SessionID, Cwd string
 	Entries               []Entry
 	Locks                 *core.ToolLockRegistry

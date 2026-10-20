@@ -1,4 +1,4 @@
-// INPUT: Private engine native binding database and confined Pi native JSONL headers
+// INPUT: Shared storage.BindingStore and confined Pi native JSONL headers.
 // OUTPUT: Owner/cwd exact-resume authorization and explicit adapter resource cleanup
 // POS: [integration / native external-engine adapter] External native formats remain their authority; these rows only bind product ownership
 package process
@@ -14,15 +14,19 @@ import (
 	"strings"
 
 	"github.com/QuincySx/Alva/integration/engine"
-	private "github.com/QuincySx/Alva/platform/storage/sqlite"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 func (a *Adapter) authorizeResume(ctx context.Context, request engine.Request) error {
-	var owner, cwd string
-	if err := a.db.QueryRowContext(ctx, `SELECT owner,cwd FROM native_bindings WHERE id=?`, request.ResumeSession).Scan(&owner, &cwd); err != nil {
+	binding, err := a.config.Bindings.ReadBinding(ctx, request.ResumeSession)
+	if errors.Is(err, storage.ErrNotFound) {
 		return engine.ErrSessionNotFound
 	}
-	if owner != request.OwnerID || cwd != filepath.Clean(request.Workspace) {
+	if err != nil {
+		return err
+	}
+	if binding.ID != request.ResumeSession || binding.Owner != request.OwnerID || binding.Workspace != filepath.Clean(request.Workspace) {
 		return engine.ErrSessionNotFound
 	}
 	return nil
@@ -31,7 +35,7 @@ func (a *Adapter) piFreshSession(runID string) (string, error) {
 	if !nativeID.MatchString(runID) {
 		return "", errors.New("invalid new private native file identity")
 	}
-	directory, err := private.EnsurePrivateDir(filepath.Join(a.config.StateDirectory, "sessions"))
+	directory, err := private.EnsureDir(filepath.Join(a.config.StateDirectory, "sessions"))
 	if err != nil {
 		return "", err
 	}
@@ -56,7 +60,7 @@ func (a *Adapter) bindNative(ctx context.Context, request engine.Request, id str
 	if request.ResumeSession != "" && id != request.ResumeSession {
 		return errors.New("external engine changed the exact resumed native identity")
 	}
-	if _, err := a.db.ExecContext(ctx, `INSERT INTO native_bindings(id,owner,cwd) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING`, id, request.OwnerID, filepath.Clean(request.Workspace)); err != nil {
+	if err := a.config.Bindings.PutBinding(ctx, storage.SessionBinding{ID: id, Owner: request.OwnerID, Workspace: filepath.Clean(request.Workspace)}); err != nil {
 		return err
 	}
 	copy := request
@@ -141,11 +145,19 @@ func (a *Adapter) Close(ctx context.Context) error {
 		a.closed = true
 		a.stop()
 		a.mu.Unlock()
-		go func() { a.wg.Wait(); a.closeErr = errors.Join(a.db.Close(), a.lock.Close()); close(a.closedDone) }()
+		go func() { a.wg.Wait(); close(a.closedDone) }()
 	})
 	select {
 	case <-a.closedDone:
-		return a.closeErr
+		a.closeMu.Lock()
+		defer a.closeMu.Unlock()
+		if !a.storeClosed {
+			if err := a.config.Bindings.Close(); err != nil {
+				return err
+			}
+			a.storeClosed = true
+		}
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}

@@ -8,12 +8,14 @@ package hubdesktop
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/egoist/mygo/ui"
+
 	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
-	"github.com/egoist/mygo/ui"
 )
 
 type InspectorFrame struct {
@@ -322,7 +324,7 @@ func (p *NativePage) buildInspector(c *ui.Context) {
 		if p.inspectLoadedQuery != "" {
 			ui.Text(c, "Results for literal query: "+p.inspectLoadedQuery).FontSize(11)
 		}
-		visible := make([]session.RecordEntry, 0, len(p.inspectPage.Entries))
+		visible := make([]storage.RecordEntry, 0, len(p.inspectPage.Entries))
 		for _, entry := range p.inspectPage.Entries {
 			if view.InspectionGroupVisible(entry, p.inspectGroup) {
 				visible = append(visible, entry)

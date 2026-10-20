@@ -1,4 +1,4 @@
-// INPUT: bytes, context, encoding/json, errors, sync, unicode/utf8, agent Task, ABI/wire, storage/session; portable capability contracts
+// INPUT: bytes, context, encoding/json, errors, sync, unicode/utf8, agent Task, ABI/wire, shared storage contracts; portable capability contracts
 // OUTPUT: Native fact-backed implementation of the portable planning Service with optimistic persistence.
 // POS: [L4 extension] Planning state has real durable consumers without inventing processes, output paths or kernel setters.
 package native
@@ -12,11 +12,19 @@ import (
 	"unicode/utf8"
 
 	planning "github.com/QuincySx/Alva/extension/planning"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
+
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+	storage.RecordLookup
+	storage.ArtifactReader
+}
 
 type state struct {
 	Tasks []planning.TaskRecord `json:"tasks"`
@@ -24,14 +32,14 @@ type state struct {
 }
 type nativeService struct {
 	mu        sync.Mutex
-	repo      *session.Repository
-	log       *session.Session
+	repo      Storage
+	log       storage.Session
 	owner, id string
 	revision  uint64
 	state     state
 }
 
-func newService(ctx context.Context, repo *session.Repository, log *session.Session, owner, id string) (*nativeService, error) {
+func newService(ctx context.Context, repo Storage, log storage.Session, owner, id string) (*nativeService, error) {
 	s := &nativeService{repo: repo, log: log, owner: owner, id: id, state: state{Tasks: []planning.TaskRecord{}}}
 	entry, found, err := repo.LatestRecord(ctx, owner, id, "alva.planning", "state_snapshot")
 	if err != nil {
@@ -306,14 +314,14 @@ func (s *nativeService) Update(ctx context.Context, a planning.UpdateRequest) (p
 }
 func (s *nativeService) text(ctx context.Context, kind, name, text string) (wire.Reference, error) {
 	raw, _ := json.Marshal(text)
-	clean, err := session.RedactJSON(raw)
+	clean, err := redaction.RedactJSON(raw)
 	if err != nil {
 		return wire.Reference{}, err
 	}
 	if err = json.Unmarshal(clean, &text); err != nil {
 		return wire.Reference{}, err
 	}
-	info, err := s.repo.PutArtifact(ctx, s.owner, s.id, session.ArtifactInput{Kind: kind, Name: name, MediaType: "text/plain; charset=utf-8", Processing: "User/model-authored planning note; known credentials redacted; not executed, no workspace file written and no automatic model delivery", Data: []byte(text), Text: true})
+	info, err := s.repo.PutArtifact(ctx, s.owner, s.id, storage.ArtifactInput{Kind: kind, Name: name, MediaType: "text/plain; charset=utf-8", Processing: "User/model-authored planning note; known credentials redacted; not executed, no workspace file written and no automatic model delivery", Data: []byte(text), Text: true})
 	if err != nil {
 		return wire.Reference{}, &abi.SessionError{Operation: "retain planning note", SessionID: s.id, Err: err}
 	}

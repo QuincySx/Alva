@@ -7,10 +7,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
 	"github.com/QuincySx/Alva/apps/hub"
 )
 
-func (s *Store) ReadHandoff(ctx context.Context, id, handoffID string) (*hub.Handoff, error) {
+func (s *Store) ReadHandoff(ctx context.Context, id, handoffID string) (providerResult0 *hub.Handoff, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var value hub.Handoff
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var err error

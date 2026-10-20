@@ -158,6 +158,14 @@ type ExecutionStore interface {
 	FinishTurn(context.Context, string, engine.Outcome) error
 }
 
+var ErrNotFound = errors.New("product object is unavailable in this scope")
+
+// NativeOwnerResolver reads the committed product route for the actual engine
+// identity. The resolver is a storage capability, never a UI-supplied grant.
+type NativeOwnerResolver interface {
+	NativeOwner(context.Context, string, string) (string, error)
+}
+
 type SessionStore interface {
 	CreateSession(context.Context, string, string, Target) (Session, error)
 	ListSessions(context.Context, int) ([]Session, error)

@@ -1,5 +1,5 @@
 // INPUT: context, database/sql, hashes, explicit blob.Store, agent/context and llm/wire.
-// OUTPUT: ArtifactInput, ArtifactInfo, ArtifactPage, owned artifact APIs and BoundReferences.
+// OUTPUT: storage.ArtifactInput, storage.ArtifactInfo, storage.ArtifactPage, owned artifact APIs and BoundReferences.
 // POS: [platform / storage] Owns artifact authorization/hash metadata with inline or explicitly configured immutable bytes.
 package session
 
@@ -13,102 +13,75 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/blob"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 const ChunkBytes = 4096
-const MaxArtifactBytes = 20 << 20
 const maxRecordBytes = 32 << 20
 
-type ArtifactInput struct {
-	Kind, Name, MediaType, Processing string
-	Data                              []byte
-	Text                              bool
-}
-type ArtifactInfo struct {
-	ID         string `json:"id"`
-	SessionID  string `json:"session_id"`
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-	MediaType  string `json:"media_type"`
-	Processing string `json:"processing"`
-	SHA256     string `json:"sha256"`
-	Bytes      int64  `json:"bytes"`
-	Text       bool   `json:"is_text"`
-}
-type ArtifactPage struct {
-	Info       ArtifactInfo `json:"info"`
-	Offset     int64        `json:"offset"`
-	NextOffset int64        `json:"next_offset"`
-	Data       []byte       `json:"data"`
-	Truncated  bool         `json:"truncated"`
-}
-
-func (info ArtifactInfo) Reference() wire.Reference {
-	return wire.Reference{URI: "alva-artifact://" + info.ID, MediaType: info.MediaType, SHA256: info.SHA256, Bytes: info.Bytes, Processing: info.Processing}
-}
 func artifactID(uri string) (string, error) {
 	const prefix = "alva-artifact://"
 	if !strings.HasPrefix(uri, prefix) {
-		return "", ErrNotFound
+		return "", storage.ErrNotFound
 	}
 	id := strings.TrimPrefix(uri, prefix)
 	if len(id) != 32 {
-		return "", ErrNotFound
+		return "", storage.ErrNotFound
 	}
 	decoded, err := hex.DecodeString(id)
 	if err != nil || len(decoded) != 16 || id != strings.ToLower(id) {
-		return "", ErrNotFound
+		return "", storage.ErrNotFound
 	}
 	return id, nil
 }
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 
-func putArtifactTx(ctx context.Context, tx *sql.Tx, id string, input ArtifactInput, maxBytes int, external *BlobConfig) (ArtifactInfo, error) {
+func putArtifactTx(ctx context.Context, tx *sql.Tx, id string, input storage.ArtifactInput, maxBytes int, external *BlobConfig) (storage.ArtifactInfo, error) {
 	if len(input.Data) > maxBytes {
-		return ArtifactInfo{}, errors.New("artifact byte budget exceeded")
+		return storage.ArtifactInfo{}, errors.New("artifact byte budget exceeded")
 	}
 	if input.Kind == "" || len(input.Kind) > 64 || len(input.Name) > 256 || input.MediaType == "" || len(input.MediaType) > 256 || input.Processing == "" || len(input.Processing) > 2048 {
-		return ArtifactInfo{}, errors.New("bounded artifact metadata and explicit processing description required")
+		return storage.ArtifactInfo{}, errors.New("bounded artifact metadata and explicit processing description required")
 	}
 	if input.Text && !utf8.Valid(input.Data) {
-		return ArtifactInfo{}, errors.New("text artifact must be valid UTF-8")
+		return storage.ArtifactInfo{}, errors.New("text artifact must be valid UTF-8")
 	}
 	sha := digest(input.Data)
-	var existing ArtifactInfo
+	var existing storage.ArtifactInfo
 	err := tx.QueryRowContext(ctx, "SELECT id,session_id,kind,name,media_type,processing,sha256,bytes,is_text FROM artifacts WHERE session_id=? AND kind=? AND sha256=? AND name=? AND media_type=? AND processing=? AND is_text=?", id, input.Kind, sha, input.Name, input.MediaType, input.Processing, input.Text).Scan(&existing.ID, &existing.SessionID, &existing.Kind, &existing.Name, &existing.MediaType, &existing.Processing, &existing.SHA256, &existing.Bytes, &existing.Text)
 	if err == nil {
 		return existing, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return ArtifactInfo{}, err
+		return storage.ArtifactInfo{}, err
 	}
 	key, err := newID()
 	if err != nil {
-		return ArtifactInfo{}, err
+		return storage.ArtifactInfo{}, err
 	}
 	var objectKey string
 	if external != nil {
 		objectKey, err = blob.NewKey()
 		if err != nil {
-			return ArtifactInfo{}, err
+			return storage.ArtifactInfo{}, err
 		}
 		// A successful immutable upload precedes the atomic metadata commit.
 		// Failure/rollback can leave an orphan object, never a committed partial
 		// reference. The repository does not retry or delete uncertain uploads.
 		if err = external.Store.Put(ctx, objectKey, input.Data); err != nil {
-			return ArtifactInfo{}, err
+			return storage.ArtifactInfo{}, err
 		}
 	}
-	info := ArtifactInfo{ID: key, SessionID: id, Kind: input.Kind, Name: input.Name, MediaType: input.MediaType, Processing: input.Processing, SHA256: sha, Bytes: int64(len(input.Data)), Text: input.Text}
+	info := storage.ArtifactInfo{ID: key, SessionID: id, Kind: input.Kind, Name: input.Name, MediaType: input.MediaType, Processing: input.Processing, SHA256: sha, Bytes: int64(len(input.Data)), Text: input.Text}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO artifacts(id,session_id,kind,name,media_type,processing,sha256,bytes,is_text,created_ns) VALUES(?,?,?,?,?,?,?,?,?,?)", info.ID, id, input.Kind, input.Name, input.MediaType, input.Processing, sha, len(input.Data), input.Text, time.Now().UTC().UnixNano()); err != nil {
-		return ArtifactInfo{}, err
+		return storage.ArtifactInfo{}, err
 	}
 	if external != nil {
 		if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_blobs(artifact_id,object_key) VALUES(?,?)", key, objectKey); err != nil {
-			return ArtifactInfo{}, err
+			return storage.ArtifactInfo{}, err
 		}
 	}
 	for offset := 0; offset < len(input.Data); offset += ChunkBytes {
@@ -122,15 +95,15 @@ func putArtifactTx(ctx context.Context, tx *sql.Tx, id string, input ArtifactInp
 			stored = []byte{}
 		}
 		if _, err = tx.ExecContext(ctx, "INSERT INTO artifact_chunks(artifact_id,chunk_index,data,sha256) VALUES(?,?,?,?)", key, offset/ChunkBytes, stored, digest(chunk)); err != nil {
-			return ArtifactInfo{}, err
+			return storage.ArtifactInfo{}, err
 		}
 	}
 	return info, nil
 }
 
-func (r *Repository) PutArtifact(ctx context.Context, owner, id string, input ArtifactInput) (ArtifactInfo, error) {
+func (r *Repository) PutArtifact(ctx context.Context, owner, id string, input storage.ArtifactInput) (storage.ArtifactInfo, error) {
 	if input.Kind == "typed-record-json" {
-		return ArtifactInfo{}, errors.New("typed record artifacts are owned by AppendRecords")
+		return storage.ArtifactInfo{}, errors.New("typed record artifacts are owned by AppendRecords")
 	}
 	if r.blobs != nil && r.blobs.Retention == blob.Volatile {
 		input.Processing += "; artifact bytes are process-lifetime only, not restart-durable"
@@ -138,40 +111,40 @@ func (r *Repository) PutArtifact(ctx context.Context, owner, id string, input Ar
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return ArtifactInfo{}, ErrClosed
+		return storage.ArtifactInfo{}, storage.ErrClosed
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return ArtifactInfo{}, err
+		return storage.ArtifactInfo{}, err
 	}
 	defer tx.Rollback()
 	if err = authorize(ctx, tx, owner, id); err != nil {
-		return ArtifactInfo{}, err
+		return storage.ArtifactInfo{}, err
 	}
-	info, err := putArtifactTx(ctx, tx, id, input, MaxArtifactBytes, r.blobs)
+	info, err := putArtifactTx(ctx, tx, id, input, storage.MaxArtifactBytes, r.blobs)
 	if err != nil {
-		return ArtifactInfo{}, err
+		return storage.ArtifactInfo{}, err
 	}
 	if err = tx.Commit(); err != nil {
-		return ArtifactInfo{}, err
+		return storage.ArtifactInfo{}, err
 	}
 	return info, nil
 }
 
-func (r *Repository) artifactInfoLocked(ctx context.Context, owner, id, uri string) (ArtifactInfo, error) {
+func (r *Repository) artifactInfoLocked(ctx context.Context, owner, id, uri string) (storage.ArtifactInfo, error) {
 	key, err := artifactID(uri)
 	if err != nil {
-		return ArtifactInfo{}, err
+		return storage.ArtifactInfo{}, err
 	}
-	var info ArtifactInfo
+	var info storage.ArtifactInfo
 	err = r.db.QueryRowContext(ctx, "SELECT a.id,a.session_id,a.kind,a.name,a.media_type,a.processing,a.sha256,a.bytes,a.is_text FROM artifacts a JOIN sessions s ON s.id=a.session_id WHERE s.owner=? AND s.id=? AND a.id=?", owner, id, key).Scan(&info.ID, &info.SessionID, &info.Kind, &info.Name, &info.MediaType, &info.Processing, &info.SHA256, &info.Bytes, &info.Text)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ArtifactInfo{}, ErrNotFound
+		return storage.ArtifactInfo{}, storage.ErrNotFound
 	}
 	return info, err
 }
 
-func (r *Repository) readRangeLocked(ctx context.Context, info ArtifactInfo, offset int64, limit int) ([]byte, error) {
+func (r *Repository) readRangeLocked(ctx context.Context, info storage.ArtifactInfo, offset int64, limit int) ([]byte, error) {
 	if offset < 0 || offset > info.Bytes || limit < 1 || limit > ChunkBytes+4 {
 		return nil, errors.New("artifact range outside bounded byte limits")
 	}
@@ -226,25 +199,25 @@ func (r *Repository) readRangeLocked(ctx context.Context, info ArtifactInfo, off
 	return data, nil
 }
 
-func (r *Repository) ReadArtifact(ctx context.Context, owner, id, uri string, offset int64, limit int) (ArtifactPage, error) {
+func (r *Repository) ReadArtifact(ctx context.Context, owner, id, uri string, offset int64, limit int) (storage.ArtifactPage, error) {
 	if limit < 1 || limit > ChunkBytes {
-		return ArtifactPage{}, errors.New("artifact page must be 1..4096 bytes")
+		return storage.ArtifactPage{}, errors.New("artifact page must be 1..4096 bytes")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return ArtifactPage{}, ErrClosed
+		return storage.ArtifactPage{}, storage.ErrClosed
 	}
 	info, err := r.artifactInfoLocked(ctx, owner, id, uri)
 	if err != nil {
-		return ArtifactPage{}, err
+		return storage.ArtifactPage{}, err
 	}
 	data, err := r.readRangeLocked(ctx, info, offset, limit)
 	if err != nil {
-		return ArtifactPage{}, err
+		return storage.ArtifactPage{}, err
 	}
 	next := offset + int64(len(data))
-	return ArtifactPage{Info: info, Offset: offset, NextOffset: next, Data: data, Truncated: next < info.Bytes}, nil
+	return storage.ArtifactPage{Info: info, Offset: offset, NextOffset: next, Data: data, Truncated: next < info.Bytes}, nil
 }
 
 func (r *Repository) readFullLocked(ctx context.Context, key string, bytesLimit int) ([]byte, error) {
@@ -298,14 +271,14 @@ type References struct {
 	owner, id  string
 }
 
-func (r *Repository) BoundReferences(ctx context.Context, owner, id string) (*References, error) {
+func (r *Repository) BoundReferences(ctx context.Context, owner, id string) (agentcontext.ReferenceBackend, error) {
 	if _, err := r.OpenSession(ctx, owner, id); err != nil {
 		return nil, err
 	}
 	return &References{repository: r, owner: owner, id: id}, nil
 }
 func (b *References) StoreText(ctx context.Context, text string) (wire.Reference, error) {
-	info, err := b.repository.PutArtifact(ctx, b.owner, b.id, ArtifactInput{Kind: "context-text", MediaType: "text/plain; charset=utf-8", Processing: "Original UTF-8 text retained in this native session; raw bytes are not automatically sent to the model; no media transformation performed", Data: []byte(text), Text: true})
+	info, err := b.repository.PutArtifact(ctx, b.owner, b.id, storage.ArtifactInput{Kind: "context-text", MediaType: "text/plain; charset=utf-8", Processing: "Original UTF-8 text retained in this native session; raw bytes are not automatically sent to the model; no media transformation performed", Data: []byte(text), Text: true})
 	if err != nil {
 		return wire.Reference{}, err
 	}
@@ -319,7 +292,7 @@ func (b *References) ReadText(ctx context.Context, uri string, offset int64, lim
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return agentcontext.TextPage{}, ErrClosed
+		return agentcontext.TextPage{}, storage.ErrClosed
 	}
 	info, err := r.artifactInfoLocked(ctx, b.owner, b.id, uri)
 	if err != nil {
@@ -361,7 +334,7 @@ func (b *References) SearchText(ctx context.Context, uri, query string, limit in
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return nil, ErrClosed
+		return nil, storage.ErrClosed
 	}
 	info, err := r.artifactInfoLocked(ctx, b.owner, b.id, uri)
 	if err != nil {
@@ -373,7 +346,7 @@ func (b *References) SearchText(ctx context.Context, uri, query string, limit in
 	return r.searchArtifactLocked(ctx, info, query, limit)
 }
 
-func (r *Repository) searchArtifactLocked(ctx context.Context, info ArtifactInfo, query string, limit int) ([]agentcontext.TextMatch, error) {
+func (r *Repository) searchArtifactLocked(ctx context.Context, info storage.ArtifactInfo, query string, limit int) ([]agentcontext.TextMatch, error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT c.chunk_index,c.data,c.sha256,coalesce(b.object_key,'') FROM artifact_chunks c LEFT JOIN artifact_blobs b ON b.artifact_id=c.artifact_id WHERE c.artifact_id=? ORDER BY c.chunk_index", info.ID)
 	if err != nil {
 		return nil, err

@@ -30,6 +30,8 @@ platform/storage/blob根契约和adapter仅可标准库与根契约；根不依�
 纯容器目录即使没有 Go 源文件也必须保留含分形四节的地图文档。
 手工窗口工具在 ../../tools/qa/native_window.py，不由本包、Go测试或CI隐式运行。
 
+共享storage根契约仅可依赖SDK/纯blob词汇，普通消费者不能直接/传递进入具体session/memory/bindings/Hub SQLite；SQL错误不作为消费者协议。bootstrap只有storage.go选择stock provider，含同包assembly绕过的负例。存储根与blob公开面一并显式快照。
+
 ## 业务域清单
 
 | 文件 | 职责 |
@@ -40,3 +42,4 @@ platform/storage/blob根契约和adapter仅可标准库与根契约；根不依�
 | `conversion_test.go` | 吸收 Magpie 的固定来源/许可/本地哈希与 RelayKit 已移除的离线闸 |
 | `fractal_test.go` | 所有源码（含tagged/helper）三行头与目录分形文档强制检查 |
 | `surface_test.go` / `testdata` | SDK公开面AST快照与扫描器反例，须显式审核更新 |
+| storage_test.go | 统一存储插口、具体provider/SQL泄漏与显式配方位置的正反例 |

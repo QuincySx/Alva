@@ -7,10 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/QuincySx/Alva/sdk/kernel/abi"
-	"github.com/QuincySx/Alva/sdk/llm/wire"
 	"path/filepath"
 	"testing"
+
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 func TestExactTypedStreamMetadataAndOptimisticAppend(t *testing.T) {
@@ -28,7 +30,7 @@ func TestExactTypedStreamMetadataAndOptimisticAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.AppendExtensionSnapshot(ctx, "alva.test", "snapshot", 0, json.RawMessage(`{"value":2}`)); !errors.Is(err, ErrRevisionConflict) {
+	if _, err = s.AppendExtensionSnapshot(ctx, "alva.test", "snapshot", 0, json.RawMessage(`{"value":2}`)); !errors.Is(err, storage.ErrRevisionConflict) {
 		t.Fatal(err)
 	}
 	if _, err = s.AppendRecords(ctx, []abi.SessionRecord{{Kind: abi.RecordExtension, Namespace: "alva.other", Type: "snapshot", SchemaVersion: 1, Payload: json.RawMessage(`{"unrelated":true}`)}}); err != nil {
@@ -63,7 +65,7 @@ func TestSnapshotAndResultMessageCommitAtomically(t *testing.T) {
 	if messages, err := log.Messages(t.Context()); err != nil || len(messages) != 1 {
 		t.Fatal(messages, err)
 	}
-	if _, err := log.AppendExtensionSnapshot(t.Context(), "alva.test", "snapshot", 0, json.RawMessage(`{}`), abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message})); !errors.Is(err, ErrRevisionConflict) {
+	if _, err := log.AppendExtensionSnapshot(t.Context(), "alva.test", "snapshot", 0, json.RawMessage(`{}`), abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message})); !errors.Is(err, storage.ErrRevisionConflict) {
 		t.Fatal(err)
 	}
 	bad := wire.Message{Role: "invalid"}
@@ -93,7 +95,7 @@ func TestLatestCorruptForeignArtifactIsErrorNotMissingSnapshot(t *testing.T) {
 	if _, err = r.Create(ctx, "owner", "other", ""); err != nil {
 		t.Fatal(err)
 	}
-	info, err := r.PutArtifact(ctx, "owner", "other", ArtifactInput{Kind: "test", Name: "foreign", MediaType: "text/plain", Processing: "fixture", Data: []byte("private foreign body"), Text: true})
+	info, err := r.PutArtifact(ctx, "owner", "other", storage.ArtifactInput{Kind: "test", Name: "foreign", MediaType: "text/plain", Processing: "fixture", Data: []byte("private foreign body"), Text: true})
 	if err != nil {
 		t.Fatal(err)
 	}

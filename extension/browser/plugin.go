@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, errors, sync, time, SDK core/security/ABI, host/browser and storage/session.
+// INPUT: context, encoding/json, errors, sync, time, SDK core/security/ABI, host/browser and shared storage contracts.
 // OUTPUT: Config, Activity, Plugin, New, Tools, Close and CleanupComplete with same-session browser lifecycle/fact assembly.
 // POS: [L4 extension] Optional browser business policy keeps authorization, prior durable risk and reference storage outside CDP protocol/SDK.
 package browser
@@ -11,19 +11,25 @@ import (
 	"time"
 
 	host "github.com/QuincySx/Alva/platform/host/browser"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+}
+
 type Activity struct {
 	ID, Name, SessionID, RunID, CallID string
 	Effect                             abi.EffectKind
 }
 type Config struct {
-	Repository            *session.Repository
+	Repository            Storage
 	Owner, SessionID, Cwd string
 	Guard                 *security.Guard
 	Launch                host.Config
@@ -33,7 +39,7 @@ type Config struct {
 }
 type Plugin struct {
 	config                                    Config
-	log                                       *session.Session
+	log                                       storage.Session
 	mu                                        sync.Mutex
 	gate                                      chan struct{}
 	runID                                     string
@@ -47,7 +53,7 @@ type Plugin struct {
 }
 
 func New(ctx context.Context, config Config) (*Plugin, error) {
-	if config.Repository == nil || config.Guard == nil || config.Report == nil || !config.ApprovedHostAccess || config.Cwd == "" || config.Launch.Cwd != config.Cwd || config.Launch.Observe != nil {
+	if storage.Missing(config.Repository) || config.Guard == nil || config.Report == nil || !config.ApprovedHostAccess || config.Cwd == "" || config.Launch.Cwd != config.Cwd || config.Launch.Observe != nil {
 		return nil, errors.New("explicit approved browser launch, native authority/guard/reporter/cwd required; observer is owned by Plugin")
 	}
 	if config.OperationTimeout == 0 {
@@ -224,7 +230,7 @@ func (p *Plugin) append(ctx context.Context, kind string, payload any) error {
 	return nil
 }
 func (p *Plugin) observe(ctx context.Context, runID string, event host.IOEvent) error {
-	frame, err := session.RedactStreamFrame(event.Frame, session.EnvironmentSecrets(p.config.Launch.Env)...)
+	frame, err := redaction.RedactStreamFrame(event.Frame, redaction.EnvironmentSecrets(p.config.Launch.Env)...)
 	if err != nil {
 		return err
 	}
@@ -244,7 +250,7 @@ func (p *Plugin) observe(ctx context.Context, runID string, event host.IOEvent) 
 	}
 	return err
 }
-func (p *Plugin) retain(ctx context.Context, input session.ArtifactInput) (wire.Reference, error) {
+func (p *Plugin) retain(ctx context.Context, input storage.ArtifactInput) (wire.Reference, error) {
 	p.mu.Lock()
 	if p.bodyBytes+len(input.Data) > 64<<20 {
 		p.mu.Unlock()

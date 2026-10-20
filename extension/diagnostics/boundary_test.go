@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -35,7 +35,7 @@ func TestDiagnosticManagerEvidenceMustBeActualAndCancellationJoined(t *testing.T
 					t.Fatal(err)
 				}
 			}
-			info, err := f.repo.PutArtifact(t.Context(), "owner", id, session.ArtifactInput{Kind: "diagnostic-stdout", Name: "approved", MediaType: "text/plain", Processing: "actual custom diagnostic source", Data: []byte("verified source"), Text: true})
+			info, err := f.repo.PutArtifact(t.Context(), "owner", id, storage.ArtifactInput{Kind: "diagnostic-stdout", Name: "approved", MediaType: "text/plain", Processing: "actual custom diagnostic source", Data: []byte("verified source"), Text: true})
 			if err != nil {
 				t.Fatal(err)
 			}

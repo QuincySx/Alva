@@ -25,6 +25,7 @@ import (
 	"time"
 
 	sandboxhost "github.com/QuincySx/Alva/platform/sandbox/host"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -200,7 +201,7 @@ func TestWASMCLIRealNativeAttachmentHistoryAndHostOnlyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, a := range page.Entries {
-		_, data, err := repo.ReadArtifactFull(ctx, cliOwner, id, a.Info.Reference().URI, session.MaxArtifactBytes)
+		_, data, err := repo.ReadArtifactFull(ctx, cliOwner, id, a.Info.Reference().URI, storage.MaxArtifactBytes)
 		if err != nil {
 			t.Fatal(err)
 		}

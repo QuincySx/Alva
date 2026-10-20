@@ -55,7 +55,7 @@ func TestExplicitPersistentMemorySurvivesRestartWithoutScanningOrCrossWorkspaceR
 	}))
 	defer server.Close()
 	ctx := context.Background()
-	config := Config{DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "fixture"}}
+	config := Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL, Model: "fixture"}}
 	a, err := Open(ctx, config)
 	if err != nil {
 		t.Fatal(err)

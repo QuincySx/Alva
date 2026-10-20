@@ -2,7 +2,7 @@
 > Native execution facts and artifacts with one SQLite authority and bounded read surfaces.
 
 ## 地位
-Native implementation of kernel ConversationLog/SessionStore; separate from Hub product state, not an SDK dependency.
+Native implementation of the shared storage.Repository/Session ports and SDK log contracts; separate from Hub product state. Public DTOs/errors live in the contract root, with no old aliases.
 ## 逻辑
 Typed records are atomically validated and indexed; their complete JSON bytes live in session-owned hashed SQLite chunks. Non-record artifacts use inline bytes or explicit OpenWithBlobs. The same owner/session metadata, chunk/full hashes, paging and search apply to both. Metadata pages do not fetch object bytes or restore runtime. Recovery records interrupted model/tool outcomes without executing tools and marks unknown side effects explicitly.
 Native schema v2 adds a small child→original-link index in the same CreateChild transaction. Existing new-Go v1 databases receive only that empty index; no historical relation is inferred/backfilled or silently made an authorization grant. ParentLink revalidates the original ≤16KiB typed link, causal intent SQL metadata and same-owner direct-parent metadata without reading intent/conversation bodies. Product code still validates its claimed root and bounds ancestry hops.
@@ -25,7 +25,7 @@ Owner/session identifiers are opaque, not paths. Owner is injected by trusted pr
 | External bytes | blob_storage.go / blob_storage_test.go | Explicit borrowed adapter/binding/retention, verified chunks, real memory/directory acceptance, isolation, corruption and uncertain upload rollback |
 | Cold artifact queries | artifact_queries.go / artifact_queries_test.go | Bounded exact kind/name metadata pages with fixed row high-water and explicit full hash-verified binary reads |
 | Recovery | recovery.go | Unknown/cancelled interruption settlement without replay |
-| Redaction | redaction.go | Canonical known credential redaction shared by native facts and MCP memory |
+| Redaction policy | ../redaction/ | Shared pure known-credential policy; no concrete store dependency for consumers |
 | Child facts | child.go | Atomic actual child creation/parent intent link and metadata-only ancestry lookup |
 | Child inspection | child_read.go | Exact bounded typed-link/hash and intent-index validation without restoring runtime or parent bodies |
 | Child regressions | child_test.go | Causal intent requirements, atomic identity/link, owner isolation and no inherited artifact access |

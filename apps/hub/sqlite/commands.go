@@ -24,7 +24,10 @@ func disabledCommands(value hub.CommandSettings) hub.CommandSettings {
 	}
 	return value
 }
-func (s *Store) ReplaceCommands(ctx context.Context, id string, commands hub.CommandSettings) error {
+func (s *Store) ReplaceCommands(ctx context.Context, id string, commands hub.CommandSettings) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	commands = disabledCommands(commands)
 	if err := commands.Validate(); err != nil {
 		return err
@@ -45,7 +48,10 @@ func (s *Store) ReplaceCommands(ctx context.Context, id string, commands hub.Com
 		return saveSettings(ctx, tx, value)
 	})
 }
-func (s *Store) SetCommandEnabled(ctx context.Context, id, kind, commandID string, enabled, approved bool) error {
+func (s *Store) SetCommandEnabled(ctx context.Context, id, kind, commandID string, enabled, approved bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	if kind != "hook" && kind != "diagnostic" {
 		return errors.New("unknown native command kind")
 	}

@@ -21,7 +21,7 @@ import (
 )
 
 func TestHTTPWorkerAttachmentQueuePinsOnlyUploadedWorkerBranchWithoutExecution(t *testing.T) {
-	f := newFixture(t, bootstrap.Config{Demo: true})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true})
 	lead := create(t, f, "Lead attachment queue")
 	team, err := f.app.Store.CreateTeam(t.Context(), lead.ID)
 	if err != nil {
@@ -55,7 +55,7 @@ func TestHTTPTeamQueueIsDurableNotImplicitExecution(t *testing.T) {
 		_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"actual worker result\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
 	defer upstream.Close()
-	f := newFixture(t, bootstrap.Config{ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
 	lead, other := create(t, f, "Lead"), create(t, f, "foreign Lead")
 	prefix := "/v1/sessions/" + lead.ID
 	var team hub.TeamDetail

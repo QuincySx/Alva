@@ -15,6 +15,7 @@ import (
 	"time"
 
 	securityplugin "github.com/QuincySx/Alva/extension/security"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -120,8 +121,8 @@ func (t *fixtureTool) DescribeEffect(wire.ToolCall) abi.Effect {
 func (t *fixtureTool) IsReadOnly(wire.ToolCall) bool { return !t.write }
 
 type fixture struct {
-	repo *session.Repository
-	log  *session.Session
+	repo storage.Repository
+	log  storage.Session
 	cwd  string
 }
 

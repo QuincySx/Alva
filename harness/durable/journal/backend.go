@@ -1,7 +1,7 @@
-// INPUT: context, encoding/json, errors, durable harness, native session storage and kernel/abi/wire.
-// OUTPUT: Open binds a durable Backend to the same actual native facts and exclusive run claim.
-// POS: [L5 native harness adapter] Persists wait state and result delivery atomically without a second transcript/database.
-package native
+// INPUT: context, encoding/json, errors, durable harness, shared session storage ports and kernel/abi/wire.
+// OUTPUT: Open binds a durable Backend to the same actual supplied facts and exclusive run claim.
+// POS: [L5 journal adapter] Persists wait state and result delivery atomically without a second transcript/database.
+package journal
 
 import (
 	"context"
@@ -9,26 +9,37 @@ import (
 	"errors"
 
 	"github.com/QuincySx/Alva/harness/durable"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/blob"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.SessionReader
+	storage.RecordRetention
+	storage.Runs
+	storage.RecordLookup
+	storage.ArtifactReader
+	storage.References
+}
+
 type Backend struct {
-	repository *session.Repository
+	repository Storage
 	owner      string
-	log        *session.Session
+	log        storage.Session
 	references agentcontext.ReferenceBackend
 }
 
-func Open(ctx context.Context, repository *session.Repository, owner, id string) (*Backend, error) {
-	if repository == nil {
-		return nil, errors.New("actual native repository required")
+func Open(ctx context.Context, repository Storage, owner, id string) (*Backend, error) {
+	if storage.Missing(repository) {
+		return nil, errors.New("actual session storage required")
 	}
-	if repository.ArtifactStorage().Retention != blob.Persistent {
-		return nil, errors.New("restart-durable waits require persistent artifact bytes; use the volatile backend for temporary execution")
+	if repository.RecordRetention() != blob.Persistent || repository.ArtifactStorage().Retention != blob.Persistent {
+		return nil, errors.New("restart-durable waits require persistent facts and artifact bytes; use the volatile backend for temporary execution")
 	}
 	log, err := repository.OpenSession(ctx, owner, id)
 	if err != nil {
@@ -89,7 +100,7 @@ func (b *Backend) Commit(ctx context.Context, revision uint64, state durable.Sta
 	}
 	// The native journal canonicalizes/redacts structured data. Reject a
 	// changed request binding before committing an unusable checkpoint.
-	data, err = session.RedactJSON(data)
+	data, err = redaction.RedactJSON(data)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
@@ -122,7 +133,7 @@ func (b *Backend) Commit(ctx context.Context, revision uint64, state durable.Sta
 		additional = append(additional, abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &m}))
 	}
 	record, err := b.log.AppendExtensionSnapshot(ctx, durable.Namespace, durable.SnapshotType, revision, data, additional...)
-	if errors.Is(err, session.ErrRevisionConflict) {
+	if errors.Is(err, storage.ErrRevisionConflict) {
 		return durable.Snapshot{}, durable.ErrConflict
 	}
 	if err != nil {

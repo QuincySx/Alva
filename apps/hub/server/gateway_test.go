@@ -21,7 +21,7 @@ func TestHTTPEmbeddedGatewayManagementDoesNotInvokeModels(t *testing.T) {
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); http.Error(w, "must not invoke", 500) }))
 	defer upstream.Close()
-	f := newFixture(t, bootstrap.Config{ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "explicit"}})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "explicit"}})
 	status := body(t, f.request(t, "GET", "/v1/gateway", nil, nil), 200)
 	if strings.Contains(string(status), `"running":true`) || calls.Load() != 0 {
 		t.Fatal("cold management started work")

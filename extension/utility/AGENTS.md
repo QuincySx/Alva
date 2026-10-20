@@ -20,4 +20,4 @@ PreferenceStore 由宿主绑定，拥有并发/持久化并返回 detached snaps
 | tools_test.go | 真内存 SDK 下一请求偏好、late registry/schema 和不安全后端输出拒绝 |
 | search_test.go | 无存储完整Schema、超界拒绝与writer失败不回退全文 |
 | timer/ | 无原生依赖的可取消 sleep Tool |
-| native/ | 原生 utility Plugin、偏好 snapshot/CAS 与具体会话/Guard/引用适配 |
+| native/ | 原生 utility Plugin、偏好 snapshot/CAS 与共享会话插口/Guard/引用适配 |

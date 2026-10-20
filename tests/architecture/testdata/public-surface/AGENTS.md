@@ -19,6 +19,9 @@
 | kernel core | kernel-core.txt | 可替换循环/执行配置与可选通用诊断观察契约 |
 | agent ABI | agent-abi.txt | 可选Task/Scope/Spawn/phase/provider/analytics |
 | agent core | agent-core.txt | Plugin/Registrar/Finalizer/Builder与快照 |
+| sandbox ABI | sandbox-abi.txt | 纯宿主/guest能力数据 |
+| storage ports | platform-storage.txt | 各层共用的组合插口、返回值与错误；不包含具体数据库 |
+| immutable bytes | platform-storage-blob.txt | 两方法字节端口、retention与共享错误 |
 
 2026-10-18：Alva module 提升到仓库根目录；六份快照仅同步 github.com/QuincySx/Alva 的 import 身份，保留原类型/字段/方法契约，不留旧 module alias。
 

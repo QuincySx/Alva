@@ -13,6 +13,7 @@ import (
 	"time"
 
 	securityplugin "github.com/QuincySx/Alva/extension/security"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -27,8 +28,8 @@ func (f modelFunc) Stream(c context.Context, r abi.ModelRequest, e func(wire.Str
 }
 
 type fixture struct {
-	repo  *session.Repository
-	log   *session.Session
+	repo  storage.Repository
+	log   storage.Session
 	c     Config
 	p     *Plugin
 	state *abi.AgentState
@@ -127,7 +128,7 @@ func TestConfigActualNextRequestConsumerPersistenceAndCAS(t *testing.T) {
 	if err != nil || restored.preferences["response.language"] != "zh-TW" {
 		t.Fatal("preference not truly durable", err)
 	}
-	if err = other.set(ctx, "response.verbosity", "detailed"); !errors.Is(err, session.ErrRevisionConflict) {
+	if err = other.set(ctx, "response.verbosity", "detailed"); !errors.Is(err, storage.ErrRevisionConflict) {
 		t.Fatal("stale config cache overwrote actual facts", err)
 	}
 	for _, key := range []string{"api_key", "provider", "permission-mode", "response.language"} {

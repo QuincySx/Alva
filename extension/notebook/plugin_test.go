@@ -7,12 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -29,8 +30,8 @@ func (model) Stream(context.Context, abi.ModelRequest, func(wire.StreamChunk) er
 }
 
 type fixture struct {
-	repo      *session.Repository
-	log       *session.Session
+	repo      storage.Repository
+	log       storage.Session
 	cwd, path string
 	workspace *workspacefs.Workspace
 	p         *Plugin

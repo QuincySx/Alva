@@ -5,8 +5,9 @@ package product
 
 import (
 	"context"
+
 	mediaextension "github.com/QuincySx/Alva/extension/media"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 )
 
 func (s *HubService) mediaLibrary(ctx context.Context, id, branchID string) (*mediaextension.Library, error) {
@@ -17,17 +18,17 @@ func (s *HubService) mediaLibrary(ctx context.Context, id, branchID string) (*me
 	return mediaextension.NewLibrary(ctx, s.Repository, id, branch.NativeSessionID)
 }
 
-func (s *HubService) MediaSources(ctx context.Context, id, branchID string, after, highWater uint64) (session.ArtifactIndexPage, error) {
+func (s *HubService) MediaSources(ctx context.Context, id, branchID string, after, highWater uint64) (storage.ArtifactIndexPage, error) {
 	library, err := s.mediaLibrary(ctx, id, branchID)
 	if err != nil {
-		return session.ArtifactIndexPage{}, err
+		return storage.ArtifactIndexPage{}, err
 	}
 	return library.Sources(ctx, after, highWater)
 }
-func (s *HubService) MediaSelections(ctx context.Context, id, branchID string, after, highWater uint64) (session.ArtifactIndexPage, error) {
+func (s *HubService) MediaSelections(ctx context.Context, id, branchID string, after, highWater uint64) (storage.ArtifactIndexPage, error) {
 	library, err := s.mediaLibrary(ctx, id, branchID)
 	if err != nil {
-		return session.ArtifactIndexPage{}, err
+		return storage.ArtifactIndexPage{}, err
 	}
 	return library.Selections(ctx, after, highWater)
 }
@@ -45,10 +46,10 @@ func (s *HubService) MediaReceipt(ctx context.Context, id, branchID, uri string)
 	}
 	return library.ReadReceipt(ctx, uri)
 }
-func (s *HubService) MediaIndex(ctx context.Context, id, branchID, sourceURI string, after, highWater uint64) (session.ArtifactIndexPage, error) {
+func (s *HubService) MediaIndex(ctx context.Context, id, branchID, sourceURI string, after, highWater uint64) (storage.ArtifactIndexPage, error) {
 	library, err := s.mediaLibrary(ctx, id, branchID)
 	if err != nil {
-		return session.ArtifactIndexPage{}, err
+		return storage.ArtifactIndexPage{}, err
 	}
 	return library.ListArtifacts(ctx, sourceURI, after, highWater)
 }
@@ -66,10 +67,10 @@ func (s *HubService) MediaPreview(ctx context.Context, id, branchID, manifestURI
 	}
 	return library.ReadDerivative(ctx, manifestURI)
 }
-func (s *HubService) MediaReceipts(ctx context.Context, id, branchID, selectionID string, after, highWater uint64) (session.ArtifactIndexPage, error) {
+func (s *HubService) MediaReceipts(ctx context.Context, id, branchID, selectionID string, after, highWater uint64) (storage.ArtifactIndexPage, error) {
 	library, err := s.mediaLibrary(ctx, id, branchID)
 	if err != nil {
-		return session.ArtifactIndexPage{}, err
+		return storage.ArtifactIndexPage{}, err
 	}
 	return library.Receipts(ctx, selectionID, after, highWater)
 }

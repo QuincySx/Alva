@@ -12,20 +12,27 @@ import (
 
 	utility "github.com/QuincySx/Alva/extension/utility"
 	"github.com/QuincySx/Alva/extension/utility/timer"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
 
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+	storage.RecordLookup
+	storage.ArtifactReader
+}
+
 type Config struct {
-	Repository            *session.Repository
+	Repository            Storage
 	Owner, SessionID, Cwd string
 	Guard                 *security.Guard
 }
 type Plugin struct {
 	config      Config
-	log         *session.Session
+	log         storage.Session
 	mu          sync.Mutex
 	runID       string
 	state       *abi.AgentState
@@ -35,7 +42,7 @@ type Plugin struct {
 }
 
 func New(ctx context.Context, c Config) (*Plugin, error) {
-	if c.Repository == nil || c.Guard == nil || !filepath.IsAbs(c.Cwd) {
+	if storage.Missing(c.Repository) || c.Guard == nil || !filepath.IsAbs(c.Cwd) {
 		return nil, errors.New("explicit native utility authority/guard/cwd required")
 	}
 	log, err := c.Repository.OpenSession(ctx, c.Owner, c.SessionID)

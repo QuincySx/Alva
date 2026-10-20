@@ -10,7 +10,7 @@ import (
 	"io"
 
 	"github.com/QuincySx/Alva/apps/hub"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 )
 
 func protectHandoff(value *hub.Handoff) (*hub.Handoff, error) {
@@ -18,7 +18,7 @@ func protectHandoff(value *hub.Handoff) (*hub.Handoff, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err = session.RedactJSON(data)
+	data, err = redaction.RedactJSON(data)
 	if err != nil {
 		return nil, err
 	}

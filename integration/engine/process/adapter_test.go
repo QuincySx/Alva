@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/bindings"
 )
 
 func TestVendorFixtureProcess(t *testing.T) {
@@ -139,8 +141,14 @@ func TestPiPrivateNativeResumeSurvivesAdapterRestartAndRejectsForeignOwner(t *te
 	if err := a.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
+	store, err := bindings.Open(t.Context(), config.StateDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Bindings = bindingPorts{store}
 	reopened, err := New(config)
 	if err != nil {
+		store.Close()
 		t.Fatal(err)
 	}
 	defer reopened.Close(ctx)
@@ -206,6 +214,67 @@ func TestExternalJournalRedactsSplitStderrAndCredentialFields(t *testing.T) {
 		t.Fatal("ordinary diagnostic field was lost")
 	}
 }
+
+type bindingPorts struct{ storage.BindingStore }
+
+type bindingReadFailure struct {
+	storage.BindingStore
+	failure error
+}
+
+func (s bindingReadFailure) ReadBinding(context.Context, string) (storage.SessionBinding, error) {
+	return storage.SessionBinding{}, s.failure
+}
+func TestResumePreservesSelectedProviderFailureWithoutStartingProcess(t *testing.T) {
+	a, directory := fixtureAdapter(t, "codex", "ok")
+	failure := errors.New("selected identity provider unavailable")
+	a.config.Bindings = bindingReadFailure{BindingStore: a.config.Bindings, failure: failure}
+	err := a.Execute(t.Context(), engine.Request{OwnerID: "owner", Workspace: t.TempDir(), ResumeSession: "actual-native", Prompt: "resume"}, func(engine.Event) error { t.Fatal("failed storage started runtime observations"); return nil })
+	if !errors.Is(err, failure) || errors.Is(err, engine.ErrSessionNotFound) {
+		t.Fatal("storage failure was hidden as an unknown session", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "journals")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failed lookup started process IO", err)
+	}
+}
+
+func TestMissingBindingSlotDoesNotSelectDatabase(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "unopened")
+	if a, err := New(Config{Vendor: "codex", StateDirectory: directory, ApprovedHostAccess: true}); err == nil {
+		a.Close(t.Context())
+		t.Fatal("missing binding component selected a backend")
+	}
+	if _, err := os.Stat(directory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("missing slot performed storage IO", err)
+	}
+}
+
+type bindingCloseFailure struct {
+	storage.BindingStore
+	failure error
+	calls   int
+}
+
+func (s *bindingCloseFailure) Close() error {
+	s.calls++
+	if s.calls == 1 {
+		return s.failure
+	}
+	return s.BindingStore.Close()
+}
+func TestAdapterRetainsSelectedBindingUntilCloseSucceeds(t *testing.T) {
+	a, _ := fixtureAdapter(t, "codex", "ok")
+	failure := errors.New("selected binding cleanup incomplete")
+	selected := &bindingCloseFailure{BindingStore: a.config.Bindings, failure: failure}
+	a.config.Bindings = selected
+	if err := a.Close(t.Context()); !errors.Is(err, failure) || a.storeClosed {
+		t.Fatal("lost failed provider owner", err)
+	}
+	if err := a.Close(t.Context()); err != nil || !a.storeClosed || selected.calls != 2 {
+		t.Fatal("selected component was not closed again", err)
+	}
+}
+
 func fixtureAdapter(t *testing.T, vendor, mode string) (*Adapter, string) {
 	t.Helper()
 	binary, err := os.Executable()
@@ -213,8 +282,13 @@ func fixtureAdapter(t *testing.T, vendor, mode string) (*Adapter, string) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(t.TempDir(), "private")
-	a, err := New(Config{Vendor: vendor, Command: binary, PrefixArgs: []string{"-test.run=^TestVendorFixtureProcess$", "--"}, StateDirectory: dir, ApprovedHostAccess: true, Env: map[string]string{"ALVA_ENGINE_FIXTURE": mode, "ALVA_ENGINE_VENDOR": vendor, "FIXTURE_TOKEN": "marker-secret-12345"}})
+	store, err := bindings.Open(t.Context(), dir)
 	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := New(Config{Bindings: bindingPorts{store}, Vendor: vendor, Command: binary, PrefixArgs: []string{"-test.run=^TestVendorFixtureProcess$", "--"}, StateDirectory: dir, ApprovedHostAccess: true, Env: map[string]string{"ALVA_ENGINE_FIXTURE": mode, "ALVA_ENGINE_VENDOR": vendor, "FIXTURE_TOKEN": "marker-secret-12345"}})
+	if err != nil {
+		store.Close()
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

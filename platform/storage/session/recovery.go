@@ -1,5 +1,5 @@
 // INPUT: context, database/sql, encoding/json, kernel/abi, llm/wire.
-// OUTPUT: RecoveryReport and explicit interrupted-intent settlement without execution.
+// OUTPUT: storage.RecoveryReport and explicit interrupted-intent settlement without execution.
 // POS: [platform / durable storage] Native crash recovery preserves unknown side effects instead of replaying or inventing success.
 package session
 
@@ -9,45 +9,45 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
-type RecoveryReport struct{ ModelIntents, ToolIntents, UnknownToolExecutions int }
 type pendingIntent struct {
 	id                       string
 	sequence                 uint64
 	requestID, runID, callID string
 }
 
-func (r *Repository) Recover(ctx context.Context, owner, id string) (RecoveryReport, error) {
+func (r *Repository) Recover(ctx context.Context, owner, id string) (storage.RecoveryReport, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return RecoveryReport{}, ErrClosed
+		return storage.RecoveryReport{}, storage.ErrClosed
 	}
 	if r.active[id] {
-		return RecoveryReport{}, ErrActive
+		return storage.RecoveryReport{}, storage.ErrActive
 	}
 	return r.recoverLocked(ctx, owner, id)
 }
 
-func (r *Repository) recoverLocked(ctx context.Context, owner, id string) (RecoveryReport, error) {
+func (r *Repository) recoverLocked(ctx context.Context, owner, id string) (storage.RecoveryReport, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return RecoveryReport{}, err
+		return storage.RecoveryReport{}, err
 	}
 	defer tx.Rollback()
 	if err = authorize(ctx, tx, owner, id); err != nil {
-		return RecoveryReport{}, err
+		return storage.RecoveryReport{}, err
 	}
 	models, err := pending(ctx, tx, id, "model_intent", "model_outcome", true)
 	if err != nil {
-		return RecoveryReport{}, err
+		return storage.RecoveryReport{}, err
 	}
 	tools, err := pending(ctx, tx, id, "tool_intent", "tool_outcome", false)
 	if err != nil {
-		return RecoveryReport{}, err
+		return storage.RecoveryReport{}, err
 	}
 	var batch []abi.SessionRecord
 	for _, intent := range models {
@@ -55,7 +55,7 @@ func (r *Repository) recoverLocked(ctx context.Context, owner, id string) (Recov
 	}
 	if len(batch) > 0 {
 		if _, err = appendTx(ctx, tx, id, batch); err != nil {
-			return RecoveryReport{}, err
+			return storage.RecoveryReport{}, err
 		}
 	}
 	for start := 0; start < len(tools); start += 64 {
@@ -72,13 +72,13 @@ func (r *Repository) recoverLocked(ctx context.Context, owner, id string) (Recov
 			batch = append(batch, abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolOutcome, ToolOutcome: &abi.ToolOutcome{RunID: intent.runID, CallID: intent.callID, Status: abi.OutcomeCancelled, Result: result, Error: "Execution outcome unknown after interruption; not replayed"}}), abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordConversation, Message: &message}))
 		}
 		if _, err = appendTx(ctx, tx, id, batch); err != nil {
-			return RecoveryReport{}, err
+			return storage.RecoveryReport{}, err
 		}
 	}
 	if err = tx.Commit(); err != nil {
-		return RecoveryReport{}, err
+		return storage.RecoveryReport{}, err
 	}
-	return RecoveryReport{ModelIntents: len(models), ToolIntents: len(tools), UnknownToolExecutions: len(tools)}, nil
+	return storage.RecoveryReport{ModelIntents: len(models), ToolIntents: len(tools), UnknownToolExecutions: len(tools)}, nil
 }
 
 func pending(ctx context.Context, tx *sql.Tx, id, intentKind, outcomeKind string, model bool) ([]pendingIntent, error) {

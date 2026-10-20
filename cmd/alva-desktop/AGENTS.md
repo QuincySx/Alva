@@ -15,6 +15,8 @@
 
 无 npm、HTML、React、WebView、旧配置迁移和 Rust FFI；此入口不宣称已完成 Hub。不要把 API key 放到命令行、日志或错误文本。演示不启动 MCP/外部工具/网络，构建与测试不启动窗口。
 
+程序入口负责选择实际存储组件：direct显式打开后传Config.Storage；Hub明确传LocalStores/LocalMemory/LocalBindings配方。下层消费者只看共享插口，错误不触发默认后端fallback。
+
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |

@@ -9,7 +9,7 @@ import (
 	"errors"
 
 	planning "github.com/QuincySx/Alva/extension/planning"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -80,7 +80,7 @@ func (p *Plugin) detail(ctx context.Context, task planning.TaskRecord) (wire.Ref
 	if len(raw) > 128<<10 {
 		return wire.Reference{}, errors.New("configured planning detail exceeds 128 KiB")
 	}
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: "planning-task-detail", Name: task.Task.ID, MediaType: "application/json", Processing: "Configured planning Service task projection at this read, retained in this native session; backend owns business-state persistence; no execution, permission change or automatic model delivery implied", Data: raw, Text: true})
+	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: "planning-task-detail", Name: task.Task.ID, MediaType: "application/json", Processing: "Configured planning Service task projection at this read, retained in this native session; backend owns business-state persistence; no execution, permission change or automatic model delivery implied", Data: raw, Text: true})
 	if err != nil {
 		return wire.Reference{}, &abi.SessionError{Operation: "retain planning detail", SessionID: p.config.SessionID, Err: err}
 	}

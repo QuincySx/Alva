@@ -8,7 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -37,11 +38,11 @@ func (t *utilityTool) Execute(ctx context.Context, e abi.ToolExecutionContext, c
 	return t.Tool.Execute(ctx, e, call)
 }
 func (p *Plugin) retainSchema(ctx context.Context, name string, schema json.RawMessage) (wire.Reference, error) {
-	clean, err := session.RedactJSON(schema)
+	clean, err := redaction.RedactJSON(schema)
 	if err != nil {
 		return wire.Reference{}, err
 	}
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: "tool-schema", Name: name, MediaType: "application/json", Processing: "Actual selected registered tool schema; known credentials redacted; registry discovery did not start any external service; no automatic model delivery", Data: clean, Text: true})
+	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: "tool-schema", Name: name, MediaType: "application/json", Processing: "Actual selected registered tool schema; known credentials redacted; registry discovery did not start any external service; no automatic model delivery", Data: clean, Text: true})
 	if err != nil {
 		return wire.Reference{}, &abi.SessionError{Operation: "retain tool schema", SessionID: p.config.SessionID, Err: err}
 	}

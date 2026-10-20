@@ -1,4 +1,4 @@
-// INPUT: bytes, context, encoding/json, errors, fmt, strings, time, unicode/utf8, host/command, kernel/abi, storage/session, platform/system/strictjson.
+// INPUT: bytes, context, encoding/json, errors, fmt, strings, time, unicode/utf8, host/command, kernel/abi, shared storage contracts, platform/system/strictjson.
 // OUTPUT: ErrExecution, ErrFinalization and bounded hook receipts backed by actual native fact/artifact authority.
 // POS: [L4 extension] Every approved start has prior durable evidence, full bounded sanitized I/O and truthful process/error outcomes.
 package hooks
@@ -14,7 +14,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/platform/host/command"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -219,7 +220,7 @@ func (p *Plugin) retain(ctx context.Context, hookID, kind string, data []byte, c
 	known := []string{}
 	for _, entry := range p.config.Entries {
 		if entry.ID == hookID {
-			known = session.EnvironmentSecrets(entry.Process.Env)
+			known = redaction.EnvironmentSecrets(entry.Process.Env)
 			break
 		}
 	}
@@ -227,10 +228,10 @@ func (p *Plugin) retain(ctx context.Context, hookID, kind string, data []byte, c
 	var sanitized []byte
 	var err error
 	if json.Valid([]byte(text)) {
-		sanitized, err = session.RedactJSON([]byte(text), known...)
+		sanitized, err = redaction.RedactJSON([]byte(text), known...)
 	} else {
 		encoded, _ := json.Marshal(text)
-		sanitized, err = session.RedactJSON(encoded, known...)
+		sanitized, err = redaction.RedactJSON(encoded, known...)
 		if err == nil {
 			err = json.Unmarshal(sanitized, &text)
 			sanitized = []byte(text)
@@ -239,7 +240,7 @@ func (p *Plugin) retain(ctx context.Context, hookID, kind string, data []byte, c
 	if err != nil {
 		return wire.Reference{}, err
 	}
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: "hook-" + kind, Name: hookID, MediaType: "text/plain; charset=utf-8", Processing: fmt.Sprintf("Known-credential-redacted hook %s; structured JSON normalized; complete_capture=%v; original_utf8=%v; captured_source_bytes=%d; incomplete_tail_omitted_bytes=%d; invalid UTF-8 replaced if present; not automatically delivered to model", kind, complete, valid, sourceBytes, omittedTail), Data: sanitized, Text: true})
+	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: "hook-" + kind, Name: hookID, MediaType: "text/plain; charset=utf-8", Processing: fmt.Sprintf("Known-credential-redacted hook %s; structured JSON normalized; complete_capture=%v; original_utf8=%v; captured_source_bytes=%d; incomplete_tail_omitted_bytes=%d; invalid UTF-8 replaced if present; not automatically delivered to model", kind, complete, valid, sourceBytes, omittedTail), Data: sanitized, Text: true})
 	if err != nil {
 		return wire.Reference{}, &abi.SessionError{Operation: "retain hook " + kind, SessionID: p.config.SessionID, Err: err}
 	}

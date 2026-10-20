@@ -24,4 +24,4 @@ process 提供自有进程组/真实回收，media 提供显式字节派生与�
 | Secret input | `secretinput/` | 命令stdin有界读与真实管道取消，无后台secret reader |
 | Windows file line input | `lineinput/` | sole-reader文件/pipe逐行可取消、无readahead，不决定REPL/审批或secret政策；console明确unsupported |
 | Terminal text | `terminaltext/` | direct/Hub CLI共用的纯C0/C1显示转义，不更改模型/执行参数或原始历史 |
-| Windows private filesystem | `privatefs/` | 仅Windows原生DACL/owner/reparse/hardlink与原子私有创建，供独立storage/browser/snapshot适配消费 |
+| Private filesystem | `privatefs/` | 独立EnsureDir/OpenFile；Unix UID/mode/link与Windows DACL/handle检查，不带SQL依赖 |

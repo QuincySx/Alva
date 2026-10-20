@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -36,7 +37,7 @@ func TestConversationTailFixedWaterAndDetachedMetadata(t *testing.T) {
 	if err != nil || len(view) != 4 || view[3].Text() != "9" {
 		t.Fatal("snapshot changed", view, err)
 	}
-	if _, err := repo.BoundConversationTail(t.Context(), "foreign", log.ID(), 4); !errors.Is(err, ErrNotFound) {
+	if _, err := repo.BoundConversationTail(t.Context(), "foreign", log.ID(), 4); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("foreign authority", err)
 	}
 	if _, err := tail.Read(t.Context(), 6, tailMaxBytes); err == nil {
@@ -106,7 +107,7 @@ func TestConversationTailRejectsInvalidSelectedEvidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			messages, err := tail.Read(t.Context(), len(tail.metadata), tailMaxBytes)
+			messages, err := tail.Read(t.Context(), len(tail.(*conversationTail).metadata), tailMaxBytes)
 			if err == nil || messages != nil {
 				t.Fatal("invalid partial read accepted", messages, err)
 			}

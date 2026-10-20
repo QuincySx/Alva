@@ -9,13 +9,9 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/platform/host"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 )
-
-type NativeOwnerResolver interface {
-	NativeOwner(context.Context, string, string) (string, error)
-}
 
 func (s *HubService) typedDescendant(ctx context.Context, owner, root, child string) (bool, error) {
 	seen := make(map[string]bool)
@@ -32,7 +28,7 @@ func (s *HubService) typedDescendant(ctx context.Context, owner, root, child str
 		}
 		seen[current] = true
 		link, err := s.Repository.ParentLink(ctx, owner, current)
-		if errors.Is(err, session.ErrNotFound) {
+		if errors.Is(err, storage.ErrNotFound) {
 			return false, nil
 		}
 		if err != nil {
@@ -66,11 +62,7 @@ func (s *HubService) RespondNativeApproval(ctx context.Context, engineID, root, 
 	if s.Approvals == nil {
 		return host.ErrApprovalExpired
 	}
-	resolver, ok := s.Store.(NativeOwnerResolver)
-	if !ok {
-		return errors.New("product route owner resolver unavailable")
-	}
-	id, err := resolver.NativeOwner(ctx, engineID, root)
+	id, err := s.Store.NativeOwner(ctx, engineID, root)
 	if err != nil {
 		return err
 	}

@@ -6,6 +6,8 @@
 独占进程锁后打开0700/0600私有库、建表并修复中断Turn。新Turn和首Attempt、fallback认领、事件/终态都在事务提交；固定产品归属与activeAttempt防止迟到结果覆盖新轮。
 ## 约束
 首次版本不读取旧Rust数据；user_version=0但已有任何业务表的库拒绝准入，不向未知库补建Hub表。最多64分支、7个授权fallback路由；history每页128项。handoff只传32条有界Turn索引，超量明确要求检索，不静默声称完整历史。Stop/可能副作用禁止自动fallback。实例锁释放与DB关闭由Store.Close显式拥有。
+所有公开Store错误在provider边界映射共享hub.ErrNotFound；product/Tool/HTTP不得识别sql.ErrNoRows。内部SQL原因可保留供诊断，事务/schema行为保持。
+
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
@@ -29,3 +31,4 @@
 | provider_failure_test.go | 真实Alva HTTP provider分类驱动fallback，mixed SessionError与prepare风险禁止重放 |
 | automation.go / automation_test.go | owner-scoped乐观计划CRUD、明确计费批准、普通Turn同事务认领/收尾；busy/missed跳过、Stop/崩溃暂停且绝不自动fallback/重放 |
 | worktree.go / worktree_test.go | 首Turn前one-way隔离、cwd原子绑定、revision证据/明确adoption；独立removal review/明确删除后retire，不retarget历史；未就绪/未知准入阻断与crash未知不重放 |
+| errors.go | SQL内部错误到共享Hub语义的边界映射 |

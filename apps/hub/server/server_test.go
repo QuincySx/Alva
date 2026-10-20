@@ -130,7 +130,7 @@ func waitIdle(t *testing.T, f *fixture, id string) {
 }
 
 func TestAuthenticationOriginAuthorityAndStrictBodies(t *testing.T) {
-	f := newFixture(t, bootstrap.Config{Demo: true})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true})
 	for _, test := range []struct {
 		path    string
 		headers map[string]string
@@ -175,7 +175,7 @@ func TestAuthenticationOriginAuthorityAndStrictBodies(t *testing.T) {
 }
 
 func TestOriginalUploadReferenceColdInspectorAndForeignRead(t *testing.T) {
-	f := newFixture(t, bootstrap.Config{Demo: true})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true})
 	a := create(t, f, "files")
 	other := create(t, f, "other")
 	raw := []byte("PRIVATE-RAW-LOG-正文-not-in-prompt\n")
@@ -256,7 +256,7 @@ func TestDurableSSEResumeAndDisconnectDoesNotStop(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	f := newFixture(t, bootstrap.Config{ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
 	a := create(t, f, "observe")
 	body(t, f.request(t, "POST", "/v1/sessions/"+a.ID+"/turns", []byte(`{"prompt":"wait"}`), nil), 202)
 	select {
@@ -289,7 +289,7 @@ func TestDurableSSEResumeAndDisconnectDoesNotStop(t *testing.T) {
 }
 
 func TestSettingsImportDisabledAndConfiguredRoutesOnly(t *testing.T) {
-	f := newFixture(t, bootstrap.Config{Demo: true})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true})
 	a := create(t, f, "settings")
 	prefix := "/v1/sessions/" + a.ID
 	body(t, f.request(t, "PUT", prefix+"/settings/mcp", []byte(`{"servers":[{"id":"server","command":"never-run-fixture","enabled":true,"host_access_approved":true}]}`), nil), 200)
@@ -315,7 +315,7 @@ func TestColdReadDoesNotIssueModelRequests(t *testing.T) {
 	var calls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); http.Error(w, "not permitted", 500) }))
 	defer upstream.Close()
-	f := newFixture(t, bootstrap.Config{ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
 	a := create(t, f, "cold")
 	for _, path := range []string{"/v1/health", "/v1/targets", "/v1/sessions", "/v1/sessions/" + a.ID, "/v1/sessions/" + a.ID + "/settings", "/v1/sessions/" + a.ID + "/history"} {
 		body(t, f.request(t, "GET", path, nil, nil), 200)
@@ -338,7 +338,7 @@ func TestHTTPApprovalBoundToActualRunningSession(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	f := newFixture(t, bootstrap.Config{ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: upstream.URL, Model: "fixture"}})
 	a := create(t, f, "approval")
 	foreign := create(t, f, "foreign")
 	prefix := "/v1/sessions/" + a.ID

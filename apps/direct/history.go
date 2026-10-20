@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -27,20 +27,20 @@ type HistoryPage struct {
 	HasEarlier       bool
 }
 
-func (s *Service) History(ctx context.Context, id, query string, after, highWater uint64) (session.RecordPage, error) {
+func (s *Service) History(ctx context.Context, id, query string, after, highWater uint64) (storage.RecordPage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return session.RecordPage{}, session.ErrClosed
+		return storage.RecordPage{}, storage.ErrClosed
 	}
 	if query == "" {
 		return s.repository.Page(ctx, owner, id, after, 20, highWater)
 	}
 	page, err := s.repository.Search(ctx, owner, id, query, after, 20, highWater)
 	if err != nil {
-		return session.RecordPage{}, err
+		return storage.RecordPage{}, err
 	}
-	result := session.RecordPage{Next: page.Next, HighWater: page.HighWater, HasMore: page.HasMore}
+	result := storage.RecordPage{Next: page.Next, HighWater: page.HighWater, HasMore: page.HasMore}
 	for _, match := range page.Matches {
 		result.Entries = append(result.Entries, match.Entry)
 	}
@@ -50,7 +50,7 @@ func (s *Service) InspectorRead(ctx context.Context, id, uri string, offset int6
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return agentcontext.TextPage{}, session.ErrClosed
+		return agentcontext.TextPage{}, storage.ErrClosed
 	}
 	references, err := s.repository.BoundReferences(ctx, owner, id)
 	if err != nil {
@@ -66,7 +66,7 @@ func (s *Service) Conversation(ctx context.Context, id string, before uint64) (H
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return HistoryPage{}, session.ErrClosed
+		return HistoryPage{}, storage.ErrClosed
 	}
 	probe, err := s.repository.Page(ctx, owner, id, 0, 1, 0)
 	if err != nil {

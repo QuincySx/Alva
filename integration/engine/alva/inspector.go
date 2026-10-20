@@ -9,13 +9,21 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/integration/engine"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 )
 
-type RepositoryInspector struct{ repository *session.Repository }
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Records
+	storage.References
+	storage.ChildReader
+	storage.Bundles
+}
 
-func NewRepositoryInspector(repository *session.Repository) (*RepositoryInspector, error) {
-	if repository == nil {
+type RepositoryInspector struct{ repository Storage }
+
+func NewRepositoryInspector(repository Storage) (*RepositoryInspector, error) {
+	if storage.Missing(repository) {
 		return nil, errors.New("native inspection repository required")
 	}
 	return &RepositoryInspector{repository: repository}, nil
@@ -23,7 +31,7 @@ func NewRepositoryInspector(repository *session.Repository) (*RepositoryInspecto
 func (*RepositoryInspector) InspectionCapabilities() engine.InspectionCapabilities {
 	return engine.InspectionCapabilities{Level: engine.InspectionFull, Historical: true, Live: true, RawRecords: true, RecursiveChildren: true, ExportJSONL: true}
 }
-func inspectionEntry(entry session.RecordEntry) engine.InspectionEntry {
+func inspectionEntry(entry storage.RecordEntry) engine.InspectionEntry {
 	result := engine.InspectionEntry{ID: entry.ID, Sequence: entry.Sequence, Time: entry.Time, Kind: string(entry.Kind), Namespace: entry.Namespace, Type: entry.Type, SchemaVersion: entry.SchemaVersion, Summary: entry.Summary, Value: engine.InspectionReference{URI: entry.Value.URI, MediaType: entry.Value.MediaType, SHA256: entry.Value.SHA256, Bytes: entry.Value.Bytes, Processing: entry.Value.Processing}}
 	if entry.Parent != nil {
 		result.Parent = &engine.InspectionRecordReference{SessionID: entry.Parent.SessionID, RecordID: entry.Parent.RecordID, Sequence: entry.Parent.Sequence}
@@ -112,7 +120,7 @@ func (i *RepositoryInspector) Observe(ctx context.Context, scope engine.Inspecti
 	}
 }
 func (i *RepositoryInspector) Export(ctx context.Context, scope engine.InspectionScope, highWater uint64, children bool) (engine.InspectionBundle, error) {
-	data, summary, err := i.repository.ExportBundle(ctx, scope.OwnerID, scope.NativeID, session.BundleOptions{HighWater: highWater, IncludeChildren: children})
+	data, summary, err := i.repository.ExportBundle(ctx, scope.OwnerID, scope.NativeID, storage.BundleOptions{HighWater: highWater, IncludeChildren: children})
 	if err != nil {
 		return engine.InspectionBundle{}, err
 	}

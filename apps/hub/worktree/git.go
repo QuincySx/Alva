@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	private "github.com/QuincySx/Alva/platform/storage/sqlite"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	"github.com/QuincySx/Alva/platform/system/process"
 )
 
@@ -49,13 +49,13 @@ func New(config Config) (*Manager, error) {
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
 		return nil, errors.New("explicit Git executable unavailable")
 	}
-	config.Root, err = private.EnsurePrivateDir(config.Root)
+	config.Root, err = private.EnsureDir(config.Root)
 	if err != nil {
 		return nil, err
 	}
 	directories := map[string]os.FileInfo{}
 	for _, name := range []string{"home", "hooks", "trees", "evidence"} {
-		if _, err = private.EnsurePrivateDir(filepath.Join(config.Root, name)); err != nil {
+		if _, err = private.EnsureDir(filepath.Join(config.Root, name)); err != nil {
 			return nil, err
 		}
 		directories[name], err = os.Lstat(filepath.Join(config.Root, name))

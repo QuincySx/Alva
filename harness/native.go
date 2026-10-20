@@ -1,6 +1,6 @@
-// INPUT: platform/system/strictjson, context, encoding/json, sync, storage/session, agent/core, kernel/abi.
-// OUTPUT: NativeSessionPlugins binding a bounded context source, run claims, references and history.
-// POS: [L5 harness] Explicit native harness recipe connects one actual session authority without SDK storage policy.
+// INPUT: platform/system/strictjson, context, encoding/json, sync, shared storage contracts, agent/core, kernel/abi.
+// OUTPUT: SessionPlugins binding a bounded context source, run claims, references and history.
+// POS: [L5 harness] Uses one supplied session authority throughout, with no backend selection or SDK storage policy.
 package harness
 
 import (
@@ -9,27 +9,43 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
-// The caller must obtain owner/nativeID from its trusted session binding. These
-// are not independent credentials accepted from UI fields.
-func NativeSessionPlugins(ctx context.Context, repository *session.Repository, owner, nativeID string) ([]core.Plugin, error) {
-	return nativeSessionPlugins(ctx, repository, owner, nativeID, true)
+// SessionStorage is the common capability slot for harness session recipes.
+// Implementations are supplied by assembly; recipes never open or close a backend.
+type SessionStorage interface {
+	storage.SessionReader
+	storage.RecordRetention
+	storage.Runs
+	storage.Records
+	storage.Conversations
+	storage.References
 }
 
-// NativeSessionViews supplies context/references/history when an explicit outer
+type ChildStorage interface {
+	SessionStorage
+	storage.Children
+}
+
+// The caller must obtain owner/nativeID from its trusted session binding. These
+// are not independent credentials accepted from UI fields.
+func SessionPlugins(ctx context.Context, repository SessionStorage, owner, nativeID string) ([]core.Plugin, error) {
+	return sessionPlugins(ctx, repository, owner, nativeID, true)
+}
+
+// SessionViews supplies context/references/history when an explicit outer
 // execution owner (such as durable.Controller) already holds the native claim.
 // It grants no execution claim and must not be used by an unowned runner.
-func NativeSessionViews(ctx context.Context, repository *session.Repository, owner, nativeID string) ([]core.Plugin, error) {
-	return nativeSessionPlugins(ctx, repository, owner, nativeID, false)
+func SessionViews(ctx context.Context, repository SessionStorage, owner, nativeID string) ([]core.Plugin, error) {
+	return sessionPlugins(ctx, repository, owner, nativeID, false)
 }
-func nativeSessionPlugins(ctx context.Context, repository *session.Repository, owner, nativeID string, claim bool) ([]core.Plugin, error) {
-	if repository == nil {
+func sessionPlugins(ctx context.Context, repository SessionStorage, owner, nativeID string, claim bool) ([]core.Plugin, error) {
+	if storage.Missing(repository) {
 		return nil, errors.New("native session repository required")
 	}
 	backend, err := repository.BoundReferences(ctx, owner, nativeID)
@@ -50,7 +66,7 @@ func (p *nativeContextPlugin) Register(_ context.Context, r *core.Registrar) err
 }
 
 type nativeSessionPlugin struct {
-	repository *session.Repository
+	repository SessionStorage
 	owner, id  string
 	history    *nativeHistoryTool
 	claim      bool
@@ -68,12 +84,12 @@ func (p *nativeSessionPlugin) Register(_ context.Context, r *core.Registrar) err
 		return err
 	}
 	retention := p.repository.ArtifactStorage()
-	return r.SystemPrompt("This actual native session has durable typed execution records and session-owned artifacts. Artifact byte retention is " + string(retention.Retention) + ". native_history lists/searches small record references; context_read/context_search explicitly read those references. Original artifact bytes are retained with hashes within that declared lifetime. The model working view keeps a bounded recent user-turn tail and marks omitted history with explicit retrieval references; it does not summarize the prefix. No compression, frame extraction or media understanding is implied. Interrupted tools are marked execution-unknown and are never automatically replayed.")
+	return r.SystemPrompt("This actual execution session has typed records and session-owned artifacts. Record retention is " + string(p.repository.RecordRetention()) + ". Artifact byte retention is " + string(retention.Retention) + ". native_history lists/searches small record references; context_read/context_search explicitly read those references. Original artifact bytes are retained with hashes within that declared lifetime. The model working view keeps a bounded recent user-turn tail and marks omitted history with explicit retrieval references; it does not summarize the prefix. No compression, frame extraction or media understanding is implied. Interrupted tools are marked execution-unknown and are never automatically replayed.")
 }
 
 type nativeRunClaim struct {
 	mu         sync.Mutex
-	repository *session.Repository
+	repository SessionStorage
 	owner, id  string
 	release    func()
 	runID      string
@@ -94,7 +110,7 @@ func (m *nativeRunClaim) OnRunStart(ctx context.Context, runtime abi.RuntimeCont
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.release != nil {
-		return session.ErrActive
+		return storage.ErrActive
 	}
 	_, release, err := m.repository.BeginRun(ctx, m.owner, m.id)
 	if err != nil {
@@ -116,7 +132,7 @@ func (m *nativeRunClaim) OnRunEnd(_ context.Context, runtime abi.RuntimeContext,
 }
 
 type nativeHistoryTool struct {
-	repository *session.Repository
+	repository SessionStorage
 	owner, id  string
 }
 
@@ -128,7 +144,7 @@ func (nativeHistoryTool) ParametersSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["list","search"]},"query":{"type":"string","maxLength":256},"after":{"type":"integer","minimum":0},"high_water":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["action"],"additionalProperties":false}`)
 }
 func (t *nativeHistoryTool) Execute(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error) {
-	if t == nil || t.repository == nil || t.id == "" || execution.SessionID != t.id || execution.ActualTool != t || call.Name != t.Name() || call.ID == "" || execution.CallID != call.ID {
+	if t == nil || storage.Missing(t.repository) || t.id == "" || execution.SessionID != t.id || execution.ActualTool != t || call.Name != t.Name() || call.ID == "" || execution.CallID != call.ID {
 		return wire.ToolResult{}, errors.New("history does not belong to this execution session")
 	}
 	var args struct {
@@ -158,13 +174,13 @@ func (t *nativeHistoryTool) Execute(ctx context.Context, execution abi.ToolExecu
 	for limit := args.Limit; limit >= 1; limit-- {
 		switch args.Action {
 		case "list":
-			var page session.RecordPage
+			var page storage.RecordPage
 			page, err = t.repository.Page(ctx, t.owner, t.id, args.After, limit, args.HighWater)
 			if err == nil {
 				payload, err = json.Marshal(page)
 			}
 		case "search":
-			var page session.SearchPage
+			var page storage.SearchPage
 			page, err = t.repository.Search(ctx, t.owner, t.id, args.Query, args.After, limit, args.HighWater)
 			if err == nil {
 				payload, err = json.Marshal(page)

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
@@ -108,7 +109,7 @@ func TestNativeInspectorColdSnapshotAndBackpressuredDetachKeepsRunOwner(t *testi
 	case <-time.After(5 * time.Second):
 		t.Fatal("observer failed to detach")
 	}
-	if _, _, err = repo.BeginRun(ctx, "owner", "root"); !errors.Is(err, session.ErrActive) {
+	if _, _, err = repo.BeginRun(ctx, "owner", "root"); !errors.Is(err, storage.ErrActive) {
 		t.Fatal("observer released execution ownership", err)
 	}
 	latest, err := i.Page(ctx, scope, engine.InspectionQuery{Limit: 10})

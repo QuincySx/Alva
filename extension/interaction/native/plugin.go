@@ -13,15 +13,22 @@ import (
 	"time"
 
 	interaction "github.com/QuincySx/Alva/extension/interaction"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+	storage.References
+}
+
 type Config struct {
-	Repository            *session.Repository
+	Repository            Storage
 	Owner, SessionID, Cwd string
 	Guard                 *security.Guard
 	Handler               interaction.Handler
@@ -29,7 +36,7 @@ type Config struct {
 }
 type Plugin struct {
 	config  Config
-	log     *session.Session
+	log     storage.Session
 	tool    *questionTool
 	mu      sync.Mutex
 	runID   string
@@ -39,7 +46,7 @@ type Plugin struct {
 }
 
 func New(ctx context.Context, c Config) (*Plugin, error) {
-	if c.Repository == nil || c.Guard == nil || c.Handler == nil || !filepath.IsAbs(c.Cwd) {
+	if storage.Missing(c.Repository) || c.Guard == nil || c.Handler == nil || !filepath.IsAbs(c.Cwd) {
 		return nil, errors.New("explicit native question authority/guard/cwd and real human handler required")
 	}
 	v := reflect.ValueOf(c.Handler)
@@ -169,11 +176,11 @@ func (p *Plugin) retain(ctx context.Context, kind, name string, value any) (wire
 	if err != nil {
 		return wire.Reference{}, err
 	}
-	raw, err = session.RedactJSON(raw)
+	raw, err = redaction.RedactJSON(raw)
 	if err != nil {
 		return wire.Reference{}, err
 	}
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: kind, Name: name, MediaType: "application/json", Processing: "Complete known-credential-redacted human clarification; not permission approval; no automatic full model delivery", Data: raw, Text: true})
+	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: kind, Name: name, MediaType: "application/json", Processing: "Complete known-credential-redacted human clarification; not permission approval; no automatic full model delivery", Data: raw, Text: true})
 	if err != nil {
 		return wire.Reference{}, &abi.SessionError{Operation: "retain " + kind, SessionID: p.config.SessionID, Err: err}
 	}

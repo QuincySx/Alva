@@ -5,7 +5,6 @@ package product
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -104,7 +103,7 @@ func (t *TeamTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call
 	switch a.Action {
 	case "list":
 		team, e := store.TeamForLead(ctx, t.ProductID)
-		if e != nil && !errors.Is(e, sql.ErrNoRows) {
+		if e != nil && !errors.Is(e, hub.ErrNotFound) {
 			return wire.ToolResult{}, e
 		}
 		if a.After > uint64(len(team.Workers)) {

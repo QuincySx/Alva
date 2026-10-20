@@ -10,10 +10,11 @@ import (
 	"errors"
 	"path/filepath"
 
-	memorysqlite "github.com/QuincySx/Alva/platform/storage/memory"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/agent/memory"
 )
 
-func (a *Application) workspaceMemory(ctx context.Context, workspace string) (*memorysqlite.Backend, error) {
+func (a *Application) workspaceMemory(ctx context.Context, workspace string) (memory.Backend, error) {
 	if a.Service == nil || !filepath.IsAbs(workspace) {
 		return nil, errors.New("actual product workspace required for configured memory")
 	}
@@ -23,12 +24,31 @@ func (a *Application) workspaceMemory(ctx context.Context, workspace string) (*m
 	namespace := "workspace-" + hex.EncodeToString(digest[:])
 	a.memoryMu.Lock()
 	defer a.memoryMu.Unlock()
+	if a.memoryErr != nil {
+		return nil, a.memoryErr
+	}
 	if a.memory == nil {
-		store, err := memorysqlite.Open(ctx, filepath.Join(a.Service.DataDirectory, "memory"))
+		if a.openMemory == nil {
+			return nil, errors.New("workspace memory provider was not installed by assembly")
+		}
+		store, err := a.openMemory(ctx, filepath.Join(a.Service.DataDirectory, "memory"))
+		if !storage.Missing(store) {
+			a.memory = store
+		}
 		if err != nil {
+			a.memoryErr = err
 			return nil, err
 		}
-		a.memory = store
+		if a.memory == nil {
+			return nil, errors.New("memory factory returned a missing or typed-nil provider")
+		}
 	}
-	return a.memory.Bind(namespace)
+	backend, err := a.memory.Bind(namespace)
+	if err != nil {
+		return nil, err
+	}
+	if storage.Missing(backend) {
+		return nil, errors.New("memory namespace returned a missing or typed-nil backend")
+	}
+	return backend, nil
 }

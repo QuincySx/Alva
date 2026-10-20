@@ -70,7 +70,10 @@ func teamDetail(ctx context.Context, tx *sql.Tx, lead, id string) (hub.TeamDetai
 	}
 	return d, rows.Err()
 }
-func (s *Store) CreateTeam(ctx context.Context, lead string) (hub.TeamDetail, error) {
+func (s *Store) CreateTeam(ctx context.Context, lead string) (providerResult0 hub.TeamDetail, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var d hub.TeamDetail
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, lead); err != nil {
@@ -97,12 +100,18 @@ func (s *Store) CreateTeam(ctx context.Context, lead string) (hub.TeamDetail, er
 	})
 	return d, err
 }
-func (s *Store) Team(ctx context.Context, lead, id string) (hub.TeamDetail, error) {
+func (s *Store) Team(ctx context.Context, lead, id string) (providerResult0 hub.TeamDetail, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var d hub.TeamDetail
 	err := s.transaction(ctx, func(tx *sql.Tx) error { var err error; d, err = teamDetail(ctx, tx, lead, id); return err })
 	return d, err
 }
-func (s *Store) TeamForLead(ctx context.Context, lead string) (hub.TeamDetail, error) {
+func (s *Store) TeamForLead(ctx context.Context, lead string) (providerResult0 hub.TeamDetail, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var d hub.TeamDetail
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var id string
@@ -115,7 +124,10 @@ func (s *Store) TeamForLead(ctx context.Context, lead string) (hub.TeamDetail, e
 	})
 	return d, err
 }
-func (s *Store) AddWorker(ctx context.Context, lead, team, name string, target hub.Target) (hub.Worker, error) {
+func (s *Store) AddWorker(ctx context.Context, lead, team, name string, target hub.Target) (providerResult0 hub.Worker, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var w hub.Worker
 	if err := target.Validate(); err != nil {
 		return w, err
@@ -175,7 +187,10 @@ func (s *Store) AddWorker(ctx context.Context, lead, team, name string, target h
 	})
 	return w, err
 }
-func (s *Store) SetWorkerLifecycle(ctx context.Context, lead, team, id string, state hub.WorkerLifecycle) error {
+func (s *Store) SetWorkerLifecycle(ctx context.Context, lead, team, id string, state hub.WorkerLifecycle) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	if state != hub.WorkerActive && state != hub.WorkerArchived && state != hub.WorkerHibernated {
 		return errors.New("unknown worker lifecycle")
 	}
@@ -205,7 +220,10 @@ func (s *Store) SetWorkerLifecycle(ctx context.Context, lead, team, id string, s
 		return writeWorker(ctx, tx, w)
 	})
 }
-func (s *Store) EndTeam(ctx context.Context, lead, id string) error {
+func (s *Store) EndTeam(ctx context.Context, lead, id string) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		d, err := teamDetail(ctx, tx, lead, id)
 		if err != nil {
@@ -236,10 +254,16 @@ func (s *Store) EndTeam(ctx context.Context, lead, id string) error {
 		return err
 	})
 }
-func (s *Store) EnqueueWorker(ctx context.Context, lead, team, id, scope string, claims []hub.ResourceClaim) (hub.WorkerTask, error) {
+func (s *Store) EnqueueWorker(ctx context.Context, lead, team, id, scope string, claims []hub.ResourceClaim) (providerResult0 hub.WorkerTask, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	return s.enqueueWorker(ctx, lead, team, id, "", scope, claims)
 }
-func (s *Store) EnqueueWorkerOnBranch(ctx context.Context, lead, team, id, branch, scope string, claims []hub.ResourceClaim) (hub.WorkerTask, error) {
+func (s *Store) EnqueueWorkerOnBranch(ctx context.Context, lead, team, id, branch, scope string, claims []hub.ResourceClaim) (providerResult0 hub.WorkerTask, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	if branch == "" {
 		return hub.WorkerTask{}, errors.New("exact saved Worker draft branch required")
 	}
@@ -329,7 +353,10 @@ func queuedTask(ctx context.Context, tx *sql.Tx, lead, team, worker, id string) 
 	}
 	return task, nil
 }
-func (s *Store) EditQueuedTask(ctx context.Context, lead, team, worker, id, scope string, claims []hub.ResourceClaim) error {
+func (s *Store) EditQueuedTask(ctx context.Context, lead, team, worker, id, scope string, claims []hub.ResourceClaim) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	if len(claims) == 0 {
 		claims = []hub.ResourceClaim{{Path: ".", Write: true}}
 	}
@@ -346,7 +373,10 @@ func (s *Store) EditQueuedTask(ctx context.Context, lead, team, worker, id, scop
 		return writeTask(ctx, tx, task)
 	})
 }
-func (s *Store) CancelQueuedTask(ctx context.Context, lead, team, worker, id string) error {
+func (s *Store) CancelQueuedTask(ctx context.Context, lead, team, worker, id string) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		task, err := queuedTask(ctx, tx, lead, team, worker, id)
 		if err != nil {
@@ -357,7 +387,10 @@ func (s *Store) CancelQueuedTask(ctx context.Context, lead, team, worker, id str
 		return writeTask(ctx, tx, task)
 	})
 }
-func (s *Store) WorkerTasks(ctx context.Context, lead, team, worker string, after uint64, limit int) (hub.WorkerTaskPage, error) {
+func (s *Store) WorkerTasks(ctx context.Context, lead, team, worker string, after uint64, limit int) (providerResult0 hub.WorkerTaskPage, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var page hub.WorkerTaskPage
 	if limit < 1 || limit > 32 {
 		return page, errors.New("task page must be 1..32")
@@ -419,7 +452,10 @@ func taskClaimsConflict(wa string, a []hub.ResourceClaim, wb string, b []hub.Res
 	}
 	return false
 }
-func (s *Store) ClaimWorkerTask(ctx context.Context, lead, team, worker string) (hub.WorkerClaim, error) {
+func (s *Store) ClaimWorkerTask(ctx context.Context, lead, team, worker string) (providerResult0 hub.WorkerClaim, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var result hub.WorkerClaim
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		t, err := teamRecord(ctx, tx, lead, team)

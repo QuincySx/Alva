@@ -1,5 +1,5 @@
 // INPUT: context, database/sql, encoding/json, errors, strings, kernel/abi, llm/wire
-// OUTPUT: BoundConversationTail, ConversationTail and immutable ConversationMetadata
+// OUTPUT: BoundConversationTail, conversationTail and immutable storage.ConversationMetadata
 // POS: [platform / durable storage] Bounded fixed-water metadata and verified tail reads without model-context selection policy.
 package session
 
@@ -10,6 +10,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -17,27 +18,19 @@ import (
 const tailMaxMessages = 512
 const tailMaxBytes = 8 << 20
 
-// ConversationMetadata is a detached index entry; it does not grant artifact access.
-type ConversationMetadata struct {
-	Record       abi.RecordReference
-	Role         wire.Role
-	Reference    wire.Reference
-	RestoreBytes int64
-}
-
-// ConversationTail holds an immutable high-water and private metadata. Only its
+// conversationTail holds an immutable high-water and private metadata. Only its
 // bound authority can restore selected bodies; model wording belongs to a harness.
-type ConversationTail struct {
+type conversationTail struct {
 	repository *Repository
 	owner, id  string
 	highWater  uint64
 	metadata   []contextRecord
 }
 
-func (tail *ConversationTail) HighWater() uint64 { return tail.highWater }
-func (tail *ConversationTail) SessionID() string { return tail.id }
-func (tail *ConversationTail) Metadata() ([]ConversationMetadata, error) {
-	out := make([]ConversationMetadata, len(tail.metadata))
+func (tail *conversationTail) HighWater() uint64 { return tail.highWater }
+func (tail *conversationTail) SessionID() string { return tail.id }
+func (tail *conversationTail) Metadata() ([]storage.ConversationMetadata, error) {
+	out := make([]storage.ConversationMetadata, len(tail.metadata))
 	for i, record := range tail.metadata {
 		if err := record.validate(); err != nil {
 			return nil, err
@@ -46,7 +39,7 @@ func (tail *ConversationTail) Metadata() ([]ConversationMetadata, error) {
 		if !ok {
 			return nil, errors.New("conversation role metadata missing")
 		}
-		out[i] = ConversationMetadata{
+		out[i] = storage.ConversationMetadata{
 			Record:       abi.RecordReference{SessionID: tail.id, RecordID: record.id, Sequence: record.sequence},
 			Role:         wire.Role(role),
 			Reference:    wire.Reference{URI: "alva-artifact://" + record.artifact.String, MediaType: record.mediaType.String, Processing: record.processing.String, SHA256: record.sha.String, Bytes: record.bytes.Int64},
@@ -70,14 +63,14 @@ type contextRecord struct {
 
 // BoundConversationTail snapshots at most limit+1 newest conversation metadata
 // entries. One extra entry proves truncation; no omitted body is restored.
-func (r *Repository) BoundConversationTail(ctx context.Context, owner, id string, limit int) (*ConversationTail, error) {
+func (r *Repository) BoundConversationTail(ctx context.Context, owner, id string, limit int) (storage.ConversationTail, error) {
 	if limit < 1 || limit > tailMaxMessages {
 		return nil, errors.New("conversation metadata limit must be 1..512")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return nil, ErrClosed
+		return nil, storage.ErrClosed
 	}
 	if err := authorize(ctx, r.db, owner, id); err != nil {
 		return nil, err
@@ -106,12 +99,12 @@ func (r *Repository) BoundConversationTail(ctx context.Context, owner, id string
 	if err != nil {
 		return nil, err
 	}
-	return &ConversationTail{repository: r, owner: owner, id: id, highWater: highWater, metadata: metadata}, nil
+	return &conversationTail{repository: r, owner: owner, id: id, highWater: highWater, metadata: metadata}, nil
 }
 
 // Read restores the requested newest count in chronological order under an
 // explicit byte budget. Hash/identity/protocol validation is a storage guarantee.
-func (tail *ConversationTail) Read(ctx context.Context, count, maxBytes int) ([]wire.Message, error) {
+func (tail *conversationTail) Read(ctx context.Context, count, maxBytes int) ([]wire.Message, error) {
 	if count < 0 || count > len(tail.metadata) || count > tailMaxMessages || maxBytes < 1 || maxBytes > tailMaxBytes {
 		return nil, errors.New("conversation tail read exceeds bounded admission")
 	}
@@ -119,7 +112,7 @@ func (tail *ConversationTail) Read(ctx context.Context, count, maxBytes int) ([]
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		return nil, ErrClosed
+		return nil, storage.ErrClosed
 	}
 	if err := authorize(ctx, r.db, tail.owner, tail.id); err != nil {
 		return nil, err

@@ -16,6 +16,8 @@
 所有真实功能与 desktop 消费同一个 product/native 配方。
 受管Worker工作树需显式--git-executable与--git-host-approved；HTTP只传已拥有Worker和evidence/revision，隔离/采纳各自独立确认，不接客户端任意host path。
 
+程序入口负责选择实际存储组件：direct显式打开后传Config.Storage；Hub明确传LocalStores/LocalMemory/LocalBindings配方。下层消费者只看共享插口，错误不触发默认后端fallback。
+
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|

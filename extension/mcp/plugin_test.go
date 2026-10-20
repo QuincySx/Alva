@@ -19,6 +19,7 @@ import (
 	"time"
 
 	protocol "github.com/QuincySx/Alva/integration/protocol/mcp"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -32,7 +33,7 @@ type fixtureModel struct{}
 func (fixtureModel) Stream(_ context.Context, _ abi.ModelRequest, emit func(wire.StreamChunk) error) error {
 	return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
 }
-func fixture(t *testing.T, handler security.ApprovalHandler, environments ...map[string]string) (*Plugin, *session.Repository, abi.RuntimeContext) {
+func fixture(t *testing.T, handler security.ApprovalHandler, environments ...map[string]string) (*Plugin, storage.Repository, abi.RuntimeContext) {
 	t.Helper()
 	ctx := context.Background()
 	base := t.TempDir()
@@ -139,7 +140,7 @@ func TestRebindChildCreatesOwnLazyJournalAndRejectsSiblingGrandparent(t *testing
 		t.Fatal("journal ownership/cache mixed")
 	}
 	for _, scope := range []struct{ id, uri string }{{"child", parentReceipt.Value.URI}, {"native", childReceipt.Value.URI}, {"sibling", childReceipt.Value.URI}} {
-		if _, err = repo.ReadArtifact(ctx, "product", scope.id, scope.uri, 0, 1024); !errors.Is(err, session.ErrNotFound) {
+		if _, err = repo.ReadArtifact(ctx, "product", scope.id, scope.uri, 0, 1024); !errors.Is(err, storage.ErrNotFound) {
 			t.Fatal("ancestor/sibling journal access granted", err)
 		}
 	}
@@ -412,13 +413,13 @@ func TestRealWorkerFullRedactedMemoryDurabilityAndBoundedReference(t *testing.T)
 	if err != nil || len(matches) != 1 {
 		t.Fatalf("tail lost: %+v %v", matches, err)
 	}
-	if _, err = repo.ReadArtifact(context.Background(), "foreign", "native", answer.Receipt.Value.URI, 0, 2048); !errors.Is(err, session.ErrNotFound) {
+	if _, err = repo.ReadArtifact(context.Background(), "foreign", "native", answer.Receipt.Value.URI, 0, 2048); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("foreign artifact read", err)
 	}
 	if err = p.OnRunEnd(context.Background(), runtime, nil); err != nil {
 		t.Fatal(err)
 	}
-	records, err := runtime.State.Session().(*session.Session).Records(context.Background(), 0)
+	records, err := runtime.State.Session().(storage.Session).Records(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

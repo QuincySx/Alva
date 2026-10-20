@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/platform/system/loopback"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
@@ -483,7 +483,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		raw, _ := json.Marshal(snapshot)
-		redacted, err := session.RedactJSON(raw, s.config.Secrets...)
+		redacted, err := redaction.RedactJSON(raw, s.config.Secrets...)
 		if err != nil {
 			fail(err)
 			return

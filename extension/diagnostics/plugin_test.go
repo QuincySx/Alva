@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	securityplugin "github.com/QuincySx/Alva/extension/security"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	securityplugin "github.com/QuincySx/Alva/extension/security"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -97,8 +98,8 @@ func TestDiagnosticConfiguredCredentialIsAbsentFromBothActualStreams(t *testing.
 }
 
 type fixture struct {
-	repo      *session.Repository
-	log       *session.Session
+	repo      storage.Repository
+	log       storage.Session
 	cwd       string
 	guard     *security.Guard
 	approvals int
@@ -244,7 +245,7 @@ func TestDiagnosticsActuallyRunsWithApprovalAndRetainedCompleteSource(t *testing
 		t.Fatal("captured source tail missing", matches, err)
 	}
 	other, _ := f.repo.Create(context.Background(), "owner", "sibling", "")
-	if _, err = f.repo.ReadArtifact(context.Background(), "owner", other.ID(), report.Stdout.URI, 0, 1024); !errors.Is(err, session.ErrNotFound) {
+	if _, err = f.repo.ReadArtifact(context.Background(), "owner", other.ID(), report.Stdout.URI, 0, 1024); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("sibling diagnostic source access", err)
 	}
 }

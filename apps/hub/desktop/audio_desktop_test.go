@@ -17,12 +17,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
+
 	"github.com/QuincySx/Alva/apps/hub/product"
 	mediaextension "github.com/QuincySx/Alva/extension/media"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
-	"github.com/egoist/mygo/ui"
 )
 
 type testAudioVoice struct {
@@ -80,13 +81,13 @@ func TestNativeAudioIsExplicitSeekableClosedAndNeverModelInput(t *testing.T) {
 	h := sha256.Sum256(data)
 	digest := hex.EncodeToString(h[:])
 	out := nativemedia.Output{Data: data, MediaType: "audio/wav", Version: "canonical test-only PCM", DurationMillis: 2000, Codec: "pcm_s16le", SampleRate: 16000, Channels: 1, Operation: wire.MediaOperation{Kind: "transcode_audio", Description: "test fixture; no playback", InputSHA256: upload.Info.SHA256, OutputSHA256: digest}, Losses: []string{"fixture mono samples"}}
-	artifact, err := service.Repository.PutArtifact(t.Context(), s.ID, branch.NativeSessionID, session.ArtifactInput{Kind: "media-derivative", Name: upload.Info.ID, MediaType: out.MediaType, Data: data, Processing: out.Operation.Description})
+	artifact, err := service.Repository.PutArtifact(t.Context(), s.ID, branch.NativeSessionID, storage.ArtifactInput{Kind: "media-derivative", Name: upload.Info.ID, MediaType: out.MediaType, Data: data, Processing: out.Operation.Description})
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifest := mediaextension.Manifest{Version: 1, Source: upload.Reference, Artifact: artifact.Reference(), Output: out, Processing: "verified PCM fixture, no model delivery"}
 	raw, _ := json.Marshal(manifest)
-	entry, err := service.Repository.PutArtifact(t.Context(), s.ID, branch.NativeSessionID, session.ArtifactInput{Kind: "media-manifest", Name: upload.Info.ID, MediaType: "application/json", Data: raw, Text: true, Processing: manifest.Processing})
+	entry, err := service.Repository.PutArtifact(t.Context(), s.ID, branch.NativeSessionID, storage.ArtifactInput{Kind: "media-manifest", Name: upload.Info.ID, MediaType: "application/json", Data: raw, Text: true, Processing: manifest.Processing})
 	if err != nil {
 		t.Fatal(err)
 	}

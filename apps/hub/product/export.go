@@ -13,28 +13,28 @@ import (
 	"path/filepath"
 
 	"github.com/QuincySx/Alva/integration/engine"
-	"github.com/QuincySx/Alva/platform/storage/session"
-	private "github.com/QuincySx/Alva/platform/storage/sqlite"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 type InspectorExport struct {
 	Path    string                `json:"path"`
-	Summary session.BundleSummary `json:"summary"`
+	Summary storage.BundleSummary `json:"summary"`
 }
 
-func (s *HubService) InspectorBundleAt(ctx context.Context, id, branchID string, path []ChildHop, highWater uint64, children bool) ([]byte, session.BundleSummary, error) {
+func (s *HubService) InspectorBundleAt(ctx context.Context, id, branchID string, path []ChildHop, highWater uint64, children bool) ([]byte, storage.BundleSummary, error) {
 	inspector, scope, err := s.inspectionTarget(ctx, id, branchID, path)
 	if err != nil {
-		return nil, session.BundleSummary{}, err
+		return nil, storage.BundleSummary{}, err
 	}
 	if !inspector.InspectionCapabilities().ExportJSONL {
-		return nil, session.BundleSummary{}, engine.ErrUnsupported
+		return nil, storage.BundleSummary{}, engine.ErrUnsupported
 	}
 	bundle, err := inspector.Export(ctx, scope, highWater, children)
 	if err != nil {
-		return nil, session.BundleSummary{}, err
+		return nil, storage.BundleSummary{}, err
 	}
-	return bundle.Data, session.BundleSummary{RootID: bundle.RootID, Sessions: bundle.Sessions, Records: bundle.Records, Bytes: len(bundle.Data), SHA256: bundle.SHA256, HighWaters: bundle.HighWaters}, nil
+	return bundle.Data, storage.BundleSummary{RootID: bundle.RootID, Sessions: bundle.Sessions, Records: bundle.Records, Bytes: len(bundle.Data), SHA256: bundle.SHA256, HighWaters: bundle.HighWaters}, nil
 }
 func (s *HubService) SaveInspectorBundleAt(ctx context.Context, id, branchID string, path []ChildHop, highWater uint64, children bool) (InspectorExport, error) {
 	data, summary, err := s.InspectorBundleAt(ctx, id, branchID, path, highWater, children)
@@ -44,7 +44,7 @@ func (s *HubService) SaveInspectorBundleAt(ctx context.Context, id, branchID str
 	if err := ctx.Err(); err != nil {
 		return InspectorExport{}, err
 	}
-	directory, err := private.EnsurePrivateDir(filepath.Join(s.DataDirectory, "exports"))
+	directory, err := private.EnsureDir(filepath.Join(s.DataDirectory, "exports"))
 	if err != nil {
 		return InspectorExport{}, err
 	}

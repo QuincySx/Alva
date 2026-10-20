@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, errors, filepath, sync/time, core/security, ABI/wire, storage/session.
+// INPUT: context, encoding/json, errors, filepath, sync/time, core/security, ABI/wire, shared storage contracts.
 // OUTPUT: Explicit optional Config, SearchConfig, Activity and session-bound web Plugin with exact Tools.
 // POS: [L4 extension] Web policy and durable source references stay in an optional Plugin, not the SDK kernel.
 package web
@@ -11,12 +11,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
+
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+}
 
 type SearchConfig struct {
 	// Only the actual DuckDuckGo Instant Answer JSON API is implemented.
@@ -28,7 +33,7 @@ type Activity struct {
 	Effect                             abi.EffectKind
 }
 type Config struct {
-	Repository                      *session.Repository
+	Repository                      Storage
 	Owner, SessionID, Cwd           string
 	Guard                           *security.Guard
 	ApprovedNetworkAccess, ReadURLs bool
@@ -47,7 +52,7 @@ type rateEntry struct {
 }
 type Plugin struct {
 	config     Config
-	log        *session.Session
+	log        storage.Session
 	tools      []*webTool
 	mu         sync.Mutex
 	runID      string
@@ -61,7 +66,7 @@ type Plugin struct {
 }
 
 func New(ctx context.Context, config Config) (*Plugin, error) {
-	if config.Repository == nil || config.Guard == nil || config.Report == nil || !config.ApprovedNetworkAccess || !filepath.IsAbs(config.Cwd) || (!config.ReadURLs && config.Search == nil) {
+	if storage.Missing(config.Repository) || config.Guard == nil || config.Report == nil || !config.ApprovedNetworkAccess || !filepath.IsAbs(config.Cwd) || (!config.ReadURLs && config.Search == nil) {
 		return nil, errors.New("explicit web authority, guard, risk reporter and approved network capability required")
 	}
 	if config.Timeout == 0 {
@@ -202,7 +207,7 @@ func (p *Plugin) retain(ctx context.Context, kind, name, media, processing strin
 	if redacted {
 		processing += "; known credentials redacted"
 	}
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: kind, Name: name, MediaType: media, Processing: processing + "; untrusted source; no automatic model delivery", Data: clean, Text: json.Valid(clean) || isText(clean)})
+	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: kind, Name: name, MediaType: media, Processing: processing + "; untrusted source; no automatic model delivery", Data: clean, Text: json.Valid(clean) || isText(clean)})
 	if err != nil {
 		return wire.Reference{}, &abi.SessionError{Operation: "retain web " + kind, SessionID: p.config.SessionID, Err: err}
 	}

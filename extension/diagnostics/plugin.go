@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -22,6 +22,12 @@ import (
 	"github.com/QuincySx/Alva/sdk/kernel/bus"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
+
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+	storage.ArtifactReader
+}
 
 type Profile struct {
 	ID, Description    string
@@ -38,7 +44,7 @@ type Activity struct {
 	Effect                             abi.EffectKind
 }
 type Config struct {
-	Repository            *session.Repository
+	Repository            Storage
 	Owner, SessionID, Cwd string
 	Guard                 *security.Guard
 	Profiles              []Profile
@@ -72,7 +78,7 @@ type Manager interface {
 }
 type Plugin struct {
 	config            Config
-	log               *session.Session
+	log               storage.Session
 	mu                sync.Mutex
 	runID             string
 	tool              *diagnosticTool
@@ -83,7 +89,7 @@ type Plugin struct {
 }
 
 func New(ctx context.Context, config Config) (*Plugin, error) {
-	if config.Repository == nil || config.Guard == nil || config.Report == nil || config.SessionID == "" || !filepath.IsAbs(config.Cwd) || len(config.Profiles) > 16 {
+	if storage.Missing(config.Repository) || config.Guard == nil || config.Report == nil || config.SessionID == "" || !filepath.IsAbs(config.Cwd) || len(config.Profiles) > 16 {
 		return nil, errors.New("explicit diagnostics authority/guard/reporter/cwd and bounded profiles required")
 	}
 	if config.Manager != nil && len(config.Profiles) > 0 {

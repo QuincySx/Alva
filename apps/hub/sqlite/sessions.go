@@ -7,11 +7,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/QuincySx/Alva/apps/hub"
 	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
 )
 
-func (s *Store) PageSessions(ctx context.Context, query string, cursor hub.SessionCursor, limit int) (hub.SessionPage, error) {
+func (s *Store) PageSessions(ctx context.Context, query string, cursor hub.SessionCursor, limit int) (providerResult0 hub.SessionPage, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var page hub.SessionPage
 	if len(query) > 256 || !utf8.ValidString(query) || limit < 1 || limit > 128 || cursor.Updated < 0 || len(cursor.ID) > 128 {
 		return page, errors.New("bounded session query/cursor/limit required")

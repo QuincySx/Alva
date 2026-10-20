@@ -144,8 +144,13 @@ func prepareDesktop(ctx context.Context, args []string, input io.Reader, diagnos
 	if err != nil {
 		return nil, err
 	}
-	application, err := bootstrap.Open(ctx, bootstrap.Config{DataDirectory: *directory, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: config, ImageCapable: *imageCapable, External: externalSnapshots(*claudeCommand, *codexCommand, *piCommand, *externalApproved), GitExecutable: *gitExecutable, GitHostAccessApproved: *gitApproved})
+	application, err := bootstrap.Open(ctx, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, DataDirectory: *directory, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: config, ImageCapable: *imageCapable, External: externalSnapshots(*claudeCommand, *codexCommand, *piCommand, *externalApproved), GitExecutable: *gitExecutable, GitHostAccessApproved: *gitApproved})
 	if err != nil {
+		if application != nil {
+			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err = errors.Join(err, application.Close(cleanup))
+			cancel()
+		}
 		if diagnostics != nil {
 			err = errors.Join(err, diagnostics.Close(context.Background()))
 		}

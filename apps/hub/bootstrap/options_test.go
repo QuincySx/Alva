@@ -53,7 +53,7 @@ func TestRegisteredAlvaFactoryAppliesExplicitSystemPromptToActualHTTP(t *testing
 		_, _ = w.Write([]byte("data: {\"id\":\"local\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"actual answer\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"local\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
 	}))
 	defer server.Close()
-	a, err := Open(t.Context(), Config{DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL + "/chat", Model: "explicit-model"}})
+	a, err := Open(t.Context(), Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: filepath.Join(t.TempDir(), "private"), ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: server.URL + "/chat", Model: "explicit-model"}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -19,6 +19,8 @@ receipt prepared不代表发送；model_chain_invocation_intent仅表示调用�
 Plugin在注册处显式指定最大order，Finalize核对自己是最后middleware，否则拒绝装配；实现无Priority方法。外层retry无法得到注入后的request，
 再次进入本层只拿无图请求。实际model/transport自己的执行实现仍是可信宿主代码，不是其重试沙箱。
 
+存储只消费本包按需组合的共享storage能力插口；会话/引用/DTO/错误从同一契约返回，不导入具体session.Repository或SQL实现。后端由上层程序/插件装配选择，组件不回落默认库、不downcast实现，不持有存储Close。
+
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|

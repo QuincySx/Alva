@@ -222,12 +222,12 @@ NewMemoryBackend 是进程内参考实现；native.Open 绑定现有私有 repos
 装配流程：
 
 ```go
-backend, err := durableNative.Open(ctx, repository, owner, nativeID)
+backend, err := journal.Open(ctx, repository, owner, nativeID)
 if err != nil { return err }
 // 实际 Agent 使用同一个 backend.Log()。
 waits, err := durable.New(durable.Config{Backend: backend, TTL: time.Hour})
 if err != nil { return err }
-views, err := harness.NativeSessionViews(ctx, repository, owner, nativeID)
+views, err := harness.SessionViews(ctx, repository, owner, nativeID)
 if err != nil { return err }
 builder := core.NewBuilder(model, backend.Log()).Plugin(waits)
 for _, view := range views {
@@ -239,7 +239,7 @@ if err != nil { return err }
 outcome, err := waits.Start(ctx, agent, input, emit)
 ```
 
-上述core为sdk/agent/core，durable为harness/durable，durableNative为harness/durable/native。
+上述core为sdk/agent/core，durable为harness/durable，journal为harness/durable/journal。
 `outcome.Suspended` 表示真实执行及收尾已经退出并保存waiting检查点，没有成功/失败终态事件。
 宿主应展示`outcome.Requests`；新进程重建相同装配后可用`waits.Snapshot(ctx)`读取，不必保留等待goroutine。
 
@@ -251,44 +251,51 @@ Controller实现普通security.ApprovalHandler与interaction.Handler，宿主可
 
 原生大结果先保存同会话引用，模型按需用context_read/search读取；结果交付和running状态同事务CAS，不能重复投递。
 未知版本、过期、陈旧revision或running/interrupted不自动重放；检查原始事实后可明确Abandon，
-这不代表外部任务已停止或已回滚。Controller拥有执行claim，原生装配使用NativeSessionViews，
-不重复安装NativeSessionPlugins的claim。实际外部job的启动、取消和收尾仍由宿主owner负责。
+这不代表外部任务已停止或已回滚。Controller拥有执行claim，原生装配使用SessionViews，
+不重复安装SessionPlugins的claim。实际外部job的启动、取消和收尾仍由宿主owner负责。
 
 实际退出/重开与副作用后崩溃不重放验收：`go test -mod=readonly ./harness/durable/...`。
 
-## 可插拔存储 API
+## 统一存储插口
 
-内核日志由 `abi.ConversationLog` 注入；SDK `core.MemorySession` 与
-`context.MemoryReferences` 不需要本地目录。可选等待的 `durable.Backend` 独立要求原子CAS/实际执行claim。
-原生产品默认仍使用私有SQLite；新artifact字节可以显式替换后端，事实JSON和授权metadata保留在原事务：
+共享契约在[`platform/storage`](../platform/storage/AGENTS.md)，SDK继续只认识自己的log/reference/memory接口。
+产品、harness、工具与Inspector接收同一组能力端口；Create/OpenSession、引用和分页返回共享接口/DTO，
+消费者不能要求具体SQL类型或在失败后重新选择后端。
+
+选择发生在程序装配：
 
 ```go
-// blob 为 platform/storage/blob；blobDirectory 为其 directory 子包。
-objects, err := blobDirectory.Open("/absolute/host-owned/object-directory")
-if err != nil { return err }
-defer objects.Close() // host 拥有adapter；须在所有使用者结束后关闭
-repository, err := session.OpenWithBlobs(ctx, "/absolute/private/native-data", session.BlobConfig{
-    ID: "workspace-objects-v1", // 非秘密部署namespace，不能放凭据或URL
-    Retention: blob.Persistent,
-    Store: objects,
+// selected 是本程序组装出的组件；所有下层继续消费它的共享契约。
+application, err := bootstrap.Open(ctx, bootstrap.Config{
+    DataDirectory: privateDirectory,
+    Demo: true,
+    OpenStores: selected.Stores,
+    OpenMemory: selected.Memory,
+    OpenBindings: selected.Bindings,
 })
-if err != nil { return err }
-defer repository.Close()
-// 继续使用同一Repository创建session、NativeSessionPlugins及具体原生能力。
 ```
 
-临时对象可以用 `blob/memory.New(memory.Limits{Bytes: 64 << 20, Objects: 1024})`，
-并明确设置 `Retention: blob.Volatile`；引用会标记进程生命周期，进程结束后字节不会恢复。
-全内存运行可直接使用SDK日志/引用及durable.MemoryBackend，不必为了临时字节打开SQLite。
+`selected.Stores`类型是bootstrap.StoresFactory，返回ProductStorage和storage.Repository。
+`selected.Memory`与`selected.Bindings`分别是可选MemoryFactory/BindingsFactory；启用相应能力时必需。
+现有Hub命令入口明确选择bootstrap.LocalStores/LocalMemory/LocalBindings。
+Direct应用必传`direct.Config.Storage`；已知依赖由构造参数交给组件，不注册为全局存储service locator。
 
-云盘/网盘适配器只需实现两方法 `Put(ctx,key,data)` 和 `Read(ctx,key,offset,limit)`；
-必须创建完整不可变对象、同key异内容报冲突、写后可读、返回自有buffer并遵守预算/取消。
-directory adapter要求hard-link原子发布和file/directory Sync，不支持的挂载必须明确报错或使用专用API adapter。
-真实云账号/provider、产品CLI设置和后台迁移任务尚未装配，不隐式扫描挂载点或读取云凭据。
-已有inline数据不迁移；外部存储的namespace ID/retention绑定后，缺失或替换adapter会拒绝打开。
-错误上传可能留下孤立对象，不自动重试/删除；外部字节不具备与数据库的分布式事务，也不授予文件执行权限。
+OpenStores缺失在IO前失败；所选工厂报错不会重试或打开默认库。
+Application接管工厂返回的实际资源，包括部分成功的结果；Close先join执行，再关闭存储。
+构造清理尚未完成时Open会返回非nil Application及error，调用方保留该句柄重试Close。
+Direct与process.Adapter只在构造成功后接管传入组件，失败时供应方继续拥有它。
 
-共用后端验收：`go test -mod=readonly -race ./platform/storage/blob/... ./platform/storage/session`。
+`harness.SessionPlugins`组合共享会话能力；已有外部claim owner用SessionViews，避免重复claim。
+`harness/durable/journal`同样只看共享事实插口，事实与字节都persistent才声明可重启等待。
+普通SDK内存日志/引用、durable.MemoryBackend与任意合约实现都不需要具体原生库类型。
+
+事实、memory、Hub产品事实及不可变字节的职责保持独立。
+如果选择现有native session实现，其OpenWithBlobs可以再装配独立blob.Store；这是该实现的组合方式，
+不要求上层工具或harness知道它用了哪个数据库/云盘。目录、云服务和临时组件必须如实满足各自原子性/retention契约。
+现有数据不自动搬迁，不增加云账号、扫描挂载点或产品CLI存储设置。
+
+验收：`go test -mod=readonly -race ./platform/storage/... ./apps/hub/bootstrap ./apps/direct ./tests/architecture`。
+opaque测试装饰器只保留共享接口，实际流程据此检查有没有绕过所选组件。
 
 ## 仓库布局与历史
 

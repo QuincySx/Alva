@@ -1,4 +1,4 @@
-// INPUT: context, database/sql, encoding/json, hub, storage/sqlite
+// INPUT: context, database/sql, encoding/json, hub, storage/sqlite and system/privatefs
 // OUTPUT: Store implementing isolated durable Hub product facts and exclusive recovery
 // POS: [L7 Hub product] Product SQLite authority separate from native SessionRepository execution records
 package sqlite
@@ -106,8 +106,13 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 	}
 	return s, nil
 }
-func (s *Store) Close() error { return errors.Join(s.db.Close(), s.lock.Close()) }
-func now() int64              { return time.Now().UTC().UnixMilli() }
+func (s *Store) Close() (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
+	return errors.Join(s.db.Close(), s.lock.Close())
+}
+func now() int64 { return time.Now().UTC().UnixMilli() }
 
 type querier interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -180,7 +185,10 @@ func writeAttempt(ctx context.Context, tx *sql.Tx, value hub.Attempt) error {
 	_, err = tx.ExecContext(ctx, `UPDATE hub_attempts SET status=?,data=? WHERE id=? AND session=?`, value.Status, data, value.ID, value.SessionID)
 	return err
 }
-func (s *Store) CreateSession(ctx context.Context, title, workspace string, target hub.Target) (hub.Session, error) {
+func (s *Store) CreateSession(ctx context.Context, title, workspace string, target hub.Target) (providerResult0 hub.Session, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var value hub.Session
 	if err := target.Validate(); err != nil {
 		return value, err
@@ -218,7 +226,10 @@ func insertBranch(ctx context.Context, tx *sql.Tx, value hub.Branch) error {
 	_, err = tx.ExecContext(ctx, `INSERT INTO hub_branches VALUES(?,?,?,?)`, value.ID, value.SessionID, hub.RouteKey(value.Target), data)
 	return err
 }
-func (s *Store) ListSessions(ctx context.Context, limit int) ([]hub.Session, error) {
+func (s *Store) ListSessions(ctx context.Context, limit int) (providerResult0 []hub.Session, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	if limit < 1 || limit > 256 {
 		return nil, errors.New("session page must be 1..256")
 	}
@@ -280,7 +291,10 @@ func detail(ctx context.Context, tx *sql.Tx, id string) (hub.Detail, error) {
 	result.Fallback = policy
 	return result, nil
 }
-func (s *Store) Detail(ctx context.Context, id string) (hub.Detail, error) {
+func (s *Store) Detail(ctx context.Context, id string) (providerResult0 hub.Detail, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var result hub.Detail
 	err := s.transaction(ctx, func(tx *sql.Tx) error { var err error; result, err = detail(ctx, tx, id); return err })
 	return result, err
@@ -330,7 +344,10 @@ func activate(ctx context.Context, tx *sql.Tx, session *hub.Session, target hub.
 	session.UpdatedAt = now()
 	return branch, writeSession(ctx, tx, *session)
 }
-func (s *Store) Switch(ctx context.Context, id string, target hub.Target, reason string) (hub.Branch, error) {
+func (s *Store) Switch(ctx context.Context, id string, target hub.Target, reason string) (providerResult0 hub.Branch, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var result hub.Branch
 	if err := target.Validate(); err != nil {
 		return result, err
@@ -358,7 +375,10 @@ func (s *Store) Switch(ctx context.Context, id string, target hub.Target, reason
 	})
 	return result, err
 }
-func (s *Store) SetFallback(ctx context.Context, id string, targets []hub.Target) error {
+func (s *Store) SetFallback(ctx context.Context, id string, targets []hub.Target) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	if len(targets) > 7 {
 		return errors.New("at most 7 fallback targets")
 	}
@@ -563,10 +583,16 @@ func beginTurn(ctx context.Context, tx *sql.Tx, id, prompt string) (hub.Claim, e
 	}()
 	return claim, err
 }
-func (s *Store) BeginTurn(ctx context.Context, id, prompt string) (hub.Claim, error) {
+func (s *Store) BeginTurn(ctx context.Context, id, prompt string) (providerResult0 hub.Claim, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	return s.BeginTurnOnBranch(ctx, id, "", prompt)
 }
-func (s *Store) BeginTurnOnBranch(ctx context.Context, id, expectedBranch, prompt string) (hub.Claim, error) {
+func (s *Store) BeginTurnOnBranch(ctx context.Context, id, expectedBranch, prompt string) (providerResult0 hub.Claim, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var claim hub.Claim
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		if expectedBranch != "" {
@@ -591,7 +617,10 @@ func (s *Store) BeginTurnOnBranch(ctx context.Context, id, expectedBranch, promp
 	})
 	return claim, err
 }
-func (s *Store) BeginFallback(ctx context.Context, previous string, target hub.Target) (hub.Claim, error) {
+func (s *Store) BeginFallback(ctx context.Context, previous string, target hub.Target) (providerResult0 hub.Claim, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var claim hub.Claim
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		old, err := read[hub.Attempt](ctx, tx, `SELECT data FROM hub_attempts WHERE id=?`, previous)
@@ -646,7 +675,10 @@ func (s *Store) BeginFallback(ctx context.Context, previous string, target hub.T
 	})
 	return claim, err
 }
-func (s *Store) Record(ctx context.Context, attemptID string, event engine.Event, sideEffects bool) error {
+func (s *Store) Record(ctx context.Context, attemptID string, event engine.Event, sideEffects bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		attempt, err := read[hub.Attempt](ctx, tx, `SELECT data FROM hub_attempts WHERE id=?`, attemptID)
 		if err != nil {
@@ -699,7 +731,10 @@ func (s *Store) Record(ctx context.Context, attemptID string, event engine.Event
 		return writeAttempt(ctx, tx, attempt)
 	})
 }
-func (s *Store) FinishTurn(ctx context.Context, id string, status engine.Outcome) error {
+func (s *Store) FinishTurn(ctx context.Context, id string, status engine.Outcome) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	if status != engine.Succeeded && status != engine.Failed && status != engine.Cancelled && status != engine.Interrupted {
 		return errors.New("Turn requires a terminal status")
 	}
@@ -759,7 +794,10 @@ func (s *Store) FinishTurn(ctx context.Context, id string, status engine.Outcome
 		return settleAutomation(ctx, tx, turn)
 	})
 }
-func (s *Store) History(ctx context.Context, id string, after uint64, limit int) ([]hub.HistoryEntry, error) {
+func (s *Store) History(ctx context.Context, id string, after uint64, limit int) (providerResult0 []hub.HistoryEntry, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	if limit < 1 || limit > 128 {
 		return nil, errors.New("history page must be 1..128")
 	}
@@ -787,7 +825,10 @@ func (s *Store) History(ctx context.Context, id string, after uint64, limit int)
 	}
 	return result, rows.Err()
 }
-func (s *Store) HistoryBefore(ctx context.Context, id string, before uint64, limit int) ([]hub.HistoryEntry, error) {
+func (s *Store) HistoryBefore(ctx context.Context, id string, before uint64, limit int) (providerResult0 []hub.HistoryEntry, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	if limit < 1 || limit > 128 {
 		return nil, errors.New("history page must be 1..128")
 	}
@@ -829,7 +870,10 @@ func (s *Store) HistoryBefore(ctx context.Context, id string, before uint64, lim
 
 // BindNative records an already-created, owner-scoped empty native session for
 // uploads. It never executes a model, and cannot rewrite a running/owned branch.
-func (s *Store) BindNative(ctx context.Context, sessionID, branchID, nativeID string) error {
+func (s *Store) BindNative(ctx context.Context, sessionID, branchID, nativeID string) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	if nativeID == "" || len(nativeID) > 256 {
 		return errors.New("bounded native identity required")
 	}
@@ -852,7 +896,10 @@ func (s *Store) BindNative(ctx context.Context, sessionID, branchID, nativeID st
 		return writeBranch(ctx, tx, branch)
 	})
 }
-func (s *Store) Recover(ctx context.Context) error {
+func (s *Store) Recover(ctx context.Context) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `SELECT data FROM hub_turns WHERE status=?`, hub.Running)
 		if err != nil {

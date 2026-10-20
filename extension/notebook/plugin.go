@@ -9,12 +9,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -22,12 +22,17 @@ import (
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
+// Storage is the capability contract supplied by the outer assembly.
+type Storage interface {
+	storage.Journal
+}
+
 type Activity struct {
 	ID, Name, SessionID, RunID, CallID string
 	Effect                             abi.EffectKind
 }
 type Config struct {
-	Repository            *session.Repository
+	Repository            Storage
 	Owner, SessionID, Cwd string
 	Guard                 *security.Guard
 	Workspace             *workspacefs.Workspace
@@ -36,14 +41,14 @@ type Config struct {
 }
 type Plugin struct {
 	config Config
-	log    *session.Session
+	log    storage.Session
 	tool   *notebookTool
 	mu     sync.Mutex
 	runID  string
 }
 
 func New(ctx context.Context, c Config) (*Plugin, error) {
-	if c.Repository == nil || c.Guard == nil || c.Workspace == nil || c.Locks == nil || c.Report == nil || !filepath.IsAbs(c.Cwd) {
+	if storage.Missing(c.Repository) || c.Guard == nil || c.Workspace == nil || c.Locks == nil || c.Report == nil || !filepath.IsAbs(c.Cwd) {
 		return nil, errors.New("actual notebook workspace/session authority, guard/shared locks and durable risk reporter required")
 	}
 	log, err := c.Repository.OpenSession(ctx, c.Owner, c.SessionID)
@@ -177,7 +182,7 @@ func (t *notebookTool) Execute(ctx context.Context, e abi.ToolExecutionContext, 
 	return wire.ToolResult{CallID: call.ID, Content: []wire.ContentBlock{{Kind: wire.ContentText, Text: string(raw)}}}, nil
 }
 func (p *Plugin) retain(ctx context.Context, kind, name string, data []byte, processing string) (wire.Reference, error) {
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: kind, Name: name, MediaType: "application/x-ipynb+json", Processing: processing, Data: data, Text: true})
+	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: kind, Name: name, MediaType: "application/x-ipynb+json", Processing: processing, Data: data, Text: true})
 	if err != nil {
 		return wire.Reference{}, &abi.SessionError{Operation: "retain " + kind, SessionID: p.config.SessionID, Err: err}
 	}

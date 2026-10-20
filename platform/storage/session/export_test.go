@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -17,7 +18,7 @@ import (
 func TestRecursiveBundleUsesExactTypedLinksAndNeverEmbedsReferencedOriginals(t *testing.T) {
 	repo, root := repoSession(t)
 	rawOriginal := "raw-upload-not-requested-by-export"
-	artifact, err := repo.PutArtifact(t.Context(), "owner", root.ID(), ArtifactInput{Kind: "upload", Name: "original.txt", MediaType: "text/plain", Processing: "Original fixture bytes, not requested for export", Data: []byte(rawOriginal), Text: true})
+	artifact, err := repo.PutArtifact(t.Context(), "owner", root.ID(), storage.ArtifactInput{Kind: "upload", Name: "original.txt", MediaType: "text/plain", Processing: "Original fixture bytes, not requested for export", Data: []byte(rawOriginal), Text: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestRecursiveBundleUsesExactTypedLinksAndNeverEmbedsReferencedOriginals(t *
 		t.Fatal(err)
 	}
 	original, _ := json.Marshal(before)
-	data, summary, err := repo.ExportBundle(t.Context(), "owner", root.ID(), BundleOptions{HighWater: high, IncludeChildren: true})
+	data, summary, err := repo.ExportBundle(t.Context(), "owner", root.ID(), storage.BundleOptions{HighWater: high, IncludeChildren: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestRecursiveBundleUsesExactTypedLinksAndNeverEmbedsReferencedOriginals(t *
 	if err != nil || string(raw) != rawOriginal {
 		t.Fatal("original artifact changed", err)
 	}
-	if data, _, err := repo.ExportBundle(t.Context(), "foreign", root.ID(), BundleOptions{}); !errors.Is(err, ErrNotFound) || len(data) != 0 {
+	if data, _, err := repo.ExportBundle(t.Context(), "foreign", root.ID(), storage.BundleOptions{}); !errors.Is(err, storage.ErrNotFound) || len(data) != 0 {
 		t.Fatal("foreign owner received partial bundle", err)
 	}
 }
@@ -90,7 +91,7 @@ func TestBundleRejectsUnindexedChildClaimsAndOversizedRecordsWithoutPartialSucce
 	if _, err := root.AppendRecords(t.Context(), []abi.SessionRecord{conversation(strings.Repeat("x", 1<<20))}); err != nil {
 		t.Fatal(err)
 	}
-	if data, summary, err := repo.ExportBundle(t.Context(), "owner", root.ID(), BundleOptions{}); err == nil || len(data) != 0 || summary.Records != 0 {
+	if data, summary, err := repo.ExportBundle(t.Context(), "owner", root.ID(), storage.BundleOptions{}); err == nil || len(data) != 0 || summary.Records != 0 {
 		t.Fatal("oversized record masqueraded as full export")
 	}
 	other, err := repo.Create(t.Context(), "owner", "fake-root", "")
@@ -109,7 +110,7 @@ func TestBundleRejectsUnindexedChildClaimsAndOversizedRecordsWithoutPartialSucce
 	if _, err := other.AppendRecords(t.Context(), []abi.SessionRecord{{Kind: abi.RecordExtension, Namespace: "alva.agent", Type: "child_session_linked", SchemaVersion: 1, Parent: &abi.RecordReference{SessionID: other.ID(), RecordID: facts[0].ID, Sequence: facts[0].Sequence}, Payload: payload}}); err != nil {
 		t.Fatal(err)
 	}
-	if data, _, err := repo.ExportBundle(t.Context(), "owner", other.ID(), BundleOptions{IncludeChildren: true}); err == nil || len(data) != 0 {
+	if data, _, err := repo.ExportBundle(t.Context(), "owner", other.ID(), storage.BundleOptions{IncludeChildren: true}); err == nil || len(data) != 0 {
 		t.Fatal("unindexed claimed ancestry became an export grant")
 	}
 }

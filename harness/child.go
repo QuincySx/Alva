@@ -1,4 +1,4 @@
-// INPUT: context, errors, filepath, reflect, time, agent/core/context/security, extension/files/security/mcp/subagent, host workspace, storage/session.
+// INPUT: context, errors, filepath, reflect, time, agent/core/context/security, extension/files/security/mcp/subagent, host workspace, shared storage contracts.
 // OUTPUT: NativeChildFactory, NativeChildConfig, ChildToolBinding, BoundChildTool, NativeFileBindings and MCPChildBinding.
 // POS: [L5 harness] Native child assembly creates independent durable authorities and explicitly rebinds only actual direct-parent capabilities.
 package harness
@@ -8,15 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	filetools "github.com/QuincySx/Alva/extension/files"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"path/filepath"
 	"reflect"
 	"time"
 
+	filetools "github.com/QuincySx/Alva/extension/files"
 	managedmcp "github.com/QuincySx/Alva/extension/mcp"
 	"github.com/QuincySx/Alva/extension/subagent"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -46,7 +46,7 @@ type BoundChildTool struct {
 	Next ChildToolBinder
 }
 type NativeChildConfig struct {
-	Repository           *session.Repository
+	Repository           ChildStorage
 	Owner, ParentID, Cwd string
 	Guard                *security.Guard
 	Bindings             []ChildToolBinding
@@ -64,7 +64,7 @@ func (factory *NativeChildFactory) GrantableTools() []abi.Tool {
 }
 
 func NewNativeChildFactory(ctx context.Context, config NativeChildConfig) (*NativeChildFactory, error) {
-	if config.Repository == nil || config.Guard == nil || config.Owner == "" || config.ParentID == "" || !filepath.IsAbs(config.Cwd) || len(config.Bindings) > 128 {
+	if storage.Missing(config.Repository) || config.Guard == nil || config.Owner == "" || config.ParentID == "" || !filepath.IsAbs(config.Cwd) || len(config.Bindings) > 128 {
 		return nil, errors.New("explicit native child repository, actual parent, absolute cwd, guard and bounded bindings required")
 	}
 	if _, err := config.Repository.OpenSession(ctx, config.Owner, config.ParentID); err != nil {
@@ -156,7 +156,7 @@ func (factory *NativeChildFactory) Prepare(ctx context.Context, request subagent
 	if err != nil {
 		return child, &abi.SessionError{Operation: "bind child references", SessionID: log.ID(), Err: err}
 	}
-	plugins, err := NativeSessionPlugins(ctx, c.Repository, c.Owner, log.ID())
+	plugins, err := SessionPlugins(ctx, c.Repository, c.Owner, log.ID())
 	if err != nil {
 		return child, &abi.SessionError{Operation: "bind child native plugins", SessionID: log.ID(), Err: err}
 	}

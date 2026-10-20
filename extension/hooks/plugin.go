@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, errors, filepath, strings, sync, time, unicode/utf8, agent/core, kernel/abi, wire, storage/session.
+// INPUT: context, encoding/json, errors, filepath, strings, sync, time, unicode/utf8, agent/core, kernel/abi, wire, shared storage contracts.
 // OUTPUT: Plugin, New, Close and CleanupComplete with typed lifecycle hooks and bounded reference notices.
 // POS: [L4 extension] Optional approved Hook business recipe never mutates committed tool arguments or converts hook permission hints into grants.
 package hooks
@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -24,7 +24,7 @@ type Plugin struct {
 	mu                sync.Mutex
 	gate              chan struct{}
 	endGate           chan struct{}
-	log               *session.Session
+	log               storage.Session
 	runID             string
 	life              context.Context
 	cancel            context.CancelFunc
@@ -36,7 +36,7 @@ type Plugin struct {
 }
 
 func New(ctx context.Context, config Config) (*Plugin, error) {
-	if config.Repository == nil || config.Report == nil || !filepath.IsAbs(config.Cwd) || config.SessionID == "" || len(config.Entries) > 32 {
+	if storage.Missing(config.Repository) || config.Report == nil || !filepath.IsAbs(config.Cwd) || config.SessionID == "" || len(config.Entries) > 32 {
 		return nil, errors.New("explicit hook native authority, reporter, absolute cwd and bounded approved entries required")
 	}
 	log, err := config.Repository.OpenSession(ctx, config.Owner, config.SessionID)

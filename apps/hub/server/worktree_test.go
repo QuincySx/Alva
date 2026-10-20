@@ -37,7 +37,7 @@ func TestHTTPManagedWorktreeUsesExactOwnedEvidenceAndConsent(t *testing.T) {
 	}
 	git("add", "--", "tracked.txt")
 	git("-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
-	f := newFixture(t, bootstrap.Config{Demo: true, GitExecutable: "/usr/bin/git", GitHostAccessApproved: true})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true, GitExecutable: "/usr/bin/git", GitHostAccessApproved: true})
 	lead, err := f.app.Service.Create(ctx, "Lead", repo)
 	if err != nil {
 		t.Fatal(err)

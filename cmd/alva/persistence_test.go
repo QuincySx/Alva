@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	memorysqlite "github.com/QuincySx/Alva/platform/storage/memory"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -50,7 +51,7 @@ func TestCLIExplicitDurableResumeAndColdHistory(t *testing.T) {
 	if !strings.Contains(output.String(), "Tool result: second") {
 		t.Fatal("resume did not run local tool")
 	}
-	var entries []session.RecordEntry
+	var entries []storage.RecordEntry
 	var after, highWater uint64
 	for pages := 0; ; pages++ {
 		if pages > 20 {
@@ -62,7 +63,7 @@ func TestCLIExplicitDurableResumeAndColdHistory(t *testing.T) {
 		if err := run(ctx, args, strings.NewReader(""), &output, &diagnostics); err != nil {
 			t.Fatal(err)
 		}
-		var page session.RecordPage
+		var page storage.RecordPage
 		if err := json.Unmarshal(output.Bytes(), &page); err != nil {
 			t.Fatal(err)
 		}

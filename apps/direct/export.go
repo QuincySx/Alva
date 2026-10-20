@@ -12,32 +12,32 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
-	private "github.com/QuincySx/Alva/platform/storage/sqlite"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
 )
 
 type InspectorExport struct {
 	Path    string
-	Summary session.BundleSummary
+	Summary storage.BundleSummary
 }
 
 func (s *Service) ExportInspector(ctx context.Context, id string, highWater uint64) (InspectorExport, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return InspectorExport{}, session.ErrClosed
+		return InspectorExport{}, storage.ErrClosed
 	}
 	if _, err := s.metadata(ctx, id); err != nil {
 		return InspectorExport{}, err
 	}
-	data, summary, err := s.repository.ExportBundle(ctx, owner, id, session.BundleOptions{HighWater: highWater})
+	data, summary, err := s.repository.ExportBundle(ctx, owner, id, storage.BundleOptions{HighWater: highWater})
 	if err != nil {
 		return InspectorExport{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return InspectorExport{}, err
 	}
-	directory, err := private.EnsurePrivateDir(filepath.Join(s.config.DataDirectory, "exports"))
+	directory, err := private.EnsureDir(filepath.Join(s.config.DataDirectory, "exports"))
 	if err != nil {
 		return InspectorExport{}, err
 	}

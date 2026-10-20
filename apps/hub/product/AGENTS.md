@@ -6,6 +6,8 @@
 认领HubSession后绑定native owner。上传原件耐久保存，模型仅收小引用和真实处理说明；Inspector和历史按目标归属有界只读。UI的行/Markdown/滚动转换留apps/hub/desktop。
 ## 约束
 无MyGo/WebView/React；不靠build tags隐藏UI传递依赖。读取Inspector不restore、不启动Agent/MCP。History/Team工具验证actual Tool与非空matching call、精确字段/重复键/Unicode；产品归属由已存branch重审，不凭同名Tool或nativeID字符串推断。设置仅下一次装配消费。Skills限定saved cwd与可恢复归档。
+ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费声明的路由插口，不靠具体store附带方法。事实Repository、DTO/错误均来自共享storage契约。可选Team/Automation能力仍显式按既有契约发现；私有目录只依赖system/privatefs，不带SQL。
+
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|

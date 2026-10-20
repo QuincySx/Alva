@@ -1,9 +1,9 @@
 // INPUT: Explicit private directory paths, Unix file metadata and native ownership checks
-// OUTPUT: EnsurePrivateDir and private file opening on existing non-Windows hosts
-// POS: [platform / durable storage] Keep Unix permission semantics independent from Windows DACL implementation.
+// OUTPUT: EnsureDir and OpenFile with Unix mode, identity and ownership checks
+// POS: [platform / OS primitive] Keep Unix permission semantics independent from Windows DACL implementation.
 //go:build !windows
 
-package sqlite
+package privatefs
 
 import (
 	"errors"
@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 )
 
-// EnsurePrivateDir returns a canonical private directory. A final symlink is
+// EnsureDir returns a canonical private directory. A final symlink is
 // rejected; legitimate ancestor aliases are resolved before further file access.
-func EnsurePrivateDir(directory string) (string, error) {
+func EnsureDir(directory string) (string, error) {
 	if directory == "" {
 		return "", errors.New("explicit private data directory required")
 	}
@@ -32,10 +32,10 @@ func EnsurePrivateDir(directory string) (string, error) {
 		return "", err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return "", errors.New("private database directory must be a real directory")
+		return "", errors.New("private filesystem directory must be a real directory")
 	}
 	if info.Mode().Perm()&0077 != 0 {
-		return "", errors.New("private database directory permits group or world access")
+		return "", errors.New("private filesystem directory permits group or world access")
 	}
 	if err = checkOwner(info, false); err != nil {
 		return "", err
@@ -43,7 +43,7 @@ func EnsurePrivateDir(directory string) (string, error) {
 	return filepath.EvalSymlinks(absolute)
 }
 
-func privateFile(path string) (*os.File, error) {
+func OpenFile(path string) (*os.File, error) {
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 	if err == nil {
 		return file, nil

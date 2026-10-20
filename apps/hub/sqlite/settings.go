@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+
 	"github.com/QuincySx/Alva/apps/hub"
 )
 
@@ -29,7 +30,10 @@ func settings(ctx context.Context, tx *sql.Tx, id string) (hub.Settings, error) 
 	}
 	return value, value.Validate()
 }
-func (s *Store) Settings(ctx context.Context, id string) (hub.Settings, error) {
+func (s *Store) Settings(ctx context.Context, id string) (providerResult0 hub.Settings, providerResult1 error) {
+	defer func() {
+		providerResult1 = normalizeStoreError(providerResult1)
+	}()
 	var value hub.Settings
 	err := s.transaction(ctx, func(tx *sql.Tx) error { var err error; value, err = settings(ctx, tx, id); return err })
 	return value, err
@@ -48,9 +52,14 @@ func saveSettings(ctx context.Context, tx *sql.Tx, value hub.Settings) error {
 	_, err = tx.ExecContext(ctx, `INSERT INTO hub_settings(session,data) VALUES(?,?) ON CONFLICT(session) DO UPDATE SET data=excluded.data`, value.SessionID, data)
 	return err
 }
-func (s *Store) SaveSettings(ctx context.Context, value hub.Settings) error {
+func (s *Store) SaveSettings(ctx context.Context, value hub.Settings) (providerResult0 error) {
+	defer
 	// Editing always creates a disabled snapshot, even if an untrusted import
 	// claims it was approved. Enabling is an independent explicit operation.
+	func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
+
 	value.MCP = append([]hub.MCPServer(nil), value.MCP...)
 	for i := range value.MCP {
 		value.MCP[i].Enabled = false
@@ -77,7 +86,10 @@ func (s *Store) SaveSettings(ctx context.Context, value hub.Settings) error {
 		return saveSettings(ctx, tx, value)
 	})
 }
-func (s *Store) SetMCPEnabled(ctx context.Context, id, serverID string, enabled, approved bool) error {
+func (s *Store) SetMCPEnabled(ctx context.Context, id, serverID string, enabled, approved bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
 		if err != nil {
@@ -107,7 +119,10 @@ func (s *Store) SetMCPEnabled(ctx context.Context, id, serverID string, enabled,
 // ReplaceMCP edits this capability only. A generic whole-settings import clears
 // all imported process approvals, but the MCP page must not silently disable an
 // unrelated already-approved AEP capability.
-func (s *Store) ReplaceMCP(ctx context.Context, id string, servers []hub.MCPServer) error {
+func (s *Store) ReplaceMCP(ctx context.Context, id string, servers []hub.MCPServer) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	servers = append([]hub.MCPServer(nil), servers...)
 	for i := range servers {
 		servers[i].Enabled = false
@@ -129,7 +144,10 @@ func (s *Store) ReplaceMCP(ctx context.Context, id string, servers []hub.MCPServ
 		return saveSettings(ctx, tx, value)
 	})
 }
-func (s *Store) SetSkillsEnabled(ctx context.Context, id string, enabled bool) error {
+func (s *Store) SetSkillsEnabled(ctx context.Context, id string, enabled bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
 		if err != nil {
@@ -146,7 +164,10 @@ func (s *Store) SetSkillsEnabled(ctx context.Context, id string, enabled bool) e
 		return saveSettings(ctx, tx, value)
 	})
 }
-func (s *Store) RecordSkillArchive(ctx context.Context, id, receipt string) error {
+func (s *Store) RecordSkillArchive(ctx context.Context, id, receipt string) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		value, err := settings(ctx, tx, id)
 		if err != nil {
@@ -162,7 +183,10 @@ func (s *Store) RecordSkillArchive(ctx context.Context, id, receipt string) erro
 	})
 }
 
-func (s *Store) SetSubagentsEnabled(ctx context.Context, id string, enabled bool) error {
+func (s *Store) SetSubagentsEnabled(ctx context.Context, id string, enabled bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
 		if err != nil {
@@ -180,7 +204,10 @@ func (s *Store) SetSubagentsEnabled(ctx context.Context, id string, enabled bool
 	})
 }
 
-func (s *Store) SetPersistentMemory(ctx context.Context, id string, enabled bool) error {
+func (s *Store) SetPersistentMemory(ctx context.Context, id string, enabled bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
 		if err != nil {

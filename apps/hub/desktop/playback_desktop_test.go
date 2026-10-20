@@ -15,13 +15,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
+
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	mediaextension "github.com/QuincySx/Alva/extension/media"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	"github.com/QuincySx/Alva/platform/system/process"
-	"github.com/egoist/mygo/ui"
 )
 
 func nativeVideoFixture(t *testing.T) (string, string, []byte, nativemedia.Output) {
@@ -123,13 +124,13 @@ func TestNativeVideoPlaybackIsExplicitSelfDrawnSeekableAndReaped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	derived, err := service.Repository.PutArtifact(ctx, s.ID, branch.NativeSessionID, session.ArtifactInput{Kind: "media-derivative", Name: upload.Info.ID, MediaType: out.MediaType, Data: out.Data, Processing: out.Operation.Description})
+	derived, err := service.Repository.PutArtifact(ctx, s.ID, branch.NativeSessionID, storage.ArtifactInput{Kind: "media-derivative", Name: upload.Info.ID, MediaType: out.MediaType, Data: out.Data, Processing: out.Operation.Description})
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifest := mediaextension.Manifest{Version: 1, Source: upload.Reference, Artifact: derived.Reference(), Output: out, Processing: "actual silent video derivative; no model delivery"}
 	raw, _ := json.Marshal(manifest)
-	_, err = service.Repository.PutArtifact(ctx, s.ID, branch.NativeSessionID, session.ArtifactInput{Kind: "media-manifest", Name: upload.Info.ID, MediaType: "application/json", Data: raw, Text: true, Processing: "actual video provenance"})
+	_, err = service.Repository.PutArtifact(ctx, s.ID, branch.NativeSessionID, storage.ArtifactInput{Kind: "media-manifest", Name: upload.Info.ID, MediaType: "application/json", Data: raw, Text: true, Processing: "actual video provenance"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,8 @@
 Handler所有nil-capable typed-nil形式在构造时拒绝；输入严格校验重复键/Unicode/精确字段，call ID非空。
 不读 ambient stdin，不把回答当 shell/file/network 授权；没有自动重放。问题8KiB/标题1KiB/metadata4KiB、2..4选项、答案64KiB、每run最多4并发，等待最多30分钟；取消/过期/旧run晚答拒绝。Handler 需真实响应 ctx；不以遗留 goroutine 假造完成。产品 UI/HTTP 接线由产品 owner 消费，未接时不可广告可用。
 
+存储只消费本包按需组合的共享storage能力插口；会话/引用/DTO/错误从同一契约返回，不导入具体session.Repository或SQL实现。后端由上层程序/插件装配选择，组件不回落默认库、不downcast实现，不持有存储Close。
+
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |

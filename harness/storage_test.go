@@ -91,7 +91,7 @@ func TestNativeHarnessUsesReplaceableArtifactBytes(t *testing.T) {
 				}
 				return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
 			})
-			plugins, err := NativeSessionPlugins(t.Context(), repo, "owner", log.ID())
+			plugins, err := SessionPlugins(t.Context(), repo, "owner", log.ID())
 			if err != nil {
 				t.Fatal(err)
 			}

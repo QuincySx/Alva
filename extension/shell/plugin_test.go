@@ -15,6 +15,7 @@ import (
 	"time"
 
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/process"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -31,8 +32,8 @@ func (f modelFunc) Stream(c context.Context, r abi.ModelRequest, e func(wire.Str
 }
 
 type fixture struct {
-	repo    *session.Repository
-	log     *session.Session
+	repo    storage.Repository
+	log     storage.Session
 	cwd     string
 	p       *Plugin
 	runtime abi.RuntimeContext

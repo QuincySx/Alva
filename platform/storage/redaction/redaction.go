@@ -1,7 +1,7 @@
 // INPUT: bytes, encoding/base64/json, errors, io, sort, strings, unicode/utf8, kernel/abi.
 // OUTPUT: RedactRecord, RedactJSON, RedactStreamFrame and explicit EnvironmentSecrets snapshots.
 // POS: [platform / durable storage] Shared memory/durable journal policy removes known credential fields without truncating ordinary payloads.
-package session
+package redaction
 
 import (
 	"bytes"

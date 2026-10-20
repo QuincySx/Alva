@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -23,7 +24,7 @@ func TestNativeRecipeReopensSameAuthorityWithoutReplay(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var log *session.Session
+		var log storage.Session
 		if turn == 0 {
 			log, err = repo.Create(ctx, "product-owner", "actual-native", "")
 		} else {
@@ -32,7 +33,7 @@ func TestNativeRecipeReopensSameAuthorityWithoutReplay(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		plugins, err := NativeSessionPlugins(ctx, repo, "product-owner", log.ID())
+		plugins, err := SessionPlugins(ctx, repo, "product-owner", log.ID())
 		if err != nil {
 			t.Fatal(err)
 		}

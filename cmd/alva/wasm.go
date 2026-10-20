@@ -23,7 +23,8 @@ import (
 	"unicode/utf8"
 
 	sandboxhost "github.com/QuincySx/Alva/platform/sandbox/host"
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
@@ -160,7 +161,7 @@ func (o sandboxOptions) guestWorkspace(host string) (string, error) {
 	return best, nil
 }
 
-func runWASM(ctx context.Context, o sandboxOptions, workspace string, mode security.PermissionMode, model abi.LanguageModel, prompt string, attachments []string, repository *session.Repository, native *session.Session, input io.Reader, output, diagnostics io.Writer) (runErr error) {
+func runWASM(ctx context.Context, o sandboxOptions, workspace string, mode security.PermissionMode, model abi.LanguageModel, prompt string, attachments []string, repository storage.Repository, native storage.Session, input io.Reader, output, diagnostics io.Writer) (runErr error) {
 	if mode == security.Plan && o.dangerous {
 		return errors.New("plan mode does not delegate host shell execution")
 	}
@@ -345,7 +346,7 @@ func runWASM(ctx context.Context, o sandboxOptions, workspace string, mode secur
 
 // wasmNativeReader never accepts an owner or target session from the guest.
 type wasmNativeReader struct {
-	repository *session.Repository
+	repository storage.Repository
 	sessionID  string
 	backend    agentcontext.ReferenceBackend
 }
@@ -376,7 +377,7 @@ func (r *wasmNativeReader) Page(ctx context.Context, q sandboxabi.HistoryRequest
 	if err := q.Validate(); err != nil {
 		return page, err
 	}
-	entry := func(e session.RecordEntry, snippet string) sandboxabi.HistoryEntry {
+	entry := func(e storage.RecordEntry, snippet string) sandboxabi.HistoryEntry {
 		return sandboxabi.HistoryEntry{Sequence: e.Sequence, Namespace: e.Namespace, Type: e.Type, Summary: e.Summary, Value: e.Value, Snippet: snippet}
 	}
 	if q.Query != "" {
@@ -409,8 +410,8 @@ func (r *wasmNativeReader) Page(ctx context.Context, q sandboxabi.HistoryRequest
 // into bounded LF/EOF frames before known-marker redaction, not per Read chunk.
 type wasmJournal struct {
 	jobID       string
-	repository  *session.Repository
-	native      *session.Session
+	repository  storage.Repository
+	native      storage.Session
 	parent      *abi.RecordReference
 	pending     map[string][]byte
 	memory      [][]byte
@@ -465,7 +466,7 @@ func (j *wasmJournal) frame(ctx context.Context, kind string, op uint32, data []
 	if err != nil {
 		return err
 	}
-	frame, err = session.RedactStreamFrame(frame)
+	frame, err = redaction.RedactStreamFrame(frame)
 	if err != nil {
 		return err
 	}
@@ -483,7 +484,7 @@ func (j *wasmJournal) frame(ctx context.Context, kind string, op uint32, data []
 		for size > 0 && size < len(frame) && !utf8.RuneStart(frame[size]) {
 			size--
 		}
-		info, err := j.repository.PutArtifact(ctx, cliOwner, j.native.ID(), session.ArtifactInput{Kind: "wasm-io-frame", Name: fmt.Sprintf("%s-%d-%d", j.jobID, j.sequence, len(refs)), MediaType: "text/plain; charset=utf-8", Text: true, Processing: "Ordered UTF-8 segment of captured JSON IO frame (may not be valid standalone JSON); known credential fields/markers sanitized before segmentation, no arbitrary-secret detection; not automatically sent to model", Data: frame[:size]})
+		info, err := j.repository.PutArtifact(ctx, cliOwner, j.native.ID(), storage.ArtifactInput{Kind: "wasm-io-frame", Name: fmt.Sprintf("%s-%d-%d", j.jobID, j.sequence, len(refs)), MediaType: "text/plain; charset=utf-8", Text: true, Processing: "Ordered UTF-8 segment of captured JSON IO frame (may not be valid standalone JSON); known credential fields/markers sanitized before segmentation, no arbitrary-secret detection; not automatically sent to model", Data: frame[:size]})
 		if err != nil {
 			return &abi.SessionError{Operation: "store wasm IO", SessionID: j.native.ID(), Err: err}
 		}

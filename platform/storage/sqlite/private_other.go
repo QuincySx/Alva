@@ -7,6 +7,5 @@ package sqlite
 
 import "os"
 
-func checkOwner(os.FileInfo, bool) error { return ErrUnsupported }
-func lockFile(*os.File) error            { return ErrUnsupported }
-func unlockFile(*os.File) error          { return nil }
+func lockFile(*os.File) error   { return ErrUnsupported }
+func unlockFile(*os.File) error { return nil }

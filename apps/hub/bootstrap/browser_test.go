@@ -68,7 +68,7 @@ func TestNativeBrowserRecipeIsExplicitRunOwnedAndReferenceOnly(t *testing.T) {
 	}))
 	defer model.Close()
 	dir := filepath.Join(t.TempDir(), "private")
-	a, err := Open(ctx, Config{DataDirectory: dir, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: model.URL, Model: "browser-fixture"}})
+	a, err := Open(ctx, Config{OpenStores: testStores, OpenMemory: LocalMemory, OpenBindings: LocalBindings, DataDirectory: dir, ProviderKind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: model.URL, Model: "browser-fixture"}})
 	if err != nil {
 		t.Fatal(err)
 	}

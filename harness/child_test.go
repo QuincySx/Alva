@@ -7,15 +7,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	filetools "github.com/QuincySx/Alva/extension/files"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	filetools "github.com/QuincySx/Alva/extension/files"
 	"github.com/QuincySx/Alva/extension/subagent"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 	"github.com/QuincySx/Alva/sdk/agent/context/scope"
@@ -126,7 +127,7 @@ func TestNativeSubagentRecursiveFactsReferencesAndDirectGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins, err := NativeSessionPlugins(ctx, repo, "owner", parent.ID())
+	plugins, err := SessionPlugins(ctx, repo, "owner", parent.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,13 +198,13 @@ func TestNativeSubagentRecursiveFactsReferencesAndDirectGrants(t *testing.T) {
 	}
 	// The root can inspect only the selected child output that was copied into
 	// its own reference authority, never the child's original file/worker logs.
-	if _, err = refs.ReadText(ctx, childSelected.URI, 0, 1024); !errors.Is(err, session.ErrNotFound) {
+	if _, err = refs.ReadText(ctx, childSelected.URI, 0, 1024); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("ancestor read child selected-output artifact", err)
 	}
 	if childRef.URI == "" {
 		t.Fatal("child did not actually read and retain own file reference")
 	}
-	if _, err = refs.ReadText(ctx, childRef.URI, 0, 1024); !errors.Is(err, session.ErrNotFound) {
+	if _, err = refs.ReadText(ctx, childRef.URI, 0, 1024); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("parent read child file artifact", err)
 	}
 	rootRecords, _ := parent.Records(ctx, 0)

@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/platform/host"
-	"github.com/QuincySx/Alva/platform/storage/sqlite"
+	privatefs "github.com/QuincySx/Alva/platform/system/privatefs"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -52,7 +52,7 @@ func TestCancelledStdinAPIKeyReadReturnsWithoutPipeEOF(t *testing.T) {
 }
 
 func TestPortableExplicitPrivateKeyFileLeavesREPLInputAndFileUnchanged(t *testing.T) {
-	directory, err := sqlite.EnsurePrivateDir(filepath.Join(t.TempDir(), "private"))
+	directory, err := privatefs.EnsureDir(filepath.Join(t.TempDir(), "private"))
 	if err != nil {
 		t.Fatal(err)
 	}

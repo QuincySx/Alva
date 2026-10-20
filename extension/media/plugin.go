@@ -15,7 +15,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -24,7 +25,7 @@ import (
 )
 
 type Config struct {
-	Repository                   *session.Repository
+	Repository                   Storage
 	Owner, SessionID, Cwd, Route string
 	Guard                        *security.Guard
 	ImageCapable                 bool
@@ -158,7 +159,7 @@ func (t *mediaTool) Execute(ctx context.Context, e abi.ToolExecutionContext, cal
 	case "read_manifest":
 		_, err = p.library.ReadManifest(ctx, a.ManifestURI)
 		if err == nil {
-			var info session.ArtifactInfo
+			var info storage.ArtifactInfo
 			info, err = p.config.Repository.ArtifactMetadata(ctx, p.config.Owner, p.config.SessionID, a.ManifestURI)
 			value = info.Reference()
 		}
@@ -194,7 +195,7 @@ func (t *mediaTool) Execute(ctx context.Context, e abi.ToolExecutionContext, cal
 			value = map[string]any{"selection_id": selection.ID, "status": "prepared_not_submitted", "selection": valueRef}
 		}
 	case "probe", "process_image", "extract_frames", "transcode_video", "transcode_audio":
-		var source session.ArtifactInfo
+		var source storage.ArtifactInfo
 		var input []byte
 		source, input, err = p.library.Original(ctx, a.SourceURI)
 		if err != nil {
@@ -281,11 +282,11 @@ func (p *Plugin) recordDecoderFailure(ctx context.Context, call wire.ToolCall, s
 	if err != nil {
 		return err
 	}
-	raw, err = session.RedactStreamFrame(raw)
+	raw, err = redaction.RedactStreamFrame(raw)
 	if err != nil {
 		return err
 	}
-	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, session.ArtifactInput{Kind: "media-decoder-log", Name: call.ID, MediaType: "application/json", Processing: "Bounded decoder diagnostic stream; operation failed/cancelled/limited, output completeness unknown. Known credential markers redacted; no semantic understanding or model delivery.", Data: raw, Text: true})
+	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: "media-decoder-log", Name: call.ID, MediaType: "application/json", Processing: "Bounded decoder diagnostic stream; operation failed/cancelled/limited, output completeness unknown. Known credential markers redacted; no semantic understanding or model delivery.", Data: raw, Text: true})
 	if err != nil {
 		return &abi.SessionError{Operation: "retain media decoder diagnostics", SessionID: p.config.SessionID, Err: err}
 	}

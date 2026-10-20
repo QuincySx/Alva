@@ -21,21 +21,29 @@ import (
 	"github.com/QuincySx/Alva/extension/shell"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/platform/host"
-	"github.com/QuincySx/Alva/platform/storage/session"
-	private "github.com/QuincySx/Alva/platform/storage/sqlite"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 type DraftAttachment struct {
 	BranchID  string               `json:"branch_id"`
-	Info      session.ArtifactInfo `json:"info"`
+	Info      storage.ArtifactInfo `json:"info"`
 	Reference wire.Reference       `json:"reference"`
 }
+
+// ServiceStore declares the required product routing capability explicitly;
+// substituting a backend never loses native permission ownership at runtime.
+type ServiceStore interface {
+	hub.Store
+	hub.NativeOwnerResolver
+}
+
 type HubService struct {
-	Store         hub.Store
+	Store         ServiceStore
 	Runtime       *hub.Runtime
-	Repository    *session.Repository
+	Repository    storage.Repository
 	DefaultTarget hub.Target
 	Targets       []hub.Target
 	DataDirectory string
@@ -87,14 +95,14 @@ func (s *HubService) RespondApproval(ctx context.Context, id, requestID string, 
 	return s.Runtime.RespondPermission(ctx, id, requestID, engine.PermissionDecision{Allow: allowed})
 }
 
-func NewHubService(store hub.Store, runtime *hub.Runtime, repository *session.Repository, target hub.Target, directory string, demo bool) (*HubService, error) {
-	if store == nil || runtime == nil || repository == nil {
+func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.Repository, target hub.Target, directory string, demo bool) (*HubService, error) {
+	if storage.Missing(store) || runtime == nil || storage.Missing(repository) {
 		return nil, errors.New("product store, runtime and native repository required")
 	}
 	if err := target.Validate(); err != nil {
 		return nil, err
 	}
-	dir, err := private.EnsurePrivateDir(directory)
+	dir, err := private.EnsureDir(directory)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +121,7 @@ func (s *HubService) Create(ctx context.Context, title, workspace string) (hub.S
 		if err != nil {
 			return hub.Session{}, err
 		}
-		workspace, err = private.EnsurePrivateDir(filepath.Join(s.DataDirectory, "workspaces", id))
+		workspace, err = private.EnsureDir(filepath.Join(s.DataDirectory, "workspaces", id))
 		if err != nil {
 			return hub.Session{}, err
 		}
@@ -260,7 +268,7 @@ func (s *HubService) UploadReader(ctx context.Context, id, name string, source i
 	}
 	mediaType := http.DetectContentType(data)
 	text := utf8.Valid(data) && (strings.HasPrefix(mediaType, "text/") || strings.HasPrefix(mediaType, "application/json"))
-	artifact, err := s.Repository.PutArtifact(ctx, id, branch.NativeSessionID, session.ArtifactInput{Kind: "input-attachment", Name: name, MediaType: mediaType, Text: text, Data: data, Processing: "Original bytes saved with SHA-256. No compression, transcoding, frame extraction, OCR or media understanding performed. Only this metadata/reference is added to the submitted prompt."})
+	artifact, err := s.Repository.PutArtifact(ctx, id, branch.NativeSessionID, storage.ArtifactInput{Kind: "input-attachment", Name: name, MediaType: mediaType, Text: text, Data: data, Processing: "Original bytes saved with SHA-256. No compression, transcoding, frame extraction, OCR or media understanding performed. Only this metadata/reference is added to the submitted prompt."})
 	if err != nil {
 		return result, err
 	}

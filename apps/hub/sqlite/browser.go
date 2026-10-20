@@ -31,14 +31,20 @@ func (s *Store) editBrowser(ctx context.Context, id string, edit func(*hub.Setti
 	})
 }
 
-func (s *Store) ReplaceBrowser(ctx context.Context, id string, browser hub.BrowserSettings) error {
+func (s *Store) ReplaceBrowser(ctx context.Context, id string, browser hub.BrowserSettings) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	browser.Enabled, browser.HostAccessApproved = false, false
 	if err := browser.Validate(); err != nil {
 		return err
 	}
 	return s.editBrowser(ctx, id, func(value *hub.Settings) error { value.Browser = browser; return nil })
 }
-func (s *Store) SetBrowserEnabled(ctx context.Context, id string, enabled, approved bool) error {
+func (s *Store) SetBrowserEnabled(ctx context.Context, id string, enabled, approved bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.editBrowser(ctx, id, func(value *hub.Settings) error {
 		if enabled && (!approved || value.Browser.Executable == "") {
 			return errors.New("saved explicit browser executable and independent host/network access approval required")

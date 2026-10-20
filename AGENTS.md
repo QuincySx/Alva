@@ -21,6 +21,7 @@ Middleware 注入。确有缺陷可审计修复；抽象合并须先说明独立
 - Bus 仅保留类型化能力注册与显式独立 Topic；组件内已知依赖优先构造传参，服务生命周期由 owner 负责。
 - direct CLI/desktop 直连 harness/host；Hub core 仅看 engine 根契约，具体 adapter 在 bootstrap 装配。
 - 原始 native facts 与 Hub 产品事实分别持久化；UI/Inspector 是观察者，退订不等于 Stop。
+- 共享存储契约从内到外贯穿：消费者只接能力插口，返回值仍是共享接口/DTO；实际组件由程序/插件装配选择。禁止具体后端downcast、SQL错误协议和失败后默认库fallback。
 
 ## 约束
 
@@ -54,7 +55,7 @@ go mod verify
 | `harness/` | L5 默认配方、同名替换、引用/历史选择/子会话政策；durable/为可选可插拔等待恢复 |
 | `apps/` | L6 direct/Gateway 与 L7 Hub；CLI/桌面/HTTP/MCP/Worker 程序入口在 cmd，Hub desktop/server 共用 bootstrap/product |
 | `integration/` | 模型/协议/引擎适配；仅 engine 根契约为 L4.5，具体 adapter 是产品桥接 |
-| `platform/` | host 执行/审批 owner、独立 workspace 文件能力、system 底层原语、storage facts/catalog与可插拔blob、sandbox |
+| `platform/` | host 执行/审批 owner、独立 workspace 文件能力、system 底层原语、storage共享契约及独立facts/memory/bindings/blob实现、sandbox |
 | `tests/` | architecture 静态闸/公开快照/分形检查与独立 extensibility 消费者实验 |
 | `tools/` | 显式维护和手工验收工具，不进入生产执行或普通测试路径 |
 | `docs/` | 当前架构、使用说明、治理/ADR 与完整 history；实现状态以根 MIGRATION.md 为准 |

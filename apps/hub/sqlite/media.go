@@ -31,7 +31,10 @@ func (s *Store) editMedia(ctx context.Context, id string, edit func(*hub.Setting
 	})
 }
 
-func (s *Store) SetMediaEnabled(ctx context.Context, id string, enabled bool) error {
+func (s *Store) SetMediaEnabled(ctx context.Context, id string, enabled bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.editMedia(ctx, id, func(value *hub.Settings) error {
 		value.MediaEnabled = enabled
 		return nil
@@ -40,7 +43,10 @@ func (s *Store) SetMediaEnabled(ctx context.Context, id string, enabled bool) er
 
 // ReplaceMediaDecoder is a native/operator configuration surface. HTTP clients
 // may enable an already-saved snapshot, not import arbitrary host executables.
-func (s *Store) ReplaceMediaDecoder(ctx context.Context, id string, decoder hub.MediaDecoder) error {
+func (s *Store) ReplaceMediaDecoder(ctx context.Context, id string, decoder hub.MediaDecoder) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	decoder.Enabled, decoder.HostAccessApproved = false, false
 	if err := decoder.Validate(); err != nil {
 		return err
@@ -51,7 +57,10 @@ func (s *Store) ReplaceMediaDecoder(ctx context.Context, id string, decoder hub.
 	})
 }
 
-func (s *Store) SetMediaDecoderEnabled(ctx context.Context, id string, enabled, approved bool) error {
+func (s *Store) SetMediaDecoderEnabled(ctx context.Context, id string, enabled, approved bool) (providerResult0 error) {
+	defer func() {
+		providerResult0 = normalizeStoreError(providerResult0)
+	}()
 	return s.editMedia(ctx, id, func(value *hub.Settings) error {
 		if enabled && (!approved || value.MediaDecoder.FFmpeg == "" || value.MediaDecoder.FFprobe == "") {
 			return errors.New("saved explicit decoder snapshot and independent host access approval required")

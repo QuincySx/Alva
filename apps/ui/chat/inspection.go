@@ -4,12 +4,13 @@
 package chat
 
 import (
-	"github.com/QuincySx/Alva/platform/storage/session"
-	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"strings"
+
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
 
-func InspectionGroup(entry session.RecordEntry) string {
+func InspectionGroup(entry storage.RecordEntry) string {
 	if entry.Namespace == "alva.kernel" && entry.SchemaVersion == 1 {
 		switch entry.Kind {
 		case abi.RecordModelIntent, abi.RecordModelOutcome:
@@ -28,6 +29,6 @@ func InspectionGroup(entry session.RecordEntry) string {
 	}
 	return "Other"
 }
-func InspectionGroupVisible(entry session.RecordEntry, group string) bool {
+func InspectionGroupVisible(entry storage.RecordEntry, group string) bool {
 	return group == "" || group == "All" || InspectionGroup(entry) == group
 }

@@ -15,7 +15,7 @@ import (
 )
 
 func TestHTTPAutomationCRUDPinnedAndPausedNoImplicitExecution(t *testing.T) {
-	f := newFixture(t, bootstrap.Config{Demo: true})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true})
 	p, other := create(t, f, "schedule"), create(t, f, "other")
 	base := "/v1/sessions/" + p.ID + "/automations"
 	var a hub.Automation
@@ -47,7 +47,7 @@ func TestHTTPAutomationCRUDPinnedAndPausedNoImplicitExecution(t *testing.T) {
 }
 
 func TestHTTPHandoffReadsOnlyExactOwnerSnapshot(t *testing.T) {
-	f := newFixture(t, bootstrap.Config{Demo: true})
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true})
 	p, other := create(t, f, "handoff"), create(t, f, "other")
 	claim, err := f.app.Store.BeginTurn(t.Context(), p.ID, "original")
 	if err != nil {

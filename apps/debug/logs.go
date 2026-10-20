@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 )
 
 type LogRecord struct {
@@ -186,7 +186,7 @@ func (h *logHandler) Handle(_ context.Context, record slog.Record) error {
 	if err != nil || len(raw) > 32<<10 {
 		raw = []byte(`{"message":"log metadata exceeded budget; body omitted"}`)
 	}
-	redacted, err := session.RedactJSON(raw, h.store.secrets...)
+	redacted, err := redaction.RedactJSON(raw, h.store.secrets...)
 	if err != nil {
 		return errors.New("diagnostic log redaction failed")
 	}

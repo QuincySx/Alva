@@ -21,7 +21,7 @@ Go 是唯一受维护的实现，module 根目录就是仓库根目录，module 
 integration/platform 为横向责任组，不代表所有内容都处于 SDK 之下。
 LLM codec/provider 分开转换与传输；协议不拥有授权和持久化政策。
 platform/host 拥有执行、审批/问题 rendezvous 和资源生命周期，system 提供底层宿主原语，
-storage 保留 native records/artifacts 权威，sandbox 实现 host/guest；纯 ABI 留 SDK。
+storage根包提供共享契约，实现位于其子目录；native records/artifacts与Hub产品事实分权。sandbox 实现 host/guest；纯 ABI 留 SDK。
 
 ## 两类装配与产品入口
 
@@ -39,7 +39,7 @@ Tool、Plugin、Middleware 各有独立职责；AgentLoop、Graph、EngineRuntim
 不合成统一 runtime，也不为未来可能性预加 hook。
 
 planning/interaction/utility 根包为普通工具能力，可以只用内存 SDK 与宿主绑定的小服务运行；引用输出由配置显式选择。计划写入与任务CRUD可分别安装，原生政策继续在 native/ 装配。
-各自 native/ 子包才依赖具体会话、Guard 和持久证据；Hub 装配明确导入该适配，不把这些政策
+各自 native/ 子包才组合共享会话插口、Guard 和持久证据；Hub 装配明确导入该适配，不把这些政策
 变成普通工具的前置条件。原生适配复用同一 schema/业务操作，保留 Plugin.Name、工具名与记录
 namespace。工具目录读取调用方的实时 registry；偏好投影由明确的 BeforeModel hook 消费。
 只有标准库、SDK 与纯 strictjson helper 可进入这三个根包，传递依赖也受静态闸约束。
@@ -47,30 +47,47 @@ namespace。工具目录读取调用方的实时 registry；偏好投影由明�
 历史窗口选择及省略提示在harness，storage只提供固定高水位、有界元数据与hash/protocol验证。Hub Runtime只要求六方法ExecutionStore，产品浏览/Settings仍由各自consumer使用，同一SQLite事务保持。
 可选telemetry Plugin拥有指纹/诊断schema及报告政策；kernel只给通用观察值，纯SDK缺失即不保存诊断。诊断失败报告后继续，执行intent/outcome、恢复证据和Flush失败仍中断。
 
-可选[durable harness](../harness/durable/AGENTS.md)复用现有Plugin/Tool/hooks和四方法Backend，支持持久等待、受参数约束的一次性审批/问题结果与原子继续投递。MemoryBackend明确volatile；native adapter使用同一个native repository。等待成功持久化后可退出进程；running/interrupted不自动重放，外部任务启动/取消仍归实际owner。当前CLI/Hub未自动启用该可选API。
+可选[durable harness](../harness/durable/AGENTS.md)复用现有Plugin/Tool/hooks和四方法Backend，支持持久等待、受参数约束的一次性审批/问题结果与原子继续投递。MemoryBackend明确volatile；journal adapter消费同一事实插口，不绑定数据库。等待成功持久化后可退出进程；running/interrupted不自动重放，外部任务启动/取消仍归实际owner。当前CLI/Hub未自动启用该可选API。
 
 ## 存储替换边界
 
-存储按实际一致性需求拆端口，不增加一个包含所有数据库/文件操作的全局 Store：
+目标是**同一契约从内到外贯穿**，由程序/组件/Plugin装配选择实际实现。只在最底下多加几个backend不算完成：
+如果harness或工具仍要求具体Repository、界面仍识别SQL错误，替换仍会被中途卡住。
 
-| 消费者/数据 | 端口 | 要求及当前实现 |
+```text
+程序入口/组件装配选择实现
+           │ 同一组共享契约
+产品 → harness → Plugin/Tool → 存储组件
+   冷Inspector/UI ← 共享DTO、页、引用和错误
+```
+
+端口按实际权限和一致性职责组合，不要求所有数据共享一个万能Store：
+
+| 消费者 | 接收的契约 | 贯穿规则 |
 |---|---|---|
-| 内核执行事实/对话 | `abi.ConversationLog` | 原子 AppendRecords、失败可见；SDK MemorySession 或 native SQLite；不要求路径/SQL/云账户 |
-| 模型文本引用 | `context.ReferenceBackend` | 会话绑定、有界读/搜；MemoryReferences 或 native 授权 adapter |
-| 可选持久等待 | `durable.Backend` | 实际 Log、独占 Claim、Load、状态+结果同次原子 CAS；内存/native 两实现 |
-| Hub 执行及产品数据 | `ExecutionStore` / `SessionStore` / `SettingsStore` 等 | 按 consumer 分割，具体 SQLite 组合保留事务；不与 native 执行事实混成一张日志 |
-| 文件/媒体/工具大对象字节 | [`blob.Store`](../platform/storage/blob/AGENTS.md) | 不可变 Put + bounded Read，写后读可见；目录与有容量上限的内存两实现 |
-| 原生执行文件 | `host/workspace` | 实际 pinned OS roots、Guard、受限本地操作；云盘存储不自动授予 shell/path 权限 |
+| SDK循环 | `abi.ConversationLog` | 只看实际log的原子append/Flush；SDK不依赖platform |
+| 产品会话与执行事实 | `storage`中的SessionReader/Records/Conversations/Children等 | 返回同一`storage.Session`/ConversationTail/DTO；不暴露SQL/文件句柄 |
+| harness配方 | `SessionStorage`/`ChildStorage` | 组合上述同一组端口；历史窗口/子会话政策由harness拥有，不打开库 |
+| 执行证据Plugin/冷Inspector | 各自只需的共享能力子集 | 工具无存储Close；Inspector不获得执行claim或恢复Agent的能力 |
+| 模型引用 | `context.ReferenceBackend` | 同一实际会话绑定，有界读取/搜索；由storage.References返回接口 |
+| 可选等待 | `durable.Backend`，或`journal.Storage`适配 | 原子CAS状态+交付及独占claim；重启等待需事实/字节都persistent |
+| 可选记忆 | SDK `memory.Backend` / `storage.MemoryStore` | namespace由装配固定，Bind不返回具体SQL类型 |
+| 外部Agent身份 | `storage.BindingStore` | 原子create-or-verify owner/workspace；process adapter不创建数据库 |
+| Hub产品事实 | `ExecutionStore`/`SessionStore`/`SettingsStore`及可选能力 | DTO与ErrNotFound在Hub契约；Runtime仍仅依赖六方法ExecutionStore |
+| 不可变大对象字节 | `blob.Store` | Put/bounded Read；不取代事实事务或授予宿主执行权 |
 
-native `OpenWithBlobs` 将新 artifact 字节交给显式 adapter，元数据、会话归属和每块/full hash 仍在原 catalog；
-typed fact JSON 继续与日志索引同事务。先发布不可变对象，再原子提交引用；失败可留下孤立字节，但不能提交半份引用。
-不声称云盘与数据库具备分布式事务，不自动重试/删除不确定上传。
-数据库记录非秘密 namespace ID 和 retention，重开缺失/换绑直接拒绝；历史 inline 字节不搬迁、不删除。
-临时内存明确 process-lifetime，引用及提示词不会冒充重启耐久性。适配器生命周期和账号由宿主拥有。
+`apps/direct.Config.Storage`必传；`bootstrap.Config.OpenStores`必传，Memory/Bindings工厂只在相应能力启用时需要。
+现有程序入口显式选择stock Local配方；其他程序可装入自己的组件，所有下层消费者和返回值继续走同一插口。
+具体provider只在实现目录、cmd或bootstrap/storage.go出现。不存在、typed-nil或工厂失败直接报错，不另开默认库。
+实例所有权由装配移交；真实执行join后Close，失败保留同一组件供显式清理重试，工厂部分资源也不能丢弃。
+私有目录/文件是`system/privatefs`原语，不因调用EnsureDir而把SQL传递带入组件。
 
-未来云盘/WebDAV/S3等通过专用 adapter 接入 immutable byte 端口；普通挂载目录只有满足原子发布/Sync 才能用 directory adapter。
-若要替换事实数据库，必须实现 ConversationLog/实际 claim/CAS 等对应契约，不能用普通网盘上传模拟事务。
-SDK 已可全内存运行；本次不增加内核存储后端类型，也不自动装配真实云服务。
+共享契约保留实际语义：原子记录、快照CAS、独占claim、owner/session范围、因果关系、固定高水位及hash验证。
+`SameAuthority`验证实际权威而非字符串ID；任意云盘都不能只上传文件就冒充这些保证。
+记录与artifact retention分别声明；临时引用明确进程生命周期。若字节另用blob组件，先发布不可变对象再提交metadata，
+失败可留下孤立字节，不自动重试/删除，不声称分布式事务。账号与实现选型均留外部装配。
+
+契约、具体实现和产品默认是三件事；本轮纠正依赖方向与贯穿方式，不增加云provider、隐式数据迁移或新内核存储类型。
 
 ## 强制边界
 

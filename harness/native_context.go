@@ -1,4 +1,4 @@
-// INPUT: context, errors, fmt, storage/session, kernel/abi and llm/wire.
+// INPUT: context, errors, fmt, shared storage contracts, kernel/abi and llm/wire.
 // OUTPUT: Native context selection policy over bounded fixed-water conversation reads.
 // POS: [L5 harness] Selects whole recent turns and explains omitted history without changing stored facts.
 package harness
@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -18,7 +17,7 @@ const contextMaxMessages = 512
 const contextMaxBytes = 8 << 20
 
 type nativeContextSource struct {
-	repository *session.Repository
+	repository SessionStorage
 	owner, id  string
 }
 
