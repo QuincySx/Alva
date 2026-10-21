@@ -98,7 +98,7 @@ direct CLI/desktop 直连 harness 与 host，不经 EngineRuntime；Hub core 只
 保留实际 call/task ID；已收到有效人类回答后的保存/呈现失败通过 `interaction.AnswerReceivedError`
 保留 question ID。二者经现有内核错误路径留下恢复提示，调用方应查询事实而非自动重复操作。
 
-第三方插件可用 [Go SDK](./examples/sdk-agent/README.md)、[JavaScript作者SDK](./integration/protocol/aep/javascript/README.md)，或编译为[独立WASIp1模块](./examples/aep-wasm/README.md)。JS/Python原生子进程与独立WASM沿同一AEP协议接入Plugin/Tool/Middleware；WASM由Go内嵌运行时加载，无宿主目录/环境/网络。具体选择、批准和构建方式见各示例。
+第三方插件可用 [Go SDK](./examples/sdk-agent/README.md)、[JavaScript作者SDK](./integration/protocol/aep/javascript/README.md)，或编译为[独立WASIp1模块](./examples/aep-wasm/README.md)。JS/Python原生子进程与独立WASM沿同一AEP协议接入Plugin/Tool/Middleware；WASM由Go内嵌运行时加载，无宿主目录/环境/网络。direct CLI也提供显式检查/批准/禁用，每轮拥有并关闭独立插件实例；`--durable`可退出等待、显式交付结果再恢复。命令见[使用说明](./docs/USAGE.md#cli-插件与持久等待)。
 
 一周后回来建议这样读：
 

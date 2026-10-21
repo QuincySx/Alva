@@ -1,6 +1,6 @@
-// INPUT: Explicit direct REPL stdin, same harness runner/log and ordinary guarded tool approval requests
+// INPUT: Explicit direct REPL stdin, same process owner/log and ordinary guarded tool approval requests
 // OUTPUT: Bounded sequential direct-agent prompts and exact per-call HITL without EngineRuntime
-// POS: [L6 application] Reuses the direct harness/session, never routes through Hub, imports legacy settings or auto-runs an empty prompt.
+// POS: [L6 application] Reuses the direct execution owner/session, never routes through Hub, imports legacy settings or auto-runs an empty prompt.
 package main
 
 import (
@@ -112,6 +112,9 @@ func (r *directREPL) run(ctx context.Context, runner harness.Runner, session str
 		}
 		if err := runRunner(ctx, runner, line, output); err != nil {
 			return err
+		}
+		if cliSuspended(runner) {
+			return nil
 		}
 	}
 }

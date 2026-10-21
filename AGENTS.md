@@ -49,7 +49,7 @@ go mod verify
 
 | 路径 | 层级/职责 |
 |---|---|
-| `cmd/` | 八个可执行程序入口：CLI、桌面、HTTP、MCP 调试桥与 WASIp1 Worker |
+| `cmd/` | 八个可执行程序入口；direct CLI承接显式插件控制与可选等待恢复，另有桌面、HTTP、MCP 调试桥与 WASIp1 Worker |
 | `sdk/` | L0 wire/bus/沙箱 ABI；L1 kernel 契约；L2 通用循环；L2.3 Agent 语义；L2.5 装配；L3 能力库 |
 | `extension/` | L4 可选 Tool/Plugin/Middleware；planning/interaction/utility 根包是可独立安装的普通能力（引用输出可选），native/ 才绑定原生会话政策 |
 | `harness/` | L5 默认配方、同名替换、引用/历史选择/子会话政策；durable/为可选可插拔等待恢复 |

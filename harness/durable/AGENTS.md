@@ -2,8 +2,8 @@
 > 可插拔存储的挂起、外部结果交付与明确继续，不给内核添加业务状态机。
 
 ## 地位
-可选 harness Controller/Plugin；复用普通 Tool、typed middleware 与 SDK Agent。默认 CLI/Hub 仍使用现有入口，
-未自动启用本组件或修改 UI/HTTP 协议。只 `MemoryBackend` 的运行不具备重启耐久性。
+可选 harness Controller/Plugin；复用普通 Tool、typed middleware 与 SDK Agent。direct CLI 可由 `--durable` 显式接入，默认仍不启用；
+Hub 等待 UI/HTTP 尚未接入本组件。只 `MemoryBackend` 的运行不具备重启耐久性。
 
 ## 逻辑
 Backend 四个端口：实际 Log、独占 Claim、Load、原子 CAS Commit（状态与结果消息同事务）。

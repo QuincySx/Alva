@@ -1,38 +1,30 @@
 // INPUT: context, flag, os/signal, app, host, llm/provider, kernel/abi.
-// OUTPUT: Explicit demo/live CLI with native resume, bounded history and reference-only original attachments.
+// OUTPUT: Explicit demo/live CLI, cold plugin controls, native wait/resume and reference-only original attachments.
 // POS: [L6 application] Native reference harness entry independent of the desktop and Hub product store.
 package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
 	"time"
 
-	filetools "github.com/QuincySx/Alva/extension/files"
-	memoryplugin "github.com/QuincySx/Alva/extension/memory"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/host"
-	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/platform/storage"
 	memorysqlite "github.com/QuincySx/Alva/platform/storage/memory"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/platform/system/secretinput"
 	"github.com/QuincySx/Alva/platform/system/terminaltext"
-	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
-	"github.com/QuincySx/Alva/sdk/agent/core"
-	"github.com/QuincySx/Alva/sdk/agent/memory"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -79,7 +71,11 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	permissionMode := flags.String("permission-mode", "ask", "explicit workspace policy: ask (noninteractive writes fail closed), accept_edits, or plan")
 	var attachments attachmentFlags
 	var sandbox sandboxOptions
+	var plugins cliPluginOptions
+	var waits cliDurableOptions
 	sandbox.flags(flags)
+	plugins.flags(flags)
+	waits.flags(flags)
 	flags.Var(&attachments, "attach", "explicit original file saved as a session reference; requires --data-dir; repeat at most eight times")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -133,8 +129,17 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 		return errors.New("choose --sessions or --history")
 	}
 
-	metadataOnly := *listSessions || *history
-	if metadataOnly && (*live || *demo || *repl || *prompt != "" || *workspace != "" || len(attachments) > 0 || *persistentMemory || mode != security.Ask || sandbox.kind != "") {
+	if err := plugins.validate(*dataDir, *sessionID); err != nil {
+		return err
+	}
+	if err := waits.validate(*dataDir, *sessionID, *prompt, sandbox.kind, *repl, len(attachments)); err != nil {
+		return err
+	}
+	if plugins.cold() && (waits.cold() || waits.enabled || waits.resume) || waits.cold() && (*listSessions || *history) || plugins.cold() && (*listSessions || *history) {
+		return errors.New("choose one cold metadata/control operation")
+	}
+	metadataOnly := *listSessions || *history || plugins.cold() || waits.cold()
+	if metadataOnly && (waits.enabled || waits.resume || *live || *demo || *repl || *prompt != "" || *workspace != "" || len(attachments) > 0 || *persistentMemory || mode != security.Ask || sandbox.kind != "") {
 		return errors.New("metadata commands cannot also request execution, attachments or provider access")
 	}
 	if !*history && (*after != 0 || *highWater != 0) {
@@ -146,8 +151,8 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	var liveConfig provider.Config
 	var liveModel abi.LanguageModel
 	if *live {
-		if *endpoint == "" || *model == "" || *prompt == "" && !*repl {
-			return errors.New("--live requires explicit --endpoint, --model and --prompt or --repl")
+		if *endpoint == "" || *model == "" || *prompt == "" && !*repl && !waits.resume {
+			return errors.New("--live requires explicit --endpoint, --model and --prompt, --repl or --resume-wait")
 		}
 		key := ""
 		if *keyStdin || *keyFD != 0 || *keyFile != "" {
@@ -194,13 +199,32 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	}
 	var repository storage.Repository
 	var native storage.Session
+	var owned *cliNativeRuntime
+	defer func() {
+		if owned != nil {
+			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			closeErr := owned.Close(cleanup)
+			cancel()
+			if !owned.CleanupComplete() {
+				runErr = errors.Join(runErr, &cliCleanupError{cause: closeErr, runtime: owned, repository: repository})
+				return
+			}
+			if closeErr != nil {
+				runErr = errors.Join(runErr, closeErr)
+			}
+		}
+		if repository != nil {
+			if closeErr := repository.Close(); closeErr != nil {
+				runErr = errors.Join(runErr, closeErr)
+			}
+		}
+	}()
 	if *dataDir != "" {
 		var err error
 		repository, err = session.Open(ctx, *dataDir)
 		if err != nil {
 			return err
 		}
-		defer func() { runErr = errors.Join(runErr, repository.Close()) }()
 		if *listSessions {
 			return printSessions(ctx, repository, output)
 		}
@@ -213,109 +237,55 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 		}
 		fmt.Fprintln(diagnostics, "Native Go session:", native.ID(), "(durable typed records; original artifact bytes retained)")
 	}
-	var log abi.ConversationLog
-	if native != nil {
-		log = native
-	} else {
-		log = core.NewMemorySession("cli-volatile")
+	if plugins.cold() {
+		return controlCLIPlugins(ctx, repository, native, *dataDir, plugins, output)
+	}
+	if waits.cold() {
+		return controlCLIWait(ctx, repository, native, waits, output)
 	}
 	if sandbox.kind == "wasm" {
+		if native != nil {
+			if err := validateCLIWorkerSession(ctx, repository, native); err != nil {
+				return err
+			}
+		}
 		if *prompt == "" && !*repl {
 			*prompt = "List the explicitly granted workspace"
 		}
 		return runWASM(ctx, sandbox, *workspace, mode, liveModel, *prompt, attachments, repository, native, input, output, diagnostics)
 	}
-	var builder *harness.Builder
-	var err error
 	if *live {
-		builder = harness.NewBuilder(liveModel, log)
 		fmt.Fprintln(diagnostics, "Live mode: explicit endpoint; no legacy configuration or ambient credentials.")
 	} else {
-		if *prompt == "" && !*repl {
+		if *prompt == "" && !*repl && !waits.resume {
 			*prompt = "Hello Alva"
 		}
-		builder = harness.NewDemoBuilder(log)
 		fmt.Fprintln(diagnostics, "Local demo fixture; no network/model account. Persistence only with explicit --data-dir.")
 	}
+	var handler security.ApprovalHandler
+	if interactive != nil {
+		handler = interactive
+	}
+	route, _ := json.Marshal(struct {
+		Live                      bool
+		Provider, Endpoint, Model string
+	}{*live, *providerKind, *endpoint, *model})
+	config := cliNativeConfig{Model: liveModel, Repository: repository, Native: native, DataDirectory: *dataDir, Workspace: *workspace, Mode: mode, Memory: *persistentMemory, Approval: handler, Durable: waits.enabled || waits.resume, Resume: waits.resume, RouteHash: cliSHA(route), Diagnostics: diagnostics}
+	if *persistentMemory {
+		config.OpenMemory = func(ctx context.Context) (storage.MemoryStore, error) { return memorysqlite.Open(ctx, *dataDir) }
+		fmt.Fprintln(diagnostics, "Explicit persistent memory enabled for this canonical workspace; no scan/extraction or embedding network starts automatically.")
+	}
+	var err error
+	owned, err = newCLINative(ctx, config)
 	if err != nil {
 		return err
 	}
-	var plugins []core.Plugin
-	if native != nil {
-		plugins, err = harness.SessionPlugins(ctx, repository, cliOwner, native.ID())
-		if err != nil {
-			return err
-		}
+	runner := owned
+	if *live && *workspace != "" {
+		fmt.Fprintln(diagnostics, "Explicit workspace file tools enabled; permission mode:", mode, ". Approval is per actual call; shell/network are not granted.")
 	}
-	if *workspace != "" {
-		absolute, err := filepath.Abs(*workspace)
-		if err != nil {
-			return err
-		}
-		builder.Workspace(absolute)
-		if *live {
-			files, err := workspacefs.OpenWorkspace(absolute)
-			if err != nil {
-				return err
-			}
-			defer func() { runErr = errors.Join(runErr, files.Close()) }()
-			var handler security.ApprovalHandler
-			if interactive != nil {
-				handler = interactive
-			}
-			guard, err := security.NewGuard(absolute, nil, files, security.NewPermissionManager(mode, handler))
-			if err != nil {
-				return err
-			}
-			var backend agentcontext.ReferenceBackend
-			if native != nil {
-				backend, err = repository.BoundReferences(ctx, cliOwner, native.ID())
-			} else {
-				backend, err = agentcontext.NewMemoryReferences(log.ID(), 20<<20)
-				if err == nil {
-					plugins = append(plugins, harness.NewContextRetrievalPlugin(log.ID(), backend))
-				}
-			}
-			if err != nil {
-				return err
-			}
-			tools := filetools.FileTools(files, guard, backend, log.ID())
-			for _, tool := range tools {
-				builder.Tool(tool)
-			}
-			if *persistentMemory {
-				store, err := memorysqlite.Open(ctx, *dataDir)
-				if err != nil {
-					return err
-				}
-				defer func() { runErr = errors.Join(runErr, store.Close()) }()
-				canonical, err := filepath.EvalSymlinks(absolute)
-				if err != nil {
-					return err
-				}
-				hash := sha256.Sum256([]byte(canonical))
-				memoryBackend, err := store.Bind("cli-workspace-" + hex.EncodeToString(hash[:]))
-				if err != nil {
-					return err
-				}
-				plugin, err := memoryplugin.New(memoryplugin.Config{SessionID: log.ID(), Service: memory.NewService(memoryBackend, memory.NoopEmbeddingProvider{}), References: backend, Guard: guard, Workspace: files, Cwd: absolute})
-				if err != nil {
-					return err
-				}
-				plugins = append(plugins, plugin)
-				tools = append(tools, plugin.Tools()...)
-				fmt.Fprintln(diagnostics, "Explicit persistent memory enabled for this canonical workspace; no scan/extraction or embedding network starts automatically.")
-			}
-			builder.Plugin(harness.NewSecurityPlugin(guard, tools, plugins...))
-			fmt.Fprintln(diagnostics, "Explicit workspace file tools enabled; permission mode:", mode, ". REPL asks per actual call; noninteractive Ask writes fail closed. Shell/network are not granted.")
-		}
-	}
-	for _, plugin := range plugins {
-		builder.Plugin(plugin)
-	}
-	runner, err := builder.Build(ctx)
-	if err != nil {
-		return err
+	if waits.resume {
+		return runCLIDurable(ctx, owned, nil, output, diagnostics)
 	}
 	if len(attachments) > 0 {
 		messages, err := attachmentMessages(ctx, repository, native, *prompt, attachments)
@@ -325,8 +295,8 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 		if err := runInput(ctx, runner, messages, output); err != nil {
 			return err
 		}
-		if interactive != nil {
-			return interactive.run(ctx, runner, log.ID(), output)
+		if interactive != nil && !cliSuspended(runner) {
+			return interactive.run(ctx, runner, owned.log.ID(), output)
 		}
 		return nil
 	}
@@ -336,7 +306,10 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 				return err
 			}
 		}
-		return interactive.run(ctx, runner, log.ID(), output)
+		if cliSuspended(runner) {
+			return nil
+		}
+		return interactive.run(ctx, runner, owned.log.ID(), output)
 	}
 	return runRunner(ctx, runner, *prompt, output)
 }
@@ -346,6 +319,9 @@ func runRunner(ctx context.Context, runner harness.Runner, prompt string, output
 }
 
 func runInput(ctx context.Context, runner harness.Runner, messages []wire.Message, output io.Writer) (runErr error) {
+	if native, ok := runner.(*cliNativeRuntime); ok && native.config.Durable {
+		return runCLIDurable(ctx, native, messages, output, native.config.Diagnostics)
+	}
 	controller := host.NewController(runner, 256)
 	defer func() {
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

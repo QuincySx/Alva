@@ -5,7 +5,7 @@
 CI declarations only; no production execution or deployment.
 ## 逻辑
 
-JS作者SDK使用Node内置test，在Windows/Linux/macOS均显式要求Node20+而不允许Go互操作测试静默全skip；Windows另执行实际JS/WASIp1插件/Hub装配与WASM资源限额，其余平台整仓race包含全部路径。Node只为显式JS插件/portable验收所需，不进入普通Go构建依赖。
+JS作者SDK使用Node内置test，在Windows/Linux/macOS均显式要求Node20+而不允许Go互操作测试静默全skip；Windows另执行direct CLI插件启停/跨进程等待恢复/取消收尾及实际JS/WASIp1插件/Hub装配与WASM资源限额，其余平台整仓race包含全部路径。Node只为显式JS插件/portable验收所需，不进入普通Go构建依赖。
 普通 planning/interaction/utility/timer、telemetry、可插拔 durable 等待和纯内存 blob不仅跨编译：Node 与固定依赖 wazero 实际执行测试，独立 portable-agent 消费者的 plan/question/schema 三种模式在两类 WASM 中执行。native 消费者子进程由 extensibility 测试执行。
 Go runs Linux/macOS race（package -p1，避免metered SDK/CLI cold compile互相争夺真实wall-clock预算，包内concurrency/race不变）, vet, formatting, portable SDK/codec/planning/interaction/utility/timer/telemetry/durable/blob-memory and cgo-free cmd executables. A separate Windows job runs actual DACL/LockFileEx/atomic JobList/inherited stdin tests, diagnostic HTTP/private-file MCP stdio and SDK/architecture/native builds. The repository root is the module root; apps/hub, harness, integration and platform keep separate import gates. The retired Rust workflow is preserved only in the Git archive.
 Linux/macOS完整job预算45分钟，每个Go测试包6分钟；不通过删减race、取消实机断言或跳过后续portable gates处理冷构建超时。

@@ -45,3 +45,5 @@ Default demo/live factories remain explicitly volatile unless supplied an actual
 Build先复制完整配方，再读取ID/Name；回调对原Builder追加工具/插件或修改政策只用于下一Build。NativeRunClaim核对实际repository/owner/session及run，失败并行run的OnRunEnd不得释放另一个run的claim；ContextSource仍保持窄ConversationReader契约，不为产品授权扩充SDK。
 Builder在读取ID、插件name或默认替换前拒绝typed-nil model/log/plugin，identified log为空也不注册任何Plugin；base_test.go验证不进入实际默认装配。
 NativeChildFactory仅接受动态值实际可比较的parent binding；grant比较检查两值，含interface map/slice的struct不能凭外层类型可比较获得身份或触发panic；identity_test.go验证拒绝边界。
+
+Direct CLI 可显式装配 durable Controller 并消费 Suspended；等待是产品可选路径，普通 Runner 的 nil error 不代表等待已完成。

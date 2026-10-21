@@ -249,9 +249,49 @@ go test -mod=readonly -race ./tests/storagecontract ./platform/storage/blob/...
 go test -mod=readonly ./tests/extensibility -run TestExternalModuleSDKConsumer
 ```
 
+## CLI 插件与持久等待
+
+插件配置是显式 JSON 数组，与 Hub 使用同一 AEP loader，例如：
+
+```json
+[{"id":"echo","source_directory":"/absolute/my-plugin","interpreter":"/absolute/bin/node"}]
+```
+
+WASIp1 配置只填 `id`、`source_directory`，不填 interpreter/args/env。源目录须包含 `alva.toml` 和入口/作者 SDK；参见上面的作者示例。JS/Python 是有宿主权限的原生代码，批准 pin 包含完整 bundle 和显式解释器/参数/环境配置；不是 OS 沙箱。环境/参数只留在用户选择的配置文件，历史保留 hash 和安全 pin。
+
+```sh
+go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --inspect-plugins /absolute/plugins.json
+# 记下输出的 session ID 与该插件的 review_sha256，再明确批准：
+go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --enable-plugin echo --approve-plugin-pin REVIEW_SHA256
+go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --plugins
+go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --demo --prompt '验证已批准的插件'
+go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --disable-plugin echo
+```
+
+检查、列表、批准、禁用都不启动代码或模型；重新检查清除全部启用状态。每轮复核配置字节和 bundle，变动后须重新检查/批准。空 REPL 不启动插件；每个实际 turn 使用新的插件实例，收尾后删除其私有快照。AEP工具调用仍单独审批，批准加载不批准任意工具。整套 Agent 的 `--sandbox wasm` 不会忽略会话中已启用的原生宿主管理插件，而是要求先显式禁用。
+
+添加 `--durable` 后，审批改为可持久化的等待；模型也可调用 `await_external` 提交外部结果请求。此工具只存请求，不替你启动外部任务。挂起输出 `status:"waiting"`、请求 ID/binding 并退出，REPL不自动读取下一条输入。
+
+```sh
+go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --live --endpoint https://example.invalid/v1/chat/completions --model MODEL --durable --prompt '执行需要审批或外部结果的任务'
+go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --waits
+go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --resolve-wait REQUEST_ID --wait-binding BINDING_SHA256 --wait-result-file /absolute/result.json
+go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --live --endpoint https://example.invalid/v1/chat/completions --model MODEL --resume-wait
+```
+
+审批结果是 `{"allow":true}` 或 `{"allow":false}`，external结果是调用者显式提供的JSON，均最多16KiB。Resolve只交付结果，不执行模型/工具。Resume不给新prompt/附件/REPL，须保持模型端点/型号、canonical工作区、权限、memory开关与启用插件配置；密钥继续由显式秘密输入提供，不进recipe。等待未解决时不启动插件，过期明确失败。
+
+审批绑定实际会话、工具、原参数与效果，只消费一次。恢复将结果原子提交后让模型继续，宿主不重跑旧工具。进程在 running/interrupted 期间退出，结果未知；普通运行也不能绕过。先检查 `--waits` 和 native历史，再用 `--abandon-wait --wait-revision N` 明确解除该版本状态。解除不撤销副作用，也不证明外部工作取消。已批准的插件会在恢复的新turn重新启动，启动本身可能有宿主副作用。启动意图与物理收尾分别记录；崩溃留下未收尾启动时，`--waits`显示`plugin_startup_unknown`，普通运行/恢复均拒绝，须检查后按当前revision明确abandon（初始revision0也必须显式填写）。Hub的等待展示与HTTP控制未因CLI接入而完成。
+
+实际跨进程恢复和JS/WASIp1执行验收：
+
+```sh
+go test -mod=readonly ./cmd/alva -run 'TestCLIPluginCold|TestCLIDurable|TestCLIWASIp1|TestCLIRetains'
+```
+
 ## 可选持久等待 API
 
-[`harness/durable`](../harness/durable/AGENTS.md) 是显式安装的 harness 能力，默认 CLI/Hub 尚未自动启用。
+[`harness/durable`](../harness/durable/AGENTS.md) 是显式安装的 harness 能力，direct CLI可通过`--durable`显式接入，默认不启用；Hub等待UI/HTTP尚未接入。
 它复用普通 SDK Agent；Backend 的四个方法是 Log、Claim、Load、Commit，存储可替换。
 NewMemoryBackend 是进程内参考实现；journal.Open 绑定现有私有 repository 的同一会话和事实数据库。
 

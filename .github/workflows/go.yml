@@ -38,6 +38,8 @@ jobs:
           go test -mod=readonly -count=1 ./integration/protocol/aep ./platform/sandbox/plugin ./extension/loader ./apps/hub/bootstrap -run 'TestAuthorSDK|TestPortable|TestWASMPlugin|TestRealMemory|TestTotalIO|TestHardLifetime|TestNaturalExit|TestOpenRetains|TestOwnedTransport|TestExplicitTransport'
       - name: Real Windows DACL, LockFileEx, atomic job and inherited stdin regressions
         run: go test -mod=readonly -count=1 ./platform/system/privatefs ./platform/storage/sqlite ./platform/system/process ./platform/system/secretinput ./platform/system/lineinput
+      - name: Direct CLI plugin ownership and durable restart workflows
+        run: go test -mod=readonly -count=1 ./cmd/alva -run 'TestCLIPluginCold|TestCLIDurable|TestCLIRetains|TestCLIColdControl|TestCLIWASIp1|TestCLIUnsettled|TestCLIVolatile|TestDirect'
       - name: Actual portable UI diagnostic HTTP and private-file MCP stdio
         run: go test -mod=readonly -count=1 ./apps/debug ./cmd/alva-devtools-mcp
       - name: Windows read-only media stdin and delete-on-close snapshots

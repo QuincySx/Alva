@@ -5,6 +5,29 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
 
+## 2026-10-21 Direct CLI 插件与持久等待产品接线
+
+复用既有AEP loader与durable Controller；修改限于CLI装配/资源所有权、测试、CI与文档。SDK的129个Go源码、现有公开快照和根模块文件保持原字节。
+
+- `--inspect-plugins/--plugins/--enable-plugin/--disable-plugin`提供显式冷控制；配置文件严格JSON、原生解释器显式、WASIp1禁用解释器/args/env。检查保存disabled code/review pin，批准包括代码和启动设置；源文件/代码变化拒绝运行。原始环境/参数不写入设置历史。
+- Native CLI复用一个进程owner/会话，每轮新建Agent与外部插件，持久memory或进程内默认memory/引用服务保留，第二轮可检索第一轮保存而原文件已删除的易失引用。实际会话claim先于插件启动；部分初始化与失败快照均保留owner。先join进程/VM/回调并写入真实资源收尾事实，再释放claim和关闭存储；未完成通过可继续Close的错误owner保留。
+- `--durable`显式接入持久审批与await_external；挂起输出waiting回执并退出REPL，不经普通host.Controller伪报完成。`--waits/--resolve-wait/--resume-wait/--abandon-wait`复用同一个日志插口，结果绑定ID/payload、abandon绑定明确revision（含0）。普通运行和整Agent WASM也不能绕过未处理等待或未知执行。
+- 恢复绑定模型route、canonical工作区、权限、memory和启用插件配方；未解决等待不启动模型/插件。Resolve不执行，Resume不给新prompt/附件，原子交付结果后让模型继续，精确审批只消费一次，不自动重放工具。
+- 单独持久化插件启动意图/物理收尾，覆盖Agent循环开始前的崩溃窗口。未收尾启动由waits明确显示plugin_startup_unknown，后续执行拒绝；检查后按revision解除只是承认未知事实，不宣称撤销副作用。恢复的下一turn会重新启动已批准插件，原生启动风险仍需由使用者审查。
+- 新回归实际启动Node和独立WASIp1模块，覆盖冷操作无执行/篡改/禁用、两轮新peer、秘密不进facts、真实CLI进程退出重开、精确审批后工具一次、进入工具后取消与真实清理、未完成收尾不释放storage和启动未知状态；Windows CI增加相同CLI流程。
+
+本机验证（macOS arm64 / Go1.27.2，无付费模型或外部服务）：
+
+| 检查 | 结果与范围 |
+|---|---|
+| 整仓desktop-tagged race | 93个有测试包、1983个测试/子测试通过，0失败，805.91秒；858个源码/配置文件在执行期间未变。3个无参数跨进程helper按设计skip，其实际用例均执行；9包无独立测试 |
+| 最终CLI修正与完整复验 | 整仓验收后，跨轮易失引用用例实际复现reference unavailable；修正仅涉及CLI owner/test及Windows CI selector。最终完整CLI race 43个测试/子测试通过，0失败，140.35秒；源码在复验期间未变。实际删除源文件后仍可在第二个Agent读取第一轮引用；重新检查清除批准、配置字节篡改也已覆盖 |
+| 最终静态与接口 | 231项architecture测试、全树desktop vet、go mod verify、gofmt、diff空白检查和workflow YAML解析通过；129个SDK源码、全部现有公开快照、根模块文件和固定QuickJS WASM资产保持原字节 |
+| 最终跨平台构建 | cgo-free desktop-tagged全部命令在macOS arm64、Linux amd64、Windows amd64/arm64通过；WASIp1 Worker通过；CLI测试二进制在Windows两架构编译通过。本机跨编译不冒充Windows实机执行 |
+
+证据指针`/tmp/alva-cli-workflow-path`保留整仓与最终CLI各自完整JSONL、冻结hash、精确源码差异和构建回执。最终修正只在不可被其他包导入的CLI入口，不以重复运行未变动包代替针对性复验。Hub等待UI/HTTP尚未接入；本批不把CLI闭环当作所有产品已完成。远程CI尚无本批运行结果，SSH签名代理不可用时不切换发布身份。
+
+
 ## 2026-10-20 JavaScript作者SDK与独立WASIp1插件补齐
 
 按用户“补齐”要求，补上JS作者入口/真实互操作和独立`.wasm`加载。继续保留既有Tool/Plugin/Middleware、共享存储插口与SDK依赖方向；129个SDK Go文件、根go.mod/go.sum和既有SDK公开快照未改。

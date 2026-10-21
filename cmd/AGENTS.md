@@ -17,7 +17,7 @@ cmd 表示可执行程序入口集合，CLI 是其中的终端交互形态。每
 
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
-| CLI | `alva/` | headless prompt、显式 live 与完整WASIp1/QuickJS冷启动集成验证 |
+| CLI | `alva/` | headless/REPL、显式 live、JS/WASIp1插件冷检查/批准与持久等待恢复；完整WASIp1/QuickJS验证 |
 | WASIp1 Worker | `alva-worker-wasm/` | 有界host ABI注入环境/模型、同SDK实际循环与显式guest目录能力 |
 | Desktop | `alva-desktop/` | `desktop` build tag 的 MyGo 自绘入口 |
 | Hub Desktop | `alva-hub-desktop/` | 独立多 engine native 产品入口 |
