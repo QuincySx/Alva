@@ -33,22 +33,58 @@ func (graph *CompiledGraph[S]) Invoke(ctx context.Context, input S) (S, error) {
 	return graph.InvokeWithConfig(ctx, input, InvokeConfig[S]{})
 }
 func (graph *CompiledGraph[S]) InvokeWithConfig(ctx context.Context, input S, config InvokeConfig[S]) (S, error) {
-	return graph.drive(ctx, graph.clone(input), []string{graph.entry}, 0, config)
+	owned, err := graph.cloneState(ctx, input)
+	if err != nil {
+		return input, err
+	}
+	return graph.drive(ctx, owned, []string{graph.entry}, 0, config)
 }
 func (graph *CompiledGraph[S]) Resume(ctx context.Context, checkpointID string, config InvokeConfig[S]) (S, error) {
 	var zero S
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
 	if config.Checkpoint == nil {
 		return zero, errors.New("checkpoint saver required for resume")
 	}
 	checkpoint, found, err := config.Checkpoint.Load(ctx, checkpointID)
-	if err != nil {
+	if err = joinCancellation(ctx, err); err != nil {
 		return zero, err
 	}
 	if !found {
 		return zero, errors.New("graph checkpoint not found")
 	}
-	return graph.drive(ctx, graph.clone(checkpoint.State), append([]string(nil), checkpoint.Pending...), checkpoint.Step, config)
+	if checkpoint.Step < 0 {
+		return zero, errors.New("invalid graph checkpoint step")
+	}
+	owned, err := graph.cloneState(ctx, checkpoint.State)
+	if err != nil {
+		return zero, err
+	}
+	return graph.drive(ctx, owned, append([]string(nil), checkpoint.Pending...), checkpoint.Step, config)
 }
+
+// A clone is supplied by the caller, just like a node or router. Recheck
+// cancellation before admitting the next callback after it returns.
+func (graph *CompiledGraph[S]) cloneState(ctx context.Context, state S) (S, error) {
+	if err := ctx.Err(); err != nil {
+		return state, err
+	}
+	owned := graph.clone(state)
+	return owned, ctx.Err()
+}
+
+func joinCancellation(ctx context.Context, err error) error {
+	canceled := ctx.Err()
+	if canceled == nil {
+		return err
+	}
+	if err == nil {
+		return canceled
+	}
+	return errors.Join(err, canceled)
+}
+
 func (graph *CompiledGraph[S]) drive(ctx context.Context, state S, current []string, step int, config InvokeConfig[S]) (S, error) {
 	if config.MaxSteps <= 0 {
 		config.MaxSteps = 100
@@ -76,26 +112,38 @@ func (graph *CompiledGraph[S]) drive(ctx context.Context, state S, current []str
 		current = uniqueNodes(current)
 		if len(current) == 0 {
 			config.emit(GraphEvent{Kind: "completed", Step: step})
-			return state, nil
+			return state, ctx.Err()
 		}
-		step++
-		if step > config.MaxSteps {
+		if step >= config.MaxSteps {
 			return state, fmt.Errorf("graph exceeded max_steps (%d)", config.MaxSteps)
 		}
+		step++
 		config.emit(GraphEvent{Kind: "superstep_start", Step: step})
 		tasks := make([]SendTo[S], len(current))
 		for i, name := range current {
-			tasks[i] = SendTo[S]{Node: name, State: graph.clone(state)}
+			owned, err := graph.cloneState(ctx, state)
+			if err != nil {
+				return state, err
+			}
+			tasks[i] = SendTo[S]{Node: name, State: owned}
 		}
 		nextState, next, err := graph.executeTasks(ctx, state, tasks, config, step, 0, false, &budget)
-		if err != nil {
+		if err = joinCancellation(ctx, err); err != nil {
 			return state, err
 		}
 		state, current = nextState, next
 		config.emit(GraphEvent{Kind: "superstep_end", Step: step, NodesExecuted: len(tasks)})
+		if err := ctx.Err(); err != nil {
+			return state, err
+		}
 		if config.Checkpoint != nil {
 			id := fmt.Sprintf("%s-step-%d", config.CheckpointID, step)
-			if err := config.Checkpoint.Save(ctx, id, Checkpoint[S]{State: graph.clone(state), Step: step, Pending: append([]string(nil), current...)}); err != nil {
+			owned, err := graph.cloneState(ctx, state)
+			if err != nil {
+				return state, err
+			}
+			err = config.Checkpoint.Save(ctx, id, Checkpoint[S]{State: owned, Step: step, Pending: append([]string(nil), current...)})
+			if err = joinCancellation(ctx, err); err != nil {
 				return state, fmt.Errorf("graph checkpoint failed: %w", err)
 			}
 			config.emit(GraphEvent{Kind: "checkpoint", Step: step, CheckpointID: id})
@@ -109,6 +157,9 @@ type execution[S any] struct {
 }
 
 func (graph *CompiledGraph[S]) executeTasks(ctx context.Context, base S, tasks []SendTo[S], config InvokeConfig[S], step, depth int, dynamic bool, budget *int) (S, []string, error) {
+	if err := ctx.Err(); err != nil {
+		return base, nil, err
+	}
 	if depth > config.MaxSendDepth || len(tasks) > *budget {
 		return base, nil, errors.New("graph dynamic Send budget exceeded")
 	}
@@ -133,7 +184,12 @@ func (graph *CompiledGraph[S]) executeTasks(ctx context.Context, base S, tasks [
 				return
 			}
 			defer func() { <-semaphore }()
-			results[index].result, results[index].err = graph.invokeNode(ctx, task.Node, graph.clone(task.State), config.Retry)
+			owned, err := graph.cloneState(ctx, task.State)
+			if err != nil {
+				results[index].err = err
+				return
+			}
+			results[index].result, results[index].err = graph.invokeNode(ctx, task.Node, owned, config.Retry)
 		}(i, task)
 	}
 	wait.Wait()
@@ -144,10 +200,7 @@ func (graph *CompiledGraph[S]) executeTasks(ctx context.Context, base S, tasks [
 			failures = append(failures, result.err)
 		}
 	}
-	if err := errors.Join(failures...); err != nil {
-		return base, nil, err
-	}
-	if err := ctx.Err(); err != nil {
+	if err := joinCancellation(ctx, errors.Join(failures...)); err != nil {
 		return base, nil, err
 	}
 	var updates []S
@@ -155,23 +208,38 @@ func (graph *CompiledGraph[S]) executeTasks(ctx context.Context, base S, tasks [
 	for i, result := range results {
 		switch result.result.Kind {
 		case ResultUpdate:
-			updates = append(updates, graph.clone(result.result.State))
+			owned, err := graph.cloneState(ctx, result.result.State)
+			if err != nil {
+				return base, nil, err
+			}
+			updates = append(updates, owned)
 		case ResultSends:
 			for _, send := range result.result.Sends {
 				config.emit(GraphEvent{Kind: "send_emitted", From: tasks[i].Node, Node: send.Node, Step: step})
-				sends = append(sends, SendTo[S]{Node: send.Node, State: graph.clone(send.State)})
+				owned, err := graph.cloneState(ctx, send.State)
+				if err != nil {
+					return base, nil, err
+				}
+				sends = append(sends, SendTo[S]{Node: send.Node, State: owned})
 			}
 		default:
 			return base, nil, errors.New("invalid graph node result kind")
 		}
 	}
-	state := graph.clone(base)
+	state, err := graph.cloneState(ctx, base)
+	if err != nil {
+		return base, nil, err
+	}
 	if len(updates) > 0 {
 		if len(tasks) == 1 {
 			state = updates[0]
 		} else if graph.merge != nil {
-			next, err := graph.merge(graph.clone(base), updates)
+			owned, err := graph.cloneState(ctx, base)
 			if err != nil {
+				return base, nil, err
+			}
+			next, err := graph.merge(owned, updates)
+			if err = joinCancellation(ctx, err); err != nil {
 				return base, nil, err
 			}
 			state = next
@@ -201,23 +269,32 @@ func (graph *CompiledGraph[S]) executeTasks(ctx context.Context, base S, tasks [
 		state = nestedState
 		next = append(next, nestedNext...)
 	}
-	return graph.clone(state), uniqueNodes(next), nil
+	owned, err := graph.cloneState(ctx, state)
+	return owned, uniqueNodes(next), err
 }
 func (graph *CompiledGraph[S]) invokeNode(ctx context.Context, name string, state S, retry *RetryConfig) (NodeResult[S], error) {
 	for attempt := 0; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return NodeResult[S]{}, err
 		}
-		result, err := graph.nodes[name](ctx, graph.clone(state))
+		owned, err := graph.cloneState(ctx, state)
+		if err != nil {
+			return NodeResult[S]{}, err
+		}
+		result, err := graph.nodes[name](ctx, owned)
+		err = joinCancellation(ctx, err)
 		if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || retry == nil || attempt >= retry.MaxRetries || retry.Retryable == nil || !retry.Retryable(err) {
 			return result, err
 		}
-		if err := retry.Wait(ctx, attempt); err != nil {
-			return NodeResult[S]{}, err
+		if waitErr := retry.Wait(ctx, attempt); waitErr != nil {
+			return NodeResult[S]{}, errors.Join(err, waitErr)
 		}
 	}
 }
 func (graph *CompiledGraph[S]) resolve(ctx context.Context, from string, state S) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	var targets []string
 	for _, edge := range graph.edges {
 		if edge.from != from {
@@ -225,8 +302,12 @@ func (graph *CompiledGraph[S]) resolve(ctx context.Context, from string, state S
 		}
 		target := edge.to
 		if edge.router != nil {
-			next, err := edge.router(ctx, graph.clone(state))
+			owned, err := graph.cloneState(ctx, state)
 			if err != nil {
+				return nil, err
+			}
+			next, err := edge.router(ctx, owned)
+			if err = joinCancellation(ctx, err); err != nil {
 				return nil, err
 			}
 			target = next

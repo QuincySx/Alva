@@ -1,4 +1,4 @@
-// INPUT: context, errors, reflect, time, agent/context, kernel/abi, llm/wire
+// INPUT: context, encoding/json, errors, reflect, time, agent/context, kernel/abi, llm/wire
 // OUTPUT: RetryConfig, ContextTransform, TransformPipeline, CompactionConfig, GraphRun
 // POS: [L3 capability library] Explicit opt-in graph orchestration helpers without automatic retry or a second AgentLoop.
 package graph
@@ -7,11 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"time"
+
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
-	"reflect"
-	"time"
 )
 
 type RetryConfig struct {
@@ -24,6 +25,9 @@ func (config RetryConfig) Delay(attempt int) time.Duration {
 	delay := config.InitialDelay
 	if delay < 0 {
 		delay = 0
+	}
+	if delay == 0 {
+		return 0
 	}
 	max := config.MaxDelay
 	if max <= 0 {
@@ -41,13 +45,16 @@ func (config RetryConfig) Delay(attempt int) time.Duration {
 	return delay
 }
 func (config RetryConfig) Wait(ctx context.Context, attempt int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	timer := time.NewTimer(config.Delay(attempt))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
-		return nil
+		return ctx.Err()
 	}
 }
 
@@ -66,6 +73,9 @@ func (fn TransformFunc) Transform(ctx context.Context, messages []wire.Message) 
 type TransformPipeline struct{ Transforms []ContextTransform }
 
 func (pipeline TransformPipeline) Apply(ctx context.Context, messages []wire.Message) ([]wire.Message, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	working := wire.CloneMessages(messages)
 	for _, transform := range pipeline.Transforms {
 		if err := ctx.Err(); err != nil {
@@ -97,16 +107,29 @@ type CompactionConfig struct {
 }
 
 func (config CompactionConfig) ShouldCompact(messages []wire.Message) bool {
-	tokens := 0
-	for _, message := range messages {
-		data, _ := json.Marshal(message.Content)
-		if config.Counter != nil {
-			tokens += config.Counter.CountTokens(string(data)) + 4
-		} else {
-			tokens += (len([]rune(string(data)))+3)/4 + 4
-		}
+	if config.MaxTokens <= 0 {
+		return false
 	}
-	return config.MaxTokens > 0 && tokens > config.MaxTokens
+	remaining := config.MaxTokens
+	for _, message := range messages {
+		data, err := json.Marshal(message.Content)
+		if err != nil {
+			return true
+		}
+		var tokens int
+		if config.Counter != nil {
+			tokens = config.Counter.CountTokens(string(data))
+		} else {
+			tokens = (len([]rune(string(data))) + 3) / 4
+		}
+		// Subtract from the finite budget so a negative or overflowing custom
+		// estimate cannot turn an oversized context into an apparent fit.
+		if tokens < 0 || tokens > remaining || remaining-tokens < 4 {
+			return true
+		}
+		remaining -= tokens + 4
+	}
+	return false
 }
 func (config CompactionConfig) Compact(messages []wire.Message) []wire.Message {
 	if !config.ShouldCompact(messages) {

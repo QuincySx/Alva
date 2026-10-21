@@ -4,6 +4,31 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 技术栈决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)，当前结构见 [ARCHITECTURE](./docs/ARCHITECTURE.md)，运行说明见 [USAGE](./docs/USAGE.md)。
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
+## 2026-10-21 SDK 欠账收口：Graph 取消与执行预算
+
+本批从底层欠账回查，修改限定在L3 Graph内部实现、回归与CI接线。L0–L2.5内核、Plugin/Registrar、共享存储插口、根模块锁定和固定QuickJS资产未修改；Graph公开类型/签名的`go doc -all`输出与修改前逐字节一致。
+
+- 真实编译图的clone、node、merge、router和checkpoint边界重查取消。回调取消后不再启动后续节点、路由或外部checkpoint；已开始节点仍等实际退出。保留实际节点/路由失败及取消原因，重试等待取消也不吞前次节点错误；完成事件回调取消不能返回成功。
+- 仅实际取消才合并取消原因；无取消的router、merge、checkpoint load保留原始错误身份，显式Retryable仍收到节点原始错误，支持调用方原有判定。对应回归也在原实现上执行通过，避免为修复取消引入兼容退化。零延迟及负初始延迟对任意attempt均常量时间；已取消的零延迟Wait、空TransformPipeline不能成功。
+- Resume拒绝负checkpoint step，执行步数先比较有限预算再递增，外部checkpoint的最大整数不能溢出后继续执行。Compaction从剩余预算扣减，负数或溢出估计保守要求压缩；关闭时不调用用户counter，恰好等于预算仍允许。
+- CI原有Node和WASIp1实际执行步骤加入Graph，不只跨目标构建。新增回归实际执行图、外部checkpoint记录器和模型消息，未增加另一套runtime、默认重试或自动副作用重放。
+
+归档源码对照保留必要差异：Go不沿袭旧并行嵌套Send丢任务、按完成顺序合并和checkpoint保存失败后继续执行的行为。Rust的GraphRun部分配置仅被保存、没有执行入口，不能把这类scaffold当成已经实现的功能。归档测试索引已排除文档示例，但索引和测试数量均不代表逐项语义对等完成。
+
+本机验证（macOS arm64 / Go1.27.2 / Node24.19.0，无付费模型或外部账户调用）：
+
+| 检查 | 实际结果与范围 |
+|---|---|
+| 整仓desktop-tagged race | 93个有测试包、2039个测试/子测试通过，0失败，764.46秒；1037个源码/文档/配置文件在执行期间未变。4个专用子进程helper无参数入口按设计skip，其实际用例均执行；另9包无独立测试 |
+| 最终SDK与消费者复验 | 自查补充原始错误身份兼容及专门回归后，全部SDK、extensibility和architecture共15个有测试包、623个测试/子测试通过，0失败，33.14秒；1037个文件在复验期间未变。实际独立SDK消费者与Graph编排Agent的用例包含在内 |
+| 最终Graph跨运行环境 | Node的JS/WASM与wazero的WASIp1各31个测试/子测试实际通过，均0 skip；完整SDK与codec在两个目标构建通过 |
+| 原生跨目标构建 | CGO_ENABLED=0，完整SDK在Linux amd64、Windows amd64/arm64构建通过；Graph测试二进制在Windows两架构编译通过，不冒充对应OS执行 |
+| 静态与范围 | 全树desktop vet、go mod verify、gofmt、diff空白检查与workflow YAML解析通过；127个其他既有SDK Go文件、全部现有公开面快照及其地图、根模块文件和固定QuickJS资产共144个保护文件保持原字节 |
+
+整仓结果对应最后一次错误身份兼容修正之前的冻结版本；最终复验覆盖所有SDK与实际Graph消费者，其他产品源码在两次验证间未变化。原CLI暂存区保留，Hub工作树改动未回退。证据指针`/tmp/alva-lower-debt-path`保留失败回归、最终完整JSONL、两次冻结hash、公开输出比对和跨目标执行/构建回执。
+
+仍未销账：Windows交互console、pinned-directory host shell和worktree模式/ACL策略的实现与实机验收；全量Rust fixture逐项语义核对；完整原生视觉/AX/IME/音频及外部账户验收。原生窗口控制通道本轮仍报`Sky Computer Use native pipe startup failed`。仓库既定SSH身份的远程读取因代理`communication with agent failed`被拒绝；最终验证后重试CLI签名提交仍报1Password `failed to fill whole buffer`，未产生新commit，暂存区保留。当前新代码没有远程CI通过结果，不以旧失败运行或本机跨编译替代。
+
 ## 2026-10-21 Hub 持久问答原生控件
 
 持久问题直接消费既有interaction.Question/Answer与ResolveWait；新增仅为L7呈现，不增加SDK、Plugin、等待协议或存储接口。

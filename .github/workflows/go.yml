@@ -96,7 +96,7 @@ jobs:
         run: |
           go build -mod=readonly ./sdk/... ./integration/llm/codec ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./harness/durable/journal ./platform/storage ./platform/storage/redaction ./platform/storage/storagetest ./platform/storage/blob ./platform/storage/blob/memory
           # Go's JS startup has a small argv/env area; pass no ambient host env.
-          go test -mod=readonly -count=1 -exec="env -i $(node -p process.execPath) $(go env GOROOT)/lib/wasm/wasm_exec_node.js" ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./platform/storage/blob ./platform/storage/blob/memory
+          go test -mod=readonly -count=1 -exec="env -i $(node -p process.execPath) $(go env GOROOT)/lib/wasm/wasm_exec_node.js" ./sdk/agent/graph ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./platform/storage/blob ./platform/storage/blob/memory
           go build -mod=readonly -o "$RUNNER_TEMP/portable-consumer-js.wasm" ./tests/extensibility/testdata/portable-agent
           for mode in plan question schema; do
             env -i "$(node -p process.execPath)" "$(go env GOROOT)/lib/wasm/wasm_exec_node.js" "$RUNNER_TEMP/portable-consumer-js.wasm" "$mode"
@@ -115,7 +115,7 @@ jobs:
         run: |
           go build -mod=readonly ./sdk/... ./integration/llm/codec ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./harness/durable/journal ./platform/storage ./platform/storage/redaction ./platform/storage/storagetest ./platform/storage/blob ./platform/storage/blob/memory
           go build -mod=readonly -o build/alva-worker.wasm ./cmd/alva-worker-wasm
-          go test -mod=readonly -count=1 -exec="$RUNNER_TEMP/alva-wasip1-test run" ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./platform/storage/blob ./platform/storage/blob/memory
+          go test -mod=readonly -count=1 -exec="$RUNNER_TEMP/alva-wasip1-test run" ./sdk/agent/graph ./extension/planning ./extension/interaction ./extension/utility ./extension/utility/timer ./extension/telemetry ./harness/durable ./platform/storage/blob ./platform/storage/blob/memory
           go build -mod=readonly -o "$RUNNER_TEMP/portable-consumer-wasip1.wasm" ./tests/extensibility/testdata/portable-agent
           for mode in plan question schema; do
             "$RUNNER_TEMP/alva-wasip1-test" run "$RUNNER_TEMP/portable-consumer-wasip1.wasm" "$mode"

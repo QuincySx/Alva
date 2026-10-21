@@ -25,4 +25,4 @@ core装配在回调前捕获配方、失败/取消/panic封闭贡献；配置描
 | Context | `context/` | 七hooks/四层store/压缩与引用能力，独立policy输入/累积priority及锁外counter；scope子域管理spawn树/黑板 |
 | Memory | `memory/` | backend/embedding/混合检索、单次权重政策与阶段间取消，可选原子file replacement |
 | Security | `security/` | 路径/HITL/模式与真实invocation审批合并，拒绝缺失能力及resolver迟到取消，无OS沙箱伪装 |
-| Graph | `graph/` | 与AgentLoop平行的typed BSP状态图、Send、checkpoint/retry/channels；状态锁外callback、取消不提交与transform输出所有权回归 |
+| Graph | `graph/` | 与AgentLoop平行的typed BSP状态图、Send、checkpoint/retry/channels；callback前后取消准入、实际错误保留、恢复/压缩预算防溢出与输出所有权 |
