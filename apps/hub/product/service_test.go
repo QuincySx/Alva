@@ -1,5 +1,5 @@
 // INPUT: testing, real private product/native stores, complete local Alva harness and regular file fixtures
-// OUTPUT: Reference-only admission, durable original ownership, upload budgets and typed timeline regressions
+// OUTPUT: Reference-only admission, durable ownership, upload/timeline and foreign waiting-authority regressions
 // POS: [L7 Hub product] Headless product integration tests without windows, credentials, external engines or model billing
 package product
 
@@ -21,6 +21,41 @@ import (
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
+
+type foreignWaitingEngine struct{ engine.Runtime }
+
+func (foreignWaitingEngine) Capabilities() engine.Capabilities {
+	return engine.Capabilities{Resume: true, DurableWaits: true}
+}
+func TestForeignWaitingCapabilityCannotOpenAlvaJournal(t *testing.T) {
+	s, requests := fixture(t)
+	if err := s.Runtime.Register("foreign-waiting", foreignWaitingEngine{}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.Create(t.Context(), "foreign wait owner", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := s.DefaultTarget
+	target.EngineID = "foreign-waiting"
+	b, err := s.Store.Switch(t.Context(), p.ID, target, "explicit different engine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Store.BindNative(t.Context(), p.ID, b.ID, "only-known-to-the-foreign-engine"); err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.Waits(t.Context(), p.ID)
+	if err != nil || v.Supported || v.CanResume {
+		t.Fatal("foreign capability borrowed the Alva journal", v, err)
+	}
+	if err = s.EnableDurableWaits(t.Context(), p.ID, true); err != engine.ErrUnsupported {
+		t.Fatal("foreign waits accepted an Alva journal controller", err)
+	}
+	if len(requests) != 0 || s.Runtime.HasActive() {
+		t.Fatal("cold capability inspection executed an Agent")
+	}
+}
 
 func fixture(t *testing.T) (*HubService, chan engine.Request) {
 	t.Helper()

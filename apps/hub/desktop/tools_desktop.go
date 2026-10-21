@@ -43,7 +43,7 @@ func (p *NativePage) openTools() {
 	}()
 }
 func (p *NativePage) changeTools(kind string, enabled bool) {
-	if p.selected == "" || p.paneBusy || p.model.ActiveRunID != "" {
+	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
 	id, draft, generation := p.selected, p.toolsDraft, p.generation
@@ -73,8 +73,8 @@ func (p *NativePage) buildTools(c *ui.Context) {
 	ui.Scroll(c).Grow(1).MinHeight(0).Gap(8).Children(func() {
 		ui.Text(c, "Optional tools · next turn").Bold()
 		ui.Text(c, "Configure the shell executable/environment and web origins here. Saving clears tool enablement. Shell access and web access each need separate consent below; every call still follows permission rules. Nothing runs on save.").FontSize(12)
-		ui.TextArea(c.Key("tool-json"), &p.toolsDraft).Label("Optional tool configuration JSON").Height(220).Disabled(p.paneBusy || p.model.ActiveRunID != "")
-		ui.Button(c, "Save tool configuration disabled").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.changeTools("", false) })
+		ui.TextArea(c.Key("tool-json"), &p.toolsDraft).Label("Optional tool configuration JSON").Height(220).Disabled(p.paneBusy || p.inputBlocked())
+		ui.Button(c, "Save tool configuration disabled").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.changeTools("", false) })
 		for _, v := range []struct {
 			kind, label string
 			enabled     bool
@@ -94,7 +94,7 @@ func (p *NativePage) buildTools(c *ui.Context) {
 			if v.enabled {
 				label = "Disable " + v.label + " next turn"
 			}
-			ui.Button(c.Key("tool-"+v.kind), label).Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.changeTools(v.kind, !v.enabled) })
+			ui.Button(c.Key("tool-"+v.kind), label).Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.changeTools(v.kind, !v.enabled) })
 		}
 		p.buildShellJobs(c)
 	})
@@ -140,7 +140,7 @@ func (p *NativePage) buildShellJobs(c *ui.Context) {
 		ui.Button(c.Key("stop-"+status.Task.ID), "Stop owned Shell job "+status.Task.ID).Disabled(p.paneBusy || status.Reaped).OnClick(func() { p.shellJobAction(entry.BranchID, status.Task.ID, false) })
 	}).Height(180).Shrink(0)
 	if branch, err := product.ActiveBranch(p.detail); err == nil && branch.Target.EngineID == "alva" && branch.NativeSessionID != "" {
-		ui.Button(c, "Stop all jobs in active branch and reset Shell owner").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.shellJobAction(branch.ID, "", true) })
+		ui.Button(c, "Stop all jobs in active branch and reset Shell owner").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.shellJobAction(branch.ID, "", true) })
 	}
 }
 func (p *NativePage) buildQuestions(c *ui.Context) {

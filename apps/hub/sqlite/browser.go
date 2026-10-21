@@ -17,7 +17,7 @@ func (s *Store) editBrowser(ctx context.Context, id string, edit func(*hub.Setti
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before changing next-turn browser settings")
 		}
 		value, err := settings(ctx, tx, id)

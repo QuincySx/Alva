@@ -37,26 +37,28 @@ type DraftAttachment struct {
 // substituting a backend never loses native permission ownership at runtime.
 type ServiceStore interface {
 	hub.Store
+	hub.WaitStore
 	hub.NativeOwnerResolver
 }
 
 type HubService struct {
-	Store         ServiceStore
-	Runtime       *hub.Runtime
-	Repository    storage.Repository
-	DefaultTarget hub.Target
-	Targets       []hub.Target
-	DataDirectory string
-	Demo          bool
-	Approvals     *host.ApprovalBroker
-	Questions     *host.QuestionBroker
-	Gateway       *gateway.Local
-	Teams         *TeamCoordinator
-	Automations   *AutomationCoordinator
-	Worktrees     *worktree.Manager
-	Shells        *shell.Sessions
-	mu            sync.Mutex
-	attachments   map[string][]DraftAttachment
+	Store              ServiceStore
+	Runtime            *hub.Runtime
+	Repository         storage.Repository
+	DefaultTarget      hub.Target
+	Targets            []hub.Target
+	DataDirectory      string
+	Demo               bool
+	ValidateWaitRecipe func(context.Context, hub.Branch, hub.Settings) error
+	Approvals          *host.ApprovalBroker
+	Questions          *host.QuestionBroker
+	Gateway            *gateway.Local
+	Teams              *TeamCoordinator
+	Automations        *AutomationCoordinator
+	Worktrees          *worktree.Manager
+	Shells             *shell.Sessions
+	mu                 sync.Mutex
+	attachments        map[string][]DraftAttachment
 }
 
 // PendingApprovals derives native ownership from committed product routing.
@@ -225,7 +227,7 @@ func (s *HubService) UploadReader(ctx context.Context, id, name string, source i
 	if err != nil {
 		return result, err
 	}
-	if detail.Session.Status == hub.Running {
+	if hub.BlocksInput(detail.Session.Status) {
 		return result, errors.New("finish or stop the Turn before attaching files")
 	}
 	branch, err := ActiveBranch(detail)

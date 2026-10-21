@@ -41,10 +41,12 @@ func TestProgramSelectedStorageFlowsThroughActualTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = app.Service.Submit(t.Context(), product.ID, "run through the supplied storage slot"); err != nil {
-		t.Fatal(err)
+	for _, prompt := range []string{"run through the supplied storage slot", "resume the same supplied storage slot"} {
+		if _, err = app.Service.Submit(t.Context(), product.ID, prompt); err != nil {
+			t.Fatal(err)
+		}
+		awaitTerminal(t, app, product.ID)
 	}
-	awaitTerminal(t, app, product.ID)
 	for _, method := range []string{"create", "open", "append", "references"} {
 		if selected.Calls(method) == 0 {
 			t.Fatal("component was bypassed", method)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/harness"
+	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/protocol/skill"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -24,6 +25,7 @@ type attemptResource interface {
 }
 
 type ownedRunner struct {
+	release func()
 	harness.Runner
 	workspace         *workspacefs.Workspace
 	skills            *skill.FS
@@ -63,6 +65,10 @@ func (r *ownedRunner) Close(ctx context.Context) error {
 	if r.workspace != nil {
 		err = errors.Join(err, nativeCloseFailure(r.nativeID, "close workspace", r.workspace.Close()))
 	}
+	if r.release != nil {
+		r.release()
+		r.release = nil
+	}
 	r.closed = true
 	r.closeErr = errors.Join(r.closeErr, err)
 	if r.onClosed != nil {
@@ -92,4 +98,11 @@ func nativeCloseFailure(nativeID, operation string, err error) error {
 		return nil
 	}
 	return &abi.SessionError{Operation: operation, SessionID: nativeID, Err: err}
+}
+
+func (r *ownedRunner) WaitCheckpoint() *engine.WaitCheckpoint {
+	if source, ok := r.Runner.(engine.WaitingRunner); ok {
+		return source.WaitCheckpoint()
+	}
+	return nil
 }

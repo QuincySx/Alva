@@ -28,7 +28,7 @@ func (s *Store) ReplaceAEP(ctx context.Context, id string, entries []hub.AEPBund
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before editing next-turn AEP snapshots")
 		}
 		value, err := settings(ctx, tx, id)
@@ -49,7 +49,7 @@ func (s *Store) SetAEPEnabled(ctx context.Context, id, bundleID string, enabled,
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before changing next-turn AEP capability")
 		}
 		value, err := settings(ctx, tx, id)

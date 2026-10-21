@@ -44,11 +44,20 @@ func TestApplicationCloseKeepsFactsUntilOwnedCleanupPhysicallyCompletes(t *testi
 	failure := errors.New("fixture journal failure with incomplete native cleanup")
 	resource := &cleanupFixture{failure: failure}
 	runner := &ownedRunner{ownerID: session.ID, nativeID: "fault-native", resources: []attemptResource{resource}}
+	if _, err = a.Repository.Create(ctx, session.ID, runner.nativeID, ""); err != nil {
+		t.Fatal(err)
+	}
+	_, release, err := a.Repository.BeginRun(ctx, session.ID, runner.nativeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	runner.release = func() { release(); released = true }
 	a.pending = map[*ownedRunner]struct{}{runner: {}}
 	runner.onClosed = func() { a.pendingMu.Lock(); delete(a.pending, runner); a.pendingMu.Unlock() }
 	err = a.Close(ctx)
 	var strong *abi.SessionError
-	if !errors.Is(err, failure) || !errors.As(err, &strong) || runner.CleanupComplete() || a.closed {
+	if !errors.Is(err, failure) || !errors.As(err, &strong) || runner.CleanupComplete() || a.closed || released {
 		t.Fatal("resource/facts lifecycle falsely completed", err)
 	}
 	if _, err = a.Store.Detail(ctx, session.ID); err != nil {
@@ -57,9 +66,13 @@ func TestApplicationCloseKeepsFactsUntilOwnedCleanupPhysicallyCompletes(t *testi
 	if _, err = a.Repository.List(ctx, session.ID, "", 1); err != nil {
 		t.Fatal("native facts closed under live cleanup", err)
 	}
+	if _, releaseOther, err := a.Repository.BeginRun(ctx, session.ID, runner.nativeID); err == nil {
+		releaseOther()
+		t.Fatal("actual native claim released under incomplete resource cleanup")
+	}
 	resource.complete.Store(true)
 	err = a.Close(ctx)
-	if !errors.Is(err, failure) || !a.closed || !runner.CleanupComplete() || len(a.pending) != 0 {
+	if !errors.Is(err, failure) || !a.closed || !runner.CleanupComplete() || len(a.pending) != 0 || !released {
 		t.Fatal("physical retry hid original failure or retained resource", err)
 	}
 	if _, err = a.Store.Detail(ctx, session.ID); err == nil {

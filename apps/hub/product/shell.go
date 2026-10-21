@@ -58,7 +58,7 @@ func (s *HubService) ResetShellOwner(ctx context.Context, id, branchID string) e
 	if s.Shells == nil {
 		return errors.New("application shell owner unavailable")
 	}
-	if detail.Session.Status == hub.Running {
+	if hub.BlocksInput(detail.Session.Status) {
 		return errors.New("finish or Stop actual Turn before resetting its shell owner")
 	}
 	for _, branch := range detail.Branches {

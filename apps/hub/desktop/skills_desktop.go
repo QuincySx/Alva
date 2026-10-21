@@ -41,7 +41,7 @@ func (p *NativePage) openSkills() {
 	}()
 }
 func (p *NativePage) skillAction(action, value string) {
-	if p.selected == "" || p.paneBusy || p.model.ActiveRunID != "" {
+	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
 	id := p.selected
@@ -106,7 +106,7 @@ func (p *NativePage) buildSkills(c *ui.Context) {
 		ui.Text(c, "Managed project skills · "+product.ManagedSkillDirectory).Bold()
 		ui.Text(c, "Bound to saved workspace. Initializing/refreshing is explicit; no global scan, download or script execution. Enabling affects only the next Alva turn. Metadata is advertised; body/resources are loaded only when requested.").FontSize(11)
 		ui.Row(c).Gap(8).Children(func() {
-			ui.Button(c, "Initialize project skill directory").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.skillAction("initialize", "") })
+			ui.Button(c, "Initialize project skill directory").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.skillAction("initialize", "") })
 			ui.Button(c, "Refresh project skills").Disabled(p.paneBusy).OnClick(p.openSkills)
 			label := "Enable project skills next turn"
 			action := "enable"
@@ -114,7 +114,7 @@ func (p *NativePage) buildSkills(c *ui.Context) {
 				label = "Disable project skills next turn"
 				action = "disable"
 			}
-			ui.Button(c, label).Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.skillAction(action, "") })
+			ui.Button(c, label).Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.skillAction(action, "") })
 		})
 		ui.Scroll(c).Height(130).Children(func() {
 			ui.Column(c).Gap(4).Children(func() {
@@ -122,18 +122,18 @@ func (p *NativePage) buildSkills(c *ui.Context) {
 					item := item
 					ui.Row(c).Gap(8).Children(func() {
 						ui.Button(c, item.Meta.Name+" · "+item.Meta.Description).Disabled(p.paneBusy).OnClick(func() { p.loadSkill(item.Meta.Name) })
-						ui.Button(c.Key("archive-"+item.Meta.Name), "Archive recoverably").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.skillAction("archive", item.Meta.Name) })
+						ui.Button(c.Key("archive-"+item.Meta.Name), "Archive recoverably").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.skillAction("archive", item.Meta.Name) })
 					})
 				}
 			})
 		})
-		ui.TextArea(c.Key("skill-document"), &p.skillDraft).Label("Complete SKILL.md with YAML frontmatter").Grow(1).Disabled(p.paneBusy || p.model.ActiveRunID != "")
-		ui.Button(c, "Install new managed skill (never overwrite existing)").Disabled(p.paneBusy || p.model.ActiveRunID != "" || p.skillDraft == "").OnClick(func() { p.skillAction("install", p.skillDraft) })
+		ui.TextArea(c.Key("skill-document"), &p.skillDraft).Label("Complete SKILL.md with YAML frontmatter").Grow(1).Disabled(p.paneBusy || p.inputBlocked())
+		ui.Button(c, "Install new managed skill (never overwrite existing)").Disabled(p.paneBusy || p.inputBlocked() || p.skillDraft == "").OnClick(func() { p.skillAction("install", p.skillDraft) })
 		ui.Scroll(c).Height(80).Children(func() {
 			ui.Column(c).Gap(4).Children(func() {
 				for _, receipt := range p.settings.SkillArchives {
 					receipt := receipt
-					ui.Button(c, "Restore archive: "+receipt).Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.skillAction("restore", receipt) })
+					ui.Button(c, "Restore archive: "+receipt).Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.skillAction("restore", receipt) })
 				}
 			})
 		})

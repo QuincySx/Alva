@@ -19,6 +19,7 @@ import (
 	view "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/apps/ui/modules"
 	"github.com/QuincySx/Alva/extension/interaction"
+	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/protocol/skill"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -77,6 +78,7 @@ type NativePage struct {
 	playerPosition, playerDuration int64
 	playerSeek                     string
 	settings                       hub.Settings
+	wait                           waitPane
 	paneBusy                       bool
 	inspectBranch, inspectQuery    string
 	inspectLoadedQuery             string
@@ -250,6 +252,7 @@ func (p *NativePage) selectSession(id string) {
 	p.media = MediaPane{}
 	p.decoderFFmpeg, p.decoderProbe = "", ""
 	p.settings = hub.Settings{}
+	p.wait = waitPane{}
 	p.inspectPage = product.InspectorPage{}
 	p.inspectGroup = ""
 	p.inspectExportPath = ""
@@ -298,6 +301,7 @@ func (p *NativePage) loadTail() {
 	}()
 }
 func (p *NativePage) applyDetail() {
+	p.chat.Busy = p.busy || p.detail.Session.Status == engine.Waiting
 	p.model.Messages = p.transcript.Rows
 	p.model.Error = p.problem
 	wasStopping := p.model.Status == view.Stopping
@@ -311,7 +315,9 @@ func (p *NativePage) applyDetail() {
 	} else {
 		p.model.ActiveRunID = ""
 	}
-	if p.reviewing {
+	if p.detail.Session.Status == engine.Waiting {
+		p.model.Notice = "Task waiting; execution has exited. Open Waiting tasks to review requests, save results and explicitly continue the same Turn."
+	} else if p.reviewing {
 		p.model.Notice = "Reading earlier committed events. Live text updates are paused; Latest reloads the newest bounded page."
 	} else {
 		p.model.Notice = "Bounded history window: up to 512 events; its first reply may be partial. Earlier pages remain durable; this UI cache is not model context."
@@ -323,12 +329,15 @@ func (p *NativePage) poll() {
 	}
 	id, generation, after := p.selected, p.generation, p.transcript.Last
 	readText := !p.reviewing && p.chat.AtEnd()
+	readWait, waitEpoch := p.pane == "waits" && !p.paneBusy, p.wait.Epoch
 	p.polling = true
 	go func() {
 		detail, err := p.Service.Store.Detail(p.ctx, id)
 		var entries []hub.HistoryEntry
 		var approvals []security.ApprovalRequest
 		var questions []interaction.Question
+		var waiting product.WaitView
+		var waitErr error
 		if err == nil && readText {
 			entries, err = p.Service.Store.History(p.ctx, id, after, 128)
 		}
@@ -338,6 +347,9 @@ func (p *NativePage) poll() {
 		if err == nil {
 			questions, err = p.Service.PendingQuestions(p.ctx, id)
 		}
+		if err == nil && readWait {
+			waiting, waitErr = p.Service.Waits(p.ctx, id)
+		}
 		p.dispatch(func() {
 			p.polling = false
 			if p.selected != id || p.generation != generation {
@@ -345,12 +357,24 @@ func (p *NativePage) poll() {
 				return
 			}
 			if err != nil {
+				if readWait && p.pane == "waits" && p.wait.Epoch == waitEpoch {
+					p.wait.Current = false
+					p.wait.Problem = err.Error()
+				}
 				p.problem = err.Error()
 				return
 			}
 			p.detail = detail
 			p.approvals = approvals
 			p.questions = questions
+			if readWait && p.pane == "waits" && !p.paneBusy && p.wait.Epoch == waitEpoch {
+				if waitErr != nil {
+					p.wait.Current = false
+					p.wait.Problem = waitErr.Error()
+				} else {
+					p.applyWaitView(waiting)
+				}
+			}
 			if readText {
 				p.transcript.Append(entries)
 			}
@@ -375,7 +399,7 @@ func (p *NativePage) respondApproval(requestID string, allowed bool) {
 }
 func (p *NativePage) send() {
 	p.traceUI("send")
-	if p.selected == "" || p.busy || !p.model.CanSend() {
+	if p.selected == "" || p.busy || p.detail.Session.Status == engine.Waiting || !p.model.CanSend() {
 		return
 	}
 	if worker, ok := p.selectedWorker(); ok {
@@ -532,7 +556,7 @@ func (p *NativePage) switchBranch(target hub.Target) {
 	}()
 }
 func (p *NativePage) setFallback(target *hub.Target) {
-	if p.busy || p.selected == "" || p.model.ActiveRunID != "" {
+	if p.busy || p.selected == "" || p.inputBlocked() {
 		return
 	}
 	id := p.selected
@@ -635,6 +659,7 @@ func (p *NativePage) Build(c *ui.Context) {
 				ui.Button(c, "Chat").OnClick(func() { p.setPane("") })
 				ui.Button(c, "Session settings").Disabled(p.paneBusy).OnClick(p.openSettings)
 				ui.Button(c, "Inspector").Disabled(p.paneBusy).OnClick(p.openInspector)
+				ui.Button(c, "Waiting tasks").Disabled(p.paneBusy).OnClick(p.openWaits)
 				ui.Button(c, "Handoff evidence").Disabled(p.paneBusy).OnClick(func() { p.setPane("handoffs"); p.handoffText = "" })
 			})
 			ui.Row(c).Gap(8).Children(func() {
@@ -647,6 +672,10 @@ func (p *NativePage) Build(c *ui.Context) {
 			p.buildQuestions(c)
 			if p.playerBusy {
 				ui.Button(c, "Pause local video and wait for decoder cleanup").Disabled(p.playerStopping).OnClick(p.stopPlayback)
+			}
+			if p.pane == "waits" {
+				p.buildWaits(c)
+				return
 			}
 			if p.pane == "settings" {
 				p.buildSettings(c)
@@ -707,7 +736,7 @@ func (p *NativePage) Build(c *ui.Context) {
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Button(c, "Earlier events").Disabled(p.busy || p.polling || p.transcript.First == 0).OnClick(p.older)
 				ui.Button(c, "Latest events").Disabled(p.busy || p.polling).OnClick(p.loadTail)
-				ui.Button(c, "Attach files").Disabled(p.busy || p.model.ActiveRunID != "").OnClick(p.upload)
+				ui.Button(c, "Attach files").Disabled(p.busy || p.inputBlocked()).OnClick(p.upload)
 			})
 			ui.Row(c).Gap(6).Children(func() {
 				for _, branch := range p.detail.Branches {
@@ -716,7 +745,7 @@ func (p *NativePage) Build(c *ui.Context) {
 					if branch.ID == p.detail.Session.ActiveBranchID {
 						label = "Active: " + branch.Target.EngineID
 					}
-					ui.Button(c, label).Disabled(p.busy || p.model.ActiveRunID != "" || branch.ID == p.detail.Session.ActiveBranchID).OnClick(func() { p.switchBranch(branch.Target) })
+					ui.Button(c, label).Disabled(p.busy || p.inputBlocked() || branch.ID == p.detail.Session.ActiveBranchID).OnClick(func() { p.switchBranch(branch.Target) })
 				}
 			})
 			ui.Row(c).Gap(6).Children(func() {
@@ -729,7 +758,7 @@ func (p *NativePage) Build(c *ui.Context) {
 						}
 					}
 					if !active {
-						ui.Button(c, "Switch to "+target.EngineID).Disabled(p.busy || p.model.ActiveRunID != "").OnClick(func() { p.switchBranch(target) })
+						ui.Button(c, "Switch to "+target.EngineID).Disabled(p.busy || p.inputBlocked()).OnClick(func() { p.switchBranch(target) })
 					}
 				}
 			})
@@ -738,9 +767,9 @@ func (p *NativePage) Build(c *ui.Context) {
 				ui.Row(c).Gap(6).Children(func() {
 					for _, target := range p.targets {
 						target := target
-						ui.Button(c, fmt.Sprintf("Approve fallback: %s · %s · %s", target.EngineID, target.AccountSource, target.BillingRoute)).Disabled(p.busy || p.model.ActiveRunID != "").OnClick(func() { p.setFallback(&target) })
+						ui.Button(c, fmt.Sprintf("Approve fallback: %s · %s · %s", target.EngineID, target.AccountSource, target.BillingRoute)).Disabled(p.busy || p.inputBlocked()).OnClick(func() { p.setFallback(&target) })
 					}
-					ui.Button(c, "Disable automatic fallback").Disabled(p.busy || p.model.ActiveRunID != "").OnClick(func() { p.setFallback(nil) })
+					ui.Button(c, "Disable automatic fallback").Disabled(p.busy || p.inputBlocked()).OnClick(func() { p.setFallback(nil) })
 				})
 				for _, target := range p.detail.Fallback {
 					ui.Text(c, "Approved fallback: "+target.EngineID+" · "+target.AccountSource+" · "+target.BillingRoute).FontSize(11)

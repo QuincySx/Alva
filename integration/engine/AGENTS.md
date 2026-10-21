@@ -5,12 +5,14 @@
 ## 逻辑
 Execute 的 context 属于执行所有者；Cancel 只是请求，真实 Completed 才收尾。Error fatal 后仅允许 Completed，工具必须配对，大结果用 qualified native reference。
 ExecutionActivity独立表示native build/prepare启动前事实，必须先await耐久report再启动；ToolIntent.NoSideEffect不覆盖这些工作，Activity不冒充ToolStart/End或完成。
+DurableWaits能力必须由实际factory声明；Completed(waiting)只在SessionStarted后携带合法revision/数量/到期receipt，结束本次执行但不声称任务成功。WaitRevision续跑不含新prompt，具体checkpoint/body仍由产品绑定原生存储读取。
 ## 约束
 不制造可恢复 native ID，不静默忽略不支持的选项。PermissionCallback/Resume 能力如实声明。模型/账户配置由显式 assembly 注入，不读取用户旧配置或凭据。
 ## 业务域清单
 | 文件/目录 | 职责 |
 |---|---|
 | contract.go | 统一 Request/Event/Runtime/能力与流契约 |
+| wait.go | stdlib-only可选WaitingRunner及有界checkpoint收尾回执，不依赖harness/产品存储 |
 | descriptor.go | 独立Runtime/Inspector装配、保守配置/权限关系/安装声明；不探测宿主或账户 |
 | inspector.go | stdlib-only检查契约：bounded metadata/text/typed child/背压观察/显式JSONL，不含执行或删除 |
 | contract_test.go | stream终态/配对、字段身份与typed event边界回归 |

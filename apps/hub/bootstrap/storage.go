@@ -19,6 +19,7 @@ import (
 // the same consumer contracts used by Runtime, settings, Team and automation.
 type ProductStorage interface {
 	hub.Store
+	hub.WaitStore
 	hub.ToolSettingsStore
 	hub.TeamStore
 	hub.WorkerDraftStore

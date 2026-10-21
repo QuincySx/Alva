@@ -14,6 +14,7 @@ var ErrUnsupported = errors.New("engine capability unsupported")
 var ErrSessionNotFound = errors.New("engine session not found")
 
 type Capabilities struct {
+	DurableWaits       bool `json:"durable_waits"`
 	Streaming          bool `json:"streaming"`
 	Resume             bool `json:"resume"`
 	Cancel             bool `json:"cancel"`
@@ -24,6 +25,8 @@ type Request struct {
 	OwnerID       string
 	Prompt        string
 	ResumeSession string
+	// WaitRevision continues a reviewed durable checkpoint without resubmitting Prompt.
+	WaitRevision  uint64
 	Workspace     string
 	Model         string
 	Provider      string
@@ -75,6 +78,7 @@ const (
 	Failed      Outcome = "failed"
 	Cancelled   Outcome = "cancelled"
 	Interrupted Outcome = "interrupted"
+	Waiting     Outcome = "waiting"
 )
 
 type FailureKind string
@@ -130,6 +134,7 @@ type Event struct {
 	Outcome     Outcome         `json:"outcome,omitempty"`
 	Usage       *Usage          `json:"usage,omitempty"`
 	Activity    *Activity       `json:"activity,omitempty"`
+	Wait        *WaitCheckpoint `json:"wait,omitempty"`
 }
 
 // StreamContract is a consumer-side invariant checker, not an execution owner.
@@ -160,6 +165,9 @@ func (s *StreamContract) Accept(event Event) error {
 	}
 	if len(event.Text) > 64<<10 || len(event.Input) > 16<<10 {
 		return errors.New("engine event requires a bounded reference")
+	}
+	if event.Wait != nil && (event.Kind != Completed || event.Outcome != Waiting) {
+		return errors.New("checkpoint only belongs to a waiting completion")
 	}
 	if event.SessionID != "" {
 		if s.NativeSessionID != "" && event.SessionID != s.NativeSessionID {
@@ -215,11 +223,18 @@ func (s *StreamContract) Accept(event Event) error {
 		if len(s.tools) != 0 {
 			return errors.New("completion left tools running")
 		}
-		if event.Outcome != Succeeded && event.Outcome != Failed && event.Outcome != Cancelled && event.Outcome != Interrupted {
+		if event.Outcome != Succeeded && event.Outcome != Failed && event.Outcome != Cancelled && event.Outcome != Interrupted && event.Outcome != Waiting {
 			return errors.New("unknown completion outcome")
 		}
-		if s.Fatal && event.Outcome == Succeeded {
+		if s.Fatal && (event.Outcome == Succeeded || event.Outcome == Waiting) {
 			return errors.New("fatal engine falsely completed successfully")
+		}
+		if event.Outcome == Waiting {
+			if !s.Started || event.Wait == nil || event.Wait.Validate() != nil {
+				return errors.New("waiting requires an actual started session and durable checkpoint")
+			}
+		} else if event.Wait != nil {
+			return errors.New("checkpoint only belongs to a waiting outcome")
 		}
 		s.Terminal = true
 	default:

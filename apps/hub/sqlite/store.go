@@ -360,7 +360,7 @@ func (s *Store) Switch(ctx context.Context, id string, target hub.Target, reason
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("stop or finish the active Turn before switching")
 		}
 		previous := session.ActiveBranchID
@@ -398,7 +398,7 @@ func (s *Store) SetFallback(ctx context.Context, id string, targets []hub.Target
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("fallback policy is immutable during a Turn")
 		}
 		data, err := body(targets)
@@ -531,7 +531,7 @@ func beginTurn(ctx context.Context, tx *sql.Tx, id, prompt string) (hub.Claim, e
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("Hub session already claimed")
 		}
 		if err = checkWorkerWorkspaceAdmission(ctx, tx, id); err != nil {
@@ -679,6 +679,10 @@ func (s *Store) Record(ctx context.Context, attemptID string, event engine.Event
 	defer func() {
 		providerResult0 = normalizeStoreError(providerResult0)
 	}()
+	waiting := event.Kind == engine.Completed && event.Outcome == engine.Waiting
+	if event.Wait != nil && !waiting || waiting && (event.Wait == nil || event.Wait.Validate() != nil) {
+		return errors.New("waiting completion requires an exclusive bounded checkpoint receipt")
+	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		attempt, err := read[hub.Attempt](ctx, tx, `SELECT data FROM hub_attempts WHERE id=?`, attemptID)
 		if err != nil {
@@ -711,7 +715,11 @@ func (s *Store) Record(ctx context.Context, attemptID string, event engine.Event
 			attempt.Error = event.Text
 		}
 		if event.Kind == engine.Completed {
+			if event.Outcome == engine.Waiting && (attempt.NativeSessionID == "" || attempt.Error != "") {
+				return errors.New("waiting completion requires a known native session without a fatal error")
+			}
 			attempt.Status = event.Outcome
+			attempt.Wait = event.Wait
 			attempt.EndedAt = now()
 			if event.Outcome == engine.Succeeded {
 				branch.Watermark = turn.Sequence
@@ -735,7 +743,7 @@ func (s *Store) FinishTurn(ctx context.Context, id string, status engine.Outcome
 	defer func() {
 		providerResult0 = normalizeStoreError(providerResult0)
 	}()
-	if status != engine.Succeeded && status != engine.Failed && status != engine.Cancelled && status != engine.Interrupted {
+	if status != engine.Succeeded && status != engine.Failed && status != engine.Cancelled && status != engine.Interrupted && status != engine.Waiting {
 		return errors.New("Turn requires a terminal status")
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
@@ -753,6 +761,9 @@ func (s *Store) FinishTurn(ctx context.Context, id string, status engine.Outcome
 		attempt, err := read[hub.Attempt](ctx, tx, `SELECT data FROM hub_attempts WHERE id=? AND turn=?`, turn.ActiveAttemptID, id)
 		if err != nil {
 			return err
+		}
+		if status == engine.Waiting && (attempt.Status != engine.Waiting || attempt.Wait == nil || attempt.Wait.Validate() != nil) {
+			return errors.New("waiting Turn requires actual checkpoint receipt")
 		}
 		if status == engine.Succeeded && attempt.Status != engine.Succeeded {
 			return errors.New("cannot claim Turn success without successful actual attempt completion")
@@ -780,6 +791,9 @@ func (s *Store) FinishTurn(ctx context.Context, id string, status engine.Outcome
 		}
 		turn.Status = status
 		turn.EndedAt = now()
+		if turn.Status == engine.Waiting {
+			turn.EndedAt = 0
+		}
 		session.Status = status
 		session.UpdatedAt = now()
 		if err = writeTurn(ctx, tx, turn); err != nil {
@@ -882,7 +896,7 @@ func (s *Store) BindNative(ctx context.Context, sessionID, branchID, nativeID st
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running || session.ActiveBranchID != branchID {
+		if hub.BlocksInput(session.Status) || session.ActiveBranchID != branchID {
 			return errors.New("branch is running or no longer active")
 		}
 		branch, err := read[hub.Branch](ctx, tx, `SELECT data FROM hub_branches WHERE id=? AND session=?`, branchID, sessionID)
@@ -947,8 +961,14 @@ func (s *Store) Recover(ctx context.Context) (providerResult0 error) {
 			}
 			// A terminal attempt committed before a crash remains authoritative;
 			// recovery finishes its product edge, never overwrites known success.
+			if attempt.Status == engine.Waiting && (attempt.Wait == nil || attempt.Wait.Validate() != nil || attempt.NativeSessionID == "" || attempt.Error != "") {
+				return errors.New("interrupted product edge has an invalid waiting receipt")
+			}
 			turn.Status = attempt.Status
 			turn.EndedAt = now()
+			if turn.Status == engine.Waiting {
+				turn.EndedAt = 0
+			}
 			if err = writeTurn(ctx, tx, turn); err != nil {
 				return err
 			}

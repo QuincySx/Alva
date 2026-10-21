@@ -43,7 +43,7 @@ tools/        手工    显式维护与本机验收工具
 | L6 | [apps/direct](./apps/direct/AGENTS.md)、[apps/direct/desktop](./apps/direct/desktop/AGENTS.md)、[apps/gateway](./apps/gateway/AGENTS.md)、direct 程序入口 | 用户直接聊天或显式调用模型 API；Gateway 不运行 Agent |
 | L7 | [apps/hub](./apps/hub/AGENTS.md) 与 Hub 程序入口 | 多引擎会话、branch/Turn/Attempt、Team、自动化和产品服务/UI |
 
-纯SDK默认不安装诊断保存政策；默认harness的telemetry Plugin可按名替换，诊断失败报告后继续，执行事实失败仍中断。可选durable Controller支持外部结果、审批和问题跨进程等待/继续；native适配复用原会话存储，尚未自动接入默认CLI/Hub交互。
+纯SDK默认不安装诊断保存政策；默认harness的telemetry Plugin可按名替换，诊断失败报告后继续，执行事实失败仍中断。可选durable Controller支持外部结果、审批和问题跨进程等待/继续；native适配复用原会话存储。direct CLI以`--durable`启用；Hub的Alva在“Waiting tasks”面板或认证HTTP显式启用，保存结果后明确继续同一个Turn。默认均关闭，SDK内核不增加产品等待状态。
 
 ### 程序入口：cmd 与 CLI
 

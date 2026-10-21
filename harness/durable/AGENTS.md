@@ -3,7 +3,7 @@
 
 ## 地位
 可选 harness Controller/Plugin；复用普通 Tool、typed middleware 与 SDK Agent。direct CLI 可由 `--durable` 显式接入，默认仍不启用；
-Hub 等待 UI/HTTP 尚未接入本组件。只 `MemoryBackend` 的运行不具备重启耐久性。
+Hub的Alva配方由共享bootstrap显式接入，UI/HTTP通过产品Service保存结果/继续同一个Turn；默认也不启用。只 `MemoryBackend` 的运行不具备重启耐久性。
 
 ## 逻辑
 Backend 四个端口：实际 Log、独占 Claim、Load、原子 CAS Commit（状态与结果消息同事务）。

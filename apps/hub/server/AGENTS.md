@@ -26,6 +26,7 @@ transport error 不泄露 host path/数据库/provider stderr；真实执行错�
 | server.go | 冷/v1/engines能力声明、bounded handler、严格 JSON/query、session 发现与创建 |
 | gateway.go / gateway_test.go | authenticated /v1/gateway冷status/独立model计费同意start/Stop，一次token仅start返回、不接受Provider/key导入 |
 | platform/system/strictjson（共享） | DTO object/null/重复键/精确大小写/深度验证，Hub不再保留第二份解析器 |
+| wait.go / wait_test.go | 认证冷等待/opt-in、严格branch/Turn/revision结果提交、显式202继续与审阅放弃；真实HTTP→Agent同Turn回归 |
 | routes.go | turns/stop/routes/approvals/files/settings/Skills/Inspector 共用服务 |
 | export.go / export_test.go | /inspector-bundle认证只读JSONL下载，固定高水位/typed路径与显式child scope；两路导出上限、不接受host/native path、不写宿主文件或restore |
 | inspection.go / inspection_test.go | /inspector-events绑定实际branch/typed path，通过独立EngineInspector背压SSE；durable Last-Event-ID续读，transport Close/断线仅detach，不restore或Stop |

@@ -36,7 +36,7 @@ type PermissionResponder func(context.Context, string, string, engine.Permission
 
 // FactoryOptions declares the exact request fields this trusted factory applies
 // to its actual harness. Ordinary factories conservatively accept neither.
-type FactoryOptions struct{ SystemPrompt, MaxTurns bool }
+type FactoryOptions struct{ SystemPrompt, MaxTurns, DurableWaits bool }
 type Adapter struct {
 	factory RunnerFactory
 	respond PermissionResponder
@@ -67,7 +67,7 @@ func (a *Adapter) Descriptor() engine.Descriptor {
 	return d
 }
 func (a *Adapter) Capabilities() engine.Capabilities {
-	return engine.Capabilities{Streaming: true, Resume: true, Cancel: true, ToolControl: true, PermissionCallback: a.respond != nil}
+	return engine.Capabilities{DurableWaits: a.options.DurableWaits, Streaming: true, Resume: true, Cancel: true, ToolControl: true, PermissionCallback: a.respond != nil}
 }
 func (a *Adapter) RespondPermission(ctx context.Context, id, requestID string, decision engine.PermissionDecision) error {
 	if a.respond == nil {
@@ -104,7 +104,10 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	if (request.SystemPrompt != "" && !a.options.SystemPrompt) || (request.MaxTurns != 0 && !a.options.MaxTurns) {
 		return fmt.Errorf("%w: configure Alva system/turn limits in the harness factory", engine.ErrUnsupported)
 	}
-	if strings.TrimSpace(request.Prompt) == "" || len(request.Prompt) > 64<<10 {
+	if request.WaitRevision != 0 && (!a.options.DurableWaits || request.ResumeSession == "" || request.Prompt != "") {
+		return errors.New("durable resume requires a supported existing native session and no prompt")
+	}
+	if request.WaitRevision == 0 && (strings.TrimSpace(request.Prompt) == "" || len(request.Prompt) > 64<<10) {
 		return errors.New("prompt must be nonempty and at most 64 KiB")
 	}
 	id := request.ResumeSession
@@ -197,7 +200,11 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	blocks := 0
 	responseStarted := false
 	responseIndex := 0
-	err = runner.Run(ctx, []wire.Message{wire.TextMessage(wire.RoleUser, request.Prompt)}, func(event abi.Event) error {
+	var input []wire.Message
+	if request.WaitRevision == 0 {
+		input = []wire.Message{wire.TextMessage(wire.RoleUser, request.Prompt)}
+	}
+	err = runner.Run(ctx, input, func(event abi.Event) error {
 		if callbackErr != nil {
 			return callbackErr
 		}
@@ -291,7 +298,7 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		}
 		return nil
 	})
-	err = settleOwned(errors.Join(err, callbackErr))
+	err = errors.Join(settleOwned(errors.Join(err, callbackErr)), ctx.Err())
 	// Tool cleanup precedes fatal Error, preserving the final-only contract.
 	for callID, name := range open {
 		if sendErr := emit(engine.Event{Kind: engine.ToolEnd, ID: callID, Name: name, IsError: true, Text: "Execution ended before tool settlement was observed; inspect native facts."}); sendErr != nil {
@@ -299,6 +306,20 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		}
 	}
 	outcome := engine.Succeeded
+	var checkpoint *engine.WaitCheckpoint
+	if err == nil {
+		if source, ok := runner.(engine.WaitingRunner); ok {
+			checkpoint = source.WaitCheckpoint()
+			if checkpoint != nil {
+				if !a.options.DurableWaits || checkpoint.Validate() != nil {
+					err = errors.New("runner reported an invalid or unsupported waiting checkpoint")
+					checkpoint = nil
+				} else {
+					outcome = engine.Waiting
+				}
+			}
+		}
+	}
 	if err != nil {
 		var failure engine.FailureKind
 		outcome, failure = executionFailure(ctx, err, responseStarted)
@@ -306,7 +327,7 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 			return errors.Join(err, sendErr)
 		}
 	}
-	return emit(engine.Event{Kind: engine.Completed, SessionID: id, Outcome: outcome, Usage: &usage})
+	return emit(engine.Event{Kind: engine.Completed, SessionID: id, Outcome: outcome, Usage: &usage, Wait: checkpoint})
 }
 func bounded(value string, limit int) string {
 	if len(value) <= limit {

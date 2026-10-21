@@ -23,7 +23,7 @@ func (s *Store) changeTools(ctx context.Context, id string, change func(*hub.Too
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before changing next-turn tools")
 		}
 		value, err := settings(ctx, tx, id)

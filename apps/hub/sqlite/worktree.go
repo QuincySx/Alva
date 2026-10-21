@@ -33,7 +33,7 @@ func worktreeWorker(ctx context.Context, tx *sql.Tx, lead, team, worker string) 
 	if err != nil {
 		return w, parent, child, err
 	}
-	if parent.Status == hub.Running || child.Status == hub.Running {
+	if parent.Status == hub.Running || hub.BlocksInput(child.Status) {
 		return w, parent, child, errors.New("finish or Stop actual Lead and Worker execution before worktree changes")
 	}
 	return w, parent, child, nil

@@ -80,7 +80,7 @@ func (s *Store) SaveSettings(ctx context.Context, value hub.Settings) (providerR
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("settings may only be edited while this product session is idle")
 		}
 		return saveSettings(ctx, tx, value)
@@ -95,7 +95,7 @@ func (s *Store) SetMCPEnabled(ctx context.Context, id, serverID string, enabled,
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("settings changes apply next turn; finish current turn first")
 		}
 		value, err := settings(ctx, tx, id)
@@ -133,7 +133,7 @@ func (s *Store) ReplaceMCP(ctx context.Context, id string, servers []hub.MCPServ
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before editing next-turn MCP snapshots")
 		}
 		value, err := settings(ctx, tx, id)
@@ -153,7 +153,7 @@ func (s *Store) SetSkillsEnabled(ctx context.Context, id string, enabled bool) (
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before changing next-turn skills")
 		}
 		value, err := settings(ctx, tx, id)
@@ -192,7 +192,7 @@ func (s *Store) SetSubagentsEnabled(ctx context.Context, id string, enabled bool
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before changing next-turn native SubAgent capability")
 		}
 		value, err := settings(ctx, tx, id)
@@ -213,7 +213,7 @@ func (s *Store) SetPersistentMemory(ctx context.Context, id string, enabled bool
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before changing next-turn workspace memory")
 		}
 		value, err := settings(ctx, tx, id)

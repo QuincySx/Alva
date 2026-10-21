@@ -82,18 +82,19 @@ type Turn struct {
 	EndedAt         int64          `json:"ended_at"`
 }
 type Attempt struct {
-	ID                  string             `json:"id"`
-	TurnID              string             `json:"turn_id"`
-	SessionID           string             `json:"session_id"`
-	BranchID            string             `json:"branch_id"`
-	Target              Target             `json:"target"`
-	NativeSessionID     string             `json:"native_session_id"`
-	Status              engine.Outcome     `json:"status"`
-	SideEffectsPossible bool               `json:"side_effects_possible"`
-	Failure             engine.FailureKind `json:"failure"`
-	Error               string             `json:"error"`
-	CreatedAt           int64              `json:"created_at"`
-	EndedAt             int64              `json:"ended_at"`
+	Wait                *engine.WaitCheckpoint `json:"wait,omitempty"`
+	ID                  string                 `json:"id"`
+	TurnID              string                 `json:"turn_id"`
+	SessionID           string                 `json:"session_id"`
+	BranchID            string                 `json:"branch_id"`
+	Target              Target                 `json:"target"`
+	NativeSessionID     string                 `json:"native_session_id"`
+	Status              engine.Outcome         `json:"status"`
+	SideEffectsPossible bool                   `json:"side_effects_possible"`
+	Failure             engine.FailureKind     `json:"failure"`
+	Error               string                 `json:"error"`
+	CreatedAt           int64                  `json:"created_at"`
+	EndedAt             int64                  `json:"ended_at"`
 }
 
 const Running engine.Outcome = "running"
@@ -140,11 +141,12 @@ type HandoffEntry struct {
 	BranchID     string         `json:"branch_id"`
 }
 type Claim struct {
-	Session Session
-	Branch  Branch
-	Turn    Turn
-	Attempt Attempt
-	Handoff *Handoff
+	Session      Session
+	Branch       Branch
+	Turn         Turn
+	Attempt      Attempt
+	Handoff      *Handoff
+	WaitRevision uint64
 }
 
 // ExecutionStore is the complete persistence authority needed by Runtime.

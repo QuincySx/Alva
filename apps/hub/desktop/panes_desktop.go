@@ -88,7 +88,7 @@ func (p *NativePage) openSettings() {
 	}()
 }
 func (p *NativePage) saveSettings() {
-	if p.selected == "" || p.paneBusy || p.model.ActiveRunID != "" {
+	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
 	id, raw := p.selected, p.configDraft
@@ -110,7 +110,7 @@ func (p *NativePage) saveSettings() {
 	}()
 }
 func (p *NativePage) enableMCP(serverID string, enabled bool) {
-	if p.selected == "" || p.paneBusy || p.model.ActiveRunID != "" {
+	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
 	id := p.selected
@@ -132,7 +132,7 @@ func (p *NativePage) enableMCP(serverID string, enabled bool) {
 	}()
 }
 func (p *NativePage) enableSubagents(enabled bool) {
-	if p.selected == "" || p.paneBusy || p.model.ActiveRunID != "" {
+	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
 	id := p.selected
@@ -155,7 +155,7 @@ func (p *NativePage) enableSubagents(enabled bool) {
 }
 
 func (p *NativePage) enablePersistentMemory(enabled bool) {
-	if p.selected == "" || p.paneBusy || p.model.ActiveRunID != "" {
+	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
 	id := p.selected
@@ -187,28 +187,28 @@ func (p *NativePage) buildSettings(c *ui.Context) {
 		ui.Button(c, "Browser tools (fresh private profiles)").Disabled(p.paneBusy).OnClick(p.openBrowserSettings)
 		ui.Text(c, fmt.Sprintf("Persistent workspace memory: enabled=%v. Next Alva turn only; private SQLite namespace derived from this saved workspace path, intentionally shared only with sessions using the same project path. No remote embeddings, startup scan or automatic extraction; writes/sync/extract still use tool HITL. Memory tools are not automatically delegated to SDK children.", p.settings.PersistentMemory)).FontSize(11)
 		if p.settings.PersistentMemory {
-			ui.Button(c, "Use volatile default memory next turn").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.enablePersistentMemory(false) })
+			ui.Button(c, "Use volatile default memory next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.enablePersistentMemory(false) })
 		} else {
-			ui.Button(c, "Enable explicit persistent workspace memory next turn").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.enablePersistentMemory(true) })
+			ui.Button(c, "Enable explicit persistent workspace memory next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.enablePersistentMemory(true) })
 		}
 		ui.Text(c, fmt.Sprintf("Native SDK SubAgents (not Hub Workers): enabled=%v. Next Alva turn only; same explicit provider/account, up to 8 children, 2 parallel model streams, 3 levels, 16 iterations/2 minutes per child. Files/MCP only by actual direct-parent grants; parent/other-child logs are not granted. Every spawn/child mutation uses HITL.", p.settings.SubagentsEnabled)).FontSize(11)
 		if p.settings.SubagentsEnabled {
-			ui.Button(c, "Disable native SubAgents next turn").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.enableSubagents(false) })
+			ui.Button(c, "Disable native SubAgents next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.enableSubagents(false) })
 		} else {
-			ui.Button(c, "Approve child model usage and enable native SubAgents").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.enableSubagents(true) })
+			ui.Button(c, "Approve child model usage and enable native SubAgents").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.enableSubagents(true) })
 		}
 		ui.Text(c, "Explicit stdio snapshots only. Saving edits disables every server; enabling separately confirms host/account access for this saved workspace. Nothing installs, scans existing config, starts on save or changes an active run.").FontSize(12)
 		ui.Text(c, "JSON array fields: id, command, args, env. Credentials are only explicit env values in the private product database; never inherited or added to model prompt.").FontSize(11)
-		ui.TextArea(c.Key("mcp-json"), &p.configDraft).Label("MCP configuration JSON").Height(230).Disabled(p.paneBusy || p.model.ActiveRunID != "")
-		ui.Button(c, "Save edited servers disabled").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(p.saveSettings)
+		ui.TextArea(c.Key("mcp-json"), &p.configDraft).Label("MCP configuration JSON").Height(230).Disabled(p.paneBusy || p.inputBlocked())
+		ui.Button(c, "Save edited servers disabled").Disabled(p.paneBusy || p.inputBlocked()).OnClick(p.saveSettings)
 		for _, server := range p.settings.MCP {
 			server := server
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Text(c, fmt.Sprintf("%s · %s · enabled=%v", server.ID, server.Command, server.Enabled)).Grow(1)
 				if server.Enabled {
-					ui.Button(c.Key(server.ID), "Disable").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.enableMCP(server.ID, false) })
+					ui.Button(c.Key(server.ID), "Disable").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.enableMCP(server.ID, false) })
 				} else {
-					ui.Button(c.Key(server.ID), "Confirm host/account access and enable next turn").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.enableMCP(server.ID, true) })
+					ui.Button(c.Key(server.ID), "Confirm host/account access and enable next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.enableMCP(server.ID, true) })
 				}
 			})
 		}

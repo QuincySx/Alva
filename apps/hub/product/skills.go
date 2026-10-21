@@ -18,7 +18,7 @@ func (s *HubService) projectSkills(ctx context.Context, id string, write, create
 	if err != nil {
 		return nil, err
 	}
-	if write && detail.Session.Status == hub.Running {
+	if write && hub.BlocksInput(detail.Session.Status) {
 		return nil, errors.New("finish current Turn before editing project skills")
 	}
 	if create {

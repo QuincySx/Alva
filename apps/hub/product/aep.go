@@ -32,7 +32,7 @@ func (s *HubService) SaveAEPDraft(ctx context.Context, id, raw string) error {
 	if err != nil {
 		return err
 	}
-	if detail.Session.Status == hub.Running {
+	if hub.BlocksInput(detail.Session.Status) {
 		return errors.New("finish current Turn before inspecting next-turn AEP configuration")
 	}
 	var entries []hub.AEPBundle

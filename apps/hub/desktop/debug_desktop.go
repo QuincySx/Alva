@@ -74,7 +74,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 			if err := json.Unmarshal(raw, &args); err != nil {
 				return err
 			}
-			if !utf8.ValidString(args.Text) || len(args.Text) > chat.MaxDraftBytes || p.busy || p.chat.Busy || p.pane != "" || p.selected == "" || p.model.ActiveRunID != "" {
+			if !utf8.ValidString(args.Text) || len(args.Text) > chat.MaxDraftBytes || p.busy || p.chat.Busy || p.pane != "" || p.selected == "" || p.inputBlocked() {
 				return errors.New("actual composer is busy or over budget")
 			}
 			p.model.Draft = args.Text

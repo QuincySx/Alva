@@ -17,7 +17,7 @@ func (s *Store) editMedia(ctx context.Context, id string, edit func(*hub.Setting
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before changing next-turn media settings")
 		}
 		value, err := settings(ctx, tx, id)

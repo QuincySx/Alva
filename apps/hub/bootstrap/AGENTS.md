@@ -8,6 +8,7 @@ Native SubAgent必须显式opt-in，其Plugin也进入exact attempt资源registr
 持久memory默认关闭，仅显式opt-in后lazy调用程序选择的MemoryFactory；opaque namespace由saved canonical workspace path派生，模型不能选择其他project namespace；无远程embedding/自动scan/extract，不自动委派给child。Hooks/diagnostics同样显式disabled edits+独立host批准，下一Turn装配实际Plugin；Hook pre-input仍重新HITL，diagnostic exit0不冒充零问题。
 媒体默认off，启用仅下一Alva Turn注册actual media Tool；可选decoder只消费明确两exe+独立host批准的snapshot，不发现程序。模型视觉支持仅由operator Config.ImageCapable声明并绑定exact provider/model，未知拒绝select，demo不能自称支持；原始上传不自动投递，实际JPEG选择只进入一个请求副本。
 Browser只消费显式批准snapshot并注册actual7个Tools，同Guard/先耐久risk；每run fresh private profile，不读用户浏览器、登录、keychain或已有配置。构造/保存不启动，正常结束/取消/early失败都由exact attempt资源registry收尾，清理未完成不关facts。未委派给native child。
+Alva持久等待默认off，使用同一个native journal、Guard/问题Handler和实际Controller；factory在插件启动前获得native claim，直到真实资源收尾才释放。恢复绑定route/canonical workspace/设置与process配方hash；冷读/Resolve不启动Agent，UI/HTTP只调用共享Service。
 ## 约束
 
 AEP native与独立WASIp1沿同一配方装配。OpenPlugin返回非nil+error时保留至pending runner resources，重试Close完成后才能移除快照；不能用失败后的native fallback或重新执行代替清理。
@@ -22,6 +23,8 @@ OpenStores为必传插口，OpenMemory/OpenBindings只在相应组件启用时�
 独立插件验收：`portable_aep_test.go` 实际装配JS作者示例/Go编译WASIp1模块，检查无执行、明确批准、下一Turn状态回调、shutdown证据及快照收尾。
 | 文件 | 职责 |
 |---|---|
+| wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环 |
+| wait_crash_test.go | 杀死真实Hub续跑进程后unknown/no replay、过期拒绝及显式审阅Abandon |
 | assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；live仅构造cold Gateway，Close先取消/join其真实handler |
 | tools.go | 六类可选Plugin真实装配（planning/interaction/utility 显式导入 native 适配，普通 Tool 根包不再绑定原生产品）、same-session问题broker、actual tool信任与Shell跨轮Session owner/attempt Lease与Web物理收尾 |
 | assembly_test.go | no-start、真实demo跨重启native resume、route绑定与未批准零副作用回归 |
@@ -31,7 +34,7 @@ OpenStores为必传插口，OpenMemory/OpenBindings只在相应组件启用时�
 | aep_test.go | 实际本地AEP进程下一Turn启动、pin拒绝、握手失败真实日志/终态和snapshot清理 |
 | memory.go / memory_test.go | lazy workspace-bound持久memory配方、真实HITL/跨重启/引用投递/不扫描/不同workspace隔离 |
 | commands_test.go | 实际本地命令/SDK/HITL、pre-input新权限、诊断来源/exit/reap证据和prior Activity |
-| resources.go / resources_test.go | exact per-attempt资源注册、early-observer失败/physical cleanup重试、strong错误与facts关闭顺序，以及actual Hooks.Notify取消/Close超时重试 |
+| resources.go / resources_test.go | exact per-attempt资源注册、early-observer失败/physical cleanup重试、strong错误、实际native claim与facts关闭顺序，以及actual Hooks.Notify取消/Close超时重试 |
 | media_test.go | 真实HTTP/SDK/SQLite原件保留、JPEG派生、未知route拒绝、单请求图、重启预览和无历史重放 |
 | browser_test.go | 显式真实Chrome/local HTTP、actual SDK/HITL、prior risk、文本/截图refs与实际reap/profile removal |
 | worktree_test.go | 显式真实Git+HTTP/SDK write_file/HITL Worker隔离、显式原字节采纳、持久冷证据与重开不重放 |

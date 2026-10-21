@@ -60,3 +60,41 @@ func TestKnownActivityNativeIdentityIsNotStartedAndCannotBeRebound(t *testing.T)
 		t.Fatal(err)
 	}
 }
+
+func TestWaitingRequiresExclusiveStartedCheckpointReceipt(t *testing.T) {
+	valid := &WaitCheckpoint{Revision: 3, Requests: 1, ExpiresAt: 1000}
+	for _, test := range []struct {
+		name           string
+		started, fatal bool
+		event          Event
+		ok             bool
+	}{
+		{"waiting", true, false, Event{Kind: Completed, Outcome: Waiting, Wait: valid}, true},
+		{"not-started", false, false, Event{Kind: Completed, Outcome: Waiting, Wait: valid}, false},
+		{"missing-receipt", true, false, Event{Kind: Completed, Outcome: Waiting}, false},
+		{"invalid-receipt", true, false, Event{Kind: Completed, Outcome: Waiting, Wait: &WaitCheckpoint{Revision: 1, Requests: 17, ExpiresAt: 1}}, false},
+		{"failed-with-receipt", true, false, Event{Kind: Completed, Outcome: Failed, Wait: valid}, false},
+		{"nonterminal-receipt", true, false, Event{Kind: Message, ID: "m", Wait: valid}, false},
+		{"fatal-cannot-wait", true, true, Event{Kind: Completed, Outcome: Waiting, Wait: valid}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var c StreamContract
+			if test.started {
+				if err := c.Accept(Event{Kind: SessionStarted, SessionID: "native"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.fatal {
+				if err := c.Accept(Event{Kind: Error, Text: "cleanup failed"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := c.Accept(test.event); (err == nil) != test.ok {
+				t.Fatal(test.name, err)
+			}
+			if test.ok && !c.Terminal {
+				t.Fatal("waiting did not end the actual execution")
+			}
+		})
+	}
+}

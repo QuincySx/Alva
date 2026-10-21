@@ -289,9 +289,37 @@ go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --
 go test -mod=readonly ./cmd/alva -run 'TestCLIPluginCold|TestCLIDurable|TestCLIWASIp1|TestCLIRetains'
 ```
 
+## Hub 等待与恢复
+
+Hub的Alva引擎在 **Waiting tasks → Enable durable waits next Turn** 显式启用。需要所选facts与artifact组件都声明persistent；Claude/Codex/Pi等未声明`durable_waits`的引擎不显示为支持。此产品控制当前只绑定Alva原生日志；其他引擎自己的等待控制需要对应适配，不能借用Alva存储。
+
+挂起后，Agent及本次插件资源已退出，产品Turn保持`waiting`，原生检查点仍在同一日志。新输入、route及下一轮工具/插件设置暂时冻结。面板展示完整有界请求及binding：审批用单次Allow/Deny；问题直接单选、多选或输入文本，点击 **Save clarification without executing** 保存，不必手写JSON。问题不预选答案，选择与文本互斥，只有明确提交才保存；回答不授予文件、shell或网络权限。external仍用显式JSON和 **Save bound result without executing**。全部请求解决且仍有效、原配方可核验后，**Continue this waiting Turn**才用同一个native会话和Turn建立新Attempt。原prompt、旧工具和草稿附件不重新提交。
+
+等待面板打开时会观察其他窗口保存的结果及继续/放弃后的状态，无须反复点击Refresh。Refresh/Continue固定在面板顶部，完整请求、已保存结果与放弃审阅在下方滚动，Turn ID可从只读字段复制。每个问题的输入和草稿独立；未提交回答仅在原branch/Turn、原请求及binding仍未解决时保留，其他请求消失不移动剩余输入的焦点。checkpoint revision变化会清除旧的放弃确认，须重新审阅。读取失败时相关操作禁用，读成功后恢复；观察与恢复显示都不会自动执行任务。
+
+HTTP与原生UI调用同一服务，统一沿用Bearer/Host/Origin验证。以下路径前缀均为`/v1/sessions/ID`，客户端只给产品ID，不给native ID或host path：
+
+| 方法与路径 | 请求/行为 |
+|---|---|
+| `GET /waits` | 冷读取`supported/enabled/branch_id/turn_id/snapshot/can_resume`，不启动Agent；`snapshot.Revision`是必须审阅的原生CAS版本，`snapshot.State.requests`包含请求ID、binding、payload、期限与已存结果 |
+| `PUT /waits-enabled` | `{"enabled":true}`，idle-only持久开关，不执行 |
+| `POST /wait-resolve` | `{"target":{"branch_id":"BRANCH","turn_id":"TURN","revision":123},"request_id":"WAIT","binding":"SHA256","result":{"value":"external result"}}`；只保存结果，不执行，成功后重新GET取得新revision |
+| `POST /wait-resume` | `{"branch_id":"BRANCH","turn_id":"TURN","revision":124}`；全部有效结果及原配方通过后返回202及原`turn_id`；不接受新prompt |
+| `POST /wait-abandon` | 同上目标/revision；检查Inspector/history后明确重置检查点。原生UI另须输入完整Turn ID；此操作不撤销副作用或取消外部任务 |
+
+陈旧revision或跨branch/Turn的决定拒绝。等待最长24小时，结果最多16KiB（包括JSON转义后的实际字节），完整检查点最多16请求/256KiB。原生问答控件会禁用空选择或超额回答的保存，过期请求也不再接受回答/审批；已保存回答重开后只读展示，不自动执行。HTTP问题结果继续使用`{"selected":[2]}`或`{"text":"明确回答"}`，二者互斥。Resolve后保持暂停，不自动resume。续跑失败不自动fallback；程序在running期间退出时，重开保留`interrupted`/未知执行，须检查事实后明确Abandon，不重跑旧输入/副作用。已挂起Worker保留原Task/FIFO，计划保留原RunningTurnID，不定时重放或消费下一项。
+
+继续沿用当前显式provider/model/endpoint、canonical workspace、已保存工具/插件设置与过程配方；这些发生变化会拒绝恢复。密钥不会因为等待而复制到模型上下文。启用的native插件在新的Attempt会重新启动，仍有其明确批准的宿主权限；`await_external`本身只记录数据，不替用户启动外部工作。
+
+完整实际HTTP、MyGo无窗口控件、跨重启、审批/问答、杀死续跑进程与过期回归：
+
+```sh
+go test -mod=readonly -tags desktop -race -p 1 ./apps/hub/... ./integration/engine/...
+```
+
 ## 可选持久等待 API
 
-[`harness/durable`](../harness/durable/AGENTS.md) 是显式安装的 harness 能力，direct CLI可通过`--durable`显式接入，默认不启用；Hub等待UI/HTTP尚未接入。
+[`harness/durable`](../harness/durable/AGENTS.md) 是显式安装的 harness 能力，direct CLI可通过`--durable`显式接入，Hub的Alva配方通过Waiting tasks/认证HTTP显式接入，默认均不启用。
 它复用普通 SDK Agent；Backend 的四个方法是 Log、Claim、Load、Commit，存储可替换。
 NewMemoryBackend 是进程内参考实现；journal.Open 绑定现有私有 repository 的同一会话和事实数据库。
 

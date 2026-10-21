@@ -37,7 +37,7 @@ func (s *Store) ReplaceCommands(ctx context.Context, id string, commands hub.Com
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before editing next-turn commands")
 		}
 		value, err := settings(ctx, tx, id)
@@ -63,7 +63,7 @@ func (s *Store) SetCommandEnabled(ctx context.Context, id, kind, commandID strin
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("finish current Turn before changing next-turn commands")
 		}
 		value, err := settings(ctx, tx, id)

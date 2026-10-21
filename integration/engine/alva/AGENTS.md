@@ -15,6 +15,7 @@
 |---|---|
 | adapter.go | 完整harness执行、事实引用、工具配对和取消；option-aware FactoryOptions/独立Descriptor保留普通factory保守拒绝 |
 | inspector.go / inspector_test.go | 独立RepositoryInspector：冷分页/搜索/2KiB原文、typed link和causal index双验证、fixed-water JSONL与背压live metadata；观察取消不释放真实run claim |
+| wait_test.go | 真实Close后才读取waiting回执、invalid/未配置/取消/收尾失败不得waiting、继续不重传prompt |
 | adapter_test.go | 实际harness多轮/身份、取消终态与factory Activity落盘失败不启动 |
 | failure.go / failure_test.go | typed provider整树分类、真实local HTTP无重试、factory终态及mixed强失败回归 |
 | options_test.go | 实际SDK单轮model/tool后iteration耗尽为失败、错误边界与ordinary factory前置unsupported/超限拒绝 |

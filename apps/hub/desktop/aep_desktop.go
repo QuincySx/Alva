@@ -44,7 +44,7 @@ func (p *NativePage) openAEP() {
 }
 
 func (p *NativePage) aepAction(id string, enabled bool) {
-	if p.selected == "" || p.paneBusy || p.model.ActiveRunID != "" {
+	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
 	session, raw := p.selected, p.aepDraft
@@ -72,7 +72,7 @@ func (p *NativePage) aepAction(id string, enabled bool) {
 }
 
 func (p *NativePage) pickAEP() {
-	if p.window == nil || p.paneBusy || p.model.ActiveRunID != "" {
+	if p.window == nil || p.paneBusy || p.inputBlocked() {
 		return
 	}
 	id, generation := p.selected, p.generation
@@ -117,9 +117,9 @@ func (p *NativePage) buildAEP(c *ui.Context) {
 		ui.Text(c, "AEP Plugins · explicit next-turn snapshots").Bold()
 		ui.Text(c, "JS/Python plugins run as approved native code with host access. WASM plugins run in an isolated instance without host folders, environment or network. Selection/save only inspects a bounded code snapshot; it never starts the plugin. Approval applies to the inspected pin for the next Alva attempt.").FontSize(11)
 		ui.Text(c, "JSON: id, source_directory; JS/Python also need an absolute interpreter and optional args/env. WASM leaves interpreter/args/env empty. Saving clears approval and derives name/version/sha256 from the manifest and code. Native interpreter binaries are not hashed.").FontSize(11)
-		ui.Button(c, "Select explicit source folder").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(p.pickAEP)
-		ui.TextArea(c.Key("aep-json"), &p.aepDraft).Label("Native AEP configuration JSON").Height(230).Disabled(p.paneBusy || p.model.ActiveRunID != "")
-		ui.Button(c, "Inspect pins and save all AEP disabled").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.aepAction("", false) })
+		ui.Button(c, "Select explicit source folder").Disabled(p.paneBusy || p.inputBlocked()).OnClick(p.pickAEP)
+		ui.TextArea(c.Key("aep-json"), &p.aepDraft).Label("Native AEP configuration JSON").Height(230).Disabled(p.paneBusy || p.inputBlocked())
+		ui.Button(c, "Inspect pins and save all AEP disabled").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.aepAction("", false) })
 		for _, entry := range p.settings.AEP {
 			entry := entry
 			ui.Text(c, fmt.Sprintf("%s · %s %s · enabled=%v", entry.ID, entry.Name, entry.Version, entry.Enabled)).Bold().FontSize(12)
@@ -129,9 +129,9 @@ func (p *NativePage) buildAEP(c *ui.Context) {
 			}
 			ui.Text(c, "Source: "+entry.SourceDirectory+"; runtime: "+runtime+"; approved code SHA-256: "+entry.SHA256).FontSize(11)
 			if entry.Enabled {
-				ui.Button(c.Key(entry.ID), "Disable AEP next turn").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.aepAction(entry.ID, false) })
+				ui.Button(c.Key(entry.ID), "Disable AEP next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.aepAction(entry.ID, false) })
 			} else {
-				ui.Button(c.Key(entry.ID), "Approve inspected code and requested access next turn").Disabled(p.paneBusy || p.model.ActiveRunID != "").OnClick(func() { p.aepAction(entry.ID, true) })
+				ui.Button(c.Key(entry.ID), "Approve inspected code and requested access next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.aepAction(entry.ID, true) })
 			}
 		}
 		ui.Text(c, "At execution, the exact source pin is checked again; changes fail closed. Native launch risk is committed before the process starts, so failed preparation cannot trigger unsafe fallback. Tools still use the actual Guard/HITL; schemas, results and full redacted I/O stay native references. AEP is not automatically delegated to SDK children or other engines.").FontSize(11)

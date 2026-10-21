@@ -47,7 +47,7 @@ namespace。工具目录读取调用方的实时 registry；偏好投影由明�
 历史窗口选择及省略提示在harness，storage只提供固定高水位、有界元数据与hash/protocol验证。Hub Runtime只要求六方法ExecutionStore，产品浏览/Settings仍由各自consumer使用，同一SQLite事务保持。
 可选telemetry Plugin拥有指纹/诊断schema及报告政策；kernel只给通用观察值，纯SDK缺失即不保存诊断。诊断失败报告后继续，执行intent/outcome、恢复证据和Flush失败仍中断。
 
-可选[durable harness](../harness/durable/AGENTS.md)复用现有Plugin/Tool/hooks和四方法Backend，支持持久等待、受参数约束的一次性审批/问题结果与原子继续投递。MemoryBackend明确volatile；journal adapter消费同一事实插口，不绑定数据库。等待成功持久化后可退出进程；running/interrupted不自动重放，外部任务启动/取消仍归实际owner。当前CLI/Hub未自动启用该可选API。
+可选[durable harness](../harness/durable/AGENTS.md)复用现有Plugin/Tool/hooks和四方法Backend，支持持久等待、受参数约束的一次性审批/问题结果与原子继续投递。MemoryBackend明确volatile；journal adapter消费同一事实插口，不绑定数据库。等待成功持久化后可退出进程；running/interrupted不自动重放，外部任务启动/取消仍归实际owner。direct CLI以`--durable`显式启用；Hub的Alva配方通过共享bootstrap/product接入UI与HTTP，默认off。Engine的Completed(waiting)仅结束本次Attempt；产品Turn保留，显式继续创建同Turn的新Attempt，无新prompt/handoff且禁止fallback，SDK内核不增加waiting状态。
 
 ## 存储替换边界
 

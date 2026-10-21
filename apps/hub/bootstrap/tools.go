@@ -9,19 +9,21 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/extension/interaction"
 	interactionnative "github.com/QuincySx/Alva/extension/interaction/native"
 	"github.com/QuincySx/Alva/extension/notebook"
 	planningnative "github.com/QuincySx/Alva/extension/planning/native"
 	"github.com/QuincySx/Alva/extension/shell"
 	utilitynative "github.com/QuincySx/Alva/extension/utility/native"
 	"github.com/QuincySx/Alva/extension/web"
+	"github.com/QuincySx/Alva/harness/durable"
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
 
-func (a *Application) optionalTools(ctx context.Context, owner, native, cwd string, s hub.ToolSettings, w *workspacefs.Workspace, g *security.Guard, locks *core.ToolLockRegistry, report func(context.Context, string, string, string) error, retainWorkspace func() (func(), error), plugins *[]core.Plugin, trusted *[]abi.Tool, resources *[]attemptResource) error {
+func (a *Application) optionalTools(ctx context.Context, owner, native, cwd string, s hub.ToolSettings, w *workspacefs.Workspace, g *security.Guard, locks *core.ToolLockRegistry, waits *durable.Controller, report func(context.Context, string, string, string) error, retainWorkspace func() (func(), error), plugins *[]core.Plugin, trusted *[]abi.Tool, resources *[]attemptResource) error {
 	add := func(p core.Plugin, tools []abi.Tool) {
 		*plugins = append(*plugins, p)
 		*trusted = append(*trusted, tools...)
@@ -41,7 +43,11 @@ func (a *Application) optionalTools(ctx context.Context, owner, native, cwd stri
 		add(p, p.Tools())
 	}
 	if s.Interaction {
-		p, err := interactionnative.New(ctx, interactionnative.Config{Repository: a.Repository, Owner: owner, SessionID: native, Cwd: cwd, Guard: g, Handler: a.Questions})
+		var handler interaction.Handler = a.Questions
+		if waits != nil {
+			handler = waits
+		}
+		p, err := interactionnative.New(ctx, interactionnative.Config{Repository: a.Repository, Owner: owner, SessionID: native, Cwd: cwd, Guard: g, Handler: handler})
 		if err != nil {
 			return err
 		}

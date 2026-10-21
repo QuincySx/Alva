@@ -28,6 +28,7 @@ var ErrSessionBusy = errors.New("Hub session already running")
 
 type Runtime struct {
 	store       ExecutionStore
+	waits       WaitStore
 	mu          sync.Mutex
 	engines     map[string]engine.Runtime
 	descriptors map[string]engine.Descriptor
@@ -244,7 +245,7 @@ func (r *Runtime) executeClaim(ctx context.Context, active *activeRun, claim Cla
 	for attemptNo := 0; attemptNo < 8; attemptNo++ {
 		tried[RouteKey(claim.Attempt.Target)] = true
 		outcome, sideEffects, failure, attemptErr := r.attempt(ctx, active, &claim)
-		if outcome == engine.Succeeded || outcome == engine.Cancelled || ctx.Err() != nil {
+		if outcome == engine.Succeeded || outcome == engine.Waiting || outcome == engine.Cancelled || ctx.Err() != nil || claim.WaitRevision != 0 {
 			return errors.Join(attemptErr, r.store.FinishTurn(context.WithoutCancel(ctx), claim.Turn.ID, outcome))
 		}
 		if claim.Turn.AutomationID != "" || sideEffects || !retryable(failure) {
@@ -285,6 +286,10 @@ func retryable(kind engine.FailureKind) bool {
 func supports(c engine.Capabilities, required []string) bool {
 	for _, name := range required {
 		switch name {
+		case "durable_waits":
+			if !c.DurableWaits {
+				return false
+			}
 		case "streaming":
 			if !c.Streaming {
 				return false
@@ -326,6 +331,9 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 	open := make(map[string]string)
 	var persistenceErr error
 	commit := func(event engine.Event) error {
+		if event.Kind == engine.Completed && event.Outcome == engine.Waiting && (r.waits == nil || target == nil || !target.Capabilities().DurableWaits) {
+			return fmt.Errorf("%w: durable waiting was not configured for this engine/owner", engine.ErrUnsupported)
+		}
 		if event.Kind == engine.Completed || (event.Kind == engine.Error && !event.Recoverable) {
 			for id, name := range open {
 				cleanup := engine.Event{Kind: engine.ToolEnd, ID: id, Name: name, IsError: true, Text: "Engine ended before a paired tool result; inspect its native journal."}
@@ -399,7 +407,9 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 		return eventErr
 	}
 	var executeErr error
-	if target == nil {
+	if claim.WaitRevision != 0 && target != nil && !target.Capabilities().DurableWaits {
+		executeErr = engine.ErrUnsupported
+	} else if target == nil {
 		executeErr = errors.New("requested engine is not registered")
 		failure = engine.FailureStartup
 	} else if !supports(target.Capabilities(), claim.Attempt.Target.RequiredCapabilities) {
@@ -425,6 +435,9 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 					resume = ""
 				}
 				request := engine.Request{OwnerID: claim.Session.ID, Prompt: handoff + claim.Turn.Prompt, ResumeSession: resume, Workspace: claim.Session.Workspace, Model: claim.Attempt.Target.ModelID, Provider: claim.Attempt.Target.ProviderID, AccountSource: claim.Attempt.Target.AccountSource, BillingRoute: claim.Attempt.Target.BillingRoute}
+				if claim.WaitRevision != 0 {
+					request.Prompt, request.WaitRevision = "", claim.WaitRevision
+				}
 				if target.Capabilities().ToolControl {
 					request.RetainWorkspace = retain
 				}
@@ -471,7 +484,7 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 			return outcome, true, failure, errors.Join(executeErr, err)
 		}
 	}
-	if outcome != engine.Succeeded && executeErr == nil {
+	if outcome != engine.Succeeded && outcome != engine.Waiting && executeErr == nil {
 		executeErr = errors.New(fatalMessage)
 		if fatalMessage == "" {
 			executeErr = errors.New("engine attempt failed")
@@ -512,4 +525,11 @@ func boundedError(err error) string {
 		return "engine error exceeds display budget"
 	}
 	return text
+}
+
+// SessionActive observes physical execution ownership, including final cleanup.
+func (r *Runtime) SessionActive(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.active[id] != nil
 }

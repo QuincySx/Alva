@@ -21,6 +21,8 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 		return
 	}
 	switch route {
+	case "waits", "waits-enabled", "wait-resolve", "wait-resume", "wait-abandon":
+		s.waits(w, r, id, route)
 	case "inspector-bundle":
 		s.inspectorBundle(w, r, id)
 	case "shell-jobs":

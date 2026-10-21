@@ -291,9 +291,9 @@ func (s *Store) ClaimAutomation(ctx context.Context, tick hub.AutomationTick, at
 			a.Enabled, a.NextRunAt, a.LastStatus = false, 0, "route_changed"
 			a.LastError = "Session route or collaboration scope changed; edit and review again"
 			rejected = hub.ErrAutomationRouteChanged
-		} else if current.Status == hub.Running || at-a.NextRunAt >= a.IntervalMinutes*60_000 {
+		} else if hub.BlocksInput(current.Status) || at-a.NextRunAt >= a.IntervalMinutes*60_000 {
 			a.NextRunAt, a.LastStatus = next, "skipped_missed"
-			if current.Status == hub.Running {
+			if hub.BlocksInput(current.Status) {
 				a.LastStatus = "skipped_busy"
 			}
 			rejected = hub.ErrAutomationSkipped
@@ -358,6 +358,11 @@ func settleAutomation(ctx context.Context, tx *sql.Tx, turn hub.Turn) error {
 	if a.RunningTurnID != turn.ID {
 		return errors.New("automation settlement does not match its actual running Turn")
 	}
+	if turn.Status == engine.Waiting {
+		a.LastStatus, a.NextRunAt = "waiting", 0
+		a.Revision++
+		return writeAutomation(ctx, tx, a)
+	}
 	a.RunningTurnID, a.NextRunAt = "", 0
 	if turn.Status == engine.Succeeded {
 		a.LastStatus, a.LastError = "completed", ""
@@ -403,6 +408,20 @@ func recoverAutomations(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 		if a.RunningTurnID != "" {
+			t, err := read[hub.Turn](ctx, tx, `SELECT data FROM hub_turns WHERE id=? AND session=?`, a.RunningTurnID, a.SessionID)
+			if err != nil {
+				return err
+			}
+			if t.Status == engine.Waiting {
+				if a.LastStatus != "waiting" || a.NextRunAt != 0 {
+					a.LastStatus, a.NextRunAt = "waiting", 0
+					a.Revision++
+					if err := writeAutomation(ctx, tx, a); err != nil {
+						return err
+					}
+				}
+				continue
+			}
 			a.Enabled, a.NextRunAt, a.RunningTurnID, a.LastStatus = false, 0, "", "interrupted"
 			a.LastError = "Application exited before automation settlement; native history remains authoritative, no execution is replayed"
 		} else {

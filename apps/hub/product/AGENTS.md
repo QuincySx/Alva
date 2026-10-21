@@ -8,11 +8,14 @@
 无MyGo/WebView/React；不靠build tags隐藏UI传递依赖。读取Inspector不restore、不启动Agent/MCP。History/Team工具验证actual Tool与非空matching call、精确字段/重复键/Unicode；产品归属由已存branch重审，不凭同名Tool或nativeID字符串推断。设置仅下一次装配消费。Skills限定saved cwd与可恢复归档。
 ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费声明的路由插口，不靠具体store附带方法。事实Repository、DTO/错误均来自共享storage契约。可选Team/Automation能力仍显式按既有契约发现；私有目录只依赖system/privatefs，不带SQL。
 
+持久等待从已存active branch及该branch自己的Turn派生owner；冷读不运行Agent。Resolve绑定完整请求/revision且不执行，Resume绑定不变配方并交唯一Hub Runtime；Abandon在实际claim内重置native并协调产品边，保留未知/外部效果说明。
+
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
+| wait.go | Alva journal专属的共享UI/HTTP等待DTO、persistent opt-in、陈旧/跨分支拒绝、结果保存/同Turn继续/审阅放弃 |
 | service.go | 产品session/Turn服务、expected-branch原子准入、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答owner |
-| service_test.go | 真实双store/local harness、上传/权限/历史/Inspector回归 |
+| service_test.go | 真实双store/local harness、上传/权限/历史/Inspector和其他engine等待不借Alva authority回归 |
 | history.go | 产品绑定的有界metadata/字面关键词/正文range Tool与Plugin |
 | inspector.go | 消费registered EngineInspector；分支/最多8hop真实typed child授权、小索引/搜索/2KiB正文DTO/背压live metadata、默认禁用MCP导入 |
 | export.go | 精确branch/typed child授权的bounded JSONL；HTTP只返回bytes，native显式保存到私有exports，不接受client host/native path |

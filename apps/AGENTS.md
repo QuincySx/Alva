@@ -25,4 +25,4 @@
 | Direct 耐久应用与界面 | `direct/` | 独立 native facts/workspace/route 与 Controller owner；desktop 子包只负责直接产品界面，不依赖 Hub/engine |
 | 原生 UI diagnostics | `debug/` | 独立默认关闭的认证日志/level、实际视图状态/语义树/窗口PNG与声明action，不拥有Agent/Hub事实 |
 | 模型 Gateway | `gateway/` | 独立认证 HTTP/SSE 模型 API，真实协议转换，不是会话或 Agent runtime |
-| Hub 产品 | `hub/` | 多引擎会话/Team/自动化/worktree 与共享产品服务、bootstrap、UI、HTTP、SQLite |
+| Hub 产品 | `hub/` | 多引擎会话/Team/自动化/worktree、同Turn持久等待及共享产品服务、bootstrap、UI、HTTP、SQLite |

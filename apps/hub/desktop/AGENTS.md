@@ -7,6 +7,10 @@
 AEP pane区分原生JS/Python的完整host访问与嵌入式WASIp1的无目录/环境/网络运行，二者都先检查disabled pin并单独批准下一Turn；空interpreter仅选择manifest=wasm。
 apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只提交引用清单与读取有限产品历史；本包仅拥有页面交互、轮询与展示转换。
 原生窗口独立250ms观察时钟最多一个排队UI closure，进度/审批与终态查询不依赖Build或compositor重绘；关闭observer取消时钟，过期closure不查询或Stop。自绘Build仅呈现当前状态。
+等待pane复用同一观察时钟冷读已提交checkpoint；其他窗口保存/继续/放弃会更新本窗，只为同branch/Turn、同请求ID与binding的未解决请求保留草稿。revision变化撤销旧放弃确认，明确操作/刷新后的旧读不得回盖；读失败禁用checkpoint操作，成功后恢复，不自动执行。
+持久问答复用同一binding草稿与既有interaction.Answer，提供无默认选项的单选/多选/自由文本；显式保存后仍暂停，不授予文件/进程/网络权限。结果按实际编码后的16KiB限制；到期请求只展示不再接受回答或审批。
+每个问题用请求ID建立独立控件容器，输入标签带问题header；同一检查点的其他问题消失时，剩余问题的草稿/焦点不得串到别的请求。
+等待面板顶部固定Refresh/Continue，完整请求、回答与放弃审阅位于独立滚动区；长问题/已保存结果不能把唯一继续按钮挤出视口。
 会话侧栏在selected detail的UpdatedAt不旧于当前列表项时投影其真实状态，避免正文已完成而侧栏卡running；不修改冻结列表的顺序、成员或分页cursor，也不拿较旧detail覆盖较新列表。
 ## 约束
 无WebView/npm/React。用户显式文件选择才读取本地原件，20MiB/文件、8文件/40MiB每轮。原始媒体不自动送模型，不假称压缩/抽帧。消息呈现不是模型历史权威。
@@ -14,6 +18,8 @@ apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
+| wait_desktop.go / wait_desktop_test.go | 默认off等待面板、完整请求/已保存结果与可复制Turn ID、跨窗观察/绑定草稿/旧读排除/读失败禁用；只保存结果、同Turn继续和重新审阅后放弃，1240×850无窗口控件回归 |
+| wait_question_desktop.go / wait_question_desktop_test.go | 持久问题单选/多选/文本与实际编码限额；关闭重开后保存/恢复同Turn、澄清后写入仍单独审批、过期禁用、并存问题焦点/草稿隔离及1240×818滚动/按钮视口回归，不要求手写JSON |
 | app_desktop.go | 原生首页、虚拟历史/共享composer、分支/有账单归属fallback、显式审批/文件选择 |
 | panes_desktop.go | MCP/native SubAgent显式settings、固定高水位Inspector、typed child钻取/返回父页与2KiB原文 |
 | export_desktop.go | 已选branch/typed子路径的实际JSONL私有导出；可选真实关联child，失败不报成功，Close等待写入；分类只筛当前metadata页 |

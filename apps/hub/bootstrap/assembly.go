@@ -163,7 +163,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 	}
 	store, repository := a.Store, a.Repository
 	a.Shells = shell.NewSessions()
-	runtime := hub.New(store)
+	runtime := hub.NewWithWaits(store)
 	a.Runtime = runtime
 	approvals := host.NewApprovalBroker(32)
 	a.Approvals = approvals
@@ -226,18 +226,35 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if err != nil {
 			return nil, err
 		}
-		plugins, err := harness.SessionPlugins(ctx, repository, request.OwnerID, nativeID)
+		_, release, err := repository.BeginRun(ctx, request.OwnerID, nativeID)
 		if err != nil {
 			return nil, err
 		}
-		builder := harness.NewDemoBuilder(log)
+		owned.release = release
+		settings, err := store.Settings(ctx, request.OwnerID)
+		if err != nil {
+			return nil, err
+		}
+		waitBackend, waits, err := openHubWaits(ctx, repository, request.OwnerID, log, settings, request, owned, config)
+		if err != nil {
+			return nil, err
+		}
+		var agentLog abi.ConversationLog = log
+		if waits != nil {
+			agentLog = waitBackend.Log()
+		}
+		plugins, err := harness.SessionViews(ctx, repository, request.OwnerID, nativeID)
+		if err != nil {
+			return nil, err
+		}
+		builder := harness.NewDemoBuilder(agentLog)
 		if !config.Demo {
 			model, buildErr := provider.Build(config.ProviderKind, config.Provider)
 			err = buildErr
 			if err != nil {
 				return nil, err
 			}
-			builder = harness.NewBuilder(model, log)
+			builder = harness.NewBuilder(model, agentLog)
 		}
 		builder.Workspace(request.Workspace)
 		if request.SystemPrompt != "" {
@@ -251,7 +268,11 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if err != nil {
 			return nil, err
 		}
-		guard, err := security.NewGuard(request.Workspace, nil, workspace, security.NewPermissionManager(security.Ask, approvals))
+		var approval security.ApprovalHandler = approvals
+		if waits != nil {
+			approval = waits
+		}
+		guard, err := security.NewGuard(request.Workspace, nil, workspace, security.NewPermissionManager(security.Ask, approval))
 		if err != nil {
 			return nil, err
 		}
@@ -266,9 +287,9 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		teamTool := &product.TeamTool{Service: a.Service, ProductID: request.OwnerID, NativeID: nativeID, Guard: guard}
 		builder.Plugin(product.TeamPlugin{Tool: teamTool})
 		trustedTools = append(trustedTools, teamTool)
-		settings, err := store.Settings(ctx, request.OwnerID)
-		if err != nil {
-			return nil, err
+		if waits != nil {
+			plugins = append(plugins, waits)
+			trustedTools = append(trustedTools, waits.Tool())
 		}
 		if settings.MediaEnabled {
 			var processor *nativemedia.Processor
@@ -302,7 +323,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			}
 			return request.ReportActivity(engine.Activity{ID: id, Name: name, Effect: engine.EffectUnknown})
 		}
-		if err = a.optionalTools(ctx, request.OwnerID, nativeID, request.Workspace, settings.Tools, workspace, guard, toolLocks, reportCommand, request.RetainWorkspace, &plugins, &trustedTools, &loaded); err != nil {
+		if err = a.optionalTools(ctx, request.OwnerID, nativeID, request.Workspace, settings.Tools, workspace, guard, toolLocks, waits, reportCommand, request.RetainWorkspace, &plugins, &trustedTools, &loaded); err != nil {
 			return nil, err
 		}
 		if settings.Browser.Enabled {
@@ -450,13 +471,16 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			return nil, err
 		}
 		owned.Runner, owned.workspace, owned.skills, owned.resources = runner, workspace, skillFiles, loaded
+		if waits != nil {
+			owned.Runner = &durableRunner{agent: runner, controller: waits, backend: waitBackend, revision: request.WaitRevision}
+		}
 		return owned, nil
 	}, func(ctx context.Context, nativeID, requestID string, decision engine.PermissionDecision) error {
 		if a.Service == nil {
 			return errors.New("product permission service unavailable")
 		}
 		return a.Service.RespondNativeApproval(ctx, "alva", nativeID, requestID, decision.Allow)
-	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true})
+	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true, DurableWaits: true})
 	inspector, err := alva.NewRepositoryInspector(repository)
 	if err != nil {
 		return nil, err
@@ -480,6 +504,21 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 	service, err := product.NewHubService(store, runtime, repository, target, dir, config.Demo)
 	if err != nil {
 		return nil, err
+	}
+	service.ValidateWaitRecipe = func(ctx context.Context, branch hub.Branch, settings hub.Settings) error {
+		detail, err := store.Detail(ctx, branch.SessionID)
+		if err != nil {
+			return err
+		}
+		log, err := repository.OpenSession(ctx, branch.SessionID, branch.NativeSessionID)
+		if err != nil {
+			return err
+		}
+		hash, err := hubWaitRecipe(config, detail.Session.Workspace, branch.Target, settings)
+		if err != nil {
+			return err
+		}
+		return checkHubWaitRecipe(ctx, repository, branch.SessionID, log, hash, true)
 	}
 	service.Approvals = approvals
 	service.Questions = a.Questions

@@ -4,6 +4,51 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 技术栈决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)，当前结构见 [ARCHITECTURE](./docs/ARCHITECTURE.md)，运行说明见 [USAGE](./docs/USAGE.md)。
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
+## 2026-10-21 Hub 持久问答原生控件
+
+持久问题直接消费既有interaction.Question/Answer与ResolveWait；新增仅为L7呈现，不增加SDK、Plugin、等待协议或存储接口。
+
+- 单选、多选和自由文本均无默认回答，明确保存才提交；选择和文本互斥，按JSON实际编码字节检查16KiB上限，过期请求禁用回答及审批。external仍使用JSON输入。
+- 保存后仍暂停，已保存回答关闭重开后只读展示；显式继续仍用原Turn。真实本地SSE、共享存储和bootstrap关闭/重建回归证明：回答不会授权后续write_file，续跑仍产生独立approval且文件未写入。
+- Refresh/Continue固定于面板顶部，完整请求/已存结果/放弃审阅位于滚动区；1240×818无窗口控件按实际边界滚动后点击。每个问题以请求ID隔离控件容器，另一问题消失后剩余输入的焦点与草稿保留，避免重复控件key共享状态。
+- 最终desktop/命令/architecture三包竞态测试274个测试及子测试通过、0失败，19.07秒；vet、desktop+smoke测试、mod verify及darwin/arm64、linux/amd64、Windows amd64/arm64构建通过。1036个源码/文档/配置文件在最终验证期间未变。
+- 证据指针`/tmp/alva-hub-wait-questions-path`保留原问题的失败回归、并存问题key冲突反例、最终完整JSONL/冻结hash/构建回执及差异清单。原CLI暂存区保持原字节；SDK、公开快照、模块文件与其他产品源码未修改。
+
+本批未运行真实OS窗口点击、完整画面/IME/声学或外部付费账户验收；无窗口控件与跨平台构建分别报告，不替代这些未完成项。
+
+## 2026-10-21 Hub 等待面板跨窗口观察
+
+本批仅修改L7桌面呈现及其回归，不变更SDK、等待协议或执行owner。
+
+- 等待面板复用原250ms观察时钟读取已提交checkpoint；其他窗口保存结果、继续或放弃后更新显示，不自动执行。完整已保存结果可审阅，Turn ID提供只读文本字段。
+- 未提交回答只保留给同branch/Turn、同请求ID与binding的未解决请求；checkpoint revision变化清除放弃确认。明确操作或刷新后的旧读不能回盖新checkpoint；读失败禁用操作，成功读后恢复。
+- 1240×850 MyGo无窗口回归覆盖两个独立页面的保存观察、草稿保留/清理、读取故障时Continue禁用、延迟旧读、新Turn及放弃观察。桌面/命令/架构3包竞态测试共268个测试及子测试通过、0失败；vet、desktop+smoke测试、darwin/arm64、linux/amd64及Windows amd64/arm64构建通过。
+- 验证期间1034个源码/文档/配置文件未变，原CLI暂存区逐字节保留。证据指针`/tmp/alva-hub-desktop-flow-path`包含完整JSONL、冻结hash、构建回执及本批差异清单；此前整仓测试仍按其原验收版本记录，不冒充本批再次整仓运行。
+- 实际临时Hub窗口的本地demo及Inspector导出通过，但当前Build截图仍为frame_pending；系统窗口控制通道报`Sky Computer Use native pipe startup failed`，辅助只读AX观察也未得到可用窗口控件树。真实点击、完整画面、IME和音频验收仍未完成；临时进程均已回收，未更改系统权限。
+
+
+## 2026-10-21 Hub 同Turn持久等待接线
+
+沿用harness/durable和原生共享journal；SDK内核、Plugin/Registrar和ExecutionStore六方法不变。外层Engine明确区分本次执行结束与任务完成，Hub UI/HTTP共享一个产品服务和原有Runtime owner。
+
+- Alva仅实际option-aware factory声明`durable_waits`；`Completed(waiting)`必须有真实SessionStarted及有界revision/请求数/到期回执，且实际Run和资源Close先完成。取消、fatal/invalid回执及收尾失败不得伪报waiting。
+- 持久开关默认off；原生面板和认证HTTP提供冷列表、完整有界请求审阅、revision/binding结果提交、显式同Turn继续和检查事实后的Abandon。保存结果不执行，不接受native ID/host path/新resume prompt。UI暂停Send/设置但不伪造active执行，草稿保留。
+- 同Turn继续建立新Attempt，保留native身份、Turn序号/原输入和Worker Task/Automation归属；无新handoff/附件，continuation禁止自动fallback。新输入/route/工具插件设置在waiting时冻结；队列和timer不消耗下一轮。
+- 配方hash绑定canonical workspace、route、已存设置和显式process配置；变更拒绝恢复。factory先认领实际native lease再加载插件；真实进程/VM/回调完成后才放claim，失败收尾仍由Application持有并可重试。
+- crash edge保留已提交waiting回执；真实续跑进程在授权写入后被杀，重开为interrupted且保留native running检查点，不自动请求模型或改写文件。过期/陈旧/跨branch决定拒绝；Abandon留审阅事实，不宣称撤销副作用或外部取消。
+
+本机验证（macOS arm64 / Go1.27.2，无付费模型或外部账户）：
+
+| 检查 | 实际结果与范围 |
+|---|---|
+| 整仓desktop-tagged race | 93个有测试包、2018个测试/子测试通过，0失败，794.48秒；871个源码/配置文件在执行期间未变。4个无参数跨进程helper按设计skip，其实际用例均执行；另9包无独立测试 |
+| 最终产品边界复验 | 整仓验收后仅修改product/wait.go及service_test.go：其他engine声明等待能力也不能借Alva journal。Hub、三个Hub命令与engine适配14包/308个测试及子测试通过，104.35秒；按反向依赖又补验MCP入口1包/4项，3.96秒。合计15包/312项、0失败；最终871个源码/配置文件在各次复验期间未变 |
+| 静态与保护文件 | 231项architecture、全树desktop vet、go mod verify、gofmt、工作树/暂存区diff检查和workflow YAML解析通过；129个SDK Go源码、14份现有公开快照、go.mod/go.sum及固定QuickJS资产共146个保护文件保持原字节 |
+| 跨平台构建 | cgo-free、desktop-tagged全部8个命令在macOS arm64、Linux amd64、Windows amd64/arm64通过；受影响的5个Hub/adapter测试包在Windows两架构编译通过；WASIp1 Worker构建通过，共15组构建/编译检查 |
+| 实际Hub Server可执行程序 | 新构建二进制真实开启loopback认证服务→显式启用→挂起→正常退出→重开→只保存结果→显式同Turn继续→正常退出；两次本地模型请求、一次原始产品输入，结果实际交付一次。不是仅调用HTTP handler或内存模型 |
+
+证据指针`/tmp/alva-hub-waits-path`保留整仓与最终Hub完整JSONL、两组冻结hash及精确两文件差异、静态/构建/实际二进制回执。MyGo无窗口控件通过不等同真实OS窗口视觉验收，跨编译不等同Windows实机执行；本地结果不冒充远程CI。签名提交仍因1Password `failed to fill whole buffer`失败，未更换签名/发布身份，原CLI暂存区与本批Hub工作树改动均保留。
+
 
 ## 2026-10-21 Direct CLI 插件与持久等待产品接线
 
@@ -25,7 +70,7 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 | 最终静态与接口 | 231项architecture测试、全树desktop vet、go mod verify、gofmt、diff空白检查和workflow YAML解析通过；129个SDK源码、全部现有公开快照、根模块文件和固定QuickJS WASM资产保持原字节 |
 | 最终跨平台构建 | cgo-free desktop-tagged全部命令在macOS arm64、Linux amd64、Windows amd64/arm64通过；WASIp1 Worker通过；CLI测试二进制在Windows两架构编译通过。本机跨编译不冒充Windows实机执行 |
 
-证据指针`/tmp/alva-cli-workflow-path`保留整仓与最终CLI各自完整JSONL、冻结hash、精确源码差异和构建回执。最终修正只在不可被其他包导入的CLI入口，不以重复运行未变动包代替针对性复验。Hub等待UI/HTTP尚未接入；本批不把CLI闭环当作所有产品已完成。远程CI尚无本批运行结果，SSH签名代理不可用时不切换发布身份。
+证据指针`/tmp/alva-cli-workflow-path`保留整仓与最终CLI各自完整JSONL、冻结hash、精确源码差异和构建回执。最终修正只在不可被其他包导入的CLI入口，不以重复运行未变动包代替针对性复验。这批CLI验收不覆盖Hub等待UI/HTTP；后续Hub接线见上方独立记录，不把CLI闭环当作所有产品已完成。远程CI尚无本批运行结果，SSH签名代理不可用时不切换发布身份。
 
 
 ## 2026-10-20 JavaScript作者SDK与独立WASIp1插件补齐
@@ -144,7 +189,7 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 | 静态与文档 | 最终tagged全树vet、go mod verify、gofmt、diff空白和81个修改文档本地目标检查通过；架构/公开面/分形闸已包含在整仓结果中 |
 
 完整JSONL、最终补测、WASM执行和跨平台构建结果在本机证据目录，指针为`/tmp/alva-layer-fix-path`。
-真实云provider、产品CLI存储设置和默认CLI/Hub持久等待交互未装配；可选API与默认产品行为分别验收。
+该批验收时真实云provider、产品CLI存储设置和CLI/Hub等待交互尚未装配；后续CLI/Hub显式等待接线见上方独立记录，可选API与默认产品行为分别验收。
 下方2026-10-19表是此前批次记录。
 
 ## 2026-10-19 工具安装粒度与失败回执整顿

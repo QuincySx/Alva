@@ -210,7 +210,7 @@ func (s *Store) SetWorkerLifecycle(ctx context.Context, lead, team, id string, s
 		if err != nil {
 			return err
 		}
-		if session.Status == hub.Running {
+		if hub.BlocksInput(session.Status) {
 			return errors.New("stop actual Worker execution before changing visibility")
 		}
 		if state != hub.WorkerArchived && w.Worktree != nil && (w.Worktree.State == "removing" || w.Worktree.State == "removed" || w.Worktree.State == "removal_unknown") {
@@ -237,7 +237,7 @@ func (s *Store) EndTeam(ctx context.Context, lead, id string) (providerResult0 e
 			if err != nil {
 				return err
 			}
-			if child.Status == hub.Running {
+			if hub.BlocksInput(child.Status) {
 				return errors.New("stop all actual Workers before ending Team")
 			}
 			w.Lifecycle = hub.WorkerArchived
@@ -482,7 +482,7 @@ func (s *Store) ClaimWorkerTask(ctx context.Context, lead, team, worker string) 
 		if err != nil {
 			return err
 		}
-		if current.Status == hub.Running {
+		if hub.BlocksInput(current.Status) {
 			return errors.New("Worker already has actual execution")
 		}
 		if task.RequiredBranchID != "" && task.RequiredBranchID != current.ActiveBranchID {
@@ -545,6 +545,9 @@ func (s *Store) ClaimWorkerTask(ctx context.Context, lead, team, worker string) 
 // settleWorkerTask runs in the same transaction as the authoritative Turn edge.
 // It does not infer changed files, tests or successful tool effects from prose.
 func settleWorkerTask(ctx context.Context, tx *sql.Tx, turn hub.Turn) error {
+	if turn.Status == engine.Waiting {
+		return nil
+	}
 	task, err := read[hub.WorkerTask](ctx, tx, `SELECT data FROM hub_worker_tasks WHERE turn=?`, turn.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil

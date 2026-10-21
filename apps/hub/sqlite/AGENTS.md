@@ -8,9 +8,12 @@
 首次版本不读取旧Rust数据；user_version=0但已有任何业务表的库拒绝准入，不向未知库补建Hub表。最多64分支、7个授权fallback路由；history每页128项。handoff只传32条有界Turn索引，超量明确要求检索，不静默声称完整历史。Stop/可能副作用禁止自动fallback。实例锁释放与DB关闭由Store.Close显式拥有。
 所有公开Store错误在provider边界映射共享hub.ErrNotFound；product/Tool/HTTP不得识别sql.ErrNoRows。内部SQL原因可保留供诊断，事务/schema行为保持。
 
+Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资源可以已退出，队列/timer不因此认领下一轮。只实际已开始且有合法checkpoint receipt的Attempt能提交Waiting；crash edge恢复保留该事实，无自动继续。
+
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
+| wait.go / wait_test.go | 独立WaitStore、branch归属审阅、同Turn新Attempt事务、waiting冻结与Worker/计划crash edge/no fallback回归 |
 | store.go | schema、产品事务、分支保留、handoff、分页历史与中断修复 |
 | store_test.go | 可逆路由/安全fallback、native事实归属、commit失败/忽略sink错误不能成功/大handoff/恢复回归 |
 | settings.go | session-scoped默认禁用编辑、独立host确认启用与idle-only耐久snapshot |
