@@ -78,6 +78,9 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	waits.flags(flags)
 	flags.Var(&attachments, "attach", "explicit original file saved as a session reference; requires --data-dir; repeat at most eight times")
 	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if flags.NArg() != 0 {
