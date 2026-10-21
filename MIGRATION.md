@@ -4,6 +4,27 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 技术栈决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)，当前结构见 [ARCHITECTURE](./docs/ARCHITECTURE.md)，运行说明见 [USAGE](./docs/USAGE.md)。
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
+## 2026-10-21 可选项目规范兼容与同名去重
+
+新增L4 `extension/compatibility`，显式配置后才装配；CLI、Hub共享bootstrap、原生Skills面板和认证HTTP均接入同一个插件。SDK、Plugin/Registrar与存储插口未修改；不增加另一套执行模型。
+
+- Agent Skills标准与Alva原生Skill各用明确格式解析，合到既有渐进目录和一个skill工具。项目规则仅加载workspace到显式scope的祖先链；Claude基础Agent Markdown转为现有子代理模板，正文只给实际子代理，工具仍受直接父真实能力和独立审批约束。
+- 去重身份为类型+name；同路径/同格式来源只读一次。原生数组与标准字符串先归一；完整元数据、调用方式、工具名集合、正文及Skill资源路径/媒体类型/字节SHA一致才合并，native仓库优先，其余用显式来源顺序。差异报告双方来源，不合并权限；不同名称和不同目录作用域的规则分别保留。
+- 本轮规则、Skill文档和Agent模板冻结，来源有界、目录pinned、拒绝symlink/逃逸；Agent与真实子任务join后关闭。CLI与Hub等待配方绑定指令指纹，变更在模型/外部插件启动前拒绝恢复；资源仍按需读取当前数据，不执行、不自动送模型。
+- 默认关闭，不发现HOME/旧配置，不展开import/include。厂商Hook、条件frontmatter、permissionMode、独立model等执行政策拒绝；支持范围逐项列在[使用说明](./docs/USAGE.md#可选项目规范兼容插件)。整Agent WASIp1 CLI暂不装配这个宿主文件插件，不影响可移植SDK。
+
+本机验证（macOS arm64 / Go1.27.2，无付费模型或外部账户调用）：
+
+| 检查 | 实际结果与范围 |
+|---|---|
+| 整仓desktop-tagged race | 去重修正前冻结版本：94个有测试包、2058个测试/子测试通过，0失败，836.13秒；1053个源码/文档/配置文件执行期间未变。4个专用子进程helper无参数入口按设计skip，实际进程用例均执行 |
+| 最终去重复验 | 完整Skill协议/兼容插件/Skill扩展/architecture及CLI、Hub bootstrap/原生控件/HTTP/SQLite兼容用例，9包共269个测试/子测试通过，0失败；1055个文件执行期间未变。覆盖副本合并、资源冲突、实际Skill调用/独立子代理和变更指令拒绝等待恢复 |
+| 独立CLI | 新构建二进制在空PATH、不存在HOME且无模型凭据环境下，help/冷检查/demo实际成功；原生+标准同名副本仅一个Skill目录项。依赖图无Hub、EngineRuntime或MyGo |
+| 跨目标构建 | CGO_ENABLED=0，CLI在darwin/arm64、linux/amd64、Windows amd64/arm64构建通过；不冒充对应OS实机执行 |
+| 静态与保护文件 | 全树desktop vet、go mod verify、gofmt与diff空白检查通过；包含此前Graph修正的SDK、现有公开快照、根模块文件和固定QuickJS资产共166个保护文件保持本批开始时原字节 |
+
+整仓与最终去重验证分别记录，不以专项结果冒充最终版本再次全树运行。证据指针`/tmp/alva-compat-path`保留完整JSONL、冻结hash、保护文件比对、实际二进制和跨目标构建回执。原生控件使用MyGo无窗口验收，真实OS视觉/IME、Windows实机、外部账户和远程CI仍按各自状态记录。
+
 ## 2026-10-21 SDK 欠账收口：Graph 取消与执行预算
 
 本批从底层欠账回查，修改限定在L3 Graph内部实现、回归与CI接线。L0–L2.5内核、Plugin/Registrar、共享存储插口、根模块锁定和固定QuickJS资产未修改；Graph公开类型/签名的`go doc -all`输出与修改前逐字节一致。

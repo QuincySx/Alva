@@ -5,26 +5,28 @@ package hub
 
 import (
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
 )
 
 type Settings struct {
-	DurableWaits     bool            `json:"durable_waits"`
-	Version          int             `json:"version"`
-	SessionID        string          `json:"session_id"`
-	MCP              []MCPServer     `json:"mcp"`
-	AEP              []AEPBundle     `json:"aep,omitempty"`
-	SkillsEnabled    bool            `json:"skills_enabled"`
-	SubagentsEnabled bool            `json:"subagents_enabled"`
-	PersistentMemory bool            `json:"persistent_memory"`
-	MediaEnabled     bool            `json:"media_enabled"`
-	MediaDecoder     MediaDecoder    `json:"media_decoder"`
-	Browser          BrowserSettings `json:"browser"`
-	Commands         CommandSettings `json:"commands"`
-	Tools            ToolSettings    `json:"tools"`
-	SkillArchives    []string        `json:"skill_archives,omitempty"`
+	DurableWaits      bool            `json:"durable_waits"`
+	Version           int             `json:"version"`
+	SessionID         string          `json:"session_id"`
+	MCP               []MCPServer     `json:"mcp"`
+	AEP               []AEPBundle     `json:"aep,omitempty"`
+	SkillsEnabled     bool            `json:"skills_enabled"`
+	SubagentsEnabled  bool            `json:"subagents_enabled"`
+	PersistentMemory  bool            `json:"persistent_memory"`
+	MediaEnabled      bool            `json:"media_enabled"`
+	MediaDecoder      MediaDecoder    `json:"media_decoder"`
+	Browser           BrowserSettings `json:"browser"`
+	Commands          CommandSettings `json:"commands"`
+	Tools             ToolSettings    `json:"tools"`
+	SkillArchives     []string        `json:"skill_archives,omitempty"`
+	CompatibilityFile string          `json:"compatibility_file,omitempty"`
 }
 type MCPServer struct {
 	ID                 string            `json:"id"`
@@ -36,6 +38,9 @@ type MCPServer struct {
 }
 
 func (s Settings) Validate() error {
+	if s.CompatibilityFile != "" && (len(s.CompatibilityFile) > 1024 || s.CompatibilityFile == "." || !fs.ValidPath(s.CompatibilityFile) || strings.ContainsAny(s.CompatibilityFile, "\\\x00\r\n") || len(strings.Split(s.CompatibilityFile, "/")) > 16) {
+		return errors.New("compatibility config must be a confined project-relative file")
+	}
 	if s.Version != 1 || s.SessionID == "" || len(s.MCP) > 32 || len(s.SkillArchives) > 128 {
 		return errors.New("versioned session settings and at most 32 MCP servers required")
 	}

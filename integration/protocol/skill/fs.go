@@ -1,5 +1,5 @@
 // INPUT: context, os.Root, io/fs, MIME and Skill protocol values
-// OUTPUT: FS, Root, Open, OpenWithin, Close, List, Load, Resource, Resources, Install, Archive, Restore
+// OUTPUT: FS, Root, Open, OpenWithin, OpenAgentSkillsWithin, OpenPinned, Close, List, Load, Resource, Resources, Install, Archive, Restore
 // POS: [integration / external protocol] Explicit bounded skill roots with pinned descriptors and recoverable managed writes
 package skill
 
@@ -30,9 +30,41 @@ type pinned struct {
 	writable bool
 }
 type FS struct {
-	mu    sync.Mutex
-	roots []pinned
-	index map[string]located
+	mu       sync.Mutex
+	roots    []pinned
+	index    map[string]located
+	standard bool
+}
+
+// OpenAgentSkillsWithin explicitly selects the Agent Skills document format.
+// This read-only repository retains the same confined filesystem boundaries;
+// ordinary Open/OpenWithin and Parse continue to use Alva's native format.
+func OpenAgentSkillsWithin(workspace, relative string) (*FS, error) {
+	r, err := OpenWithin(workspace, relative, false)
+	if err == nil {
+		r.standard = true
+	}
+	return r, err
+}
+
+// OpenPinned duplicates an explicit directory capability into a read-only
+// repository. The caller retains its descriptor; no textual path is reopened.
+func OpenPinned(root *os.Root, agentSkills bool) (*FS, error) {
+	if root == nil {
+		return nil, errors.New("explicit pinned skill root required")
+	}
+	child, err := root.OpenRoot(".")
+	if err != nil {
+		return nil, err
+	}
+	return &FS{roots: []pinned{{root: child}}, standard: agentSkills}, nil
+}
+
+func (r *FS) parse(data []byte) (Document, error) {
+	if r.standard {
+		return ParseAgentSkills(data)
+	}
+	return Parse(data)
 }
 
 // OpenWithin pins an existing project Skill directory without resolving its
@@ -211,7 +243,7 @@ func (r *FS) catalog(ctx context.Context) (map[string]located, error) {
 			if readBytes > 32<<20 {
 				return nil, errors.New("skill discovery exceeds 32 MiB")
 			}
-			doc, err := Parse(data)
+			doc, err := r.parse(data)
 			if err != nil {
 				return nil, fmt.Errorf("skill %q: %w", e.Name(), err)
 			}
@@ -281,7 +313,7 @@ func (r *FS) Load(ctx context.Context, name string) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
-	doc, err := Parse(data)
+	doc, err := r.parse(data)
 	if err != nil {
 		return Document{}, err
 	}
@@ -369,7 +401,7 @@ func (r *FS) Install(ctx context.Context, name string, files map[string][]byte) 
 	if !ValidName(name) || len(files) == 0 || len(files) > 128 {
 		return errors.New("invalid skill bundle")
 	}
-	doc, err := Parse(files["SKILL.md"])
+	doc, err := r.parse(files["SKILL.md"])
 	if err != nil {
 		return err
 	}
@@ -483,7 +515,7 @@ func (r *FS) Restore(ctx context.Context, archive string) error {
 	if err != nil {
 		return err
 	}
-	doc, err := Parse(data)
+	doc, err := r.parse(data)
 	if err != nil {
 		return err
 	}

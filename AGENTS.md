@@ -30,6 +30,7 @@ Middleware 注入。确有缺陷可审计修复；抽象合并须先说明独立
 - 取消须传播并等待真实收尾；未完成的进程/回调清理仍由原 owner 持有，不能伪报完成或自动重放副作用。
 - 文件、媒体、大工具结果、MCP 和历史引用优先；原件保存、派生、选择投递与真实回执分别记录。
 - 不隐式发现旧配置、凭据或会话，不添加历史格式/数据兼容桥，不删除用户数据或外部共享缓存。
+- Agent Skills/项目规则/Claude基础Agent文件通过显式可选 `extension/compatibility` 转换，默认关闭；不导入厂商授权/执行政策，不改变SDK内核。
 - 桌面采用固定 MyGo 自绘；无需 Rust/React/WebView/npm。QuickJS-NG 的固定 WASM 资产及 C 重建桥属于当前 Go 宿主能力，必须保留来源、哈希与许可。
 - 遵守 [FRACTAL-DOCS.md](./FRACTAL-DOCS.md)：源码三行头、逐级 AGENTS.md 及级联地图更新。
 - 公开面变化须显式更新 `tests/architecture/testdata/public-surface`；依赖和分形闸在 `architecture`。

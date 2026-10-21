@@ -15,6 +15,7 @@ import (
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/apps/hub/worktree"
 	browserextension "github.com/QuincySx/Alva/extension/browser"
+	compatibilityextension "github.com/QuincySx/Alva/extension/compatibility"
 	diagnostictools "github.com/QuincySx/Alva/extension/diagnostics"
 	filetools "github.com/QuincySx/Alva/extension/files"
 	"github.com/QuincySx/Alva/extension/hooks"
@@ -235,7 +236,20 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if err != nil {
 			return nil, err
 		}
-		waitBackend, waits, err := openHubWaits(ctx, repository, request.OwnerID, log, settings, request, owned, config)
+		var compatibility *compatibilityextension.Snapshot
+		compatibilitySHA := ""
+		if settings.CompatibilityFile != "" {
+			compatibility, err = compatibilityextension.OpenFile(ctx, request.Workspace, settings.CompatibilityFile)
+			if err != nil {
+				return nil, err
+			}
+			loaded = append(loaded, compatibility)
+			compatibilitySHA = compatibility.Fingerprint()
+			if len(compatibility.Receipt().Agents) > 0 && !settings.SubagentsEnabled {
+				return nil, errors.New("compatibility agent definitions require explicit native SubAgent opt-in")
+			}
+		}
+		waitBackend, waits, err := openHubWaits(ctx, repository, request.OwnerID, log, settings, request, owned, config, compatibilitySHA)
 		if err != nil {
 			return nil, err
 		}
@@ -393,7 +407,18 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			if err != nil {
 				return nil, err
 			}
-			plugin := skillextension.New(skillFiles, nativeID, backend)
+			if compatibility == nil {
+				plugin := skillextension.New(skillFiles, nativeID, backend)
+				plugins = append(plugins, plugin)
+				trustedTools = append(trustedTools, plugin.Tools()...)
+			}
+		}
+		if compatibility != nil {
+			var base skill.Repository
+			if skillFiles != nil {
+				base = skillFiles
+			}
+			plugin := compatibility.Plugin(nativeID, backend, base)
 			plugins = append(plugins, plugin)
 			trustedTools = append(trustedTools, plugin.Tools()...)
 		}
@@ -413,10 +438,14 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			childBindings = append(childBindings, harness.MCPChildBinding(mcp))
 		}
 		if settings.SubagentsEnabled {
+			var templates subagent.TemplateRegistry
+			if compatibility != nil {
+				templates = compatibility.Templates()
+			}
 			factory, childErr := harness.NewNativeChildFactory(ctx, harness.NativeChildConfig{Repository: repository, Owner: request.OwnerID, ParentID: nativeID, Cwd: request.Workspace, Guard: guard, Bindings: childBindings, Locks: toolLocks, ToolTimeout: 30 * time.Second})
 			if childErr == nil {
 				var plugin *subagent.Plugin
-				plugin, childErr = subagent.New(subagent.Config{SessionID: nativeID, Factory: factory, Guard: guard, References: backend, Timeout: 2 * time.Minute, MaxIterations: 16, MaxDepth: 3, MaxChildren: 8, MaxParallelModels: 2})
+				plugin, childErr = subagent.New(subagent.Config{SessionID: nativeID, Factory: factory, Guard: guard, References: backend, Templates: templates, Timeout: 2 * time.Minute, MaxIterations: 16, MaxDepth: 3, MaxChildren: 8, MaxParallelModels: 2})
 				if childErr == nil {
 					plugins = append(plugins, plugin)
 					loaded = append(loaded, plugin)
@@ -514,7 +543,11 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if err != nil {
 			return err
 		}
-		hash, err := hubWaitRecipe(config, detail.Session.Workspace, branch.Target, settings)
+		compatibilitySHA, err := compatibilityFingerprint(ctx, detail.Session.Workspace, settings.CompatibilityFile)
+		if err != nil {
+			return err
+		}
+		hash, err := hubWaitRecipe(config, detail.Session.Workspace, branch.Target, settings, compatibilitySHA)
 		if err != nil {
 			return err
 		}

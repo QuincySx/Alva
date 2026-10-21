@@ -18,6 +18,7 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | store_test.go | 可逆路由/安全fallback、native事实归属、commit失败/忽略sink错误不能成功/大handoff/恢复回归 |
 | settings.go | session-scoped默认禁用编辑、独立host确认启用与idle-only耐久snapshot |
 | settings_test.go | 配置导入不自批、归属/active限制和关闭重开耐久回归 |
+| compatibility_test.go | 项目相对配置路径默认off、导入不启用、idle-only与关闭重开保存；provider不读文件 |
 | tools.go / tools_test.go | 六类可选工具默认off、编辑清授权、Shell/Web独立access批准、idle-only和重开耐久 |
 | aep.go / aep_test.go | inspected AEP pin独立批准/编辑失效/idle-only与重开耐久 |
 | commands.go | Hooks/diagnostics编辑清批准、独立explicit enable、idle-only的next-turn进程snapshot |

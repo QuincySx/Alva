@@ -187,7 +187,7 @@ func bindCLIDurableRecipe(ctx context.Context, repository storage.Repository, lo
 	return commitCLIValue(ctx, log, "durable_recipe", revision, cliDurableRecipe{Version: 1, SHA256: route})
 }
 
-func cliRecipeHash(config cliNativeConfig, workspace string, state cliPluginSettings) (string, error) {
+func cliRecipeHash(config cliNativeConfig, workspace string, state cliPluginSettings, compatibilitySHA string) (string, error) {
 	canonical, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
 		return "", err
@@ -203,13 +203,14 @@ func cliRecipeHash(config cliNativeConfig, workspace string, state cliPluginSett
 		configSHA = state.FileSHA256
 	}
 	data, _ := json.Marshal(struct {
-		Route     string
-		Workspace string
-		Mode      string
-		Memory    bool
-		ConfigSHA string
-		Plugins   []cliPluginPin
-	}{config.RouteHash, canonical, string(config.Mode), config.Memory, configSHA, enabled})
+		Route         string
+		Workspace     string
+		Mode          string
+		Memory        bool
+		ConfigSHA     string
+		Plugins       []cliPluginPin
+		Compatibility string `json:",omitempty"`
+	}{config.RouteHash, canonical, string(config.Mode), config.Memory, configSHA, enabled, compatibilitySHA})
 	return cliSHA(append([]byte("alva.cli.durable.recipe.v1\x00"), data...)), nil
 }
 

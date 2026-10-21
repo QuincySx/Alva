@@ -21,7 +21,7 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | wait.go | 可选WaitStore、分支最近Turn观察、显式同Turn继续与输入冻结政策，不增加SDK状态 |
 | runtime.go | 独立Descriptor registry/冷能力查询及engine registry、串行执行、取消/审批路由与授权fallback |
 | descriptor_test.go | 第五engine声明/不可替换、纯冷读与snapshot切片隔离、关闭后拒绝注册 |
-| settings.go / aep.go | next-turn私有MCP/AEP进程snapshot、native SubAgent opt-in纯值与预算，不引入protocol/进程依赖 |
+| settings.go / aep.go | next-turn私有MCP/AEP进程snapshot、native SubAgent及项目兼容配置文件的opt-in纯值与预算，不引入protocol/进程依赖 |
 | tools.go | Shell/Web显式配置、独立access批准与Planning/Notebook/Interaction/Utility下一Turn可选开关纯值 |
 | commands.go | lifecycle Hooks/diagnostics明确argv/env/timeout与独立host批准纯值，禁止内核进程政策 |
 | media.go | 默认关闭媒体工具、两条显式decoder路径和独立host批准纯值，不推测模型视觉能力 |

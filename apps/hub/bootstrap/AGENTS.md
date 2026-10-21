@@ -29,6 +29,7 @@ OpenStores为必传插口，OpenMemory/OpenBindings只在相应组件启用时�
 | tools.go | 六类可选Plugin真实装配（planning/interaction/utility 显式导入 native 适配，普通 Tool 根包不再绑定原生产品）、same-session问题broker、actual tool信任与Shell跨轮Session owner/attempt Lease与Web物理收尾 |
 | assembly_test.go | no-start、真实demo跨重启native resume、route绑定与未批准零副作用回归 |
 | options_test.go | actual registered factory→local HTTP system role；opt-in请求轮数/系统prompt实际传给harness，不只改Descriptor |
+| compatibility_test.go | 默认off、native/标准Skill一个目录一个Tool、真实模板child与独立HITL、规则变更拒绝同Turn恢复；Snapshot进attempt owner |
 | subagent_test.go | 真实四次local model/root-child HITL、typed关系、引用隔离与冷Inspector闭环 |
 | mcp_test.go | 明确本地真实MCP子进程、lazy启动、actual attempt资源注册及SDK/应用物理收尾 |
 | aep_test.go | 实际本地AEP进程下一Turn启动、pin拒绝、握手失败真实日志/终态和snapshot清理 |

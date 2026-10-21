@@ -187,6 +187,7 @@ type SettingsStore interface {
 	ReplaceMCP(context.Context, string, []MCPServer) error
 	SetMCPEnabled(context.Context, string, string, bool, bool) error
 	SetSkillsEnabled(context.Context, string, bool) error
+	SetCompatibilityFile(context.Context, string, string) error
 	SetSubagentsEnabled(context.Context, string, bool) error
 	SetPersistentMemory(context.Context, string, bool) error
 	SetMediaEnabled(context.Context, string, bool) error

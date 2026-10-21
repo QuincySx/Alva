@@ -1,5 +1,5 @@
 // INPUT: product Settings and private product SQLite transaction
-// OUTPUT: Settings, SaveSettings and explicit SetMCPEnabled
+// OUTPUT: Settings, disabled SaveSettings and explicit next-turn capability/compatibility controls
 // POS: [L7 Hub product] Session-scoped configuration for next run, never mutates an active engine snapshot
 package sqlite
 
@@ -75,6 +75,7 @@ func (s *Store) SaveSettings(ctx context.Context, value hub.Settings) (providerR
 	value.MediaDecoder.Enabled = false
 	value.MediaDecoder.HostAccessApproved = false
 	value.Browser.Enabled, value.Browser.HostAccessApproved = false, false
+	value.CompatibilityFile = "" // Project instructions are enabled through their explicit control.
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, value.SessionID)
 		if err != nil {
@@ -161,6 +162,25 @@ func (s *Store) SetSkillsEnabled(ctx context.Context, id string, enabled bool) (
 			return err
 		}
 		value.SkillsEnabled = enabled
+		return saveSettings(ctx, tx, value)
+	})
+}
+
+func (s *Store) SetCompatibilityFile(ctx context.Context, id, file string) (result error) {
+	defer func() { result = normalizeStoreError(result) }()
+	return s.transaction(ctx, func(tx *sql.Tx) error {
+		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		if err != nil {
+			return err
+		}
+		if hub.BlocksInput(session.Status) {
+			return errors.New("finish current Turn before changing compatibility sources")
+		}
+		value, err := settings(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		value.CompatibilityFile = file
 		return saveSettings(ctx, tx, value)
 	})
 }

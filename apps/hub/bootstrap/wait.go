@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/extension/compatibility"
 	"github.com/QuincySx/Alva/harness/durable"
 	"github.com/QuincySx/Alva/harness/durable/journal"
 	"github.com/QuincySx/Alva/integration/engine"
@@ -28,7 +29,19 @@ type waitRecipe struct {
 	SHA256  string `json:"sha256"`
 }
 
-func hubWaitRecipe(c Config, workspace string, target hub.Target, settings hub.Settings) (string, error) {
+func compatibilityFingerprint(ctx context.Context, workspace, file string) (hash string, err error) {
+	if file == "" {
+		return "", nil
+	}
+	snapshot, err := compatibility.OpenFile(ctx, workspace, file)
+	if err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, snapshot.Close(context.WithoutCancel(ctx))) }()
+	return snapshot.Fingerprint(), nil
+}
+
+func hubWaitRecipe(c Config, workspace string, target hub.Target, settings hub.Settings, compatibilitySHA string) (string, error) {
 	cwd, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
 		return "", err
@@ -43,7 +56,8 @@ func hubWaitRecipe(c Config, workspace string, target hub.Target, settings hub.S
 		Provider        string
 		Model, Endpoint string
 		Headers         map[string]string
-	}{cwd, target, settings, c.Demo, c.ImageCapable, string(c.ProviderKind), c.Provider.Model, c.Provider.Endpoint, c.Provider.Headers})
+		Compatibility   string `json:",omitempty"`
+	}{cwd, target, settings, c.Demo, c.ImageCapable, string(c.ProviderKind), c.Provider.Model, c.Provider.Endpoint, c.Provider.Headers, compatibilitySHA})
 	if err != nil {
 		return "", err
 	}
@@ -158,7 +172,7 @@ func (r *durableRunner) WaitCheckpoint() *engine.WaitCheckpoint {
 	copy := *r.checkpoint
 	return &copy
 }
-func openHubWaits(ctx context.Context, repo storage.Repository, owner string, log storage.Session, settings hub.Settings, request engine.Request, owned *ownedRunner, c Config) (*journal.Backend, *durable.Controller, error) {
+func openHubWaits(ctx context.Context, repo storage.Repository, owner string, log storage.Session, settings hub.Settings, request engine.Request, owned *ownedRunner, c Config, compatibilitySHA string) (*journal.Backend, *durable.Controller, error) {
 	_, found, err := repo.LatestRecord(ctx, owner, log.ID(), durable.Namespace, durable.SnapshotType)
 	if err != nil {
 		return nil, nil, err
@@ -203,7 +217,7 @@ func openHubWaits(ctx context.Context, repo storage.Repository, owner string, lo
 		return nil, nil, nil
 	}
 	target := hub.Target{EngineID: "alva", ModelID: request.Model, ProviderID: request.Provider, AccountSource: request.AccountSource, BillingRoute: request.BillingRoute}
-	hash, err := hubWaitRecipe(c, request.Workspace, target, settings)
+	hash, err := hubWaitRecipe(c, request.Workspace, target, settings, compatibilitySHA)
 	if err != nil {
 		return nil, nil, err
 	}

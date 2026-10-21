@@ -2,6 +2,64 @@
 
 所有命令从仓库根目录执行。项目分层与入口见 [README](../README.md)，实际验收状态见 [MIGRATION](../MIGRATION.md)。
 
+## 可选项目规范兼容插件
+
+`extension/compatibility` 默认不安装。它把外部文档归一为现有 Plugin 的提示贡献、渐进 Skill 工具和子代理模板；SDK 内核、授权、默认工具与执行模型不变。配置限定在明确 workspace 内，不读取 HOME、workspace 之外的祖先或其他产品配置。
+
+先在项目内准备 `.alva/compatibility.json`，只选择需要的来源。仅开启 AGENTS.md 的最小配置：
+
+```json
+{"version":1,"rules":["agents"]}
+```
+
+完整选择示例（所选 Skill/Agent 目录须已存在；删去不需要的项）：
+
+```json
+{
+  "version": 1,
+  "scope": "src",
+  "rules": ["agents", "claude", "gemini"],
+  "skills": [
+    {"path": ".agents/skills", "format": "agent-skills"},
+    {"path": ".alva/skills", "format": "alva"}
+  ],
+  "agents": [".claude/agents"]
+}
+```
+
+`scope` 默认为 `.`，必须是项目内已有目录。本轮仅加载 workspace → scope 祖先链上的 AGENTS.md / CLAUDE.md / GEMINI.md；越近的目录优先，同目录按 rules 数组后项优先。缺失规则文件跳过，其他读取失败明确报错。不会把其他子目录规则混进上下文，也不会随着模型访问其他路径自动加载规则。
+
+| 格式 | 当前支持 | 边界 |
+|---|---|---|
+| [Agent Skills](https://agentskills.io/specification) | name/description/license/compatibility、字符串 metadata、空格分隔 allowed-tools；SKILL.md 正文与资源逐级读取 | 声明不授权；不执行 scripts，不接受厂商执行扩展字段 |
+| Alva Skill | 原有数组 allowed-tools、invocation auto/explicit | 显式选择 `format: alva`；不改变原生解析规则 |
+| [AGENTS.md](https://agents.md/) | 指定 scope 的祖先 Markdown 与近层优先 | 不自动扫描全仓库、HOME 或选定 workspace 之外的父目录 |
+| [CLAUDE.md](https://code.claude.com/docs/en/memory) / [GEMINI.md](https://geminicli.com/docs/cli/gemini-md/) | 相同指定范围内的 Markdown 正文 | @import/include 原样保留，不展开；条件 frontmatter 报错；不宣称完整厂商规则/设置兼容 |
+| [Claude Agent Markdown](https://code.claude.com/docs/en/sub-agents) | name/description、逗号分隔精确 tools、`model: inherit` 或省略、正文模板 | Read/Write/Edit/Grep 对应现有文件工具；省略 tools 表示无宿主工具。其他名称须有实际父能力/binder；不模拟 Glob/Bash；Hook、permissionMode、其他 model 等字段报错 |
+
+文件限定 UTF-8 regular，拒绝 symlink/逃逸；配置32KiB、单规则64KiB、规则提示总256KiB；最多1024 Skills/规范化文档32MiB、64 Agent 模板/单 prompt16KiB，来源回执1MiB。Skill 声明不增加权限；子代理仍需独立 spawn/写入审批，不能读取父/兄弟会话。
+
+去重按 **类型 + name**，路径是来源信息，正文哈希不是身份。同路径/同格式的重复配置只加载一次；原生数组格式与标准字符串格式先归一化。相同 Skill 的完整元数据、调用方式、工具名集合及正文一致，并且资源路径/媒体类型/字节 SHA 都相同，才只注册一个目录项和一个 Tool；Agent 模板同名且归一化定义一致时合并。元数据、正文或资源有差异时明确报告冲突的双方来源，由配置选择保留哪个，不自动覆盖或合并工具权限。不同 name 即使正文一样仍分别保留。
+
+等价 Skill 副本选择已装配的 native 仓库作为主来源，其余按显式来源顺序取首项。发生同名时宿主才读取资源做有界校验（每个合并阶段总64MiB），不执行脚本、不把这些字节自动送模型。本轮资源按主来源当前数据读取，下一轮重查副本一致性。规则文件按目录作用域/来源加载，跨目录相同文字保留原有覆盖顺序，不做正文哈希全局去重。
+
+CLI 冷检查仅输出来源路径、指令指纹和目录，不创建 Agent、连接 Provider 或执行脚本：
+
+```sh
+go run -mod=readonly ./cmd/alva --workspace /absolute/project --inspect-compat .alva/compatibility.json
+go run -mod=readonly ./cmd/alva --demo --workspace /absolute/project --compat-config .alva/compatibility.json --prompt '你好'
+```
+
+live 在原有参数上加 `--compat-config`。不传该参数即关闭；新 REPL turn 重新读取。包含 Agent 定义时 CLI 另需 `--data-dir`，以便创建实际独立持久子会话。整个 CLI 在 WASIp1 guest 执行的 `--sandbox wasm` 暂不支持此宿主文件插件，组合会报错；可移植 SDK 本身不受影响。
+
+Hub Desktop 的 Skills 面板可填写同一项目相对 JSON 路径，点击 **Apply compatibility next turn**；清空后点击即可关闭。Agent 定义另需 Session settings 的 native SubAgent opt-in。受管 `.alva/skills` 与兼容 Skill 合为一个工具；同名副本按上述规则去重。目录所选格式必须匹配文档，兼容插件不会自动改写文件或改变原生解析器的格式。
+
+认证 HTTP：`PUT /v1/sessions/SESSION/settings/compatibility`，正文 `{"file":".alva/compatibility.json"}`；`{"file":""}` 关闭。只能是已保存 workspace 内的相对文件，不接受绝对宿主路径。保存/启用均不运行 Agent，running/waiting 时拒绝修改，其他插件批准不受影响。
+
+规则、Skill 文档和 Agent 模板本轮冻结，指纹绑定所选配置、规则/模板字节及规范化 Skill Document；按需资源仍作为当前数据读取，不纳入指令指纹，也不执行。CLI/Hub durable 等待恢复须匹配同一指纹，变更指令会在模型/外部插件执行前拒绝继续。此时恢复原指令，或审阅并放弃旧等待后开始新任务；不会自动重放。
+
+程序接入使用 `compatibility.Open/OpenFile`，将 `snapshot.Plugin(sessionID, references, optionalNativeSkillRepository)` 交给现有 Builder；需要模板时把 `snapshot.Templates()` 传给现有 `subagent.Config.Templates`。宿主在 Agent 和真实子任务 join 后负责 `snapshot.Close`，无需新的内核接口。
+
 ## 运行
 
 使用 Go 1.27.2；本目录的 `.tool-versions` 固定本地工具版本。go.mod 位于仓库根目录，module path 为 `github.com/QuincySx/Alva`；以下命令直接在仓库根目录执行。

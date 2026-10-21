@@ -20,6 +20,6 @@ Register拒绝typed-nil repository/reference，目录≤1024；读取回调后�
 
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
-| Plugin | `plugin.go` | 小目录 prompt、skill Tool 与引用优先装配 |
+| Plugin | `plugin.go` | 小目录 prompt、skill Tool 与引用优先装配；显式正文结果保留有界 compatibility 要求，声明不授予权限 |
 | Regression | `plugin_test.go` | 无正文预载、显式加载、引用与跨会话拒绝 |
 | Repository boundaries | `boundary_test.go` | 替换仓库的参数帧/实际调用/typed-nil/迟到取消/错误来源与引用边界 |

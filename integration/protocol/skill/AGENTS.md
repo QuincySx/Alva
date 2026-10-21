@@ -21,5 +21,6 @@ Product project roots use `OpenWithin(savedWorkspace, relative, writable)` to pi
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | Types and parser | `skill.go` | 元数据、正文、注入策略与完整 YAML 解析 |
-| Filesystem | `fs.go` | pinned root 仓库、有界读取/安装与可恢复归档 |
+| Agent Skills format | `standard.go` / `standard_test.go` | 显式标准解析、字符串 allowed-tools/兼容要求/字符串 metadata；拒绝厂商执行字段，不改变原生 Parse |
+| Filesystem | `fs.go` | pinned root 仓库、有界读取/安装与可恢复归档；OpenAgentSkillsWithin / OpenPinned 显式只读标准仓库，不重开已授权路径 |
 | Regression | `skill_test.go` | 渐进加载、YAML、边界、路径与可恢复归档回归 |

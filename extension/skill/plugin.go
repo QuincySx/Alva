@@ -123,7 +123,10 @@ func (t *skillTool) Execute(ctx context.Context, execution abi.ToolExecutionCont
 				return wire.ToolResult{}, errors.New("skill repository returned invalid tool metadata")
 			}
 		}
-		value = map[string]any{"name": args.Name, "instructions": document.Body, "allowed_tools": document.Meta.AllowedTools, "tool_declaration_grants_host_access": false, "processing": "Complete skill instruction text loaded on explicit request; no scripts executed or media processed"}
+		if len(document.Meta.Compatibility) > 2048 || !utf8.ValidString(document.Meta.Compatibility) {
+			return wire.ToolResult{}, errors.New("skill repository returned invalid compatibility metadata")
+		}
+		value = map[string]any{"name": args.Name, "instructions": document.Body, "allowed_tools": document.Meta.AllowedTools, "compatibility": document.Meta.Compatibility, "tool_declaration_grants_host_access": false, "processing": "Complete skill instruction text loaded on explicit request; no scripts executed or media processed"}
 	case "list_resources":
 		if args.Path != "" {
 			return problem(call, "path is only valid for resource operation"), nil

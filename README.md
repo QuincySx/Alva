@@ -100,6 +100,8 @@ direct CLI/desktop 直连 harness 与 host，不经 EngineRuntime；Hub core 只
 
 第三方插件可用 [Go SDK](./examples/sdk-agent/README.md)、[JavaScript作者SDK](./integration/protocol/aep/javascript/README.md)，或编译为[独立WASIp1模块](./examples/aep-wasm/README.md)。JS/Python原生子进程与独立WASM沿同一AEP协议接入Plugin/Tool/Middleware；WASM由Go内嵌运行时加载，无宿主目录/环境/网络。direct CLI也提供显式检查/批准/禁用，每轮拥有并关闭独立插件实例；`--durable`可退出等待、显式交付结果再恢复。命令见[使用说明](./docs/USAGE.md#cli-插件与持久等待)。
 
+已有项目规范可按需开启 [`extension/compatibility`](./extension/compatibility/AGENTS.md)：Agent Skills 标准、指定范围内的 AGENTS.md / CLAUDE.md / GEMINI.md，以及 Claude 基础 Agent 模板。默认关闭、无全局扫描，CLI 与 Hub 下一轮显式装配；[配置与兼容范围](./docs/USAGE.md#可选项目规范兼容插件)。
+
 一周后回来建议这样读：
 
 1. 先看本页地图，再看 [根目录清单](./AGENTS.md)，确认改的是机制、能力、配方还是产品。

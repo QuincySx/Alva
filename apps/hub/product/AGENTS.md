@@ -25,6 +25,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | tools.go / questions.go | native严格工具JSON编辑与显式下一Turn开关；actual root/typed ancestry过滤的独立真人问题/回答，不借用审批授权 |
 | browser.go | native/operator-only browser严格JSON disabled编辑，不发现exe/启动进程/导入用户profile，不是HTTP任意host-path入口 |
 | skills.go | saved cwd受管技能初始化、精确文档、Install/Archive/Restore |
+| compatibility.go | saved cwd内显式JSON来源冷检查与下一Turn启停；不读取全局目录、不执行模板/脚本 |
 | media.go | 已存branch→native的冷媒体索引/manifest/完整哈希预览/receipt，共用Library且不启动decoder/model |
 | playback.go | 显式本地Play的product/branch/transcode-only归属；视频需独立decoder批准并构造caller-owned Playback，音频返回SHA/canonical验证PCM bytes；不发模型/新receipt |
 | skills_test.go | 完整frontmatter、归档receipt与symlink祖先拒绝 |

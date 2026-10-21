@@ -97,6 +97,7 @@ type NativePage struct {
 	updates                        chan func()
 	skills                         []skill.Skill
 	skillDraft                     string
+	compatibilityDraft             string
 	team                           hub.TeamDetail
 	teamLead, teamWorker           string
 	workerName, workerDraft        string

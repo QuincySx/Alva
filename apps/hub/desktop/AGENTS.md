@@ -41,7 +41,8 @@ apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只
 | observer.go / observer_test.go | 独立时钟的有界UI观察；无重绘仍刷新，慢UI不堆积，关闭不迟到读或Stop |
 | debug_desktop.go / debug_desktop_test.go | 独立诊断owner注册实际产品视图/草稿/创建与选择/Send/Stop，所有action走原方法与operator控制；状态不暴露配置/问题正文，凭据页及尚无current Build的旧scene拒绝截图；真实HTTP+MyGo Tester+durable create不执行模型 |
 | windows_desktop.go / windows_desktop_test.go | 最多8个独立草稿/视图窗口共享单一product/runtime，关闭非最后observer不Stop；最后窗口active时要求真实Stop |
-| skills_desktop.go | 受管项目skills原生编辑和下一轮enable界面 |
+| skills_desktop.go | 受管项目skills原生编辑/下一轮enable，以及显式compatibility配置文件的下一轮启停；无目录时仍可使用规则插件 |
+| compatibility_desktop_test.go | MyGo实际配置路径输入/明确启停、未初始化native Skills仍可用与零执行回归 |
 | transcript.go | bounded产品历史转稳定ID、typed消息行；不是模型上下文 |
 | transcript_test.go | 消息ID、类型与重叠分页去重回归 |
 | team_desktop.go | 原生collaboration、真实Worker会话focus、附件草稿只引用入队并固定原branch、FIFO编辑/取消/分页、显式resume/stop和持久生命周期 |

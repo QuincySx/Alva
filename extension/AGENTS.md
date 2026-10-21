@@ -11,7 +11,7 @@
 
 ## 约束
 
-无历史兼容桥；未知工具不因为自报只读就获取宿主权力，配置和授权必须显式。
+无历史数据兼容桥；第三方项目规范仅通过明确启用的 compatibility Plugin 转换。未知工具不因为自报只读就获取宿主权力，配置和授权必须显式。
 
 ## 业务域清单
 
@@ -23,6 +23,7 @@
 | Model retry | `modelretry/` | 显式有界次数/字节/数量/总期限的同模型重试，失败流私有，完整成功流才发布 |
 | Tool validation | `toolvalidation/` | 可替换默认schema校验，准备阶段拒绝与冻结执行前复核，不把依赖引入SDK |
 | Skills | `skill/` | 元数据提示与按需Skill Tool，替换仓库同样执行参数/实际调用/输出/取消边界，完整正文按会话引用读取 |
+| Convention compatibility | `compatibility/` | 默认关闭的 Agent Skills / 项目规则 / Claude 基础 Agent 模板转换，显式范围/来源/冻结指纹，不导入厂商授权或 runtime |
 | Managed MCP | `mcp/` | 按需单 gateway、实际Tool/native authority、审批至进程收尾的owned stdio 与同会话完整脱敏 journal |
 | Plugin loader | `loader/` | 安全bundle、JS/Python原生与独立WASIp1运行、同一AEP七钩子/gateway/审批/引用/取消join，Hub下一Turn装配 |
 | Memory | `memory/` | 显式 service 替换、实际调用/严格参数与引用工具、受控 MEMORY.md 扫描与结构化笔记提取 |

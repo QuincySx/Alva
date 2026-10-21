@@ -33,12 +33,13 @@ const (
 )
 
 type Meta struct {
-	Name         string         `yaml:"name" json:"name"`
-	Description  string         `yaml:"description" json:"description"`
-	License      string         `yaml:"license,omitempty" json:"license,omitempty"`
-	AllowedTools []string       `yaml:"allowed-tools,omitempty" json:"allowed_tools,omitempty"`
-	Invocation   Invocation     `yaml:"invocation,omitempty" json:"invocation"`
-	Metadata     map[string]any `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Name          string         `yaml:"name" json:"name"`
+	Description   string         `yaml:"description" json:"description"`
+	License       string         `yaml:"license,omitempty" json:"license,omitempty"`
+	Compatibility string         `yaml:"compatibility,omitempty" json:"compatibility,omitempty"`
+	AllowedTools  []string       `yaml:"allowed-tools,omitempty" json:"allowed_tools,omitempty"`
+	Invocation    Invocation     `yaml:"invocation,omitempty" json:"invocation"`
+	Metadata      map[string]any `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 }
 type Document struct {
 	Meta            Meta

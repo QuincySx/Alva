@@ -11,7 +11,7 @@ Do not treat archived Rust paths or competitor examples as active implementation
 | 路径 | 职责 |
 |---|---|
 | ARCHITECTURE.md | Current Go architecture, physical layout, owners, same-Turn waiting and consumer-specific storage ports |
-| USAGE.md | Root-run commands、live/demo/HTTP、SDK两类WASM与独立JS/WASIp1作者插件、CLI插件检查/批准及CLI/Hub等待恢复、storage conformance/durable APIs和数据生命周期 |
+| USAGE.md | Root-run commands、live/demo/HTTP、SDK两类WASM与独立JS/WASIp1作者插件、按需规范compatibility配置与真实兼容范围、CLI插件检查/批准及CLI/Hub等待恢复、storage conformance/durable APIs和数据生命周期 |
 | history/ | Complete dated Go checkpoints and initial repository layout review |
 | BUS-RULES.md | Typed capabilities and explicit bounded notifications |
 | REGISTRAR-RULES.md | Assembly contribution boundaries |

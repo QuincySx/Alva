@@ -19,6 +19,7 @@ WASM deadline includes cold compilation; linear memory, exchanges, IO, model tok
 | Direct REPL | repl.go / repl_unix.go / repl_other.go / input_windows.go / repl_test.go | Same-owner multi-turn native history, explicit once-call HITL, no-autosend and cancellable sole-reader input, no Hub/engine imports |
 | Native turn owner | native.go | Claims before plugin startup, fresh per-turn assembly, joined cancellation and retained storage on incomplete cleanup |
 | Explicit plugin controls | plugins.go / settings.go | Cold strict JSON inspect/list/enable/disable, exact code/launch review pins; raw env/args remain in the explicit source file |
+| Convention compatibility | compatibility.go / compatibility_test.go | --inspect-compat 冷读来源；--compat-config 显式本轮规则/Skill/Agent 模板、实际独立子会话与等待恢复指纹；无全局发现 |
 | Durable CLI | durable.go | Optional waits/approval suspension, cold resolve and revision-bound abandon; exact recipe resume without new input or replay |
 | Workflow acceptance | workflow_test.go | Real JS/WASIp1 peers, cold approval/tamper, multi-process wait/resume, exact once tool approval and cancellation/cleanup |
 | Native persistence | persistence.go | CLI-bound session ownership, bounded metadata and original-byte attachment references |

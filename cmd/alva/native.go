@@ -44,6 +44,7 @@ type cliNativeConfig struct {
 	Durable                  bool
 	Resume                   bool
 	RouteHash                string
+	CompatibilityFile        string
 	Diagnostics              io.Writer
 }
 type cliNativeRuntime struct {
@@ -116,6 +117,14 @@ func (r *cliNativeRuntime) retain(resource cliResource) { r.resources = append(r
 func (r *cliNativeRuntime) build(ctx context.Context) (*core.Agent, *durable.Controller, error) {
 	var waits *durable.Controller
 	var selected cliPluginSettings
+	compatibility, err := r.compatibility(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	compatibilitySHA := ""
+	if compatibility != nil {
+		compatibilitySHA = compatibility.Fingerprint()
+	}
 	log := r.log
 	if r.config.Native != nil {
 		_, release, err := r.config.Repository.BeginRun(ctx, cliOwner, log.ID())
@@ -157,7 +166,7 @@ func (r *cliNativeRuntime) build(ctx context.Context) (*core.Agent, *durable.Con
 			return nil, nil, errors.New("--resume-wait requires a waiting checkpoint")
 		}
 		if r.config.Durable {
-			recipe, err := cliRecipeHash(r.config, r.workspace, selected)
+			recipe, err := cliRecipeHash(r.config, r.workspace, selected, compatibilitySHA)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -231,10 +240,12 @@ func (r *cliNativeRuntime) build(ctx context.Context) (*core.Agent, *durable.Con
 	if err != nil {
 		return nil, nil, err
 	}
+	var childFileTools []abi.Tool
 	if r.files != nil {
 		for _, tool := range filetools.FileTools(r.files, guard, refs, log.ID()) {
 			builder.Tool(tool)
 			tools = append(tools, tool)
+			childFileTools = append(childFileTools, tool)
 		}
 	}
 	memoryContribution := r.memoryPlugin
@@ -255,6 +266,12 @@ func (r *cliNativeRuntime) build(ctx context.Context) (*core.Agent, *durable.Con
 		tools = append(tools, p.Tools()...)
 	}
 	plugins = append(plugins, memoryContribution)
+	compatPlugins, compatTools, err := r.compatibilityPlugins(ctx, compatibility, refs, guard, childFileTools)
+	if err != nil {
+		return nil, nil, err
+	}
+	plugins = append(plugins, compatPlugins...)
+	tools = append(tools, compatTools...)
 	if waits != nil {
 		plugins = append(plugins, waits)
 		tools = append(tools, waits.Tool())

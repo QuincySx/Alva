@@ -288,6 +288,27 @@ func (s *Server) nested(w http.ResponseWriter, r *http.Request, id string, parts
 	}
 	if len(parts) == 2 && parts[0] == "settings" {
 		switch parts[1] {
+		case "compatibility":
+			if r.Method != http.MethodPut {
+				fail(w, 405)
+				return
+			}
+			if _, err := query(r); err != nil {
+				fail(w, 400)
+				return
+			}
+			var v struct {
+				File *string `json:"file"`
+			}
+			if !decode(w, r, &v, 2048) {
+				return
+			}
+			if v.File == nil {
+				fail(w, 400)
+				return
+			}
+			reply(w, map[string]bool{"saved": true}, s.service.SetCompatibilityFile(r.Context(), id, *v.File))
+			return
 		case "mcp":
 			if r.Method != http.MethodPut {
 				fail(w, 405)

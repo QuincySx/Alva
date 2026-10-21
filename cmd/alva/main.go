@@ -73,6 +73,8 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	var sandbox sandboxOptions
 	var plugins cliPluginOptions
 	var waits cliDurableOptions
+	compatConfig := flags.String("compat-config", "", "opt in to a project-relative compatibility JSON file; requires --workspace, native only")
+	inspectCompat := flags.String("inspect-compat", "", "inspect selected rule/Skill/Agent sources and fingerprint without constructing an Agent")
 	sandbox.flags(flags)
 	plugins.flags(flags)
 	waits.flags(flags)
@@ -85,6 +87,21 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	}
 	if flags.NArg() != 0 {
 		return errors.New("positional arguments are not supported; use --prompt")
+	}
+	if *inspectCompat != "" {
+		var invalid bool
+		flags.Visit(func(f *flag.Flag) {
+			if f.Name != "workspace" && f.Name != "inspect-compat" {
+				invalid = true
+			}
+		})
+		if invalid || *workspace == "" {
+			return errors.New("--inspect-compat accepts only an explicit --workspace")
+		}
+		return inspectCLICompatibility(ctx, *workspace, *inspectCompat, output)
+	}
+	if *compatConfig != "" && (*workspace == "" || sandbox.kind != "" || !validCLICompatibilityPath(*compatConfig)) {
+		return errors.New("--compat-config requires an explicit workspace and confined project-relative config; whole-agent WASM is unsupported")
 	}
 	if *demo && *live {
 		return errors.New("choose either --demo or --live")
@@ -142,7 +159,7 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 		return errors.New("choose one cold metadata/control operation")
 	}
 	metadataOnly := *listSessions || *history || plugins.cold() || waits.cold()
-	if metadataOnly && (waits.enabled || waits.resume || *live || *demo || *repl || *prompt != "" || *workspace != "" || len(attachments) > 0 || *persistentMemory || mode != security.Ask || sandbox.kind != "") {
+	if metadataOnly && (waits.enabled || waits.resume || *live || *demo || *repl || *prompt != "" || *workspace != "" || len(attachments) > 0 || *persistentMemory || mode != security.Ask || sandbox.kind != "" || *compatConfig != "") {
 		return errors.New("metadata commands cannot also request execution, attachments or provider access")
 	}
 	if !*history && (*after != 0 || *highWater != 0) {
@@ -274,6 +291,7 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 		Provider, Endpoint, Model string
 	}{*live, *providerKind, *endpoint, *model})
 	config := cliNativeConfig{Model: liveModel, Repository: repository, Native: native, DataDirectory: *dataDir, Workspace: *workspace, Mode: mode, Memory: *persistentMemory, Approval: handler, Durable: waits.enabled || waits.resume, Resume: waits.resume, RouteHash: cliSHA(route), Diagnostics: diagnostics}
+	config.CompatibilityFile = *compatConfig
 	if *persistentMemory {
 		config.OpenMemory = func(ctx context.Context) (storage.MemoryStore, error) { return memorysqlite.Open(ctx, *dataDir) }
 		fmt.Fprintln(diagnostics, "Explicit persistent memory enabled for this canonical workspace; no scan/extraction or embedding network starts automatically.")

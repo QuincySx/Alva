@@ -6,9 +6,11 @@
 package hubdesktop
 
 import (
+	"errors"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/integration/protocol/skill"
 	"github.com/egoist/mygo/ui"
+	"os"
 )
 
 func (p *NativePage) openSkills() {
@@ -23,6 +25,9 @@ func (p *NativePage) openSkills() {
 		var list []skill.Skill
 		if err == nil {
 			list, err = p.Service.Skills(p.ctx, id)
+			if errors.Is(err, os.ErrNotExist) {
+				list, err = nil, nil
+			}
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
@@ -30,6 +35,7 @@ func (p *NativePage) openSkills() {
 				return
 			}
 			p.settings = settings
+			p.compatibilityDraft = settings.CompatibilityFile
 			if err != nil {
 				p.problem = err.Error()
 				p.skills = nil
@@ -62,6 +68,8 @@ func (p *NativePage) skillAction(action, value string) {
 			err = p.Service.Store.SetSkillsEnabled(p.ctx, id, true)
 		case "disable":
 			err = p.Service.Store.SetSkillsEnabled(p.ctx, id, false)
+		case "compatibility":
+			err = p.Service.SetCompatibilityFile(p.ctx, id, value)
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
@@ -104,6 +112,11 @@ func (p *NativePage) loadSkill(name string) {
 func (p *NativePage) buildSkills(c *ui.Context) {
 	ui.Column(c).Grow(1).MinHeight(0).Gap(8).Children(func() {
 		ui.Text(c, "Managed project skills · "+product.ManagedSkillDirectory).Bold()
+		ui.Text(c, "Optional compatibility: explicit project-relative JSON config; no global scan, imports or scripts. Agent definitions also require native SubAgent opt-in. Empty path disables next turn.").FontSize(11)
+		ui.Row(c).Gap(8).Children(func() {
+			ui.TextInput(c.Key("compatibility-file"), &p.compatibilityDraft).Label("Compatibility configuration file").Grow(1).Disabled(p.paneBusy || p.inputBlocked())
+			ui.Button(c, "Apply compatibility next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.skillAction("compatibility", p.compatibilityDraft) })
+		})
 		ui.Text(c, "Bound to saved workspace. Initializing/refreshing is explicit; no global scan, download or script execution. Enabling affects only the next Alva turn. Metadata is advertised; body/resources are loaded only when requested.").FontSize(11)
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Button(c, "Initialize project skill directory").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.skillAction("initialize", "") })
