@@ -9,6 +9,7 @@ AEP产品快照仍由程序选择组件：显式interpreter供JS/Python，空int
 等待通过独立WaitStore端口装配，ExecutionStore仍六方法；挂起结束实际Attempt但不结束Turn。同Turn显式继续认领新Attempt、无新prompt/handoff且禁止fallback；结果只保存不执行。普通输入、路由与next-turn配方在waiting时冻结。
 ## 约束
 Runtime仅消费六方法ExecutionStore；设置/浏览由实际产品consumer要求，SQLite实现及事务不拆分。
+应用外观走独立PreferencesStore，选项/默认/合并校验集中preferences.go；不混入按会话的SettingsStore或执行依赖。界面拥有草稿，共享PreferencesService只发布成功提交的revision，存储端在原子事务内复用同一政策。
 产品 ID 永远不等于 native ID。UI 只观察已提交产品历史，不拥有执行取消。可恢复 Error 不释放 active；唯一 Completed 收尾。SQLite产品store在子包，与native session.sqlite隔离，不读旧Rust DB。
 引擎回调在产品层串行提交；首次校验/持久化错误锁存，adapter忽略错误或后补成功也必须失败且不fallback。Execute返回后关闭回调准入，迟到回调不能修改facts。
 Completed后的真实Execute返回错误也不能让Turn成功或fallback；原始engine事件保留，产品记录execution_owner_failure并失败收尾，不能用早到事件覆盖owner错误。
@@ -18,6 +19,7 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | 文件/目录 | 职责 |
 |---|---|
 | model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引 |
+| preferences.go / preferences_test.go | 应用级外观DTO、三组选项与唯一纯值政策、revision CAS端口；消费者修改选项不改变共享校验 |
 | wait.go | 可选WaitStore、分支最近Turn观察、显式同Turn继续与输入冻结政策，不增加SDK状态 |
 | runtime.go | 独立Descriptor registry/冷能力查询及engine registry、串行执行、取消/审批路由与授权fallback |
 | descriptor_test.go | 第五engine声明/不可替换、纯冷读与snapshot切片隔离、关闭后拒绝注册 |
@@ -33,10 +35,10 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | worktree.go | Worker私有工作树binding、固定SHA/path evidence、revision/adoption/明确删除审阅及removed/unknown纯产品事实合约 |
 | team_runtime.go | FIFO任务同事务认领并复用唯一Hub Runtime执行owner |
 | automation.go | 默认暂停、固定branch/route的本地计划事实与独立AutomationStore，同普通Turn原子准入而非第二runtime |
-| sqlite | 私有耐久产品store、事务认领、历史与崩溃修复 |
-| product | UI无关L7共享服务、真实文件/历史/Inspector/Skill与SDK配方 |
+| sqlite | 私有耐久产品store、事务认领、历史、外观singleton原子迁移/CAS与崩溃修复 |
+| product | UI无关L7共享服务、独立应用外观owner、真实文件/历史/Inspector/Skill与SDK配方 |
 | bootstrap | Hub共用实际装配和安全关闭，MCP/AEP等exact attempt资源重试与facts释放顺序，desktop/server不各造recipe |
-| desktop | 独立Hub自绘界面，消费共享产品服务与基础desktop控件；等待跨窗观察保留绑定草稿、排除旧读和失效操作，持久问答用原生单选/多选/文本保存但不授权或继续，不拥有执行 |
+| desktop | 独立Hub自绘界面，消费共享产品服务与基础desktop控件；应用外观明确保存且跨窗同步，等待跨窗观察保留绑定草稿、排除旧读和失效操作，持久问答用原生单选/多选/文本保存但不授权或继续，不拥有执行 |
 | worktree | 显式approved Git、no-checkout直读blob、pin父目录原字节diff/采纳；不运行filter/checkout hook或自动commit/reset |
 | server | 认证 loopback HTTP/SSE，同源 product 服务与耐久游标，不接客户端 host path |
 | devtools | 独立只读stdio MCP诊断；显式Hub/token fd，真实bounded历史index/typed Inspector/2KiB读取，不启动或修改Agent |

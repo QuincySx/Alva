@@ -22,6 +22,7 @@ transport error 不泄露 host path/数据库/provider stderr；真实执行错�
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
+| preferences.go / preferences_test.go | authenticated /v1/preferences GET/PATCH复用共享owner及应用级SQLite，严格JSON/乐观revision/错误脱敏，不创建session或执行模型 |
 | security.go | 实际 listener authority 与随机 token 校验、Host/Origin/认证 |
 | server.go | 冷/v1/engines能力声明、bounded handler、严格 JSON/query、session 发现与创建 |
 | gateway.go / gateway_test.go | authenticated /v1/gateway冷status/独立model计费同意start/Stop，一次token仅start返回、不接受Provider/key导入 |

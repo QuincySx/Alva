@@ -17,6 +17,7 @@ Open只构造AutomationCoordinator不Start；native UI/HTTP入口显式Start其�
 独立Shell Sessions资源owner显式延长actual attempt的Hub workspace lease及SDK global lease到reap；每轮Lease只拥有generation reservation，不把observer退出当Stop。正常Turn可跨轮读/写；fresh Guard/reporter只在idle重绑，实际exe/env/cwd/authority不可变；Application.Close在Runtime之后、facts之前取消/join所有Shell owner，strong journal error和physical completion分开。Hooks同样注册actual attempt资源，独立Notify/finalizer未退出不得关facts，run-end join超时保留强失败且owner Close不重放final hooks。MCP同样注册actual attempt资源，不仅靠OnRunEnd；审批/工具回调、worker/process和native journal均完成后才允许关facts。Native resource registry保留真实未完成physical cleanup的factory/runner，阻止同product新Turn，并让Application.Close先重试精确owned资源（包含SubAgent）再关facts；journal强错误和物理cleanup完成是两个事实，不能互相覆盖。
 受管Worker worktree仅显式GitExecutable+GitHostAccessApproved构造（不执行），首Turn前用户独立批准才创建新private目标；实际session.Workspace与native tool根一致，已有native历史不得retarget。Runtime.Close先取消/join双方workspace租约的文件操作，再Close Git manager；未知mutation不重放/回滚、不reset/delete旧worktree。Git cwd是canonical+前后identity检查，Darwin未有进程级fchdir，不声称敌对sameUID下原子cwd或OS隔离。
 OpenStores为必传插口，OpenMemory/OpenBindings只在相应组件启用时需要；不存在或失败不选默认后端。stock Local*配方集中storage.go，普通assembly/tools只看同一共享契约。ProductStorage显式声明原生路由resolver，防止换实现后审批能力丢失。工厂部分资源、adapter未接管binding和Close失败均保留真实owner；构造清理未完成时返回Application及error供Close重试。
+ProductStorage另显式组合应用级PreferencesStore；Open从已选组件读取并校验一次，失败不生成默认或换库。desktop/server共用一个PreferencesService，通用会话ServiceStore和Runtime六方法依赖不扩大。Close先关闭偏好准入、取消并等待实际读写；超时保留owner及存储供重试，不重放写入。
 
 ## 业务域清单
 
@@ -39,5 +40,6 @@ OpenStores为必传插口，OpenMemory/OpenBindings只在相应组件启用时�
 | media_test.go | 真实HTTP/SDK/SQLite原件保留、JPEG派生、未知route拒绝、单请求图、重启预览和无历史重放 |
 | browser_test.go | 显式真实Chrome/local HTTP、actual SDK/HITL、prior risk、文本/截图refs与实际reap/profile removal |
 | worktree_test.go | 显式真实Git+HTTP/SDK write_file/HITL Worker隔离、显式原字节采纳、持久冷证据与重开不重放 |
-| storage.go | 共享产品profile与显式Stores/Memory/Bindings工厂；仅Local配方选择具体provider |
+| storage.go | 共享产品profile（含独立应用外观端口）与显式Stores/Memory/Bindings工厂；仅Local配方选择具体provider |
 | storage_test.go | opaque组件贯穿实际Turn、缺失/失败零fallback、部分资源与failed-close所有权 |
+| preferences_test.go | 选定opaque外观端口贯穿共享owner、无会话冷读写、读取失败零fallback；实际写入忽略取消时Close超时仍保留组件直到完成，重开无重放 |

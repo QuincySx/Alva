@@ -555,6 +555,10 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 	}
 	service.Approvals = approvals
 	service.Questions = a.Questions
+	service.Preferences, err = product.NewPreferencesService(ctx, store)
+	if err != nil {
+		return nil, err
+	}
 	if !config.Demo {
 		service.Gateway, err = gateway.NewLocal(map[string]gateway.Route{"alva": {Kind: config.ProviderKind, Provider: config.Provider}})
 		if err != nil {
@@ -606,6 +610,11 @@ func (a *Application) Close(ctx context.Context) error {
 	defer a.closeMu.Unlock()
 	if a.closed {
 		return a.closeErr
+	}
+	if a.Service != nil && a.Service.Preferences != nil {
+		if err := a.Service.Preferences.Close(ctx); err != nil {
+			return err
+		}
 	}
 	if a.Service != nil && a.Service.Gateway != nil {
 		if err := a.Service.Gateway.Close(ctx); err != nil {

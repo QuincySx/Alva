@@ -3,10 +3,10 @@
 ## 地位
 具体存储依赖 `hub` 与安全SQLite宿主封装；Hub core 不反向依赖本目录。
 ## 逻辑
-独占进程锁后打开0700/0600私有库、建表并修复中断Turn。新Turn和首Attempt、fallback认领、事件/终态都在事务提交；固定产品归属与activeAttempt防止迟到结果覆盖新轮。
+独占进程锁后打开0700/0600私有库、建表并修复中断Turn。新Turn和首Attempt、fallback认领、事件/终态都在事务提交；固定产品归属与activeAttempt防止迟到结果覆盖新轮。schema v2 在同一事务中从新库或 v1 增加应用级偏好 singleton 与默认 revision；读取/更新复用 Hub 共享纯值政策。
 ## 约束
 首次版本不读取旧Rust数据；user_version=0但已有任何业务表的库拒绝准入，不向未知库补建Hub表。最多64分支、7个授权fallback路由；history每页128项。handoff只传32条有界Turn索引，超量明确要求检索，不静默声称完整历史。Stop/可能副作用禁止自动fallback。实例锁释放与DB关闭由Store.Close显式拥有。
-所有公开Store错误在provider边界映射共享hub.ErrNotFound；product/Tool/HTTP不得识别sql.ErrNoRows。内部SQL原因可保留供诊断，事务/schema行为保持。
+所有公开Store错误在provider边界映射共享hub.ErrNotFound；product/Tool/HTTP不得识别sql.ErrNoRows。内部SQL原因可保留供诊断，事务/schema行为保持。应用偏好按 expected revision 原子更新，与会话设置独立；v2 缺失/损坏偏好在恢复前失败，不补建、不重置。未知较新 schema 拒绝且保留原数据。
 
 Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资源可以已退出，队列/timer不因此认领下一轮。只实际已开始且有合法checkpoint receipt的Attempt能提交Waiting；crash edge恢复保留该事实，无自动继续。
 
@@ -14,7 +14,8 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | 文件 | 职责 |
 |---|---|
 | wait.go / wait_test.go | 独立WaitStore、branch归属审阅、同Turn新Attempt事务、waiting冻结与Worker/计划crash edge/no fallback回归 |
-| store.go | schema、产品事务、分支保留、handoff、分页历史与中断修复 |
+| store.go | schema、v1→v2 偏好事务迁移、产品事务、分支保留、handoff、分页历史与中断修复 |
+| preferences.go / preferences_test.go | 应用级偏好 singleton、共享政策/乐观 revision 原子保存；新库、真实 v1 升级、并发、取消及损坏不重置回归 |
 | store_test.go | 可逆路由/安全fallback、native事实归属、commit失败/忽略sink错误不能成功/大handoff/恢复回归 |
 | settings.go | session-scoped默认禁用编辑、独立host确认启用与idle-only耐久snapshot |
 | settings_test.go | 配置导入不自批、归属/active限制和关闭重开耐久回归 |

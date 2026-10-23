@@ -4,6 +4,23 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 技术栈决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)，当前结构见 [ARCHITECTURE](./docs/ARCHITECTURE.md)，运行说明见 [USAGE](./docs/USAGE.md)。
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
+## 2026-10-23 Hub 应用外观与页面业务接线
+
+本批先接通General settings的主题、信息密度与正文字号；完整页面与现有业务owner/存储/缺口的对应关系见[架构映射](./docs/ARCHITECTURE.md#hub-页面与业务落地)。SDK、harness、会话设置与Runtime六方法依赖未变，桌面仍使用固定MyGo。
+
+- `hub/preferences.go`是唯一允许值、默认值、patch合并及revision政策；独立PreferencesStore贯穿共享服务与程序选定的组件。不会为UI、HTTP、SQLite各写一份业务规则，不向会话SettingsStore塞应用偏好。
+- PreferencesService串行真实读写，发布非阻塞的已提交快照；原生窗口和HTTP共用一个owner。读写失败、无效/旧后端快照不覆盖已保存状态；显式Close关闭准入、取消并等待真实I/O，超时保留owner和数据库供重试。迟到成功按事实发布，不重放写入。
+- 产品SQLite以事务从v1升级到v2，只新增`hub_preferences`单行表；新建/迁移才写默认值。CAS写入全成功或全不变，旧会话/分支/native身份/历史保留，独立native库不变。未知版本、缺行/损坏或迁移故障明确失败，不换库或重置默认。
+- 原生General页无需聊天会话，实际Select只编辑本窗草稿；明确Save才应用到所有窗口，Reload重新读取。冲突、失败及导航保留草稿，实际保存返回前阻止关窗；系统深浅色、文字缩放、高对比及减少动态效果继续有效。语言与应用级动态效果覆盖未实现，未提供假开关。
+- 认证`GET/PATCH /v1/preferences`复用共享owner，严格JSON与现有Host/Origin/Bearer校验；无效400、冲突409、故障脱敏500。页面打开、读取/保存不创建聊天或调用模型。使用与请求格式见[USAGE](./docs/USAGE.md#hub-通用外观设置)。
+
+原生控件、SQLite迁移/回滚/竞争、共享快照与关闭等待、HTTP输入/故障及opaque选型已通过专项race回归和独立代码审查。仅本任务差异的隔离源码overlay亦通过6包58项偏好测试，确认不依赖工作树中原有开发者选项改动。
+本机最终验证（macOS arm64 / Go1.27.2）：整仓desktop-tagged race共96个有测试包、2169个测试/子测试通过，0失败，889.23秒；869个Go源码/模块文件执行期间未变。专用子进程helper的无参数入口按设计skip，其真实进程用例已执行。全树desktop vet、go mod verify、本批gofmt与diff空白检查通过，独立审查无遗留问题。
+证据指针`/tmp/alva-hub-preferences-path`保存完整race JSONL/冻结hash、静态检查及仅本批差异的源码overlay；SDK/extension/harness/platform及根模块文件相对HEAD未改动。真实OS窗口/AX/IME、其他平台实机与外部模型账户仍未在本批验收。
+首轮签名提交曾因仓库配置的1Password返回`failed to fill whole buffer`而失败；本批35文件的精确差异已单独核对，原有工作树改动保留。
+
+模型连接目录、Provider/模型增删改查与常驻伙伴/分组仍待后续实现；既有会话/权限/历史/Team/自动化/工作树继续复用当前共享服务，不以SmallPen页面存在作为已接通证明。
+
 ## 2026-10-21 可选项目规范兼容与同名去重
 
 新增L4 `extension/compatibility`，显式配置后才装配；CLI、Hub共享bootstrap、原生Skills面板和认证HTTP均接入同一个插件。SDK、Plugin/Registrar与存储插口未修改；不增加另一套执行模型。

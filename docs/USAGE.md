@@ -280,6 +280,23 @@ JS/Python填写绝对interpreter路径；WASM的interpreter/args/env全部留空
 编程接入使用`extension/loader`，上层程序提供会话存储、Guard和launch-risk回调；返回的非nil Plugin拥有bundle，即使同返未完成收尾错误也须保留owner并继续Close。
 普通Go构建不需要Node/Python或外部WASM命令。QuickJS-NG仍用于现有受限脚本能力，与Node作者插件独立；浏览器`js/wasm`不冒充WASIp1插件ABI。检查、批准、构建与实际运行验收分别记录。
 
+## Hub 通用外观设置
+
+Hub原生侧栏 **General settings** 无需创建会话。主题支持跟随系统/浅色/深色，信息密度支持舒适/紧凑，正文字号支持14/16。
+编辑只改变当前窗口草稿；明确Save后所有窗口使用已提交的外观。Reload重新读取并替换草稿；另一窗口或HTTP先保存时，旧revision保存失败，保留当前草稿并提示重新加载。
+减少动态效果继续跟随系统，尚无应用级覆盖；语言资源也未实现，不提供只存值而不生效的开关。
+
+认证Hub HTTP提供`GET /v1/preferences`与`PATCH /v1/preferences`，使用现有Bearer、Host/Origin和严格JSON校验。例如GET得到revision1后提交：
+
+```json
+{"expected_revision":1,"theme":"dark","density":"compact","font_size":16}
+```
+
+允许只提供部分设置；省略或null的字段不变，至少提供一个非null字段。成功返回完整已提交快照及新revision；输入无效400、版本冲突409、存储故障500，均不替换为默认值。
+同一个Application的原生窗口与HTTP共享同一个PreferencesService；没有自动启动模型、创建聊天或恢复Turn。
+外观位于`product/product.sqlite`的独立`hub_preferences`单行表，由既有Go产品库v1事务升级至v2，native记录库保持独立。
+不并发运行两个进程打开同一私有数据目录。页面/服务/存储及剩余页面映射见[架构说明](./ARCHITECTURE.md#hub-页面与业务落地)。
+
 ## 第三方 SDK 与存储组件验收
 
 [`examples/sdk-agent`](../examples/sdk-agent/README.md) 有自己的 go.mod，只导入公开 SDK。程序选择模型、会话与服务，Plugin 贡献一个 Tool 和一个 BeforeModel hook。同一源码可在 native、Node 和 WASIp1 运行：

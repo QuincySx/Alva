@@ -113,6 +113,8 @@ Go 实现采用 [GNU AGPL-3.0-only](./LICENSE) 开源，第三方声明见 [NOTI
 协议转换吸收 yetone/magpie 固定 MIT 源码切片，不引入其完整应用或 new-api 服务。native协议直连薄适配，
 跨协议才调用Magpie；有损工具/推理续传明确拒绝，不以EOF补成功。第三方 DTO 不进入 wire/kernel/Agent SDK。
 
+页面进入Go实现时先看[页面/业务/存储映射](./docs/ARCHITECTURE.md#hub-页面与业务落地)；原生General settings与认证HTTP共用应用外观服务及SQLite，模型连接目录和常驻伙伴配置仍待接线。
+
 ## 快速开始
 
 使用 .tool-versions 固定的 Go 工具链，在仓库根目录运行：

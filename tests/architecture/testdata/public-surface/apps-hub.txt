@@ -1,0 +1,766 @@
+const (
+	WorkerActive     WorkerLifecycle = "active"
+	WorkerHibernated WorkerLifecycle = "hibernated"
+	WorkerArchived   WorkerLifecycle = "archived"
+)
+
+const Running engine.Outcome = "running"
+
+const TaskQueued engine.Outcome = "queued"
+
+func (b BrowserSettings) Validate() error
+
+func (c CommandSettings) Validate() error
+
+func (d AutomationDraft) Validate() error
+
+func (d MediaDecoder) Validate() error
+
+func (p Preferences) Apply(update PreferenceUpdate) (Preferences, error)
+
+func (p Preferences) Validate() error
+
+func (r *Runtime) Cancel(ctx context.Context, sessionID string) error
+
+func (r *Runtime) Close(ctx context.Context) error
+
+func (r *Runtime) Descriptor(id string) (engine.Descriptor, bool)
+
+func (r *Runtime) EngineDescriptions() []engine.Description
+
+func (r *Runtime) HasActive() bool
+
+func (r *Runtime) Register(id string, runtime engine.Runtime) error
+
+func (r *Runtime) RegisterDescriptor(id string, descriptor engine.Descriptor) error
+
+func (r *Runtime) RespondPermission(ctx context.Context, sessionID, requestID string, decision engine.PermissionDecision) error
+
+func (r *Runtime) ResumeWait(ctx context.Context, id, branch, turn string, revision uint64) (string, <-chan error, error)
+
+func (r *Runtime) Run(owner context.Context, sessionID, prompt string) error
+
+func (r *Runtime) SessionActive(id string) bool
+
+func (r *Runtime) Start(owner context.Context, sessionID, prompt string) (string, <-chan error, error)
+
+func (r *Runtime) StartAutomation(owner, admission context.Context, tick AutomationTick, at int64) (string, <-chan error, error)
+
+func (r *Runtime) StartOnBranch(owner context.Context, sessionID, branchID, prompt string) (string, <-chan error, error)
+
+func (r *Runtime) StartWorkerTask(owner context.Context, lead, team, workerID string) (WorkerTask, <-chan error, error)
+
+func (r *Runtime) WithExclusiveWorkspaces(ctx context.Context, paths []string, apply func(context.Context) error) error
+
+func (s Settings) Validate() error
+
+func (s ToolSettings) Validate() error
+
+func (t Target) Validate() error
+
+func BlocksInput(status engine.Outcome) bool
+
+func ClaimsConflict(a, b []ResourceClaim) bool
+
+func DefaultPreferences() Preferences
+
+func EncodeHandoff(h *Handoff) (string, error)
+
+func New(store ExecutionStore) *Runtime
+
+func NewID(prefix string) (string, error)
+
+func NewWithWaits(store interface {
+	ExecutionStore
+	WaitStore
+}) *Runtime
+
+func PreferenceChoices() PreferenceOptions
+
+func RouteKey(target Target) string
+
+func ValidateAEP(entries []AEPBundle) error
+
+func ValidateTask(scope string, claims []ResourceClaim) error
+
+import "context"
+
+import "github.com/QuincySx/Alva/integration/engine"
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"sort"
+	"strings"
+
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"slices"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"sync"
+
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
+	"net/url"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"slices"
+)
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"sync"
+)
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"errors"
+)
+
+import (
+	"encoding/hex"
+	"errors"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"errors"
+	"io/fs"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"errors"
+	"net/url"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"errors"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+type AEPBundle struct {
+	ID                 string            `json:"id"`
+	SourceDirectory    string            `json:"source_directory"`
+	Interpreter        string            `json:"interpreter"`
+	InterpreterArgs    []string          `json:"interpreter_args,omitempty"`
+	Env                map[string]string `json:"env,omitempty"`
+	Name               string            `json:"name,omitempty"`
+	Version            string            `json:"version,omitempty"`
+	SHA256             string            `json:"sha256,omitempty"`
+	Enabled            bool              `json:"enabled"`
+	HostAccessApproved bool              `json:"host_access_approved"`
+}
+
+type Attempt struct {
+	Wait                *engine.WaitCheckpoint `json:"wait,omitempty"`
+	ID                  string                 `json:"id"`
+	TurnID              string                 `json:"turn_id"`
+	SessionID           string                 `json:"session_id"`
+	BranchID            string                 `json:"branch_id"`
+	Target              Target                 `json:"target"`
+	NativeSessionID     string                 `json:"native_session_id"`
+	Status              engine.Outcome         `json:"status"`
+	SideEffectsPossible bool                   `json:"side_effects_possible"`
+	Failure             engine.FailureKind     `json:"failure"`
+	Error               string                 `json:"error"`
+	CreatedAt           int64                  `json:"created_at"`
+	EndedAt             int64                  `json:"ended_at"`
+}
+
+type Automation struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	AutomationDraft
+	Enabled       bool   `json:"enabled"`
+	Revision      uint64 `json:"revision"`
+	BranchID      string `json:"branch_id"`
+	Target        Target `json:"target"`
+	NextRunAt     int64  `json:"next_run_at,omitempty"`
+	LastRunAt     int64  `json:"last_run_at,omitempty"`
+	LastStatus    string `json:"last_status"`
+	LastError     string `json:"last_error,omitempty"`
+	RunningTurnID string `json:"running_turn_id,omitempty"`
+}
+
+type AutomationDraft struct {
+	Title           string `json:"title"`
+	Prompt          string `json:"prompt"`
+	IntervalMinutes int64  `json:"interval_minutes"`
+}
+
+type AutomationStore interface {
+	ListAutomations(context.Context, string) ([]Automation, error)
+	Automation(context.Context, string, string) (Automation, error)
+	CreateAutomation(context.Context, string, AutomationDraft) (Automation, error)
+	UpdateAutomation(context.Context, string, string, uint64, AutomationDraft) (Automation, error)
+	SetAutomationEnabled(context.Context, string, string, uint64, bool, bool) (Automation, error)
+	DeleteAutomation(context.Context, string, string, uint64) error
+	DueAutomations(context.Context, int64) ([]AutomationTick, error)
+	ClaimAutomation(context.Context, AutomationTick, int64) (Claim, error)
+	SkipBusyAutomation(context.Context, AutomationTick, int64) error
+	PauseInvalidAutomation(context.Context, AutomationTick) error
+}
+
+type AutomationTick struct {
+	ID        string `json:"id"`
+	SessionID string `json:"session_id"`
+	Revision  uint64 `json:"revision"`
+}
+
+type Branch struct {
+	ID              string `json:"id"`
+	SessionID       string `json:"session_id"`
+	Target          Target `json:"target"`
+	NativeSessionID string `json:"native_session_id"`
+	Watermark       uint64 `json:"watermark"`
+	Parked          bool   `json:"parked"`
+}
+
+type BrowserSettings struct {
+	Executable         string            `json:"executable"`
+	Env                map[string]string `json:"env,omitempty"`
+	Headless           bool              `json:"headless"`
+	Proxy              string            `json:"proxy,omitempty"`
+	StartupTimeoutMS   int               `json:"startup_timeout_ms,omitempty"`
+	OperationTimeoutMS int               `json:"operation_timeout_ms,omitempty"`
+	Enabled            bool              `json:"enabled"`
+	HostAccessApproved bool              `json:"host_access_approved"`
+}
+
+type Claim struct {
+	Session      Session
+	Branch       Branch
+	Turn         Turn
+	Attempt      Attempt
+	Handoff      *Handoff
+	WaitRevision uint64
+}
+
+type CommandSettings struct {
+	Hooks       []HookSpec       `json:"hooks"`
+	Diagnostics []DiagnosticSpec `json:"diagnostics"`
+}
+
+type Detail struct {
+	Session  Session  `json:"session"`
+	Branches []Branch `json:"branches"`
+	Fallback []Target `json:"fallback"`
+}
+
+type DiagnosticSpec struct {
+	ID          string `json:"id"`
+	Description string `json:"description,omitempty"`
+	NativeCommand
+}
+
+type ExecutionStore interface {
+	Detail(context.Context, string) (Detail, error)
+	BeginTurn(context.Context, string, string) (Claim, error)
+	BeginTurnOnBranch(context.Context, string, string, string) (Claim, error)
+	BeginFallback(context.Context, string, Target) (Claim, error)
+	Record(context.Context, string, engine.Event, bool) error
+	FinishTurn(context.Context, string, engine.Outcome) error
+}
+
+type Handoff struct {
+	ID             string         `json:"id"`
+	SessionID      string         `json:"session_id"`
+	SourceBranchID string         `json:"source_branch_id"`
+	TargetBranchID string         `json:"target_branch_id"`
+	Workspace      string         `json:"workspace"`
+	Through        uint64         `json:"through"`
+	Entries        []HandoffEntry `json:"entries"`
+	Team           *TeamSnapshot  `json:"team,omitempty"`
+	Processing     string         `json:"processing"`
+}
+
+type HandoffEntry struct {
+	TurnID       string         `json:"turn_id"`
+	Prompt       string         `json:"prompt"`
+	Status       engine.Outcome `json:"status"`
+	HistoryAfter uint64         `json:"history_after"`
+	BranchID     string         `json:"branch_id"`
+}
+
+type HistoryEntry struct {
+	Input     string         `json:"input,omitempty"`
+	Sequence  uint64         `json:"sequence"`
+	SessionID string         `json:"session_id"`
+	TurnID    string         `json:"turn_id"`
+	AttemptID string         `json:"attempt_id"`
+	Event     engine.Event   `json:"event"`
+	Time      int64          `json:"time"`
+	Timeline  *TimelineEvent `json:"timeline,omitempty"`
+}
+
+type HookSpec struct {
+	ID      string `json:"id"`
+	Event   string `json:"event"`
+	Matcher string `json:"matcher,omitempty"`
+	NativeCommand
+}
+
+type MCPServer struct {
+	ID                 string            `json:"id"`
+	Command            string            `json:"command"`
+	Args               []string          `json:"args,omitempty"`
+	Env                map[string]string `json:"env,omitempty"`
+	Enabled            bool              `json:"enabled"`
+	HostAccessApproved bool              `json:"host_access_approved"`
+}
+
+type MediaDecoder struct {
+	FFmpeg             string `json:"ffmpeg"`
+	FFprobe            string `json:"ffprobe"`
+	Enabled            bool   `json:"enabled"`
+	HostAccessApproved bool   `json:"host_access_approved"`
+}
+
+type NativeCommand struct {
+	Command            string            `json:"command"`
+	Args               []string          `json:"args,omitempty"`
+	Env                map[string]string `json:"env,omitempty"`
+	TimeoutMS          int               `json:"timeout_ms,omitempty"`
+	Enabled            bool              `json:"enabled"`
+	HostAccessApproved bool              `json:"host_access_approved"`
+}
+
+type NativeOwnerResolver interface {
+	NativeOwner(context.Context, string, string) (string, error)
+}
+
+type PreferenceOptions struct {
+	Themes    []string
+	Densities []string
+	FontSizes []int
+}
+
+type PreferenceUpdate struct {
+	ExpectedRevision uint64  `json:"expected_revision"`
+	Theme            *string `json:"theme,omitempty"`
+	Density          *string `json:"density,omitempty"`
+	FontSize         *int    `json:"font_size,omitempty"`
+}
+
+type Preferences struct {
+	Revision uint64 `json:"revision"`
+	Theme    string `json:"theme"`
+	Density  string `json:"density"`
+	FontSize int    `json:"font_size"`
+}
+
+type PreferencesStore interface {
+	Preferences(context.Context) (Preferences, error)
+	UpdatePreferences(context.Context, PreferenceUpdate) (Preferences, error)
+}
+
+type ResourceClaim struct {
+	Path  string `json:"path"`
+	Write bool   `json:"write"`
+}
+
+type Runtime struct {
+}
+
+type Session struct {
+	ID             string         `json:"id"`
+	Title          string         `json:"title"`
+	Workspace      string         `json:"workspace"`
+	ActiveBranchID string         `json:"active_branch_id"`
+	Status         engine.Outcome `json:"status"`
+	CreatedAt      int64          `json:"created_at"`
+	UpdatedAt      int64          `json:"updated_at"`
+}
+
+type SessionCursor struct {
+	Updated int64
+	ID      string
+}
+
+type SessionPage struct {
+	Sessions []Session
+	Next     SessionCursor
+	HasMore  bool
+}
+
+type SessionStore interface {
+	CreateSession(context.Context, string, string, Target) (Session, error)
+	ListSessions(context.Context, int) ([]Session, error)
+	PageSessions(context.Context, string, SessionCursor, int) (SessionPage, error)
+	Switch(context.Context, string, Target, string) (Branch, error)
+	SetFallback(context.Context, string, []Target) error
+	History(context.Context, string, uint64, int) ([]HistoryEntry, error)
+	HistoryBefore(context.Context, string, uint64, int) ([]HistoryEntry, error)
+	ReadHandoff(context.Context, string, string) (*Handoff, error)
+	BindNative(context.Context, string, string, string) error
+	Recover(context.Context) error
+}
+
+type Settings struct {
+	DurableWaits      bool            `json:"durable_waits"`
+	Version           int             `json:"version"`
+	SessionID         string          `json:"session_id"`
+	MCP               []MCPServer     `json:"mcp"`
+	AEP               []AEPBundle     `json:"aep,omitempty"`
+	SkillsEnabled     bool            `json:"skills_enabled"`
+	SubagentsEnabled  bool            `json:"subagents_enabled"`
+	PersistentMemory  bool            `json:"persistent_memory"`
+	MediaEnabled      bool            `json:"media_enabled"`
+	MediaDecoder      MediaDecoder    `json:"media_decoder"`
+	Browser           BrowserSettings `json:"browser"`
+	Commands          CommandSettings `json:"commands"`
+	Tools             ToolSettings    `json:"tools"`
+	SkillArchives     []string        `json:"skill_archives,omitempty"`
+	CompatibilityFile string          `json:"compatibility_file,omitempty"`
+}
+
+type SettingsStore interface {
+	Settings(context.Context, string) (Settings, error)
+	SaveSettings(context.Context, Settings) error
+	ReplaceMCP(context.Context, string, []MCPServer) error
+	SetMCPEnabled(context.Context, string, string, bool, bool) error
+	SetSkillsEnabled(context.Context, string, bool) error
+	SetCompatibilityFile(context.Context, string, string) error
+	SetSubagentsEnabled(context.Context, string, bool) error
+	SetPersistentMemory(context.Context, string, bool) error
+	SetMediaEnabled(context.Context, string, bool) error
+	ReplaceMediaDecoder(context.Context, string, MediaDecoder) error
+	SetMediaDecoderEnabled(context.Context, string, bool, bool) error
+	ReplaceBrowser(context.Context, string, BrowserSettings) error
+	SetBrowserEnabled(context.Context, string, bool, bool) error
+	ReplaceCommands(context.Context, string, CommandSettings) error
+	SetCommandEnabled(context.Context, string, string, string, bool, bool) error
+	ReplaceAEP(context.Context, string, []AEPBundle) error
+	SetAEPEnabled(context.Context, string, string, bool, bool) error
+	RecordSkillArchive(context.Context, string, string) error
+}
+
+type ShellSettings struct {
+	Executable         string            `json:"executable"`
+	Env                map[string]string `json:"env,omitempty"`
+	Enabled            bool              `json:"enabled"`
+	HostAccessApproved bool              `json:"host_access_approved"`
+}
+
+type Store interface {
+	ExecutionStore
+	SessionStore
+	SettingsStore
+}
+
+type Target struct {
+	EngineID             string   `json:"engine_id"`
+	ModelID              string   `json:"model_id"`
+	ProviderID           string   `json:"provider_id"`
+	AccountSource        string   `json:"account_source"`
+	BillingRoute         string   `json:"billing_route"`
+	AutomaticAuthorized  bool     `json:"automatic_authorized"`
+	RequiredCapabilities []string `json:"required_capabilities,omitempty"`
+}
+
+type TeamDetail struct {
+	Team    TeamRun  `json:"team"`
+	Workers []Worker `json:"workers"`
+}
+
+type TeamRun struct {
+	ID            string `json:"id"`
+	LeadSessionID string `json:"lead_session_id"`
+	Status        string `json:"status"`
+	CreatedAt     int64  `json:"created_at"`
+}
+
+type TeamSnapshot struct {
+	Role          string               `json:"role"`
+	TeamID        string               `json:"team_id"`
+	LeadSessionID string               `json:"lead_session_id"`
+	Status        string               `json:"status"`
+	CapturedAt    int64                `json:"captured_at"`
+	Workers       []TeamWorkerSnapshot `json:"workers"`
+	Processing    string               `json:"processing"`
+}
+
+type TeamStore interface {
+	CreateTeam(context.Context, string) (TeamDetail, error)
+	Team(context.Context, string, string) (TeamDetail, error)
+	TeamForLead(context.Context, string) (TeamDetail, error)
+	AddWorker(context.Context, string, string, string, Target) (Worker, error)
+	SetWorkerLifecycle(context.Context, string, string, string, WorkerLifecycle) error
+	EndTeam(context.Context, string, string) error
+	EnqueueWorker(context.Context, string, string, string, string, []ResourceClaim) (WorkerTask, error)
+	EditQueuedTask(context.Context, string, string, string, string, string, []ResourceClaim) error
+	CancelQueuedTask(context.Context, string, string, string, string) error
+	WorkerTasks(context.Context, string, string, string, uint64, int) (WorkerTaskPage, error)
+	ClaimWorkerTask(context.Context, string, string, string) (WorkerClaim, error)
+}
+
+type TeamTaskIndex struct {
+	TaskID           string         `json:"task_id"`
+	Sequence         uint64         `json:"sequence"`
+	Status           engine.Outcome `json:"status"`
+	TurnID           string         `json:"turn_id,omitempty"`
+	ResultSequence   uint64         `json:"result_sequence,omitempty"`
+	RequiredBranchID string         `json:"required_branch_id,omitempty"`
+}
+
+type TeamWorkerSnapshot struct {
+	WorkerID    string          `json:"worker_id"`
+	SessionID   string          `json:"session_id"`
+	Lifecycle   WorkerLifecycle `json:"lifecycle"`
+	BranchID    string          `json:"branch_id"`
+	EngineID    string          `json:"engine_id"`
+	Status      engine.Outcome  `json:"status"`
+	Queued      int             `json:"queued"`
+	Running     int             `json:"running"`
+	Head        *TeamTaskIndex  `json:"head,omitempty"`
+	LastOutcome *TeamTaskIndex  `json:"last_outcome,omitempty"`
+}
+
+type TimelineEvent struct {
+	Kind         string  `json:"kind"`
+	Text         string  `json:"text"`
+	FromBranchID string  `json:"from_branch_id,omitempty"`
+	ToBranchID   string  `json:"to_branch_id,omitempty"`
+	HandoffID    string  `json:"handoff_id,omitempty"`
+	Target       *Target `json:"target,omitempty"`
+}
+
+type ToolSettings struct {
+	Planning    bool          `json:"planning"`
+	Notebook    bool          `json:"notebook"`
+	Interaction bool          `json:"interaction"`
+	Utility     bool          `json:"utility"`
+	Shell       ShellSettings `json:"shell"`
+	Web         WebSettings   `json:"web"`
+}
+
+type ToolSettingsStore interface {
+	ReplaceTools(context.Context, string, ToolSettings) error
+	SetToolEnabled(context.Context, string, string, bool, bool) error
+}
+
+type Turn struct {
+	ID              string         `json:"id"`
+	AutomationID    string         `json:"automation_id,omitempty"`
+	SessionID       string         `json:"session_id"`
+	Sequence        uint64         `json:"sequence"`
+	Prompt          string         `json:"prompt"`
+	Status          engine.Outcome `json:"status"`
+	ActiveAttemptID string         `json:"active_attempt_id"`
+	CreatedAt       int64          `json:"created_at"`
+	EndedAt         int64          `json:"ended_at"`
+}
+
+type WaitStore interface {
+	SetDurableWaits(context.Context, string, bool) error
+	BranchTurn(context.Context, string, string) (Turn, error)
+	BeginWaitResume(context.Context, string, string, string, uint64) (Claim, error)
+	AbandonWaitingTurn(context.Context, string, string, string) error
+}
+
+type WebSettings struct {
+	Enabled               bool     `json:"enabled"`
+	NetworkAccessApproved bool     `json:"network_access_approved"`
+	ReadURLs              bool     `json:"read_urls"`
+	SearchEndpoint        string   `json:"search_endpoint,omitempty"`
+	AllowedPrivateOrigins []string `json:"allowed_private_origins,omitempty"`
+	TimeoutMS             int      `json:"timeout_ms,omitempty"`
+}
+
+type Worker struct {
+	ID        string          `json:"id"`
+	TeamID    string          `json:"team_id"`
+	SessionID string          `json:"session_id"`
+	Name      string          `json:"name"`
+	Lifecycle WorkerLifecycle `json:"lifecycle"`
+	CreatedAt int64           `json:"created_at"`
+	Worktree  *WorkerWorktree `json:"worktree,omitempty"`
+}
+
+type WorkerClaim struct {
+	Task      WorkerTask
+	Claim     *Claim
+	BlockedBy []string
+	Dormant   bool
+}
+
+type WorkerDraftStore interface {
+	EnqueueWorkerOnBranch(context.Context, string, string, string, string, string, []ResourceClaim) (WorkerTask, error)
+}
+
+type WorkerLifecycle string
+
+type WorkerOutcome struct {
+	Status         engine.Outcome `json:"status"`
+	TurnID         string         `json:"turn_id"`
+	Summary        string         `json:"summary"`
+	ResultSequence uint64         `json:"result_sequence,omitempty"`
+	ChangedFiles   []string       `json:"changed_files"`
+	Verification   []string       `json:"verification"`
+	Risks          []string       `json:"risks"`
+	Processing     string         `json:"processing"`
+}
+
+type WorkerTask struct {
+	ID               string          `json:"id"`
+	Sequence         uint64          `json:"sequence"`
+	TeamID           string          `json:"team_id"`
+	WorkerID         string          `json:"worker_id"`
+	Scope            string          `json:"scope"`
+	Claims           []ResourceClaim `json:"claims"`
+	Status           engine.Outcome  `json:"status"`
+	TurnID           string          `json:"turn_id"`
+	Outcome          *WorkerOutcome  `json:"outcome,omitempty"`
+	CreatedAt        int64           `json:"created_at"`
+	EndedAt          int64           `json:"ended_at"`
+	RequiredBranchID string          `json:"required_branch_id,omitempty"`
+}
+
+type WorkerTaskPage struct {
+	Tasks   []WorkerTask `json:"tasks"`
+	Next    uint64       `json:"next"`
+	HasMore bool         `json:"has_more"`
+}
+
+type WorkerWorktree struct {
+	State    string                 `json:"state"`
+	Binding  WorktreeBinding        `json:"binding"`
+	Evidence *WorktreeEvidence      `json:"evidence,omitempty"`
+	Adoption string                 `json:"adoption,omitempty"`
+	Problem  string                 `json:"problem,omitempty"`
+	Revision uint64                 `json:"revision"`
+	Removal  *WorktreeRemovalReview `json:"removal,omitempty"`
+}
+
+type WorktreeBinding struct {
+	Version    int    `json:"version"`
+	WorkerID   string `json:"worker_id"`
+	Workspace  string `json:"shared_workspace"`
+	Path       string `json:"path"`
+	Branch     string `json:"branch"`
+	BaseCommit string `json:"base_commit"`
+}
+
+type WorktreeChange struct {
+	Path         string `json:"path"`
+	BeforeSHA256 string `json:"before_sha256,omitempty"`
+	AfterSHA256  string `json:"after_sha256,omitempty"`
+	BeforeMode   string `json:"before_mode,omitempty"`
+	AfterMode    string `json:"after_mode,omitempty"`
+}
+
+type WorktreeEvidence struct {
+	ID            string           `json:"id"`
+	WorkerID      string           `json:"worker_id"`
+	BaseCommit    string           `json:"base_commit"`
+	WorkerSHA256  string           `json:"worker_sha256"`
+	SharedSHA256  string           `json:"shared_sha256"`
+	PatchSHA256   string           `json:"patch_sha256"`
+	PatchBytes    int              `json:"patch_bytes"`
+	SnapshotBytes int              `json:"snapshot_bytes"`
+	CreatedAt     int64            `json:"created_at"`
+	Changes       []WorktreeChange `json:"changes"`
+}
+
+type WorktreeRemovalReview struct {
+	WorkerSHA256 string `json:"worker_sha256"`
+	IndexSHA256  string `json:"index_sha256"`
+	Head         string `json:"head"`
+	Files        int    `json:"files"`
+	Bytes        int    `json:"bytes"`
+	CreatedAt    int64  `json:"created_at"`
+}
+
+type WorktreeStore interface {
+	BeginWorkerWorktree(context.Context, string, string, string) (Worker, error)
+	FinishWorkerWorktree(context.Context, string, string, string, uint64, WorktreeBinding, string) (Worker, error)
+	SaveWorkerEvidence(context.Context, string, string, string, uint64, WorktreeEvidence) (Worker, error)
+	BeginWorkerAdoption(context.Context, string, string, string, uint64, string) (Worker, error)
+	FinishWorkerAdoption(context.Context, string, string, string, uint64, string) (Worker, error)
+	SaveWorkerRemovalReview(context.Context, string, string, string, uint64, WorktreeRemovalReview) (Worker, error)
+	BeginWorkerRemoval(context.Context, string, string, string, uint64, string) (Worker, error)
+	FinishWorkerRemoval(context.Context, string, string, string, uint64, bool) (Worker, error)
+}
+
+var ErrAutomationRouteChanged = errors.New("automation paused because its route or collaboration scope changed")
+
+var ErrAutomationSkipped = errors.New("automation tick skipped; no catch-up or queued execution")
+
+var ErrAutomationStale = errors.New("automation changed, paused, claimed or not due; refresh before acting")
+
+var ErrInvalidPreferences = errors.New("invalid application preferences")
+
+var ErrNotFound = errors.New("product object is unavailable in this scope")
+
+var ErrPreferenceConflict = errors.New("preferences changed; reload before saving")
+
+var ErrSessionBusy = errors.New("Hub session already running")
+
+var ErrSessionNotRunning = errors.New("Hub session is not running")
+
+var ErrWorkerDormant = errors.New("Worker is dormant or Team has ended")
+
+var ErrWorkerQueueEmpty = errors.New("Worker queue is empty")
+
+var ErrWorkerResourcesBlocked = errors.New("Worker head is waiting for older or running resource claims")

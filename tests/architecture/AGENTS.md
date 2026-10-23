@@ -11,6 +11,7 @@
 `sdk` 保留 L0/L1/L2/L2.3/L2.5/L3 细分职责；`extension` 为 L4、`harness` 为 L5、
 `apps` 为 L6/L7；`integration` 与 `platform` 是横向协议/原生支撑，不是绕过边界的容器。
 公开快照扫描 `sdk` 中wire/bus/kernel ABI/kernel core/agent ABI/agent core和纯sandbox ABI；路径迁移只更新其 import 身份，不建立旧路径别名。
+Hub根产品契约亦进入快照，显式审阅独立存储端口/DTO变化；不将产品类型移入SDK。
 
 ## 约束
 
@@ -44,5 +45,5 @@ platform/storage/blob根契约和adapter仅可标准库与根契约；根不依�
 | `paths_test.go` | module 根定位、程序入口/桌面/验证角色路径；负例仍以独立字面路径验证精确边界 |
 | `conversion_test.go` | 吸收 Magpie 的固定来源/许可/本地哈希与 RelayKit 已移除的离线闸 |
 | `fractal_test.go` | 所有源码（含tagged/helper）三行头与目录分形文档强制检查 |
-| `surface_test.go` / `testdata` | SDK公开面AST快照与扫描器反例，须显式审核更新 |
+| `surface_test.go` / `testdata` | SDK、共享存储与Hub根契约公开面AST快照与扫描器反例，须显式审核更新 |
 | storage_test.go | 统一存储插口、具体provider/SQL泄漏与显式配方位置的正反例 |

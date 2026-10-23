@@ -10,6 +10,6 @@ architecture 离线检查源码依赖、公开快照、分形文档和固定转�
 ## 业务域清单
 | 路径 | 职责 |
 |---|---|
-| architecture/ | 静态依赖、布局、分形、公开面及来源闸 |
+| architecture/ | 静态依赖、布局、分形、SDK/共享存储/Hub公开面及来源闸 |
 | extensibility/ | 上下文、多 Agent、双向 transport、独立进程恢复与跨目标普通工具CLI消费者 |
 | storagecontract/ | 只用共享契约的opaque装饰及公开storagetest验收；factory显式选择临时后端 |

@@ -53,6 +53,7 @@ type HubService struct {
 	Approvals          *host.ApprovalBroker
 	Questions          *host.QuestionBroker
 	Gateway            *gateway.Local
+	Preferences        *PreferencesService
 	Teams              *TeamCoordinator
 	Automations        *AutomationCoordinator
 	Worktrees          *worktree.Manager

@@ -49,6 +49,31 @@ namespace。工具目录读取调用方的实时 registry；偏好投影由明�
 
 可选[durable harness](../harness/durable/AGENTS.md)复用现有Plugin/Tool/hooks和四方法Backend，支持持久等待、受参数约束的一次性审批/问题结果与原子继续投递。MemoryBackend明确volatile；journal adapter消费同一事实插口，不绑定数据库。等待成功持久化后可退出进程；running/interrupted不自动重放，外部任务启动/取消仍归实际owner。direct CLI以`--durable`显式启用；Hub的Alva配方通过共享bootstrap/product接入UI与HTTP，默认off。Engine的Completed(waiting)仅结束本次Attempt；产品Turn保留，显式继续创建同Turn的新Attempt，无新prompt/handoff且禁止fallback，SDK内核不增加waiting状态。
 
+## Hub 页面与业务落地
+
+SmallPen页面描述布局、组件和交互意图；可运行能力以Go入口、共享服务与耐久事实为准。新增页面先找现有owner及端口，再补缺失领域，不能按“每页一个Service、每层一份规则”重复实现。
+
+| 页面/能力 | 共享业务owner | 持久化与当前边界 |
+|---|---|---|
+| 工作台、会话、分支、运行/停止 | `product.HubService` + `hub.Runtime` | Hub产品Turn/Attempt与native记录分开；现有Submit/切换/订阅链路继续复用 |
+| 通用外观设置 | `product.PreferencesService` | 独立`hub.PreferencesStore` → 产品SQLite的`hub_preferences`；本批接通主题、密度和正文字号 |
+| 权限、问题、等待恢复 | 现有broker/Guard + `HubService`的等待服务 | 原始审批/问题及同Turn等待事实复用；界面草稿不授予权限 |
+| Skills、MCP、工具与插件设置 | 现有产品服务及next-turn装配 | 已有会话级SettingsStore；设计中的应用级目录/安装体验仍需逐项接线 |
+| Team、Worker、自动化、工作树 | 现有Team/Automation服务及Runtime/工作树owner | 沿用相应产品端口和SQLite事务，不再为页面创建第二执行系统 |
+| 模型连接、Provider增删改查 | 尚缺应用级连接目录与秘密引用服务 | 当前模型由程序显式配置；设计中的连接页面尚不能管理生产路由 |
+| 常驻伙伴、伙伴分组 | 尚缺独立持久领域 | 当前Team/Worker是执行任务事实；不以同名界面推断它已实现常驻伙伴配置 |
+
+外观链路为：**原生草稿或HTTP请求 → 同一个PreferencesService → PreferencesStore → SQLite事务**。
+允许值、默认值、patch合并及revision规则只定义在`apps/hub/preferences.go`；存储在事务内调用同一纯值政策。
+传输层只做认证/格式/错误映射，UI只做输入与呈现。共享owner发布已提交的不可变快照，构建界面不等待数据库；读写失败保留旧快照并报错。
+多窗口/HTTP使用expected revision，冲突拒绝覆盖并保留草稿，由用户重新加载；保存成功后统一应用主题、密度和正文字号。
+Application.Close先停止偏好读写准入、取消并等待实际存储调用；超时保留owner及数据库供重试。已提交但迟到返回的结果按事实发布，不自动重放写入。
+
+产品SQLite由schema v1原子升级至v2，新增单行外观表；新建/迁移才写默认值。
+未知版本、缺行或损坏会失败，不重建为默认，也不修改独立native数据库。会话SettingsStore与六方法ExecutionStore的职责不变。
+下一批连接目录应先梳理Provider→模型→账户/秘密引用→目标路由的关系，再同时接入页面和实际装配；其后再落常驻伙伴/分组。
+这一顺序是实施边界，不把设计中的整套页面宣称为已经完成。
+
 ## 存储替换边界
 
 目标是**同一契约从内到外贯穿**，由程序/组件/Plugin装配选择实际实现。只在最底下多加几个backend不算完成：
@@ -74,6 +99,7 @@ namespace。工具目录读取调用方的实时 registry；偏好投影由明�
 | 可选记忆 | SDK `memory.Backend` / `storage.MemoryStore` | namespace由装配固定，Bind不返回具体SQL类型 |
 | 外部Agent身份 | `storage.BindingStore` | 原子create-or-verify owner/workspace；process adapter不创建数据库 |
 | Hub产品事实 | `ExecutionStore`/`SessionStore`/`SettingsStore`及可选能力 | DTO与ErrNotFound在Hub契约；Runtime仍仅依赖六方法ExecutionStore |
+| Hub应用外观 | `hub.PreferencesStore` | 与会话无关的singleton及原子revision CAS；原生/HTTP共用同一owner，失败无默认fallback |
 | 不可变大对象字节 | `blob.Store` | Put/bounded Read；不取代事实事务或授予宿主执行权 |
 
 `apps/direct.Config.Storage`必传；`bootstrap.Config.OpenStores`必传，Memory/Bindings工厂只在相应能力启用时需要。

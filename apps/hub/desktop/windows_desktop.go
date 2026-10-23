@@ -46,6 +46,10 @@ func (m *nativeWindows) open(sessionID string) error {
 		observePage(ctx, p.window.Update, p.poll, ticker.C)
 	}()
 	p.window.OnClose(func(event *mygo.CloseEvent) {
+		if p.guardPreferencesClose(event) {
+			p.window.Invalidate()
+			return
+		}
 		// Another window can keep observing the actual runtime. The final
 		// window still requires explicit Stop while execution is active.
 		if p.busy || p.playerBusy || p.gatewayBusy || p.inspectExportBusy || len(m.pages) == 1 && m.service.Runtime.HasActive() {

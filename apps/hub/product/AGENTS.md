@@ -13,6 +13,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
+| preferences.go / preferences_test.go | application级偏好共享owner、取消感知的串行存储及非阻塞已提交快照；Close停准入/取消并等待实际I/O、超时保留owner可重试，失败/旧版本不覆盖缓存，不选择后端或启动会话 |
 | wait.go | Alva journal专属的共享UI/HTTP等待DTO、persistent opt-in、陈旧/跨分支拒绝、结果保存/同Turn继续/审阅放弃 |
 | service.go | 产品session/Turn服务、expected-branch原子准入、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答owner |
 | service_test.go | 真实双store/local harness、上传/权限/历史/Inspector和其他engine等待不借Alva authority回归 |

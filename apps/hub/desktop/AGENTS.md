@@ -4,6 +4,8 @@
 仅通过 apps/hub/product 共享 UI 无关业务；共享 apps/ui/chat 与 apps/ui/modules 控件包不依赖 direct、Hub 或执行 owner。
 ## 逻辑
 
+General是会话外的应用偏好页；原生Select只编辑本窗草稿，明确Save/Reload复用共享PreferencesService与有版本的原子保存。Build/观察仅读已提交内存快照，theme/density/body size在所有窗口生效；外部修改、冲突与存储失败保留草稿，实际保存返回前阻止关闭其窗口。Reduced motion只读系统偏好，不伪装独立应用功能。
+
 AEP pane区分原生JS/Python的完整host访问与嵌入式WASIp1的无目录/环境/网络运行，二者都先检查disabled pin并单独批准下一Turn；空interpreter仅选择manifest=wasm。
 apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只提交引用清单与读取有限产品历史；本包仅拥有页面交互、轮询与展示转换。
 原生窗口独立250ms观察时钟最多一个排队UI closure，进度/审批与终态查询不依赖Build或compositor重绘；关闭observer取消时钟，过期closure不查询或Stop。自绘Build仅呈现当前状态。
@@ -18,6 +20,7 @@ apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
+| preferences_desktop.go / preferences_desktop_test.go | 无会话General页、共享选项的实际原生Select与明确Save/Reload、保留冲突/失败草稿；跨窗theme/density/body size和只读系统reduced motion，SQLite/bootstrap重开、冷Build与保存期间关窗守卫的无窗口回归 |
 | wait_desktop.go / wait_desktop_test.go | 默认off等待面板、完整请求/已保存结果与可复制Turn ID、跨窗观察/绑定草稿/旧读排除/读失败禁用；只保存结果、同Turn继续和重新审阅后放弃，1240×850无窗口控件回归 |
 | wait_question_desktop.go / wait_question_desktop_test.go | 持久问题单选/多选/文本与实际编码限额；关闭重开后保存/恢复同Turn、澄清后写入仍单独审批、过期禁用、并存问题焦点/草稿隔离及1240×818滚动/按钮视口回归，不要求手写JSON |
 | app_desktop.go | 原生首页、虚拟历史/共享composer、分支/有账单归属fallback、显式审批/文件选择 |

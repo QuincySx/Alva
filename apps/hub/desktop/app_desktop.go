@@ -1,5 +1,5 @@
 // INPUT: MyGo native UI, shared desktop controls, durable product.HubService and bounded product pages
-// OUTPUT: Run, NativePage and session home/history/file/branch controls
+// OUTPUT: Run, NativePage and session home/history/file/branch plus General preference controls
 // POS: [L7 Hub product] Separate native Hub product entry; no WebView or direct-harness entry rewrite
 //go:build desktop
 
@@ -32,6 +32,7 @@ type NativePage struct {
 	diagnosticFrame                func()
 	diagnosticChanged              func()
 	Service                        *product.HubService
+	preferences                    preferencesPane
 	model                          *view.Model
 	chat                           *view.NativeView
 	transcript                     Transcript
@@ -325,6 +326,7 @@ func (p *NativePage) applyDetail() {
 	}
 }
 func (p *NativePage) poll() {
+	p.observePreferences()
 	if p.selected == "" || p.polling || p.busy {
 		return
 	}
@@ -606,6 +608,8 @@ func (p *NativePage) Build(c *ui.Context) {
 			i = 8
 		}
 	}
+	p.observePreferences()
+	p.applyPreferences(c)
 	ui.Row(c).Fill().Gap(12).Padding(12).Children(func() {
 		ui.Column(c).Label("Session navigation").Width(240).FillHeight().Gap(8).Children(func() {
 			ui.Text(c, "ALVA Hub · Go").Role(ui.RoleHeading).Level(1).Bold().FontSize(20)
@@ -614,6 +618,7 @@ func (p *NativePage) Build(c *ui.Context) {
 					p.problem = err.Error()
 				}
 			})
+			ui.Button(c, "General settings").Disabled(p.Service.Preferences == nil).OnClick(p.openPreferences)
 			ui.TextInput(c.Key("title"), &p.title).Label("Session title").Placeholder("Session title")
 			ui.TextInput(c.Key("workspace"), &p.workspace).Label("Workspace directory").Placeholder("Optional absolute workspace; blank = private session")
 			ui.Button(c, "New session").Disabled(p.busy).OnClick(p.create)
@@ -645,9 +650,15 @@ func (p *NativePage) Build(c *ui.Context) {
 			if branch, err := product.ActiveBranch(p.detail); err == nil && branch.Target.EngineID != "alva" {
 				mode = "EXTERNAL · " + branch.Target.EngineID + " · explicit executable with real host/account access"
 			}
-			ui.Text(c, mode).FontSize(12)
+			if p.pane != "preferences" {
+				ui.Text(c, mode).FontSize(12)
+			}
 			if p.problem != "" {
 				ui.Text(c, "Error: "+p.problem).FontSize(13)
+			}
+			if p.pane == "preferences" {
+				p.buildPreferences(c)
+				return
 			}
 			if p.selected == "" {
 				ui.Text(c, "Create or select a durable session. Nothing executes on startup.").FontSize(20)

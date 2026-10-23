@@ -39,7 +39,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
-	if version != 0 && version != 1 {
+	if version < 0 || version > 2 {
 		s.Close()
 		return nil, errors.New("unsupported Go product database schema; existing data was not modified")
 	}
@@ -85,12 +85,33 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 			return nil, err
 		}
 	}
-	if version == 0 {
-		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=1`); err != nil {
+	if version < 2 {
+		if _, err = initialization.ExecContext(ctx, `CREATE TABLE hub_preferences(id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL CHECK(revision>0),data BLOB NOT NULL)`); err != nil {
 			initialization.Rollback()
 			s.Close()
 			return nil, err
 		}
+		data, encodeErr := body(hub.DefaultPreferences())
+		if encodeErr != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, encodeErr
+		}
+		if _, err = initialization.ExecContext(ctx, `INSERT INTO hub_preferences(id,revision,data) VALUES(1,1,?)`, data); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=2`); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+	}
+	if _, err = preferences(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
 	}
 	if err = initialization.Commit(); err != nil {
 		s.Close()

@@ -118,6 +118,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.localGateway(w, r)
 		return
 	}
+	if r.URL.Path == "/v1/preferences" {
+		s.preferences(w, r)
+		return
+	}
 	if r.URL.Path == "/v1/sessions" {
 		s.sessions(w, r)
 		return
