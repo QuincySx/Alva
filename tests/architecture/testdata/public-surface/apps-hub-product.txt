@@ -191,6 +191,8 @@ func (s *HubService) SetAutomationEnabled(ctx context.Context, owner, id string,
 
 func (s *HubService) SetCompatibilityFile(ctx context.Context, id, file string) error
 
+func (s *HubService) SetPermissionPolicy(ctx context.Context, id string, policy hub.PermissionPolicy, confirmed bool) error
+
 func (s *HubService) SetPlanMode(ctx context.Context, id string, enabled bool) error
 
 func (s *HubService) SetToolEnabled(ctx context.Context, id, kind string, enabled, approved bool) error

@@ -16,6 +16,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | 文件 | 职责 |
 |---|---|
 | connections.go / connections_test.go | 独立应用连接owner、脱敏已提交缓存、CRUD/CAS、exact revision provider解析与取消/join；动态路由共用现有执行准入，不联网探测 |
+| permissions.go / permissions_test.go | 与Plan共用空闲native/checkpoint gate；显式Full范围确认、下一Turn策略持久且不启用可选能力 |
 | composer_commands.go / composer_commands_test.go | 冷命令/受管Skills目录、有限参数、来源/branch/SHA绑定的typed preparation，选取不启用不执行 |
 | composer_draft.go / composer_draft_test.go | 明确Send重验全部选择、应用计划意图并共用普通/Worker准入；变动或篡改拒绝保留稿 |
 | workspace_references.go / workspace_references_test.go | saved项目有界分页搜索、文件原件/目录metadata artifact、共享附件预算和分支准入 |

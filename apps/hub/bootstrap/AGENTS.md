@@ -17,7 +17,7 @@ Open只构造AutomationCoordinator不Start；native UI/HTTP入口显式Start其�
 独立Shell Sessions资源owner显式延长actual attempt的Hub workspace lease及SDK global lease到reap；每轮Lease只拥有generation reservation，不把observer退出当Stop。正常Turn可跨轮读/写；fresh Guard/reporter只在idle重绑，实际exe/env/cwd/authority不可变；Application.Close在Runtime之后、facts之前取消/join所有Shell owner，strong journal error和physical completion分开。Hooks同样注册actual attempt资源，独立Notify/finalizer未退出不得关facts，run-end join超时保留强失败且owner Close不重放final hooks。MCP同样注册actual attempt资源，不仅靠OnRunEnd；审批/工具回调、worker/process和native journal均完成后才允许关facts。Native resource registry保留真实未完成physical cleanup的factory/runner，阻止同product新Turn，并让Application.Close先重试精确owned资源（包含SubAgent）再关facts；journal强错误和物理cleanup完成是两个事实，不能互相覆盖。
 受管Worker worktree仅显式GitExecutable+GitHostAccessApproved构造（不执行），首Turn前用户独立批准才创建新private目标；实际session.Workspace与native tool根一致，已有native历史不得retarget。Runtime.Close先取消/join双方workspace租约的文件操作，再Close Git manager；未知mutation不重放/回滚、不reset/delete旧worktree。Git cwd是canonical+前后identity检查，Darwin未有进程级fchdir，不声称敌对sameUID下原子cwd或OS隔离。
 OpenStores为必传插口，OpenMemory/OpenBindings只在相应组件启用时需要；不存在或失败不选默认后端。stock Local*配方集中storage.go，普通assembly/tools只看同一共享契约。ProductStorage显式声明原生路由resolver，防止换实现后审批能力丢失。工厂部分资源、adapter未接管binding和Close失败均保留真实owner；构造清理未完成时返回Application及error供Close重试。
-ProductStorage另显式组合应用级PreferencesStore；Open从已选组件读取并校验一次，失败不生成默认或换库。desktop/server共用一个PreferencesService，通用会话ServiceStore和Runtime六方法依赖不扩大。Close先关闭偏好准入、取消并等待实际读写；超时保留owner及存储供重试，不重放写入。
+ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open从已选组件读取并校验一次，失败不生成默认或换库。desktop/server共用独立PreferencesService/ConnectionsService，通用会话ServiceStore和Runtime六方法依赖不扩大。Close先关闭应用配置准入、取消并等待实际读写；超时保留owner及存储供重试，不重放写入。
 
 ## 业务域清单
 
@@ -25,6 +25,7 @@ ProductStorage另显式组合应用级PreferencesStore；Open从已选组件读�
 | 文件 | 职责 |
 |---|---|
 | connections.go / connections_test.go | 每attempt按已提交连接revision解析实际provider/模型/账户/计费与视觉声明；真实HTTP、重开续轮与过期路由零调用回归 |
+| permissions.go / permissions_test.go | frozen Ask/Auto/Full真实approval handler；Auto仅原生文件写入，Full不放宽Guard/独立host批准，真实HTTP文件执行和危险效果回归 |
 | wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环 |
 | wait_crash_test.go | 杀死真实Hub续跑进程后unknown/no replay、过期拒绝及显式审阅Abandon |
 | plan_mode.go / plan_test.go / composer_checkpoint_test.go | 真实只读Guard配方、移除process/network可选集成而保留已存批准；实际模型拒写/Ask恢复和冻结checkpoint入口一致性回归 |

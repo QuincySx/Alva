@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/harness/durable"
 	"github.com/QuincySx/Alva/integration/engine"
@@ -57,6 +58,9 @@ func TestComposerPlanRejectsInterruptedDurableCheckpoint(t *testing.T) {
 	}
 	if err = a.Service.SetPlanMode(t.Context(), p.ID, true); err == nil {
 		t.Fatal("ordinary Plan change accepted an interrupted native checkpoint")
+	}
+	if err = a.Service.SetPermissionPolicy(t.Context(), p.ID, hub.PermissionFull, true); err == nil {
+		t.Fatal("permission change accepted an interrupted native checkpoint")
 	}
 	selection, err := a.Service.PrepareComposerSelection(t.Context(), p.ID, product.ComposerSelectionRequest{EntryID: "builtin:plan"})
 	if err != nil {

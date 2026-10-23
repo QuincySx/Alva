@@ -14,6 +14,7 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | 文件 | 职责 |
 |---|---|
 | connections.go / connections_test.go | 应用连接/credential分表CRUD、revision CAS、exact revision秘值读取、事务回滚/重开/损坏拒绝与v2→v3升级 |
+| permissions.go / permissions_test.go | 空闲native下一Turn权限事务、Full显式确认、普通导入不升权与Plan清除潜在Full |
 | wait.go / wait_test.go | 独立WaitStore、branch归属审阅、同Turn新Attempt事务、waiting冻结与Worker/计划crash edge/no fallback回归 |
 | store.go | schema、v1→v2→v3偏好/连接事务迁移、产品事务、分支保留、handoff、分页历史与中断修复 |
 | preferences.go / preferences_test.go | 应用级偏好 singleton、共享政策/乐观 revision 原子保存；新库、真实 v1 升级、并发、取消及损坏不重置回归 |

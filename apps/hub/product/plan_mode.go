@@ -21,6 +21,13 @@ func (s *HubService) SetPlanMode(ctx context.Context, id string, enabled bool) e
 }
 
 func (s *HubService) setPlanModeLocked(ctx context.Context, id string, enabled bool) error {
+	if err := s.validateNativePolicyChangeLocked(ctx, id); err != nil {
+		return err
+	}
+	return s.Store.SetPlanMode(ctx, id, enabled)
+}
+
+func (s *HubService) validateNativePolicyChangeLocked(ctx context.Context, id string) error {
 	detail, err := s.Store.Detail(ctx, id)
 	if err != nil {
 		return err
@@ -42,5 +49,5 @@ func (s *HubService) setPlanModeLocked(ctx context.Context, id string, enabled b
 	if view.Snapshot.State.Status != durable.Idle {
 		return errors.New("review and abandon the existing native checkpoint before changing plan mode")
 	}
-	return s.Store.SetPlanMode(ctx, id, enabled)
+	return nil
 }

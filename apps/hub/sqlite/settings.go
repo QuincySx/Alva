@@ -89,6 +89,7 @@ func (s *Store) SaveSettings(ctx context.Context, value hub.Settings) (providerR
 			return err
 		}
 		value.PlanMode = previous.PlanMode // Importing configuration is not a permission-policy transition.
+		value.PermissionPolicy = previous.PermissionPolicy
 		return saveSettings(ctx, tx, value)
 	})
 }

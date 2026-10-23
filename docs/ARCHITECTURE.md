@@ -60,7 +60,7 @@ SmallPen页面描述布局、组件和交互意图；可运行能力以Go入口�
 | 权限、问题、等待恢复 | 现有broker/Guard + `HubService`的等待服务 | 原始审批/问题及同Turn等待事实复用；界面草稿不授予权限 |
 | Skills、MCP、工具与插件设置 | 现有产品服务及next-turn装配 | 已有会话级SettingsStore；设计中的应用级目录/安装体验仍需逐项接线 |
 | Team、Worker、自动化、工作树 | 现有Team/Automation服务及Runtime/工作树owner | 沿用相应产品端口和SQLite事务，不再为页面创建第二执行系统 |
-| 模型连接、Provider增删改查 | 尚缺应用级连接目录与秘密引用服务 | 当前模型由程序显式配置；设计中的连接页面尚不能管理生产路由 |
+| 模型连接、Provider增删改查 | 独立`product.ConnectionsService` | `hub.ConnectionsStore`→SQLite v3的metadata/credential分表；手填模型及CRUD/CAS生成真正revision绑定路由，测试连接/自动目录/本机账户认证仍缺 |
 | 常驻伙伴、伙伴分组 | 尚缺独立持久领域 | 当前Team/Worker是执行任务事实；不以同名界面推断它已实现常驻伙伴配置 |
 
 原生工作台21/22现已消费该链路：页面只持草稿与浮层，明确首发经现有Create、可选Switch、逐项导入、初次Detail读取及捕获文本的Submit。首发失败保留实际身份与输入；普通导航、建议和Build不启动执行。正文复用共享chat的有界列表、Markdown及阅读锚点，输入区由Hub装配；旧高级能力收进可达菜单，业务owner不复制。
@@ -74,11 +74,13 @@ SmallPen页面描述布局、组件和交互意图；可运行能力以Go入口�
 | `req_alva_composer_execution` | 本窗按不可变物理owner身份保留未完成Stop，条件取消防止影响后续执行（含同Turn恢复）；导航不视作回执，Cancel错误仍待真实清理，可明确重试 | `TestWorkspaceStopSurvivesNavigationUntilActualCleanup` |
 | `req_alva_composer_focus` | 实际路由菜单方向键/Enter选择、有限视口滚动、焦点恢复；提交/等待/停止/禁发提示来自当前真实状态 | `TestWorkspaceComposerTargetKeyboardScrollsConfiguredRoutes` |
 | `req_alva_navigation_settings` | 应用设置共享单一返回来源，分类切换不覆盖；Inspector位置保留，媒体只恢复冷索引，运行/播放owner保持原生命周期 | `TestWorkspaceSettingsMediaReturnRestoresIndexWithoutBodyOrPlayback` |
-| `req_alva_composer_configuration` | 当前装配路由可选；附件分支不兼容提前阻止提交。原生政策仍固定Ask，Auto/Full未接通，不能从界面直接授予新模式 | `TestWorkspaceSavedAttachmentMismatchBlocksSemanticSend` |
+| `req_alva_composer_configuration` | 已提交应用连接的路由可选；失效路由与不兼容附件提前禁发。Ask/Auto/Full通过共享setter只改下一Turn，Full单独确认；Plan最高只读且重置Ask | `TestWorkspaceSavedPermissionWaitsForActualStore`、`TestNativePermissionPoliciesEnforceRealWrites` |
 
 输入区现在通过共享product服务处理typed命令/Skills与项目引用：选择仅改草稿，明确Send重验来源/branch/SHA并共用Submit或Worker入队；文件原件和目录有界metadata保存在既有Artifact，引用不授予权限。PlanMode持久化于已有JSON设置，独立原子setter保留其他批准；bootstrap使用真实只读Guard并在本轮移除进程/网络集成，统一SQLite Attempt事务拒绝外部引擎绕过（含fallback、Worker、自动化）。
 
-目标表单、常驻伙伴/群组、跨项目目录、兼容来源Skills目录、任意shell型slash命令、语音录制/转写与Ask/Auto/Full完整权限模式仍缺产品契约或服务；现有菜单/组件、工具元数据与临时Team不等于这些领域已经实现。右侧标签工作区、应用连接目录和全局自动化也尚未由旧Inspector/会话面板替代完成。
+权限是产品策略而非SDK新模式：Auto仅自动批准已知原生write_file/edit_file在Guard确认后的工作区写入，命令/网络/MCP/未知效果仍问，可信安全命令分类尚缺。Full在已有Guard与独立host批准范围内自动批准，不启用插件或扩大根目录；首页确认绑定workspace/route并在首发迁移后消费。Plan、运行/waiting与未放弃checkpoint冻结共用同一gate，普通配置导入不能升权或恢复潜在Full。
+
+目标表单、常驻伙伴/群组、跨项目目录、兼容来源Skills目录、任意shell型slash命令、语音录制/转写仍缺产品契约或服务；现有菜单/组件、工具元数据与临时Team不等于这些领域已经实现。右侧标签工作区、联合模型选择器的收藏/参数、自动模型目录和全局自动化也尚未由旧Inspector/会话面板替代完成。
 
 外观链路为：**原生草稿或HTTP请求 → 同一个PreferencesService → PreferencesStore → SQLite事务**。
 允许值、默认值、patch合并及revision规则只定义在`apps/hub/preferences.go`；存储在事务内调用同一纯值政策。
@@ -86,10 +88,10 @@ SmallPen页面描述布局、组件和交互意图；可运行能力以Go入口�
 多窗口/HTTP使用expected revision，冲突拒绝覆盖并保留草稿，由用户重新加载；保存成功后统一应用主题、密度和正文字号。
 Application.Close先停止偏好读写准入、取消并等待实际存储调用；超时保留owner及数据库供重试。已提交但迟到返回的结果按事实发布，不自动重放写入。
 
-产品SQLite由schema v1原子升级至v2，新增单行外观表；新建/迁移才写默认值。
+产品SQLite由schema v1→v2→v3原子升级，保留单行外观表并增加连接metadata/credential分表；新建/迁移才写默认值。
 未知版本、缺行或损坏会失败，不重建为默认，也不修改独立native数据库。会话SettingsStore与六方法ExecutionStore的职责不变。
-下一批连接目录应先梳理Provider→模型→账户/秘密引用→目标路由的关系，再同时接入页面和实际装配；其后再落常驻伙伴/分组。
-这一顺序是实施边界，不把设计中的整套页面宣称为已经完成。
+连接链路为原生草稿→同一个ConnectionsService→ConnectionsStore事务→已提交缓存→显式路由选择→实际Attempt的immutable Provider配置。Key与自定义header值不进入列表、普通DTO、日志/历史或错误；仅私有SQLite权限保护，不宣称加密或系统钥匙串。空Key编辑保留，显式清除/Auth=none删除；编辑/启停/删除增加revision，使旧路由明确失效，不悄悄切账号，也不取消已经使用旧快照的实际Attempt。冷AvailableTargets共用于桌面、HTTP和Team/Automation，不在Build访问SQLite，默认仍由程序明确配置。
+新增连接不发网络请求；连接测试、自动模型目录与本机Agent账户认证需由实际产品适配owner继续实现。
 
 ## 存储替换边界
 

@@ -21,11 +21,13 @@ type workspaceComposerState struct {
 	target                              hub.Target
 	targetFocus                         ui.Handle
 	targetActive, context               string
+	confirmFull                         bool
 }
 
 func (s *workspaceComposerState) closePopovers() {
 	s.addOpen, s.permissionOpen, s.targetOpen = false, false, false
 	s.targetActive = ""
+	s.confirmFull = false
 	s.targetFocus.CancelFocus()
 }
 
@@ -89,6 +91,9 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 	if p.composer.context != composerContext {
 		p.composer.closePopovers()
 		p.composer.context = composerContext
+		if p.selected == "" && p.homePermissionScope != p.workspacePermissionScope() {
+			p.acceptWorkspaceHomePermission(hub.PermissionAsk)
+		}
 	}
 	attachmentProblem := p.workspaceAttachmentProblem()
 	if attachmentProblem == "" {
@@ -146,7 +151,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 						p.composer.targetOpen = false
 					})
 				p.buildWorkspaceAttachmentMenu(c, add)
-				policy, policyDescription := workspacePermissionPolicy(target.EngineID)
+				policy, policyDescription := p.workspacePermissionDescription(target.EngineID)
 				if p.workspacePlanEnabled() {
 					policy, policyDescription = "只读计划", p.workspacePlanDescription()
 				}
@@ -154,6 +159,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 					Tooltip(policyDescription).Expanded(p.composer.permissionOpen).OnClick(func() {
 					p.closeWorkspacePicker()
 					p.composer.permissionOpen = !p.composer.permissionOpen
+					p.composer.confirmFull = false
 					p.composer.addOpen, p.composer.targetOpen = false, false
 				})
 				p.buildWorkspacePermissionMenu(c, permission, target)
@@ -306,7 +312,7 @@ func (p *NativePage) buildWorkspaceAttachmentMenu(c *ui.Context, anchor ui.Eleme
 func workspacePermissionPolicy(engineID string) (string, string) {
 	switch engineID {
 	case "alva":
-		return "每次询问", "需要权限时先询问；仅批准本次所示操作。当前宿主固定为 Ask，尚未提供策略切换。"
+		return "每次询问", "读取无需确认；写入、命令、网络及未知效果逐次询问。选择仅影响下一轮，不会立即执行。"
 	case "codex", "pi":
 		return "只读模式", "此引擎使用固定的只读限制，当前界面不提供提升权限。"
 	case "claude":
@@ -317,6 +323,10 @@ func workspacePermissionPolicy(engineID string) (string, string) {
 }
 
 func (p *NativePage) buildWorkspacePermissionMenu(c *ui.Context, anchor ui.Element, target hub.Target) {
+	if target.EngineID == "alva" {
+		p.buildNativePermissionMenu(c, anchor)
+		return
+	}
 	workspaceComposerPopover(c, anchor, &p.composer.permissionOpen, 320, func() {
 		label, description := workspacePermissionPolicy(target.EngineID)
 		if p.workspacePlanEnabled() {

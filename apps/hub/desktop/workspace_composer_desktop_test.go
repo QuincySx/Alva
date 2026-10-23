@@ -80,14 +80,17 @@ func TestWorkspaceComposerMenusUseActualRoutesAndPolicy(t *testing.T) {
 	if err := tester.Click("Permission policy"); err != nil {
 		t.Fatal(err)
 	}
-	if !tester.HasText("每次询问") || !tester.HasText("自动审批（Auto） · 不可用") || !tester.HasText("完全访问（Full） · 不可用") {
-		t.Fatal("permission popover omitted the current policy or truthful unavailable choices")
+	if !tester.HasText("每次询问") || !tester.HasText("自动审批") || !tester.HasText("完全访问") {
+		t.Fatal("permission popover omitted the actual native policy choices")
 	}
-	if err := tester.Click("自动审批（Auto）"); err != nil {
+	if err := tester.Click("自动审批"); err != nil {
 		t.Fatal(err)
 	}
-	if policy, _ := workspacePermissionPolicy(p.workspaceComposerTarget().EngineID); policy != "每次询问" {
-		t.Fatal("unavailable permission choice changed the host policy")
+	if p.workspacePermissionPolicy() != hub.PermissionAuto {
+		t.Fatal("explicit home policy intent was not retained")
+	}
+	if err := tester.Click("Permission policy"); err != nil {
+		t.Fatal(err)
 	}
 	tester.Key(0, ui.KeyEscape)
 	if p.composer.permissionOpen || p.model.Draft != "保留我的草稿" || !tester.Focused("Permission policy") {
@@ -126,6 +129,32 @@ func TestWorkspaceComposerMenusUseActualRoutesAndPolicy(t *testing.T) {
 	p.detail = hub.Detail{Session: hub.Session{ID: p.selected, ActiveBranchID: "actual-branch"}, Branches: []hub.Branch{{ID: "actual-branch", Target: service.DefaultTarget}}}
 	if hub.RouteKey(p.workspaceComposerTarget()) != hub.RouteKey(service.DefaultTarget) {
 		t.Fatal("home route state overrode the selected session's persisted branch")
+	}
+}
+
+func TestWorkspaceDisabledConnectionCannotAdmitHomeDraft(t *testing.T) {
+	service, _ := connectionsFixture(t)
+	entry, err := service.Connections.Save(t.Context(), hub.ConnectionUpdate{Name: "local", Protocol: "openai_chat", Endpoint: "http://127.0.0.1:1/v1/chat/completions", Auth: "none", Enabled: true, Models: []hub.ConnectionModel{{ID: "model", Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := NewNativePage(service)
+	p.composer.target = service.Connections.Targets()[0]
+	p.model.Draft = "保留草稿"
+	if p.workspaceComposerIsDemo() {
+		t.Fatal("live connection falsely claims demo execution")
+	}
+	if _, err = service.Connections.SetEnabled(t.Context(), entry.ID, entry.Revision, false); err != nil {
+		t.Fatal(err)
+	}
+	tester := ui.NewTester(p.Build, 1240, 850)
+	if !tester.HasText("模型连接已更改或停用，请重新选择模型。草稿已保留。") {
+		t.Fatal("stale route has no actionable state")
+	}
+	p.sendWorkspaceDraft()
+	sessions, err := service.Store.ListSessions(t.Context(), 8)
+	if err != nil || len(sessions) != 0 || p.model.Draft != "保留草稿" || p.busy || service.Runtime.HasActive() {
+		t.Fatal("stale connection admitted a home Turn", err)
 	}
 }
 
@@ -354,31 +383,5 @@ func TestWorkspaceComposerTooltipsExplainDisabledActionsAndActualPolicy(t *testi
 	tester.Advance(time.Second)
 	if !tester.HasText("正在停止，等待执行进程和回调清理完成。") || p.model.Status != view.Stopping {
 		t.Fatalf("Stop tooltip falsely acknowledged execution cleanup: status=%s texts=%q", p.model.Status, tester.Texts())
-	}
-}
-
-func TestWorkspaceDisabledConnectionCannotAdmitHomeDraft(t *testing.T) {
-	service, _ := connectionsFixture(t)
-	entry, err := service.Connections.Save(t.Context(), hub.ConnectionUpdate{Name: "local", Protocol: "openai_chat", Endpoint: "http://127.0.0.1:1/v1/chat/completions", Auth: "none", Enabled: true, Models: []hub.ConnectionModel{{ID: "model", Enabled: true}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := NewNativePage(service)
-	p.composer.target = service.Connections.Targets()[0]
-	p.model.Draft = "保留草稿"
-	if p.workspaceComposerIsDemo() {
-		t.Fatal("live connection falsely claims demo execution")
-	}
-	if _, err = service.Connections.SetEnabled(t.Context(), entry.ID, entry.Revision, false); err != nil {
-		t.Fatal(err)
-	}
-	tester := ui.NewTester(p.Build, 1240, 850)
-	if !tester.HasText("模型连接已更改或停用，请重新选择模型。草稿已保留。") {
-		t.Fatal("stale route has no actionable state")
-	}
-	p.sendWorkspaceDraft()
-	sessions, err := service.Store.ListSessions(t.Context(), 8)
-	if err != nil || len(sessions) != 0 || p.model.Draft != "保留草稿" || p.busy || service.Runtime.HasActive() {
-		t.Fatal("stale connection admitted a home Turn", err)
 	}
 }

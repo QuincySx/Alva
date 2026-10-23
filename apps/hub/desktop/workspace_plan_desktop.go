@@ -83,6 +83,7 @@ func (p *NativePage) setWorkspacePlanMode(enabled bool) {
 	}
 	if p.selected == "" {
 		p.planModes[""] = enabled
+		p.acceptWorkspaceHomePermission(hub.PermissionAsk)
 		return
 	}
 	id, branchID := p.selected, p.detail.Session.ActiveBranchID
@@ -100,6 +101,7 @@ func (p *NativePage) setWorkspacePlanMode(enabled bool) {
 				return
 			}
 			p.acceptWorkspacePlanSettings(id, branchID, enabled)
+			p.acceptWorkspacePermissionSettings(id, branchID, hub.PermissionAsk)
 			p.problem = ""
 		})
 	}()

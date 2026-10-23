@@ -28,6 +28,7 @@ apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只
 | 文件 | 职责 |
 |---|---|
 | workspace_connections_desktop.go / workspace_connections_desktop_test.go | 原生模型连接列表/来源/表单/手填模型与真实CRUD；秘值仅本窗掩码草稿、失败保留、明确删除/保存、动态路由和设置返回 |
+| workspace_permissions_desktop.go / workspace_permissions_desktop_test.go | 原生Ask/Auto/Full、Full范围确认、首页仅意图/保存会话真实持久、Plan互斥及失败不伪报成功 |
 | workspace_picker_desktop.go / workspace_picker_desktop_test.go | 原生输入/显式菜单触发的命令、Skills及项目引用搜索；取消/迟到结果隔离、键盘选取仅准备草稿 |
 | workspace_plan_desktop.go / workspace_plan_desktop_test.go | 首页本窗计划意图与已存会话真实下一Turn策略，成功保存才更新branch缓存 |
 | workspace_prepared_desktop.go / workspace_prepared_desktop_test.go | 捕获typed选择、首发迁移/失败保留及只消费匹配回执，不覆盖新草稿 |

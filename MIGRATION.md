@@ -4,6 +4,21 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 技术栈决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)，当前结构见 [ARCHITECTURE](./docs/ARCHITECTURE.md)，运行说明见 [USAGE](./docs/USAGE.md)。
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
+## 2026-10-23 模型连接、权限与单客户端收口
+
+并发接入模型连接共享领域、正式原生设置页与既有设计交互契约；另由独立Agent审查业务边界、无窗口权限画面及唯一预览的真实macOS更新。未新增SDK政策、执行runtime或默认数据库fallback。
+
+- `hub.ConnectionsStore`、`product.ConnectionsService`与SQLite v3共用一份编辑/CAS政策。metadata和credential分表、私有文件权限保护，不宣称加密/系统钥匙串。列表与普通DTO/错误无Key/header值；空Key编辑保留，显式Clear/Auth=none删除。失败/冲突保稿、明确启停/二次删除、手填模型都进入实际存储。
+- 已启用连接发布冷路由快照，明确选择后每Attempt按`connection:<id>@<revision>`解析实际Provider/模型/账户/计费/视觉声明；禁用、删除或修订使旧路由明确失效，不切账号、不取消已运行快照。桌面/HTTP/Team/Automation共用已提交事实，Team Tool用实例冻结绝对索引与独立8KiB路由分页。默认仍由程序明确配置。
+- 原生Ask/Auto/Full只影响下次明确Send；Full先确认现有范围，首页确认绑定workspace/route并在迁移后消费。Auto仅已知原生文件写入自动批准，命令/网络/MCP/unknown仍问；Full不扩大Guard根目录/敏感路径或启用独立能力。Plan清除潜在Full并恢复Ask；运行/waiting/未放弃checkpoint冻结，普通Settings导入不升权。
+- 独立审查发现的多模型Team索引超预算、Gemini转义模型路径丢失、真实连接仍标为demo三处P2均已修正，并以原复现复验闭环。Gemini修复保留既有operation切换与显式escaped segment。
+
+全仓desktop-tagged race首轮96包、2285个测试/子测试通过，0失败，143.90秒；执行结束后923份源码/模块哈希与开始一致。三处审查修复后，桌面/HTTP/architecture/provider四包完整race492项通过，41.71秒，执行期间源码未变；product/bootstrap两包完整race116项通过。仅本任务差异的隔离导出分别通过连接七包595项、权限/Plan/连接/公开面五包65项race，确认不依赖原有Developer/CLI改动。全树首轮vet、go mod verify及修复后相关vet/原生构建通过。真实本地HTTP验明path/model/Key/header、重开同native续轮、禁用后零provider调用；临时SQLite覆盖CRUD/并发CAS/失败事务/v2升级与回滚，不代表外部账户验收。
+
+两个旧预览应用包已按用户要求移入废纸篓，数据目录保留；仅有Alva Layout Preview.app按原app/bundle/data-dir正常退出后原位更新，PID59581→68503。更新前空稿、无附件/执行任务；真实macOS核对设置→模型与连接、空列表/刷新/添加和左上返回，最终回工作台。未Send、调用外部模型或保存凭据/设置。原生无窗口权限明暗四图在960×680核对菜单/Full确认、6px间隔与32px圆Send，关闭/确认不执行。
+
+设计仅更新既有requirement与实施状态，Product revision `1210803cfc4bc7ad81cbf2cec60ac36833cf9b2ffaf01e34fe7753d5e2137966`，Foundation保持；Token/组件/72页面未扩张。连接测试/自动模型目录、本机Agent账户认证、目标完整领域、常驻伙伴/群、语音及右侧标签工作区仍未完成，见[设计实施表](./docs/design/alva/DESIGN.md#功能实施状态与契约收口--2026-10-23)。其他平台、完整OS输入/IME/读屏与真实设备仍另验。证据指针`/tmp/alva-product-closure-path`。
+
 ## 2026-10-23 输入区浮层与底部对齐修正
 
 `/`与`@`结果浮层优先置于整个输入卡上方6px、左边对齐，空间不足时在整卡下方翻转并限制滚动视口；不再从文字框下沿展开遮住工具栏。保留输入框作为MyGo浮层的焦点/关闭owner，几何变化时仅补定位帧，Tab/Shift+Tab仍连接输入与搜索。添加、权限和模型菜单优先向上打开，打开时关闭输入搜索浮层。

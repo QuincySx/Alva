@@ -51,6 +51,7 @@ func (s *Store) SetPlanMode(ctx context.Context, id string, enabled bool) (resul
 			return err
 		}
 		value.PlanMode = enabled
+		value.PermissionPolicy = hub.PermissionAsk
 		return saveSettings(ctx, tx, value)
 	})
 }

@@ -1,4 +1,10 @@
 const (
+	PermissionAsk  PermissionPolicy = "ask"
+	PermissionAuto PermissionPolicy = "auto"
+	PermissionFull PermissionPolicy = "full"
+)
+
+const (
 	WorkerActive     WorkerLifecycle = "active"
 	WorkerHibernated WorkerLifecycle = "hibernated"
 	WorkerArchived   WorkerLifecycle = "archived"
@@ -33,6 +39,10 @@ func (c ModelConnection) Validate() error
 func (d AutomationDraft) Validate() error
 
 func (d MediaDecoder) Validate() error
+
+func (p PermissionPolicy) Effective() PermissionPolicy
+
+func (p PermissionPolicy) Validate() error
 
 func (p Preferences) Apply(update PreferenceUpdate) (Preferences, error)
 
@@ -106,6 +116,8 @@ func ValidateAEP(entries []AEPBundle) error
 func ValidateTask(scope string, claims []ResourceClaim) error
 
 import "context"
+
+import "errors"
 
 import "github.com/QuincySx/Alva/integration/engine"
 
@@ -475,6 +487,8 @@ type NativeOwnerResolver interface {
 	NativeOwner(context.Context, string, string) (string, error)
 }
 
+type PermissionPolicy string
+
 type PreferenceOptions struct {
 	Themes    []string
 	Densities []string
@@ -543,28 +557,30 @@ type SessionStore interface {
 }
 
 type Settings struct {
-	DurableWaits      bool            `json:"durable_waits"`
-	PlanMode          bool            `json:"plan_mode,omitempty"`
-	Version           int             `json:"version"`
-	SessionID         string          `json:"session_id"`
-	MCP               []MCPServer     `json:"mcp"`
-	AEP               []AEPBundle     `json:"aep,omitempty"`
-	SkillsEnabled     bool            `json:"skills_enabled"`
-	SubagentsEnabled  bool            `json:"subagents_enabled"`
-	PersistentMemory  bool            `json:"persistent_memory"`
-	MediaEnabled      bool            `json:"media_enabled"`
-	MediaDecoder      MediaDecoder    `json:"media_decoder"`
-	Browser           BrowserSettings `json:"browser"`
-	Commands          CommandSettings `json:"commands"`
-	Tools             ToolSettings    `json:"tools"`
-	SkillArchives     []string        `json:"skill_archives,omitempty"`
-	CompatibilityFile string          `json:"compatibility_file,omitempty"`
+	DurableWaits      bool             `json:"durable_waits"`
+	PlanMode          bool             `json:"plan_mode,omitempty"`
+	PermissionPolicy  PermissionPolicy `json:"permission_policy,omitempty"`
+	Version           int              `json:"version"`
+	SessionID         string           `json:"session_id"`
+	MCP               []MCPServer      `json:"mcp"`
+	AEP               []AEPBundle      `json:"aep,omitempty"`
+	SkillsEnabled     bool             `json:"skills_enabled"`
+	SubagentsEnabled  bool             `json:"subagents_enabled"`
+	PersistentMemory  bool             `json:"persistent_memory"`
+	MediaEnabled      bool             `json:"media_enabled"`
+	MediaDecoder      MediaDecoder     `json:"media_decoder"`
+	Browser           BrowserSettings  `json:"browser"`
+	Commands          CommandSettings  `json:"commands"`
+	Tools             ToolSettings     `json:"tools"`
+	SkillArchives     []string         `json:"skill_archives,omitempty"`
+	CompatibilityFile string           `json:"compatibility_file,omitempty"`
 }
 
 type SettingsStore interface {
 	Settings(context.Context, string) (Settings, error)
 	SaveSettings(context.Context, Settings) error
 	SetPlanMode(context.Context, string, bool) error
+	SetPermissionPolicy(context.Context, string, PermissionPolicy, bool) error
 	ReplaceMCP(context.Context, string, []MCPServer) error
 	SetMCPEnabled(context.Context, string, string, bool, bool) error
 	SetSkillsEnabled(context.Context, string, bool) error

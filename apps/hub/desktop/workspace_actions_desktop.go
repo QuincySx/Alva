@@ -59,6 +59,7 @@ func (p *NativePage) sendWorkspaceDraft() {
 	}
 	selections := p.captureWorkspaceSelections()
 	homePlan := p.workspacePlanEnabled()
+	homePolicy := p.workspacePermissionPolicy()
 	workspace := p.workspace
 	files := append([]workspaceSelectedFile(nil), p.workspaceFiles[""]...)
 	p.busy, p.chat.Busy = true, true
@@ -69,6 +70,9 @@ func (p *NativePage) sendWorkspaceDraft() {
 		}
 		if err == nil && homePlan {
 			err = p.Service.SetPlanMode(p.ctx, session.ID, true)
+		}
+		if err == nil && !homePlan && homePolicy != hub.PermissionAsk {
+			err = p.Service.SetPermissionPolicy(p.ctx, session.ID, homePolicy, homePolicy == hub.PermissionFull)
 		}
 		imported := 0
 		if err == nil {
@@ -92,6 +96,8 @@ func (p *NativePage) sendWorkspaceDraft() {
 					delete(p.workspaceFiles, "")
 				}
 				p.selectSession(session.ID)
+				delete(p.permissionPolicies, "")
+				p.homePermissionScope = ""
 				delete(p.drafts, "")
 				p.refreshSessions()
 			}
@@ -106,6 +112,19 @@ func (p *NativePage) sendWorkspaceDraft() {
 			p.pendingFirstSelections = selections
 		})
 	}()
+}
+
+func (p *NativePage) workspaceTargetProblem() string {
+	target := p.workspaceComposerTarget()
+	if !product.IsConnectionTarget(target) {
+		return ""
+	}
+	for _, available := range p.Service.AvailableTargets() {
+		if hub.RouteKey(available) == hub.RouteKey(target) {
+			return ""
+		}
+	}
+	return "模型连接已更改或停用，请重新选择模型。草稿已保留。"
 }
 
 func (p *NativePage) sendWorkspacePendingFiles() {
@@ -140,17 +159,4 @@ func (p *NativePage) sendWorkspacePendingFiles() {
 			p.loadTail()
 		})
 	}()
-}
-
-func (p *NativePage) workspaceTargetProblem() string {
-	target := p.workspaceComposerTarget()
-	if !product.IsConnectionTarget(target) {
-		return ""
-	}
-	for _, available := range p.Service.AvailableTargets() {
-		if hub.RouteKey(available) == hub.RouteKey(target) {
-			return ""
-		}
-	}
-	return "模型连接已更改或停用，请重新选择模型。草稿已保留。"
 }

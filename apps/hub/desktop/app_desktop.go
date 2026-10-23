@@ -39,6 +39,8 @@ type NativePage struct {
 	composerSelections             map[string][]product.ComposerPreparation
 	planModes                      map[string]bool
 	planLoaded                     map[string]bool
+	permissionPolicies             map[string]hub.PermissionPolicy
+	homePermissionScope            string
 	pendingFirstSend               string
 	pendingFirstPrompt             string
 	pendingFirstSelections         []product.ComposerPreparation
@@ -326,6 +328,7 @@ func (p *NativePage) loadTail() {
 			}
 			p.detail = detail
 			p.acceptWorkspacePlanSettings(id, detail.Session.ActiveBranchID, planSettings.PlanMode)
+			p.acceptWorkspacePermissionSettings(id, detail.Session.ActiveBranchID, planSettings.PermissionPolicy)
 			p.chat.Busy = false
 			p.transcript.Replace(entries)
 			p.reviewing = false
@@ -420,6 +423,7 @@ func (p *NativePage) poll() {
 			}
 			p.detail = detail
 			p.acceptWorkspacePlanSettings(id, detail.Session.ActiveBranchID, planSettings.PlanMode)
+			p.acceptWorkspacePermissionSettings(id, detail.Session.ActiveBranchID, planSettings.PermissionPolicy)
 			p.approvals = approvals
 			p.questions = questions
 			if readWait && p.pane == "waits" && !p.paneBusy && p.wait.Epoch == waitEpoch {

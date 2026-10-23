@@ -295,11 +295,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if waits != nil {
 			approval = waits
 		}
-		mode := security.Ask
-		if settings.PlanMode {
-			mode = security.Plan
-		}
-		guard, err := security.NewGuard(request.Workspace, nil, workspace, security.NewPermissionManager(mode, approval))
+		guard, err := security.NewGuard(request.Workspace, nil, workspace, nativePermissionManager(settings, approval))
 		if err != nil {
 			return nil, err
 		}
