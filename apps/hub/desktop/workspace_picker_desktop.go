@@ -225,7 +225,7 @@ func workspacePickerInsertion(before, after string, caret int) (int, string) {
 	return 0, ""
 }
 
-func (p *NativePage) buildWorkspacePicker(c *ui.Context, editor ui.Element) {
+func (p *NativePage) buildWorkspacePicker(c *ui.Context, editor, composer ui.Element) {
 	s := &p.picker
 	editor.Bind(&s.editor).OnTextKey(p.workspacePickerKey).OnPaste(func(text string) bool {
 		s.pasted = true
@@ -276,14 +276,34 @@ func (p *NativePage) buildWorkspacePicker(c *ui.Context, editor ui.Element) {
 	if !s.open {
 		return
 	}
-	available := float32(360)
-	if _, viewport := c.Size(); viewport > 0 {
-		available = min(available, max(160, viewport-32))
+	// MyGo shares the placement anchor with keyboard/dismissal ownership.
+	// Keep the input as owner and offset its popup to the outer card boundary.
+	_, viewport := c.Size()
+	bounds, inputBounds := composer.Bounds(), editor.Bounds()
+	above, below := max(float32(0), bounds.Y-10), max(float32(0), viewport-bounds.Y-bounds.H-10)
+	available := min(float32(360), above)
+	belowComposer := above < 160 && below > above
+	if belowComposer {
+		available = min(360, below)
 	}
 	panel := ui.PopoverBase(c.Key("workspace-picker"), editor, &s.open, func(panel ui.Element) {
-		panel.Label("Workspace picker").Width(600).MaxWidthPercent(95).MaxHeight(available).Margin(6, 0, 0, 0).
+		panel.Label("Workspace picker").Width(600).MaxWidthPercent(95).MaxHeight(available).
 			Padding(10).Gap(8).Radius(12).Background(c.Theme().Surface).Border(1, c.Theme().Border)
-		ui.Column(c).FillWidth().Gap(8).Children(func() {
+		if belowComposer {
+			panel.AttachTo(editor, ui.AnchorBottomLeft, ui.AnchorTopLeft).
+				Margin(6+bounds.Y+bounds.H-inputBounds.Y-inputBounds.H, 0, 0, bounds.X-inputBounds.X)
+		} else {
+			panel.AttachTo(editor, ui.AnchorTopLeft, ui.AnchorBottomLeft).
+				Margin(0, 0, 6+inputBounds.Y-bounds.Y, bounds.X-inputBounds.X)
+		}
+		// Bounds read during Build belong to the previous layout. Request one
+		// settling frame only when current layout changes these relative offsets.
+		panel.DrawOver(func(_ *ui.Painter, _ ui.Rect) {
+			if composer.Bounds() != bounds || editor.Bounds() != inputBounds {
+				c.AnimationFrame()
+			}
+		})
+		ui.Scroll(c.Key("picker-content")).Label("Composer picker contents").FillWidth().MaxHeight(max(0, available-22)).Gap(8).Children(func() {
 			query := ui.TextInputBase(c.Key("picker-query"), &s.query).Label("Search composer items").Placeholder("搜索命令、Skills 或项目路径").
 				FillWidth().Padding(8).Border(1, c.Theme().Border).Radius(6).OnTextKey(p.workspacePickerKey)
 			if query.Changed() && !query.Composing() {

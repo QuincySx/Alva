@@ -109,7 +109,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				ui.Text(c, status).Role(ui.RoleStatus).FontSize(14).LineHeight(1.5).TextColor(t.TextMuted)
 			})
 		}
-		editor := ui.Column(c.Key("editor")).Label("Task composer").FillWidth().Padding(12).Gap(8).
+		editor := ui.Column(c.Key("editor")).Label("Task composer").FillWidth().Padding(8).Gap(8).
 			Radius(16).Border(1, t.Border).Background(t.Surface)
 		if editor.FocusWithin() {
 			editor.BorderColor(t.Accent).DrawOver(func(painter *ui.Painter, bounds ui.Rect) {
@@ -132,11 +132,12 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				p.problem = "粘贴内容超过 32 KiB，请通过添加菜单附上文件。草稿未发送。"
 				return true
 			})
-			p.buildWorkspacePicker(c, messageEditor)
+			p.buildWorkspacePicker(c, messageEditor, editor)
 			ui.Row(c.Key("controls")).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				add := workspaceComposerIconButton(c.Key("add"), "plus", "Add attachments", "添加文件", 32).
 					Disabled(p.busy || running || waiting || loading).Expanded(p.composer.addOpen).
 					OnClick(func() {
+						p.closeWorkspacePicker()
 						p.composer.addOpen = !p.composer.addOpen
 						p.composer.permissionOpen = false
 						p.composer.targetOpen = false
@@ -148,6 +149,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				}
 				permission := workspaceComposerChip(c.Key("permission"), "shield-check", policy, "Permission policy").
 					Tooltip(policyDescription).Expanded(p.composer.permissionOpen).OnClick(func() {
+					p.closeWorkspacePicker()
 					p.composer.permissionOpen = !p.composer.permissionOpen
 					p.composer.addOpen, p.composer.targetOpen = false, false
 				})
@@ -156,6 +158,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				model := workspaceComposerChip(c.Key("target"), "bot", workspaceTargetLabel(target), "Agent and model").
 					MinWidth(0).MaxWidth(240).Shrink(1).Disabled(p.busy || running || waiting || loading).
 					Expanded(p.composer.targetOpen).OnClick(func() {
+					p.closeWorkspacePicker()
 					p.composer.targetOpen = !p.composer.targetOpen
 					p.composer.addOpen, p.composer.permissionOpen = false, false
 					if p.composer.targetOpen {
@@ -208,12 +211,12 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 // Disabled native controls do not receive tooltips. Their fixed-size parent
 // exposes the reason to pointer and keyboard users while the action stays disabled.
 func workspaceComposerAction(c *ui.Context, icon, label, hint string, disabled, primary bool, action func()) {
-	slot := ui.Box(c).Size(36, 36)
+	slot := ui.Box(c).Size(32, 32)
 	if disabled {
 		slot.Label(label + " unavailable").Focusable().Tooltip(hint)
 	}
 	slot.Children(func() {
-		button := workspaceComposerIconButton(c.Key("control"), icon, label, hint, 36).
+		button := workspaceComposerIconButton(c.Key("control"), icon, label, hint, 32).Radius(16).
 			Disabled(disabled).OnClick(action)
 		if primary {
 			button.Background(c.Theme().Accent).TextColor(c.Theme().AccentText)
@@ -229,12 +232,12 @@ func workspaceComposerIconButton(c *ui.Context, icon, label, hint string, size f
 	if b.Hovered() || b.FocusVisible() {
 		b.Background(workspacePalette(c).hover).TextColor(c.Theme().Text)
 	}
-	b.Children(func() { ui.Icon(c, workspaceIcon(icon)).Size(20, 20) })
+	b.Children(func() { ui.Icon(c, workspaceIcon(icon)).Size(18, 18) })
 	return b
 }
 
 func workspaceComposerChip(c *ui.Context, icon, text, label string) ui.Element {
-	b := ui.ButtonBase(c).Label(label).Height(36).Padding(8).Gap(6).Radius(8).
+	b := ui.ButtonBase(c).Label(label).Height(32).Padding(4, 12).Gap(6).Radius(8).
 		AlignItems(ui.Center).Justify(ui.Center).TextColor(c.Theme().TextMuted)
 	if b.Hovered() || b.FocusVisible() {
 		b.Background(workspacePalette(c).hover).TextColor(c.Theme().Text)
@@ -252,7 +255,7 @@ func workspaceComposerPopover(c *ui.Context, anchor ui.Element, open *bool, widt
 	bounds := anchor.Bounds()
 	available := max(0, max(bounds.Y, height-bounds.Y-bounds.H)-10)
 	ui.PopoverBase(c, anchor, open, func(panel ui.Element) {
-		panel.Label("Composer menu").Width(width).MaxWidthPercent(95).MaxHeight(available).Margin(6, 0, 0, 0).Padding(8).Gap(4).
+		panel.Label("Composer menu").AttachTo(anchor, ui.AnchorTopLeft, ui.AnchorBottomLeft).Width(width).MaxWidthPercent(95).MaxHeight(available).Margin(0, 0, 6, 0).Padding(8).Gap(4).
 			Radius(12).Background(c.Theme().Surface).Border(1, c.Theme().Border).
 			Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, 0.10))
 		ui.Scroll(c).Label("Composer menu contents").FillWidth().MaxHeight(max(0, available-18)).Children(content)

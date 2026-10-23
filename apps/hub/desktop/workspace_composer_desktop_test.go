@@ -140,7 +140,7 @@ func TestWorkspaceComposerToolbarAlignsAndRunningDraftStaysIndependent(t *testin
 	var center float32
 	for i, label := range []string{"Add attachments", "Permission policy", "Agent and model", "Send"} {
 		box, found := tester.Find(label)
-		if !found || box.X < composer.X+11 || box.X+box.W > composer.X+composer.W-11 {
+		if !found || box.X < composer.X+7 || box.X+box.W > composer.X+composer.W-7 {
 			t.Fatalf("%s overflows the padded composer: %v within %v", label, box, composer)
 		}
 		if box.W < 32 || box.H < 32 {
@@ -151,7 +151,7 @@ func TestWorkspaceComposerToolbarAlignsAndRunningDraftStaysIndependent(t *testin
 		} else if delta := box.Y + box.H/2 - center; delta < -0.5 || delta > 0.5 {
 			t.Fatalf("%s does not share the toolbar center", label)
 		}
-		if (label == "Send" && (box.W != 36 || box.H != 36)) || (label == "Add attachments" && (box.W != 32 || box.H != 32)) {
+		if (label == "Send" && (box.W != 32 || box.H != 32)) || (label == "Add attachments" && (box.W != 32 || box.H != 32)) {
 			t.Fatalf("%s lost its symmetric icon slot: %v", label, box)
 		}
 	}

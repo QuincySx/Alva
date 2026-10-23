@@ -18,7 +18,10 @@ apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只
 每个问题用请求ID建立独立控件容器，输入标签带问题header；同一检查点的其他问题消失时，剩余问题的草稿/焦点不得串到别的请求。
 等待面板顶部固定Refresh/Continue，完整请求、回答与放弃审阅位于独立滚动区；长问题/已保存结果不能把唯一继续按钮挤出视口。
 会话侧栏在selected detail的UpdatedAt不旧于当前列表项时投影其真实状态，避免正文已完成而侧栏卡running；不修改冻结列表的顺序、成员或分页cursor，也不拿较旧detail覆盖较新列表。
+输入区浮层按实际边界定位：/与@在整卡上方6px，控件菜单优先在各自触发器上方；不足时在视口内翻转/滚动。MyGo AttachTo同时绑定焦点与几何，picker保留Message作为owner，以实际frame差值定位整卡外沿；仅几何变化时补一帧，不能加入额外Tab停靠点或持续重绘。输入区8px对称内距、工具栏32px，Send/Stop为32px圆形。
+
 ## 约束
+用户预览只保留一个明确的客户端与数据目录；更新前核对未发送草稿、待导入文件和真实运行状态，保全后正常退出再更新，不逐轮另起预览客户端。自动化画面检查优先使用独立无窗口宿主。
 无WebView/npm/React。用户显式文件选择才读取本地原件，20MiB/文件、8文件/40MiB每轮。原始媒体不自动送模型，不假称压缩/抽帧。消息呈现不是模型历史权威。
 媒体evidence只开4条metadata页，显式manifest/selection/receipt点击才读有界JSON，Preview/显式Play才读全SHA核验派生BLOB；一个bitmap、最多一个pending帧UI closure。仅单独批准decoder后Play播放已验证静音MP4；已保存canonical WAV可独立显式播放，MyGo拥有共享系统output，window只拥有一条voice；声音故障不报成功。Pause/Seek/导航须join自身voice或真cancel/reap decoder，未完成保留owner并阻止关窗；无autoplay/WebView/模型投递，5fps播放clock不冒充source PTS，diagnostics非持久receipt。真实OS窗口可观察QA仍待完成。
 ## 业务域清单
@@ -28,6 +31,7 @@ apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只
 | workspace_plan_desktop.go / workspace_plan_desktop_test.go | 首页本窗计划意图与已存会话真实下一Turn策略，成功保存才更新branch缓存 |
 | workspace_prepared_desktop.go / workspace_prepared_desktop_test.go | 捕获typed选择、首发迁移/失败保留及只消费匹配回执，不覆盖新草稿 |
 | workspace_shell_desktop.go / workspace_shell_desktop_test.go | 正式导航、页头、限宽首页、仅编辑草稿的建议与真实高级菜单；冷构建/几何/菜单回归 |
+| workspace_composer_geometry_desktop_test.go | 首页/对话短长输入的浮层上方锚点、工具栏不被覆盖、32px圆形操作与8px对称内边距、紧凑菜单触发点回归 |
 | workspace_composer_desktop.go / workspace_composer_desktop_test.go | 多行输入、真实附件/路由/权限说明及发送/停止状态；IME、32KiB、浮层、草稿和双轴对齐 |
 | workspace_attachments_desktop.go / workspace_attachments_desktop_test.go | 首页待导入路径、明确发送时复用Upload、部分导入失败只重试剩余项、保留原件和引用、分支不兼容提前禁发 |
 | workspace_settings_desktop.go / workspace_settings_desktop_test.go | 真实设置分类共用左上返回、原会话/视图与媒体冷索引定位恢复；草稿/运行/播放收尾回归 |
