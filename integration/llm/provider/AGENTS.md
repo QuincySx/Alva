@@ -9,7 +9,7 @@ LLM 平台能力层；消费 portable codec 与 kernel contract，不向 SDK 注
 
 Canonical `Build(kind, config)` 与 `BuildTransport(kind, config)` 共用一个显式配置、端点与认证路径。前者用对应 native ProtocolAdapter 编码/解码；后者供实际 Gateway raw request/response/stream 消费，不经 own-wire roundtrip。旧重复 serializer/四 native decoder 已移除，无生产兼容层。
 
-RawTransport.CompleteRaw 返回有界 JSON 对象，StreamRaw 返回完整 SSE Event；bool callback 可在调用方确认合法终态后停止，任何已观察的 read/callback/cancel error 仍失败。transport 不生成模型 Finish；截断判定留 codec。Gemini SDK 路径在 STOP 后继续到有界 EOF，保留真实尾 usage-only 帧。标准 Gemini operation 在同一 pinned origin/model path 切换 generateContent/streamGenerateContent，stream 加 alt=sse；custom endpoint 不猜路径。
+RawTransport.CompleteRaw 返回有界 JSON 对象，StreamRaw 返回完整 SSE Event；bool callback 可在调用方确认合法终态后停止，任何已观察的 read/callback/cancel error 仍失败。transport 不生成模型 Finish；截断判定留 codec。Gemini SDK 路径在 STOP 后继续到有界 EOF，保留真实尾 usage-only 帧。标准 Gemini operation 在同一 pinned origin/model path 切换 generateContent/streamGenerateContent并保留显式转义模型路径，stream 加 alt=sse；custom endpoint 不猜路径。
 
 ## 约束
 

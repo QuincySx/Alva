@@ -133,8 +133,14 @@ func (t *RawTransport) endpoint(stream bool) string {
 			if stream {
 				target = ":streamGenerateContent"
 			}
+			// Preserve an explicitly escaped model segment (for example %2F).
+			// Changing Path while clearing RawPath changes the actual endpoint.
+			rawPath := ""
+			if strings.HasSuffix(parsed.RawPath, operation) {
+				rawPath = strings.TrimSuffix(parsed.RawPath, operation) + target
+			}
 			parsed.Path = strings.TrimSuffix(parsed.Path, operation) + target
-			parsed.RawPath = ""
+			parsed.RawPath = rawPath
 			break
 		}
 	}

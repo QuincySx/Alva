@@ -60,6 +60,38 @@ func TestGeminiRawTransportSelectsActualOperation(t *testing.T) {
 		})
 	}
 }
+func TestGeminiOperationPreservesEscapedModelSegment(t *testing.T) {
+	for _, segment := range []string{"vendor%2Fmodel", "vendor%2fmodel", "model%25variant", "model%20variant"} {
+		t.Run(segment, func(t *testing.T) {
+			var paths []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.RequestURI())
+				if r.URL.Query().Get("alt") == "sse" {
+					w.Header().Set("Content-Type", "text/event-stream")
+					io.WriteString(w, "data: {\"candidates\":[{\"index\":0,\"finishReason\":\"STOP\"}]}\n\n")
+				} else {
+					w.Header().Set("Content-Type", "application/json")
+					io.WriteString(w, `{"candidates":[{"index":0,"finishReason":"STOP"}]}`)
+				}
+			}))
+			defer server.Close()
+			transport, err := BuildTransport(GeminiKind, Config{Endpoint: server.URL + "/v1beta/models/" + segment + ":generateContent", Model: "explicit-model", APIKey: "synthetic-only"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = transport.CompleteRaw(t.Context(), json.RawMessage(`{"contents":[]}`)); err != nil {
+				t.Fatal(err)
+			}
+			if err = transport.StreamRaw(t.Context(), json.RawMessage(`{"contents":[]}`), func(codec.Event) (bool, error) { return true, nil }); err != nil {
+				t.Fatal(err)
+			}
+			if len(paths) != 2 || paths[0] != "/v1beta/models/"+segment+":generateContent" || paths[1] != "/v1beta/models/"+segment+":streamGenerateContent?alt=sse" {
+				t.Fatal("operation rewrote exact model path", paths)
+			}
+		})
+	}
+}
+
 func TestRawCompletionRejectsArrayWrongTypeAndOversize(t *testing.T) {
 	for _, fixture := range []struct{ name, kind, body string }{{"array", "application/json", `[]`}, {"wrong type", "text/plain", `{}`}, {"oversize", "application/json", `{"x":"` + strings.Repeat("x", responseLimit) + `"}`}} {
 		t.Run(fixture.name, func(t *testing.T) {
