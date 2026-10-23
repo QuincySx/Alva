@@ -28,6 +28,10 @@ func (p *NativePage) startWorkspaceTask() {
 }
 
 func (p *NativePage) sendWorkspaceDraft() {
+	if problem := p.workspaceTargetProblem(); problem != "" {
+		p.problem = problem
+		return
+	}
 	if problem := p.workspaceAttachmentProblem(); problem != "" {
 		p.problem = problem
 		return
@@ -136,4 +140,17 @@ func (p *NativePage) sendWorkspacePendingFiles() {
 			p.loadTail()
 		})
 	}()
+}
+
+func (p *NativePage) workspaceTargetProblem() string {
+	target := p.workspaceComposerTarget()
+	if !product.IsConnectionTarget(target) {
+		return ""
+	}
+	for _, available := range p.Service.AvailableTargets() {
+		if hub.RouteKey(available) == hub.RouteKey(target) {
+			return ""
+		}
+	}
+	return "模型连接已更改或停用，请重新选择模型。草稿已保留。"
 }

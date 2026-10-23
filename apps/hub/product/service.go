@@ -54,6 +54,7 @@ type HubService struct {
 	Questions          *host.QuestionBroker
 	Gateway            *gateway.Local
 	Preferences        *PreferencesService
+	Connections        *ConnectionsService
 	Teams              *TeamCoordinator
 	Automations        *AutomationCoordinator
 	Worktrees          *worktree.Manager

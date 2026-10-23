@@ -66,6 +66,16 @@ func New(service *product.HubService, config Config) (*Server, error) {
 // The application owner separately closes bootstrap.Application after draining HTTP.
 func (s *Server) Close() error { s.closeOnce.Do(func() { close(s.done) }); return nil }
 
+// Program routes remain frozen at server assembly. Explicitly saved native
+// connections publish their committed routes through the same product owner.
+func (s *Server) availableTargets() []hub.Target {
+	targets := append([]hub.Target(nil), s.targets...)
+	if s.service.Connections != nil {
+		targets = append(targets, s.service.Connections.Targets()...)
+	}
+	return targets
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !s.authenticate(w, r) {
 		return
@@ -103,7 +113,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400)
 			return
 		}
-		respond(w, 200, s.targets)
+		respond(w, 200, s.availableTargets())
 		return
 	}
 	if r.URL.Path == "/v1/engines" && r.Method == http.MethodGet {
@@ -320,7 +330,7 @@ func (s *Server) targetAllowed(target hub.Target) bool {
 	if target.Validate() != nil {
 		return false
 	}
-	for _, configured := range s.targets {
+	for _, configured := range s.availableTargets() {
 		if hub.RouteKey(configured) == hub.RouteKey(target) {
 			return true
 		}

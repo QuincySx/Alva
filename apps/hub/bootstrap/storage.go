@@ -27,6 +27,7 @@ type ProductStorage interface {
 	hub.WorktreeStore
 	hub.NativeOwnerResolver
 	hub.PreferencesStore
+	hub.ConnectionsStore
 	Close() error
 }
 

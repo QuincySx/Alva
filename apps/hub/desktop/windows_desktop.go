@@ -46,6 +46,10 @@ func (m *nativeWindows) open(sessionID string) error {
 		observePage(ctx, p.window.Update, p.poll, ticker.C)
 	}()
 	p.window.OnClose(func(event *mygo.CloseEvent) {
+		if p.guardConnectionsClose(event) {
+			p.window.Invalidate()
+			return
+		}
 		if p.guardPreferencesClose(event) {
 			p.window.Invalidate()
 			return

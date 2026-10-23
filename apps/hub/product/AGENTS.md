@@ -15,6 +15,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
+| connections.go / connections_test.go | 独立应用连接owner、脱敏已提交缓存、CRUD/CAS、exact revision provider解析与取消/join；动态路由共用现有执行准入，不联网探测 |
 | composer_commands.go / composer_commands_test.go | 冷命令/受管Skills目录、有限参数、来源/branch/SHA绑定的typed preparation，选取不启用不执行 |
 | composer_draft.go / composer_draft_test.go | 明确Send重验全部选择、应用计划意图并共用普通/Worker准入；变动或篡改拒绝保留稿 |
 | workspace_references.go / workspace_references_test.go | saved项目有界分页搜索、文件原件/目录metadata artifact、共享附件预算和分支准入 |
@@ -39,7 +40,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | locks.go | 同一实际SDK ToolLockRegistry装配Plugin，非第二执行runtime |
 | team.go | 有界owned Worker队列pumps、显式resume/stop、drain边界kick与账户路由准入 |
 | team_test.go | 实际完整Alva Worker FIFO/同native续轮、observer detach与byte-only上传预算 |
-| team_tool.go | 绑定实际Lead/native的hub_team Tool/Plugin，mutation HITL、小索引/2KiB读取 |
+| team_tool.go | 绑定实际Lead/native的hub_team Tool/Plugin，mutation HITL、roster与独立8KiB路由分页/绝对索引、selected task 2KiB读取 |
 | team_tool_test.go | foreign native拒绝、mutation拒批零变更与显式批准真实Team回归 |
 | automation.go / automation_test.go | 显式owned本地timer与真实SDK普通Turn；构造不执行、下一完整间隔、无补跑/OS daemon，关闭先阻止准入再交既有Runtime收尾 |
 | shell.go | 已存分支授权的应用内后台job冷状态/真实Stop/idle reset，无PID或nativeID客户端输入 |

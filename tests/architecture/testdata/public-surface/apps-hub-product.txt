@@ -45,11 +45,33 @@ func (a *AutomationCoordinator) Tick(ctx context.Context, at int64) error
 
 func (b reviewedWaitBackend) Commit(ctx context.Context, revision uint64, state durable.State, messages []wire.Message) (durable.Snapshot, error)
 
+func (e connectionStorageError) Error() string
+
+func (e connectionStorageError) Unwrap() error
+
 func (p HistoryPlugin) Register(_ context.Context, r *core.Registrar) error
 
 func (p SharedLocksPlugin) Register(_ context.Context, r *core.Registrar) error
 
 func (p TeamPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (s *ConnectionsService) Close(ctx context.Context) error
+
+func (s *ConnectionsService) Connection(id string) (hub.ModelConnection, bool)
+
+func (s *ConnectionsService) Delete(ctx context.Context, id string, expected uint64) error
+
+func (s *ConnectionsService) Read(ctx context.Context) ([]hub.ModelConnection, error)
+
+func (s *ConnectionsService) ResolveTarget(ctx context.Context, target hub.Target) (provider.Kind, provider.Config, bool, error)
+
+func (s *ConnectionsService) Save(ctx context.Context, u hub.ConnectionUpdate) (hub.ModelConnection, error)
+
+func (s *ConnectionsService) SetEnabled(ctx context.Context, id string, expected uint64, enabled bool) (hub.ModelConnection, error)
+
+func (s *ConnectionsService) Snapshot() []hub.ModelConnection
+
+func (s *ConnectionsService) Targets() []hub.Target
 
 func (s *HubService) AbandonWait(ctx context.Context, id string, target WaitTarget) error
 
@@ -60,6 +82,8 @@ func (s *HubService) AdoptWorkerChanges(ctx context.Context, lead, team, worker,
 func (s *HubService) ArchiveSkill(ctx context.Context, id, name string) (string, error)
 
 func (s *HubService) AudioPlayback(ctx context.Context, id, branchID, manifestURI string) (mediaextension.Manifest, []byte, error)
+
+func (s *HubService) AvailableTargets() []hub.Target
 
 func (s *HubService) ComposerCatalog(ctx context.Context, id string, query ComposerCatalogQuery) (ComposerCatalogPage, error)
 
@@ -217,6 +241,10 @@ func (t *TeamTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call
 
 func ActiveBranch(detail hub.Detail) (hub.Branch, error)
 
+func IsConnectionTarget(target hub.Target) bool
+
+func NewConnectionsService(ctx context.Context, store hub.ConnectionsStore) (*ConnectionsService, error)
+
 func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.Repository, target hub.Target, directory string, demo bool) (*HubService, error)
 
 func NewPreferencesService(ctx context.Context, store hub.PreferencesStore) (*PreferencesService, error)
@@ -332,6 +360,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/hub"
@@ -427,6 +456,17 @@ import (
 	mediaextension "github.com/QuincySx/Alva/extension/media"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/llm/provider"
+	"github.com/QuincySx/Alva/platform/storage"
 )
 
 import (
@@ -601,6 +641,9 @@ type ComposerSkillReference struct {
 	Policy       skill.Policy `json:"policy"`
 }
 
+type ConnectionsService struct {
+}
+
 type DraftAttachment struct {
 	BranchID  string               `json:"branch_id"`
 	Info      storage.ArtifactInfo `json:"info"`
@@ -633,6 +676,7 @@ type HubService struct {
 	Questions          *host.QuestionBroker
 	Gateway            *gateway.Local
 	Preferences        *PreferencesService
+	Connections        *ConnectionsService
 	Teams              *TeamCoordinator
 	Automations        *AutomationCoordinator
 	Worktrees          *worktree.Manager

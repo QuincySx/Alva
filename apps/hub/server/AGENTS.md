@@ -8,6 +8,7 @@ L7 transport，依赖 apps/hub/product；不依赖 desktop/MyGo，不读取旧 R
 显式 loopback IP:port 和带外 256-bit Bearer 认证，精确 Host/Origin 防 rebinding/跨站；
 所有会话资源从 committed HubSession/branch 推导 native owner，不能客户端自选 native ID。
 Turn 由产品 runtime 认领，SSE 从耐久 Sequence 续读，观察断线不是 Stop。
+显式程序路由仍按启动快照冻结，已保存应用连接的动态路由只从同一共享owner的已提交缓存读取；HTTP不新增凭据CRUD入口。
 
 ## 约束
 JSON 严格字段/Unicode/大小；无 token query/CORS/隐式别名。上传 2 并发、20MiB 原字节、

@@ -48,6 +48,12 @@
     "fonts/AlvaUISansSC-Regular.ttf": "02b74d7ceaa62a6110f2b7f324e766f6fdf383ec036d51ec1f44310beb1e6763",
     "fonts/AlvaUISansSC-SemiBold.ttf": "8f68e67384bb68839b199c0665d21c9af61ad9cfc1463ec1ce4672131cf68f3a",
     "fonts/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
-    "fonts/UI-NOTICE.json": "984474bc1cb76647a2ed870fabf47c0fee7934bc6aae015a586b13917aaa0984"
+    "fonts/UI-NOTICE.json": "984474bc1cb76647a2ed870fabf47c0fee7934bc6aae015a586b13917aaa0984",
+    "lucide/plug.svg": "500e34d1b165a82dfd4fe9b58db78f84296a88ae093ccdc4f22690cb089a9790",
+    "lucide/cloud.svg": "cd20f58645a810b284355420c61fc4b9fc70ea9be257fe7a7251d508832ef60a",
+    "lucide/cpu.svg": "5eb864994312ce7600b63080fc2117c9a04a9b74a8d4aa233f75d83c4bd2ab8a",
+    "lucide/pencil.svg": "ad01ac9a96ecb8e35b54a505756072e9d297d6ed51dbebbd74d6605bfcc9c770",
+    "lucide/trash-2.svg": "0367c1f1ea8be2af6dcd38e79c944dc2667ad725488fb9e2d4d1d8826d7b418f",
+    "lucide/refresh-cw.svg": "801cc03b84a654de114a2707c9b1c6aa9a3b732c4ffc9e5df0f63f02e1ba0105"
   }
 }

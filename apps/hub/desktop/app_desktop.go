@@ -33,6 +33,7 @@ type NativePage struct {
 	diagnosticChanged              func()
 	Service                        *product.HubService
 	preferences                    preferencesPane
+	connections                    modelConnectionsPane
 	composer                       workspaceComposerState
 	picker                         workspacePickerState
 	composerSelections             map[string][]product.ComposerPreparation
@@ -137,7 +138,7 @@ func NewNativePage(service *product.HubService) *NativePage {
 	chat := view.NewNativeView(model)
 	chat.LargePasteHint = "Pasted text exceeds 32 KiB. Use Attach file: raw bytes are stored and only an explicit reference is sent."
 	chat.SetMarkdownOptions(modules.NewRegistry().Options())
-	page := &NativePage{Service: service, model: model, chat: chat, title: "New conversation", drafts: make(map[string]string), ctx: context.Background(), targets: append([]hub.Target(nil), service.Targets...), updates: make(chan func(), 8)}
+	page := &NativePage{Service: service, model: model, chat: chat, title: "New conversation", drafts: make(map[string]string), ctx: context.Background(), targets: service.AvailableTargets(), updates: make(chan func(), 8)}
 	if err := registerWorkspaceAssets(); err != nil {
 		page.problem = err.Error()
 	}
@@ -372,6 +373,7 @@ func (p *NativePage) applyDetail() {
 }
 func (p *NativePage) poll() {
 	p.observePreferences()
+	p.observeConnections()
 	if p.selected == "" || p.polling || p.busy {
 		return
 	}
@@ -706,6 +708,7 @@ func (p *NativePage) Build(c *ui.Context) {
 	}
 	p.restoreWorkspacePane()
 	p.observePreferences()
+	p.observeConnections()
 	p.applyPreferences(c)
 	if p.isWorkspaceSettings() {
 		p.buildWorkspaceSettings(c)

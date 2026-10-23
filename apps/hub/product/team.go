@@ -222,7 +222,7 @@ func (s *HubService) AddWorker(ctx context.Context, lead, team, name string, tar
 		return hub.Worker{}, errors.New("Worker account/billing route requires explicit approval")
 	}
 	configured := false
-	for _, candidate := range s.Targets {
+	for _, candidate := range s.AvailableTargets() {
 		if hub.RouteKey(candidate) == hub.RouteKey(target) {
 			configured = true
 			break

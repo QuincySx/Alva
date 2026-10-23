@@ -24,7 +24,7 @@ type workspaceReturnState struct {
 }
 
 func workspaceSettingsPane(name string) bool {
-	return name == "preferences"
+	return name == "preferences" || name == "connections"
 }
 
 func (p *NativePage) isWorkspaceSettings() bool {
@@ -101,6 +101,10 @@ func (p *NativePage) buildWorkspaceSettings(c *ui.Context) {
 			ui.Text(c, "设置").FontSize(20).FontWeight(600).Padding(12, 12, 16)
 			workspaceAction(c, "settings-general", "通用", "sliders-horizontal", p.pane == "preferences").
 				Label("General settings").Disabled(p.Service.Preferences == nil).OnClick(p.openPreferences)
+			if p.Service.Connections != nil {
+				workspaceAction(c, "settings-connections", "模型与连接", "plug", p.pane == "connections").
+					Label("Models and connections").OnClick(p.openConnections)
+			}
 		})
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Padding(24).Gap(16).Children(func() {
 			if p.playerBusy {
@@ -108,6 +112,10 @@ func (p *NativePage) buildWorkspaceSettings(c *ui.Context) {
 			}
 			if p.problem != "" {
 				ui.Text(c, p.problem).Role(ui.RoleStatus).TextColor(t.Danger).FontSize(14)
+			}
+			if p.pane == "connections" {
+				p.buildConnections(c)
+				return
 			}
 			p.buildPreferences(c)
 		})

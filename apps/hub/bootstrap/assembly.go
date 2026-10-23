@@ -214,7 +214,15 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			expected.AccountSource = "explicit-stdin-or-unauthenticated"
 			expected.BillingRoute = config.Provider.Endpoint
 		}
-		if request.Model != expected.ModelID || request.Provider != expected.ProviderID || request.AccountSource != expected.AccountSource || request.BillingRoute != expected.BillingRoute {
+		runConfig := config
+		requestTarget := hub.Target{EngineID: "alva", ModelID: request.Model, ProviderID: request.Provider, AccountSource: request.AccountSource, BillingRoute: request.BillingRoute}
+		if product.IsConnectionTarget(requestTarget) {
+			var err error
+			runConfig, err = resolveConnectionConfig(ctx, config, a.Service, requestTarget)
+			if err != nil {
+				return nil, err
+			}
+		} else if request.Model != expected.ModelID || request.Provider != expected.ProviderID || request.AccountSource != expected.AccountSource || request.BillingRoute != expected.BillingRoute {
 			return nil, errors.New("saved Alva route differs from explicit process configuration; choose the configured route or start a new conversation")
 		}
 		var log storage.Session
@@ -249,7 +257,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 				return nil, errors.New("compatibility agent definitions require explicit native SubAgent opt-in")
 			}
 		}
-		waitBackend, waits, err := openHubWaits(ctx, repository, request.OwnerID, log, settings, request, owned, config, compatibilitySHA)
+		waitBackend, waits, err := openHubWaits(ctx, repository, request.OwnerID, log, settings, request, owned, runConfig, compatibilitySHA)
 		if err != nil {
 			return nil, err
 		}
@@ -263,8 +271,8 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			return nil, err
 		}
 		builder := harness.NewDemoBuilder(agentLog)
-		if !config.Demo {
-			model, buildErr := provider.Build(config.ProviderKind, config.Provider)
+		if !runConfig.Demo {
+			model, buildErr := provider.Build(runConfig.ProviderKind, runConfig.Provider)
 			err = buildErr
 			if err != nil {
 				return nil, err
@@ -325,7 +333,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 					return nil, err
 				}
 			}
-			plugin, err := mediaextension.New(ctx, mediaextension.Config{Repository: repository, Owner: request.OwnerID, SessionID: nativeID, Cwd: request.Workspace, Route: hub.RouteKey(hub.Target{EngineID: "alva", ModelID: request.Model, ProviderID: request.Provider, AccountSource: request.AccountSource, BillingRoute: request.BillingRoute}), Guard: guard, ImageCapable: config.ImageCapable, ProviderID: request.Provider, ModelID: request.Model, Processor: processor})
+			plugin, err := mediaextension.New(ctx, mediaextension.Config{Repository: repository, Owner: request.OwnerID, SessionID: nativeID, Cwd: request.Workspace, Route: hub.RouteKey(hub.Target{EngineID: "alva", ModelID: request.Model, ProviderID: request.Provider, AccountSource: request.AccountSource, BillingRoute: request.BillingRoute}), Guard: guard, ImageCapable: runConfig.ImageCapable, ProviderID: request.Provider, ModelID: request.Model, Processor: processor})
 			if err != nil {
 				return nil, err
 			}
@@ -539,6 +547,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 	if err != nil {
 		return nil, err
 	}
+	a.Service = service
 	service.ValidateWaitRecipe = func(ctx context.Context, branch hub.Branch, settings hub.Settings) error {
 		detail, err := store.Detail(ctx, branch.SessionID)
 		if err != nil {
@@ -552,7 +561,11 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if err != nil {
 			return err
 		}
-		hash, err := hubWaitRecipe(config, detail.Session.Workspace, branch.Target, settings, compatibilitySHA)
+		runConfig, err := resolveConnectionConfig(ctx, config, service, branch.Target)
+		if err != nil {
+			return err
+		}
+		hash, err := hubWaitRecipe(runConfig, detail.Session.Workspace, branch.Target, settings, compatibilitySHA)
 		if err != nil {
 			return err
 		}
@@ -564,6 +577,11 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 	if err != nil {
 		return nil, err
 	}
+	service.Connections, err = product.NewConnectionsService(ctx, store)
+	if err != nil {
+		return nil, err
+	}
+	a.Service = service
 	if !config.Demo {
 		service.Gateway, err = gateway.NewLocal(map[string]gateway.Route{"alva": {Kind: config.ProviderKind, Provider: config.Provider}})
 		if err != nil {
@@ -618,6 +636,11 @@ func (a *Application) Close(ctx context.Context) error {
 	}
 	if a.Service != nil && a.Service.Preferences != nil {
 		if err := a.Service.Preferences.Close(ctx); err != nil {
+			return err
+		}
+	}
+	if a.Service != nil && a.Service.Connections != nil {
+		if err := a.Service.Connections.Close(ctx); err != nil {
 			return err
 		}
 	}

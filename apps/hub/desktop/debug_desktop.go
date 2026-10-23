@@ -199,7 +199,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 		return nil
 	}
 	protectedCapture := func() ([]byte, error) {
-		if p.gatewayCredentials != "" || p.pane == "settings" || p.pane == "plugins" || p.pane == "commands" || p.pane == "tools" || p.pane == "browser-settings" {
+		if p.gatewayCredentials != "" || p.pane == "connections" || p.pane == "settings" || p.pane == "plugins" || p.pane == "commands" || p.pane == "tools" || p.pane == "browser-settings" {
 			return nil, errors.New("credential-capable editor is visible; window capture is unavailable")
 		}
 		if capture == nil {

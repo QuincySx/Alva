@@ -8,9 +8,27 @@ const Running engine.Outcome = "running"
 
 const TaskQueued engine.Outcome = "queued"
 
+func (ConnectionSecrets) GoString() string
+
+func (ConnectionSecrets) String() string
+
+func (ConnectionUpdate) GoString() string
+
+func (ConnectionUpdate) String() string
+
 func (b BrowserSettings) Validate() error
 
 func (c CommandSettings) Validate() error
+
+func (c ModelConnection) Apply(u ConnectionUpdate, secret ConnectionSecrets) (ModelConnection, ConnectionSecrets, error)
+
+func (c ModelConnection) Clone() ModelConnection
+
+func (c ModelConnection) ModelEndpoint(modelID string) string
+
+func (c ModelConnection) Target(model ConnectionModel) Target
+
+func (c ModelConnection) Validate() error
 
 func (d AutomationDraft) Validate() error
 
@@ -109,6 +127,18 @@ import (
 	"fmt"
 	"math"
 	"slices"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+	"unicode/utf8"
 )
 
 import (
@@ -306,6 +336,42 @@ type CommandSettings struct {
 	Diagnostics []DiagnosticSpec `json:"diagnostics"`
 }
 
+type ConnectionModel struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+
+	ImageCapable bool `json:"image_capable"`
+}
+
+type ConnectionSecrets struct {
+	APIKey  string            `json:"-"`
+	Headers map[string]string `json:"-"`
+}
+
+type ConnectionUpdate struct {
+	ID               string            `json:"id"`
+	ExpectedRevision uint64            `json:"expected_revision"`
+	Name             string            `json:"name"`
+	Protocol         string            `json:"protocol"`
+	Endpoint         string            `json:"endpoint"`
+	Auth             string            `json:"auth"`
+	Enabled          bool              `json:"enabled"`
+	Models           []ConnectionModel `json:"models"`
+
+	APIKey         string            `json:"-"`
+	ClearAPIKey    bool              `json:"clear_api_key"`
+	Headers        map[string]string `json:"-"`
+	ReplaceHeaders bool              `json:"replace_headers"`
+}
+
+type ConnectionsStore interface {
+	Connections(context.Context) ([]ModelConnection, error)
+	SaveConnection(context.Context, ConnectionUpdate) (ModelConnection, error)
+	DeleteConnection(context.Context, string, uint64) error
+	ConnectionSecrets(context.Context, string, uint64) (ConnectionSecrets, error)
+}
+
 type Detail struct {
 	Session  Session  `json:"session"`
 	Branches []Branch `json:"branches"`
@@ -379,6 +445,21 @@ type MediaDecoder struct {
 	FFprobe            string `json:"ffprobe"`
 	Enabled            bool   `json:"enabled"`
 	HostAccessApproved bool   `json:"host_access_approved"`
+}
+
+type ModelConnection struct {
+	ID          string            `json:"id"`
+	Revision    uint64            `json:"revision"`
+	Name        string            `json:"name"`
+	Protocol    string            `json:"protocol"`
+	Endpoint    string            `json:"endpoint"`
+	Auth        string            `json:"auth"`
+	Enabled     bool              `json:"enabled"`
+	HasAPIKey   bool              `json:"has_api_key"`
+	HeaderNames []string          `json:"header_names,omitempty"`
+	Models      []ConnectionModel `json:"models"`
+	CreatedAt   int64             `json:"created_at"`
+	UpdatedAt   int64             `json:"updated_at"`
 }
 
 type NativeCommand struct {
@@ -754,6 +835,8 @@ var ErrAutomationRouteChanged = errors.New("automation paused because its route 
 var ErrAutomationSkipped = errors.New("automation tick skipped; no catch-up or queued execution")
 
 var ErrAutomationStale = errors.New("automation changed, paused, claimed or not due; refresh before acting")
+
+var ErrConnectionConflict = errors.New("model connection changed; reload before saving")
 
 var ErrInvalidPreferences = errors.New("invalid application preferences")
 

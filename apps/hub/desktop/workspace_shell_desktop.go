@@ -198,7 +198,7 @@ func (p *NativePage) buildWorkspaceHeader(c *ui.Context) {
 				ui.Text(c, p.workspaceLocation()+suffix).FontSize(12).LineHeight(1.5).TextColor(t.TextMuted).SingleLine()
 			}
 		})
-		if p.Service.Demo {
+		if p.workspaceComposerIsDemo() {
 			ui.Text(c, "演示模式").FontSize(12).TextColor(t.TextMuted).SingleLine()
 		}
 		if p.selected != "" {
@@ -210,6 +210,11 @@ func (p *NativePage) buildWorkspaceHeader(c *ui.Context) {
 		}
 		workspaceIconAction(c, "workspace-more", "More actions", "ellipsis").Menu(p.buildWorkspaceMenu)
 	})
+}
+
+func (p *NativePage) workspaceComposerIsDemo() bool {
+	target := p.workspaceComposerTarget()
+	return p.Service.Demo && target.EngineID == "alva" && hub.RouteKey(target) == hub.RouteKey(p.Service.DefaultTarget)
 }
 
 func (p *NativePage) buildWorkspaceMenu(m *ui.Menu) {

@@ -24,6 +24,7 @@ ProductStorage另显式组合应用级PreferencesStore；Open从已选组件读�
 独立插件验收：`portable_aep_test.go` 实际装配JS作者示例/Go编译WASIp1模块，检查无执行、明确批准、下一Turn状态回调、shutdown证据及快照收尾。
 | 文件 | 职责 |
 |---|---|
+| connections.go / connections_test.go | 每attempt按已提交连接revision解析实际provider/模型/账户/计费与视觉声明；真实HTTP、重开续轮与过期路由零调用回归 |
 | wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环 |
 | wait_crash_test.go | 杀死真实Hub续跑进程后unknown/no replay、过期拒绝及显式审阅Abandon |
 | plan_mode.go / plan_test.go / composer_checkpoint_test.go | 真实只读Guard配方、移除process/network可选集成而保留已存批准；实际模型拒写/Ask恢复和冻结checkpoint入口一致性回归 |

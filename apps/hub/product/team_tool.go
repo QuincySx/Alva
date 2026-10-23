@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/hub"
@@ -23,14 +24,27 @@ type TeamTool struct {
 	Service             *HubService
 	ProductID, NativeID string
 	Guard               *security.Guard
+	routesOnce          sync.Once
+	routes              []hub.Target
+}
+
+// Route indices stay immutable for this actual Tool instance. A later connection
+// edit must never change the account described by an already approved index.
+func (t *TeamTool) configuredTargets() []hub.Target {
+	t.routesOnce.Do(func() {
+		if t.Service != nil {
+			t.routes = t.Service.AvailableTargets()
+		}
+	})
+	return t.routes
 }
 
 func (*TeamTool) Name() string { return "hub_team" }
 func (*TeamTool) Description() string {
-	return "Manage visible independent product Workers (not native subagents). list shows this Lead's Team and actual configured routes; create/add/enqueue/edit/cancel/resume/stop/lifecycle require approval. Enqueue persists only; Resume explicitly starts FIFO. Read bounded task metadata/outcomes then selected 2KiB task ranges. No startup replay, automatic bypass, hidden credentials, implicit changed-file/test evidence or parent native-log grants."
+	return "Manage visible independent product Workers (not native subagents). list pages this Lead's Team roster; routes pages exact configured route identities with absolute target_index for add. Use after=next_index to continue either index. create/add/enqueue/edit/cancel/resume/stop/lifecycle require approval. Enqueue persists only; Resume explicitly starts FIFO. Read bounded task metadata/outcomes then selected 2KiB task ranges. No startup replay, automatic bypass, hidden credentials, implicit changed-file/test evidence or parent native-log grants."
 }
 func (*TeamTool) ParametersSchema() json.RawMessage {
-	return json.RawMessage(`{"type":"object","properties":{"action":{"enum":["list","create","add","tasks","read","enqueue","edit","cancel","resume","stop","active","hibernated","archived","end"]},"team_id":{"type":"string","maxLength":128},"worker_id":{"type":"string","maxLength":128},"name":{"type":"string","maxLength":80},"target_index":{"type":"integer","minimum":0,"maximum":3},"task_id":{"type":"string","maxLength":128},"scope":{"type":"string","maxLength":16384},"claims":{"type":"array","maxItems":16,"items":{"type":"object","properties":{"path":{"type":"string","maxLength":1024},"write":{"type":"boolean"}},"required":["path","write"],"additionalProperties":false}},"after":{"type":"integer","minimum":0},"sequence":{"type":"integer","minimum":1},"offset":{"type":"integer","minimum":0}},"required":["action"],"additionalProperties":false}`)
+	return json.RawMessage(`{"type":"object","properties":{"action":{"enum":["list","routes","create","add","tasks","read","enqueue","edit","cancel","resume","stop","active","hibernated","archived","end"]},"team_id":{"type":"string","maxLength":128},"worker_id":{"type":"string","maxLength":128},"name":{"type":"string","maxLength":80},"target_index":{"type":"integer","minimum":0,"maximum":16387},"task_id":{"type":"string","maxLength":128},"scope":{"type":"string","maxLength":16384},"claims":{"type":"array","maxItems":16,"items":{"type":"object","properties":{"path":{"type":"string","maxLength":1024},"write":{"type":"boolean"}},"required":["path","write"],"additionalProperties":false}},"after":{"type":"integer","minimum":0},"sequence":{"type":"integer","minimum":1},"offset":{"type":"integer","minimum":0}},"required":["action"],"additionalProperties":false}`)
 }
 
 type teamArgs struct {
@@ -52,7 +66,53 @@ func teamReadOnly(call wire.ToolCall) bool {
 	if json.Unmarshal(call.Arguments, &a) != nil {
 		return false
 	}
-	return a.Action == "list" || a.Action == "tasks" || a.Action == "read"
+	return a.Action == "list" || a.Action == "routes" || a.Action == "tasks" || a.Action == "read"
+}
+
+// Only exact account/billing identity fields belong in this small index. Other
+// Target metadata can be unbounded; the absolute index still selects the full
+// immutable configured Target, which AddWorker rechecks against current routes.
+type teamRouteIndex struct {
+	TargetIndex   int    `json:"target_index"`
+	EngineID      string `json:"engine_id"`
+	ModelID       string `json:"model_id"`
+	ProviderID    string `json:"provider_id"`
+	AccountSource string `json:"account_source"`
+	BillingRoute  string `json:"billing_route"`
+}
+type teamRoutePage struct {
+	Routes  []teamRouteIndex `json:"configured_routes"`
+	Start   int              `json:"route_start"`
+	Next    int              `json:"next_index"`
+	HasMore bool             `json:"has_more"`
+	Total   int              `json:"total"`
+}
+
+func (t *TeamTool) routePage(after uint64) (teamRoutePage, error) {
+	routes := t.configuredTargets()
+	if after > uint64(len(routes)) {
+		return teamRoutePage{}, errors.New("route index exceeds configured routes")
+	}
+	first := int(after)
+	page := teamRoutePage{Routes: make([]teamRouteIndex, 0, 4), Start: first, Next: first, HasMore: first < len(routes), Total: len(routes)}
+	for i := first; i < len(routes) && i < first+4; i++ {
+		r := routes[i]
+		page.Routes = append(page.Routes, teamRouteIndex{i, r.EngineID, r.ModelID, r.ProviderID, r.AccountSource, r.BillingRoute})
+		page.Next, page.HasMore = i+1, i+1 < len(routes)
+		encoded, err := json.Marshal(page)
+		if err != nil {
+			return teamRoutePage{}, err
+		}
+		if len(encoded) > 8<<10 {
+			page.Routes = page.Routes[:len(page.Routes)-1]
+			page.Next, page.HasMore = i, true
+			if len(page.Routes) == 0 {
+				return teamRoutePage{}, errors.New("configured route identity exceeds 8 KiB index budget")
+			}
+			break
+		}
+	}
+	return page, nil
 }
 func (t *TeamTool) DescribeEffect(call wire.ToolCall) abi.Effect {
 	if teamReadOnly(call) {
@@ -60,8 +120,8 @@ func (t *TeamTool) DescribeEffect(call wire.ToolCall) abi.Effect {
 	}
 	description := "Mutate this Lead's durable Worker queues or actual execution; account/billing and full task arguments require consent"
 	var a teamArgs
-	if json.Unmarshal(call.Arguments, &a) == nil && a.Action == "add" && t.Service != nil && a.TargetIndex >= 0 && a.TargetIndex < len(t.Service.Targets) {
-		r := t.Service.Targets[a.TargetIndex]
+	if json.Unmarshal(call.Arguments, &a) == nil && a.Action == "add" && t.Service != nil && a.TargetIndex >= 0 && a.TargetIndex < len(t.configuredTargets()) {
+		r := t.configuredTargets()[a.TargetIndex]
 		description = fmt.Sprintf("Create a durable Worker: engine=%s model=%s provider=%s account=%s billing=%s; separate permissions, no implicit autonomy", r.EngineID, r.ModelID, r.ProviderID, r.AccountSource, r.BillingRoute)
 	}
 	return abi.Effect{Kind: abi.EffectUnknown, Description: description}
@@ -115,20 +175,22 @@ func (t *TeamTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call
 			end = len(team.Workers)
 		}
 		payload = struct {
-			Team    hub.TeamRun  `json:"team"`
-			Workers []hub.Worker `json:"workers"`
-			Next    int          `json:"next_index"`
-			HasMore bool         `json:"has_more"`
-			Targets []hub.Target `json:"configured_routes"`
-		}{team.Team, team.Workers[first:end], end, end < len(team.Workers), t.Service.Targets}
+			Team       hub.TeamRun  `json:"team"`
+			Workers    []hub.Worker `json:"workers"`
+			Next       int          `json:"next_index"`
+			HasMore    bool         `json:"has_more"`
+			RouteCount int          `json:"configured_route_count"`
+		}{team.Team, team.Workers[first:end], end, end < len(team.Workers), len(t.configuredTargets())}
+	case "routes":
+		payload, err = t.routePage(a.After)
 
 	case "create":
 		payload, err = store.CreateTeam(ctx, t.ProductID)
 	case "add":
-		if a.TargetIndex < 0 || a.TargetIndex >= len(t.Service.Targets) {
+		if a.TargetIndex < 0 || a.TargetIndex >= len(t.configuredTargets()) {
 			return wire.ToolResult{}, errors.New("unknown configured route index")
 		}
-		payload, err = t.Service.AddWorker(ctx, t.ProductID, a.TeamID, a.Name, t.Service.Targets[a.TargetIndex], true)
+		payload, err = t.Service.AddWorker(ctx, t.ProductID, a.TeamID, a.Name, t.configuredTargets()[a.TargetIndex], true)
 	case "tasks":
 		page, e := store.WorkerTasks(ctx, t.ProductID, a.TeamID, a.WorkerID, a.After, 8)
 		err = e
@@ -238,5 +300,5 @@ func (p TeamPlugin) Register(_ context.Context, r *core.Registrar) error {
 	if err := r.Tool(p.Tool); err != nil {
 		return err
 	}
-	return r.SystemPrompt("hub_team coordinates visible independent Hub Worker sessions, never native SDK children. List small indexes, read only selected task ranges. Creating/queuing does not start workers; explicit resume owns FIFO execution. Actual terminal status is separate from changed-file/test evidence, which may be unreported. No automatic bypass or inheritance of parent logs.")
+	return r.SystemPrompt("hub_team coordinates visible independent Hub Worker sessions, never native SDK children. list pages the roster; routes pages configured account/billing identities and absolute target_index for add. Continue either index with after=next_index while has_more. Route indices remain fixed for this Tool instance; changed connections may invalidate them. Read only selected task ranges. Creating/queuing does not start workers; explicit resume owns FIFO execution. Actual terminal status is separate from changed-file/test evidence, which may be unreported. No automatic bypass or inheritance of parent logs.")
 }

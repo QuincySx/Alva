@@ -39,7 +39,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
-	if version < 0 || version > 2 {
+	if version < 0 || version > 3 {
 		s.Close()
 		return nil, errors.New("unsupported Go product database schema; existing data was not modified")
 	}
@@ -109,6 +109,24 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		}
 	}
 	if _, err = preferences(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
+	if version < 3 {
+		for _, statement := range []string{
+			`CREATE TABLE hub_connections(id TEXT PRIMARY KEY,revision INTEGER NOT NULL CHECK(revision>0),created INTEGER NOT NULL,data BLOB NOT NULL)`,
+			`CREATE TABLE hub_connection_credentials(connection TEXT PRIMARY KEY REFERENCES hub_connections(id),data BLOB NOT NULL)`,
+			`PRAGMA user_version=3`,
+		} {
+			if _, err = initialization.ExecContext(ctx, statement); err != nil {
+				initialization.Rollback()
+				s.Close()
+				return nil, err
+			}
+		}
+	}
+	if _, err = connections(ctx, initialization); err != nil {
 		initialization.Rollback()
 		s.Close()
 		return nil, err
