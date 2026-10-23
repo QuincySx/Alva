@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
 )
 
@@ -52,6 +53,8 @@ func (p *NativePage) sendWorkspaceDraft() {
 	if utf8.RuneCountInString(title) > 32 {
 		title = string([]rune(title)[:32]) + "…"
 	}
+	selections := p.captureWorkspaceSelections()
+	homePlan := p.workspacePlanEnabled()
 	workspace := p.workspace
 	files := append([]workspaceSelectedFile(nil), p.workspaceFiles[""]...)
 	p.busy, p.chat.Busy = true, true
@@ -59,6 +62,9 @@ func (p *NativePage) sendWorkspaceDraft() {
 		session, err := p.Service.Create(p.ctx, title, workspace)
 		if err == nil && hub.RouteKey(target) != hub.RouteKey(p.Service.DefaultTarget) {
 			_, err = p.Service.Store.Switch(p.ctx, session.ID, target, "Explicit new-task model selection")
+		}
+		if err == nil && homePlan {
+			err = p.Service.SetPlanMode(p.ctx, session.ID, true)
 		}
 		imported := 0
 		if err == nil {
@@ -72,6 +78,11 @@ func (p *NativePage) sendWorkspaceDraft() {
 				// this session too; never replace it with the captured prompt.
 				currentDraft := p.model.Draft
 				p.drafts[session.ID] = currentDraft
+				if p.composerSelections == nil {
+					p.composerSelections = make(map[string][]product.ComposerPreparation)
+				}
+				p.composerSelections[session.ID] = p.composerSelections[""]
+				delete(p.composerSelections, "")
 				if len(files) != 0 {
 					p.workspaceFiles[session.ID] = files[imported:]
 					delete(p.workspaceFiles, "")
@@ -88,6 +99,7 @@ func (p *NativePage) sendWorkspaceDraft() {
 			// load must never replace the just-admitted Running observation.
 			p.pendingFirstSend = session.ID
 			p.pendingFirstPrompt = prompt
+			p.pendingFirstSelections = selections
 		})
 	}()
 }
@@ -101,6 +113,7 @@ func (p *NativePage) sendWorkspacePendingFiles() {
 		p.problem = err.Error()
 		return
 	}
+	selections := p.captureWorkspaceSelections()
 	id := p.selected
 	files := append([]workspaceSelectedFile(nil), p.workspaceFiles[id]...)
 	// An earlier observation must not overwrite the native binding established
@@ -116,6 +129,7 @@ func (p *NativePage) sendWorkspacePendingFiles() {
 				p.problem = err.Error()
 			} else {
 				p.pendingFirstSend, p.pendingFirstPrompt = id, prompt
+				p.pendingFirstSelections = selections
 			}
 			// A partial import may have committed the branch's first native ID.
 			// Keep its successful references and refresh even when a later file fails.

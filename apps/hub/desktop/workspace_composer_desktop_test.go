@@ -105,8 +105,14 @@ func TestWorkspaceComposerMenusUseActualRoutesAndPolicy(t *testing.T) {
 	if err := tester.Click("Add attachments"); err != nil {
 		t.Fatal(err)
 	}
-	if !tester.HasText("文件引用暂仅支持 Alva 引擎。") || tester.HasText("计划模式") || tester.HasText("协同模式") {
-		t.Fatal("attachment menu concealed its real prerequisite or invented unsupported actions")
+	if !tester.HasText("文件引用暂仅支持 Alva 引擎。") || !tester.HasText("计划模式") || !tester.HasText("命令与 Skills…") || tester.HasText("协同模式") {
+		t.Fatal("attachment menu concealed prerequisites or actual supported actions")
+	}
+	if err := tester.Click("Plan mode"); err != nil {
+		t.Fatal(err)
+	}
+	if p.workspacePlanEnabled() {
+		t.Fatal("external engine accepted native Plan intent")
 	}
 	if err := tester.Click("Attach file"); err != nil {
 		t.Fatal(err)

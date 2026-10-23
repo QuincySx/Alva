@@ -431,6 +431,9 @@ func (s *Store) SetFallback(ctx context.Context, id string, targets []hub.Target
 	})
 }
 func beginAttempt(ctx context.Context, tx *sql.Tx, session hub.Session, branch hub.Branch, turn *hub.Turn) (hub.Attempt, error) {
+	if err := checkPlanTarget(ctx, tx, session.ID, branch.Target); err != nil {
+		return hub.Attempt{}, err
+	}
 	id, err := hub.NewID("attempt-")
 	if err != nil {
 		return hub.Attempt{}, err

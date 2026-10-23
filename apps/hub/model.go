@@ -184,6 +184,7 @@ type SessionStore interface {
 type SettingsStore interface {
 	Settings(context.Context, string) (Settings, error)
 	SaveSettings(context.Context, Settings) error
+	SetPlanMode(context.Context, string, bool) error
 	ReplaceMCP(context.Context, string, []MCPServer) error
 	SetMCPEnabled(context.Context, string, string, bool, bool) error
 	SetSkillsEnabled(context.Context, string, bool) error

@@ -76,7 +76,9 @@ SmallPen页面描述布局、组件和交互意图；可运行能力以Go入口�
 | `req_alva_navigation_settings` | 应用设置共享单一返回来源，分类切换不覆盖；Inspector位置保留，媒体只恢复冷索引，运行/播放owner保持原生命周期 | `TestWorkspaceSettingsMediaReturnRestoresIndexWithoutBodyOrPlayback` |
 | `req_alva_composer_configuration` | 当前装配路由可选；附件分支不兼容提前阻止提交。原生政策仍固定Ask，Auto/Full未接通，不能从界面直接授予新模式 | `TestWorkspaceSavedAttachmentMismatchBlocksSemanticSend` |
 
-目标表单、真实计划模式、常驻伙伴/群组、跨项目目录/引用搜索、slash命令执行、语音录制/转写与权限模式持久快照仍缺产品契约或服务；现有菜单/组件、工具元数据与临时Team不等于这些领域已经实现。右侧标签工作区、应用连接目录和全局自动化也尚未由旧Inspector/会话面板替代完成。
+输入区现在通过共享product服务处理typed命令/Skills与项目引用：选择仅改草稿，明确Send重验来源/branch/SHA并共用Submit或Worker入队；文件原件和目录有界metadata保存在既有Artifact，引用不授予权限。PlanMode持久化于已有JSON设置，独立原子setter保留其他批准；bootstrap使用真实只读Guard并在本轮移除进程/网络集成，统一SQLite Attempt事务拒绝外部引擎绕过（含fallback、Worker、自动化）。
+
+目标表单、常驻伙伴/群组、跨项目目录、兼容来源Skills目录、任意shell型slash命令、语音录制/转写与Ask/Auto/Full完整权限模式仍缺产品契约或服务；现有菜单/组件、工具元数据与临时Team不等于这些领域已经实现。右侧标签工作区、应用连接目录和全局自动化也尚未由旧Inspector/会话面板替代完成。
 
 外观链路为：**原生草稿或HTTP请求 → 同一个PreferencesService → PreferencesStore → SQLite事务**。
 允许值、默认值、patch合并及revision规则只定义在`apps/hub/preferences.go`；存储在事务内调用同一纯值政策。

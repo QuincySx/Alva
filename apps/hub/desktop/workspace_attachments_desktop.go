@@ -56,11 +56,15 @@ func (p *NativePage) workspacePendingFiles() bool {
 }
 
 func (p *NativePage) workspaceAttachmentProblem() string {
+	if p.workspacePlanEnabled() && p.workspaceComposerTarget().EngineID != "alva" {
+		return "只读计划仅支持 Alva 引擎，请切回 Alva 或退出计划模式。"
+	}
 	if p.workspacePendingFiles() && p.workspaceComposerTarget().EngineID != "alva" {
 		return "待导入文件仅支持 Alva 引擎，请选择 Alva 或移除待导入文件。"
 	}
 	files := p.Service.DraftAttachments(p.selected)
-	if len(files) == 0 || p.detail.Session.ID != p.selected {
+	refs := p.Service.DraftWorkspaceReferences(p.selected)
+	if len(files)+len(refs) == 0 || p.detail.Session.ID != p.selected {
 		return ""
 	}
 	branch, err := product.ActiveBranch(p.detail)
@@ -72,17 +76,32 @@ func (p *NativePage) workspaceAttachmentProblem() string {
 			return "附件引用属于其他分支，请切回原分支或移除草稿引用后再发送。"
 		}
 	}
+	for _, ref := range refs {
+		if ref.Selection.BranchID != branch.ID || ref.Info.SessionID != branch.NativeSessionID {
+			return "项目引用属于其他分支，请切回原分支或移除引用。"
+		}
+	}
 	return ""
 }
 
 func (p *NativePage) buildWorkspaceAttachments(c *ui.Context) {
 	pending, saved := p.workspaceFiles[p.selected], p.Service.DraftAttachments(p.selected)
-	if len(pending) == 0 && len(saved) == 0 {
+	refs := p.Service.DraftWorkspaceReferences(p.selected)
+	if len(pending)+len(saved)+len(refs)+len(p.composerSelections[p.selected]) == 0 {
 		return
 	}
 	t, colors := c.Theme(), workspacePalette(c)
 	blocked := p.busy || p.inputBlocked()
 	ui.Row(c).FillWidth().Wrap().Gap(6).Children(func() {
+		p.buildWorkspaceSelections(c)
+		for _, ref := range refs {
+			ui.ButtonBase(c.Key(ref.Selection.ID)).Label("Remove project reference "+ref.Selection.Path).
+				Padding(6, 8).Gap(6).Radius(8).Border(1, t.Border).Background(colors.subtle).Disabled(blocked).
+				Tooltip(ref.Selection.Path + " · " + ref.Info.Processing).OnClick(func() { p.Service.RemoveDraftWorkspaceReference(p.selected, ref.Selection.ID) }).Children(func() {
+				ui.Text(c, "@"+ref.Selection.Path).FontSize(12).SingleLine().MaxWidth(180)
+				ui.Icon(c, workspaceIcon("x")).Size(14, 14)
+			})
+		}
 		for i, file := range pending {
 			name := filepath.Base(file.path)
 			button := ui.ButtonBase(c.Key(fmt.Sprintf("pending-%d", i))).Label("Remove pending file "+name).

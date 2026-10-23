@@ -13,6 +13,7 @@ import (
 
 type Settings struct {
 	DurableWaits      bool            `json:"durable_waits"`
+	PlanMode          bool            `json:"plan_mode,omitempty"`
 	Version           int             `json:"version"`
 	SessionID         string          `json:"session_id"`
 	MCP               []MCPServer     `json:"mcp"`

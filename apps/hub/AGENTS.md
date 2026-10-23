@@ -8,6 +8,8 @@ AEP产品快照仍由程序选择组件：显式interpreter供JS/Python，空int
 产品先认领耐久 Turn/Attempt，再执行引擎；自动 fallback 串行、固定同一Turn，显式账户/计费授权快照且只有 startup/rate-limit、无可能副作用才可用。Stop 不重放。EngineBranch 保留 native identity，手动切换可返回旧分支；handoff 仅索引/引用、不复制全部原始历史。
 ActiveExecution只读当前物理owner的不可变身份（本次准入的初始Attempt ID，fallback内不变，同Turn恢复后换新身份）；CancelExecution在原control/mu锁序内校验该身份再取消，迟到操作不取消替换owner，原Cancel入口共用实现。未完成准入返回active但空身份，实际Execute收尾前不释放owner；不是新的持久状态或权限。
 等待通过独立WaitStore端口装配，ExecutionStore仍六方法；挂起结束实际Attempt但不结束Turn。同Turn显式继续认领新Attempt、无新prompt/handoff且禁止fallback；结果只保存不执行。普通输入、路由与next-turn配方在waiting时冻结。
+Settings.PlanMode是产品下一Turn纯值；独立SetPlanMode只改该值并保留其他批准。实际只读Guard与可选进程集成收敛由bootstrap消费，存储统一Attempt事务拒绝Plan外部引擎准入（含fallback/Worker/自动化），不扩Runtime六方法执行依赖。
+
 ## 约束
 Runtime仅消费六方法ExecutionStore；设置/浏览由实际产品consumer要求，SQLite实现及事务不拆分。
 应用外观走独立PreferencesStore，选项/默认/合并校验集中preferences.go；不混入按会话的SettingsStore或执行依赖。界面拥有草稿，共享PreferencesService只发布成功提交的revision，存储端在原子事务内复用同一政策。

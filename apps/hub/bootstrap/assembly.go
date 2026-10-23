@@ -253,6 +253,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if err != nil {
 			return nil, err
 		}
+		settings = planExecutionSettings(settings)
 		var agentLog abi.ConversationLog = log
 		if waits != nil {
 			agentLog = waitBackend.Log()
@@ -271,8 +272,8 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			builder = harness.NewBuilder(model, agentLog)
 		}
 		builder.Workspace(request.Workspace)
-		if request.SystemPrompt != "" {
-			builder.SystemPrompt(request.SystemPrompt)
+		if prompt := planSystemPrompt(request.SystemPrompt, settings.PlanMode); prompt != "" {
+			builder.SystemPrompt(prompt)
 		}
 		if request.MaxTurns != 0 {
 			builder.MaxIterations(request.MaxTurns)
@@ -286,7 +287,11 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if waits != nil {
 			approval = waits
 		}
-		guard, err := security.NewGuard(request.Workspace, nil, workspace, security.NewPermissionManager(security.Ask, approval))
+		mode := security.Ask
+		if settings.PlanMode {
+			mode = security.Plan
+		}
+		guard, err := security.NewGuard(request.Workspace, nil, workspace, security.NewPermissionManager(mode, approval))
 		if err != nil {
 			return nil, err
 		}

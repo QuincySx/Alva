@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/egoist/mygo/ui"
@@ -237,57 +238,69 @@ func TestWorkspaceOldStopDoesNotBlockReplacementExecution(t *testing.T) {
 }
 
 func TestWorkspaceAdmissionKeepsEditsMadeAfterSend(t *testing.T) {
-	service, _ := fixture(t)
-	session, err := service.Create(t.Context(), "snapshot draft", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	page := NewNativePage(service)
-	page.selected = session.ID
-	page.detail, err = service.Store.Detail(t.Context(), session.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	page.applyDetail()
-	page.model.Draft = "first version"
-	wrapped := &workspaceDelayedDetail{ServiceStore: service.Store, entered: make(chan struct{}), release: make(chan struct{})}
-	service.Store = wrapped
-	tester := ui.NewTester(page.Build, 1240, 850)
-	wrapped.block.Store(true)
-	if err := tester.Click("Send"); err != nil {
-		t.Fatal(err)
-	}
-	var release sync.Once
-	defer release.Do(func() { close(wrapped.release) })
-	select {
-	case <-wrapped.entered:
-	case <-time.After(time.Second):
-		t.Fatal("admission did not reach the delayed service")
-	}
-	if err := tester.Click("Message"); err != nil {
-		t.Fatal(err)
-	}
-	tester.Type(" + next version")
-	updated := page.model.Draft
-	if updated == "first version" {
-		t.Fatal("submission prevented editing the next draft")
-	}
-	release.Do(func() { close(wrapped.release) })
-	waitWorkspace(t, page, tester, func() bool { return !page.busy })
-	if page.model.Draft != updated {
-		t.Fatal("an old admission acknowledgement erased newer input")
-	}
-	history, err := service.Store.History(t.Context(), session.ID, 0, 128)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var inputs []string
-	for _, entry := range history {
-		if entry.Input != "" {
-			inputs = append(inputs, entry.Input)
-		}
-	}
-	if len(inputs) != 1 || inputs[0] != "first version" {
-		t.Fatalf("submission changed its frozen prompt: %q", inputs)
+	for _, kind := range []string{"plain", "prepared"} {
+		t.Run(kind, func(t *testing.T) {
+			service, _ := fixture(t)
+			session, err := service.Create(t.Context(), "snapshot draft", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			page := NewNativePage(service)
+			page.selected = session.ID
+			page.detail, err = service.Store.Detail(t.Context(), session.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			page.applyDetail()
+			page.model.Draft = "first version"
+			if kind == "prepared" {
+				selection, err := service.PrepareComposerSelection(t.Context(), session.ID, product.ComposerSelectionRequest{EntryID: "builtin:review"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				page.composerSelections = map[string][]product.ComposerPreparation{session.ID: {selection}}
+			}
+			wrapped := &workspaceDelayedDetail{ServiceStore: service.Store, entered: make(chan struct{}), release: make(chan struct{})}
+			service.Store = wrapped
+			tester := ui.NewTester(page.Build, 1240, 850)
+			wrapped.block.Store(true)
+			if err := tester.Click("Send"); err != nil {
+				t.Fatal(err)
+			}
+			var release sync.Once
+			defer release.Do(func() { close(wrapped.release) })
+			select {
+			case <-wrapped.entered:
+			case <-time.After(time.Second):
+				t.Fatal("admission did not reach the delayed service")
+			}
+			if err := tester.Click("Message"); err != nil {
+				t.Fatal(err)
+			}
+			tester.Type(" + next version")
+			updated := page.model.Draft
+			if updated == "first version" {
+				t.Fatal("submission prevented editing the next draft")
+			}
+			release.Do(func() { close(wrapped.release) })
+			waitWorkspace(t, page, tester, func() bool { return !page.busy })
+			if page.model.Draft != updated {
+				t.Fatal("an old admission acknowledgement erased newer input")
+			}
+			history, err := service.Store.History(t.Context(), session.ID, 0, 128)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var inputs []string
+			for _, entry := range history {
+				if entry.Input != "" {
+					inputs = append(inputs, entry.Input)
+				}
+			}
+			if len(inputs) != 1 || inputs[0] != "first version" {
+				t.Fatalf("submission changed its frozen prompt: %q", inputs)
+			}
+
+		})
 	}
 }

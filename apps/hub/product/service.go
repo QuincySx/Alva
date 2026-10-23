@@ -58,8 +58,12 @@ type HubService struct {
 	Automations        *AutomationCoordinator
 	Worktrees          *worktree.Manager
 	Shells             *shell.Sessions
-	mu                 sync.Mutex
-	attachments        map[string][]DraftAttachment
+	// mu serializes admission and source preparation; draftMu protects only the
+	// small published draft lists so observers never wait for disk/admission I/O.
+	mu                  sync.Mutex
+	draftMu             sync.RWMutex
+	attachments         map[string][]DraftAttachment
+	workspaceReferences map[string][]DraftWorkspaceReference
 }
 
 // PendingApprovals derives native ownership from committed product routing.
@@ -150,6 +154,14 @@ func ActiveBranch(detail hub.Detail) (hub.Branch, error) {
 	return hub.Branch{}, errors.New("active branch is missing")
 }
 func (s *HubService) Submit(ctx context.Context, id, prompt string) (string, error) {
+	return s.submitDraft(ctx, id, prompt, nil)
+}
+func (s *HubService) submitDraft(ctx context.Context, id, prompt string, selections []ComposerPreparation) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.prepareComposerDraftLocked(ctx, id, selections); err != nil {
+		return "", err
+	}
 	detail, err := s.Store.Detail(ctx, id)
 	if err != nil {
 		return "", err
@@ -158,9 +170,10 @@ func (s *HubService) Submit(ctx context.Context, id, prompt string) (string, err
 	if err != nil {
 		return "", err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	prompt, err = s.draftPromptLocked(id, branch, prompt)
+	if err = s.validatePlanTarget(ctx, id, branch); err != nil {
+		return "", err
+	}
+	prompt, err = s.draftPromptLocked(id, branch, detail.Session.Workspace, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -173,10 +186,15 @@ func (s *HubService) Submit(ctx context.Context, id, prompt string) (string, err
 	if err != nil {
 		return "", err
 	}
+	s.draftMu.Lock()
 	delete(s.attachments, id)
+	delete(s.workspaceReferences, id)
+	s.draftMu.Unlock()
 	return turnID, nil
 }
-func (s *HubService) draftPromptLocked(id string, branch hub.Branch, prompt string) (string, error) {
+func (s *HubService) draftPromptLocked(id string, branch hub.Branch, workspace, prompt string) (string, error) {
+	s.draftMu.RLock()
+	defer s.draftMu.RUnlock()
 	files := s.attachments[id]
 	if len(files) > 0 {
 		for _, file := range files {
@@ -190,8 +208,20 @@ func (s *HubService) draftPromptLocked(id string, branch hub.Branch, prompt stri
 		}
 		prompt += "\n\n[User-selected files: references/processing manifests only. Original bytes were saved; not delivered to the model. Read/search only relevant ranges.]\n" + string(manifest)
 	}
-	return prompt, nil
+	return s.workspaceReferencePromptLocked(id, branch, workspace, prompt)
 }
+
+func (s *HubService) validatePlanTarget(ctx context.Context, id string, branch hub.Branch) error {
+	settings, err := s.Store.Settings(ctx, id)
+	if err != nil {
+		return err
+	}
+	if settings.PlanMode && branch.Target.EngineID != "alva" {
+		return engine.ErrUnsupported
+	}
+	return nil
+}
+
 func (s *HubService) Upload(ctx context.Context, id, path string) (DraftAttachment, error) {
 	var result DraftAttachment
 	if !filepath.IsAbs(path) {
@@ -240,20 +270,16 @@ func (s *HubService) UploadReader(ctx context.Context, id, name string, source i
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	files := s.attachments[id]
-	if len(files) >= 8 {
+	count, total := s.draftReferenceBudgetLocked(id)
+	if count >= maxDraftReferenceCount {
 		return result, errors.New("at most 8 files per Turn")
-	}
-	var total int64
-	for _, file := range files {
-		total += file.Info.Bytes
 	}
 
 	data, err := io.ReadAll(io.LimitReader(source, 20<<20+1))
 	if err != nil {
 		return result, err
 	}
-	if len(data) > 20<<20 || total+int64(len(data)) > 40<<20 {
+	if len(data) > 20<<20 || total+int64(len(data)) > maxDraftReferenceBytes {
 		return result, errors.New("selected file exceeds 20 MiB/file or 40 MiB/Turn upload budget")
 	}
 	if branch.NativeSessionID == "" {
@@ -276,17 +302,19 @@ func (s *HubService) UploadReader(ctx context.Context, id, name string, source i
 		return result, err
 	}
 	result = DraftAttachment{BranchID: branch.ID, Info: artifact, Reference: artifact.Reference()}
-	s.attachments[id] = append(files, result)
+	s.draftMu.Lock()
+	s.attachments[id] = append(s.attachments[id], result)
+	s.draftMu.Unlock()
 	return result, nil
 }
 func (s *HubService) DraftAttachments(id string) []DraftAttachment {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.draftMu.RLock()
+	defer s.draftMu.RUnlock()
 	return append([]DraftAttachment(nil), s.attachments[id]...)
 }
 func (s *HubService) RemoveDraftAttachment(id, artifactID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.draftMu.Lock()
+	defer s.draftMu.Unlock()
 	files := s.attachments[id]
 	for i, file := range files {
 		if file.Info.ID == artifactID {

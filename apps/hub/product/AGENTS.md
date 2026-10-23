@@ -10,9 +10,15 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 
 持久等待从已存active branch及该branch自己的Turn派生owner；冷读不运行Agent。Resolve绑定完整请求/revision且不执行，Resume绑定不变配方并交唯一Hub Runtime；Abandon在实际claim内重置native并协调产品边，保留未知/外部效果说明。
 
+输入区的命令/Skills选择与项目引用共用同一产品服务：选择只准备草稿，明确Send在同一准入锁下重验typed来源、应用真实Plan意图并复用原Submit/Worker入队。项目引用和上传共用8条/40MiB预算，原件存既有Artifact，按session/branch/workspace绑定；目录只保留有界metadata，不增权限。草稿列表由独立短时读写锁发布；观察者不等待准入或文件I/O，移除不删除原件。Plan选择只通过共享setPlanModeLocked校验空闲和native checkpoint，再由已选store原子保存，不能绕过冻结配方。
+
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
+| composer_commands.go / composer_commands_test.go | 冷命令/受管Skills目录、有限参数、来源/branch/SHA绑定的typed preparation，选取不启用不执行 |
+| composer_draft.go / composer_draft_test.go | 明确Send重验全部选择、应用计划意图并共用普通/Worker准入；变动或篡改拒绝保留稿 |
+| workspace_references.go / workspace_references_test.go | saved项目有界分页搜索、文件原件/目录metadata artifact、共享附件预算和分支准入 |
+| plan_mode.go / plan_mode_test.go | 下一Turn只读计划配置，空闲native/checkpoint校验与普通配置批准保留 |
 | preferences.go / preferences_test.go | application级偏好共享owner、取消感知的串行存储及非阻塞已提交快照；Close停准入/取消并等待实际I/O、超时保留owner可重试，失败/旧版本不覆盖缓存，不选择后端或启动会话 |
 | wait.go | Alva journal专属的共享UI/HTTP等待DTO、persistent opt-in、陈旧/跨分支拒绝、结果保存/同Turn继续/审阅放弃 |
 | service.go | 产品session/Turn服务、expected-branch原子准入、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答owner |

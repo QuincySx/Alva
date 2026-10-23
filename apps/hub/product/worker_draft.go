@@ -1,5 +1,5 @@
-// INPUT: Actual Lead/Team/Worker, saved native-branch attachment drafts and explicit user prompt
-// OUTPUT: Atomic branch-pinned FIFO task containing only attachment metadata/references
+// INPUT: Actual Lead/Team/Worker, saved native-branch file/project drafts and explicit user prompt
+// OUTPUT: Atomic branch-pinned FIFO task containing only checked file/project metadata and references
 // POS: [L7 Hub product] Enqueue never executes or transfers Lead/sibling artifacts; failed admission preserves the exact draft.
 package product
 
@@ -11,6 +11,9 @@ import (
 )
 
 func (s *HubService) EnqueueWorkerDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim) (hub.WorkerTask, error) {
+	return s.enqueueWorkerDraft(ctx, lead, team, worker, prompt, claims, nil)
+}
+func (s *HubService) enqueueWorkerDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim, selections []ComposerPreparation) (hub.WorkerTask, error) {
 	if s.Teams == nil {
 		return hub.WorkerTask{}, errors.New("Worker queue unavailable")
 	}
@@ -36,13 +39,22 @@ func (s *HubService) EnqueueWorkerDraft(ctx context.Context, lead, team, worker,
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		prompt, err = s.draftPromptLocked(w.SessionID, branch, prompt)
+		if err = s.prepareComposerDraftLocked(ctx, w.SessionID, selections); err != nil {
+			return hub.WorkerTask{}, err
+		}
+		if err = s.validatePlanTarget(ctx, w.SessionID, branch); err != nil {
+			return hub.WorkerTask{}, err
+		}
+		prompt, err = s.draftPromptLocked(w.SessionID, branch, current.Session.Workspace, prompt)
 		if err != nil {
 			return hub.WorkerTask{}, err
 		}
 		task, err := store.EnqueueWorkerOnBranch(ctx, lead, team, w.ID, branch.ID, prompt, claims)
 		if err == nil {
+			s.draftMu.Lock()
 			delete(s.attachments, w.SessionID)
+			delete(s.workspaceReferences, w.SessionID)
+			s.draftMu.Unlock()
 		}
 		return task, err
 	}

@@ -26,6 +26,7 @@ ProductStorage另显式组合应用级PreferencesStore；Open从已选组件读�
 |---|---|
 | wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环 |
 | wait_crash_test.go | 杀死真实Hub续跑进程后unknown/no replay、过期拒绝及显式审阅Abandon |
+| plan_mode.go / plan_test.go / composer_checkpoint_test.go | 真实只读Guard配方、移除process/network可选集成而保留已存批准；实际模型拒写/Ask恢复和冻结checkpoint入口一致性回归 |
 | assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；live仅构造cold Gateway，Close先取消/join其真实handler |
 | tools.go | 六类可选Plugin真实装配（planning/interaction/utility 显式导入 native 适配，普通 Tool 根包不再绑定原生产品）、same-session问题broker、actual tool信任与Shell跨轮Session owner/attempt Lease与Web物理收尾 |
 | assembly_test.go | no-start、真实demo跨重启native resume、route绑定与未批准零副作用回归 |

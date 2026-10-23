@@ -34,8 +34,13 @@ type NativePage struct {
 	Service                        *product.HubService
 	preferences                    preferencesPane
 	composer                       workspaceComposerState
+	picker                         workspacePickerState
+	composerSelections             map[string][]product.ComposerPreparation
+	planModes                      map[string]bool
+	planLoaded                     map[string]bool
 	pendingFirstSend               string
 	pendingFirstPrompt             string
+	pendingFirstSelections         []product.ComposerPreparation
 	workspaceFiles                 map[string][]workspaceSelectedFile
 	workspaceReturn                workspaceReturnState
 	stopRequests                   map[string]string
@@ -190,6 +195,9 @@ func (p *NativePage) dispatch(fn func()) {
 }
 func (p *NativePage) setPane(name string) {
 	p.traceUI("open_pane")
+	if name != p.pane {
+		p.closeWorkspacePicker()
+	}
 	name = p.workspacePaneDestination(name)
 	if p.pane == "team" && name != "team" {
 		p.worktreePatch = product.WorktreePatchPage{}
@@ -239,7 +247,9 @@ func (p *NativePage) selectSession(id string) {
 	}
 	p.pendingFirstSend = ""
 	p.pendingFirstPrompt = ""
+	p.pendingFirstSelections = nil
 	p.composer.closePopovers()
+	p.closeWorkspacePicker()
 	p.stopPlayback()
 	p.drafts[p.selected] = p.model.Draft
 	p.selected = id
@@ -293,6 +303,10 @@ func (p *NativePage) loadTail() {
 	p.polling = true
 	go func() {
 		detail, err := p.Service.Store.Detail(p.ctx, id)
+		var planSettings hub.Settings
+		if err == nil {
+			planSettings, err = p.Service.Store.Settings(p.ctx, id)
+		}
 		var entries []hub.HistoryEntry
 		if err == nil {
 			entries, err = p.Service.Store.HistoryBefore(p.ctx, id, 0, 128)
@@ -310,6 +324,7 @@ func (p *NativePage) loadTail() {
 				return
 			}
 			p.detail = detail
+			p.acceptWorkspacePlanSettings(id, detail.Session.ActiveBranchID, planSettings.PlanMode)
 			p.chat.Busy = false
 			p.transcript.Replace(entries)
 			p.reviewing = false
@@ -317,9 +332,11 @@ func (p *NativePage) loadTail() {
 			p.chat.ScrollToEnd()
 			if p.pendingFirstSend == id {
 				prompt := p.pendingFirstPrompt
+				selections := p.pendingFirstSelections
+				p.pendingFirstSelections = nil
 				p.pendingFirstSend = ""
 				p.pendingFirstPrompt = ""
-				p.sendSnapshot(prompt)
+				p.sendPreparedSnapshot(prompt, selections)
 			}
 		})
 	}()
@@ -364,6 +381,10 @@ func (p *NativePage) poll() {
 	p.polling = true
 	go func() {
 		detail, err := p.Service.Store.Detail(p.ctx, id)
+		var planSettings hub.Settings
+		if err == nil {
+			planSettings, err = p.Service.Store.Settings(p.ctx, id)
+		}
 		var entries []hub.HistoryEntry
 		var approvals []security.ApprovalRequest
 		var questions []interaction.Question
@@ -396,6 +417,7 @@ func (p *NativePage) poll() {
 				return
 			}
 			p.detail = detail
+			p.acceptWorkspacePlanSettings(id, detail.Session.ActiveBranchID, planSettings.PlanMode)
 			p.approvals = approvals
 			p.questions = questions
 			if readWait && p.pane == "waits" && !p.paneBusy && p.wait.Epoch == waitEpoch {
@@ -432,6 +454,9 @@ func (p *NativePage) send() {
 	p.sendSnapshot(p.model.Draft)
 }
 func (p *NativePage) sendSnapshot(prompt string) {
+	p.sendPreparedSnapshot(prompt, p.captureWorkspaceSelections())
+}
+func (p *NativePage) sendPreparedSnapshot(prompt string, selections []product.ComposerPreparation) {
 	p.traceUI("send")
 	frozen := *p.model
 	frozen.Draft = prompt
@@ -445,14 +470,14 @@ func (p *NativePage) sendSnapshot(prompt string) {
 	// Observations captured before admission must not replace its newer state.
 	p.generation++
 	if worker, ok := p.selectedWorker(); ok {
-		p.sendWorkerDraft(worker, prompt)
+		p.sendPreparedWorkerDraft(worker, prompt, selections)
 		return
 	}
 	id := p.selected
 	p.busy = true
 	p.chat.Busy = true
 	go func() {
-		_, err := p.Service.Submit(p.ctx, id, prompt)
+		_, err := p.Service.SubmitComposerDraft(p.ctx, id, prompt, selections)
 		p.dispatch(func() {
 			p.busy = false
 			p.chat.Busy = false
@@ -467,6 +492,7 @@ func (p *NativePage) sendSnapshot(prompt string) {
 				p.model.Draft = ""
 				delete(p.drafts, id)
 			}
+			p.consumeWorkspaceSelections(id, selections)
 			p.problem = ""
 			p.model.ActiveRunID = id
 			p.model.Status = view.Running
@@ -611,6 +637,7 @@ func (p *NativePage) switchBranch(target hub.Target) {
 	}
 	id := p.selected
 	p.composer.closePopovers()
+	p.closeWorkspacePicker()
 	p.busy = true
 	go func() {
 		_, err := p.Service.Store.Switch(p.ctx, id, target, "Explicit native UI selection; retained previous branch")

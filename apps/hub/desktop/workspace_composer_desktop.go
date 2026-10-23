@@ -122,7 +122,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 			if running {
 				placeholder = "补充说明，或调整下一步…"
 			}
-			ui.TextAreaBase(c.Key("workspace-message"), &p.model.Draft).Label("Message").
+			messageEditor := ui.TextAreaBase(c.Key("workspace-message"), &p.model.Draft).Label("Message").
 				Placeholder(placeholder).FillWidth().MinWidth(0).FontSize(16).LineHeight(1.75).
 				Lines(2, 5).Padding(0).Border(0, ui.Transparent).FocusRing(false).
 				Disabled(waiting || loading).OnPaste(func(text string) bool {
@@ -132,6 +132,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				p.problem = "粘贴内容超过 32 KiB，请通过添加菜单附上文件。草稿未发送。"
 				return true
 			})
+			p.buildWorkspacePicker(c, messageEditor)
 			ui.Row(c.Key("controls")).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
 				add := workspaceComposerIconButton(c.Key("add"), "plus", "Add attachments", "添加文件", 32).
 					Disabled(p.busy || running || waiting || loading).Expanded(p.composer.addOpen).
@@ -142,6 +143,9 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 					})
 				p.buildWorkspaceAttachmentMenu(c, add)
 				policy, policyDescription := workspacePermissionPolicy(target.EngineID)
+				if p.workspacePlanEnabled() {
+					policy, policyDescription = "只读计划", p.workspacePlanDescription()
+				}
 				permission := workspaceComposerChip(c.Key("permission"), "shield-check", policy, "Permission policy").
 					Tooltip(policyDescription).Expanded(p.composer.permissionOpen).OnClick(func() {
 					p.composer.permissionOpen = !p.composer.permissionOpen
@@ -268,15 +272,28 @@ func (p *NativePage) buildWorkspaceAttachmentMenu(c *ui.Context, anchor ui.Eleme
 			ui.Icon(c, workspaceIcon("paperclip")).Size(16, 16)
 			ui.Text(c, "文件、图片或视频…").FontSize(14).LineHeight(1.5)
 		})
-		message := "原件保存后，仅在明确发送时附上引用。"
-		if target.EngineID != "alva" {
-			message = "文件引用暂仅支持 Alva 引擎。"
-		} else if p.window == nil {
-			message = "文件选择器需要原生桌面窗口。"
-		} else if p.selected == "" {
-			message = "文件先保留在草稿中；明确发送时创建会话并保存原件，仅附上引用。"
+		for _, entry := range []struct{ kind, icon, label string }{
+			{"references", "folder", "项目文件或目录…"},
+			{"commands", "code-xml", "命令与 Skills…"},
+		} {
+			disabled := p.busy || p.inputBlocked() || entry.kind == "references" && (p.selected == "" || target.EngineID != "alva")
+			button := ui.ButtonBase(c.Key(entry.kind)).Label(entry.label).FillWidth().Padding(8, 12).Gap(8).Radius(8).
+				AlignItems(ui.Center).Justify(ui.Start).Disabled(disabled).OnClick(func() {
+				p.composer.addOpen = false
+				p.openWorkspacePicker(entry.kind)
+			})
+			if button.Hovered() {
+				button.Background(workspacePalette(c).hover)
+			}
+			button.Children(func() {
+				ui.Icon(c, workspaceIcon(entry.icon)).Size(16, 16)
+				ui.Text(c, entry.label).FontSize(14).LineHeight(1.5)
+			})
 		}
-		ui.Text(c, message).FontSize(12).LineHeight(1.5).TextColor(c.Theme().TextMuted).Padding(8, 12)
+		p.buildWorkspacePlanMenuItem(c)
+		if target.EngineID != "alva" {
+			ui.Text(c, "文件引用暂仅支持 Alva 引擎。").FontSize(12).TextColor(c.Theme().TextMuted).Padding(8, 12)
+		}
 	})
 }
 
@@ -296,6 +313,9 @@ func workspacePermissionPolicy(engineID string) (string, string) {
 func (p *NativePage) buildWorkspacePermissionMenu(c *ui.Context, anchor ui.Element, target hub.Target) {
 	workspaceComposerPopover(c, anchor, &p.composer.permissionOpen, 320, func() {
 		label, description := workspacePermissionPolicy(target.EngineID)
+		if p.workspacePlanEnabled() {
+			label, description = "只读计划", p.workspacePlanDescription()
+		}
 		ui.Row(c).Role(ui.RoleMenuItemRadio).Label("Current permission policy").Checked(true).
 			FillWidth().Padding(8, 12).AlignItems(ui.Center).Gap(8).Children(func() {
 			ui.Icon(c, workspaceIcon("shield-check")).Size(16, 16).TextColor(c.Theme().Accent)

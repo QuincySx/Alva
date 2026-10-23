@@ -17,6 +17,7 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | store.go | schema、v1→v2 偏好事务迁移、产品事务、分支保留、handoff、分页历史与中断修复 |
 | preferences.go / preferences_test.go | 应用级偏好 singleton、共享政策/乐观 revision 原子保存；新库、真实 v1 升级、并发、取消及损坏不重置回归 |
 | store_test.go | 可逆路由/安全fallback、native事实归属、commit失败/忽略sink错误不能成功/大handoff/恢复回归 |
+| plan_mode.go / plan_mode_test.go | 事务内只改PlanMode且保留批准；统一beginAttempt拒绝Plan借外部引擎，覆盖Worker/自动化/fallback/等待恢复 |
 | settings.go | session-scoped默认禁用编辑、独立host确认启用与idle-only耐久snapshot |
 | settings_test.go | 配置导入不自批、归属/active限制和关闭重开耐久回归 |
 | compatibility_test.go | 项目相对配置路径默认off、导入不启用、idle-only与关闭重开保存；provider不读文件 |

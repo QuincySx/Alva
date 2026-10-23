@@ -181,7 +181,7 @@ func (s *HubService) ResumeWait(ctx context.Context, id string, target WaitTarge
 	if err = s.ValidateWaitRecipe(ctx, b, settings); err != nil {
 		return "", err
 	}
-	if len(s.attachments[id]) != 0 {
+	if count, _ := s.draftReferenceBudgetLocked(id); count != 0 {
 		return "", errors.New("continuation does not submit draft attachments")
 	}
 	if err = ctx.Err(); err != nil {

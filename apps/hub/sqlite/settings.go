@@ -84,6 +84,11 @@ func (s *Store) SaveSettings(ctx context.Context, value hub.Settings) (providerR
 		if hub.BlocksInput(session.Status) {
 			return errors.New("settings may only be edited while this product session is idle")
 		}
+		previous, err := settings(ctx, tx, value.SessionID)
+		if err != nil {
+			return err
+		}
+		value.PlanMode = previous.PlanMode // Importing configuration is not a permission-policy transition.
 		return saveSettings(ctx, tx, value)
 	})
 }

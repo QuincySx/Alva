@@ -4,6 +4,19 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 技术栈决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)，当前结构见 [ARCHITECTURE](./docs/ARCHITECTURE.md)，运行说明见 [USAGE](./docs/USAGE.md)。
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
+## 2026-10-23 输入区引用、命令与只读计划
+
+在上一轮业务校准基础上并发接通三个领域，仍使用Go/MyGo、既有共享产品服务与原始Artifact，不新增SQL schema或执行runtime。
+
+- `@`与“项目文件或目录”读取已存项目的有限metadata页；选择保存文件原件或有界目录manifest，按branch/native/workspace固定，和附件共享8条/40MiB预算。首页不为搜索自动创建会话，目录不是递归正文快照。
+- `/`与“命令与Skills”提供内置plan/review及已管理的`.alva/skills`；选择只准备typed草稿，明确Send在共享服务锁内重验来源/SHA和分支后复用原准入。变更、禁用、归档、篡改或跨分支均拒绝并保留稿；兼容来源Skills、任意shell命令不在本轮范围。
+- PlanMode由已有JSON设置耐久保存，专用setter保留其他配置与批准，空闲native/checkpoint策略只有一份。实际Guard只读并收敛本轮进程/网络集成；统一SQLite Attempt准入拒绝Plan转外部引擎，覆盖fallback/Worker/自动化。普通配置保存不能默默退出Plan；退出不批准操作。
+- 原生输入复用IME、粘贴和多行语义；浮层只响应真实输入或明确操作，异步搜索按作用域/请求身份取消和拒绝迟到结果。捕获typed选择和首发迁移、错误重试及旧回执清理与原有文本/附件链路一致。
+
+最终全仓desktop-tagged race共96个有测试包、2252个测试/子测试通过，0失败，100.12秒；906个Go源码/模块文件执行期间未变。全树desktop vet、go mod verify、正式原生构建和diff空白检查通过。独立审查发现并修正Plan的external fallback/冻结checkpoint入口及准入锁阻塞UI，分别由真实HTTP、临时红例overlay和普通/typed发送延迟回归验证。普通Worker空选择回执也已修复，原有真实队列测试通过。
+
+原生无窗口画面覆盖1240×850、960×680及明暗主题，菜单参数/详情/分页、8项chips和发送移除可见；深层路径已优先显示文件名，并在完整路径tooltip中核对无溢出。新版Alva Composer Preview.app以独立demo目录启动，进程PID8503；仅确认构建/签名/进程启动，真实OS窗口与选择器另验。此前章节的缺口列表按其当时状态保留；本节以上述限定范围更新当前能力。证据指针`/tmp/alva-workspace-capabilities-path`。真实OS窗口/选择器、外部模型账户及其他平台实机未在本轮验收；正在使用的旧预览进程未被重启。
+
 ## 2026-10-23 工作台业务行为校准
 
 按Product的home-composer/navigation原生requirement核对，纠正首轮只验布局/少量准入、测试反而锁定临时限制的问题；未把未实现的业务改写成设计无需支持。核心mechanism/SQLite/共享服务不另造副本。

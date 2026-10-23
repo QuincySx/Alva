@@ -168,6 +168,9 @@ func (p *NativePage) teamAction(action, id string) {
 	}()
 }
 func (p *NativePage) sendWorkerDraft(worker hub.Worker, prompt string) {
+	p.sendPreparedWorkerDraft(worker, prompt, p.captureWorkspaceSelections())
+}
+func (p *NativePage) sendPreparedWorkerDraft(worker hub.Worker, prompt string, selections []product.ComposerPreparation) {
 	id, lead, team := p.selected, p.team.Team.LeadSessionID, p.team.Team.ID
 	if worker.SessionID != id {
 		p.problem = "Worker draft does not belong to the selected session."
@@ -176,7 +179,7 @@ func (p *NativePage) sendWorkerDraft(worker hub.Worker, prompt string) {
 	p.busy = true
 	p.chat.Busy = true
 	go func() {
-		task, err := p.Service.EnqueueWorkerDraft(p.ctx, lead, team, worker.ID, prompt, nil)
+		task, err := p.Service.EnqueueComposerWorkerDraft(p.ctx, lead, team, worker.ID, prompt, nil, selections)
 		var startErr error
 		if err == nil {
 			startErr = p.Service.Teams.Resume(p.ctx, lead, team, worker.ID)
@@ -195,6 +198,7 @@ func (p *NativePage) sendWorkerDraft(worker hub.Worker, prompt string) {
 				p.model.Draft = ""
 				delete(p.drafts, id)
 			}
+			p.consumeWorkspaceSelections(id, selections)
 			p.problem = "Queued actual task " + task.ID + "; waiting for its FIFO owner, not claiming completion."
 			if startErr != nil {
 				p.problem += " Start failed (task retained; do not resend): " + startErr.Error()

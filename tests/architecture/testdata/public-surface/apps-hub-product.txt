@@ -1,0 +1,739 @@
+const (
+	ComposerCommandEntry ComposerEntryKind = "command"
+	ComposerSkillEntry   ComposerEntryKind = "skill"
+)
+
+const ComposerIntentPlan ComposerIntent = "plan"
+
+const ManagedSkillDirectory = ".alva/skills"
+
+func (*HistoryTool) DescribeEffect(wire.ToolCall) abi.Effect
+
+func (*HistoryTool) IsReadOnly(wire.ToolCall) bool
+
+func (*HistoryTool) Scheduling(wire.ToolCall) abi.Scheduling
+
+func (*TeamTool) Description() string
+
+func (*TeamTool) IsReadOnly(call wire.ToolCall) bool
+
+func (*TeamTool) Name() string
+
+func (*TeamTool) ParametersSchema() json.RawMessage
+
+func (*TeamTool) Scheduling(wire.ToolCall) abi.Scheduling
+
+func (HistoryPlugin) Name() string
+
+func (HistoryTool) Description() string
+
+func (HistoryTool) Name() string
+
+func (HistoryTool) ParametersSchema() json.RawMessage
+
+func (SharedLocksPlugin) Name() string
+
+func (TeamPlugin) Name() string
+
+func (a *AutomationCoordinator) Close(ctx context.Context) error
+
+func (a *AutomationCoordinator) HasError() bool
+
+func (a *AutomationCoordinator) Start() error
+
+func (a *AutomationCoordinator) Tick(ctx context.Context, at int64) error
+
+func (b reviewedWaitBackend) Commit(ctx context.Context, revision uint64, state durable.State, messages []wire.Message) (durable.Snapshot, error)
+
+func (p HistoryPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p SharedLocksPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p TeamPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (s *HubService) AbandonWait(ctx context.Context, id string, target WaitTarget) error
+
+func (s *HubService) AddWorker(ctx context.Context, lead, team, name string, target hub.Target, accountAndBillingApproved bool) (hub.Worker, error)
+
+func (s *HubService) AdoptWorkerChanges(ctx context.Context, lead, team, worker, evidenceID string, revision uint64, approved bool) (result hub.Worker, err error)
+
+func (s *HubService) ArchiveSkill(ctx context.Context, id, name string) (string, error)
+
+func (s *HubService) AudioPlayback(ctx context.Context, id, branchID, manifestURI string) (mediaextension.Manifest, []byte, error)
+
+func (s *HubService) ComposerCatalog(ctx context.Context, id string, query ComposerCatalogQuery) (ComposerCatalogPage, error)
+
+func (s *HubService) ComposerEntry(ctx context.Context, id, entryID string) (ComposerEntryDetail, error)
+
+func (s *HubService) Create(ctx context.Context, title, workspace string) (hub.Session, error)
+
+func (s *HubService) DraftAttachments(id string) []DraftAttachment
+
+func (s *HubService) DraftWorkspaceReferences(id string) []DraftWorkspaceReference
+
+func (s *HubService) EnableDurableWaits(ctx context.Context, id string, enabled bool) error
+
+func (s *HubService) EnqueueComposerWorkerDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim, selections []ComposerPreparation) (hub.WorkerTask, error)
+
+func (s *HubService) EnqueueWorkerDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim) (hub.WorkerTask, error)
+
+func (s *HubService) InitializeSkills(ctx context.Context, id string) error
+
+func (s *HubService) InspectCompatibility(ctx context.Context, id, file string) (receipt compatibility.Receipt, err error)
+
+func (s *HubService) Inspector(ctx context.Context, id, branchID, query string, after, highWater uint64) (InspectorPage, error)
+
+func (s *HubService) InspectorAt(ctx context.Context, id, branchID string, path []ChildHop, query string, after, highWater uint64) (InspectorPage, error)
+
+func (s *HubService) InspectorBundleAt(ctx context.Context, id, branchID string, path []ChildHop, highWater uint64, children bool) ([]byte, storage.BundleSummary, error)
+
+func (s *HubService) InspectorRead(ctx context.Context, id, branchID, uri string, offset int64) (agentcontext.TextPage, error)
+
+func (s *HubService) InspectorReadAt(ctx context.Context, id, branchID string, path []ChildHop, uri string, offset int64) (agentcontext.TextPage, error)
+
+func (s *HubService) InstallSkill(ctx context.Context, id, raw string) error
+
+func (s *HubService) MediaIndex(ctx context.Context, id, branchID, sourceURI string, after, highWater uint64) (storage.ArtifactIndexPage, error)
+
+func (s *HubService) MediaManifest(ctx context.Context, id, branchID, manifestURI string) (mediaextension.Manifest, error)
+
+func (s *HubService) MediaPlayback(ctx context.Context, id, branchID, manifestURI string) (mediaextension.Manifest, *nativemedia.Playback, error)
+
+func (s *HubService) MediaPreview(ctx context.Context, id, branchID, manifestURI string) (mediaextension.Manifest, []byte, error)
+
+func (s *HubService) MediaReceipt(ctx context.Context, id, branchID, uri string) (mediaextension.Receipt, error)
+
+func (s *HubService) MediaReceipts(ctx context.Context, id, branchID, selectionID string, after, highWater uint64) (storage.ArtifactIndexPage, error)
+
+func (s *HubService) MediaSelection(ctx context.Context, id, branchID, uri string) (mediaextension.Selection, error)
+
+func (s *HubService) MediaSelections(ctx context.Context, id, branchID string, after, highWater uint64) (storage.ArtifactIndexPage, error)
+
+func (s *HubService) MediaSources(ctx context.Context, id, branchID string, after, highWater uint64) (storage.ArtifactIndexPage, error)
+
+func (s *HubService) ObserveInspectorAt(ctx context.Context, id, branchID string, path []ChildHop, after uint64, sink func(InspectorPage) error) error
+
+func (s *HubService) PendingApprovals(ctx context.Context, id string) ([]security.ApprovalRequest, error)
+
+func (s *HubService) PendingQuestions(ctx context.Context, id string) ([]interaction.Question, error)
+
+func (s *HubService) PrepareComposerSelection(ctx context.Context, id string, request ComposerSelectionRequest) (ComposerPreparation, error)
+
+func (s *HubService) PrepareWorkspaceReference(ctx context.Context, id string, selection WorkspaceReferenceSelection) (DraftWorkspaceReference, error)
+
+func (s *HubService) PreviewWorkerChanges(ctx context.Context, lead, team, worker string) (result hub.Worker, err error)
+
+func (s *HubService) ProvisionWorkerWorktree(ctx context.Context, lead, team, worker string, approved bool) (result hub.Worker, err error)
+
+func (s *HubService) RemoveDraftAttachment(id, artifactID string)
+
+func (s *HubService) RemoveDraftWorkspaceReference(id, selectionID string)
+
+func (s *HubService) RemoveWorkerWorktree(ctx context.Context, lead, team, worker string, revision uint64, snapshot string, approved bool) (result hub.Worker, err error)
+
+func (s *HubService) ResetShellOwner(ctx context.Context, id, branchID string) error
+
+func (s *HubService) ResolveWait(ctx context.Context, id string, answer WaitResolution) error
+
+func (s *HubService) RespondApproval(ctx context.Context, id, requestID string, allowed bool) error
+
+func (s *HubService) RespondNativeApproval(ctx context.Context, engineID, root, requestID string, allow bool) error
+
+func (s *HubService) RespondQuestion(ctx context.Context, id, questionID string, answer interaction.Answer) error
+
+func (s *HubService) RestoreSkill(ctx context.Context, id, receipt string) error
+
+func (s *HubService) ResumeWait(ctx context.Context, id string, target WaitTarget) (string, error)
+
+func (s *HubService) RevalidateComposerPreparation(ctx context.Context, id string, prepared ComposerPreparation) error
+
+func (s *HubService) ReviewWorkerRemoval(ctx context.Context, lead, team, worker string) (result hub.Worker, err error)
+
+func (s *HubService) SaveAEPDraft(ctx context.Context, id, raw string) error
+
+func (s *HubService) SaveBrowserDraft(ctx context.Context, id, raw string) error
+
+func (s *HubService) SaveCommandsDraft(ctx context.Context, id, raw string) error
+
+func (s *HubService) SaveInspectorBundleAt(ctx context.Context, id, branchID string, path []ChildHop, highWater uint64, children bool) (InspectorExport, error)
+
+func (s *HubService) SaveMCPDraft(ctx context.Context, id, raw string) error
+
+func (s *HubService) SaveToolsDraft(ctx context.Context, id, raw string) error
+
+func (s *HubService) SearchWorkspaceReferences(ctx context.Context, id, query, after string, limit int) (WorkspaceReferencePage, error)
+
+func (s *HubService) SetAutomationEnabled(ctx context.Context, owner, id string, revision uint64, enabled, approved bool) (hub.Automation, error)
+
+func (s *HubService) SetCompatibilityFile(ctx context.Context, id, file string) error
+
+func (s *HubService) SetPlanMode(ctx context.Context, id string, enabled bool) error
+
+func (s *HubService) SetToolEnabled(ctx context.Context, id, kind string, enabled, approved bool) error
+
+func (s *HubService) ShellJobs(ctx context.Context, id string) ([]ShellJob, error)
+
+func (s *HubService) SkillDocument(ctx context.Context, id, name string) (skill.Document, error)
+
+func (s *HubService) SkillRaw(ctx context.Context, id, name string) (string, error)
+
+func (s *HubService) Skills(ctx context.Context, id string) ([]skill.Skill, error)
+
+func (s *HubService) StopShellJob(ctx context.Context, id, branchID, job string) error
+
+func (s *HubService) Submit(ctx context.Context, id, prompt string) (string, error)
+
+func (s *HubService) SubmitComposerDraft(ctx context.Context, id, prompt string, selections []ComposerPreparation) (string, error)
+
+func (s *HubService) Upload(ctx context.Context, id, path string) (DraftAttachment, error)
+
+func (s *HubService) UploadReader(ctx context.Context, id, name string, source io.Reader) (DraftAttachment, error)
+
+func (s *HubService) Waits(ctx context.Context, id string) (WaitView, error)
+
+func (s *HubService) WorkerPatch(ctx context.Context, lead, team, worker, evidenceID string, offset int) (WorktreePatchPage, error)
+
+func (s *PreferencesService) Close(ctx context.Context) error
+
+func (s *PreferencesService) Read(ctx context.Context) (hub.Preferences, error)
+
+func (s *PreferencesService) Snapshot() hub.Preferences
+
+func (s *PreferencesService) Update(ctx context.Context, update hub.PreferenceUpdate) (hub.Preferences, error)
+
+func (t *HistoryTool) Execute(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
+
+func (t *TeamCoordinator) Close(ctx context.Context) error
+
+func (t *TeamCoordinator) Resume(ctx context.Context, lead, team, worker string) error
+
+func (t *TeamCoordinator) Status(worker string) WorkerPumpStatus
+
+func (t *TeamCoordinator) Stop(ctx context.Context, lead, team, worker string) error
+
+func (t *TeamTool) DescribeEffect(call wire.ToolCall) abi.Effect
+
+func (t *TeamTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
+
+func ActiveBranch(detail hub.Detail) (hub.Branch, error)
+
+func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.Repository, target hub.Target, directory string, demo bool) (*HubService, error)
+
+func NewPreferencesService(ctx context.Context, store hub.PreferencesStore) (*PreferencesService, error)
+
+func NewTeamCoordinator(store hub.TeamStore, runtime *hub.Runtime) *TeamCoordinator
+
+func StagePinnedAEP(ctx context.Context, entry hub.AEPBundle, parent string) (*loader.Bundle, error)
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"path/filepath"
+	"strings"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/extension/loader"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/protocol/skill"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/harness/durable"
+	"github.com/QuincySx/Alva/harness/durable/journal"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage/blob"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"time"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/gateway"
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/apps/hub/worktree"
+	"github.com/QuincySx/Alva/extension/shell"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/host"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/protocol/skill"
+	"os"
+)
+
+import (
+	"context"
+	"errors"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/kernel/bus"
+)
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+
+	mediaextension "github.com/QuincySx/Alva/extension/media"
+	nativemedia "github.com/QuincySx/Alva/platform/system/media"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/platform/storage"
+)
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/extension/compatibility"
+)
+
+import (
+	"context"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/extension/shell"
+)
+
+import (
+	"context"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/harness/durable"
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/platform/host"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+)
+
+import (
+	"context"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"sort"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/extension/interaction"
+	"github.com/QuincySx/Alva/platform/host"
+)
+
+import (
+	"context"
+
+	mediaextension "github.com/QuincySx/Alva/extension/media"
+	"github.com/QuincySx/Alva/platform/storage"
+)
+
+type AutomationCoordinator struct {
+	Store hub.AutomationStore
+}
+
+type ChildHop struct {
+	LinkSequence uint64 `json:"link_sequence"`
+}
+
+type ComposerArgument struct {
+	Name     string `json:"name"`
+	Label    string `json:"label"`
+	Required bool   `json:"required"`
+	MaxBytes int    `json:"max_bytes"`
+}
+
+type ComposerCatalogEntry struct {
+	ID                string             `json:"id"`
+	Kind              ComposerEntryKind  `json:"kind"`
+	Name              string             `json:"name"`
+	Description       string             `json:"description"`
+	Origin            string             `json:"origin"`
+	Scope             string             `json:"scope"`
+	Source            string             `json:"source,omitempty"`
+	Available         bool               `json:"available"`
+	UnavailableReason string             `json:"unavailable_reason,omitempty"`
+	Arguments         []ComposerArgument `json:"arguments"`
+}
+
+type ComposerCatalogPage struct {
+	Entries []ComposerCatalogEntry `json:"entries"`
+	Total   int                    `json:"total"`
+	Offset  int                    `json:"offset"`
+	Limit   int                    `json:"limit"`
+}
+
+type ComposerCatalogQuery struct {
+	Kind   ComposerEntryKind `json:"kind,omitempty"`
+	Search string            `json:"search,omitempty"`
+	Offset int               `json:"offset,omitempty"`
+	Limit  int               `json:"limit,omitempty"`
+}
+
+type ComposerEntryDetail struct {
+	Entry    ComposerCatalogEntry `json:"entry"`
+	Document *skill.Document      `json:"document,omitempty"`
+	SHA256   string               `json:"sha256,omitempty"`
+}
+
+type ComposerEntryKind string
+
+type ComposerIntent string
+
+type ComposerPreparation struct {
+	EntryID   string                  `json:"entry_id"`
+	Kind      ComposerEntryKind       `json:"kind"`
+	Origin    string                  `json:"origin"`
+	Scope     string                  `json:"scope"`
+	Arguments map[string]string       `json:"arguments,omitempty"`
+	Intent    ComposerIntent          `json:"intent,omitempty"`
+	Text      string                  `json:"text"`
+	SkillRef  *ComposerSkillReference `json:"skill_ref,omitempty"`
+}
+
+type ComposerSelectionRequest struct {
+	EntryID   string            `json:"entry_id"`
+	Arguments map[string]string `json:"arguments,omitempty"`
+}
+
+type ComposerSkillReference struct {
+	SessionID    string       `json:"session_id"`
+	BranchID     string       `json:"branch_id"`
+	Name         string       `json:"name"`
+	RelativePath string       `json:"relative_path"`
+	SHA256       string       `json:"sha256"`
+	Policy       skill.Policy `json:"policy"`
+}
+
+type DraftAttachment struct {
+	BranchID  string               `json:"branch_id"`
+	Info      storage.ArtifactInfo `json:"info"`
+	Reference wire.Reference       `json:"reference"`
+}
+
+type DraftWorkspaceReference struct {
+	Selection WorkspaceReferenceSelection `json:"selection"`
+	Info      storage.ArtifactInfo        `json:"info"`
+	Reference wire.Reference              `json:"reference"`
+}
+
+type HistoryPlugin struct{ Tool *HistoryTool }
+
+type HistoryTool struct {
+	Store               hub.Store
+	ProductID, NativeID string
+}
+
+type HubService struct {
+	Store              ServiceStore
+	Runtime            *hub.Runtime
+	Repository         storage.Repository
+	DefaultTarget      hub.Target
+	Targets            []hub.Target
+	DataDirectory      string
+	Demo               bool
+	ValidateWaitRecipe func(context.Context, hub.Branch, hub.Settings) error
+	Approvals          *host.ApprovalBroker
+	Questions          *host.QuestionBroker
+	Gateway            *gateway.Local
+	Preferences        *PreferencesService
+	Teams              *TeamCoordinator
+	Automations        *AutomationCoordinator
+	Worktrees          *worktree.Manager
+	Shells             *shell.Sessions
+}
+
+type InspectorExport struct {
+	Path    string                `json:"path"`
+	Summary storage.BundleSummary `json:"summary"`
+}
+
+type InspectorPage struct {
+	NativeID        string                        `json:"native_id"`
+	Capabilities    engine.InspectionCapabilities `json:"capabilities"`
+	Entries         []storage.RecordEntry
+	Next, HighWater uint64
+	HasMore         bool
+	Processing      string
+}
+
+type PreferencesService struct {
+}
+
+type ServiceStore interface {
+	hub.Store
+	hub.WaitStore
+	hub.NativeOwnerResolver
+}
+
+type SharedLocksPlugin struct{ Registry *core.ToolLockRegistry }
+
+type ShellJob struct {
+	BranchID string          `json:"branch_id"`
+	Job      shell.JobStatus `json:"job"`
+}
+
+type TeamCoordinator struct {
+	Store hub.TeamStore
+}
+
+type TeamPlugin struct{ Tool *TeamTool }
+
+type TeamTool struct {
+	Service             *HubService
+	ProductID, NativeID string
+	Guard               *security.Guard
+}
+
+type WaitResolution struct {
+	Target    WaitTarget      `json:"target"`
+	RequestID string          `json:"request_id"`
+	Binding   string          `json:"binding"`
+	Result    json.RawMessage `json:"result"`
+}
+
+type WaitTarget struct {
+	BranchID string `json:"branch_id"`
+	TurnID   string `json:"turn_id"`
+	Revision uint64 `json:"revision"`
+}
+
+type WaitView struct {
+	Status        engine.Outcome   `json:"status"`
+	Supported     bool             `json:"supported"`
+	Enabled       bool             `json:"enabled"`
+	BranchID      string           `json:"branch_id"`
+	TurnID        string           `json:"turn_id,omitempty"`
+	Snapshot      durable.Snapshot `json:"snapshot"`
+	CanResume     bool             `json:"can_resume"`
+	ResumeProblem string           `json:"resume_problem,omitempty"`
+}
+
+type WorkerPumpStatus struct {
+	Active bool   `json:"active"`
+	Error  string `json:"error,omitempty"`
+}
+
+type WorkspaceReferencePage struct {
+	Entries   []WorkspaceReferenceSelection `json:"entries"`
+	Next      string                        `json:"next"`
+	HasMore   bool                          `json:"has_more"`
+	Truncated bool                          `json:"truncated"`
+	Scanned   int                           `json:"scanned"`
+}
+
+type WorkspaceReferenceSelection struct {
+	ID          string `json:"id"`
+	BranchID    string `json:"branch_id"`
+	WorkspaceID string `json:"workspace_id"`
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Revision    string `json:"revision"`
+	Bytes       int64  `json:"bytes"`
+}
+
+type WorktreePatchPage struct {
+	Text       string `json:"text"`
+	Next       int    `json:"next"`
+	HasMore    bool   `json:"has_more"`
+	Processing string `json:"processing"`
+}
+
+var ErrWorkspaceReferenceChanged = errors.New("workspace selection changed; search and select it again")
