@@ -1,0 +1,100 @@
+const (
+	Idle      Status = "idle"
+	Running   Status = "running"
+	Stopping  Status = "stopping"
+	Completed Status = "completed"
+	Cancelled Status = "cancelled"
+	Failed    Status = "failed"
+)
+
+const MaxDraftBytes = 32 * 1024
+
+func (m *Model) Admitted(runID, prompt string)
+
+func (m *Model) AttachRun(runID string, status Status)
+
+func (m *Model) CanSend() bool
+
+func (m *Model) FailAdmission(err error)
+
+func (m *Model) LastSequence() uint64
+
+func (m *Model) Observe(runID string, seq uint64, text string, status Status, failure string) bool
+
+func (m *Model) Prompt() (string, error)
+
+func (m *Model) RequestStop() string
+
+func (m *Model) StatusText() string
+
+func (v *NativeView) AtEnd() bool
+
+func (v *NativeView) Build(c *ui.Context)
+
+func (v *NativeView) BuildChat(c *ui.Context)
+
+func (v *NativeView) BuildMessages(c *ui.Context)
+
+func (v *NativeView) ScrollToEnd()
+
+func (v *NativeView) SetMarkdownOptions(options *markdown.Options)
+
+func InspectionGroup(entry storage.RecordEntry) string
+
+func InspectionGroupVisible(entry storage.RecordEntry, group string) bool
+
+func NewModel(demo bool) *Model
+
+func NewModelWithRetention(demo bool, rows int) *Model
+
+func NewNativeView(model *Model) *NativeView
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+import (
+	"fmt"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
+)
+
+import (
+	"strings"
+
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+type Message struct {
+	ID     string
+	RunID  string
+	Role   string
+	Text   string
+	Status Status
+	Error  string
+}
+
+type Model struct {
+	Draft       string
+	Messages    []Message
+	ActiveRunID string
+	Status      Status
+	Error       string
+	Notice      string
+	Demo        bool
+	RouteLabel  string
+}
+
+type NativeView struct {
+	Model          *Model
+	Send           func()
+	Stop           func()
+	Busy           bool
+	LargePasteHint string
+}
+
+type Status string

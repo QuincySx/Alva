@@ -1,0 +1,53 @@
+{
+  "source": "Existing canonical Alva design resources; no outline or metric modifications",
+  "icons": {
+    "package": "lucide-static",
+    "version": "1.61.0",
+    "license": "ISC AND MIT",
+    "source": "docs/design/alva/fonts/lucide",
+    "notice": "lucide/LICENSE"
+  },
+  "font": {
+    "family": "Alva UI Sans SC",
+    "weights": [
+      400,
+      600
+    ],
+    "license": "OFL-1.1",
+    "source": "docs/design/alva/fonts/UI-NOTICE.json",
+    "coverage": "Design subset; platform fallback remains enabled for arbitrary text"
+  },
+  "files": {
+    "lucide/plus.svg": "dfcf07b39b0f4c0b422595ae488fb08c468ef4782f6ef37d0deceaadfb2a5693",
+    "lucide/search.svg": "e0d89f53155655032f5c07fd8da930800b62b69a778d1dd76b388b9b78bf1d3f",
+    "lucide/message-square.svg": "ac0bb0b8da1d642f9dc0b39737f82a1d4ee32252a57a5ab46188b1e86c799646",
+    "lucide/settings.svg": "f2235dfd6c69bdad1acd08554ba19557becefa526b21ae4cfabf8fe7bbc48796",
+    "lucide/ellipsis.svg": "97c6135170637b2ef189bb40a506c897db3e1bdc5b8326a7c03309e5bca97e8d",
+    "lucide/chevron-left.svg": "6e7478a72752c404c2ff077dfb768a84b718255d7bf9ea547de9b080114592ee",
+    "lucide/chevron-right.svg": "2af3089fa09497d5725172b172196d193cbe8205bf70ad6f9078ce4773285001",
+    "lucide/panels-top-left.svg": "a052ec65c72dccb9f75fa0918389761583200b787292c248a98d331447d7ada0",
+    "lucide/folder.svg": "1045124391eac75014d2983b0e8b782dd681afa9c8615cc2eeefe4e774c24abd",
+    "lucide/circle-question-mark.svg": "574bb601184ed073009e39ae40c0da1aca57b49213b645aa9aa0f2abb5c1d227",
+    "lucide/check.svg": "cf5d8f45a017604917c0d74ed9c49c6926b0df780c4c9ad3ad85fb7a392bf746",
+    "lucide/triangle-alert.svg": "563e5e851a38ddc378dc98e80ae650ee28180846c7ce14ba51d40bc2107c9362",
+    "lucide/loader-circle.svg": "83789c9ed68cc3f4f290736a2fd5e0acae39ba2b8705a5b7e34d507f1f44477a",
+    "lucide/code-xml.svg": "28eee8253d990326d66ab58db15418942a45271875e880548169cee7fc1ed6ad",
+    "lucide/external-link.svg": "20ae73316402f4629ac1c69576014e2f3956f3ca6e14effeab868d4b5a8cc2ef",
+    "lucide/arrow-up.svg": "f76f6cc5e50fe25865dbf403a816016b1cf8d4de1bb4e230ff5b541b69bcde34",
+    "lucide/square.svg": "3855d336619de5adc61a0b5293db82cb9f5456b859a7daf0cd249653c6f31063",
+    "lucide/chevron-down.svg": "763bbc7f305bad8b852b5ae5feadfc08858acf97f19a5897aa8f1fe636abed45",
+    "lucide/shield-check.svg": "999d49aefa7f0cab77de2853e167feb3d6b6424b4bd30a3090513c71813fd7fe",
+    "lucide/paperclip.svg": "116ebd20f9ccf3ac6a810e12d227a15c7b423ef93e7ed92ad244219c9e5d759f",
+    "lucide/bot.svg": "b64f73b0be93e8bea62200ecf6c0840e19e7b064f9eaf9ecf89a7153cd373fe8",
+    "lucide/book-open.svg": "369a07ee7ab13c9cc464f70aada0c28462a4778dcbd6676044f3d3753d7dc6b6",
+    "lucide/x.svg": "a611112e8946480120e5e96f1d849651df76fa502f6190e293defaf6c4f56b07",
+    "lucide/sliders-horizontal.svg": "d2b52bb681ecad5c0710c4bba8684fd7be8dfe1d2bf3c10e865dff242cf3775f",
+    "lucide/git-branch.svg": "2c81fc736815fb13d645bd8a9b49aa0ddf06c6ef5a31dc099a78ca8a215b8dae",
+    "lucide/users-round.svg": "7b16e9beee68c3508034758a34006c038a461907370438a495e176cc5d7332a1",
+    "lucide/calendar.svg": "5c0372f26e27a19c72b51e27315fa57d0dddbc325c6a2bf0ec32218e3a542ef6",
+    "fonts/AlvaUISansSC-Regular.ttf": "02b74d7ceaa62a6110f2b7f324e766f6fdf383ec036d51ec1f44310beb1e6763",
+    "fonts/AlvaUISansSC-SemiBold.ttf": "8f68e67384bb68839b199c0665d21c9af61ad9cfc1463ec1ce4672131cf68f3a",
+    "fonts/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+    "fonts/UI-NOTICE.json": "984474bc1cb76647a2ed870fabf47c0fee7934bc6aae015a586b13917aaa0984"
+  }
+}

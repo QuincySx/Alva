@@ -115,7 +115,11 @@ func TestNativeAudioIsExplicitSeekableClosedAndNeverModelInput(t *testing.T) {
 	}
 	p.audioOutputError = func() error { return nil }
 	tester := ui.NewTester(p.Build, 1600, 2000)
-	for _, label := range []string{"Media evidence", "List derived media for sound.wav", "Read processing manifest"} {
+	if err = workspaceTestMenu(tester, "媒体资料"); err != nil {
+		t.Fatal(err)
+	}
+	settlePage(t, tester, p)
+	for _, label := range []string{"List derived media for sound.wav", "Read processing manifest"} {
 		if err = tester.Click(label); err != nil {
 			t.Fatal(err)
 		}

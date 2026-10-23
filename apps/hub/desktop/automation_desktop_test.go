@@ -27,7 +27,7 @@ func TestNativeAutomationPausedCRUDAndIndependentBillingConsent(t *testing.T) {
 	}
 	p.applyDetail()
 	tester := ui.NewTester(p.Build, 1600, 1800)
-	if err = tester.Click("Automations"); err != nil {
+	if err = workspaceTestMenu(tester, "自动化"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, p)

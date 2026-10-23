@@ -280,6 +280,14 @@ JS/Python填写绝对interpreter路径；WASM的interpreter/args/env全部留空
 编程接入使用`extension/loader`，上层程序提供会话存储、Guard和launch-risk回调；返回的非nil Plugin拥有bundle，即使同返未完成收尾错误也须保留owner并继续Close。
 普通Go构建不需要Node/Python或外部WASM命令。QuickJS-NG仍用于现有受限脚本能力，与Node作者插件独立；浏览器`js/wasm`不冒充WASIp1插件ABI。检查、批准、构建与实际运行验收分别记录。
 
+## Hub 原生工作台
+
+`alva-hub-desktop`现在使用正式21/22工作台布局：轻灰绿侧栏、任务搜索、真实会话列表、顶部项目/会话位置与限宽输入区。当前窗口标题仍为ALVA Hub · Go native；本机预览可打包为Alva Workspace Preview.app。
+首页“新任务”只回到编辑页，不创建空会话；建议按钮只填草稿。点击顶部工作区可显式选择项目文件夹；未选目录则使用新的私有工作区。文件夹选择不授予工具权限，也不改变已有会话的目录。
+首条Send才创建耐久会话、绑定实际所选路由并经同一HubService.Submit执行；输入/Enter不发送。创建或准入失败保留草稿和已创建身份，初次/同会话重载期间禁发。运行显示Stop并等待实际owner确认，输入的下一条草稿不自动提交。
+“+”提供实际文件附件；模型菜单只列当前明确装配的目标；权限菜单说明实际每次询问/只读/安全政策，没有假自动审批、完全访问、语音或Provider目录。
+会话设置、等待、Inspector、协作、自动化和“路由与故障切换”从页头更多菜单进入；已批准fallback仍可查看与明确禁用。播放资源未收尾时保留暂停/清理入口，切页或关闭观察窗口不等于停止Agent。
+
 ## Hub 通用外观设置
 
 Hub原生侧栏 **General settings** 无需创建会话。主题支持跟随系统/浅色/深色，信息密度支持舒适/紧凑，正文字号支持14/16。

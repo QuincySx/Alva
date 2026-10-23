@@ -1,5 +1,5 @@
 // INPUT:  MyGo ui/markdown and the UI-thread-confined presentation model
-// OUTPUT: NativeView, NewNativeView, Build
+// OUTPUT: NativeView, NewNativeView, Build and independently composed BuildMessages
 // POS: [L6 shared UI] Native self-drawn chat surface with virtualized keyed rows and explicit actions
 //go:build desktop
 
@@ -53,32 +53,7 @@ func (v *NativeView) BuildChat(c *ui.Context) {
 	v.list.Key = func(i int) any { return m.Messages[i].ID }
 	v.list.Label = func(i int) string { return m.Messages[i].Role }
 	ui.Column(c).Grow(1).MinHeight(0).FillWidth().Gap(10).Children(func() {
-		ui.List(c.Key("messages"), &v.list, len(m.Messages), func(i int) {
-			row := m.Messages[i]
-			ui.Column(c).Gap(6).Padding(8).Children(func() {
-				label := row.Role
-				if row.Role == "Alva" {
-					label += " · " + string(row.Status)
-				}
-				ui.Text(c, label).FontSize(12).Bold().TextColor(c.Theme().TextMuted)
-				if row.Role == "You" {
-					ui.Text(c, row.Text)
-				} else if row.Text == "" && (row.Status == Running || row.Status == Stopping) {
-					ui.Text(c, "Waiting for output…").TextColor(c.Theme().TextMuted)
-				} else if row.Status == Running || row.Status == Stopping {
-					markdown.Stream(c, row.Text, v.markdown)
-				} else {
-					markdown.View(c, row.Text, v.markdown)
-				}
-				if row.Error != "" {
-					ui.Text(c, "Run error: "+row.Error).FontSize(12)
-				}
-			})
-		}).Label("Message history").Grow(1).Gap(8).Justify(ui.End).Children(func() {
-			if len(m.Messages) == 0 {
-				ui.Text(c, "Type a message below. Nothing has been sent.").TextColor(c.Theme().TextMuted).Padding(12)
-			}
-		})
+		v.buildMessages(c, false)
 		ui.TextArea(c.Key("composer"), &m.Draft).
 			Label("Message").Placeholder("Message — Enter adds a line; use Send to run").
 			Height(88).Disabled(m.ActiveRunID != "" || v.Busy).OnPaste(func(text string) bool {
@@ -104,6 +79,77 @@ func (v *NativeView) BuildChat(c *ui.Context) {
 				}
 			})
 		})
+	})
+}
+
+// BuildMessages reuses the bounded, keyed transcript without prescribing a composer.
+// Products keep their own input controls while sharing scrolling and Markdown.
+func (v *NativeView) BuildMessages(c *ui.Context) { v.buildMessages(c, true) }
+
+func (v *NativeView) buildMessages(c *ui.Context, conversation bool) {
+	m := v.Model
+	justify, gap := ui.End, float32(8)
+	if conversation {
+		justify, gap = ui.Start, 16
+	}
+	v.list.Key = func(i int) any { return m.Messages[i].ID }
+	v.list.Label = func(i int) string { return m.Messages[i].Role }
+	ui.List(c.Key("messages"), &v.list, len(m.Messages), func(i int) {
+		row := m.Messages[i]
+		if conversation {
+			ui.Row(c).FillWidth().Children(func() {
+				if row.Role == "You" {
+					ui.Box(c).Grow(1)
+				}
+				message := ui.Column(c).MinWidth(0).Gap(8)
+				if row.Role == "You" {
+					message.MaxWidthPercent(85).Padding(12, 16).Radius(16).Background(c.Theme().SurfaceHover)
+				} else {
+					message.FillWidth().Padding(12, 0)
+				}
+				message.Children(func() {
+					if row.Role != "You" {
+						ui.Text(c, row.Role).FontSize(14).FontWeight(600).TextColor(c.Theme().TextMuted)
+					}
+					if row.Role == "You" {
+						ui.Text(c, row.Text).LineHeight(1.75)
+					} else if row.Text == "" && (row.Status == Running || row.Status == Stopping) {
+						ui.Text(c, "正在整理思路…").TextColor(c.Theme().TextMuted)
+					} else if row.Status == Running || row.Status == Stopping {
+						markdown.Stream(c, row.Text, v.markdown)
+					} else {
+						markdown.View(c, row.Text, v.markdown)
+					}
+					if row.Error != "" {
+						ui.Text(c, row.Error).TextColor(c.Theme().Danger).FontSize(12)
+					}
+				})
+			})
+			return
+		}
+		ui.Column(c).Gap(6).Padding(8).Children(func() {
+			label := row.Role
+			if row.Role == "Alva" {
+				label += " · " + string(row.Status)
+			}
+			ui.Text(c, label).FontSize(12).Bold().TextColor(c.Theme().TextMuted)
+			if row.Role == "You" {
+				ui.Text(c, row.Text)
+			} else if row.Text == "" && (row.Status == Running || row.Status == Stopping) {
+				ui.Text(c, "Waiting for output…").TextColor(c.Theme().TextMuted)
+			} else if row.Status == Running || row.Status == Stopping {
+				markdown.Stream(c, row.Text, v.markdown)
+			} else {
+				markdown.View(c, row.Text, v.markdown)
+			}
+			if row.Error != "" {
+				ui.Text(c, "Run error: "+row.Error).FontSize(12)
+			}
+		})
+	}).Label("Message history").Grow(1).Gap(gap).Justify(justify).Children(func() {
+		if len(m.Messages) == 0 && !conversation {
+			ui.Text(c, "Type a message below. Nothing has been sent.").TextColor(c.Theme().TextMuted).Padding(12)
+		}
 	})
 }
 

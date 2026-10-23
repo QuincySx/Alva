@@ -33,7 +33,7 @@ func TestNativeCompatibilityControlIsOptionalAndDoesNotExecute(t *testing.T) {
 	}
 	page.applyDetail()
 	tester := ui.NewTester(page.Build, 1400, 1400)
-	if err := tester.Click("Project skills"); err != nil {
+	if err := workspaceTestMenu(tester, "项目技能"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, page)

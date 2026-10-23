@@ -138,7 +138,11 @@ func TestNativeVideoPlaybackIsExplicitSelfDrawnSeekableAndReaped(t *testing.T) {
 	p.selected, p.detail = s.ID, detail
 	p.applyDetail()
 	tester := ui.NewTester(p.Build, 1600, 2000)
-	for _, label := range []string{"Media evidence", "List derived media for clip.mp4", "Read processing manifest"} {
+	if err = workspaceTestMenu(tester, "媒体资料"); err != nil {
+		t.Fatal(err)
+	}
+	settlePage(t, tester, p)
+	for _, label := range []string{"List derived media for clip.mp4", "Read processing manifest"} {
 		if err = tester.Click(label); err != nil {
 			t.Fatal(err)
 		}

@@ -52,9 +52,13 @@ func TestNativeWorkerSendConsumesOnlyItsReferenceDraftAfterQueueCommit(t *testin
 	page.applyDetail()
 	page.team = team
 	tester := ui.NewTester(page.Build, 1400, 1200)
-	if err := tester.Click("Attach files"); err != nil {
+	if err := tester.Click("Add attachments"); err != nil {
 		t.Fatal("Worker attach control remains disabled", err)
 	}
+	if _, found := tester.Find("Attach file"); !found || !tester.HasText("文件、图片或视频…") {
+		t.Fatal("Worker attachment popover omitted its actual file action")
+	}
+	tester.Key(0, ui.KeyEscape)
 	if err := tester.Click("Message"); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +112,7 @@ func TestNativeCollaborationCreatesOnlyExplicitWorkerAndKeepsHomeClean(t *testin
 	}
 	page.applyDetail()
 	tester := ui.NewTester(page.Build, 1240, 850)
-	if err = tester.Click("Collaboration"); err != nil {
+	if err = workspaceTestMenu(tester, "协作"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, page)

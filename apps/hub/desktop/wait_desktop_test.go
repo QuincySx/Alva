@@ -98,7 +98,9 @@ func TestNativeWaitWidgetsSaveWithoutExecutingAndExplicitlyContinue(t *testing.T
 			t.Fatal(label, err)
 		}
 	}
-	click("Waiting tasks")
+	if err := workspaceTestMenu(tester, "等待中的任务"); err != nil {
+		t.Fatal(err)
+	}
 	settlePage(t, tester, page)
 	click("Enable durable waits next Turn")
 	settlePage(t, tester, page)
@@ -116,11 +118,15 @@ func TestNativeWaitWidgetsSaveWithoutExecutingAndExplicitlyContinue(t *testing.T
 	page.model.Draft = "retained draft for later"
 	tester.Frame()
 	click("Send")
-	click("Stop")
+	if _, found := tester.Find("Stop"); found {
+		t.Fatal("waiting without active execution exposed Stop")
+	}
 	if calls.Load() != 1 || page.model.Draft != "retained draft for later" {
 		t.Fatal("waiting composer executed/lost the draft", calls.Load(), page.model.Draft)
 	}
-	click("Waiting tasks")
+	if err := workspaceTestMenu(tester, "等待中的任务"); err != nil {
+		t.Fatal(err)
+	}
 	settlePage(t, tester, page)
 	turn := page.wait.View.TurnID
 	if page.wait.View.CanResume || len(page.wait.View.Snapshot.State.Requests) != 1 {
@@ -130,7 +136,7 @@ func TestNativeWaitWidgetsSaveWithoutExecutingAndExplicitlyContinue(t *testing.T
 	observer.ctx, observer.selected, observer.detail = t.Context(), s.ID, page.detail
 	observer.applyDetail()
 	other := ui.NewTester(observer.Build, 1240, 850)
-	if err := other.Click("Waiting tasks"); err != nil {
+	if err := workspaceTestMenu(other, "等待中的任务"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, other, observer)
@@ -196,7 +202,9 @@ func TestNativeWaitWidgetsSaveWithoutExecutingAndExplicitlyContinue(t *testing.T
 	click("Chat")
 	click("Send") // This is a new, explicit Turn using the retained draft.
 	waitNativePage(t, tester, page, func() bool { return page.detail.Session.Status == engine.Waiting && !app.Runtime.SessionActive(s.ID) })
-	click("Waiting tasks")
+	if err := workspaceTestMenu(tester, "等待中的任务"); err != nil {
+		t.Fatal(err)
+	}
 	settlePage(t, tester, page)
 	click("Abandon reviewed checkpoint")
 	if calls.Load() != 3 || page.wait.View.Snapshot.State.Status != durable.Waiting {

@@ -1,5 +1,5 @@
 // INPUT: MyGo native UI, shared desktop controls, durable product.HubService and bounded product pages
-// OUTPUT: Run, NativePage and session home/history/file/branch plus General preference controls
+// OUTPUT: Run, NativePage and formal native workspace with shared history, explicit input and advanced panes
 // POS: [L7 Hub product] Separate native Hub product entry; no WebView or direct-harness entry rewrite
 //go:build desktop
 
@@ -33,6 +33,8 @@ type NativePage struct {
 	diagnosticChanged              func()
 	Service                        *product.HubService
 	preferences                    preferencesPane
+	composer                       workspaceComposerState
+	pendingFirstSend               string
 	model                          *view.Model
 	chat                           *view.NativeView
 	transcript                     Transcript
@@ -126,6 +128,9 @@ func NewNativePage(service *product.HubService) *NativePage {
 	chat.LargePasteHint = "Pasted text exceeds 32 KiB. Use Attach file: raw bytes are stored and only an explicit reference is sent."
 	chat.SetMarkdownOptions(modules.NewRegistry().Options())
 	page := &NativePage{Service: service, model: model, chat: chat, title: "New conversation", drafts: make(map[string]string), ctx: context.Background(), targets: append([]hub.Target(nil), service.Targets...), updates: make(chan func(), 8)}
+	if err := registerWorkspaceAssets(); err != nil {
+		page.problem = err.Error()
+	}
 	chat.Send = page.send
 	chat.Stop = page.stop
 	return page
@@ -225,10 +230,9 @@ func (p *NativePage) selectSession(id string) {
 	if p.busy {
 		return
 	}
+	p.pendingFirstSend = ""
 	p.stopPlayback()
-	if p.selected != "" {
-		p.drafts[p.selected] = p.model.Draft
-	}
+	p.drafts[p.selected] = p.model.Draft
 	p.selected = id
 	p.model.Draft = p.drafts[id]
 	p.generation++
@@ -272,10 +276,11 @@ func (p *NativePage) selectSession(id string) {
 	p.loadTail()
 }
 func (p *NativePage) loadTail() {
-	if p.selected == "" || p.polling {
+	if p.selected == "" || p.polling || p.busy {
 		return
 	}
 	id, generation := p.selected, p.generation
+	p.chat.Busy = true
 	p.polling = true
 	go func() {
 		detail, err := p.Service.Store.Detail(p.ctx, id)
@@ -290,6 +295,7 @@ func (p *NativePage) loadTail() {
 				return
 			}
 			if err != nil {
+				p.pendingFirstSend = ""
 				p.problem = err.Error()
 				return
 			}
@@ -299,6 +305,10 @@ func (p *NativePage) loadTail() {
 			p.reviewing = false
 			p.applyDetail()
 			p.chat.ScrollToEnd()
+			if p.pendingFirstSend == id {
+				p.pendingFirstSend = ""
+				p.send()
+			}
 		})
 	}()
 }
@@ -402,9 +412,11 @@ func (p *NativePage) respondApproval(requestID string, allowed bool) {
 }
 func (p *NativePage) send() {
 	p.traceUI("send")
-	if p.selected == "" || p.busy || p.detail.Session.Status == engine.Waiting || !p.model.CanSend() {
+	if p.selected == "" || p.busy || p.chat.Busy || p.detail.Session.Status == engine.Waiting || !p.model.CanSend() {
 		return
 	}
+	// Observations captured before admission must not replace its newer state.
+	p.generation++
 	if worker, ok := p.selectedWorker(); ok {
 		p.sendWorkerDraft(worker)
 		return
@@ -610,197 +622,44 @@ func (p *NativePage) Build(c *ui.Context) {
 	}
 	p.observePreferences()
 	p.applyPreferences(c)
-	ui.Row(c).Fill().Gap(12).Padding(12).Children(func() {
-		ui.Column(c).Label("Session navigation").Width(240).FillHeight().Gap(8).Children(func() {
-			ui.Text(c, "ALVA Hub · Go").Role(ui.RoleHeading).Level(1).Bold().FontSize(20)
-			ui.Button(c, "New window").Disabled(p.openWindow == nil).OnClick(func() {
-				if err := p.openWindow(p.selected); err != nil {
-					p.problem = err.Error()
-				}
-			})
-			ui.Button(c, "General settings").Disabled(p.Service.Preferences == nil).OnClick(p.openPreferences)
-			ui.TextInput(c.Key("title"), &p.title).Label("Session title").Placeholder("Session title")
-			ui.TextInput(c.Key("workspace"), &p.workspace).Label("Workspace directory").Placeholder("Optional absolute workspace; blank = private session")
-			ui.Button(c, "New session").Disabled(p.busy).OnClick(p.create)
-			ui.TextInput(c.Key("session-search"), &p.sessionQuery).Label("Find session title/workspace")
-			ui.Button(c, "Search / refresh sessions").Disabled(p.busy || p.sessionLoading).OnClick(p.refreshSessions)
-			p.list.Key = func(i int) any { return p.sessions[i].ID }
-			p.list.Label = func(i int) string { return p.sessionLabel(p.sessions[i]) }
-			ui.List(c, &p.list, len(p.sessions), func(i int) {
-				session := p.sessions[i]
-				label := p.sessionLabel(session)
-				ui.Button(c, label).Disabled(p.busy).OnClick(func() { p.selectSession(session.ID) })
-			}).Grow(1)
-			ui.Row(c).Gap(4).Children(func() {
-				ui.Button(c, "Previous sessions").Disabled(p.sessionLoading || p.sessionLoadedQuery != p.sessionQuery || len(p.sessionBack) == 0).OnClick(func() {
-					last := len(p.sessionBack) - 1
-					cursor := p.sessionBack[last]
-					p.sessionBack = p.sessionBack[:last]
-					p.loadSessions(cursor)
-				})
-				ui.Button(c, "More sessions").Disabled(p.sessionLoading || p.sessionLoadedQuery != p.sessionQuery || !p.sessionPage.HasMore).OnClick(func() { p.sessionBack = append(p.sessionBack, p.sessionCursor); p.loadSessions(p.sessionPage.Next) })
-			})
-			ui.Text(c, "Product sessions and native execution records are separate durable authorities. No old Rust data is imported.").FontSize(12)
-		})
-		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Gap(8).Children(func() {
-			mode := "LIVE · explicit provider"
-			if p.Service.Demo {
-				mode = "DEMO · local model/tool fixture, no service billing"
-			}
-			if branch, err := product.ActiveBranch(p.detail); err == nil && branch.Target.EngineID != "alva" {
-				mode = "EXTERNAL · " + branch.Target.EngineID + " · explicit executable with real host/account access"
-			}
-			if p.pane != "preferences" {
-				ui.Text(c, mode).FontSize(12)
-			}
-			if p.problem != "" {
-				ui.Text(c, "Error: "+p.problem).FontSize(13)
-			}
-			if p.pane == "preferences" {
-				p.buildPreferences(c)
-				return
-			}
-			if p.selected == "" {
-				ui.Text(c, "Create or select a durable session. Nothing executes on startup.").FontSize(20)
-				ui.Text(c, "Native self-drawn UI: no WebView, React, npm or frontend server.")
-				return
-			}
-			ui.Text(c, p.detail.Session.Title).Bold().FontSize(20)
-			ui.Text(c, p.detail.Session.Workspace).FontSize(12)
-			ui.Row(c).Gap(8).Children(func() {
-				ui.Button(c, "Chat").OnClick(func() { p.setPane("") })
-				ui.Button(c, "Session settings").Disabled(p.paneBusy).OnClick(p.openSettings)
-				ui.Button(c, "Inspector").Disabled(p.paneBusy).OnClick(p.openInspector)
-				ui.Button(c, "Waiting tasks").Disabled(p.paneBusy).OnClick(p.openWaits)
-				ui.Button(c, "Handoff evidence").Disabled(p.paneBusy).OnClick(func() { p.setPane("handoffs"); p.handoffText = "" })
-			})
-			ui.Row(c).Gap(8).Children(func() {
-				ui.Button(c, "Media evidence").Disabled(p.paneBusy).OnClick(p.openMedia)
-				ui.Button(c, "Project skills").Disabled(p.paneBusy).OnClick(p.openSkills)
-				ui.Button(c, "Collaboration").Disabled(p.paneBusy || p.Service.Teams == nil).OnClick(p.openTeam)
-				ui.Button(c, "Automations").Disabled(p.paneBusy || p.Service.Automations == nil).OnClick(p.openAutomations)
-			})
-			p.buildApprovals(c)
-			p.buildQuestions(c)
+	ui.Row(c).Fill().Gap(0).Children(func() {
+		p.buildWorkspaceSidebar(c)
+		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Gap(0).Children(func() {
+			p.buildWorkspaceHeader(c)
 			if p.playerBusy {
-				ui.Button(c, "Pause local video and wait for decoder cleanup").Disabled(p.playerStopping).OnClick(p.stopPlayback)
+				ui.Button(c, "暂停本地播放").Label("Pause local video and wait for decoder cleanup").Disabled(p.playerStopping).OnClick(p.stopPlayback)
 			}
-			if p.pane == "waits" {
-				p.buildWaits(c)
+			if p.pane == "" && p.selected == "" {
+				p.buildWorkspaceWelcome(c)
 				return
 			}
-			if p.pane == "settings" {
-				p.buildSettings(c)
-				return
-			}
-			if p.pane == "plugins" {
-				p.buildAEP(c)
-				return
-			}
-			if p.pane == "commands" {
-				p.buildCommands(c)
-				return
-			}
-			if p.pane == "tools" {
-				p.buildTools(c)
-				return
-			}
-			if p.pane == "gateway" {
-				p.buildGateway(c)
-				return
-			}
-			if p.pane == "media-settings" {
-				p.buildMediaSettings(c)
-				return
-			}
-			if p.pane == "browser-settings" {
-				p.buildBrowserSettings(c)
-				return
-			}
-			if p.pane == "media" {
-				p.buildMedia(c)
-				return
-			}
-			if p.pane == "handoffs" {
-				p.buildHandoffs(c)
-				return
-			}
-			if p.pane == "automations" {
-				p.buildAutomations(c)
-				return
-			}
-			if p.pane == "inspector" {
-				p.buildInspector(c)
-				return
-			}
-			if p.pane == "skills" {
-				p.buildSkills(c)
-				return
-			}
-			if p.pane == "team" {
-				p.buildTeam(c)
-				return
-			}
-			_, isWorker := p.selectedWorker()
-			if isWorker {
-				ui.Text(c, "Worker: independent durable session. Send enqueues and explicitly resumes this Worker's FIFO; Stop pauses its pump. Attachments remain references in this Worker's exact saved branch; a parked-branch task waits for an explicit route return.").FontSize(11)
-			}
-			ui.Row(c).Gap(8).Children(func() {
-				ui.Button(c, "Earlier events").Disabled(p.busy || p.polling || p.transcript.First == 0).OnClick(p.older)
-				ui.Button(c, "Latest events").Disabled(p.busy || p.polling).OnClick(p.loadTail)
-				ui.Button(c, "Attach files").Disabled(p.busy || p.inputBlocked()).OnClick(p.upload)
-			})
-			ui.Row(c).Gap(6).Children(func() {
-				for _, branch := range p.detail.Branches {
-					branch := branch
-					label := "Use " + branch.Target.EngineID + " · " + branch.Target.ModelID
-					if branch.ID == p.detail.Session.ActiveBranchID {
-						label = "Active: " + branch.Target.EngineID
-					}
-					ui.Button(c, label).Disabled(p.busy || p.inputBlocked() || branch.ID == p.detail.Session.ActiveBranchID).OnClick(func() { p.switchBranch(branch.Target) })
+			ui.Column(c).Grow(1).MinHeight(0).FillWidth().Padding(24).Gap(16).Children(func() {
+				if p.problem != "" {
+					ui.Text(c, p.problem).Role(ui.RoleStatus).TextColor(c.Theme().Danger).FontSize(14)
 				}
-			})
-			ui.Row(c).Gap(6).Children(func() {
-				for _, target := range p.targets {
-					target := target
-					active := false
-					for _, branch := range p.detail.Branches {
-						if branch.ID == p.detail.Session.ActiveBranchID && hub.RouteKey(branch.Target) == hub.RouteKey(target) {
-							active = true
+				if p.pane == "preferences" {
+					p.buildPreferences(c)
+					return
+				}
+				if p.selected == "" {
+					p.buildWorkspaceWelcome(c)
+					return
+				}
+				p.buildApprovals(c)
+				p.buildQuestions(c)
+				if p.buildWorkspacePane(c) {
+					return
+				}
+				ui.Column(c).Grow(1).MinHeight(0).FillWidth().AlignItems(ui.Center).Children(func() {
+					ui.Column(c).FillWidth().MaxWidth(960).Grow(1).MinHeight(0).Gap(16).Children(func() {
+						p.chat.BuildMessages(c)
+						if len(p.model.Messages) > 0 && !p.chat.AtEnd() {
+							ui.Button(c, "Jump to latest").OnClick(p.chat.ScrollToEnd)
 						}
-					}
-					if !active {
-						ui.Button(c, "Switch to "+target.EngineID).Disabled(p.busy || p.inputBlocked()).OnClick(func() { p.switchBranch(target) })
-					}
-				}
+						p.buildWorkspaceComposer(c)
+					})
+				})
 			})
-			if len(p.targets) > 1 {
-				ui.Text(c, "Automatic fallback is disabled unless explicitly approved below. It is never used after possible side effects. Account/billing route is part of the approval.").FontSize(11)
-				ui.Row(c).Gap(6).Children(func() {
-					for _, target := range p.targets {
-						target := target
-						ui.Button(c, fmt.Sprintf("Approve fallback: %s · %s · %s", target.EngineID, target.AccountSource, target.BillingRoute)).Disabled(p.busy || p.inputBlocked()).OnClick(func() { p.setFallback(&target) })
-					}
-					ui.Button(c, "Disable automatic fallback").Disabled(p.busy || p.inputBlocked()).OnClick(func() { p.setFallback(nil) })
-				})
-				for _, target := range p.detail.Fallback {
-					ui.Text(c, "Approved fallback: "+target.EngineID+" · "+target.AccountSource+" · "+target.BillingRoute).FontSize(11)
-				}
-			}
-			for _, attachment := range p.Service.DraftAttachments(p.selected) {
-				attachment := attachment
-				ui.Row(c).Gap(8).Children(func() {
-					ui.Text(c, fmt.Sprintf("File: %s · %d bytes · original saved, not model-delivered", attachment.Info.Name, attachment.Info.Bytes)).Grow(1)
-					ui.Button(c.Key("remove-"+attachment.Info.ID), "Remove draft reference").Disabled(p.busy).OnClick(func() { p.Service.RemoveDraftAttachment(p.selected, attachment.Info.ID) })
-				})
-			}
-
-			ui.Text(c, "Uploads retain original bytes and only send references. Optional media tools process explicit sources after consent; inspect actual derivatives/losses/one-request receipts under Media evidence. No automatic media input, OCR or semantic understanding. Removing draft references does not delete originals.").FontSize(11)
-			ui.Text(c, p.model.StatusText()).FontSize(12)
-			if p.model.Notice != "" {
-				ui.Text(c, p.model.Notice).FontSize(11)
-			}
-			p.chat.BuildChat(c)
 		})
 	})
 }

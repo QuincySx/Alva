@@ -1,4 +1,4 @@
-// INPUT: Portable SDK/shared storage/Hub contract ASTs, reviewed golden snapshots and local update opt-in
+// INPUT: Portable SDK/shared storage/Hub/chat contract ASTs, reviewed golden snapshots and local update opt-in
 // OUTPUT: Exported contract signature gate and regressions for field/type/generic/receiver/constant changes
 // POS: Public SDK changes remain explicit review events instead of accidental product-driven API drift
 package architecture_test
@@ -153,7 +153,7 @@ func surface(directory string) (string, error) {
 }
 
 func TestPublicSDKSurfaceSnapshot(t *testing.T) {
-	for _, pkg := range []string{"sdk/llm/wire", "sdk/kernel/bus", "sdk/kernel/abi", "sdk/kernel/core", "sdk/agent/abi", "sdk/agent/core", "sdk/sandbox/abi", "platform/storage", "platform/storage/blob", "platform/storage/storagetest", "platform/storage/blob/blobtest", "integration/protocol/aep", "platform/sandbox/plugin", "apps/hub"} {
+	for _, pkg := range []string{"sdk/llm/wire", "sdk/kernel/bus", "sdk/kernel/abi", "sdk/kernel/core", "sdk/agent/abi", "sdk/agent/core", "sdk/sandbox/abi", "platform/storage", "platform/storage/blob", "platform/storage/storagetest", "platform/storage/blob/blobtest", "integration/protocol/aep", "platform/sandbox/plugin", "apps/hub", "apps/ui/chat"} {
 		t.Run(pkg, func(t *testing.T) {
 			actual, err := surface(filepath.Join(goRoot(), pkg))
 			if err != nil {

@@ -24,6 +24,15 @@ Absorbed Magpie protocol conversion source
   imported. This replacement removes the RelayKit module dependency; the
   existing Alva Go project license above remains AGPL-3.0-only.
 
+Native Hub workspace assets
+  apps/hub/desktop/assets embeds the unchanged Alva UI Sans SC 400/600 design
+  subsets derived from Noto Sans SC (SIL OFL-1.1), with platform font fallback,
+  and unchanged selected Lucide 1.61.0 SVGs (ISC AND MIT).
+  Complete upstream copyright/license notices accompany the runtime resources
+  in assets/fonts/OFL.txt and assets/lucide/LICENSE. Exact source provenance
+  and SHA-256 values are recorded in assets/provenance.json; font derivation
+  and metric provenance remain in assets/fonts/UI-NOTICE.json.
+
 Other dependencies retain their own license notices in their Go modules.
 Tool argument validation uses github.com/santhosh-tekuri/jsonschema/v6 v6.0.3,
 tag commit b0fc661f4939578bc429f408c18202573dbafcc4,

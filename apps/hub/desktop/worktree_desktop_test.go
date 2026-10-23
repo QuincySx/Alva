@@ -61,7 +61,7 @@ func TestNativeWorktreeIsolationEvidenceAndTwoStepAdoption(t *testing.T) {
 	}
 	page.applyDetail()
 	tester := ui.NewTester(page.Build, 1700, 4200)
-	if err = tester.Click("Collaboration"); err != nil {
+	if err = workspaceTestMenu(tester, "协作"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, page)

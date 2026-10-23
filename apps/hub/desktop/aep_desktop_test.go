@@ -38,7 +38,7 @@ func TestNativeAEPInspectAndApprovalAreExplicitWithoutExecution(t *testing.T) {
 	}
 	page.applyDetail()
 	tester := ui.NewTester(page.Build, 1400, 1300)
-	if err = tester.Click("Session settings"); err != nil {
+	if err = workspaceTestMenu(tester, "会话设置"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, page)

@@ -12,6 +12,7 @@
 `apps` 为 L6/L7；`integration` 与 `platform` 是横向协议/原生支撑，不是绕过边界的容器。
 公开快照扫描 `sdk` 中wire/bus/kernel ABI/kernel core/agent ABI/agent core和纯sandbox ABI；路径迁移只更新其 import 身份，不建立旧路径别名。
 Hub根产品契约亦进入快照，显式审阅独立存储端口/DTO变化；不将产品类型移入SDK。
+共享chat公开呈现也进入快照，显式审阅消息列表/输入区拆装，不导出可变列表内部状态。
 
 ## 约束
 

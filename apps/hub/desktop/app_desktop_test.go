@@ -45,11 +45,18 @@ func fixture(t *testing.T) (*product.HubService, chan engine.Request) {
 	return service, make(chan engine.Request, 1)
 }
 
+func workspaceTestMenu(tester *ui.Tester, label string) error {
+	if err := tester.Click("More actions"); err != nil {
+		return err
+	}
+	return tester.ChooseMenuItem(label)
+}
+
 func TestNativeHubHomeDoesNotCreateOrExecute(t *testing.T) {
 	service, requests := fixture(t)
 	page := NewNativePage(service)
 	tester := ui.NewTester(page.Build, 1240, 850)
-	if !tester.HasText("Create or select a durable session. Nothing executes on startup.") || service.Runtime.HasActive() || len(requests) != 0 {
+	if !tester.HasText("今天，想完成什么？") || !tester.HasText("演示模式") || service.Runtime.HasActive() || len(requests) != 0 {
 		t.Fatal("startup executed or hid actual mode")
 	}
 	sessions, err := service.Store.ListSessions(context.Background(), 128)

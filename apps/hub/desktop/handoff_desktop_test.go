@@ -51,7 +51,7 @@ func TestNativeHandoffEvidenceReadsExactSavedTeamIndexOnly(t *testing.T) {
 	p.transcript.Replace(entries)
 	p.applyDetail()
 	tester := ui.NewTester(p.Build, 1500, 1600)
-	if err = tester.Click("Handoff evidence"); err != nil {
+	if err = workspaceTestMenu(tester, "交接记录"); err != nil {
 		t.Fatal(err)
 	}
 	if p.handoffText != "" {

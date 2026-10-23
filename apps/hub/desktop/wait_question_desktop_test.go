@@ -111,7 +111,7 @@ func TestNativeDurableQuestionControlsSurviveReopenAndDoNotGrantPermission(t *te
 				t.Helper()
 				// Operate inside the actual default content height. Clicking an
 				// offscreen label is not evidence that a human can reach it.
-				if page.pane == "waits" && label != "Continue this waiting Turn" && label != "Refresh waiting tasks" && label != "Waiting tasks" {
+				if page.pane == "waits" && label != "Continue this waiting Turn" && label != "Refresh waiting tasks" {
 					for i := 0; i < 8; i++ {
 						box, found := tester.Find(label)
 						viewport, ok := tester.Find("Waiting task details")
@@ -137,7 +137,17 @@ func TestNativeDurableQuestionControlsSurviveReopenAndDoNotGrantPermission(t *te
 					t.Fatal(label, err)
 				}
 			}
-			click("Waiting tasks")
+			openWaits := func() {
+				t.Helper()
+				box, found := tester.Find("More actions")
+				if !found || box.Y < 0 || box.Y+box.H > 818 {
+					t.Fatal("menu remains outside the default viewport", box)
+				}
+				if err := workspaceTestMenu(tester, "等待中的任务"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			openWaits()
 			settlePage(t, tester, page)
 			if calls.Load() != 1 || !tester.HasText("Choose the task input explicitly") || tester.HasText("Explicit result JSON (at most 16 KiB)") {
 				t.Fatal("cold question needs manual JSON or restarted execution", calls.Load(), page.wait)
@@ -226,7 +236,7 @@ func TestNativeDurableQuestionControlsSurviveReopenAndDoNotGrantPermission(t *te
 			closeApp()
 			open()
 			page, tester = newPage()
-			click("Waiting tasks")
+			openWaits()
 			settlePage(t, tester, page)
 			if calls.Load() != 1 || !page.wait.View.CanResume || tester.HasText("Save clarification without executing") {
 				t.Fatal("saved answer was lost, editable or executed on reopen", page.wait, calls.Load())

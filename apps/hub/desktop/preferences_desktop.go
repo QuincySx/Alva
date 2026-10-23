@@ -175,10 +175,10 @@ func (p *NativePage) observePreferences() {
 }
 
 func (p *NativePage) applyPreferences(c *ui.Context) {
-	if p.Service.Preferences == nil {
-		return
+	value := hub.DefaultPreferences()
+	if p.Service.Preferences != nil {
+		value = p.Service.Preferences.Snapshot()
 	}
-	value := p.Service.Preferences.Snapshot()
 	dark := c.Theme().Dark
 	if value.Theme != "system" {
 		dark = value.Theme == "dark"
@@ -204,12 +204,13 @@ func (p *NativePage) applyPreferences(c *ui.Context) {
 		t.SurfacePressed = ui.Hex("#E9EEEC")
 		t.Text = ui.Hex("#29332F")
 		t.TextMuted = ui.Hex("#5E6B64")
-		t.Border = ui.Hex("#76867D")
+		t.Border = ui.Hex("#DDE5E0")
 		t.Accent = ui.Hex("#246B65")
 		t.AccentText = ui.Hex("#FFFFFF")
 	}
-	t.AccentHover = t.Accent
-	t.AccentPressed = t.Accent
+	t.Font = "Alva UI Sans SC"
+	t.AccentHover = t.Accent.Mix(t.Text, .08)
+	t.AccentPressed = t.Accent.Mix(t.Text, .16)
 	t.Focus = t.Accent
 	t.Selection = t.Accent.Alpha(.2)
 	t.Radius = 8

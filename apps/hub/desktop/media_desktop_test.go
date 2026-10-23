@@ -63,7 +63,7 @@ func TestNativeMediaMetadataIsColdAndJPEGPreviewIsExplicit(t *testing.T) {
 	page.selected, page.detail = s.ID, detail
 	page.applyDetail()
 	tester := ui.NewTester(page.Build, 1600, 1600)
-	if err = tester.Click("Media evidence"); err != nil {
+	if err = workspaceTestMenu(tester, "媒体资料"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, page)
@@ -120,7 +120,7 @@ func TestNativeMediaSettingsSaveDisabledAndRequireIndependentDecoderConsent(t *t
 	}
 	page.applyDetail()
 	tester := ui.NewTester(page.Build, 1600, 1800)
-	if err = tester.Click("Session settings"); err != nil {
+	if err = workspaceTestMenu(tester, "会话设置"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, page)

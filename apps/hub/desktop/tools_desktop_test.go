@@ -29,7 +29,7 @@ func TestNativeOptionalToolsAndHumanClarification(t *testing.T) {
 	}
 	p.applyDetail()
 	tester := ui.NewTester(p.Build, 1400, 1600)
-	if err = tester.Click("Session settings"); err != nil {
+	if err = workspaceTestMenu(tester, "会话设置"); err != nil {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, p)

@@ -38,7 +38,7 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | sqlite | 私有耐久产品store、事务认领、历史、外观singleton原子迁移/CAS与崩溃修复 |
 | product | UI无关L7共享服务、独立应用外观owner、真实文件/历史/Inspector/Skill与SDK配方 |
 | bootstrap | Hub共用实际装配和安全关闭，MCP/AEP等exact attempt资源重试与facts释放顺序，desktop/server不各造recipe |
-| desktop | 独立Hub自绘界面，消费共享产品服务与基础desktop控件；应用外观明确保存且跨窗同步，等待跨窗观察保留绑定草稿、排除旧读和失效操作，持久问答用原生单选/多选/文本保存但不授权或继续，不拥有执行 |
+| desktop | 正式自绘工作台/输入区消费共享产品服务与虚拟消息；应用外观跨窗同步，首页首发显式创建与准入，等待/持久问答保留绑定草稿且不授权或自动继续，不拥有执行 |
 | worktree | 显式approved Git、no-checkout直读blob、pin父目录原字节diff/采纳；不运行filter/checkout hook或自动commit/reset |
 | server | 认证 loopback HTTP/SSE，同源 product 服务与耐久游标，不接客户端 host path |
 | devtools | 独立只读stdio MCP诊断；显式Hub/token fd，真实bounded历史index/typed Inspector/2KiB读取，不启动或修改Agent |
