@@ -1,5 +1,5 @@
 // INPUT: context, errors, sync, engine and the durable product Store
-// OUTPUT: Runtime registry, serial attempts, cancellation, permission routing and authorized fallback
+// OUTPUT: Runtime registry, execution identity, serial attempts, cancellation, permission routing and authorized fallback
 // POS: [L7 Hub product] Product supervisor without SDK, concrete adapters or native fact storage dependencies
 package hub
 
@@ -14,13 +14,14 @@ import (
 )
 
 type activeRun struct {
-	control   sync.Mutex
-	done      chan error
-	exited    chan struct{}
-	cancel    context.CancelFunc
-	engine    engine.Runtime
-	nativeID  string
-	attemptID string
+	control     sync.Mutex
+	done        chan error
+	exited      chan struct{}
+	cancel      context.CancelFunc
+	engine      engine.Runtime
+	executionID string
+	nativeID    string
+	attemptID   string
 }
 
 var ErrSessionNotRunning = errors.New("Hub session is not running")
@@ -93,6 +94,18 @@ func (r *Runtime) EngineDescriptions() []engine.Description {
 	return result
 }
 func (r *Runtime) Cancel(ctx context.Context, sessionID string) error {
+	return r.cancel(ctx, sessionID, "")
+}
+
+// CancelExecution cancels only the active owner with the observed execution ID.
+func (r *Runtime) CancelExecution(ctx context.Context, sessionID, expectedExecutionID string) error {
+	if expectedExecutionID == "" {
+		return errors.New("Hub execution identity required")
+	}
+	return r.cancel(ctx, sessionID, expectedExecutionID)
+}
+
+func (r *Runtime) cancel(ctx context.Context, sessionID, expectedExecutionID string) error {
 	r.mu.Lock()
 	run, ok := r.active[sessionID]
 	if !ok {
@@ -103,6 +116,10 @@ func (r *Runtime) Cancel(ctx context.Context, sessionID string) error {
 	run.control.Lock()
 	defer run.control.Unlock()
 	r.mu.Lock()
+	if expectedExecutionID != "" && (r.active[sessionID] != run || run.executionID != expectedExecutionID) {
+		r.mu.Unlock()
+		return ErrSessionNotRunning
+	}
 	if r.active[sessionID] != run {
 		r.mu.Unlock()
 		return errors.New("Hub cancellation target is no longer active")
@@ -195,6 +212,9 @@ func (r *Runtime) start(owner context.Context, sessionID string, admit func(cont
 		close(active.exited)
 		return "", nil, err
 	}
+	r.mu.Lock()
+	active.executionID = claim.Attempt.ID
+	r.mu.Unlock()
 	go func() {
 		err := r.executeClaim(ctx, active, claim)
 		cancel()
@@ -532,4 +552,17 @@ func (r *Runtime) SessionActive(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.active[id] != nil
+}
+
+// ActiveExecution snapshots physical execution ownership, including final cleanup.
+// Its ID is the initial admitted Attempt ID, retained across fallback. While
+// admission is uncommitted, active is true and executionID is empty.
+func (r *Runtime) ActiveExecution(sessionID string) (executionID string, active bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	run := r.active[sessionID]
+	if run == nil {
+		return "", false
+	}
+	return run.executionID, true
 }

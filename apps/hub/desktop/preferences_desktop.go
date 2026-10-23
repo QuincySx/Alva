@@ -127,7 +127,6 @@ func preferenceChoice(c *ui.Context, label string, value *string, options []stri
 func (p *NativePage) buildPreferences(c *ui.Context) {
 	v := &p.preferences
 	ui.Row(c).Gap(8).Children(func() {
-		ui.Button(c, "Back to workspace").OnClick(func() { p.setPane("") })
 		ui.Button(c, "Reload preferences").Disabled(v.loading || v.saving).OnClick(p.reloadPreferences)
 		ui.Button(c, "Save preferences").Disabled(v.base.Revision == 0 || v.loading || v.saving || v.readFailed || !v.dirty()).OnClick(p.savePreferences)
 	})

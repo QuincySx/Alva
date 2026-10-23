@@ -20,7 +20,11 @@ func (p Preferences) Apply(update PreferenceUpdate) (Preferences, error)
 
 func (p Preferences) Validate() error
 
+func (r *Runtime) ActiveExecution(sessionID string) (executionID string, active bool)
+
 func (r *Runtime) Cancel(ctx context.Context, sessionID string) error
+
+func (r *Runtime) CancelExecution(ctx context.Context, sessionID, expectedExecutionID string) error
 
 func (r *Runtime) Close(ctx context.Context) error
 

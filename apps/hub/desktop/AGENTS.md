@@ -4,7 +4,9 @@
 仅通过 apps/hub/product 共享 UI 无关业务；共享 apps/ui/chat 与 apps/ui/modules 控件包不依赖 direct、Hub 或执行 owner。
 ## 逻辑
 
-正式工作台复用21/22设计：220侧栏、52页头、限宽欢迎输入区和独立滚动对话。首页Build/建议/新任务导航不创建会话，明确首条Send才经既有Create、可选Switch、初次Detail和Submit准入；初次及同会话重载完成前禁发，准入隔离此前旧观察；失败保留草稿和已提交身份。项目目录仅通过原生显式选择用于新会话，不改变已有会话或授予权限。已有高级面板/故障切换/播放收尾仍有明确入口。
+正式工作台复用21/22设计：220侧栏、52页头、限宽欢迎输入区和独立滚动对话。首页Build/建议/新任务导航不创建会话，明确首条Send才经既有Create、可选Switch、所选文件逐项Upload、初次Detail和冻结prompt的Submit准入；初次及同会话重载完成前禁发，准入隔离此前旧观察；失败保留草稿和已提交身份。项目目录仅通过原生显式选择用于新会话，不改变已有会话或授予权限。已有高级面板/故障切换/播放收尾仍有明确入口。
+
+应用设置拥有独立导航壳和同一返回来源；分类切换不覆盖来源，返回保留会话/Inspector定位及草稿，媒体离开仍真实join并释放正文，返回只恢复冷索引位置。Stop按本窗session和不可变执行owner身份记录未完成请求，跨会话导航不丢失，实际终态才清理；提交回执仅清理匹配的捕获草稿，不覆盖后续输入。
 
 General是会话外的应用偏好页；原生Select只编辑本窗草稿，明确Save/Reload复用共享PreferencesService与有版本的原子保存。Build/观察仅读已提交内存快照，theme/density/body size在所有窗口生效；外部修改、冲突与存储失败保留草稿，实际保存返回前阻止关闭其窗口。Reduced motion只读系统偏好，不伪装独立应用功能。
 
@@ -24,6 +26,9 @@ apps/hub/product.HubService拥有产品认领与原始文件耐久保存，UI只
 |---|---|
 | workspace_shell_desktop.go / workspace_shell_desktop_test.go | 正式导航、页头、限宽首页、仅编辑草稿的建议与真实高级菜单；冷构建/几何/菜单回归 |
 | workspace_composer_desktop.go / workspace_composer_desktop_test.go | 多行输入、真实附件/路由/权限说明及发送/停止状态；IME、32KiB、浮层、草稿和双轴对齐 |
+| workspace_attachments_desktop.go / workspace_attachments_desktop_test.go | 首页待导入路径、明确发送时复用Upload、部分导入失败只重试剩余项、保留原件和引用、分支不兼容提前禁发 |
+| workspace_settings_desktop.go / workspace_settings_desktop_test.go | 真实设置分类共用左上返回、原会话/视图与媒体冷索引定位恢复；草稿/运行/播放收尾回归 |
+| workspace_lifecycle_desktop_test.go | 真实取消收尾期间跨会话保持Stopping与防重Stop、延迟准入期间新输入不被旧回执擦除 |
 | workspace_actions_desktop.go / workspace_actions_desktop_test.go | 明确首发的真实Create/Detail/Submit、部分失败身份保留、草稿导航、同会话重载禁发与持久fallback可取消回归 |
 | workspace_view_desktop.go / workspace_routing_desktop.go / workspace_project_desktop.go | 高级面板分派、保存分支与账户/计费归属的fallback批准/禁用、原生项目目录选择 |
 | workspace_assets_desktop.go / assets/ | 一次注册有平台回退的设计字体、固定Lucide原始SVG与语义表面色；包含来源哈希、完整OFL/ISC/MIT许可 |

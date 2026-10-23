@@ -6,6 +6,7 @@
 
 AEP产品快照仍由程序选择组件：显式interpreter供JS/Python，空interpreter供manifest验证后的嵌入式WASIp1；核心只做有界纯值验证，不读取manifest或启动runtime。
 产品先认领耐久 Turn/Attempt，再执行引擎；自动 fallback 串行、固定同一Turn，显式账户/计费授权快照且只有 startup/rate-limit、无可能副作用才可用。Stop 不重放。EngineBranch 保留 native identity，手动切换可返回旧分支；handoff 仅索引/引用、不复制全部原始历史。
+ActiveExecution只读当前物理owner的不可变身份（本次准入的初始Attempt ID，fallback内不变，同Turn恢复后换新身份）；CancelExecution在原control/mu锁序内校验该身份再取消，迟到操作不取消替换owner，原Cancel入口共用实现。未完成准入返回active但空身份，实际Execute收尾前不释放owner；不是新的持久状态或权限。
 等待通过独立WaitStore端口装配，ExecutionStore仍六方法；挂起结束实际Attempt但不结束Turn。同Turn显式继续认领新Attempt、无新prompt/handoff且禁止fallback；结果只保存不执行。普通输入、路由与next-turn配方在waiting时冻结。
 ## 约束
 Runtime仅消费六方法ExecutionStore；设置/浏览由实际产品consumer要求，SQLite实现及事务不拆分。
@@ -21,7 +22,7 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引 |
 | preferences.go / preferences_test.go | 应用级外观DTO、三组选项与唯一纯值政策、revision CAS端口；消费者修改选项不改变共享校验 |
 | wait.go | 可选WaitStore、分支最近Turn观察、显式同Turn继续与输入冻结政策，不增加SDK状态 |
-| runtime.go | 独立Descriptor registry/冷能力查询及engine registry、串行执行、取消/审批路由与授权fallback |
+| runtime.go / runtime_identity_test.go | 独立Descriptor/engine registry、串行执行、绑定实际owner身份的取消/审批与授权fallback；准入/替换/取消收尾身份回归 |
 | descriptor_test.go | 第五engine声明/不可替换、纯冷读与snapshot切片隔离、关闭后拒绝注册 |
 | settings.go / aep.go | next-turn私有MCP/AEP进程snapshot、native SubAgent及项目兼容配置文件的opt-in纯值与预算，不引入protocol/进程依赖 |
 | tools.go | Shell/Web显式配置、独立access批准与Planning/Notebook/Interaction/Utility下一Turn可选开关纯值 |
@@ -38,7 +39,7 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | sqlite | 私有耐久产品store、事务认领、历史、外观singleton原子迁移/CAS与崩溃修复 |
 | product | UI无关L7共享服务、独立应用外观owner、真实文件/历史/Inspector/Skill与SDK配方 |
 | bootstrap | Hub共用实际装配和安全关闭，MCP/AEP等exact attempt资源重试与facts释放顺序，desktop/server不各造recipe |
-| desktop | 正式自绘工作台/输入区消费共享产品服务与虚拟消息；应用外观跨窗同步，首页首发显式创建与准入，等待/持久问答保留绑定草稿且不授权或自动继续，不拥有执行 |
+| desktop | 正式自绘工作台/输入区消费共享产品服务与虚拟消息；应用外观跨窗同步，首页文件待导入与首发显式创建/导入/准入，设置返回和停止状态保留真实上下文，等待/持久问答保留绑定草稿且不授权或自动继续，不拥有执行 |
 | worktree | 显式approved Git、no-checkout直读blob、pin父目录原字节diff/采纳；不运行filter/checkout hook或自动commit/reset |
 | server | 认证 loopback HTTP/SSE，同源 product 服务与耐久游标，不接客户端 host path |
 | devtools | 独立只读stdio MCP诊断；显式Hub/token fd，真实bounded历史index/typed Inspector/2KiB读取，不启动或修改Agent |

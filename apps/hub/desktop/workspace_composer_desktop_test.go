@@ -7,6 +7,7 @@ package hubdesktop
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -79,8 +80,14 @@ func TestWorkspaceComposerMenusUseActualRoutesAndPolicy(t *testing.T) {
 	if err := tester.Click("Permission policy"); err != nil {
 		t.Fatal(err)
 	}
-	if !tester.HasText("每次询问") || tester.HasText("自动审批") || tester.HasText("完全访问") {
-		t.Fatal("permission popover invented unsupported permission modes")
+	if !tester.HasText("每次询问") || !tester.HasText("自动审批（Auto） · 不可用") || !tester.HasText("完全访问（Full） · 不可用") {
+		t.Fatal("permission popover omitted the current policy or truthful unavailable choices")
+	}
+	if err := tester.Click("自动审批（Auto）"); err != nil {
+		t.Fatal(err)
+	}
+	if policy, _ := workspacePermissionPolicy(p.workspaceComposerTarget().EngineID); policy != "每次询问" {
+		t.Fatal("unavailable permission choice changed the host policy")
 	}
 	tester.Key(0, ui.KeyEscape)
 	if p.composer.permissionOpen || p.model.Draft != "保留我的草稿" || !tester.Focused("Permission policy") {
@@ -98,7 +105,7 @@ func TestWorkspaceComposerMenusUseActualRoutesAndPolicy(t *testing.T) {
 	if err := tester.Click("Add attachments"); err != nil {
 		t.Fatal(err)
 	}
-	if !tester.HasText("发送首条消息创建会话后，即可添加文件。") || tester.HasText("计划模式") || tester.HasText("协同模式") {
+	if !tester.HasText("文件引用暂仅支持 Alva 引擎。") || tester.HasText("计划模式") || tester.HasText("协同模式") {
 		t.Fatal("attachment menu concealed its real prerequisite or invented unsupported actions")
 	}
 	if err := tester.Click("Attach file"); err != nil {
@@ -177,5 +184,169 @@ func TestWorkspaceComposerToolbarAlignsAndRunningDraftStaysIndependent(t *testin
 	tester.Advance(time.Second)
 	if !tester.HasText("等待你的回应") || p.model.Draft != "下一轮草稿" {
 		t.Fatal("waiting did not freeze and preserve the draft")
+	}
+}
+
+func TestWorkspaceComposerTargetKeyboardScrollsConfiguredRoutes(t *testing.T) {
+	service, requests := fixture(t)
+	for i := range 20 {
+		target := service.DefaultTarget
+		target.ModelID = fmt.Sprintf("configured-%02d", i)
+		service.Targets = append(service.Targets, target)
+	}
+	p := NewNativePage(service)
+	p.model.Draft = "保留草稿🙂"
+	tester := composerTester(p, 540)
+	tester.SetSize(540, 300)
+	if err := tester.Click("Agent and model"); err != nil {
+		t.Fatal(err)
+	}
+	defaultLabel := "Use " + service.DefaultTarget.EngineID + " · " + service.DefaultTarget.ModelID
+	if !tester.Focused(defaultLabel) {
+		t.Fatal("opening the target menu did not focus its actual selected route")
+	}
+	tester.Key(0, ui.KeyEnd)
+	last := service.Targets[len(service.Targets)-1]
+	lastLabel := "Use " + last.EngineID + " · " + last.ModelID
+	if !tester.Focused(lastLabel) {
+		t.Fatal("End did not focus the last configured route")
+	}
+	box, ok := tester.Find(lastLabel)
+	if !ok || box.Y < 0 || box.Y+box.H > 300 {
+		menu, _ := tester.Find("Composer menu")
+		scroll, _ := tester.Find("Composer menu contents")
+		group, _ := tester.Find("Configured agents and models")
+		first, _ := tester.Find(defaultLabel)
+		t.Fatalf("active route is outside the short viewport: %v (menu %v scroll %v group %v first %v)", box, menu, scroll, group, first)
+	}
+	tester.Key(0, ui.KeyUp)
+	beforeLast := service.Targets[len(service.Targets)-2]
+	if !tester.Focused("Use " + beforeLast.EngineID + " · " + beforeLast.ModelID) {
+		t.Fatal("Up did not move among configured routes")
+	}
+	tester.Key(0, ui.KeyDown)
+	tester.Key(0, ui.KeyEnter)
+	if p.composer.targetOpen || hub.RouteKey(p.workspaceComposerTarget()) != hub.RouteKey(last) || !tester.Focused("Agent and model") {
+		t.Fatal("Enter did not choose the active route and restore its trigger focus")
+	}
+	if p.model.Draft != "保留草稿🙂" || len(requests) != 0 || service.Runtime.HasActive() {
+		t.Fatal("route keyboard gestures changed the draft or executed a request")
+	}
+	tester.Key(0, ui.KeyEnter)
+	if !tester.Focused(lastLabel) {
+		t.Fatal("reopening did not focus the newly selected actual route")
+	}
+	tester.Key(0, ui.KeyEscape)
+	if p.composer.targetOpen || !tester.Focused("Agent and model") {
+		t.Fatal("Escape did not close the route menu and restore its trigger")
+	}
+}
+
+func TestWorkspaceComposerSubmissionAllowsEditingAndTruthfulTerminalStatus(t *testing.T) {
+	service, requests := fixture(t)
+	p := NewNativePage(service)
+	p.model.Draft = "already captured"
+	tester := composerTester(p, 760)
+	p.busy = true
+	p.chat.Busy = true
+	tester.Frame()
+	if err := tester.Click("Message"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Type(" plus new draft")
+	if !strings.Contains(p.model.Draft, "plus new draft") {
+		t.Fatal("submission/import froze the independent editable text draft")
+	}
+	if err := tester.Click("Send"); err != nil {
+		t.Fatal(err)
+	}
+	if p.selected != "" || len(requests) != 0 || service.Runtime.HasActive() {
+		t.Fatal("editing during admission enabled duplicate Send")
+	}
+	p.busy, p.chat.Busy = false, false
+	p.selected, p.detail.Session.ID = "observed", "observed"
+	for _, tc := range []struct {
+		outcome engine.Outcome
+		want    string
+	}{{engine.Succeeded, "已完成"}, {engine.Cancelled, "已停止，已保留部分输出"}, {engine.Failed, "执行失败"}, {engine.Interrupted, "执行失败"}} {
+		p.detail.Session.Status = tc.outcome
+		tester.Frame()
+		if !tester.HasText(tc.want) {
+			t.Errorf("observed %s lacks terminal RunStatus %q", tc.outcome, tc.want)
+		}
+	}
+}
+
+func TestWorkspaceComposerContextChangeClosesMenuAndRetainsDraft(t *testing.T) {
+	service, _ := fixture(t)
+	p := NewNativePage(service)
+	p.model.Draft = "draft across context change"
+	tester := composerTester(p, 760)
+	if err := tester.Click("Agent and model"); err != nil {
+		t.Fatal(err)
+	}
+	p.selected = "new-context"
+	p.detail = hub.Detail{Session: hub.Session{ID: p.selected, ActiveBranchID: "branch"}, Branches: []hub.Branch{{ID: "branch", Target: service.DefaultTarget}}}
+	tester.Frame()
+	if p.composer.targetOpen || p.model.Draft != "draft across context change" {
+		t.Fatal("context change retained a stale menu or lost its draft")
+	}
+	if err := tester.Click("Permission policy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tester.Click("Message"); err != nil {
+		t.Fatal(err)
+	}
+	if p.composer.permissionOpen || !tester.Focused("Message") {
+		t.Fatal("outside click did not dismiss only the menu and focus the actual clicked editor")
+	}
+}
+
+func TestWorkspaceComposerTooltipsExplainDisabledActionsAndActualPolicy(t *testing.T) {
+	service, _ := fixture(t)
+	p := NewNativePage(service)
+	tester := composerTester(p, 760)
+	send, ok := tester.Find("Send unavailable")
+	if !ok {
+		t.Fatal("empty Send has no focusable explanation")
+	}
+	tester.Move(send.X+send.W/2, send.Y+send.H/2)
+	tester.Advance(time.Second)
+	if !tester.HasText("请输入消息后发送；Enter 换行。") {
+		t.Fatal("disabled Send does not explain its actual empty-draft reason on hover")
+	}
+	if err := tester.Click("Message"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 8 && !tester.Focused("Send unavailable"); i++ {
+		tester.Key(0, ui.KeyTab)
+	}
+	if !tester.Focused("Send unavailable") || !tester.HasText("请输入消息后发送；Enter 换行。") {
+		t.Fatal("keyboard users cannot focus the disabled Send explanation")
+	}
+	p.busy = true
+	p.model.Draft = "new draft"
+	tester.Frame()
+	if !tester.HasText("正在提交或导入附件，等待真实接收回执。") {
+		t.Fatal("pending submission reuses an inaccurate generic Send tooltip")
+	}
+	// The fixed host policy remains descriptive on focus; focus never grants it.
+	tester.Key(ui.Shift, ui.KeyTab)
+	_, description := workspacePermissionPolicy(service.DefaultTarget.EngineID)
+	if !tester.Focused("Permission policy") || !tester.HasText(description) || p.composer.permissionOpen {
+		t.Fatal("permission focus does not explain the actual policy independently of its menu")
+	}
+	p.busy = false
+	p.model.ActiveRunID, p.model.Status = "observed", view.Stopping
+	tester.Frame()
+	stop, ok := tester.Find("Stop unavailable")
+	if !ok {
+		t.Fatal("Stopping lacks a disabled Stop explanation")
+	}
+	tester.Advance(time.Millisecond)
+	tester.Move(stop.X+stop.W/2, stop.Y+stop.H/2)
+	tester.Advance(time.Second)
+	if !tester.HasText("正在停止，等待执行进程和回调清理完成。") || p.model.Status != view.Stopping {
+		t.Fatalf("Stop tooltip falsely acknowledged execution cleanup: status=%s texts=%q", p.model.Status, tester.Texts())
 	}
 }

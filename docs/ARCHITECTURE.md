@@ -63,7 +63,20 @@ SmallPen页面描述布局、组件和交互意图；可运行能力以Go入口�
 | 模型连接、Provider增删改查 | 尚缺应用级连接目录与秘密引用服务 | 当前模型由程序显式配置；设计中的连接页面尚不能管理生产路由 |
 | 常驻伙伴、伙伴分组 | 尚缺独立持久领域 | 当前Team/Worker是执行任务事实；不以同名界面推断它已实现常驻伙伴配置 |
 
-原生工作台21/22现已消费该链路：页面只持草稿与浮层，明确首发经现有Create、可选Switch、初次Detail读取及Submit。首发失败保留实际身份与输入；普通导航、建议和Build不启动执行。正文复用共享chat的有界列表、Markdown及阅读锚点，输入区由Hub装配；旧高级能力收进可达菜单，业务owner不复制。
+原生工作台21/22现已消费该链路：页面只持草稿与浮层，明确首发经现有Create、可选Switch、逐项导入、初次Detail读取及捕获文本的Submit。首发失败保留实际身份与输入；普通导航、建议和Build不启动执行。正文复用共享chat的有界列表、Markdown及阅读锚点，输入区由Hub装配；旧高级能力收进可达菜单，业务owner不复制。
+
+当前首页交互按稳定 requirement ID 核对，动作验收与视觉检查分别记录；测试不能继续锁定与设计相反的临时约束。
+
+| 设计行为 | 真实实现与边界 | 代表回归 |
+|---|---|---|
+| `req_alva_composer_add` | 首页只选待导入路径；首发Create/Switch后复用Upload逐项保存。失败保留已创建身份、成功引用与未导入余项，不删除原件 | `TestWorkspacePartialImportRetryKeepsSavedReferencesAndNativeBytes` |
+| `req_alva_composer_submit` | 冻结点击时的prompt；导入/准入期间新输入可编辑，仅匹配的旧草稿在接收后清理，Worker同样使用捕获文本 | `TestWorkspaceAdmissionKeepsEditsMadeAfterSend` |
+| `req_alva_composer_execution` | 本窗按不可变物理owner身份保留未完成Stop，条件取消防止影响后续执行（含同Turn恢复）；导航不视作回执，Cancel错误仍待真实清理，可明确重试 | `TestWorkspaceStopSurvivesNavigationUntilActualCleanup` |
+| `req_alva_composer_focus` | 实际路由菜单方向键/Enter选择、有限视口滚动、焦点恢复；提交/等待/停止/禁发提示来自当前真实状态 | `TestWorkspaceComposerTargetKeyboardScrollsConfiguredRoutes` |
+| `req_alva_navigation_settings` | 应用设置共享单一返回来源，分类切换不覆盖；Inspector位置保留，媒体只恢复冷索引，运行/播放owner保持原生命周期 | `TestWorkspaceSettingsMediaReturnRestoresIndexWithoutBodyOrPlayback` |
+| `req_alva_composer_configuration` | 当前装配路由可选；附件分支不兼容提前阻止提交。原生政策仍固定Ask，Auto/Full未接通，不能从界面直接授予新模式 | `TestWorkspaceSavedAttachmentMismatchBlocksSemanticSend` |
+
+目标表单、真实计划模式、常驻伙伴/群组、跨项目目录/引用搜索、slash命令执行、语音录制/转写与权限模式持久快照仍缺产品契约或服务；现有菜单/组件、工具元数据与临时Team不等于这些领域已经实现。右侧标签工作区、应用连接目录和全局自动化也尚未由旧Inspector/会话面板替代完成。
 
 外观链路为：**原生草稿或HTTP请求 → 同一个PreferencesService → PreferencesStore → SQLite事务**。
 允许值、默认值、patch合并及revision规则只定义在`apps/hub/preferences.go`；存储在事务内调用同一纯值政策。

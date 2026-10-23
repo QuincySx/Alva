@@ -117,7 +117,7 @@ func (p *NativePage) buildWorkspaceSidebar(c *ui.Context) {
 		ui.Row(c).Gap(8).Padding(8, 4, 4).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "工作台").FontSize(14).TextColor(t.TextMuted).Grow(1)
 			workspaceIconAction(c, "workspace-preferences", "General settings", "settings").
-				Disabled(p.Service.Preferences == nil).OnClick(p.openPreferences)
+				Tooltip("设置").Disabled(p.Service.Preferences == nil).OnClick(p.openPreferences)
 		})
 	})
 }

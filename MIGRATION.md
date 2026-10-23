@@ -4,6 +4,21 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 技术栈决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)，当前结构见 [ARCHITECTURE](./docs/ARCHITECTURE.md)，运行说明见 [USAGE](./docs/USAGE.md)。
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
+## 2026-10-23 工作台业务行为校准
+
+按Product的home-composer/navigation原生requirement核对，纠正首轮只验布局/少量准入、测试反而锁定临时限制的问题；未把未实现的业务改写成设计无需支持。核心mechanism/SQLite/共享服务不另造副本。
+
+- 首页可先选附件，页面只保存本窗待导入路径。明确Send后Create→可选Switch→逐项Upload→Detail→捕获prompt的Submit。部分失败保留实际session、成功引用、失败/剩余文件及编辑稿，重试不重建或重传成功项；原件不删除。分支/native不兼容提前显示并禁发。
+- 提交/导入期间输入仍可编辑；普通首发、已有会话与Worker使用点击时的文本，真实接收回执只清理仍匹配的旧草稿。新输入不被旧回执擦除，不自动发送下一条。
+- 本窗按session与不可变物理owner身份保留未完成Stop，切走再回仍Stopping，实际owner替换时清除旧标记、条件取消不影响后续执行（含同Turn恢复），真实终态才结束；Cancel报错也不把尚在清理的owner当成已结束，只允许用户明确重试。运行/等待/完成/失败/已停止与按钮提示按观察事实表达。
+- 模型菜单使用真实configured routes、方向键/Enter选取、有限视口滚动和焦点恢复；设置有独立分类/左上返回，分类切换共用原来源。Inspector定位和草稿保留，媒体离开仍释放正文并真实join播放，返回只恢复冷索引。
+
+Ask/Auto/Full的完整单选政策、真实计划模式、新建目标、长期伙伴、@引用搜索、/命令执行、语音录制/转写、模型连接目录与右侧标签工作区仍未实现。当前原生guard固定Ask；SDK AcceptEdits不等于设计Auto，不能从菜单直接授予Full或借工具元数据冒充命令服务。具体行为→owner→用例映射见docs/ARCHITECTURE，使用边界见docs/USAGE。
+
+最终Hub全包、shared/direct UI、桌面入口及architecture的12包race共581个测试/子测试通过、0失败，84.04秒，执行期间Go源码/模块未变；其后仅修正模型选中项文字色，Hub原生及architecture再验316项通过。仅本任务差异的独立源码overlay最终6包196项通过；desktop全树vet、go mod verify、gofmt与diff空白检查通过。独立审查两处停止owner边界均已以实际fixture/覆层反例修正复验。
+
+最终原生无窗口控件及2×画面检查验证待导入/移除保留原件、模型方向键/Enter/Escape、实际Ask/不可用策略、独立设置/返回，并重查选中模型文字可读；没有在此验收中Send或Save。真实原生窗口绑定返回cgWindowNotFound，系统选择器开/取消、可见首页及实际OS焦点未验收。预览旧进程在未确认其内存草稿前被重启，数据库保留但不能确认未发送草稿；最终磁盘binary已更新，当前PID34764仍是最后文字色修正前的运行版，未再次重启。证据指针`/tmp/alva-workspace-business-path`；其before保留开始时原始文件，既有Developer/CLI/设计工作不覆盖、不混入本次提交。
+
 ## 2026-10-23 正式工作台与输入区首轮落地
 
 正式SmallPen21/22的220侧栏、52页头、居中限宽首页、建议草稿、多行输入与对话阅读已进入实际Go/MyGo原生产品，不再只在设计包中展示。语义表面色、Alva UI Sans SC400/600及固定Lucide1.61.0资源复用现有设计，包含来源SHA和完整许可；任意文字保留平台字体回退。正文仍为有界虚拟列表/Markdown，direct原输入区共用列表状态。

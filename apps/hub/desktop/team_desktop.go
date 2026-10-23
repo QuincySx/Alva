@@ -167,8 +167,8 @@ func (p *NativePage) teamAction(action, id string) {
 		})
 	}()
 }
-func (p *NativePage) sendWorkerDraft(worker hub.Worker) {
-	id, prompt, lead, team := p.selected, p.model.Draft, p.team.Team.LeadSessionID, p.team.Team.ID
+func (p *NativePage) sendWorkerDraft(worker hub.Worker, prompt string) {
+	id, lead, team := p.selected, p.team.Team.LeadSessionID, p.team.Team.ID
 	if worker.SessionID != id {
 		p.problem = "Worker draft does not belong to the selected session."
 		return
@@ -191,8 +191,10 @@ func (p *NativePage) sendWorkerDraft(worker hub.Worker) {
 				p.problem = err.Error()
 				return
 			}
-			p.model.Draft = ""
-			delete(p.drafts, id)
+			if p.model.Draft == prompt {
+				p.model.Draft = ""
+				delete(p.drafts, id)
+			}
 			p.problem = "Queued actual task " + task.ID + "; waiting for its FIFO owner, not claiming completion."
 			if startErr != nil {
 				p.problem += " Start failed (task retained; do not resend): " + startErr.Error()

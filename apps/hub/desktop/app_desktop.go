@@ -35,6 +35,11 @@ type NativePage struct {
 	preferences                    preferencesPane
 	composer                       workspaceComposerState
 	pendingFirstSend               string
+	pendingFirstPrompt             string
+	workspaceFiles                 map[string][]workspaceSelectedFile
+	workspaceReturn                workspaceReturnState
+	stopRequests                   map[string]string
+	stopRetry                      map[string]bool
 	model                          *view.Model
 	chat                           *view.NativeView
 	transcript                     Transcript
@@ -185,6 +190,7 @@ func (p *NativePage) dispatch(fn func()) {
 }
 func (p *NativePage) setPane(name string) {
 	p.traceUI("open_pane")
+	name = p.workspacePaneDestination(name)
 	if p.pane == "team" && name != "team" {
 		p.worktreePatch = product.WorktreePatchPage{}
 		p.worktreeOffset = 0
@@ -196,6 +202,7 @@ func (p *NativePage) setPane(name string) {
 		p.media = MediaPane{}
 	}
 	p.pane = name
+	p.restoreWorkspacePane()
 }
 func (p *NativePage) refreshSessions() {
 	p.sessionBack = nil
@@ -231,6 +238,8 @@ func (p *NativePage) selectSession(id string) {
 		return
 	}
 	p.pendingFirstSend = ""
+	p.pendingFirstPrompt = ""
+	p.composer.closePopovers()
 	p.stopPlayback()
 	p.drafts[p.selected] = p.model.Draft
 	p.selected = id
@@ -296,6 +305,7 @@ func (p *NativePage) loadTail() {
 			}
 			if err != nil {
 				p.pendingFirstSend = ""
+				p.pendingFirstPrompt = ""
 				p.problem = err.Error()
 				return
 			}
@@ -306,8 +316,10 @@ func (p *NativePage) loadTail() {
 			p.applyDetail()
 			p.chat.ScrollToEnd()
 			if p.pendingFirstSend == id {
+				prompt := p.pendingFirstPrompt
 				p.pendingFirstSend = ""
-				p.send()
+				p.pendingFirstPrompt = ""
+				p.sendSnapshot(prompt)
 			}
 		})
 	}()
@@ -316,7 +328,11 @@ func (p *NativePage) applyDetail() {
 	p.chat.Busy = p.busy || p.detail.Session.Status == engine.Waiting
 	p.model.Messages = p.transcript.Rows
 	p.model.Error = p.problem
-	wasStopping := p.model.Status == view.Stopping
+	wasStopping := p.modelStopping()
+	if p.stopRequests[p.selected] != "" && !wasStopping {
+		delete(p.stopRequests, p.selected)
+		delete(p.stopRetry, p.selected)
+	}
 	p.model.Status = view.Status(p.detail.Session.Status)
 	if p.detail.Session.Status == hub.Running {
 		p.model.ActiveRunID = p.detail.Session.ID
@@ -326,6 +342,8 @@ func (p *NativePage) applyDetail() {
 		}
 	} else {
 		p.model.ActiveRunID = ""
+		delete(p.stopRequests, p.selected)
+		delete(p.stopRetry, p.selected)
 	}
 	if p.detail.Session.Status == engine.Waiting {
 		p.model.Notice = "Task waiting; execution has exited. Open Waiting tasks to review requests, save results and explicitly continue the same Turn."
@@ -411,17 +429,26 @@ func (p *NativePage) respondApproval(requestID string, allowed bool) {
 	}()
 }
 func (p *NativePage) send() {
+	p.sendSnapshot(p.model.Draft)
+}
+func (p *NativePage) sendSnapshot(prompt string) {
 	p.traceUI("send")
-	if p.selected == "" || p.busy || p.chat.Busy || p.detail.Session.Status == engine.Waiting || !p.model.CanSend() {
+	frozen := *p.model
+	frozen.Draft = prompt
+	if p.selected == "" || p.busy || p.chat.Busy || p.detail.Session.Status == engine.Waiting || !frozen.CanSend() || p.workspacePendingFiles() {
+		return
+	}
+	if problem := p.workspaceAttachmentProblem(); problem != "" {
+		p.problem = problem
 		return
 	}
 	// Observations captured before admission must not replace its newer state.
 	p.generation++
 	if worker, ok := p.selectedWorker(); ok {
-		p.sendWorkerDraft(worker)
+		p.sendWorkerDraft(worker, prompt)
 		return
 	}
-	id, prompt := p.selected, p.model.Draft
+	id := p.selected
 	p.busy = true
 	p.chat.Busy = true
 	go func() {
@@ -436,8 +463,10 @@ func (p *NativePage) send() {
 				p.problem = err.Error()
 				return
 			}
-			p.model.Draft = ""
-			delete(p.drafts, id)
+			if p.model.Draft == prompt {
+				p.model.Draft = ""
+				delete(p.drafts, id)
+			}
 			p.problem = ""
 			p.model.ActiveRunID = id
 			p.model.Status = view.Running
@@ -450,10 +479,21 @@ func (p *NativePage) send() {
 }
 func (p *NativePage) stop() {
 	p.traceUI("stop")
-	if p.selected == "" || p.busy {
+	if p.selected == "" || p.busy || p.modelStopping() && !p.stopRetry[p.selected] {
 		return
 	}
 	id := p.selected
+	executionID, active := p.Service.Runtime.ActiveExecution(id)
+	if !active || executionID == "" {
+		p.poll()
+		return
+	}
+	if p.stopRequests == nil {
+		p.stopRequests = make(map[string]string)
+	}
+	p.stopRequests[id] = executionID
+	delete(p.stopRetry, id)
+	p.generation++
 	worker, isWorker := p.selectedWorker()
 	lead, team := p.team.Team.LeadSessionID, p.team.Team.ID
 	p.model.Status = view.Stopping
@@ -462,9 +502,18 @@ func (p *NativePage) stop() {
 		if isWorker {
 			err = p.Service.Teams.Stop(p.ctx, lead, team, worker.ID)
 		} else {
-			err = p.Service.Runtime.Cancel(p.ctx, id)
+			err = p.Service.Runtime.CancelExecution(p.ctx, id, executionID)
 		}
 		p.dispatch(func() {
+			if p.stopRequests[id] != executionID {
+				return
+			}
+			if err != nil {
+				if p.stopRetry == nil {
+					p.stopRetry = make(map[string]bool)
+				}
+				p.stopRetry[id] = true
+			}
 			if p.selected != id {
 				return
 			}
@@ -474,6 +523,13 @@ func (p *NativePage) stop() {
 			p.poll()
 		})
 	}()
+}
+func (p *NativePage) modelStopping() bool {
+	if executionID := p.stopRequests[p.selected]; executionID != "" {
+		activeID, active := p.Service.Runtime.ActiveExecution(p.selected)
+		return !active || activeID == executionID
+	}
+	return p.model.Status == view.Stopping
 }
 func (p *NativePage) create() {
 	p.traceUI("create_session")
@@ -554,6 +610,7 @@ func (p *NativePage) switchBranch(target hub.Target) {
 		return
 	}
 	id := p.selected
+	p.composer.closePopovers()
 	p.busy = true
 	go func() {
 		_, err := p.Service.Store.Switch(p.ctx, id, target, "Explicit native UI selection; retained previous branch")
@@ -620,8 +677,13 @@ func (p *NativePage) Build(c *ui.Context) {
 			i = 8
 		}
 	}
+	p.restoreWorkspacePane()
 	p.observePreferences()
 	p.applyPreferences(c)
+	if p.isWorkspaceSettings() {
+		p.buildWorkspaceSettings(c)
+		return
+	}
 	ui.Row(c).Fill().Gap(0).Children(func() {
 		p.buildWorkspaceSidebar(c)
 		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Gap(0).Children(func() {
@@ -636,10 +698,6 @@ func (p *NativePage) Build(c *ui.Context) {
 			ui.Column(c).Grow(1).MinHeight(0).FillWidth().Padding(24).Gap(16).Children(func() {
 				if p.problem != "" {
 					ui.Text(c, p.problem).Role(ui.RoleStatus).TextColor(c.Theme().Danger).FontSize(14)
-				}
-				if p.pane == "preferences" {
-					p.buildPreferences(c)
-					return
 				}
 				if p.selected == "" {
 					p.buildWorkspaceWelcome(c)
