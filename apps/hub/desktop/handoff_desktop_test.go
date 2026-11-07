@@ -50,7 +50,7 @@ func TestNativeHandoffEvidenceReadsExactSavedTeamIndexOnly(t *testing.T) {
 	}
 	p.transcript.Replace(entries)
 	p.applyDetail()
-	tester := ui.NewTester(p.Build, 1500, 1600)
+	tester := ui.NewTester(workspaceStaticView(p), 1500, 1600)
 	if err = workspaceTestMenu(tester, "交接记录"); err != nil {
 		t.Fatal(err)
 	}

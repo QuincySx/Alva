@@ -46,7 +46,7 @@ func TestWorkspaceFirstSendUsesActualSharedDemoAndPersists(t *testing.T) {
 		}
 	})
 	page := NewNativePage(app.Service)
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	if err = tester.Click("Message"); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestWorkspaceFirstAdmissionFailureKeepsCommittedIdentityAndDraft(t *testing
 		t.Fatal(err)
 	}
 	page := NewNativePage(service)
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.model.Draft = "retain this prompt"
 	page.sendWorkspaceDraft()
 	waitWorkspace(t, page, tester, func() bool { return page.selected != "" && !page.busy && !page.polling && page.problem != "" })
@@ -129,7 +129,7 @@ func TestWorkspaceCreateFailureKeepsVisibleHomeDraft(t *testing.T) {
 	page := NewNativePage(service)
 	page.workspace = filepath.Join(t.TempDir(), "missing-directory")
 	page.model.Draft = "keep my input"
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.sendWorkspaceDraft()
 	waitWorkspace(t, page, tester, func() bool { return !page.busy && page.problem != "" })
 	if page.selected != "" || page.model.Draft != "keep my input" || !tester.HasText(page.problem) {
@@ -138,6 +138,19 @@ func TestWorkspaceCreateFailureKeepsVisibleHomeDraft(t *testing.T) {
 	rows, err := service.Store.ListSessions(t.Context(), 8)
 	if err != nil || len(rows) != 0 {
 		t.Fatal("failed creation produced a session", rows, err)
+	}
+}
+
+func TestWorkspaceRemovedStaticRouteCannotCreateHomeSession(t *testing.T) {
+	service, _ := fixture(t)
+	page := NewNativePage(service)
+	stale := service.DefaultTarget
+	stale.ModelID = "removed-model"
+	page.composer.target, page.model.Draft = stale, "keep my draft"
+	page.sendWorkspaceDraft()
+	rows, err := service.Store.ListSessions(t.Context(), 8)
+	if err != nil || len(rows) != 0 || page.selected != "" || page.model.Draft != "keep my draft" || page.problem == "" {
+		t.Fatal("missing static route created work or lost draft", err)
 	}
 }
 
@@ -179,7 +192,7 @@ func TestWorkspaceSameSessionReloadBlocksSendUntilTailReturns(t *testing.T) {
 			page.applyDetail()
 			page.model.Draft = "retain during reload"
 			initialStatus := page.detail.Session.Status
-			tester := ui.NewTester(page.Build, 1240, 850)
+			tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 			wrapped.block.Store(true)
 			if navigation == "select" {
 				page.selectSession(session.ID)
@@ -225,14 +238,10 @@ func TestWorkspaceAdmissionRejectsEarlierIdleObservation(t *testing.T) {
 	wrapped := &workspaceDelayedDetail{ServiceStore: app.Service.Store, entered: make(chan struct{}), release: make(chan struct{})}
 	app.Service.Store = wrapped
 	page := NewNativePage(app.Service)
-	page.selected = session.ID
-	page.detail, err = app.Store.Detail(t.Context(), session.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	page.applyDetail()
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
+	page.selectSession(session.ID)
+	waitWorkspace(t, page, tester, func() bool { return !page.polling && page.detail.Session.ID == session.ID })
 	page.model.Draft = "local fixture awaiting explicit approval"
-	tester := ui.NewTester(page.Build, 1240, 850)
 	wrapped.block.Store(true)
 	page.poll()
 	var release sync.Once
@@ -284,8 +293,8 @@ func TestWorkspaceRoutingMenuCanDisablePersistedFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	page.applyDetail()
-	tester := ui.NewTester(page.Build, 1240, 850)
-	if err = tester.Click("More actions"); err != nil {
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
+	if err = workspaceTestOpenMenu(tester); err != nil {
 		t.Fatal(err)
 	}
 	if err = tester.ChooseMenuItem("路由与故障切换"); err != nil {

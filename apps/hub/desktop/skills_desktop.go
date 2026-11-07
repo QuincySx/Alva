@@ -31,7 +31,7 @@ func (p *NativePage) openSkills() {
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "skills" {
 				return
 			}
 			p.settings = settings
@@ -50,7 +50,7 @@ func (p *NativePage) skillAction(action, value string) {
 	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
-	id := p.selected
+	id, generation := p.selected, p.generation
 	p.paneBusy = true
 	go func() {
 		var err error
@@ -73,7 +73,7 @@ func (p *NativePage) skillAction(action, value string) {
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id {
+			if p.selected != id || p.generation != generation || p.pane != "skills" {
 				return
 			}
 			if err != nil {
@@ -92,13 +92,13 @@ func (p *NativePage) loadSkill(name string) {
 	if p.paneBusy || p.selected == "" {
 		return
 	}
-	id := p.selected
+	id, generation := p.selected, p.generation
 	p.paneBusy = true
 	go func() {
 		document, err := p.Service.SkillRaw(p.ctx, id, name)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id {
+			if p.selected != id || p.generation != generation || p.pane != "skills" {
 				return
 			}
 			if err != nil {

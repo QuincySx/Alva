@@ -16,7 +16,7 @@ func TestWorkspacePermissionConfirmationAndPlanReset(t *testing.T) {
 	service, requests := fixture(t)
 	p := NewNativePage(service)
 	p.model.Draft = "保留草稿"
-	tester := ui.NewTester(p.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	click := func(label string) {
 		t.Helper()
 		if err := tester.Click(label); err != nil {
@@ -69,15 +69,18 @@ func TestWorkspaceSavedPermissionWaitsForActualStore(t *testing.T) {
 	}
 	p := NewNativePage(service)
 	p.selectSession(session.ID)
-	tester := ui.NewTester(p.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	waitWorkspace(t, p, tester, func() bool {
 		return p.detail.Session.ID == session.ID && p.planLoaded[p.workspacePlanKey()] && !p.chat.Busy
 	})
 	p.model.Draft = "不发送"
 	p.setWorkspacePermission(hub.PermissionAuto, false)
+	if p.workspaceComposerStatus() != "正在保存设置…" || p.workspaceComposerSendProblem() != "正在保存下一轮设置，完成后可发送。" {
+		t.Fatal("a policy save was mislabeled as message admission")
+	}
 	waitWorkspace(t, p, tester, func() bool { return !p.busy })
 	stored, err := service.Store.Settings(t.Context(), session.ID)
-	if err != nil || stored.PermissionPolicy != hub.PermissionAuto || p.workspacePermissionPolicy() != hub.PermissionAuto || p.model.Draft != "不发送" || len(requests) != 0 {
+	if err != nil || p.composer.settingsSaving || stored.PermissionPolicy != hub.PermissionAuto || p.workspacePermissionPolicy() != hub.PermissionAuto || p.model.Draft != "不发送" || len(requests) != 0 {
 		t.Fatal("UI did not reflect a real cold policy commit", err)
 	}
 	if _, err = service.Store.BeginTurn(t.Context(), session.ID, "freeze"); err != nil {

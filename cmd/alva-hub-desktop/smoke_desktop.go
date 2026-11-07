@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/QuincySx/Alva/apps/debug"
@@ -16,6 +17,11 @@ import (
 	"os"
 	"path/filepath"
 )
+
+// Smoke fixtures never consume an installed product launch profile.
+func prepareDesktopFromExecutable(ctx context.Context, _ string, args []string, input io.Reader, diagnostic io.Writer) (*desktopStartup, error) {
+	return prepareDesktop(ctx, args, input, diagnostic)
+}
 
 // Optional linker-owned QA parent; never consulted by production builds.
 var smokeRoot string

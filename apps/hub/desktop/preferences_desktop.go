@@ -18,6 +18,7 @@ import (
 type preferencesPane struct {
 	base                 hub.Preferences
 	theme, density, size string
+	reducedMotion        bool
 	loading, saving      bool
 	readFailed           bool
 	epoch                uint64
@@ -25,13 +26,14 @@ type preferencesPane struct {
 }
 
 func (p *preferencesPane) dirty() bool {
-	return p.theme != p.base.Theme || p.density != p.base.Density || p.size != strconv.Itoa(p.base.FontSize)
+	return p.theme != p.base.Theme || p.density != p.base.Density || p.size != strconv.Itoa(p.base.FontSize) || p.reducedMotion != p.base.ReducedMotion
 }
 func (p *preferencesPane) accept(value hub.Preferences) {
 	p.base = value
 	p.theme = value.Theme
 	p.density = value.Density
 	p.size = strconv.Itoa(value.FontSize)
+	p.reducedMotion = value.ReducedMotion
 }
 func (p *NativePage) openPreferences() {
 	p.setPane("preferences")
@@ -76,6 +78,8 @@ func (p *NativePage) savePreferences() {
 	}
 	theme, density := v.theme, v.density
 	update := hub.PreferenceUpdate{ExpectedRevision: v.base.Revision, Theme: &theme, Density: &density, FontSize: &size}
+	reducedMotion := v.reducedMotion
+	update.ReducedMotion = &reducedMotion
 	v.saving = true
 	v.epoch++
 	epoch := v.epoch
@@ -114,52 +118,116 @@ func (p *NativePage) guardPreferencesClose(event *mygo.CloseEvent) bool {
 	return true
 }
 
-func preferenceChoice(c *ui.Context, label string, value *string, options []string, disabled bool) {
-	ui.Row(c).FillWidth().AlignItems(ui.Center).Padding(8, 0).Gap(12).Children(func() {
-		ui.Text(c, label).Grow(1)
-		choice := ui.Select(c, value, options).Label("Select "+label).MinWidth(0).Border(0, ui.Transparent).Background(ui.Transparent).Disabled(disabled)
+func preferenceValueLabel(value string) string {
+	switch value {
+	case "system":
+		return "跟随系统"
+	case "light":
+		return "浅色"
+	case "dark":
+		return "深色"
+	case "comfortable":
+		return "舒适"
+	case "compact":
+		return "紧凑"
+	case "14", "16":
+		return value + " px"
+	default:
+		return value
+	}
+}
+
+func preferenceChoice(c *ui.Context, key, label, accessibleLabel string, value *string, options []string, disabled bool, unavailableReason string) {
+	display := preferenceValueLabel(*value)
+	choices := make([]string, len(options))
+	for i, option := range options {
+		choices[i] = preferenceValueLabel(option)
+	}
+	border := c.Theme().Border
+	row := ui.Row(c).FillWidth().AlignItems(ui.Center).Padding(8, 0).Gap(8).
+		DrawOver(func(painter *ui.Painter, r ui.Rect) {
+			painter.Fill(ui.Rect{X: r.X, Y: r.Y + r.H - 1, W: r.W, H: 1}, border, 0)
+		})
+	if unavailableReason != "" {
+		row.Label(accessibleLabel + " unavailable").Focusable().Tooltip(unavailableReason)
+	}
+	row.Children(func() {
+		ui.Text(c, label).Label(accessibleLabel).FontSize(workspaceFontBody).LineHeight(1.5).Grow(1).MinWidth(0)
+		choice := workspaceControlValueSelect(c, "preference-"+key, &display, choices).
+			Label("Select "+accessibleLabel).MinWidth(0).Border(0, ui.Transparent).
+			Background(ui.Transparent).TextColor(c.Theme().TextMuted).Disabled(disabled || unavailableReason != "").
+			OnChange(func() {
+				for i, option := range options {
+					if display == choices[i] {
+						*value = option
+						return
+					}
+				}
+			})
 		if choice.Hovered() {
 			choice.Background(c.Theme().SurfaceHover)
 		}
 	})
 }
 
+func preferenceProblemText(problem string) string {
+	switch problem {
+	case "Could not read saved preferences. Reload to retry.":
+		return "无法读取已保存的偏好，请重新加载后重试。"
+	case "Choose a supported body size.":
+		return "请选择受支持的正文大小。"
+	case "Preferences changed in another window or client. Your draft is retained; reload before saving.":
+		return "偏好已在其他窗口或客户端更改。草稿已保留，请重新加载后再保存。"
+	case "Save canceled. Your draft is retained.":
+		return "保存已取消，草稿已保留。"
+	case "Could not save preferences. Your draft is retained; retry Save or reload.":
+		return "无法保存偏好，草稿已保留。请重试保存或重新加载。"
+	case "Preferences are still saving. Wait for storage to finish before closing this window.":
+		return "偏好仍在保存，请等待存储完成后再关闭窗口。"
+	default:
+		return problem
+	}
+}
+
 func (p *NativePage) buildPreferences(c *ui.Context) {
 	v := &p.preferences
-	ui.Row(c).Gap(8).Children(func() {
-		ui.Button(c, "Reload preferences").Disabled(v.loading || v.saving).OnClick(p.reloadPreferences)
-		ui.Button(c, "Save preferences").Disabled(v.base.Revision == 0 || v.loading || v.saving || v.readFailed || !v.dirty()).OnClick(p.savePreferences)
-	})
-	ui.Text(c, "General").FontSize(24).Bold()
-	if v.loading {
-		ui.Text(c, "Loading preferences…").Role(ui.RoleStatus)
-	}
-	if v.saving {
-		ui.Text(c, "Saving preferences…").Role(ui.RoleStatus)
-	}
-	if v.problem != "" {
-		ui.Text(c, v.problem).Role(ui.RoleStatus)
-	}
-	if v.problem == "" && p.Service.Preferences != nil && v.base.Revision != 0 && v.base.Revision != p.Service.Preferences.Snapshot().Revision && v.dirty() {
-		ui.Text(c, "Preferences changed in another window or client. Your draft is retained; reload before saving.").Role(ui.RoleStatus)
-	}
-	ui.Scroll(c).Grow(1).Children(func() {
-		ui.Column(c).FillWidth().Gap(0).Children(func() {
-			ui.Text(c, "Appearance").Bold()
-			options := hub.PreferenceChoices()
-			sizes := make([]string, len(options.FontSizes))
-			for i, n := range options.FontSizes {
-				sizes[i] = strconv.Itoa(n)
-			}
-			disabled := v.base.Revision == 0 || v.loading || v.saving
-			preferenceChoice(c, "Color theme", &v.theme, options.Themes, disabled)
-			preferenceChoice(c, "Information density", &v.density, options.Densities, disabled)
-			preferenceChoice(c, "Body size", &v.size, sizes, disabled)
-			motion := "Off"
-			if c.Preferences().ReduceMotion {
-				motion = "On"
-			}
-			ui.Text(c, "Reduced motion: "+motion+" · follows system settings").TextColor(c.Theme().TextMuted)
+	t := c.Theme()
+	ui.Text(c, "通用").Label("General page title").FontSize(workspaceFontHeading).FontWeight(600).LineHeight(1.5)
+	ui.Scroll(c).Grow(1).FillWidth().MinWidth(0).Children(func() {
+		ui.Column(c).FillWidth().Gap(16).Children(func() {
+			ui.Column(c).Label("Preferences appearance").FillWidth().Padding(0).Gap(12).Children(func() {
+				ui.Text(c, "外观").FontSize(workspaceFontSubtitle).FontWeight(600).LineHeight(1.5)
+				ui.Column(c).FillWidth().Gap(0).Children(func() {
+					options := hub.PreferenceChoices()
+					sizes := make([]string, len(options.FontSizes))
+					for i, n := range options.FontSizes {
+						sizes[i] = strconv.Itoa(n)
+					}
+					disabled := v.base.Revision == 0 || v.loading || v.saving
+					preferenceChoice(c, "theme", "颜色主题", "Color theme", &v.theme, options.Themes, disabled, "")
+					preferenceChoice(c, "size", "正文大小", "Body size", &v.size, sizes, disabled, "")
+					ui.Row(c).FillWidth().AlignItems(ui.Center).Padding(8, 0).Gap(8).Children(func() {
+						ui.Text(c, "减弱动效").FontSize(workspaceFontBody).LineHeight(1.5).Grow(1).MinWidth(0)
+						workspaceControlSwitch(c, "preference-reduced-motion", &v.reducedMotion, disabled).Label("Reduce application motion").Tooltip("系统要求减弱动效时始终遵循系统。")
+					})
+				})
+			})
+			ui.Column(c).FillWidth().Gap(8).Children(func() {
+				if v.loading {
+					ui.Text(c, "正在加载偏好…").Label("Loading preferences…").Role(ui.RoleStatus).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(t.TextMuted)
+				}
+				problem := v.problem
+				if problem == "" && p.Service.Preferences != nil && v.base.Revision != 0 && v.base.Revision != p.Service.Preferences.Snapshot().Revision && v.dirty() {
+					problem = "Preferences changed in another window or client. Your draft is retained; reload before saving."
+				}
+				if problem != "" {
+					ui.Text(c, preferenceProblemText(problem)).Label(problem).Role(ui.RoleStatus).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(t.Danger)
+				}
+				ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
+					workspaceControlButton(c, "preference-reload", "重新加载", "secondary", v.loading || v.saving).Label("Reload preferences").OnClick(p.reloadPreferences)
+					p.workspaceControlAction(c, "preference-save", "保存偏好", "", "primary", v.saving, p.savePreferences, !v.saving && (v.base.Revision == 0 || v.loading || v.readFailed || !v.dirty())).Label("Save preferences")
+				})
+			})
 		})
 	})
 }
@@ -168,6 +236,7 @@ func (p *NativePage) observePreferences() {
 	if p.Service.Preferences == nil {
 		return
 	}
+	p.observeWorkspaceLayoutPreferences()
 	if !p.preferences.loading && !p.preferences.saving && (p.preferences.base.Revision == 0 || !p.preferences.dirty()) {
 		p.preferences.accept(p.Service.Preferences.Snapshot())
 	}
@@ -187,37 +256,46 @@ func (p *NativePage) applyPreferences(c *ui.Context) {
 		t = ui.DarkTheme()
 	}
 	if dark {
-		t.Background = ui.Hex("#171C1A")
-		t.Surface = ui.Hex("#212825")
-		t.SurfaceHover = ui.Hex("#2B342F")
-		t.SurfacePressed = ui.Hex("#36423C")
-		t.Text = ui.Hex("#EEF3F0")
-		t.TextMuted = ui.Hex("#B0BEB6")
-		t.Border = ui.Hex("#3D4A43")
-		t.Accent = ui.Hex("#91CFC3")
-		t.AccentText = ui.Hex("#132B25")
+		t.Background = ui.Hex("#14161B")
+		t.Surface = ui.Hex("#1C1F26")
+		t.SurfaceHover = ui.Hex("#252932")
+		t.SurfacePressed = ui.Hex("#2C313C")
+		t.Text = ui.Hex("#EAECF3")
+		t.TextMuted = ui.Hex("#A6ADBA")
+		t.Border = ui.Hex("#303640")
+		t.Accent = ui.Hex("#AAA1FF")
+		t.AccentText = ui.Hex("#231F46")
+		t.Danger = ui.Hex("#E6A6B2")
+		t.Warning = ui.Hex("#E4C596")
+		t.Success = ui.Hex("#A0CDB3")
 	} else {
-		t.Background = ui.Hex("#FAFBFA")
+		t.Background = ui.Hex("#F3F4F7")
 		t.Surface = ui.Hex("#FFFFFF")
-		t.SurfaceHover = ui.Hex("#F3F5F4")
-		t.SurfacePressed = ui.Hex("#E9EEEC")
-		t.Text = ui.Hex("#29332F")
-		t.TextMuted = ui.Hex("#5E6B64")
-		t.Border = ui.Hex("#DDE5E0")
-		t.Accent = ui.Hex("#246B65")
+		t.SurfaceHover = ui.Hex("#F5F6F8")
+		t.SurfacePressed = ui.Hex("#E9EBF0")
+		t.Text = ui.Hex("#272A34")
+		t.TextMuted = ui.Hex("#626B7A")
+		t.Border = ui.Hex("#E2E5EB")
+		t.Accent = ui.Hex("#6555CD")
 		t.AccentText = ui.Hex("#FFFFFF")
+		t.Danger = ui.Hex("#AC4050")
+		t.Warning = ui.Hex("#856029")
+		t.Success = ui.Hex("#32704F")
 	}
 	t.Font = "Alva UI Sans SC"
 	t.AccentHover = t.Accent.Mix(t.Text, .08)
 	t.AccentPressed = t.Accent.Mix(t.Text, .16)
 	t.Focus = t.Accent
+	t.Inverse = t.Surface
+	t.InverseText = t.Text
 	t.Selection = t.Accent.Alpha(.2)
 	t.Radius = 8
+	// One normal-density control scale; reading font size remains an explicit preference.
 	t.Spacing = 4
-	if value.Density == "compact" {
-		t.Spacing = 3
-	}
 	system := c.Preferences()
+	if value.ReducedMotion || system.ReduceMotion {
+		c.DisableAnimations()
+	}
 	scale := system.TextScale
 	if scale <= 0 {
 		scale = 1

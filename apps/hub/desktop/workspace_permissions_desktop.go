@@ -67,11 +67,11 @@ func (p *NativePage) setWorkspacePermission(policy hub.PermissionPolicy, confirm
 	}
 	id, branchID := p.selected, p.detail.Session.ActiveBranchID
 	p.generation++
-	p.busy = true
+	p.busy, p.composer.settingsSaving = true, true
 	go func() {
 		err := p.Service.SetPermissionPolicy(p.ctx, id, policy, confirmed)
 		p.dispatch(func() {
-			p.busy = false
+			p.busy, p.composer.settingsSaving = false, false
 			if p.selected != id || p.detail.Session.ActiveBranchID != branchID {
 				return
 			}
@@ -87,12 +87,12 @@ func (p *NativePage) setWorkspacePermission(policy hub.PermissionPolicy, confirm
 }
 
 func (p *NativePage) buildNativePermissionMenu(c *ui.Context, anchor ui.Element) {
-	workspaceComposerPopover(c, anchor, &p.composer.permissionOpen, 320, func() {
+	workspaceComposerPopover(c, anchor, &p.composer.permissionOpen, 240, func() {
 		if p.composer.confirmFull {
-			ui.Text(c, "允许已启用能力在当前工作区内自动执行？敏感路径、越界限制和独立宿主批准仍有效。选择只保存下一轮策略。").Label("Full permission scope").FontSize(14).LineHeight(1.5).Padding(8, 12)
+			ui.Text(c, "允许已启用能力在当前工作区内自动执行？敏感路径、越界限制和独立宿主批准仍有效。选择只保存下一轮策略。").Label("Full permission scope").FontSize(workspaceFontBody).LineHeight(1.5).Padding(8, 12)
 			ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
-				ui.Button(c, "取消").Label("Cancel Full permission").OnClick(func() { p.composer.confirmFull = false })
-				ui.Button(c, "确认完全访问").Label("Confirm Full permission").Disabled(!p.workspacePlanCanChange()).OnClick(func() { p.setWorkspacePermission(hub.PermissionFull, true) })
+				workspaceControlButton(c, "cancel-full", "取消", "secondary").Label("Cancel Full permission").OnClick(func() { p.composer.confirmFull = false })
+				workspaceControlButton(c, "confirm-full", "确认完全访问", "primary", !p.workspacePlanCanChange()).Label("Confirm Full permission").OnClick(func() { p.setWorkspacePermission(hub.PermissionFull, true) })
 			})
 			return
 		}
@@ -106,8 +106,7 @@ func (p *NativePage) buildNativePermissionMenu(c *ui.Context, anchor ui.Element)
 				{hub.PermissionFull, "完全访问", "triangle-alert", "确认范围后，已启用能力自动批准；不会放宽工作区或启用插件。"},
 			} {
 				selected := !p.workspacePlanEnabled() && p.workspacePermissionPolicy() == choice.policy
-				item := ui.ButtonBase(c.Key(string(choice.policy))).Label(choice.text).Role(ui.RoleMenuItemRadio).Checked(selected).
-					FillWidth().Padding(8, 12).Gap(8).AlignItems(ui.Center).Radius(8).Justify(ui.Start).
+				item := workspaceComposerMenuItem(c.Key(string(choice.policy)), choice.text).Role(ui.RoleMenuItemRadio).Checked(selected).
 					Tooltip(choice.hint).Disabled(!p.workspacePlanCanChange()).OnClick(func() {
 					if choice.policy == hub.PermissionFull {
 						p.composer.confirmFull = true
@@ -115,14 +114,20 @@ func (p *NativePage) buildNativePermissionMenu(c *ui.Context, anchor ui.Element)
 						p.setWorkspacePermission(choice.policy, false)
 					}
 				})
-				if item.Hovered() {
-					item.Background(workspacePalette(c).hover)
+				iconColor := c.Theme().TextMuted
+				if selected {
+					item.Background(workspacePalette(c).selection).TextColor(c.Theme().Accent)
+					iconColor = c.Theme().Accent
+				}
+				if !p.workspacePlanCanChange() {
+					item.TextColor(c.Theme().TextMuted)
+					iconColor = c.Theme().TextMuted
 				}
 				item.Children(func() {
-					ui.Icon(c, workspaceIcon(choice.icon)).Size(16, 16)
-					ui.Text(c, choice.text).FontSize(14).LineHeight(1.5).Grow(1)
+					ui.Icon(c, workspaceIcon(choice.icon)).Size(16, 16).Shrink(0).TextColor(iconColor)
+					ui.Text(c, choice.text).FontSize(workspaceFontBody).LineHeight(1.5).SingleLine().Grow(1).MinWidth(0)
 					if selected {
-						ui.Icon(c, workspaceIcon("check")).Size(16, 16).TextColor(c.Theme().Accent)
+						ui.Icon(c, workspaceIcon("check")).Size(16, 16).Shrink(0).TextColor(iconColor)
 					}
 				})
 			}

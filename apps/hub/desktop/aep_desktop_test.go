@@ -37,7 +37,7 @@ func TestNativeAEPInspectAndApprovalAreExplicitWithoutExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	page.applyDetail()
-	tester := ui.NewTester(page.Build, 1400, 1300)
+	tester := ui.NewTester(workspaceStaticView(page), 1400, 1300)
 	if err = workspaceTestMenu(tester, "会话设置"); err != nil {
 		t.Fatal(err)
 	}

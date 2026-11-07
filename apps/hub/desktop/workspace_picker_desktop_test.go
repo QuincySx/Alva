@@ -10,22 +10,29 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
+	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/egoist/mygo/ui"
 )
 
 func TestWorkspacePickerCommandsEnterOnlyPreparesTypedDraft(t *testing.T) {
 	service, requests := fixture(t)
 	p := NewNativePage(service)
-	tester := ui.NewTester(p.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	if err := tester.Click("Message"); err != nil {
 		t.Fatal(err)
 	}
 	tester.Type("/")
 	waitWorkspace(t, p, tester, func() bool { return p.picker.open && !p.picker.loading && len(p.picker.rows) == 2 })
+	tester.Key(ui.Cmd, ui.KeyEnter)
+	if !p.picker.open || p.busy || p.selected != "" || p.model.Draft != "/" {
+		t.Fatal("send shortcut must not send or edit a draft while its command menu is open")
+	}
 	tester.Key(0, ui.KeyDown)
 	tester.Key(0, ui.KeyEnter)
 	waitWorkspace(t, p, tester, func() bool { return !p.picker.open && len(p.composerSelections[""]) == 1 })
@@ -56,12 +63,89 @@ func TestWorkspacePickerCommandsEnterOnlyPreparesTypedDraft(t *testing.T) {
 	}
 }
 
+func TestWorkspaceComposerSendShortcutSharesAdmissionAndKeepsDraft(t *testing.T) {
+	service, _ := fixture(t)
+	session, err := service.Create(t.Context(), "shortcut admission", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := NewNativePage(service)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
+	p.selectSession(session.ID)
+	waitWorkspace(t, p, tester, func() bool { return !p.polling && p.detail.Session.ID == session.ID })
+	wrapped := &workspaceDelayedDetail{ServiceStore: service.Store, entered: make(chan struct{}), release: make(chan struct{})}
+	service.Store = wrapped
+	wrapped.block.Store(true)
+	var release sync.Once
+	defer release.Do(func() { close(wrapped.release) })
+	if err := tester.Click("Message"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Type("快捷键发送的第一版草稿")
+	tester.Key(ui.Cmd, ui.KeyEnter)
+	select {
+	case <-wrapped.entered:
+	case <-time.After(time.Second):
+		t.Fatal("platform Send shortcut did not enter the existing admission path")
+	}
+	if err := tester.Click("Message"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Type("，继续编辑")
+	newDraft := p.model.Draft
+	tester.Key(ui.Cmd, ui.KeyEnter)
+	if p.model.Draft != newDraft {
+		t.Fatal("repeated shortcut while busy edited or resent the newer draft")
+	}
+	release.Do(func() { close(wrapped.release) })
+	waitWorkspace(t, p, tester, func() bool { return p.selected != "" && !p.busy && p.pendingFirstSend == "" })
+	if p.model.Draft != newDraft {
+		t.Fatal("shortcut receipt erased a newer draft", p.model.Draft, newDraft)
+	}
+	rows, err := service.Store.ListSessions(t.Context(), 8)
+	if err != nil || len(rows) != 1 {
+		t.Fatal("shortcut created duplicate sessions", rows, err)
+	}
+}
+
+func TestWorkspaceSendShortcutCannotBypassBlockedComposerStates(t *testing.T) {
+	for _, state := range []string{"busy", "running", "waiting", "recording", "composing"} {
+		t.Run(state, func(t *testing.T) {
+			service, _ := fixture(t)
+			p := NewNativePage(service)
+			p.model.Draft = "保留这份草稿"
+			switch state {
+			case "busy":
+				p.busy = true
+			case "running":
+				p.model.ActiveRunID = "observed-run"
+			case "waiting":
+				p.selected, p.detail.Session.ID, p.detail.Session.Status = "observed-session", "observed-session", engine.Waiting
+			case "recording":
+				p.voice.recorder = newWorkspaceFakeRecorder()
+			}
+			tester := composerTester(p, 760)
+			if err := tester.Click("Message"); err != nil {
+				t.Fatal(err)
+			}
+			if state == "composing" {
+				tester.Compose("输入法", 3)
+			}
+			tester.Key(ui.Cmd, ui.KeyEnter)
+			rows, err := service.Store.ListSessions(t.Context(), 8)
+			if err != nil || len(rows) != 0 || service.Runtime.HasActive() {
+				t.Fatal("shortcut bypassed composer readiness", state, rows, err)
+			}
+		})
+	}
+}
+
 func TestWorkspacePickerDoesNotTriggerForPasteIMEURLsOrExistingText(t *testing.T) {
 	service, _ := fixture(t)
 	for _, text := range []string{"https://example.test/path", "person@example.test", "/tmp/project/file", "code := a / b", "/existing-command"} {
 		p := NewNativePage(service)
 		p.model.Draft = text
-		tester := ui.NewTester(p.Build, 1240, 850)
+		tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 		if p.picker.open {
 			t.Fatalf("existing text triggered picker: %q", text)
 		}
@@ -75,7 +159,7 @@ func TestWorkspacePickerDoesNotTriggerForPasteIMEURLsOrExistingText(t *testing.T
 		}
 	}
 	p := NewNativePage(service)
-	tester := ui.NewTester(p.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	if err := tester.Click("Message"); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +223,7 @@ func TestWorkspacePickerSkillsShowDisabledDetailsAndKeepOriginal(t *testing.T) {
 	p := NewNativePage(service)
 	p.selected, p.detail = project.ID, mustPickerDetail(t, service, project.ID)
 	p.model.Draft = "保留草稿"
-	tester := ui.NewTester(p.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	p.openWorkspacePicker("skills")
 	waitWorkspace(t, p, tester, func() bool { return !p.picker.loading && len(p.picker.rows) == 20 })
 	if p.picker.rows[0].available() || p.picker.active != -1 {
@@ -182,10 +266,10 @@ func TestWorkspacePickerSkillsShowDisabledDetailsAndKeepOriginal(t *testing.T) {
 	}
 }
 
-func TestWorkspacePickerReferencesRetainBytesAndPaginateRealResults(t *testing.T) {
+func TestWorkspacePickerReferencesRetainBytesAndBoundRealFileCandidates(t *testing.T) {
 	service, requests := fixture(t)
 	workspace := t.TempDir()
-	for index := range 25 {
+	for index := range 75 {
 		if err := os.WriteFile(filepath.Join(workspace, fmt.Sprintf("report-%02d.txt", index)), []byte("exact original body"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -195,16 +279,17 @@ func TestWorkspacePickerReferencesRetainBytesAndPaginateRealResults(t *testing.T
 		t.Fatal(err)
 	}
 	p := NewNativePage(service)
-	p.selected, p.detail = project.ID, mustPickerDetail(t, service, project.ID)
-	tester := ui.NewTester(p.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
+	p.selectSession(project.ID)
+	waitWorkspace(t, p, tester, func() bool { return !p.polling && p.detail.Session.ID == project.ID })
 	if err = tester.Click("Message"); err != nil {
 		t.Fatal(err)
 	}
 	tester.Type("保留 ")
 	tester.Type("@")
-	waitWorkspace(t, p, tester, func() bool { return p.picker.open && !p.picker.loading && len(p.picker.rows) == 20 })
-	if !p.picker.hasMore {
-		t.Fatal("real 26-entry project did not expose pagination")
+	waitWorkspace(t, p, tester, func() bool { return p.picker.open && !p.picker.loading && len(p.picker.rows) == 50 })
+	if !p.picker.truncated || p.picker.hasMore {
+		t.Fatal("file candidate scan concealed its bounded result set")
 	}
 	list, _ := tester.Find("Composer picker results")
 	firstLabel := "Select " + p.picker.rows[0].referenceName()
@@ -214,38 +299,34 @@ func TestWorkspacePickerReferencesRetainBytesAndPaginateRealResults(t *testing.T
 	tester.Frame()
 	settledScroll, _ := tester.Find(firstLabel)
 	if afterScroll.H > 0 && afterScroll.Y >= beforeScroll.Y || settledScroll != afterScroll {
-		t.Fatal("wheel did not scroll results or a cached active item pulled it back", beforeScroll, afterScroll, settledScroll)
+		t.Fatal("wheel did not scroll bounded candidates or cached active row pulled it back", beforeScroll, afterScroll, settledScroll)
 	}
-	firstID := p.picker.rows[0].identity()
-	if err = tester.Click("More composer results"); err != nil {
+	p.picker.query = "report-74"
+	p.queryWorkspacePicker(false)
+	waitWorkspace(t, p, tester, func() bool { return !p.picker.loading && len(p.picker.rows) == 1 })
+	selection := *p.picker.rows[0].file
+	if err = tester.Click("Select @" + selection.DisplayPath); err != nil {
 		t.Fatal(err)
 	}
-	waitWorkspace(t, p, tester, func() bool { return !p.picker.loading && p.picker.offset == 20 })
-	if len(p.picker.rows) != 6 || p.picker.rows[0].identity() == firstID || p.picker.hasMore {
-		t.Fatal("More did not fetch the real bounded next page")
-	}
-	selection := *p.picker.rows[0].reference
-	if err = tester.Click("Select @" + selection.Path); err != nil {
-		t.Fatal(err)
-	}
-	waitWorkspace(t, p, tester, func() bool { return !p.picker.open && len(service.DraftWorkspaceReferences(project.ID)) == 1 })
+	waitWorkspace(t, p, tester, func() bool { return !p.picker.open && len(p.composerFiles[project.ID]) == 1 })
 	if p.model.Draft != "保留 " || strings.Contains(p.model.Draft, "exact original body") {
-		t.Fatal("reference selection inserted file body or removed other draft text", p.model.Draft)
+		t.Fatal("file capture inserted a body or removed unrelated manual text", p.model.Draft)
 	}
-	references := service.DraftWorkspaceReferences(project.ID)
-	if references[0].Selection.ID != selection.ID || references[0].Info.SHA256 == "" || references[0].Reference.URI == "" {
-		t.Fatal("selection lost real source/artifact identity", references)
+	captured := p.composerFiles[project.ID][0]
+	record := p.composerFileRecords[captured.ID]
+	if record.SourcePath != selection.Path || record.SHA256 == "" || captured.Scope.Kind != "session" || captured.Scope.ID != project.ID {
+		t.Fatal("file selection lost real source and durable scope", record)
 	}
-	actual, err := os.ReadFile(filepath.Join(workspace, selection.Path))
+	actual, err := os.ReadFile(selection.Path)
 	if err != nil || string(actual) != "exact original body" || len(requests) != 0 || service.Runtime.HasActive() {
-		t.Fatal("reference selection changed original or executed", err)
+		t.Fatal("capture changed original or executed an engine", err)
 	}
 }
 
 func TestWorkspacePickerSupersededQueriesAndScopeCannotReplaceCurrentResults(t *testing.T) {
 	service, _ := fixture(t)
 	p := NewNativePage(service)
-	tester := ui.NewTester(p.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	p.openWorkspacePicker("commands")
 	p.openWorkspacePicker("skills")
 	waitWorkspace(t, p, tester, func() bool { return p.picker.open && !p.picker.loading })
@@ -253,9 +334,12 @@ func TestWorkspacePickerSupersededQueriesAndScopeCannotReplaceCurrentResults(t *
 		t.Fatal("cancelled commands query overwrote newer Skills query")
 	}
 	p.openWorkspacePicker("references")
-	tester.Frame()
-	if p.picker.problem == "" || p.picker.loading {
-		t.Fatal("homepage references did not explain saved-project prerequisite")
+	waitWorkspace(t, p, tester, func() bool { return p.picker.open && !p.picker.loading })
+	if p.picker.problem != "" {
+		t.Fatal("homepage local file picker incorrectly required an existing session", p.picker.problem)
+	}
+	if rows, err := service.Store.ListSessions(t.Context(), 8); err != nil || len(rows) != 0 {
+		t.Fatal("cold home file browsing created a session", err)
 	}
 	p.openWorkspacePicker("commands")
 	p.workspace = t.TempDir()

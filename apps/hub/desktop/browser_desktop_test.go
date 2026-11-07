@@ -28,7 +28,7 @@ func TestNativeBrowserSettingsNeverLaunchOnSaveOrApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.applyDetail()
-	tester := ui.NewTester(p.Build, 1600, 1800)
+	tester := ui.NewTester(workspaceStaticView(p), 1600, 1800)
 	if err = workspaceTestMenu(tester, "会话设置"); err != nil {
 		t.Fatal(err)
 	}

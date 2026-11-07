@@ -22,11 +22,15 @@ import (
 type workspacePickerRow struct {
 	command   *product.ComposerCatalogEntry
 	reference *product.WorkspaceReferenceSelection
+	file      *product.ComposerFileCandidate
 }
 
 func (r workspacePickerRow) identity() string {
 	if r.command != nil {
 		return r.command.ID
+	}
+	if r.file != nil {
+		return r.file.Path
 	}
 	return r.reference.ID
 }
@@ -43,15 +47,20 @@ type workspacePickerState struct {
 	sequence                           uint64
 	cancel                             context.CancelFunc
 	requestContext                     context.Context
-	editor                             ui.Handle
+	editor, search                     ui.Handle
 	lastDraft                          string
 	revealed                           string
 	observed, composing, pasted        bool
+	queryComposing                     bool
 	start, end, caret                  int
 	argument                           string
 	detail                             *product.ComposerEntryDetail
 	detailLoading                      bool
 	detailSequence                     uint64
+}
+
+func (s *workspacePickerState) hasCommandDetails() bool {
+	return s.active >= 0 && s.active < len(s.rows) && s.rows[s.active].command != nil
 }
 
 func (p *NativePage) workspacePickerScope() string {
@@ -108,12 +117,8 @@ func (p *NativePage) queryWorkspacePicker(more bool) {
 	ctx, cancel := context.WithCancel(p.ctx)
 	s.cancel = cancel
 	s.requestContext = ctx
-	sequence, scope, id, kind, query, offset, after := s.sequence, s.scope, p.selected, s.kind, s.query, s.offset, s.next
-	if kind == "references" && id == "" {
-		s.loading, s.rows, s.hasMore = false, nil, false
-		s.problem = "请先选择已有项目会话，再搜索项目文件或目录；此操作不会自动创建会话。"
-		return
-	}
+	sequence, scope, id, kind, query, offset := s.sequence, s.scope, p.selected, s.kind, s.query, s.offset
+	logicalScope, directory := p.workspaceComposerDraftScope(), p.workspaceFileCandidateDirectory()
 	go func() {
 		var rows []workspacePickerRow
 		var next string
@@ -121,20 +126,25 @@ func (p *NativePage) queryWorkspacePicker(more bool) {
 		var hasMore, truncated bool
 		var err error
 		if kind == "references" {
-			var page product.WorkspaceReferencePage
-			page, err = p.Service.SearchWorkspaceReferences(ctx, id, query, after, 20)
+			var page product.ComposerFileCandidatePage
+			page, err = p.Service.SearchComposerFileCandidates(ctx, logicalScope, directory, query, 50)
 			for _, entry := range page.Entries {
 				value := entry
-				rows = append(rows, workspacePickerRow{reference: &value})
+				rows = append(rows, workspacePickerRow{file: &value})
 			}
-			next, hasMore, truncated = page.Next, page.HasMore, page.Truncated
+			truncated = page.Truncated
 		} else {
 			filter := product.ComposerEntryKind("")
 			if kind == "skills" {
 				filter = product.ComposerSkillEntry
 			}
 			var page product.ComposerCatalogPage
-			page, err = p.Service.ComposerCatalog(ctx, id, product.ComposerCatalogQuery{Kind: filter, Search: query, Offset: offset, Limit: 20})
+			catalogQuery := product.ComposerCatalogQuery{Kind: filter, Search: query, Offset: offset, Limit: 20}
+			if id == "" {
+				page, err = p.Service.ComposerHomeCatalog(ctx, directory, catalogQuery)
+			} else {
+				page, err = p.Service.ComposerCatalog(ctx, id, catalogQuery)
+			}
 			for _, entry := range page.Entries {
 				value := entry
 				rows = append(rows, workspacePickerRow{command: &value})
@@ -192,6 +202,9 @@ func (p *NativePage) workspacePickerKey(k ui.TextKey) bool {
 		p.moveWorkspacePicker(1)
 		return true
 	case ui.KeyEnter:
+		if p.picker.composing || p.picker.queryComposing {
+			return true
+		}
 		if k.Text() != p.model.Draft {
 			return true
 		}
@@ -199,6 +212,29 @@ func (p *NativePage) workspacePickerKey(k ui.TextKey) bool {
 		return true
 	}
 	return false
+}
+
+func (p *NativePage) workspacePickerSearchKey(k ui.TextKey) bool {
+	if p.picker.open && k.Key == ui.KeyTab && k.Mods == ui.Shift {
+		p.picker.editor.RequestFocus()
+		return true
+	}
+	if !p.picker.open || k.Mods != 0 {
+		return false
+	}
+	if k.Key == ui.KeyEnter {
+		if p.picker.queryComposing {
+			return true
+		}
+		if k.Text() != p.picker.query {
+			p.picker.query = k.Text()
+			p.queryWorkspacePicker(false)
+			return true
+		}
+		p.chooseWorkspacePicker()
+		return true
+	}
+	return p.workspacePickerKey(k)
 }
 
 // workspacePickerInsertion accepts a newly typed single trigger at a word
@@ -227,7 +263,13 @@ func workspacePickerInsertion(before, after string, caret int) (int, string) {
 
 func (p *NativePage) buildWorkspacePicker(c *ui.Context, editor, composer ui.Element) {
 	s := &p.picker
-	editor.Bind(&s.editor).OnTextKey(p.workspacePickerKey).OnPaste(func(text string) bool {
+	editor.Bind(&s.editor).OnTextKey(func(k ui.TextKey) bool {
+		if s.open && k.Key == ui.KeyTab && k.Mods == 0 {
+			s.search.RequestFocus()
+			return true
+		}
+		return p.workspaceComposerKey(k)
+	}).OnPaste(func(text string) bool {
 		s.pasted = true
 		if len(text) <= view.MaxDraftBytes {
 			return false
@@ -260,7 +302,7 @@ func (p *NativePage) buildWorkspacePicker(c *ui.Context, editor, composer ui.Ele
 				p.closeWorkspacePicker()
 			} else {
 				query := string(runes[s.start+1 : caret])
-				if strings.ContainsAny(query, "\r\n\t ") || s.kind == "commands" && strings.ContainsAny(query, "/\\:") {
+				if strings.ContainsAny(query, "\r\n\t") || s.kind != "references" && strings.ContainsRune(query, ' ') || s.kind == "commands" && strings.ContainsAny(query, "/\\:") {
 					p.closeWorkspacePicker()
 				} else if query != s.query {
 					s.query, s.end = query, caret
@@ -286,9 +328,15 @@ func (p *NativePage) buildWorkspacePicker(c *ui.Context, editor, composer ui.Ele
 	if belowComposer {
 		available = min(360, below)
 	}
+	width := float32(352)
+	commands := s.kind != "references"
+	if commands {
+		width = 640
+	}
+	windowWidth, _ := c.Size()
+	stacked := commands && windowWidth*.95 < 640
 	panel := ui.PopoverBase(c.Key("workspace-picker"), editor, &s.open, func(panel ui.Element) {
-		panel.Label("Workspace picker").Width(600).MaxWidthPercent(95).MaxHeight(available).
-			Padding(10).Gap(8).Radius(12).Background(c.Theme().Surface).Border(1, c.Theme().Border)
+		panel.Label("Workspace picker").Width(width).MaxWidthPercent(95).MaxHeight(available).Padding(0).Gap(8)
 		if belowComposer {
 			panel.AttachTo(editor, ui.AnchorBottomLeft, ui.AnchorTopLeft).
 				Margin(6+bounds.Y+bounds.H-inputBounds.Y-inputBounds.H, 0, 0, bounds.X-inputBounds.X)
@@ -303,108 +351,176 @@ func (p *NativePage) buildWorkspacePicker(c *ui.Context, editor, composer ui.Ele
 				c.AnimationFrame()
 			}
 		})
-		ui.Scroll(c.Key("picker-content")).Label("Composer picker contents").FillWidth().MaxHeight(max(0, available-22)).Gap(8).Children(func() {
-			query := ui.TextInputBase(c.Key("picker-query"), &s.query).Label("Search composer items").Placeholder("搜索命令、Skills 或项目路径").
-				FillWidth().Padding(8).Border(1, c.Theme().Border).Radius(6).OnTextKey(p.workspacePickerKey)
-			if query.Changed() && !query.Composing() {
-				p.queryWorkspacePicker(false)
+		content := func() {
+			listHeight := available
+			if stacked {
+				listHeight = min(199, available)
 			}
-			if s.problem != "" {
-				ui.Text(c, s.problem).FontSize(13).LineHeight(1.5).TextColor(c.Theme().TextMuted)
-				ui.Button(c, "重试搜索").Label("Retry composer search").OnClick(func() { p.queryWorkspacePicker(false) })
-			} else if s.loading {
-				ui.Text(c, "正在搜索…").Role(ui.RoleStatus).FontSize(13)
-			} else if len(s.rows) == 0 {
-				ui.Text(c, "没有匹配项目").FontSize(13).TextColor(c.Theme().TextMuted)
-			} else {
-				p.buildWorkspacePickerRows(c, available-110)
+			list := ui.Column(c.Key("picker-list")).Label("Composer picker list").FillWidth().MinWidth(0).Padding(8).Gap(4).
+				Radius(16).Background(c.Theme().Surface).DrawOver(func(p *ui.Painter, r ui.Rect) {
+				p.Stroke(r, c.Theme().Border, 16, 1)
+			})
+			list.Children(func() {
+
+				// Keep complete normal-density rows visible above the fixed query footer.
+				rowsHeight := max(workspaceNavigationRowHeight, float32(int((listHeight-51)/workspaceNavigationRowHeight))*workspaceNavigationRowHeight)
+				ui.Scroll(c.Key("picker-results")).Label("Composer picker results").FillWidth().MaxHeight(rowsHeight).Children(func() {
+					ui.Column(c).FillWidth().Gap(0).Children(func() {
+						if s.problem != "" {
+							ui.Text(c, s.problem).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().TextMuted)
+							workspaceControlButton(c, "picker-retry", "重试搜索", "ghost").Label("Retry composer search").OnClick(func() { p.queryWorkspacePicker(false) })
+						} else if s.loading || len(s.rows) == 0 {
+							text := "没有匹配项目"
+							if s.loading {
+								text = "正在搜索…"
+							}
+							ui.Row(c).FillWidth().Padding(8).Gap(8).AlignItems(ui.Center).Children(func() {
+								ui.Icon(c, workspaceIcon("search")).Size(workspaceIconSize, workspaceIconSize).Shrink(0).TextColor(c.Theme().TextMuted)
+								ui.Text(c, text).Role(ui.RoleStatus).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().TextMuted)
+							})
+						} else {
+							p.buildWorkspacePickerRows(c)
+						}
+						if s.preparing {
+							ui.Text(c, "正在准备引用…").Role(ui.RoleStatus).FontSize(workspaceFontBody).LineHeight(1.5)
+						}
+						if s.hasMore && !s.loading {
+							workspaceControlButton(c, "picker-more", "更多结果", "ghost").Label("More composer results").OnClick(func() { p.queryWorkspacePicker(true) })
+						}
+						if s.truncated {
+							ui.Text(c, "显示有界路径候选；可缩小查询、输入绝对路径或通过文件选择器添加。").FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted)
+						}
+					})
+				})
+
+				ui.Box(c).FillWidth().Height(1).Background(c.Theme().Border)
+				placeholder := "/ 搜索命令与 Skills"
+				if s.kind == "references" {
+					placeholder = "@ 搜索当前项目或输入绝对路径"
+				}
+				ui.Row(c).FillWidth().Padding(4, 8).Children(func() {
+					query := ui.TextInputBase(c.Key("picker-query"), &s.query).Bind(&s.search).Label("Search composer items").Placeholder(placeholder).
+						FillWidth().Height(18).Padding(0).FontSize(workspaceFontCaption).LineHeight(1.5).
+						TextColor(c.Theme().TextMuted).OnTextKey(p.workspacePickerSearchKey)
+					s.queryComposing = query.Composing()
+					if query.Changed() && !query.Composing() {
+						p.queryWorkspacePicker(false)
+					}
+				})
+			})
+			if commands && s.hasCommandDetails() {
+				p.buildWorkspacePickerDetails(c, available)
 			}
-			if s.preparing {
-				ui.Text(c, "正在准备引用…").Role(ui.RoleStatus).FontSize(13)
+		}
+		if stacked {
+			ui.Scroll(c.Key("picker-content")).Label("Composer picker contents").FillWidth().MaxHeight(available).Children(func() {
+				ui.Column(c).FillWidth().Gap(8).Children(content)
+			})
+		} else {
+			columns := 1
+			if commands && s.hasCommandDetails() {
+				columns = 2
 			}
-			if s.hasMore && !s.loading {
-				ui.Button(c, "更多结果").Label("More composer results").OnClick(func() { p.queryWorkspacePicker(true) })
-			}
-			if s.truncated {
-				ui.Text(c, "已达到项目索引上限；请缩小查询范围。").FontSize(12).TextColor(c.Theme().TextMuted)
-			}
-		})
+			// Equal outer columns remain equal when their inner padding differs.
+			ui.Grid(c.Key("picker-content")).Columns(columns).Label("Composer picker contents").FillWidth().Gap(8).AlignItems(ui.Start).Children(content)
+		}
 	})
 	if panel.Dismissed() {
 		p.closeWorkspacePicker()
 	}
 }
 
-func (p *NativePage) buildWorkspacePickerRows(c *ui.Context, height float32) {
+func (p *NativePage) buildWorkspacePickerRows(c *ui.Context) {
 	s := &p.picker
-	listHeight := max(float32(80), height-110)
-	if s.detail != nil && s.detail.Document != nil {
-		listHeight = max(80, listHeight-64)
-	}
-	ui.Scroll(c.Key("picker-results")).Label("Composer picker results").FillWidth().MaxHeight(listHeight).Children(func() {
-		ui.Column(c).FillWidth().Gap(4).Children(func() {
-			for index, row := range s.rows {
-				name, description := row.referenceName(), ""
-				if row.command != nil {
-					name, description = "/"+row.command.Name, row.command.Description
-					if !row.command.Available {
-						description = row.command.UnavailableReason
-					}
-				}
-				button := ui.ButtonBase(c.Key(row.identity())).Label("Select " + name).Role(ui.RoleListItem).Selected(index == s.active).
-					KeepFocus().FillWidth().Padding(8).Radius(6).Disabled(!row.available() || s.preparing).
-					OnClick(func() { s.active = index; p.chooseWorkspacePicker() }).HandleInput(func(ev ui.InputEvent) bool {
-					if ev.Kind == ui.InputPointerMove && ev.Button == -1 && row.available() {
-						s.active = index
-					}
-					return false
-				})
-				if row.reference != nil {
-					button.Label("Select @" + row.reference.Path).Tooltip(row.reference.Path)
-				}
-				if index == s.active {
-					button.Background(workspacePalette(c).selection)
-					if s.revealed != row.identity() {
-						button.ScrollIntoView()
-						s.revealed = row.identity()
-					}
-				} else if button.Hovered() {
-					button.Background(workspacePalette(c).hover)
-				}
-				button.Children(func() {
-					ui.Column(c).FillWidth().Gap(2).Children(func() {
-						ui.Text(c, name).FontSize(14).TextColor(c.Theme().Text).SingleLine()
-						if description != "" {
-							ui.Text(c, description).FontSize(12).TextColor(c.Theme().TextMuted).LineHeight(1.4)
-						}
-					})
-				})
+	for index, row := range s.rows {
+		name, icon, description := row.referenceName(), "file-text", ""
+		if row.file != nil {
+			description = fmt.Sprintf("%s · %s · %d bytes", row.file.Kind, row.file.Path, row.file.Bytes)
+			if row.file.Kind == "directory" {
+				icon = "folder"
 			}
+		}
+		if row.reference != nil {
+			description = fmt.Sprintf("%s · %s · %d bytes", row.reference.Kind, row.reference.Path, row.reference.Bytes)
+		}
+		if row.command != nil {
+			name, icon, description = "/"+row.command.Name, "code-xml", row.command.Description
+			if row.command.Kind == product.ComposerSkillEntry {
+				icon = "sparkles"
+			}
+			if row.command.Name == "plan" {
+				icon = "list"
+			}
+			if !row.command.Available {
+				description = row.command.UnavailableReason
+			}
+		}
+		button := workspaceComposerMenuItem(c.Key(row.identity()), "Select "+name).Role(ui.RoleListItem).Selected(index == s.active).
+			KeepFocus().Disabled(!row.available() || s.preparing).Description(description).Tooltip(description).
+			OnClick(func() { s.active = index; p.chooseWorkspacePicker() }).HandleInput(func(ev ui.InputEvent) bool {
+			if ev.Kind == ui.InputPointerMove && ev.Button == -1 && row.available() {
+				s.active = index
+			}
+			return false
 		})
-	})
-	if s.active < 0 || s.active >= len(s.rows) {
+		if row.file != nil {
+			button.Label("Select @" + row.file.DisplayPath)
+		}
+		if row.reference != nil {
+			button.Label("Select @" + row.reference.Path)
+		}
+		if index == s.active {
+			button.Background(workspacePalette(c).selection)
+			if s.revealed != row.identity() {
+				button.ScrollIntoView()
+				s.revealed = row.identity()
+			}
+		} else if button.Hovered() {
+			button.Background(workspacePalette(c).hover)
+		}
+		button.Children(func() {
+			ui.Icon(c, workspaceIcon(icon)).Label("Composer item icon "+row.identity()).Size(workspaceIconSize, workspaceIconSize).Shrink(0).TextColor(c.Theme().TextMuted)
+			ui.Text(c, name).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().Text).SingleLine().Grow(1).MinWidth(0)
+		})
+	}
+}
+
+func (p *NativePage) buildWorkspacePickerDetails(c *ui.Context, height float32) {
+	s := &p.picker
+	if !s.hasCommandDetails() {
 		return
 	}
 	row := s.rows[s.active]
-	ui.Column(c.Key("picker-details")).Label("Composer active item details").FillWidth().Gap(4).Children(func() {
-		if row.command == nil {
-			ui.Text(c, fmt.Sprintf("%s · %s · %d bytes", row.reference.Kind, row.reference.Path, row.reference.Bytes)).FontSize(12).TextColor(c.Theme().TextMuted).SingleLine().Tooltip(row.reference.Path)
-			return
+	detail := ui.Scroll(c.Key("picker-details")).Label("Composer active item details").FillWidth().MinWidth(0).MaxHeight(height).
+		Padding(12).Gap(8).Radius(16).Background(c.Theme().Surface).DrawOver(func(p *ui.Painter, r ui.Rect) {
+		p.Stroke(r, c.Theme().Border, 16, 1)
+	})
+	detail.Children(func() {
+		ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, row.command.Name).FontSize(workspaceFontSubtitle).FontWeight(600).LineHeight(1.5).Grow(1).MinWidth(0).SingleLine()
+			workspaceControlIconButton(c, "picker-open-detail", "", "external-link", "ghost", s.detailLoading).Label("Composer item details").Size(workspaceIconControlSize, workspaceIconControlSize).Padding(0).OnClick(p.loadWorkspacePickerDetails)
+		})
+		if row.command.Description != "" {
+			ui.Text(c, row.command.Description).FontSize(workspaceFontBody).LineHeight(1.5)
 		}
-		ui.Text(c, row.command.Origin+" · "+row.command.Scope+" · "+row.command.Source).FontSize(12).TextColor(c.Theme().TextMuted).SingleLine()
-		ui.TextInput(c.Key("picker-argument"), &s.argument).Label("Composer request argument").Placeholder("可选：补充任务或审查范围").FillWidth()
-		ui.Button(c, "查看详情").Label("Composer item details").Disabled(s.detailLoading).OnClick(p.loadWorkspacePickerDetails)
+		if row.command.Source != "" {
+			ui.Text(c, row.command.Source).FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted).SingleLine().Tooltip(row.command.Source)
+		}
+		workspaceControlInput(c, "picker-argument", &s.argument).Label("Composer request argument").Placeholder("可选：补充任务或审查范围").FillWidth()
 		if s.detail != nil && s.detail.Entry.ID == row.command.ID && s.detail.Document != nil {
 			body := []rune(s.detail.Document.Body)
-			ui.Scroll(c.Key("picker-skill-document")).Label("Selected Skill document preview").FillWidth().MaxHeight(64).Children(func() {
-				ui.Text(c, string(body[:min(len(body), 2048)])).FontSize(12).LineHeight(1.5)
+			ui.Scroll(c.Key("picker-skill-document")).Label("Selected Skill document preview").FillWidth().MaxHeight(128).Children(func() {
+				ui.Text(c, string(body[:min(len(body), 2048)])).FontSize(workspaceFontBody).LineHeight(1.5)
 			})
-			ui.Text(c, "SHA-256: "+s.detail.SHA256).FontSize(11).TextColor(c.Theme().TextMuted).SingleLine()
+			ui.Text(c, "SHA-256: "+s.detail.SHA256).FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted).SingleLine().Tooltip(s.detail.SHA256)
 		}
 	})
 }
 
 func (r workspacePickerRow) referenceName() string {
+	if r.file != nil {
+		return "@" + r.file.Name
+	}
 	if r.reference == nil {
 		return ""
 	}
@@ -419,8 +535,15 @@ func (p *NativePage) loadWorkspacePickerDetails() {
 	s.detailSequence++
 	s.detailLoading = true
 	sequence, detailSequence, scope, id, entryID, ctx := s.sequence, s.detailSequence, s.scope, p.selected, s.rows[s.active].command.ID, s.requestContext
+	workspace := p.workspaceFileCandidateDirectory()
 	go func() {
-		detail, err := p.Service.ComposerEntry(ctx, id, entryID)
+		var detail product.ComposerEntryDetail
+		var err error
+		if id == "" {
+			detail, err = p.Service.ComposerHomeEntry(ctx, workspace, entryID)
+		} else {
+			detail, err = p.Service.ComposerEntry(ctx, id, entryID)
+		}
 		p.dispatchWorkspacePicker(ctx, func() {
 			if !p.picker.open || p.picker.sequence != sequence || p.picker.detailSequence != detailSequence || p.workspacePickerScope() != scope {
 				return
@@ -440,6 +563,10 @@ func (p *NativePage) chooseWorkspacePicker() {
 	if !s.open || s.loading || s.preparing || p.workspacePickerBlocked() || s.active < 0 || s.active >= len(s.rows) || !s.rows[s.active].available() {
 		return
 	}
+	if s.rows[s.active].file != nil {
+		p.chooseWorkspaceFileCandidate(*s.rows[s.active].file)
+		return
+	}
 	if len(s.argument) > 8192 || !utf8.ValidString(s.argument) {
 		s.problem = "补充参数最多 8 KiB，请缩短后重试。"
 		return
@@ -456,19 +583,44 @@ func (p *NativePage) chooseWorkspacePicker() {
 			return
 		}
 	}
+	finishReferences := p.referenceOwner.begin()
+	if finishReferences == nil {
+		return
+	}
 	s.preparing = true
 	sequence, scope, id, draft, start, end, explicit, row, argument := s.sequence, s.scope, p.selected, p.model.Draft, s.start, s.end, s.explicit, s.rows[s.active], s.argument
 	ctx := s.requestContext
+	workspace := p.workspaceFileCandidateDirectory()
 	go func() {
 		var preparation product.ComposerPreparation
+		var reference product.DraftWorkspaceReference
 		var err error
 		if row.command != nil {
-			preparation, err = p.Service.PrepareComposerSelection(ctx, id, product.ComposerSelectionRequest{EntryID: row.command.ID, Arguments: map[string]string{"request": argument}})
+			request := product.ComposerSelectionRequest{EntryID: row.command.ID, Arguments: map[string]string{"request": argument}}
+			if id == "" {
+				preparation, err = p.Service.PrepareComposerHomeSelection(ctx, workspace, request)
+			} else {
+				preparation, err = p.Service.PrepareComposerSelection(ctx, id, request)
+			}
 		} else {
-			_, err = p.Service.PrepareWorkspaceReference(ctx, id, *row.reference)
+			reference, err = p.Service.PrepareWorkspaceReference(ctx, id, *row.reference)
 		}
-		p.dispatchWorkspacePicker(ctx, func() {
-			if !p.picker.open || p.picker.sequence != sequence || p.workspacePickerScope() != scope {
+		if err == nil && reference.DraftID != "" {
+			p.referenceOwner.retain(id, []product.DraftReferenceSelection{reference.DraftSelection()})
+		}
+		finishReferences()
+		if ctx.Err() != nil && reference.DraftID != "" {
+			p.referenceOwner.discard(id, reference.DraftSelection())
+			return
+		}
+		p.dispatch(func() {
+			discard := func() {
+				if reference.DraftID != "" {
+					p.referenceOwner.discard(id, reference.DraftSelection())
+				}
+			}
+			if ctx.Err() != nil || !p.picker.open || p.picker.sequence != sequence || p.workspacePickerScope() != scope {
+				discard()
 				return
 			}
 			p.picker.preparing = false
@@ -477,8 +629,12 @@ func (p *NativePage) chooseWorkspacePicker() {
 				return
 			}
 			if p.model.Draft != draft || p.workspacePickerBlocked() {
+				discard()
 				p.picker.problem = "草稿或运行状态已变化，请检查当前草稿后重新选择。"
 				return
+			}
+			if reference.DraftID != "" {
+				p.retainWorkspaceReferences(id, []product.DraftReferenceSelection{reference.DraftSelection()})
 			}
 			text := ""
 			if row.command != nil {

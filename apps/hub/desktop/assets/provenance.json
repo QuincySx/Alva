@@ -1,11 +1,32 @@
 {
-  "source": "Existing canonical Alva design resources; no outline or metric modifications",
+  "source": "Canonical Alva design resources and integrity-verified lucide-static1.61.0 SVG additions; original outlines and metrics retained",
   "icons": {
     "package": "lucide-static",
     "version": "1.61.0",
     "license": "ISC AND MIT",
     "source": "docs/design/alva/fonts/lucide",
-    "notice": "lucide/LICENSE"
+    "notice": "lucide/LICENSE",
+    "additionalSource": {
+      "file": "lucide/minus.svg",
+      "tarball": "https://registry.npmjs.org/lucide-static/-/lucide-static-1.61.0.tgz",
+      "integrity": "sha512-yLAiQB3MWUJEstsEDAwenSA3m7vr1tdLvgnC16Q/XMxRRma0DWwMs8M2bWlvgShrIs1m2mWMJ+0AiahqQO4GrA=="
+    },
+    "navigationSource": {
+      "files": [
+        "lucide/puzzle.svg",
+        "lucide/database.svg",
+        "lucide/shield.svg",
+        "lucide/circle-user-round.svg",
+        "lucide/clock.svg"
+      ],
+      "tarball": "https://registry.npmjs.org/lucide-static/-/lucide-static-1.61.0.tgz",
+      "integrity": "sha512-yLAiQB3MWUJEstsEDAwenSA3m7vr1tdLvgnC16Q/XMxRRma0DWwMs8M2bWlvgShrIs1m2mWMJ+0AiahqQO4GrA=="
+    },
+    "windowShellSource": {
+      "file": "lucide/panel-left.svg",
+      "tarball": "https://registry.npmjs.org/lucide-static/-/lucide-static-1.61.0.tgz",
+      "integrity": "sha512-yLAiQB3MWUJEstsEDAwenSA3m7vr1tdLvgnC16Q/XMxRRma0DWwMs8M2bWlvgShrIs1m2mWMJ+0AiahqQO4GrA=="
+    }
   },
   "font": {
     "family": "Alva UI Sans SC",
@@ -55,6 +76,25 @@
     "lucide/pencil.svg": "ad01ac9a96ecb8e35b54a505756072e9d297d6ed51dbebbd74d6605bfcc9c770",
     "lucide/trash-2.svg": "0367c1f1ea8be2af6dcd38e79c944dc2667ad725488fb9e2d4d1d8826d7b418f",
     "lucide/refresh-cw.svg": "801cc03b84a654de114a2707c9b1c6aa9a3b732c4ffc9e5df0f63f02e1ba0105",
-    "lucide/sparkles.svg": "5ff7dc6557dbe5068a18feb080df81e090eb0a495fa1a05e3abd8179ba53c52d"
+    "lucide/sparkles.svg": "5ff7dc6557dbe5068a18feb080df81e090eb0a495fa1a05e3abd8179ba53c52d",
+    "lucide/target.svg": "e26469cfee68a31c0ab6712987f7d05ea5d5326cb7b7061a243369e5e25c7d15",
+    "lucide/star.svg": "29d57a6721d440f84328f183f684fd54bd5ec49f8aa8b45a2902974c30770361",
+    "lucide/globe.svg": "994924c198fe332f0de7eb5953610c6bce145b93db86c97d7183ce170a6038cc",
+    "lucide/terminal.svg": "b25233f7ee93fa2dbc3f72bd25da52e66025d45404ccb8227af8237f4df2ad1e",
+    "lucide/key-round.svg": "85e5db61869ee5c78f52ea1fbf75df75322ba7c67b785468c6554a4bf37e17cd",
+    "lucide/eye.svg": "3eb607cfbd394442f231a2a377d5e149a41846cc7fe48e711e8141141b68d791",
+    "lucide/list.svg": "8c57a520002147ace4c2e3127def471f29af0abb7113acdccb1284e4286ebaae",
+    "lucide/file-text.svg": "0f68908abe19543be363a403a4239f288236840ede01eec2af65830c3ba7f22c",
+    "lucide/mic.svg": "d2dd73d9963810d00d43abed6a6b70f98ce1e61d33a41896166834e77f8778f0",
+    "lucide/minus.svg": "98fa3350421dfd2011b2f109d20de6069c963b1f668c24fe675878b8a4c86532",
+    "lucide/maximize.svg": "c9325b35a55cc5f29687aad632e604896dc8bf5238688eae9440ba0b317125ee",
+    "lucide/puzzle.svg": "f3223242af4cf2e65880351ab7e4382e440fae450950c74c767aef2a760cb8eb",
+    "lucide/database.svg": "8f4cfe4259518e162d0bc3fbd817178fb0c455f45b3159789845ca925a119710",
+    "lucide/shield.svg": "0b3fd44f2bb21e697e9d866d65933429285488d9d99c39032db4ed7cdc543085",
+    "lucide/circle-user-round.svg": "4213e542ea19688130c7325a2d33481eef3f456257b40eb42cc5e036ed2df162",
+    "lucide/clock.svg": "2a50ff1030ae5591447dd5b278bdbd24e7dda3c24e2133348e7a66231fd6e787",
+    "lucide/copy.svg": "0e68d3e49db956dfe42e8dfac1d8596081ee0a6fc5480fc6318d231bb07616d9",
+    "lucide/panel-left.svg": "7e3e798c9423b2ed2727768b5494a8d349331d4866f04048041acd1aec2c220b",
+    "lucide/panel-right.svg": "afa65357b1d7279d5ab08bec745eb411e23cb031c90f8df280a9b5da8f1d6c92"
   }
 }

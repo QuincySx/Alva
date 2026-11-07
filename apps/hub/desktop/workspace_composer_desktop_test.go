@@ -108,7 +108,7 @@ func TestWorkspaceComposerMenusUseActualRoutesAndPolicy(t *testing.T) {
 	if err := tester.Click("Add attachments"); err != nil {
 		t.Fatal(err)
 	}
-	if !tester.HasText("文件引用暂仅支持 Alva 引擎。") || !tester.HasText("计划模式") || !tester.HasText("命令与 Skills…") || tester.HasText("协同模式") {
+	if tester.HasText("文件引用暂仅支持 Alva 引擎。") || !tester.HasText("文件或路径…") || !tester.HasText("计划模式") || !tester.HasText("命令与 Skills…") || tester.HasText("协同模式") {
 		t.Fatal("attachment menu concealed prerequisites or actual supported actions")
 	}
 	if err := tester.Click("Plan mode"); err != nil {
@@ -147,7 +147,7 @@ func TestWorkspaceDisabledConnectionCannotAdmitHomeDraft(t *testing.T) {
 	if _, err = service.Connections.SetEnabled(t.Context(), entry.ID, entry.Revision, false); err != nil {
 		t.Fatal(err)
 	}
-	tester := ui.NewTester(p.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	if !tester.HasText("模型连接已更改或停用，请重新选择模型。草稿已保留。") {
 		t.Fatal("stale route has no actionable state")
 	}
@@ -172,7 +172,7 @@ func TestWorkspaceComposerToolbarAlignsAndRunningDraftStaysIndependent(t *testin
 		if !found || box.X < composer.X+7 || box.X+box.W > composer.X+composer.W-7 {
 			t.Fatalf("%s overflows the padded composer: %v within %v", label, box, composer)
 		}
-		if box.W < 32 || box.H < 32 {
+		if box.W < 28 || box.H < 28 {
 			t.Fatalf("%s lost its minimum click area: %v", label, box)
 		}
 		if i == 0 {
@@ -180,7 +180,7 @@ func TestWorkspaceComposerToolbarAlignsAndRunningDraftStaysIndependent(t *testin
 		} else if delta := box.Y + box.H/2 - center; delta < -0.5 || delta > 0.5 {
 			t.Fatalf("%s does not share the toolbar center", label)
 		}
-		if (label == "Send" && (box.W != 32 || box.H != 32)) || (label == "Add attachments" && (box.W != 32 || box.H != 32)) {
+		if (label == "Send" && (box.W != 28 || box.H != 28)) || (label == "Add attachments" && (box.W != 28 || box.H != 28)) {
 			t.Fatalf("%s lost its symmetric icon slot: %v", label, box)
 		}
 	}
@@ -362,11 +362,20 @@ func TestWorkspaceComposerTooltipsExplainDisabledActionsAndActualPolicy(t *testi
 	p.busy = true
 	p.model.Draft = "new draft"
 	tester.Frame()
-	if !tester.HasText("正在提交或导入附件，等待真实接收回执。") {
-		t.Fatal("pending submission reuses an inaccurate generic Send tooltip")
+	// The old disabled explanation was a different focus target. Explicitly
+	// enter the busy action by keyboard before checking its focus tooltip.
+	tester.Key(0, ui.KeyTab)
+	for i := 0; i < 8 && !tester.Focused("Send"); i++ {
+		tester.Key(0, ui.KeyTab)
+	}
+	tester.Frame()
+	if !tester.Focused("Send") || !tester.HasText("正在提交或导入附件，等待真实接收回执。") {
+		t.Fatalf("pending submission must retain the Send identity and explain its busy state on focus: focused=%v texts=%q", tester.Focused("Send"), tester.Texts())
 	}
 	// The fixed host policy remains descriptive on focus; focus never grants it.
-	tester.Key(ui.Shift, ui.KeyTab)
+	for i := 0; i < 8 && !tester.Focused("Permission policy"); i++ {
+		tester.Key(ui.Shift, ui.KeyTab)
+	}
 	_, description := workspacePermissionPolicy(service.DefaultTarget.EngineID)
 	if !tester.Focused("Permission policy") || !tester.HasText(description) || p.composer.permissionOpen {
 		t.Fatal("permission focus does not explain the actual policy independently of its menu")
@@ -374,9 +383,9 @@ func TestWorkspaceComposerTooltipsExplainDisabledActionsAndActualPolicy(t *testi
 	p.busy = false
 	p.model.ActiveRunID, p.model.Status = "observed", view.Stopping
 	tester.Frame()
-	stop, ok := tester.Find("Stop unavailable")
+	stop, ok := tester.Find("Stop")
 	if !ok {
-		t.Fatal("Stopping lacks a disabled Stop explanation")
+		t.Fatal("Stopping must retain the Stop identity and its cleanup explanation")
 	}
 	tester.Advance(time.Millisecond)
 	tester.Move(stop.X+stop.W/2, stop.Y+stop.H/2)

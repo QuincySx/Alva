@@ -127,12 +127,12 @@ func (p *NativePage) buildWaits(c *ui.Context) {
 	})
 	ui.Scroll(c).Label("Waiting task details").Grow(1).MinHeight(0).Gap(8).Children(func() {
 		ui.Text(c, "Durable waiting tasks").Bold()
-		ui.Text(c, "Waiting exits execution and retains the checkpoint. Supplying a result does not run a model/tool. Continue explicitly resumes the same Turn; old tools and input are not replayed.").FontSize(12)
+		ui.Text(c, "Waiting exits execution and retains the checkpoint. Supplying a result does not run a model/tool. Continue explicitly resumes the same Turn; old tools and input are not replayed.").FontSize(workspaceFontCaption)
 		if !p.wait.Current {
-			ui.Text(c, "Checkpoint unavailable or refreshing. Actions require a current successful read.").FontSize(12)
+			ui.Text(c, "Checkpoint unavailable or refreshing. Actions require a current successful read.").FontSize(workspaceFontCaption)
 		}
 		if p.wait.Problem != "" {
-			ui.Text(c, "Checkpoint read failed: "+p.wait.Problem).FontSize(12)
+			ui.Text(c, "Checkpoint read failed: "+p.wait.Problem).FontSize(workspaceFontCaption)
 		}
 		if !v.Supported {
 			if p.wait.Current {
@@ -153,7 +153,7 @@ func (p *NativePage) buildWaits(c *ui.Context) {
 			ui.TextInput(c.Key("wait-turn-id"), &turn).Label("Waiting Turn ID").ReadOnly(true)
 		}
 		if v.ResumeProblem != "" {
-			ui.Text(c, v.ResumeProblem).FontSize(12)
+			ui.Text(c, v.ResumeProblem).FontSize(workspaceFontCaption)
 		}
 		for _, request := range v.Snapshot.State.Requests {
 			r := request
@@ -161,7 +161,7 @@ func (p *NativePage) buildWaits(c *ui.Context) {
 			canResolve := resolvable && live
 			ui.Text(c, fmt.Sprintf("%s · %s · expires %s", r.Kind, r.ID, r.ExpiresAt.Format("2006-01-02 15:04:05 MST"))).Bold()
 			if !live {
-				ui.Text(c, "Request expired. Review the checkpoint before explicitly abandoning it.").FontSize(12)
+				ui.Text(c, "Request expired. Review the checkpoint before explicitly abandoning it.").FontSize(workspaceFontCaption)
 			}
 			if r.Kind == "question" {
 				ui.Column(c.Key("wait-question-" + r.ID)).Gap(4).Children(func() {
@@ -191,7 +191,7 @@ func (p *NativePage) buildWaits(c *ui.Context) {
 			}
 		}
 		if v.Snapshot.State.Status != durable.Idle || v.Status == engine.Waiting {
-			ui.Text(c, "Abandonment acknowledges unknown effects. It neither undoes actions nor cancels external work. Review native Inspector/history first; type the exact Turn ID below.").FontSize(12)
+			ui.Text(c, "Abandonment acknowledges unknown effects. It neither undoes actions nor cancels external work. Review native Inspector/history first; type the exact Turn ID below.").FontSize(workspaceFontCaption)
 			ui.TextInput(c.Key("wait-abandon-confirm"), &p.wait.Confirm).Label("Reviewed Turn ID for abandonment").Disabled(blocked)
 			ui.Button(c, "Abandon reviewed checkpoint").Disabled(blocked || v.TurnID == "" || p.wait.Confirm != v.TurnID || p.model.ActiveRunID != "").OnClick(func() {
 				target := p.waitTarget()

@@ -196,7 +196,7 @@ func (p *NativePage) buildMedia(c *ui.Context) {
 		}
 		for _, entry := range p.media.Page.Entries {
 			entry := entry
-			ui.Text(c, fmt.Sprintf("%s · %s · %d bytes · SHA-256 %s", entry.Info.Name, entry.Info.MediaType, entry.Info.Bytes, entry.Info.SHA256)).FontSize(12)
+			ui.Text(c, fmt.Sprintf("%s · %s · %d bytes · SHA-256 %s", entry.Info.Name, entry.Info.MediaType, entry.Info.Bytes, entry.Info.SHA256)).FontSize(workspaceFontCaption)
 			ui.Text(c, entry.Info.Processing).FontSize(11)
 			switch p.media.Mode {
 			case "sources":

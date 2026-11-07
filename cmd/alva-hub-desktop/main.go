@@ -1,4 +1,4 @@
-// INPUT: explicit private data directory, cancellable stdin provider credential, durable stores and Alva harness adapter
+// INPUT: Explicit flags or installed bundle profile, private data/CLI configuration directories, cancellable credentials and bootstrap stores
 // OUTPUT: Separate desktop-tagged Go native Hub executable
 // POS: [L7 Hub product] Product assembly above EngineRuntime; leaves the direct alva-desktop harness entrance independent
 //go:build desktop
@@ -31,7 +31,12 @@ func main() {
 }
 func run() (result error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	startup, err := prepareDesktop(ctx, os.Args[1:], os.Stdin, os.Stderr)
+	executable, err := os.Executable()
+	if err != nil {
+		stop()
+		return err
+	}
+	startup, err := prepareDesktopFromExecutable(ctx, executable, os.Args[1:], os.Stdin, os.Stderr)
 	startupErr := ctx.Err()
 	// Restore ordinary native event-loop signal behavior after startup instead
 	// of silently consuming termination signals throughout the window lifetime.
@@ -74,6 +79,11 @@ func (s *desktopStartup) close(ctx context.Context) error {
 
 // prepareDesktop owns startup only; it cannot open windows or start Agent work.
 func prepareDesktop(ctx context.Context, args []string, input io.Reader, diagnostic io.Writer) (*desktopStartup, error) {
+	return prepareDesktopProfile(ctx, desktopLaunchProfile{Arguments: args}, input, diagnostic)
+}
+
+func prepareDesktopProfile(ctx context.Context, launch desktopLaunchProfile, input io.Reader, diagnostic io.Writer) (*desktopStartup, error) {
+	args := launch.Arguments
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -91,7 +101,14 @@ func prepareDesktop(ctx context.Context, args []string, input io.Reader, diagnos
 	imageCapable := flags.Bool("image-capable", false, "operator declares this exact live provider/model route supports image input; not inferred, not a media enable switch")
 	claudeCommand := flags.String("claude-command", "", "explicit Claude executable; not started until a selected branch is sent")
 	codexCommand := flags.String("codex-command", "", "explicit Codex executable; not started until a selected branch is sent")
+	codexTransport := flags.String("codex-transport", "app-server", "Codex app-server (default) or explicit exec transport; no protocol fallback")
+	codexSandbox := flags.String("codex-sandbox", "workspace-write", "Codex app-server read-only or workspace-write in the saved cwd; network disabled")
+	codexApproval := flags.String("codex-approval-policy", "on-request", "Codex app-server on-request, untrusted or explicit never; independent of Alva permissions")
+	claudeConfig := flags.String("claude-config-dir", "", "optional absolute existing Claude configuration directory; reuses the complete CLI configuration")
+	codexConfig := flags.String("codex-config-dir", "", "optional absolute existing Codex configuration directory; reuses the complete CLI configuration")
 	piCommand := flags.String("pi-command", "", "explicit Pi executable; exact private native session resume only")
+	piConfig := flags.String("pi-config-dir", "", "optional absolute existing Pi agent configuration directory; reuses the complete CLI configuration")
+	piTransport := flags.String("pi-transport", "rpc", "Pi rpc with product tool approvals (default), or explicit read-only exec transport")
 	externalApproved := flags.Bool("external-host-approved", false, "acknowledge explicit external executable host/account access; does not authorize automatic fallback")
 	gitExecutable := flags.String("git-executable", "", "optional explicit absolute Git for managed Worker worktrees; no discovery or startup execution")
 	gitApproved := flags.Bool("git-host-approved", false, "approve this explicit Git host snapshot; each isolation/adoption still requires its own user action")
@@ -112,6 +129,36 @@ func prepareDesktop(ctx context.Context, args []string, input io.Reader, diagnos
 	}
 	if *live && (*endpoint == "" || *model == "") {
 		return nil, errors.New("--live requires --endpoint and --model")
+	}
+	if *claudeConfig != "" && *claudeCommand == "" || *codexConfig != "" && *codexCommand == "" || *piConfig != "" && *piCommand == "" {
+		return nil, errors.New("--claude-config-dir/--codex-config-dir/--pi-config-dir require their corresponding --claude-command/--codex-command/--pi-command")
+	}
+	var codexFlags, codexPolicyFlags, piFlags bool
+	flags.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "pi-transport":
+			piFlags = true
+		case "codex-transport":
+			codexFlags = true
+		case "codex-sandbox", "codex-approval-policy":
+			codexFlags, codexPolicyFlags = true, true
+		}
+	})
+	if piFlags && *piCommand == "" || *piTransport != "rpc" && *piTransport != "exec" {
+		return nil, errors.New("Pi transport must be rpc or exec and requires its corresponding --pi-command")
+	}
+	if codexFlags && *codexCommand == "" {
+		return nil, errors.New("Codex transport/policy flags require their corresponding --codex-command")
+	}
+	if *codexTransport != "app-server" && *codexTransport != "exec" || *codexSandbox != "read-only" && *codexSandbox != "workspace-write" || *codexApproval != "on-request" && *codexApproval != "untrusted" && *codexApproval != "never" {
+		return nil, errors.New("invalid explicit Codex transport or native policy")
+	}
+	if *codexTransport == "exec" && codexPolicyFlags {
+		return nil, errors.New("Codex native policy flags require app-server transport")
+	}
+	external := externalSnapshots(*claudeCommand, *codexCommand, *piCommand, *claudeConfig, *codexConfig, *piConfig, *codexTransport, *codexSandbox, *codexApproval, *piTransport, *externalApproved)
+	if err := applyDesktopLaunchEnvironment(external, launch.ExternalEnvironment); err != nil {
+		return nil, err
 	}
 	if err := debugOptions.Validate(*keyStdin); err != nil {
 		return nil, err
@@ -144,7 +191,7 @@ func prepareDesktop(ctx context.Context, args []string, input io.Reader, diagnos
 	if err != nil {
 		return nil, err
 	}
-	application, err := bootstrap.Open(ctx, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, DataDirectory: *directory, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: config, ImageCapable: *imageCapable, External: externalSnapshots(*claudeCommand, *codexCommand, *piCommand, *externalApproved), GitExecutable: *gitExecutable, GitHostAccessApproved: *gitApproved})
+	application, err := bootstrap.Open(ctx, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, DataDirectory: *directory, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: config, ImageCapable: *imageCapable, External: external, GitExecutable: *gitExecutable, GitHostAccessApproved: *gitApproved})
 	if err != nil {
 		if application != nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -159,11 +206,22 @@ func prepareDesktop(ctx context.Context, args []string, input io.Reader, diagnos
 	return &desktopStartup{application: application, diagnostics: diagnostics, address: debugOptions.Address}, nil
 }
 
-func externalSnapshots(claude, codex, pi string, approved bool) []bootstrap.ExternalEngine {
+func externalSnapshots(claude, codex, pi, claudeConfig, codexConfig, piConfig, codexTransport, codexSandbox, codexApproval, piTransport string, approved bool) []bootstrap.ExternalEngine {
 	var out []bootstrap.ExternalEngine
-	for _, entry := range []struct{ vendor, command string }{{"claude", claude}, {"codex", codex}, {"pi", pi}} {
+	for _, entry := range []struct{ vendor, command, configuration string }{{"claude", claude, claudeConfig}, {"codex", codex, codexConfig}, {"pi", pi, piConfig}} {
 		if entry.command != "" {
-			out = append(out, bootstrap.ExternalEngine{Vendor: entry.vendor, Command: entry.command, ApprovedHostAccess: approved})
+			external := bootstrap.ExternalEngine{Vendor: entry.vendor, Command: entry.command, CLIConfigDirectory: entry.configuration, ApprovedHostAccess: approved}
+			if entry.vendor == "pi" {
+				external.Transport = piTransport
+			}
+			if entry.vendor == "codex" {
+				external.Transport = codexTransport
+				if codexTransport == "app-server" {
+					external.CodexSandbox = map[string]string{"read-only": "readOnly", "workspace-write": "workspaceWrite"}[codexSandbox]
+					external.CodexApprovalPolicy = map[string]string{"on-request": "onRequest", "untrusted": "unlessTrusted", "never": "never"}[codexApproval]
+				}
+			}
+			out = append(out, external)
 		}
 	}
 	return out

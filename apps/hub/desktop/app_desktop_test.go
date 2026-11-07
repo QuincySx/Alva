@@ -45,17 +45,36 @@ func fixture(t *testing.T) (*product.HubService, chan engine.Request) {
 	return service, make(chan engine.Request, 1)
 }
 
+func workspaceTestOpenMenu(tester *ui.Tester) error {
+	if _, shown := tester.Find("More actions"); !shown {
+		if err := tester.Click("Open resource workspace"); err != nil {
+			return err
+		}
+	}
+	return tester.Click("More actions")
+}
+
 func workspaceTestMenu(tester *ui.Tester, label string) error {
-	if err := tester.Click("More actions"); err != nil {
+	if err := workspaceTestOpenMenu(tester); err != nil {
 		return err
 	}
 	return tester.ChooseMenuItem(label)
 }
 
+// Geometry and business-flow tests observe settled layout without changing the
+// simulated system preferences. Motion tests build p.Build directly and advance
+// the native renderer's clock instead.
+func workspaceStaticView(p *NativePage) func(*ui.Context) {
+	return func(c *ui.Context) {
+		c.DisableAnimations()
+		p.Build(c)
+	}
+}
+
 func TestNativeHubHomeDoesNotCreateOrExecute(t *testing.T) {
 	service, requests := fixture(t)
 	page := NewNativePage(service)
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	if !tester.HasText("今天，想完成什么？") || !tester.HasText("演示模式") || service.Runtime.HasActive() || len(requests) != 0 {
 		t.Fatal("startup executed or hid actual mode")
 	}
@@ -77,7 +96,7 @@ func TestNativeHubUsesSharedComposerAndTruthfulStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	page.applyDetail()
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	if err = tester.Click("Message"); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +142,7 @@ func TestSidebarUsesFreshSelectedStatusWithoutRepaging(t *testing.T) {
 			cursor, next := page.sessionCursor, page.sessionPage.Next
 			back := append([]hub.SessionCursor(nil), page.sessionBack...)
 			page.applyDetail()
-			tester := ui.NewTester(page.Build, 1240, 850)
+			tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 			if !tester.HasText("Selected conversation · "+string(test.want)) || !tester.HasText("Other conversation · failed") {
 				t.Fatal("sidebar contradicted the freshest selected session detail or changed another row")
 			}

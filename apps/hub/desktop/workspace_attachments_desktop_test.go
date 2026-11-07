@@ -8,12 +8,13 @@ package hubdesktop
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/bootstrap"
@@ -22,6 +23,98 @@ import (
 	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/egoist/mygo/ui"
 )
+
+func TestWorkspaceObserversKeepSeparateCapturedAttachmentDrafts(t *testing.T) {
+	app, err := bootstrap.Open(t.Context(), bootstrap.Config{Demo: true, DataDirectory: filepath.Join(t.TempDir(), "private"), OpenStores: bootstrap.LocalStores})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = app.Close(context.Background()) })
+	service := app.Service
+	session, err := service.Create(t.Context(), "shared session observers", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, second := NewNativePage(service), NewNativePage(service)
+	var tester *ui.Tester
+	for _, page := range []*NativePage{first, second} {
+		pageTester := ui.NewTester(workspaceStaticView(page), 1240, 850)
+		page.selectSession(session.ID)
+		waitWorkspace(t, page, pageTester, func() bool { return !page.polling && page.detail.Session.ID == session.ID })
+		if page == first {
+			tester = pageTester
+		}
+	}
+	uploadA, err := service.UploadReader(t.Context(), session.ID, "first.txt", strings.NewReader("first original"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.retainWorkspaceReferences(session.ID, []product.DraftReferenceSelection{uploadA.DraftSelection()})
+	first.model.Draft = "send this observer's captured reference"
+	frozen := first.captureWorkspaceReferences()
+	uploadB, err := service.UploadReader(t.Context(), session.ID, "second.txt", strings.NewReader("second original"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second.retainWorkspaceReferences(session.ID, []product.DraftReferenceSelection{uploadB.DraftSelection()})
+	// Upload establishes the actual native branch binding after the initial
+	// cold session load. Observe that receipt before admitting its references.
+	first.loadTail()
+	waitWorkspace(t, first, tester, func() bool { return !first.polling })
+	if files := first.workspaceDraftAttachments(session.ID); len(files) != 1 || files[0] != uploadA {
+		t.Fatal("first observer displayed another observer's attachment", files)
+	}
+	if files := second.workspaceDraftAttachments(session.ID); len(files) != 1 || files[0] != uploadB {
+		t.Fatal("second observer displayed another observer's attachment", files)
+	}
+	first.sendPreparedSnapshot(first.model.Draft, nil, frozen)
+	waitWorkspace(t, first, tester, func() bool { return !first.busy && len(first.workspaceReferences[session.ID]) == 0 })
+	history, err := service.Store.History(t.Context(), session.ID, 0, 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompt string
+	for _, entry := range history {
+		prompt += entry.Input
+	}
+	if !strings.Contains(prompt, uploadA.Reference.URI) || strings.Contains(prompt, uploadB.Reference.URI) || len(second.workspaceReferences[session.ID]) != 1 {
+		t.Fatal("captured Send crossed observer ownership", prompt)
+	}
+	remaining := service.DraftAttachments(session.ID)
+	if len(remaining) != 1 || remaining[0] != uploadB {
+		t.Fatal("Send consumed another observer's saved draft", remaining)
+	}
+}
+
+func TestWorkspaceUnavailableCapturedReferenceCanBeRemovedWithoutDeletingOriginal(t *testing.T) {
+	s, _ := fixture(t)
+	session, err := s.Create(t.Context(), "removed reference receipt", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := s.UploadReader(t.Context(), session.ID, "removed.txt", strings.NewReader("keep original"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := NewNativePage(s)
+	p.selected = session.ID
+	p.retainWorkspaceReferences(session.ID, []product.DraftReferenceSelection{draft.DraftSelection()})
+	s.RemoveDraftAttachment(session.ID, draft.DraftID)
+	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
+	if p.workspaceAttachmentProblem() == "" || !tester.HasText("失效引用") {
+		t.Fatal("missing captured reference became an invisible submission blocker")
+	}
+	if err = tester.Click("Remove unavailable reference " + draft.DraftID); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.workspaceReferences[session.ID]) != 0 || p.workspaceAttachmentProblem() != "" {
+		t.Fatal("explicit removal did not clear the unavailable capture")
+	}
+	_, data, err := s.Repository.ReadArtifactFull(t.Context(), session.ID, draft.Info.SessionID, draft.Reference.URI, 1024)
+	if err != nil || string(data) != "keep original" {
+		t.Fatal("removing an unavailable receipt deleted its saved original", err)
+	}
+}
 
 func TestWorkspaceHomeFileSelectionIsColdAndRemovalKeepsOriginal(t *testing.T) {
 	service, _ := fixture(t)
@@ -34,7 +127,7 @@ func TestWorkspaceHomeFileSelectionIsColdAndRemovalKeepsOriginal(t *testing.T) {
 	// This is the native dialog result boundary: selection accepts paths without
 	// opening them, including a path which may disappear before explicit Send.
 	page.retainWorkspaceFiles("", []string{path, missing})
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	if !tester.HasText("待导入") || !page.workspacePendingFiles() {
 		t.Fatal("selected originals were not shown as pending import")
 	}
@@ -73,7 +166,7 @@ func TestWorkspaceFirstFileFailureRetainsCreatedSessionAndRetriesInPlace(t *test
 	}
 	page.model.Draft = "retry the first picked file"
 	page.retainWorkspaceFiles("", []string{first, second})
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.sendWorkspaceDraft()
 	waitWorkspace(t, page, tester, func() bool {
 		return page.selected != "" && !page.busy && !page.polling && page.problem != ""
@@ -114,7 +207,7 @@ func TestWorkspaceCreateFailureRetainsPendingFilesOnHome(t *testing.T) {
 	page.model.Draft = "keep pending originals"
 	path := filepath.Join(t.TempDir(), "selected.txt")
 	page.retainWorkspaceFiles("", []string{path})
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.sendWorkspaceDraft()
 	waitWorkspace(t, page, tester, func() bool { return !page.busy && page.problem != "" })
 	if page.selected != "" || page.model.Draft != "keep pending originals" || len(page.workspaceFiles[""]) != 1 || page.workspaceFiles[""][0].path != path {
@@ -134,13 +227,14 @@ func TestWorkspaceFileImportUsesExplicitlySelectedBranch(t *testing.T) {
 	page := NewNativePage(service)
 	target := service.DefaultTarget
 	target.ModelID = "explicit-choice"
+	service.Targets = append(service.Targets, target)
 	page.composer.target, page.model.Draft = target, "use my selected model"
 	path := filepath.Join(t.TempDir(), "selected.txt")
 	if err := os.WriteFile(path, []byte("selected original"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	page.retainWorkspaceFiles("", []string{path})
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.sendWorkspaceDraft()
 	waitWorkspace(t, page, tester, func() bool {
 		return page.selected != "" && !page.busy && !page.polling && page.problem != ""
@@ -172,7 +266,7 @@ func TestWorkspacePartialImportRetryKeepsSavedReferencesAndNativeBytes(t *testin
 	}
 	page.model.Draft = "keep partial import"
 	page.retainWorkspaceFiles("", []string{first, failed, remaining})
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.sendWorkspaceDraft()
 	waitWorkspace(t, page, tester, func() bool {
 		return page.selected != "" && !page.busy && !page.polling && page.problem != ""
@@ -256,15 +350,11 @@ func TestWorkspaceHomeFilesUseSharedDemoAndKeepNewEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	page.model.Draft = "captured first prompt"
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.sendWorkspaceDraft()
 	var release sync.Once
 	defer release.Do(func() { close(wrapped.release) })
-	select {
-	case <-wrapped.entered:
-	case <-time.After(2 * time.Second):
-		t.Fatal("actual upload never reached immutable artifact storage")
-	}
+	awaitWorkspaceAdmissionBoundary(t, tester, wrapped.entered)
 	page.model.Draft = "new edit while first-send import settles"
 	release.Do(func() { close(wrapped.release) })
 	waitWorkspace(t, page, tester, func() bool {
@@ -283,7 +373,7 @@ func TestWorkspaceHomeFilesUseSharedDemoAndKeepNewEdits(t *testing.T) {
 		return !page.busy && !page.polling && !app.Runtime.HasActive() && page.model.Status == view.Completed
 	})
 	if page.model.Draft != "new edit while first-send import settles" || page.workspacePendingFiles() || len(app.Service.DraftAttachments(page.selected)) != 0 {
-		t.Fatal("admission overwrote a new edit or retained consumed attachment drafts")
+		t.Fatalf("admission overwrote a new edit or retained consumed attachment drafts: text=%q pending=%v attachments=%d problem=%s", page.model.Draft, page.workspacePendingFiles(), len(app.Service.DraftAttachments(page.selected)), page.problem)
 	}
 	history, err := app.Store.History(t.Context(), page.selected, 0, 128)
 	if err != nil {
@@ -326,6 +416,7 @@ func TestWorkspaceSavedAttachmentMismatchBlocksSemanticSend(t *testing.T) {
 	}
 	page := NewNativePage(service)
 	page.selected, page.model.Draft = session.ID, "guard parked references"
+	page.retainWorkspaceReferences(session.ID, []product.DraftReferenceSelection{attachment.DraftSelection()})
 	page.detail, err = service.Store.Detail(t.Context(), session.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -354,5 +445,52 @@ func TestWorkspaceSavedAttachmentMismatchBlocksSemanticSend(t *testing.T) {
 	}
 	if saved := service.DraftAttachments(session.ID); saved[0].Info.ID != attachment.Info.ID {
 		t.Fatal("mismatch guard removed the actual saved reference")
+	}
+}
+
+func TestWorkspaceAttachmentFoundationGeometryAndBoundedRows(t *testing.T) {
+	for _, width := range []int{1240, 720} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			service, requests := fixture(t)
+			p := NewNativePage(service)
+			name := strings.Repeat("long-project-name-", 24) + ".txt"
+			paths := []string{filepath.Join(t.TempDir(), name)}
+			for i := 1; i < 8; i++ {
+				paths = append(paths, filepath.Join(t.TempDir(), fmt.Sprintf("selected-%d.txt", i)))
+			}
+			p.retainWorkspaceFiles("", paths)
+			tester := ui.NewTester(workspaceStaticView(p), width, 680)
+			composer, _ := tester.Find("Task composer")
+			viewport, _ := tester.Find("Composer attachments")
+			card, present := tester.Find("Attachment " + name)
+			icon, _ := tester.Find("Attachment source icon pending-0")
+			copy, _ := tester.Find("Attachment copy pending-0")
+			remove, _ := tester.Find("Remove pending file " + name)
+			if !present || card.H != 56 || card.W != 320 || copy.H != 40 || icon.W != 16 || icon.H != 16 || remove.W != 28 || remove.H != 28 {
+				t.Fatal("Attachment does not match Foundation row/copy/icon/action geometry", card, copy, icon, remove)
+			}
+			if icon.X != card.X+8 || copy.X != icon.X+24 || card.X+card.W-remove.X-remove.W != 8 || copy.X+copy.W+8 != remove.X {
+				t.Fatal("Attachment lost its symmetric padding or 8px gaps", card, icon, copy, remove)
+			}
+			if math.Abs(float64(icon.Y+icon.H/2-card.Y-card.H/2)) > .5 || math.Abs(float64(remove.Y+remove.H/2-card.Y-card.H/2)) > .5 {
+				t.Fatal("Attachment icon actions are not vertically centered", card, icon, remove)
+			}
+			if viewport.H != 126 || viewport.X < composer.X || viewport.X+viewport.W > composer.X+composer.W || card.X+card.W > viewport.X+viewport.W {
+				t.Fatal("long path expanded the composer or attachments were not bounded to two rows", composer, viewport, card)
+			}
+			before, _ := tester.Find("Send")
+			tester.Scroll(viewport.X+viewport.W/2, viewport.Y+viewport.H/2, 0, 1000)
+			after, _ := tester.Find("Send")
+			last, _ := tester.Find("Remove pending file selected-7.txt")
+			if before != after || last.Y < viewport.Y || last.Y+last.H > viewport.Y+viewport.H {
+				t.Fatal("attachment scrolling did not expose the final Remove action while retaining Send", viewport, last, before, after)
+			}
+			if err := tester.Click("Remove pending file selected-7.txt"); err != nil || len(p.workspaceFiles[""]) != 7 {
+				t.Fatal("scrolled attachment did not remove its own cold selection", err)
+			}
+			if service.Runtime.HasActive() || len(requests) != 0 || len(service.DraftAttachments("")) != 0 {
+				t.Fatal("attachment layout or scrolling imported or executed selected paths")
+			}
+		})
 	}
 }

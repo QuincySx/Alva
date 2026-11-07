@@ -28,7 +28,7 @@ func (p *NativePage) openTools() {
 		err = errors.Join(err, jobsErr)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "tools" {
 				return
 			}
 			if err != nil {
@@ -57,7 +57,7 @@ func (p *NativePage) changeTools(kind string, enabled bool) {
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "tools" {
 				return
 			}
 			if err != nil {
@@ -72,7 +72,7 @@ func (p *NativePage) changeTools(kind string, enabled bool) {
 func (p *NativePage) buildTools(c *ui.Context) {
 	ui.Scroll(c).Grow(1).MinHeight(0).Gap(8).Children(func() {
 		ui.Text(c, "Optional tools · next turn").Bold()
-		ui.Text(c, "Configure the shell executable/environment and web origins here. Saving clears tool enablement. Shell access and web access each need separate consent below; every call still follows permission rules. Nothing runs on save.").FontSize(12)
+		ui.Text(c, "Configure the shell executable/environment and web origins here. Saving clears tool enablement. Shell access and web access each need separate consent below; every call still follows permission rules. Nothing runs on save.").FontSize(workspaceFontCaption)
 		ui.TextArea(c.Key("tool-json"), &p.toolsDraft).Label("Optional tool configuration JSON").Height(220).Disabled(p.paneBusy || p.inputBlocked())
 		ui.Button(c, "Save tool configuration disabled").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.changeTools("", false) })
 		for _, v := range []struct {
@@ -116,7 +116,7 @@ func (p *NativePage) shellJobAction(branch, job string, reset bool) {
 		jobs, listErr := p.Service.ShellJobs(p.ctx, id)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "tools" {
 				return
 			}
 			if err = errors.Join(err, listErr); err != nil {
@@ -144,18 +144,23 @@ func (p *NativePage) buildShellJobs(c *ui.Context) {
 	}
 }
 func (p *NativePage) buildQuestions(c *ui.Context) {
+	p.buildEngineQuestions(c)
+	if p.questionReadProblem != "" {
+		ui.Text(c, p.questionReadProblem).Role(ui.RoleStatus).TextColor(c.Theme().Danger).FontSize(workspaceFontCaption)
+	}
 	if len(p.questions) == 0 {
 		return
 	}
 	q := p.questions[0]
+	submitting := p.questionSubmitting[q.ID]
 	if p.questionID != q.ID {
 		p.questionID = q.ID
 		p.questionText = ""
 		p.questionSelected = map[int]bool{}
 	}
-	ui.Scroll(c.Key("human-question")).Height(240).Gap(4).Children(func() {
+	ui.Scroll(c.Key("human-question")).Label("Human clarification").Height(240).Gap(4).Children(func() {
 		ui.Text(c, "Clarification: "+q.Header).Bold()
-		ui.Text(c, q.Prompt).FontSize(12)
+		ui.Text(c, q.Prompt).FontSize(workspaceFontCaption)
 		ui.Text(c, "Your answer is a clarification. File, shell and network permissions use separate requests.").FontSize(11)
 		for i, choice := range q.Options {
 			index := i + 1
@@ -163,7 +168,7 @@ func (p *NativePage) buildQuestions(c *ui.Context) {
 			if p.questionSelected[index] {
 				label = "✓ " + label
 			}
-			ui.Button(c.Key(fmt.Sprintf("choice-%d", index)), label).OnClick(func() {
+			ui.Button(c.Key(fmt.Sprintf("choice-%d", index)), label).Disabled(submitting).OnClick(func() {
 				if !q.MultiSelect {
 					p.respondQuestion(q.ID, interaction.Answer{Selected: []int{index}})
 					return
@@ -172,7 +177,7 @@ func (p *NativePage) buildQuestions(c *ui.Context) {
 			})
 		}
 		if q.MultiSelect {
-			ui.Button(c, "Send selected choices").OnClick(func() {
+			ui.Button(c, "Send selected choices").Disabled(submitting).OnClick(func() {
 				var selected []int
 				for i := 1; i <= len(q.Options); i++ {
 					if p.questionSelected[i] {
@@ -182,23 +187,42 @@ func (p *NativePage) buildQuestions(c *ui.Context) {
 				p.respondQuestion(q.ID, interaction.Answer{Selected: selected})
 			})
 		}
-		ui.TextArea(c.Key(q.ID), &p.questionText).Label("Clarification answer").Height(60)
-		ui.Button(c, "Send clarification answer").OnClick(func() { text := p.questionText; p.respondQuestion(q.ID, interaction.Answer{Text: &text}) })
+		ui.TextArea(c.Key(q.ID), &p.questionText).Label("Clarification answer").Height(60).Disabled(submitting)
+		ui.Button(c, "Send clarification answer").Disabled(submitting).OnClick(func() { text := p.questionText; p.respondQuestion(q.ID, interaction.Answer{Text: &text}) })
 	})
 }
 func (p *NativePage) respondQuestion(question string, answer interaction.Answer) {
-	id, generation := p.selected, p.generation
+	if p.selected == "" || p.questionSubmitting[question] {
+		return
+	}
+	if p.questionSubmitting == nil {
+		p.questionSubmitting = make(map[string]bool)
+	}
+	p.questionSubmitting[question] = true
+	p.questionEpoch++ // An earlier observation cannot restore this submitted request.
+	id, generation, branch := p.selected, p.generation, p.detail.Session.ActiveBranchID
 	go func() {
 		err := p.Service.RespondQuestion(p.ctx, id, question, answer)
 		p.dispatch(func() {
-			if p.selected != id || p.generation != generation {
+			delete(p.questionSubmitting, question)
+			p.questionEpoch++ // Also reject observations begun while the answer was in flight.
+			if p.selected != id || p.generation != generation || p.detail.Session.ActiveBranchID != branch {
 				return
 			}
 			if err != nil {
 				p.problem = err.Error()
 				return
 			}
-			p.questionID = ""
+			if p.questionID == question {
+				p.questionID, p.questionText = "", ""
+				p.questionSelected = nil
+			}
+			for i, q := range p.questions {
+				if q.ID == question {
+					p.questions = append(p.questions[:i], p.questions[i+1:]...)
+					break
+				}
+			}
 			p.problem = ""
 			p.poll()
 		})

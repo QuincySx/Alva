@@ -30,7 +30,7 @@ func TestNativeCommandsAndMemorySettingsDoNotRunOnSaveOrApprove(t *testing.T) {
 		t.Fatal(err)
 	}
 	page.applyDetail()
-	tester := ui.NewTester(page.Build, 1400, 1400)
+	tester := ui.NewTester(workspaceStaticView(page), 1400, 1400)
 	if err = workspaceTestMenu(tester, "会话设置"); err != nil {
 		t.Fatal(err)
 	}

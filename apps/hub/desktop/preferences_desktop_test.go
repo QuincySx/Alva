@@ -8,6 +8,7 @@ package hubdesktop
 import (
 	"context"
 	"errors"
+	"math"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -22,7 +23,7 @@ import (
 
 func preferenceTester(p *NativePage) (*ui.Tester, *ui.Theme) {
 	theme := new(ui.Theme)
-	tester := ui.NewTester(func(c *ui.Context) { p.Build(c); *theme = *c.Theme() }, 1240, 850)
+	tester := ui.NewTester(func(c *ui.Context) { c.DisableAnimations(); p.Build(c); *theme = *c.Theme() }, 1240, 850)
 	return tester, theme
 }
 
@@ -44,7 +45,7 @@ func choosePreference(t *testing.T, tester *ui.Tester, label, value string) {
 	if err := tester.Click("Select " + label); err != nil {
 		t.Fatal(err)
 	}
-	if err := tester.Click(value); err != nil {
+	if err := tester.Click(preferenceValueLabel(value)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -91,19 +92,18 @@ func TestNativeGeneralPreferencesExplicitSaveSharedAppearanceAndReopen(t *testin
 	tester, theme := preferenceTester(p)
 	otherTester, otherTheme := preferenceTester(other)
 	openPreferencePage(t, p, tester)
-	if p.selected != "" || !tester.HasText("General") || !tester.HasText("Appearance") || tester.HasText("Select Language") || tester.HasText("Select Motion") {
+	if p.selected != "" || !tester.HasText("通用") || !tester.HasText("外观") || tester.HasText("Select Language") || tester.HasText("Select Motion") {
 		t.Fatal("General preferences depend on a session or advertise unsupported controls")
 	}
-	for _, label := range []string{"Color theme", "Information density", "Body size"} {
+	for _, label := range []string{"Color theme", "Body size"} {
 		r, ok := tester.Find("Select " + label)
 		if !ok || r.X < 0 || r.Y < 0 || r.X+r.W > 1240 || r.Y+r.H > 850 {
 			t.Fatalf("%s is outside the native viewport: %+v", label, r)
 		}
 	}
-	bodyBefore, _ := tester.Find("Color theme")
+	labelBefore, _ := tester.Find("Color theme")
 	before := a.Service.Preferences.Snapshot()
 	choosePreference(t, tester, "Color theme", "dark")
-	choosePreference(t, tester, "Information density", "compact")
 	choosePreference(t, tester, "Body size", "16")
 	stored, err := a.Store.Preferences(t.Context())
 	if err != nil || stored != before || a.Service.Preferences.Snapshot() != before || theme.Dark || theme.FontSize != 14 || theme.Spacing != 4 {
@@ -114,14 +114,14 @@ func TestNativeGeneralPreferencesExplicitSaveSharedAppearanceAndReopen(t *testin
 	}
 	settlePreferences(t, p, tester)
 	otherTester.Frame()
-	want := hub.Preferences{Revision: before.Revision + 1, Theme: "dark", Density: "compact", FontSize: 16}
+	want := hub.Preferences{Revision: before.Revision + 1, Theme: "dark", Density: before.Density, FontSize: 16}
 	stored, err = a.Store.Preferences(t.Context())
-	bodyAfter, _ := tester.Find("Color theme")
-	if err != nil || stored != want || p.preferences.base != want || other.preferences.base != want || !theme.Dark || !otherTheme.Dark || theme.FontSize != 16 || otherTheme.FontSize != 16 || theme.Spacing != 3 || otherTheme.Spacing != 3 || bodyAfter.H <= bodyBefore.H {
-		t.Fatal("saved appearance did not reach actual controls in both observers", stored, err, *theme, *otherTheme, bodyBefore, bodyAfter)
+	labelAfter, _ := tester.Find("Color theme")
+	if err != nil || stored != want || p.preferences.base != want || other.preferences.base != want || !theme.Dark || !otherTheme.Dark || theme.FontSize != 16 || otherTheme.FontSize != 16 || theme.Spacing != 4 || otherTheme.Spacing != 4 || labelAfter.H != labelBefore.H || labelAfter.H != 19.5 {
+		t.Fatal("saved reading theme or fixed normal UI label scale did not reach both observers", stored, err, *theme, *otherTheme, labelBefore, labelAfter)
 	}
 	tester.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1.5})
-	if theme.FontSize != 24 || !tester.HasText("Reduced motion: On · follows system settings") {
+	if theme.FontSize != 24 {
 		t.Fatal("system accessibility preferences were lost", *theme)
 	}
 	sessions, err := a.Store.ListSessions(t.Context(), 100)
@@ -137,7 +137,7 @@ func TestNativeGeneralPreferencesExplicitSaveSharedAppearanceAndReopen(t *testin
 	}
 	newPage := NewNativePage(reopened.Service)
 	newTester, newTheme := preferenceTester(newPage)
-	if !newTheme.Dark || newTheme.FontSize != 16 || newTheme.Spacing != 3 {
+	if !newTheme.Dark || newTheme.FontSize != 16 || newTheme.Spacing != 4 {
 		t.Fatal("new window ignored durable appearance", *newTheme)
 	}
 	openPreferencePage(t, newPage, newTester)
@@ -153,6 +153,64 @@ func TestNativeGeneralPreferencesExplicitSaveSharedAppearanceAndReopen(t *testin
 	newTester.SetDark(true)
 	if !newTheme.Dark {
 		t.Fatal("system theme ignored dark appearance")
+	}
+}
+
+func TestNativeGeneralPreferencesCanonicalRowsKeepSelectKeyboardAndDraftValues(t *testing.T) {
+	s := preferenceFixture(t)
+	p := NewNativePage(s)
+	tester, _ := preferenceTester(p)
+	openPreferencePage(t, p, tester)
+	for _, text := range []string{"通用", "外观", "Color theme", "Body size", "跟随系统", "14 px", "Reduce application motion", "Save preferences", "Reload preferences"} {
+		if !tester.HasText(text) {
+			t.Fatalf("canonical preference copy is missing: %s", text)
+		}
+	}
+	title, _ := tester.Find("General page title")
+	card, _ := tester.Find("Preferences appearance")
+	save, _ := tester.Find("Save preferences")
+	if card.Y < title.Y+title.H+16 || save.Y < card.Y+card.H || save.H != 32 {
+		t.Fatal("page title, appearance card and explicit save are out of order", title, card, save)
+	}
+	for _, label := range []string{"Color theme", "Body size"} {
+		name, okName := tester.Find(label)
+		trigger, okTrigger := tester.Find("Select " + label)
+		if !okName || !okTrigger || trigger.H != 32 || name.X < card.X || trigger.X+trigger.W > card.X+card.W || math.Abs(float64(name.Y+name.H/2-trigger.Y-trigger.H/2)) > 1 {
+			t.Fatalf("flat setting row %s lost its shared bounds, 36px trigger or vertical centering: %+v %+v", label, name, trigger)
+		}
+	}
+	before := s.Preferences.Snapshot()
+	if err := tester.Click("Select Color theme"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Key(0, ui.KeyEnd)
+	tester.Key(0, ui.KeyEnter)
+	if p.preferences.theme != "dark" || !tester.HasText("深色") || s.Preferences.Snapshot() != before {
+		t.Fatal("translated keyboard choice did not retain raw draft value and explicit save", p.preferences)
+	}
+	if err := tester.Click("Select Color theme"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Key(0, ui.KeyHome)
+	tester.Key(0, ui.KeyEscape)
+	if p.preferences.theme != "dark" || s.Preferences.Snapshot() != before {
+		t.Fatal("closing the native select applied the highlighted choice", p.preferences)
+	}
+}
+
+func TestNativeGeneralUnimplementedDensityAndLanguageAreHidden(t *testing.T) {
+	s := preferenceFixture(t)
+	p := NewNativePage(s)
+	tester, _ := preferenceTester(p)
+	openPreferencePage(t, p, tester)
+	before := s.Preferences.Snapshot()
+	for _, label := range []string{"Information density", "Select Information density", "Select Language", "语言切换暂不可用"} {
+		if tester.HasText(label) {
+			t.Fatal("fixed preference advertised as a working setting", label)
+		}
+	}
+	if p.preferences.density != before.Density || p.preferences.dirty() {
+		t.Fatal("hiding an unavailable control mutated its saved value")
 	}
 }
 
@@ -172,13 +230,13 @@ func TestNativeGeneralPreferencesRetainsDraftAcrossWindowsConflictAndReload(t *t
 	if first.preferences.theme != "dark" || first.preferences.base != base {
 		t.Fatal("navigation discarded a preference draft")
 	}
-	choosePreference(t, secondTester, "Information density", "compact")
+	choosePreference(t, secondTester, "Body size", "16")
 	if err := secondTester.Click("Save preferences"); err != nil {
 		t.Fatal(err)
 	}
 	settlePreferences(t, second, secondTester)
 	firstTester.Frame()
-	if first.preferences.theme != "dark" || first.preferences.base != base || !first.preferences.dirty() || firstTheme.Dark || firstTheme.Spacing != 3 || !firstTester.HasText("Your draft is retained") {
+	if first.preferences.theme != "dark" || first.preferences.base != base || !first.preferences.dirty() || firstTheme.Dark || firstTheme.Spacing != 4 || !firstTester.HasText("Your draft is retained") {
 		t.Fatal("external save overwrote draft or draft changed committed theme", first.preferences, *firstTheme)
 	}
 	if err := firstTester.Click("Save preferences"); err != nil {
@@ -192,7 +250,7 @@ func TestNativeGeneralPreferencesRetainsDraftAcrossWindowsConflictAndReload(t *t
 		t.Fatal(err)
 	}
 	settlePreferences(t, first, firstTester)
-	if first.preferences.dirty() || first.preferences.base != s.Preferences.Snapshot() || first.preferences.theme != "system" || first.preferences.density != "compact" || first.preferences.problem != "" {
+	if first.preferences.dirty() || first.preferences.base != s.Preferences.Snapshot() || first.preferences.theme != "system" || first.preferences.size != "16" || first.preferences.problem != "" {
 		t.Fatal("explicit reload did not replace draft with latest saved values", first.preferences)
 	}
 }
@@ -299,6 +357,13 @@ func TestNativeGeneralPreferencesReadSaveAndCanceledStorageKeepDraftAndSavedValu
 func TestNativeGeneralPreferencesBuildIsColdAndCloseWaitsForActualSave(t *testing.T) {
 	s := preferenceFixture(t)
 	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
 	store := &preferenceFaultStore{PreferencesStore: s.Store.(hub.PreferencesStore), entered: make(chan struct{}, 1), release: release}
 	installPreferenceFaultStore(t, s, store)
 	p := NewNativePage(s)
@@ -313,6 +378,7 @@ func TestNativeGeneralPreferencesBuildIsColdAndCloseWaitsForActualSave(t *testin
 		t.Fatal("Build/observation performed storage IO")
 	}
 	choosePreference(t, tester, "Color theme", "dark")
+	beforeSave, _ := tester.Find("Save preferences")
 	if err := tester.Click("Save preferences"); err != nil {
 		t.Fatal(err)
 	}
@@ -324,6 +390,16 @@ func TestNativeGeneralPreferencesBuildIsColdAndCloseWaitsForActualSave(t *testin
 	tester.Frame()
 	if !p.preferences.saving || theme.Dark || s.Preferences.Snapshot().Theme != "system" {
 		t.Fatal("pending storage was reported committed")
+	}
+	if afterSave, ok := tester.Find("Save preferences"); !ok || afterSave != beforeSave || !tester.Focused("Save preferences") {
+		t.Fatal("pending storage changed Save geometry, name or focus", beforeSave, afterSave)
+	}
+	if err := tester.Click("Save preferences"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Key(0, ui.KeyEnter)
+	if store.writes.Load() != 1 {
+		t.Fatal("busy Save allowed a duplicate durable write", store.writes.Load())
 	}
 	p.setPane("")
 	event := new(mygo.CloseEvent)

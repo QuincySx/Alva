@@ -91,7 +91,7 @@ func TestNativeWaitWidgetsSaveWithoutExecutingAndExplicitlyContinue(t *testing.T
 		t.Fatal(err)
 	}
 	page.applyDetail()
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	click := func(label string) {
 		t.Helper()
 		if err := tester.Click(label); err != nil {
@@ -107,7 +107,9 @@ func TestNativeWaitWidgetsSaveWithoutExecutingAndExplicitlyContinue(t *testing.T
 	if page.problem != "" || !page.wait.View.Enabled || calls.Load() != 0 {
 		t.Fatal(page.problem, page.wait.View, calls.Load())
 	}
-	click("Chat")
+	if err := workspaceTestMenu(tester, "对话"); err != nil {
+		t.Fatal(err)
+	}
 	click("Message")
 	tester.Type("one explicit native input")
 	click("Send")
@@ -135,7 +137,7 @@ func TestNativeWaitWidgetsSaveWithoutExecutingAndExplicitlyContinue(t *testing.T
 	observer := NewNativePage(app.Service)
 	observer.ctx, observer.selected, observer.detail = t.Context(), s.ID, page.detail
 	observer.applyDetail()
-	other := ui.NewTester(observer.Build, 1240, 850)
+	other := ui.NewTester(workspaceStaticView(observer), 1240, 850)
 	if err := workspaceTestMenu(other, "等待中的任务"); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +201,9 @@ func TestNativeWaitWidgetsSaveWithoutExecutingAndExplicitlyContinue(t *testing.T
 	if !observer.wait.Current || observer.wait.View.Snapshot.State.Status != durable.Idle || observer.wait.View.CanResume || observer.wait.View.Status != engine.Succeeded || calls.Load() != 2 {
 		t.Fatal("stale read resurrected a delivered checkpoint", observer.wait, calls.Load())
 	}
-	click("Chat")
+	if err := workspaceTestMenu(tester, "对话"); err != nil {
+		t.Fatal(err)
+	}
 	click("Send") // This is a new, explicit Turn using the retained draft.
 	waitNativePage(t, tester, page, func() bool { return page.detail.Session.Status == engine.Waiting && !app.Runtime.SessionActive(s.ID) })
 	if err := workspaceTestMenu(tester, "等待中的任务"); err != nil {

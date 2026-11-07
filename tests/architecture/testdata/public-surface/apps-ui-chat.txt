@@ -95,6 +95,10 @@ type NativeView struct {
 	Stop           func()
 	Busy           bool
 	LargePasteHint string
+
+	RenderMessage func(*ui.Context, Message) bool
+
+	MessageGap float32
 }
 
 type Status string

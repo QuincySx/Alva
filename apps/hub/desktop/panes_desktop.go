@@ -74,7 +74,7 @@ func (p *NativePage) openSettings() {
 		value, err := p.Service.Store.Settings(p.ctx, id)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "settings" {
 				return
 			}
 			if err != nil {
@@ -91,13 +91,13 @@ func (p *NativePage) saveSettings() {
 	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
-	id, raw := p.selected, p.configDraft
+	id, raw, generation := p.selected, p.configDraft, p.generation
 	p.paneBusy = true
 	go func() {
 		err := p.Service.SaveMCPDraft(p.ctx, id, raw)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id {
+			if p.selected != id || p.generation != generation || p.pane != "settings" {
 				return
 			}
 			if err != nil {
@@ -113,13 +113,13 @@ func (p *NativePage) enableMCP(serverID string, enabled bool) {
 	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
-	id := p.selected
+	id, generation := p.selected, p.generation
 	p.paneBusy = true
 	go func() {
 		err := p.Service.Store.SetMCPEnabled(p.ctx, id, serverID, enabled, enabled)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id {
+			if p.selected != id || p.generation != generation || p.pane != "settings" {
 				return
 			}
 			if err != nil {
@@ -135,13 +135,13 @@ func (p *NativePage) enableSubagents(enabled bool) {
 	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
-	id := p.selected
+	id, generation := p.selected, p.generation
 	p.paneBusy = true
 	go func() {
 		err := p.Service.Store.SetSubagentsEnabled(p.ctx, id, enabled)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id {
+			if p.selected != id || p.generation != generation || p.pane != "settings" {
 				return
 			}
 			if err != nil {
@@ -158,13 +158,13 @@ func (p *NativePage) enablePersistentMemory(enabled bool) {
 	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
-	id := p.selected
+	id, generation := p.selected, p.generation
 	p.paneBusy = true
 	go func() {
 		err := p.Service.Store.SetPersistentMemory(p.ctx, id, enabled)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id {
+			if p.selected != id || p.generation != generation || p.pane != "settings" {
 				return
 			}
 			if err != nil {
@@ -197,7 +197,7 @@ func (p *NativePage) buildSettings(c *ui.Context) {
 		} else {
 			ui.Button(c, "Approve child model usage and enable native SubAgents").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.enableSubagents(true) })
 		}
-		ui.Text(c, "Explicit stdio snapshots only. Saving edits disables every server; enabling separately confirms host/account access for this saved workspace. Nothing installs, scans existing config, starts on save or changes an active run.").FontSize(12)
+		ui.Text(c, "Explicit stdio snapshots only. Saving edits disables every server; enabling separately confirms host/account access for this saved workspace. Nothing installs, scans existing config, starts on save or changes an active run.").FontSize(workspaceFontCaption)
 		ui.Text(c, "JSON array fields: id, command, args, env. Credentials are only explicit env values in the private product database; never inherited or added to model prompt.").FontSize(11)
 		ui.TextArea(c.Key("mcp-json"), &p.configDraft).Label("MCP configuration JSON").Height(230).Disabled(p.paneBusy || p.inputBlocked())
 		ui.Button(c, "Save edited servers disabled").Disabled(p.paneBusy || p.inputBlocked()).OnClick(p.saveSettings)
@@ -258,6 +258,10 @@ func (p *NativePage) loadInspector(after, high uint64) {
 	}()
 }
 func (p *NativePage) readInspector(uri string, offset int64) {
+	p.readInspectorBound(uri, offset, nil)
+}
+
+func (p *NativePage) readInspectorBound(uri string, offset int64, accept func() bool) {
 	if p.paneBusy || p.selected == "" {
 		return
 	}
@@ -268,7 +272,7 @@ func (p *NativePage) readInspector(uri string, offset int64) {
 		page, err := p.Service.InspectorReadAt(p.ctx, id, branch, path, uri, offset)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation || p.inspectBranch != branch {
+			if p.selected != id || p.generation != generation || p.inspectBranch != branch || accept != nil && !accept() {
 				return
 			}
 			if err != nil {

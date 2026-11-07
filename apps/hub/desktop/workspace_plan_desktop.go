@@ -58,18 +58,20 @@ func (p *NativePage) workspacePlanCanChange() bool {
 
 func (p *NativePage) buildWorkspacePlanMenuItem(c *ui.Context) {
 	enabled := p.workspacePlanEnabled()
-	item := ui.ButtonBase(c.Key("plan-mode")).Role(ui.RoleMenuItemRadio).Label("Plan mode").Checked(enabled).
-		FillWidth().Padding(8, 12).Gap(8).Radius(8).Justify(ui.Start).
+	item := workspaceComposerMenuItem(c.Key("plan-mode"), "Plan mode").Role(ui.RoleMenuItemRadio).Checked(enabled).
 		Disabled(!p.workspacePlanCanChange()).Tooltip(p.workspacePlanDescription()).
 		OnClick(func() { p.composer.addOpen = false; p.setWorkspacePlanMode(!enabled) })
-	if item.Hovered() {
+	if enabled {
 		item.Background(workspacePalette(c).hover)
 	}
+	if !p.workspacePlanCanChange() {
+		item.TextColor(c.Theme().TextMuted)
+	}
 	item.Children(func() {
-		ui.Icon(c, workspaceIcon("book-open")).Size(16, 16)
-		ui.Text(c, "计划模式").FontSize(14).LineHeight(1.5).Grow(1)
+		ui.Icon(c, workspaceIcon("list")).Size(workspaceIconSize, workspaceIconSize).Shrink(0).TextColor(c.Theme().TextMuted)
+		ui.Text(c, "计划模式").FontSize(workspaceFontBody).LineHeight(1.5).SingleLine().Grow(1).MinWidth(0)
 		if enabled {
-			ui.Icon(c, workspaceIcon("check")).Size(16, 16)
+			ui.Icon(c, workspaceIcon("check")).Size(16, 16).Shrink(0).TextColor(c.Theme().Accent)
 		}
 	})
 }
@@ -88,11 +90,11 @@ func (p *NativePage) setWorkspacePlanMode(enabled bool) {
 	}
 	id, branchID := p.selected, p.detail.Session.ActiveBranchID
 	p.generation++ // Reject reads captured before this explicit policy edit.
-	p.busy = true
+	p.busy, p.composer.settingsSaving = true, true
 	go func() {
 		err := p.Service.SetPlanMode(p.ctx, id, enabled)
 		p.dispatch(func() {
-			p.busy = false
+			p.busy, p.composer.settingsSaving = false, false
 			if p.selected != id || p.detail.Session.ActiveBranchID != branchID {
 				return
 			}

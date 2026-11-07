@@ -10,7 +10,7 @@ import (
 )
 
 func (p *NativePage) buildWorkspaceRouting(c *ui.Context) {
-	ui.Text(c, "执行路由").FontSize(24).FontWeight(600)
+	ui.Text(c, "执行路由").FontSize(workspaceFontHeading).FontWeight(600)
 	ui.Scroll(c).Grow(1).FillWidth().Children(func() {
 		ui.Column(c).FillWidth().Gap(16).Children(func() {
 			ui.Text(c, "会话分支").FontWeight(600)
@@ -20,7 +20,7 @@ func (p *NativePage) buildWorkspaceRouting(c *ui.Context) {
 				if branch.ID == p.detail.Session.ActiveBranchID {
 					label = "Active: " + branch.Target.EngineID + " · " + branch.Target.ModelID
 				}
-				ui.Button(c, label).Disabled(p.busy || p.inputBlocked() || branch.ID == p.detail.Session.ActiveBranchID).OnClick(func() { p.switchBranch(branch.Target) })
+				ui.Button(c, label).Disabled(p.busy || p.inputBlocked() || branch.ID == p.detail.Session.ActiveBranchID).OnClick(func() { p.selectSavedBranch(branch.ID) })
 			}
 			ui.Text(c, "故障切换").FontWeight(600)
 			ui.Text(c, "仅在明确批准的启动失败或限流条件下，使用下方指定账户与计费路由。可能已经产生副作用时不会自动切换。").TextColor(c.Theme().TextMuted)
@@ -33,7 +33,7 @@ func (p *NativePage) buildWorkspaceRouting(c *ui.Context) {
 			for _, target := range p.targets {
 				target := target
 				ui.Column(c).Gap(8).Children(func() {
-					ui.Text(c, workspaceTargetLabel(target)+" · "+target.AccountSource+" · "+target.BillingRoute).FontSize(14)
+					ui.Text(c, workspaceTargetLabel(target)+" · "+target.AccountSource+" · "+target.BillingRoute).FontSize(workspaceFontBody)
 					ui.Button(c, "Approve fallback: "+target.EngineID+" · "+target.AccountSource+" · "+target.BillingRoute).Disabled(p.busy || p.inputBlocked()).OnClick(func() { p.setFallback(&target) })
 				})
 			}

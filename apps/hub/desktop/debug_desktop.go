@@ -1,5 +1,5 @@
 // INPUT: Actual Hub page state, shared product UI methods and independent native diagnostic owner callbacks
-// OUTPUT: Registered Hub semantic view tree/state and normal declared UI actions without exposing settings credentials
+// OUTPUT: Registered Hub semantic view tree/state and opaque route actions without exposing account or endpoint values
 // POS: [L7 Hub product] Debugging observes the same page and delegates Send/Stop to the existing product owner.
 //go:build desktop
 
@@ -14,8 +14,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/debug"
+	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/apps/ui/chat"
+	"github.com/QuincySx/Alva/integration/engine"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 )
 
@@ -28,14 +30,63 @@ func (p *NativePage) traceUI(method string) {
 	}
 }
 
+func diagnosticRouteKey(target hub.Target) string {
+	hash := sha256.Sum256([]byte(hub.RouteKey(target)))
+	return hex.EncodeToString(hash[:])
+}
+
 func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), capture func() ([]byte, error), bounds func() *debug.Bounds) (*debug.View, []debug.Method, error) {
+	composerState := func() (waiting, loading bool) {
+		waiting = p.selected != "" && p.detail.Session.ID == p.selected && p.detail.Session.Status == engine.Waiting
+		loading = p.selected != "" && (p.detail.Session.ID != p.selected || p.chat.Busy && !p.busy && !p.workspaceComposerRunning() && !waiting)
+		return
+	}
+	canSetDraft := func() bool {
+		waiting, loading := composerState()
+		return p.pane == "" && !waiting && !loading
+	}
+	canSend := func() bool {
+		waiting, loading := composerState()
+		return p.pane == "" && !p.busy && !p.workspaceComposerRunning() && !waiting && !loading && p.voice.recorder == nil && p.workspaceAttachmentProblem() == "" && p.workspaceTargetProblem() == "" && p.model.CanSend()
+	}
+	routeAvailable := func(target hub.Target) bool {
+		return p.pane == "" && !p.workspacePickerBlocked() && p.workspaceSessionModelOptionsProblem() == "" && p.workspaceGoalTargetProblem(target) == "" && p.workspaceTargetOptions(target).ValidateTarget(target) == nil
+	}
 	snapshot := func() debug.Snapshot {
 		hash := sha256.Sum256([]byte(p.model.Draft))
 		ids := make([]string, 0, len(p.sessions))
 		for _, session := range p.sessions {
 			ids = append(ids, session.ID)
 		}
-		state := map[string]any{"demo": p.Service.Demo, "session_id": p.selected, "pane": p.pane, "generation": p.generation, "status": p.model.Status, "active_run_id": p.model.ActiveRunID, "busy": p.busy, "pane_busy": p.paneBusy, "draft_bytes": len(p.model.Draft), "draft_sha256": hex.EncodeToString(hash[:]), "message_rows": len(p.model.Messages), "history_sequence": p.transcript.Last, "sessions": ids, "pending_approvals": len(p.approvals), "pending_questions": len(p.questions), "player_busy": p.playerBusy, "gateway_busy": p.gatewayBusy, "can_send": p.selected != "" && p.pane == "" && !p.busy && !p.chat.Busy && p.model.CanSend(), "can_stop": p.selected != "" && p.pane == "" && !p.busy && !p.chat.Busy && p.model.ActiveRunID != "" && p.model.Status != chat.Stopping, "has_problem": p.problem != ""}
+		state := map[string]any{"demo": p.Service.Demo, "session_id": p.selected, "pane": p.pane, "generation": p.generation, "status": p.model.Status, "active_run_id": p.model.ActiveRunID, "busy": p.busy, "pane_busy": p.paneBusy, "draft_bytes": len(p.model.Draft), "draft_sha256": hex.EncodeToString(hash[:]), "message_rows": len(p.model.Messages), "history_sequence": p.transcript.Last, "sessions": ids, "pending_approvals": len(p.approvals), "pending_questions": len(p.questions), "player_busy": p.playerBusy, "gateway_busy": p.gatewayBusy, "can_send": canSend(), "can_stop": p.selected != "" && p.pane == "" && !p.busy && !p.chat.Busy && p.model.ActiveRunID != "" && p.model.Status != chat.Stopping, "has_problem": p.problem != ""}
+		state["can_set_draft"] = canSetDraft()
+		state["gateway_credentials_visible"] = p.pane == "gateway" && p.gatewayCredentialsCurrent()
+		if p.Service.Gateway != nil {
+			gateway := p.gatewayStatus
+			state["gateway_generation"] = gateway.Generation
+			state["gateway_running"] = gateway.Running
+			state["gateway_stopping"] = gateway.Stopping
+			state["gateway_closed"] = gateway.Closed
+		}
+		current := diagnosticRouteKey(p.workspaceComposerTarget())
+		state["current_route_key"] = current
+		state["current_route_available"] = false
+		routes := make([]map[string]any, 0)
+		targets, routeBytes := p.Service.AvailableTargets(), 0
+		for _, target := range targets {
+			key, available := diagnosticRouteKey(target), routeAvailable(target)
+			if key == current {
+				state["current_route_available"] = available
+			}
+			route := map[string]any{"route_key": key, "engine_id": target.EngineID, "model_id": target.ModelID, "provider_id": target.ProviderID, "available": available}
+			encoded, _ := json.Marshal(route)
+			if routeBytes+len(encoded) <= 48<<10 {
+				routes = append(routes, route)
+				routeBytes += len(encoded)
+			}
+		}
+		state["available_routes"], state["route_count"] = routes, len(targets)
+		state["routes_truncated"] = len(routes) != len(targets)
 		state["composer_busy"] = p.chat.Busy
 		state["export_busy"] = p.inspectExportBusy
 		state["inspector_branch"] = p.inspectBranch
@@ -50,11 +101,6 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 		state["has_export"] = p.inspectExportPath != ""
 		state["history_busy"] = p.polling
 		state["can_latest"] = p.selected != "" && p.pane == "" && !p.busy && !p.polling
-		if len(p.model.Draft) <= 8192 {
-			state["draft"] = p.model.Draft
-		} else {
-			state["draft_processing"] = "over-budget draft body omitted whole"
-		}
 		var rectangle *debug.Bounds
 		if bounds != nil {
 			rectangle = bounds()
@@ -74,11 +120,41 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 			if err := json.Unmarshal(raw, &args); err != nil {
 				return err
 			}
-			if !utf8.ValidString(args.Text) || len(args.Text) > chat.MaxDraftBytes || p.busy || p.chat.Busy || p.pane != "" || p.selected == "" || p.inputBlocked() {
+			if !utf8.ValidString(args.Text) || len(args.Text) > chat.MaxDraftBytes || !canSetDraft() {
 				return errors.New("actual composer is busy or over budget")
 			}
 			p.model.Draft = args.Text
 			return nil
+		case "select_route":
+			var args struct {
+				RouteKey string `json:"route_key"`
+			}
+			if err := strictjson.ValidateObject(raw, &args); err != nil {
+				return err
+			}
+			if err := json.Unmarshal(raw, &args); err != nil {
+				return err
+			}
+			rows, _ := workspaceModelRows(p.Service.AvailableTargets(), nil, p.workspaceComposerTarget(), p.Service.DefaultTarget)
+			for i := range rows {
+				for j, target := range rows[i].routes {
+					if diagnosticRouteKey(target) != args.RouteKey {
+						continue
+					}
+					if !routeAvailable(target) {
+						return errors.New("actual model selection is unavailable")
+					}
+					rows[i].chosen = j
+					p.composer.targetOpen = true
+					p.composer.modelPicker.rows, p.composer.modelPicker.problem = rows, ""
+					p.chooseWorkspaceModel(i)
+					if p.composer.modelPicker.problem != "" {
+						return errors.New("actual model selection is unavailable")
+					}
+					return nil
+				}
+			}
+			return errors.New("select only a current published model route key")
 		case "select_session":
 			var args struct {
 				ID string `json:"id"`
@@ -129,10 +205,12 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 			if p.paneBusy {
 				return errors.New("actual navigation is busy")
 			}
-			if args.Pane != "chat" && p.selected == "" {
+			if args.Pane != "chat" && args.Pane != "developer" && p.selected == "" {
 				return errors.New("actual product pane requires a selected session")
 			}
 			switch args.Pane {
+			case "developer":
+				p.openDeveloper()
 			case "chat":
 				p.setPane("")
 			case "settings":
@@ -164,10 +242,10 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 		}
 		switch method {
 		case "send":
-			if p.selected == "" || p.busy || p.chat.Busy || p.pane != "" || !p.model.CanSend() {
+			if !canSend() {
 				return errors.New("actual Send control is disabled")
 			}
-			p.send()
+			p.sendWorkspaceDraft()
 		case "stop":
 			if p.selected == "" || p.busy || p.chat.Busy || p.pane != "" || p.model.ActiveRunID == "" || p.model.Status == chat.Stopping {
 				return errors.New("actual Stop control is disabled")
@@ -199,7 +277,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 		return nil
 	}
 	protectedCapture := func() ([]byte, error) {
-		if p.gatewayCredentials != "" || p.pane == "connections" || p.pane == "settings" || p.pane == "plugins" || p.pane == "commands" || p.pane == "tools" || p.pane == "browser-settings" {
+		if p.pane == "gateway" && p.gatewayCredentialsCurrent() || p.pane == "connections" || p.pane == "developer" || p.pane == "settings" || p.pane == "plugins" || p.pane == "commands" || p.pane == "tools" || p.pane == "browser-settings" {
 			return nil, errors.New("credential-capable editor is visible; window capture is unavailable")
 		}
 		if capture == nil {
@@ -209,6 +287,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 	}
 	view, err := debug.NewView(owner, enqueue, snapshot, apply, protectedCapture)
 	methods := []debug.Method{{Name: "set_draft", Effect: "ui", Description: "Edit the actual unsent composer only."}, {Name: "select_session", Effect: "ui", Description: "Select an actual ID in the currently displayed session page."}, {Name: "create_session", Effect: "ui", Description: "Use normal product creation without submitting a model request."}, {Name: "open_pane", Effect: "ui", Description: "Open a declared normal product pane; no settings mutation."}, {Name: "latest", Effect: "ui", Description: "Load the normal newest bounded product history page."}, {Name: "new_window", Effect: "ui", Description: "Open another bounded observer using the same product owner."}, {Name: "stop", Effect: "stop", Description: "Request actual product Stop; observe completion separately."}, {Name: "send", Effect: "execute", Description: "Use normal Send/Worker admission and existing permissions/billing."}}
+	methods = append(methods, debug.Method{Name: "select_route", Effect: "ui", Description: "Choose a current published route_key using the actual Agent/model picker; no execution or authorization change."})
 	methods = append(methods, debug.Method{Name: "export_inspector", Effect: "ui", Description: "Save all typed records at the actual selected Inspector snapshot in the private application exports folder; no runtime or referenced artifact fetch."})
 	methods = append(methods, debug.Method{Name: "close_window", Effect: "ui", Description: "Request the normal Close of this exact observer window. Existing active-run/local-work close guards still apply; this is not Stop."})
 	return view, methods, err

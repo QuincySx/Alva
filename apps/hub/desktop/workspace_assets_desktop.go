@@ -56,11 +56,13 @@ func workspaceIcon(name string) *ui.SVG {
 	return icon
 }
 
-type workspaceColors struct{ sidebar, subtle, hover, selection, controlBorder ui.Color }
+type workspaceColors struct{ sidebar, subtle, hover, selection, controlBorder, dangerBg, scrim ui.Color }
 
+// Alva Foundation ui.color.*, revision 843480b8 (2026-11-04).
+// This is the shared UI palette; the older prototype color.* roles are separate.
 func workspacePalette(c *ui.Context) workspaceColors {
 	if c.Theme().Dark {
-		return workspaceColors{ui.Hex("#1B221F"), ui.Hex("#2B342F"), ui.Hex("#36423C"), ui.Hex("#283F36"), ui.Hex("#8EA296")}
+		return workspaceColors{ui.Hex("#14161B"), ui.Hex("#252932"), ui.Hex("#2C313C"), ui.Hex("#2C2945"), ui.Hex("#7F8999"), ui.Hex("#422E33"), ui.Hex("#101216")}
 	}
-	return workspaceColors{ui.Hex("#F0F3F1"), ui.Hex("#F3F5F4"), ui.Hex("#E9EEEC"), ui.Hex("#E7F2EE"), ui.Hex("#76867D")}
+	return workspaceColors{ui.Hex("#F3F4F7"), ui.Hex("#F5F6F8"), ui.Hex("#E9EBF0"), ui.Hex("#EFEDF9"), ui.Hex("#929AA9"), ui.Hex("#F8ECEE"), ui.Hex("#E3E6ED")}
 }

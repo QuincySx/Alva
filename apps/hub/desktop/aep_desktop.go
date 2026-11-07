@@ -25,7 +25,7 @@ func (p *NativePage) openAEP() {
 		value, err := p.Service.Store.Settings(p.ctx, id)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "plugins" {
 				return
 			}
 			if err != nil {
@@ -47,7 +47,7 @@ func (p *NativePage) aepAction(id string, enabled bool) {
 	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
-	session, raw := p.selected, p.aepDraft
+	session, raw, generation := p.selected, p.aepDraft, p.generation
 	p.paneBusy = true
 	go func() {
 		var err error
@@ -58,7 +58,7 @@ func (p *NativePage) aepAction(id string, enabled bool) {
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != session {
+			if p.selected != session || p.generation != generation || p.pane != "plugins" {
 				return
 			}
 			if err != nil {
@@ -90,7 +90,7 @@ func (p *NativePage) pickAEP() {
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "plugins" {
 				return
 			}
 			if err != nil {
@@ -122,7 +122,7 @@ func (p *NativePage) buildAEP(c *ui.Context) {
 		ui.Button(c, "Inspect pins and save all AEP disabled").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.aepAction("", false) })
 		for _, entry := range p.settings.AEP {
 			entry := entry
-			ui.Text(c, fmt.Sprintf("%s · %s %s · enabled=%v", entry.ID, entry.Name, entry.Version, entry.Enabled)).Bold().FontSize(12)
+			ui.Text(c, fmt.Sprintf("%s · %s %s · enabled=%v", entry.ID, entry.Name, entry.Version, entry.Enabled)).Bold().FontSize(workspaceFontCaption)
 			runtime := entry.Interpreter
 			if runtime == "" {
 				runtime = "embedded WASIp1"

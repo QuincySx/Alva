@@ -10,5 +10,5 @@ chat 提供状态/消息行/原生控件与当前 Inspector 页分类；modules 
 ## 业务域清单
 | 路径 | 职责 |
 |---|---|
-| chat/ | 有界聊天呈现、可独立装配的原生输入/消息列表、只读Inspector分类；Hub阅读布局与direct原输入共用列表锚点 |
+| chat/ | 有界聊天呈现、可独立装配的原生输入/消息列表及可选行距、只读Inspector分类；Hub阅读布局与direct原输入共用列表锚点，零值不改原行距 |
 | modules/ | 版本化 table/chart renderer 与原文 fallback |

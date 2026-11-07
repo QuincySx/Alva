@@ -55,7 +55,7 @@ func (p *NativePage) mediaSetting(action string, enabled bool) {
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "media-settings" {
 				return
 			}
 			if err != nil {
@@ -63,9 +63,7 @@ func (p *NativePage) mediaSetting(action string, enabled bool) {
 				return
 			}
 			p.problem = ""
-			if p.pane == "media-settings" {
-				p.openMediaSettings()
-			}
+			p.openMediaSettings()
 		})
 	}()
 }
@@ -73,7 +71,7 @@ func (p *NativePage) mediaSetting(action string, enabled bool) {
 func (p *NativePage) buildMediaSettings(c *ui.Context) {
 	ui.Scroll(c).Grow(1).MinHeight(0).Gap(8).Children(func() {
 		ui.Text(c, "Media tools · explicit next-turn opt-in").Bold()
-		ui.Text(c, fmt.Sprintf("Enabled=%v. Originals stay unchanged; upload only adds a reference. Tool actions require the actual Guard; processing/selecting images is not implicit approval to read all uploads or send original video/audio. Applies only to the next Alva turn, not other engines or SDK children.", p.settings.MediaEnabled)).FontSize(12)
+		ui.Text(c, fmt.Sprintf("Enabled=%v. Originals stay unchanged; upload only adds a reference. Tool actions require the actual Guard; processing/selecting images is not implicit approval to read all uploads or send original video/audio. Applies only to the next Alva turn, not other engines or SDK children.", p.settings.MediaEnabled)).FontSize(workspaceFontCaption)
 		if p.settings.MediaEnabled {
 			ui.Button(c, "Disable media tools next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.mediaSetting("media", false) })
 		} else {

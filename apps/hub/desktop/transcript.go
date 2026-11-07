@@ -4,7 +4,6 @@
 package hubdesktop
 
 import (
-	"encoding/json"
 	"github.com/QuincySx/Alva/apps/hub"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/integration/engine"
@@ -17,6 +16,43 @@ type Transcript struct {
 	Rows        []view.Message
 	First, Last uint64
 	MoreBefore  bool
+	tools       map[string]transcriptTool
+	origins     map[string]transcriptOrigin
+}
+
+// Native identity comes from committed events, never the next-turn selection.
+type transcriptOrigin struct {
+	sessionID, nativeID string
+	ambiguous           bool
+}
+
+// Result references and native ownership remain separate from each other and row text.
+type transcriptTool struct {
+	sessionID string
+	nativeID  string
+	name      string
+	reference engine.Reference
+	hasRef    bool
+}
+
+func (t *Transcript) rememberTool(id string, entry hub.HistoryEntry) {
+	previous := t.tools[id]
+	tool := transcriptTool{sessionID: entry.SessionID, nativeID: entry.Event.SessionID, name: entry.Event.Name}
+	if tool.name == "" {
+		tool.name = previous.name
+	}
+	if entry.Event.Reference != nil {
+		tool.reference, tool.hasRef = *entry.Event.Reference, true
+		if tool.nativeID == "" {
+			tool.nativeID = tool.reference.SessionID
+		}
+	}
+	// Synthetic cancellation/settlement ends can omit both identity fields. Keep
+	// the same call's owner, without presenting its start record as a result.
+	if tool.nativeID == "" && entry.AttemptID != "" && previous.sessionID == tool.sessionID {
+		tool.nativeID = previous.nativeID
+	}
+	t.tools[id] = tool
 }
 
 func (t *Transcript) Replace(entries []hub.HistoryEntry) {
@@ -51,6 +87,20 @@ func (t *Transcript) project() {
 	t.Rows = nil
 	t.First = 0
 	t.Last = 0
+	t.tools = make(map[string]transcriptTool)
+	t.origins = make(map[string]transcriptOrigin)
+	for _, entry := range t.Entries {
+		if entry.AttemptID == "" || entry.Event.SessionID == "" {
+			continue
+		}
+		origin, exists := t.origins[entry.AttemptID]
+		if exists && (origin.sessionID != entry.SessionID || origin.nativeID != entry.Event.SessionID) {
+			origin.ambiguous = true
+		} else if !exists {
+			origin = transcriptOrigin{sessionID: entry.SessionID, nativeID: entry.Event.SessionID}
+		}
+		t.origins[entry.AttemptID] = origin
+	}
 	indices := make(map[string]int)
 	for _, entry := range t.Entries {
 		if t.First == 0 || entry.Sequence < t.First {
@@ -116,7 +166,8 @@ func (t *Transcript) project() {
 			}
 		case engine.ToolStart:
 			indices[id] = len(t.Rows)
-			t.Rows = append(t.Rows, view.Message{ID: id, RunID: entry.AttemptID, Role: "Tool · " + event.Name, Text: "Running. Raw tool I/O is retained at its source, not in this overview.", Status: view.Running})
+			t.Rows = append(t.Rows, view.Message{ID: id, RunID: entry.AttemptID, Role: "Tool · " + event.Name, Text: event.Text, Status: view.Running})
+			t.rememberTool(id, entry)
 		case engine.ToolEnd:
 			index, exists := indices[id]
 			if !exists {
@@ -125,13 +176,10 @@ func (t *Transcript) project() {
 				t.Rows = append(t.Rows, view.Message{ID: id, RunID: entry.AttemptID, Role: "Tool · " + event.Name})
 			}
 			t.Rows[index].Text = event.Text
+			t.rememberTool(id, entry)
 			t.Rows[index].Status = view.Completed
 			if event.IsError {
 				t.Rows[index].Status = view.Failed
-			}
-			if event.Reference != nil {
-				reference, _ := json.Marshal(event.Reference)
-				t.Rows[index].Text += "\nReference: " + string(reference)
 			}
 		case engine.Error:
 			id := entry.AttemptID + "/error/" + strconv.FormatUint(entry.Sequence, 10)

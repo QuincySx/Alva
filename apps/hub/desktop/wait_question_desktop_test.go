@@ -94,10 +94,10 @@ func TestNativeDurableQuestionControlsSurviveReopenAndDoNotGrantPermission(t *te
 					t.Fatal(err)
 				}
 				page.applyDetail()
-				return page, ui.NewTester(page.Build, 1240, 818)
+				return page, ui.NewTester(workspaceStaticView(page), 1240, 818)
 			}
 			page, tester := newPage()
-			turn, err := app.Service.Submit(t.Context(), session.ID, "Ask a real clarification; any later write needs its own approval")
+			turn, err := app.Service.Submit(t.Context(), session.ID, "Ask a real clarification; any later write needs its own approval", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -139,11 +139,14 @@ func TestNativeDurableQuestionControlsSurviveReopenAndDoNotGrantPermission(t *te
 			}
 			openWaits := func() {
 				t.Helper()
+				if err := workspaceTestOpenMenu(tester); err != nil {
+					t.Fatal(err)
+				}
 				box, found := tester.Find("More actions")
 				if !found || box.Y < 0 || box.Y+box.H > 818 {
 					t.Fatal("menu remains outside the default viewport", box)
 				}
-				if err := workspaceTestMenu(tester, "等待中的任务"); err != nil {
+				if err := tester.ChooseMenuItem("等待中的任务"); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -171,6 +174,14 @@ func TestNativeDurableQuestionControlsSurviveReopenAndDoNotGrantPermission(t *te
 				expected.Selected = []int{1, 3}
 			case "text":
 				click("Clarification answer · Saved clarification")
+				tester.Type(" \t ")
+				click("Save clarification without executing")
+				unchanged, err := app.Service.Waits(t.Context(), session.ID)
+				if err != nil || unchanged.Snapshot.Revision != before.Snapshot.Revision || !tester.HasText("Answer cannot be blank.") {
+					t.Fatal("blank text was accepted or not explained", unchanged, err)
+				}
+				click("Clarification answer · Saved clarification")
+				tester.Key(ui.Cmd, ui.KeyA)
 				tester.Type(strings.Repeat("<", 3000)) // JSON escaping exceeds 16 KiB even though UTF-8 text does not.
 				click("Save clarification without executing")
 				if !tester.HasText("Answer exceeds the 16 KiB saved JSON limit.") {

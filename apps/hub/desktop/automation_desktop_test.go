@@ -1,5 +1,5 @@
 // INPUT: Headless native schedule fields and actual paused-first private product store
-// OUTPUT: Explicit CRUD, pinned billing consent, edit-pauses and two-step config-only deletion regressions
+// OUTPUT: Explicit CRUD, billing consent, stale-save draft retention and two-step config-only deletion regressions
 // POS: [L7 Hub product] Rendering/configuration never starts a timer, model Turn or catch-up job
 //go:build desktop
 
@@ -9,8 +9,61 @@ import (
 	"context"
 	"testing"
 
+	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/egoist/mygo/ui"
 )
+
+func TestNativeAutomationStaleSavePreservesDraftAndReopensCommittedFacts(t *testing.T) {
+	service, requests := fixture(t)
+	ctx := t.Context()
+	s, err := service.Create(ctx, "conflicting schedule edit", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := service.Automations.Store.CreateAutomation(ctx, s.ID, hub.AutomationDraft{Title: "saved", Prompt: "original prompt", IntervalMinutes: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := NewNativePage(service)
+	page.selected = s.ID
+	page.detail, err = service.Store.Detail(ctx, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.applyDetail()
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 1200)
+	page.openAutomations()
+	settlePage(t, tester, page)
+	if err = tester.Click("Edit saved schedule"); err != nil {
+		t.Fatal(err)
+	}
+	if err = tester.Click("Automation prompt"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Key(ui.Cmd, ui.KeyA)
+	tester.Type("my unsaved recovery draft")
+	a.Prompt = "committed in another window"
+	if _, err = service.Automations.Store.UpdateAutomation(ctx, s.ID, a.ID, a.Revision, a.AutomationDraft); err != nil {
+		t.Fatal(err)
+	}
+	if err = tester.Click("Save schedule paused"); err != nil {
+		t.Fatal(err)
+	}
+	settlePage(t, tester, page)
+	if page.problem == "" || page.automation.Prompt != "my unsaved recovery draft" || page.automation.EditID != a.ID || page.automation.Revision != a.Revision {
+		t.Fatal("stale save discarded or claimed to commit its draft", page.automation, page.problem)
+	}
+	reopened := NewNativePage(service)
+	reopened.selected = s.ID
+	reopened.detail = page.detail
+	reopened.applyDetail()
+	reopenedTester := ui.NewTester(workspaceStaticView(reopened), 1240, 1200)
+	reopened.openAutomations()
+	settlePage(t, reopenedTester, reopened)
+	if len(reopened.automation.Entries) != 1 || reopened.automation.Entries[0].Prompt != a.Prompt || reopened.automation.Entries[0].Enabled || len(requests) != 0 || service.Runtime.HasActive() {
+		t.Fatal("reopened pane restored an uncommitted draft as execution facts", reopened.automation)
+	}
+}
 
 func TestNativeAutomationPausedCRUDAndIndependentBillingConsent(t *testing.T) {
 	service, requests := fixture(t)
@@ -26,7 +79,7 @@ func TestNativeAutomationPausedCRUDAndIndependentBillingConsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.applyDetail()
-	tester := ui.NewTester(p.Build, 1600, 1800)
+	tester := ui.NewTester(workspaceStaticView(p), 1600, 1800)
 	if err = workspaceTestMenu(tester, "自动化"); err != nil {
 		t.Fatal(err)
 	}
@@ -86,5 +139,52 @@ func TestNativeAutomationPausedCRUDAndIndependentBillingConsent(t *testing.T) {
 	}
 	if service.Runtime.HasActive() || len(requests) != 0 {
 		t.Fatal("schedule UI/configuration executed a model")
+	}
+}
+
+func TestNativeAutomationDeletionReviewDoesNotApproveRefreshedRevision(t *testing.T) {
+	service, requests := fixture(t)
+	ctx := t.Context()
+	session, err := service.Create(ctx, "revision-pinned deletion", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := service.Automations.Store.CreateAutomation(ctx, session.ID, hub.AutomationDraft{Title: "reviewed", Prompt: "original", IntervalMinutes: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := NewNativePage(service)
+	page.selected = session.ID
+	page.detail, err = service.Store.Detail(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page.applyDetail()
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 1200)
+	page.openAutomations()
+	settlePage(t, tester, page)
+	if err = tester.Click("Review schedule config deletion"); err != nil {
+		t.Fatal(err)
+	}
+	a.Title, a.Prompt = "changed in another window", "different task"
+	if _, err = service.Automations.Store.UpdateAutomation(ctx, session.ID, a.ID, a.Revision, a.AutomationDraft); err != nil {
+		t.Fatal(err)
+	}
+	if err = tester.Click("Refresh saved schedules"); err != nil {
+		t.Fatal(err)
+	}
+	settlePage(t, tester, page)
+	if tester.HasText("Confirm delete config only; keep session/history") {
+		t.Fatal("old deletion review approved a different saved schedule revision")
+	}
+	if err = tester.Click("Review schedule config deletion"); err != nil {
+		t.Fatal(err)
+	}
+	if err = tester.Click("Confirm delete config only; keep session/history"); err != nil {
+		t.Fatal(err)
+	}
+	settlePage(t, tester, page)
+	if page.problem != "" || len(page.automation.Entries) != 0 || service.Runtime.HasActive() || len(requests) != 0 {
+		t.Fatal("fresh config-only confirmation failed or executed", page.problem)
 	}
 }

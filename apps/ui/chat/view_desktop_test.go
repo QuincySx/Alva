@@ -7,11 +7,13 @@ package chat
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 )
 
 func TestNativeComposerRequiresExplicitSend(t *testing.T) {
@@ -61,6 +63,177 @@ func TestNativeComposerRequiresExplicitSend(t *testing.T) {
 	}
 	if sends != 1 {
 		t.Fatal("running Send was not disabled")
+	}
+}
+
+func TestNativeConversationRendererSharesFallbackAndLeavesDirectView(t *testing.T) {
+	m := NewModel(true)
+	m.Messages = []Message{
+		{ID: "tool", Role: "Tool", Text: "Hidden source", Status: Completed},
+		{ID: "reply", Role: "Alva", Text: "Ordinary paragraph", Status: Completed},
+	}
+	v := NewNativeView(m)
+	customRows := 0
+	v.RenderMessage = func(c *ui.Context, row Message) bool {
+		if row.Role != "Tool" {
+			return false
+		}
+		customRows++
+		ui.Text(c, "Compact tool")
+		return true
+	}
+	theme := &markdown.Theme{FontSize: 18, LineHeight: 1.4}
+	v.SetMarkdownOptions(&markdown.Options{Theme: theme})
+	conversation := true
+	tt := ui.NewTester(func(c *ui.Context) {
+		if conversation {
+			v.BuildMessages(c)
+		} else {
+			v.BuildChat(c)
+		}
+	}, 1100, 720)
+	if customRows == 0 || !tt.HasText("Compact tool") || tt.HasText("Hidden source") || !tt.HasText("Ordinary paragraph") {
+		t.Fatal("custom row bypassed shared list or ordinary Markdown fallback", tt.Texts())
+	}
+	viewport, found := tt.Find("Message history")
+	paragraph, paragraphFound := tt.Find("Ordinary paragraph")
+	if !found || !paragraphFound || viewport.W != 1100 || paragraph.W > 760 || paragraph.X < 170 {
+		t.Fatal("conversation constrained its viewport instead of its centered reading rows", viewport, paragraph)
+	}
+	if v.markdown.Theme != theme || theme.FontSize != 18 || theme.LineHeight != 1.4 {
+		t.Fatal("conversation mutated the caller's Markdown theme")
+	}
+	before := customRows
+	conversation = false
+	tt.Frame()
+	if customRows != before || !tt.HasText("Hidden source") || !tt.HasText("Ordinary paragraph") {
+		t.Fatal("product row renderer changed the direct chat presentation")
+	}
+	directParagraph, ok := tt.Find("Ordinary paragraph")
+	if !ok || math.Abs(float64(directParagraph.H-18*1.4)) > .01 {
+		t.Fatal("conversation typography replaced the direct caller's Markdown options", directParagraph)
+	}
+}
+
+func TestNativeConversationMessageGapDefaultsAndLeavesDirectView(t *testing.T) {
+	m := NewModel(true)
+	m.Messages = []Message{
+		{ID: "first", Role: "You", Text: "First paragraph", Status: Completed},
+		{ID: "second", Role: "You", Text: "Second paragraph", Status: Completed},
+	}
+	v := NewNativeView(m)
+	v.RenderMessage = func(c *ui.Context, row Message) bool {
+		ui.Box(c).Label("Custom row " + row.ID).FillWidth().Height(20)
+		return true
+	}
+	conversation := true
+	tester := ui.NewTester(func(c *ui.Context) {
+		if conversation {
+			v.BuildMessages(c)
+		} else {
+			v.BuildChat(c)
+		}
+	}, 900, 480)
+	for _, sample := range []struct{ value, want float32 }{{0, 16}, {24, 24}, {-1, 16}} {
+		v.MessageGap = sample.value
+		tester.Frame()
+		first, firstOK := tester.Find("Custom row first")
+		second, secondOK := tester.Find("Custom row second")
+		if !firstOK || !secondOK || math.Abs(float64(second.Y-first.Y-first.H-sample.want)) > .01 {
+			t.Fatal("conversation did not use its default or explicit row gap", sample, first, second)
+		}
+	}
+	conversation, v.MessageGap = false, 24
+	tester.Frame()
+	before, ok := tester.Find("First paragraph")
+	if !ok {
+		t.Fatal("direct view did not retain its own row renderer")
+	}
+	v.MessageGap = 0
+	tester.Frame()
+	after, ok := tester.Find("First paragraph")
+	if !ok || before != after {
+		t.Fatal("conversation row spacing changed the original direct view", before, after)
+	}
+}
+
+func TestNativeConversationMessageGapRetainsVirtualReadingAnchor(t *testing.T) {
+	m := NewModel(true)
+	for i := range 1000 {
+		m.Messages = append(m.Messages, Message{ID: fmt.Sprintf("message-%d", i), Role: "You", Text: fmt.Sprintf("Row %d\n%s", i, strings.Repeat("variable-height line\n", i%4)), Status: Completed})
+	}
+	v := NewNativeView(m)
+	v.MessageGap = 24
+	tester := ui.NewTester(v.BuildMessages, 900, 480)
+	first, last := v.list.Visible()
+	if last-first > 128 || !v.AtEnd() {
+		t.Fatal("explicit conversation row gap lost virtualization or follow-end", first, last)
+	}
+	viewport, ok := tester.Find("Message history")
+	if !ok {
+		t.Fatal("conversation viewport unavailable")
+	}
+	tester.Scroll(viewport.X+viewport.W/2, viewport.Y+viewport.H/2, 0, -1200)
+	first, _ = v.list.Visible()
+	if v.AtEnd() {
+		t.Fatal("scrolling conversation did not leave follow-end")
+	}
+	anchorID := m.Messages[first].ID
+	m.Messages = append(m.Messages, Message{ID: "new-message", Role: "You", Text: "A later arrival", Status: Completed})
+	tester.Frame()
+	after, _ := v.list.Visible()
+	if m.Messages[after].ID != anchorID || v.AtEnd() {
+		t.Fatal("explicit conversation row gap displaced the user's reading anchor", anchorID, m.Messages[after].ID)
+	}
+	v.ScrollToEnd()
+	tester.Frame()
+	if !v.AtEnd() {
+		t.Fatal("conversation did not resume following after an explicit jump")
+	}
+}
+
+func TestNativeConversationLateVirtualRowsKeepReadingTypography(t *testing.T) {
+	m := NewModel(true)
+	for i := range 100 {
+		role := "Compact"
+		if i%20 == 0 {
+			role = "Alva"
+		} else if i%20 == 1 {
+			role = "You"
+		}
+		m.Messages = append(m.Messages, Message{ID: fmt.Sprint(i), Role: role, Text: fmt.Sprintf("Paragraph %d", i), Status: Completed})
+	}
+	m.Messages[82] = Message{ID: "82", Role: "Alva", Status: Running}
+	v := NewNativeView(m)
+	theme := &markdown.Theme{FontSize: 18, LineHeight: 1.4}
+	v.SetMarkdownOptions(&markdown.Options{Theme: theme})
+	v.RenderMessage = func(c *ui.Context, row Message) bool {
+		if row.Role != "Compact" {
+			return false
+		}
+		ui.Box(c).Height(1)
+		return true
+	}
+	size := float32(14)
+	tester := ui.NewTester(func(c *ui.Context) {
+		effective := ui.LightTheme()
+		effective.FontSize = size
+		c.SetTheme(effective)
+		v.BuildMessages(c)
+	}, 900, 480)
+	for _, next := range []float32{14, 16, 24} {
+		size = next
+		v.list.ScrollTo(80, ui.Start)
+		tester.Frame()
+		for _, label := range []string{"Paragraph 80", "Paragraph 81", "正在整理思路…"} {
+			paragraph, ok := tester.Find(label)
+			if !ok || math.Abs(float64(paragraph.H-size*1.75)) > .01 {
+				t.Fatal("late virtual row did not consume effective theme body size", size, label, paragraph, ok)
+			}
+		}
+		if v.markdown.Theme != theme || theme.FontSize != 18 || theme.LineHeight != 1.4 {
+			t.Fatal("reading typography changed the caller-owned Markdown theme", theme)
+		}
 	}
 }
 

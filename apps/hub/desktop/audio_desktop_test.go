@@ -114,7 +114,7 @@ func TestNativeAudioIsExplicitSeekableClosedAndNeverModelInput(t *testing.T) {
 		return v
 	}
 	p.audioOutputError = func() error { return nil }
-	tester := ui.NewTester(p.Build, 1600, 2000)
+	tester := ui.NewTester(workspaceStaticView(p), 1600, 2000)
 	if err = workspaceTestMenu(tester, "媒体资料"); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestNativeAudioIsExplicitSeekableClosedAndNeverModelInput(t *testing.T) {
 	}
 	awaitPlayback(t, tester, p, func() bool { return p.player != nil && p.playerPosition == 1000 })
 	second := p.player
-	if err = tester.Click("Chat"); err != nil {
+	if err = workspaceTestMenu(tester, "对话"); err != nil {
 		t.Fatal(err)
 	}
 	awaitPlayback(t, tester, p, func() bool { return !p.playerBusy })

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/integration/engine"
@@ -66,7 +67,7 @@ func TestWorkspaceStopSurvivesNavigationUntilActualCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := NewNativePage(service)
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.selectSession(first.ID)
 	waitWorkspace(t, page, tester, func() bool { return page.detail.Session.ID == first.ID && !page.chat.Busy })
 	page.model.Draft = "local execution"
@@ -121,7 +122,7 @@ func TestWorkspaceStopErrorKeepsCleanupStateAndRequiresExplicitRetry(t *testing.
 		t.Fatal(err)
 	}
 	page := NewNativePage(service)
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.selectSession(session.ID)
 	waitWorkspace(t, page, tester, func() bool { return !page.chat.Busy })
 	page.model.Draft = "hold cleanup"
@@ -190,7 +191,7 @@ func TestWorkspaceOldStopDoesNotBlockReplacementExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := NewNativePage(service)
-	tester := ui.NewTester(page.Build, 1240, 850)
+	tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
 	page.selectSession(session.ID)
 	waitWorkspace(t, page, tester, func() bool { return !page.chat.Busy })
 	page.model.Draft = "first run"
@@ -214,7 +215,7 @@ func TestWorkspaceOldStopDoesNotBlockReplacementExecution(t *testing.T) {
 	for service.Runtime.SessionActive(session.ID) && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if _, err = service.Submit(t.Context(), session.ID, "started by another window"); err != nil {
+	if _, err = service.Submit(t.Context(), session.ID, "started by another window", nil); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -246,12 +247,9 @@ func TestWorkspaceAdmissionKeepsEditsMadeAfterSend(t *testing.T) {
 				t.Fatal(err)
 			}
 			page := NewNativePage(service)
-			page.selected = session.ID
-			page.detail, err = service.Store.Detail(t.Context(), session.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			page.applyDetail()
+			tester := ui.NewTester(workspaceStaticView(page), 1240, 850)
+			page.selectSession(session.ID)
+			waitWorkspace(t, page, tester, func() bool { return !page.polling && page.detail.Session.ID == session.ID })
 			page.model.Draft = "first version"
 			if kind == "prepared" {
 				selection, err := service.PrepareComposerSelection(t.Context(), session.ID, product.ComposerSelectionRequest{EntryID: "builtin:review"})
@@ -262,7 +260,6 @@ func TestWorkspaceAdmissionKeepsEditsMadeAfterSend(t *testing.T) {
 			}
 			wrapped := &workspaceDelayedDetail{ServiceStore: service.Store, entered: make(chan struct{}), release: make(chan struct{})}
 			service.Store = wrapped
-			tester := ui.NewTester(page.Build, 1240, 850)
 			wrapped.block.Store(true)
 			if err := tester.Click("Send"); err != nil {
 				t.Fatal(err)
@@ -301,6 +298,135 @@ func TestWorkspaceAdmissionKeepsEditsMadeAfterSend(t *testing.T) {
 				t.Fatalf("submission changed its frozen prompt: %q", inputs)
 			}
 
+		})
+	}
+}
+
+func TestWorkspaceComposerPressedStopDoesNotFollowReplacement(t *testing.T) {
+	for _, workerScope := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "worker_execution"}[workerScope], func(t *testing.T) {
+			s, _ := fixture(t)
+			first := &workspaceStoppingEngine{started: make(chan struct{}), cleanup: make(chan struct{}), release: make(chan struct{})}
+			second := &workspaceStoppingEngine{started: make(chan struct{}), cleanup: make(chan struct{}), release: make(chan struct{})}
+			var firstRelease, secondRelease sync.Once
+			defer firstRelease.Do(func() { close(first.release) })
+			defer secondRelease.Do(func() { close(second.release) })
+			if err := s.Runtime.Register(s.DefaultTarget.EngineID, &workspaceExecutionSequence{owners: []*workspaceStoppingEngine{first, second}}); err != nil {
+				t.Fatal(err)
+			}
+			lead, err := s.Create(t.Context(), "pressed stop fixture", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := lead.ID
+			workerID := ""
+			var team hub.TeamDetail
+			if workerScope {
+				team, err = s.Teams.Store.CreateTeam(t.Context(), lead.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				worker, e := s.AddWorker(t.Context(), lead.ID, team.Team.ID, "held worker", s.DefaultTarget, true)
+				if e != nil {
+					t.Fatal(e)
+				}
+				id = worker.SessionID
+				workerID = worker.ID
+				team, err = s.Teams.Store.Team(t.Context(), lead.ID, team.Team.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			startRun := func(prompt string) (string, <-chan error, error) {
+				if workerScope {
+					if _, err := s.Teams.Store.EnqueueWorker(t.Context(), lead.ID, team.Team.ID, workerID, prompt, nil); err != nil {
+						return "", nil, err
+					}
+					_, done, err := s.Runtime.StartWorkerTask(t.Context(), lead.ID, team.Team.ID, workerID)
+					return "", done, err
+				}
+				return s.Runtime.Start(t.Context(), id, prompt)
+			}
+			_, done, err := startRun("first execution")
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-first.started:
+			case <-time.After(time.Second):
+				t.Fatal("first owner did not start")
+			}
+			p := NewNativePage(s)
+			p.team = team
+			tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
+			p.selectSession(id)
+			waitWorkspace(t, p, tester, func() bool { return !p.polling && !p.chat.Busy && p.model.Status == view.Running })
+			button, found := tester.Find("Stop")
+			if !found {
+				t.Fatal("missing execution Stop")
+			}
+			tester.Press(button.X+button.W/2, button.Y+button.H/2)
+			before := p.transcript.Last
+			firstID, _ := s.Runtime.ActiveExecution(id)
+			if err = s.Runtime.CancelExecution(t.Context(), id, firstID); err != nil {
+				t.Fatal(err)
+			}
+			firstRelease.Do(func() { close(first.release) })
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("first owner did not exit")
+			}
+			_, nextDone, err := startRun("replacement execution")
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-second.started:
+			case <-time.After(time.Second):
+				t.Fatal("replacement did not start")
+			}
+			nextID, _ := s.Runtime.ActiveExecution(id)
+			if nextID == firstID {
+				t.Fatal("execution identity was reused")
+			}
+			p.poll()
+			waitWorkspace(t, p, tester, func() bool { return !p.polling && p.transcript.Last > before && p.model.Status == view.Running })
+			tester.Release(button.X+button.W/2, button.Y+button.H/2)
+			if p.stopRequests[id] == nextID {
+				select {
+				case <-second.cleanup:
+				case <-time.After(time.Second):
+					t.Fatal("replacement Stop did not reach physical owner")
+				}
+				t.Fatal("old pressed execution Stop canceled the replacement", second.cancels.Load())
+			}
+			if second.cancels.Load() != 0 {
+				t.Fatal("replacement cancellation was delivered")
+			}
+
+			// A stale handler is also safe without relying on a reconciled widget key.
+			p.stopExecution(id, firstID)
+			if p.stopRequests[id] == nextID {
+				t.Fatal("stale handler rebound to replacement")
+			}
+			if err := tester.Click("Stop"); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-second.cleanup:
+			case <-time.After(time.Second):
+				t.Fatal("fresh Stop did not reach replacement owner")
+			}
+			if second.cancels.Load() != 1 {
+				t.Fatal("fresh Stop must cancel exactly its observed owner")
+			}
+			secondRelease.Do(func() { close(second.release) })
+			select {
+			case <-nextDone:
+			case <-time.After(time.Second):
+				t.Fatal("fixture cleanup did not finish")
+			}
 		})
 	}
 }

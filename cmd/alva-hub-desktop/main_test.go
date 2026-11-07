@@ -7,6 +7,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/QuincySx/Alva/platform/system/loopback"
@@ -137,12 +139,83 @@ func TestInvalidModesFailBeforeCredentialRead(t *testing.T) {
 		{[]string{"--live", "--demo"}, "choose"},
 		{[]string{"unexpected"}, "positional"},
 		{[]string{"--unknown"}, "flag provided"},
+		{[]string{"--codex-config-dir", t.TempDir()}, "corresponding"},
+		{[]string{"--claude-config-dir", t.TempDir()}, "corresponding"},
+		{[]string{"--pi-config-dir", t.TempDir()}, "corresponding"},
 	} {
 		args := entry.flags
 		args = append([]string{"--data-dir", filepath.Join(t.TempDir(), "data")}, args...)
 		startup, err := prepareDesktop(t.Context(), args, nil, io.Discard)
 		if err == nil || startup != nil || !strings.Contains(err.Error(), entry.want) {
 			t.Fatalf("invalid startup accepted or reached credential read: %v / %v", entry.flags, err)
+		}
+	}
+}
+
+func TestExplicitCLIConfigurationFlagsReachColdDesktopAssembly(t *testing.T) {
+	claudeProfile, codexProfile, piProfile := t.TempDir(), t.TempDir(), t.TempDir()
+	startup, err := prepareDesktop(t.Context(), []string{"--demo", "--data-dir", filepath.Join(t.TempDir(), "data"),
+		"--claude-command", "not-started", "--claude-config-dir", claudeProfile,
+		"--codex-command", "not-started", "--codex-config-dir", codexProfile,
+		"--pi-command", "not-started", "--pi-config-dir", piProfile, "--external-host-approved"}, nil, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer startup.close(t.Context())
+	descriptor, ok := startup.application.Runtime.Descriptor("codex")
+	if !ok || !descriptor.Runtime.Capabilities().PermissionCallback || !descriptor.Runtime.Capabilities().FileInputs {
+		t.Fatal("desktop Codex default did not select app-server")
+	}
+	for vendor, profile := range map[string]string{"claude": claudeProfile, "codex": codexProfile, "pi": piProfile} {
+		canonical, err := filepath.EvalSymlinks(profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256([]byte(canonical))
+		want, found := "explicit CLI configuration sha256:"+hex.EncodeToString(digest[:]), false
+		for _, target := range startup.application.Targets {
+			if target.EngineID == vendor && target.AccountSource == want {
+				found = true
+			}
+		}
+		if !found || startup.application.Runtime.HasActive() {
+			t.Fatal("explicit profile flag did not reach the cold configured target", vendor)
+		}
+	}
+}
+
+func TestDesktopCodexNativeFlagsAndExplicitExecRemainCold(t *testing.T) {
+	for _, transport := range []string{"app-server", "exec"} {
+		args := []string{"--demo", "--data-dir", filepath.Join(t.TempDir(), "data"), "--codex-command", "not-started", "--external-host-approved", "--codex-transport", transport}
+		if transport == "app-server" {
+			args = append(args, "--codex-sandbox", "read-only", "--codex-approval-policy", "untrusted")
+		}
+		startup, err := prepareDesktop(t.Context(), args, nil, io.Discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		descriptor, ok := startup.application.Runtime.Descriptor("codex")
+		if !ok || descriptor.Runtime.Capabilities().PermissionCallback != (transport == "app-server") || startup.application.Runtime.HasActive() {
+			t.Fatal("native transport flags ignored or started work", transport)
+		}
+		if err := startup.close(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, flags := range [][]string{{"--codex-transport", "exec"}, {"--codex-command", "not-started", "--codex-transport", "unknown"}, {"--codex-command", "not-started", "--codex-sandbox", "danger-full-access"}, {"--codex-command", "not-started", "--codex-approval-policy", "auto"}, {"--codex-command", "not-started", "--codex-transport", "exec", "--codex-sandbox", "read-only"}} {
+		dir := filepath.Join(t.TempDir(), "not-created")
+		args := append([]string{"--demo", "--data-dir", dir}, flags...)
+		if startup, err := prepareDesktop(t.Context(), args, nil, io.Discard); err == nil || startup != nil {
+			t.Fatal("invalid Codex flags accepted", flags, err)
+		}
+		if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("invalid flags created store", err)
+		}
+	}
+	for _, choice := range []struct{ sandbox, approval, wantSandbox, wantApproval string }{{"read-only", "untrusted", "readOnly", "unlessTrusted"}, {"workspace-write", "never", "workspaceWrite", "never"}} {
+		snapshot := externalSnapshots("", "not-started", "", "", "", "", "app-server", choice.sandbox, choice.approval, "rpc", true)
+		if len(snapshot) != 1 || snapshot[0].CodexSandbox != choice.wantSandbox || snapshot[0].CodexApprovalPolicy != choice.wantApproval {
+			t.Fatal("native policy mapping changed", snapshot)
 		}
 	}
 }

@@ -137,7 +137,7 @@ func TestNativeVideoPlaybackIsExplicitSelfDrawnSeekableAndReaped(t *testing.T) {
 	p := NewNativePage(service)
 	p.selected, p.detail = s.ID, detail
 	p.applyDetail()
-	tester := ui.NewTester(p.Build, 1600, 2000)
+	tester := ui.NewTester(workspaceStaticView(p), 1600, 2000)
 	if err = workspaceTestMenu(tester, "媒体资料"); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestNativeVideoPlaybackIsExplicitSelfDrawnSeekableAndReaped(t *testing.T) {
 	}
 	awaitPlayback(t, tester, p, func() bool { return p.playerBusy && p.playerPosition >= 1000 && p.player != nil && p.playerFrames > 0 })
 	seekPlayer := p.player
-	if err = tester.Click("Chat"); err != nil {
+	if err = workspaceTestMenu(tester, "对话"); err != nil {
 		t.Fatal(err)
 	}
 	awaitPlayback(t, tester, p, func() bool { return !p.playerBusy })

@@ -1,5 +1,5 @@
 // INPUT:  MyGo ui/markdown and the UI-thread-confined presentation model
-// OUTPUT: NativeView, NewNativeView, Build and independently composed BuildMessages
+// OUTPUT: NativeView, NewNativeView, Build and independently composed BuildMessages with optional row rendering/spacing
 // POS: [L6 shared UI] Native self-drawn chat surface with virtualized keyed rows and explicit actions
 //go:build desktop
 
@@ -20,8 +20,15 @@ type NativeView struct {
 	Stop           func()
 	Busy           bool
 	LargePasteHint string
-	list           ui.ListState
-	markdown       *markdown.Options
+	// RenderMessage optionally renders a BuildMessages row. Returning false keeps
+	// the shared presentation. BuildChat always uses its original presentation.
+	// It may run during virtual row layout and must only build presentation.
+	RenderMessage func(*ui.Context, Message) bool
+	// MessageGap optionally sets BuildMessages row spacing. Zero or negative
+	// keeps its default sixteen pixels; BuildChat keeps its original spacing.
+	MessageGap float32
+	list       ui.ListState
+	markdown   *markdown.Options
 }
 
 func NewNativeView(model *Model) *NativeView {
@@ -91,38 +98,59 @@ func (v *NativeView) buildMessages(c *ui.Context, conversation bool) {
 	justify, gap := ui.End, float32(8)
 	if conversation {
 		justify, gap = ui.Start, 16
+		if v.MessageGap > 0 {
+			gap = v.MessageGap
+		}
 	}
 	v.list.Key = func(i int) any { return m.Messages[i].ID }
 	v.list.Label = func(i int) string { return m.Messages[i].Role }
 	ui.List(c.Key("messages"), &v.list, len(m.Messages), func(i int) {
 		row := m.Messages[i]
 		if conversation {
-			ui.Row(c).FillWidth().Children(func() {
-				if row.Role == "You" {
-					ui.Box(c).Grow(1)
-				}
-				message := ui.Column(c).MinWidth(0).Gap(8)
-				if row.Role == "You" {
-					message.MaxWidthPercent(85).Padding(12, 16).Radius(16).Background(c.Theme().SurfaceHover)
-				} else {
-					message.FillWidth().Padding(12, 0)
-				}
-				message.Children(func() {
-					if row.Role != "You" {
-						ui.Text(c, row.Role).FontSize(14).FontWeight(600).TextColor(c.Theme().TextMuted)
+			ui.Row(c).FillWidth().Justify(ui.Center).Children(func() {
+				ui.Column(c).FillWidth().MaxWidth(760).Children(func() {
+					if v.RenderMessage != nil && v.RenderMessage(c, row) {
+						return
 					}
+					// The virtual list may invoke this callback during layout,
+					// after buildMessages returns. Scope typography to the actual
+					// Markdown construction and preserve its registered renderers.
+					if v.markdown == nil {
+						v.markdown = &markdown.Options{}
+					}
+					previous := v.markdown.Theme
+					theme := markdown.Theme{}
+					if previous != nil {
+						theme = *previous
+					}
+					theme.FontSize, theme.LineHeight = c.Theme().FontSize, 1.75
+					v.markdown.Theme = &theme
+					defer func() { v.markdown.Theme = previous }()
+					message := ui.Column(c).MinWidth(0).Gap(12)
 					if row.Role == "You" {
-						ui.Text(c, row.Text).LineHeight(1.75)
-					} else if row.Text == "" && (row.Status == Running || row.Status == Stopping) {
-						ui.Text(c, "正在整理思路…").TextColor(c.Theme().TextMuted)
-					} else if row.Status == Running || row.Status == Stopping {
-						markdown.Stream(c, row.Text, v.markdown)
+						message.FillWidth().Padding(12).Radius(16).Background(c.Theme().SurfaceHover)
 					} else {
-						markdown.View(c, row.Text, v.markdown)
+						message.FillWidth()
 					}
-					if row.Error != "" {
-						ui.Text(c, row.Error).TextColor(c.Theme().Danger).FontSize(12)
-					}
+					message.Children(func() {
+						if row.Role != "You" {
+							ui.Row(c).Label("Message header " + row.ID).Height(32).AlignItems(ui.Center).Children(func() {
+								ui.Text(c, row.Role).FontSize(14).FontWeight(600).LineHeight(1.5)
+							})
+						}
+						if row.Role == "You" {
+							ui.Text(c, row.Text).FontSize(c.Theme().FontSize).FontWeight(400).LineHeight(1.75)
+						} else if row.Text == "" && (row.Status == Running || row.Status == Stopping) {
+							ui.Text(c, "正在整理思路…").FontSize(c.Theme().FontSize).LineHeight(1.75).TextColor(c.Theme().TextMuted)
+						} else if row.Status == Running || row.Status == Stopping {
+							markdown.Stream(c, row.Text, v.markdown)
+						} else {
+							markdown.View(c, row.Text, v.markdown)
+						}
+						if row.Error != "" {
+							ui.Text(c, row.Error).TextColor(c.Theme().Danger).FontSize(12)
+						}
+					})
 				})
 			})
 			return

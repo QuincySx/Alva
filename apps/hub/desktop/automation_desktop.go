@@ -16,7 +16,7 @@ import (
 type automationPane struct {
 	Entries                                   []hub.Automation
 	Title, Prompt, Interval, EditID, DeleteID string
-	Revision                                  uint64
+	Revision, DeleteRevision                  uint64
 }
 
 func (p *NativePage) openAutomations() {
@@ -41,6 +41,18 @@ func (p *NativePage) openAutomations() {
 				return
 			}
 			p.automation.Entries = entries
+			if p.automation.DeleteID != "" {
+				current := false
+				for _, entry := range entries {
+					if entry.ID == p.automation.DeleteID && entry.Revision == p.automation.DeleteRevision {
+						current = true
+						break
+					}
+				}
+				if !current {
+					p.automation.DeleteID, p.automation.DeleteRevision = "", 0
+				}
+			}
 		})
 	}()
 }
@@ -82,7 +94,7 @@ func (p *NativePage) automationAction(action string, entry hub.Automation) {
 				return
 			}
 			p.problem = ""
-			p.automation.DeleteID = ""
+			p.automation.DeleteID, p.automation.DeleteRevision = "", 0
 			if action == "save" {
 				p.automation.EditID = ""
 				p.automation.Revision = 0
@@ -100,7 +112,7 @@ func (p *NativePage) buildAutomations(c *ui.Context) {
 		ui.Text(c, "Local ordinary-session automations").Bold()
 		ui.Text(c, "New/edited schedules are paused. Enable separately confirms the exact saved engine/model/account/billing route. Runs use normal durable Turns, never automatic fallback or catch-up. Busy/missed intervals skip; Stop/failure pauses. Closing this app stops its timer; no OS daemon is installed. Team Leads/Workers are not eligible.").FontSize(11)
 		if p.Service.Automations.HasError() {
-			ui.Text(c, "Scheduler observed an admission error. Review saved status/history; nothing is automatically retried.").FontSize(12)
+			ui.Text(c, "Scheduler observed an admission error. Review saved status/history; nothing is automatically retried.").FontSize(workspaceFontCaption)
 		}
 		ui.Button(c, "Refresh saved schedules").Disabled(p.paneBusy).OnClick(p.openAutomations)
 		ui.TextInput(c.Key("automation-title"), &p.automation.Title).Label("Automation title").Disabled(p.paneBusy)
@@ -121,7 +133,7 @@ func (p *NativePage) buildAutomations(c *ui.Context) {
 		}
 		for _, entry := range p.automation.Entries {
 			entry := entry
-			ui.Text(c, fmt.Sprintf("%s · every %d min · enabled=%v · %s · next=%d · revision=%d", entry.Title, entry.IntervalMinutes, entry.Enabled, entry.LastStatus, entry.NextRunAt, entry.Revision)).Bold().FontSize(12)
+			ui.Text(c, fmt.Sprintf("%s · every %d min · enabled=%v · %s · next=%d · revision=%d", entry.Title, entry.IntervalMinutes, entry.Enabled, entry.LastStatus, entry.NextRunAt, entry.Revision)).Bold().FontSize(workspaceFontCaption)
 			ui.Text(c, fmt.Sprintf("Pinned: %s / %s / %s · account=%s · billing=%s · branch=%s", entry.Target.EngineID, entry.Target.ProviderID, entry.Target.ModelID, entry.Target.AccountSource, entry.Target.BillingRoute, entry.BranchID)).FontSize(11)
 			if entry.LastError != "" {
 				ui.Text(c, "Schedule status: "+entry.LastError).FontSize(11)
@@ -140,10 +152,12 @@ func (p *NativePage) buildAutomations(c *ui.Context) {
 					ui.Button(c.Key("enable-"+entry.ID), "Confirm pinned account/billing and enable schedule").Disabled(p.paneBusy || entry.RunningTurnID != "").OnClick(func() { p.automationAction("enable", entry) })
 				}
 			})
-			if p.automation.DeleteID == entry.ID {
+			if p.automation.DeleteID == entry.ID && p.automation.DeleteRevision == entry.Revision {
 				ui.Button(c.Key("confirm-delete-"+entry.ID), "Confirm delete config only; keep session/history").Disabled(p.paneBusy || entry.RunningTurnID != "").OnClick(func() { p.automationAction("delete", entry) })
 			} else {
-				ui.Button(c.Key("delete-"+entry.ID), "Review schedule config deletion").Disabled(p.paneBusy || entry.RunningTurnID != "").OnClick(func() { p.automation.DeleteID = entry.ID })
+				ui.Button(c.Key("delete-"+entry.ID), "Review schedule config deletion").Disabled(p.paneBusy || entry.RunningTurnID != "").OnClick(func() {
+					p.automation.DeleteID, p.automation.DeleteRevision = entry.ID, entry.Revision
+				})
 			}
 		}
 	})

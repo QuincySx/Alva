@@ -1,5 +1,5 @@
 // INPUT: Shared durable Team service, explicit user actions and MyGo native controls
-// OUTPUT: Collaboration Workers, FIFO editing/paging, lifecycle controls and actual session focus
+// OUTPUT: Collaboration Workers, typed file/Skill FIFO admission, editing/paging and real lifecycle controls
 // POS: [L7 Hub product] Native Team surface does not invent SDK children, auto-dispatch on observation or duplicate runtime facts
 //go:build desktop
 
@@ -168,25 +168,55 @@ func (p *NativePage) teamAction(action, id string) {
 	}()
 }
 func (p *NativePage) sendWorkerDraft(worker hub.Worker, prompt string) {
-	p.sendPreparedWorkerDraft(worker, prompt, p.captureWorkspaceSelections())
+	p.sendPreparedWorkerDraft(worker, prompt, p.captureWorkspaceSelections(), p.captureWorkspaceReferences())
 }
-func (p *NativePage) sendPreparedWorkerDraft(worker hub.Worker, prompt string, selections []product.ComposerPreparation) {
+func (p *NativePage) sendPreparedWorkerDraft(worker hub.Worker, prompt string, selections []product.ComposerPreparation, references []product.DraftReferenceSelection) {
+	if p.Service.ComposerDrafts != nil {
+		p.prepareWorkspaceDraftSubmission(func(draft workspaceDraftSubmission) {
+			p.sendPreparedWorkerDraftRevision(worker, prompt, selections, references, draft)
+		})
+		return
+	}
+	p.sendPreparedWorkerDraftRevision(worker, prompt, selections, references, workspaceDraftSubmission{})
+}
+
+func (p *NativePage) sendPreparedWorkerDraftRevision(worker hub.Worker, prompt string, selections []product.ComposerPreparation, references []product.DraftReferenceSelection, draft workspaceDraftSubmission) {
+	p.sendPreparedWorkerFileDraftRevision(worker, prompt, selections, references, p.captureWorkspaceComposerFiles(), draft)
+}
+
+func (p *NativePage) sendPreparedWorkerFileDraftRevision(worker hub.Worker, prompt string, selections []product.ComposerPreparation, references []product.DraftReferenceSelection, files []product.ComposerFileSelection, draft workspaceDraftSubmission) {
+	if p.busy || p.chat.Busy {
+		return
+	}
 	id, lead, team := p.selected, p.team.Team.LeadSessionID, p.team.Team.ID
 	if worker.SessionID != id {
 		p.problem = "Worker draft does not belong to the selected session."
 		return
 	}
+	finishReferences := p.referenceOwner.begin()
+	if finishReferences == nil {
+		return
+	}
 	p.busy = true
 	p.chat.Busy = true
 	go func() {
-		task, err := p.Service.EnqueueComposerWorkerDraft(p.ctx, lead, team, worker.ID, prompt, nil, selections)
+		task, err := p.Service.EnqueueComposerWorkerFileDraft(p.ctx, lead, team, worker.ID, prompt, nil, selections, references, files)
 		var startErr error
+		var draftErr error
 		if err == nil {
+			if draft.valid {
+				_, draftErr = p.Service.ComposerDrafts.Consume(p.ctx, draft.scope, draft.revision)
+			}
 			startErr = p.Service.Teams.Resume(p.ctx, lead, team, worker.ID)
 		}
+		finishReferences()
 		p.dispatch(func() {
 			p.busy = false
 			p.chat.Busy = false
+			clearDraft := false
+			if err == nil && draft.valid {
+				clearDraft = p.finishWorkspaceDraftSubmission(draft)
+			}
 			if p.selected != id {
 				return
 			}
@@ -194,14 +224,21 @@ func (p *NativePage) sendPreparedWorkerDraft(worker hub.Worker, prompt string, s
 				p.problem = err.Error()
 				return
 			}
-			if p.model.Draft == prompt {
+			if !draft.valid && p.model.Draft == prompt {
 				p.model.Draft = ""
 				delete(p.drafts, id)
 			}
-			p.consumeWorkspaceSelections(id, selections)
+			if !draft.valid || clearDraft {
+				p.consumeWorkspaceSelections(id, selections)
+				p.consumeWorkspaceReferences(id, references)
+				p.consumeWorkspaceComposerFiles(id, files)
+			}
 			p.problem = "Queued actual task " + task.ID + "; waiting for its FIFO owner, not claiming completion."
 			if startErr != nil {
 				p.problem += " Start failed (task retained; do not resend): " + startErr.Error()
+			}
+			if draftErr != nil {
+				p.problem += " Draft receipt failed (task retained; do not resend): " + draftErr.Error()
 			}
 			p.model.Status = view.Idle
 			p.poll()
@@ -297,7 +334,7 @@ func (p *NativePage) buildTeam(c *ui.Context) {
 		ui.List(c, &p.teamList, len(p.taskPage.Tasks), func(i int) {
 			task := p.taskPage.Tasks[i]
 			ui.Column(c).Gap(3).Padding(4).Children(func() {
-				ui.Text(c, task.ID+" · "+string(task.Status)+" · "+excerpt(task.Scope, 160)).FontSize(12)
+				ui.Text(c, task.ID+" · "+string(task.Status)+" · "+excerpt(task.Scope, 160)).FontSize(workspaceFontCaption)
 				if task.RequiredBranchID != "" {
 					ui.Text(c, "Pinned branch: "+task.RequiredBranchID+". Return to that saved branch before dispatch; attachments never follow another route.").FontSize(11)
 				}

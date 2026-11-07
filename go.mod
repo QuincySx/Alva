@@ -1,12 +1,12 @@
 module github.com/QuincySx/Alva
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/chromedp/cdproto v0.157.8
 	github.com/chromedp/chromedp v0.21.0
 	github.com/ebitengine/purego v0.11.1
-	github.com/egoist/mygo v0.5.5
+	github.com/egoist/mygo v0.7.4
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/ncruces/go-sqlite3 v0.35.6
 	github.com/pelletier/go-toml/v2 v2.4.3

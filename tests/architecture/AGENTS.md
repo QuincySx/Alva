@@ -12,6 +12,10 @@
 `apps` 为 L6/L7；`integration` 与 `platform` 是横向协议/原生支撑，不是绕过边界的容器。
 公开快照扫描 `sdk` 中wire/bus/kernel ABI/kernel core/agent ABI/agent core和纯sandbox ABI；路径迁移只更新其 import 身份，不建立旧路径别名。
 Hub根产品契约亦进入快照，显式审阅独立存储端口/DTO变化；不将产品类型移入SDK。
+Engine根契约/Alva工厂、显式选图media与owned process/document亦有公开快照，防止输入/回调和物理owner能力漂移。
+Hub bootstrap与外部process adapter的显式配置入口亦保留公开快照；CLI配置目录与只读来源事实不能通过新增字段默默改变账号政策。
+Developer动态目标源与显式job配置冻结端口也进入快照，避免连接消费政策在UI/装配之间漂移。
+Gateway独立Local owner的generation/closed/stopping、一次Credentials与绑定停止公开面亦进入快照，防止多窗控制替换owner的语义漂移。
 共享chat公开呈现也进入快照，显式审阅消息列表/输入区拆装，不导出可变列表内部状态。
 
 ## 约束

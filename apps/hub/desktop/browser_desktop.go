@@ -51,7 +51,7 @@ func (p *NativePage) browserSetting(save, enabled bool) {
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "browser-settings" {
 				return
 			}
 			if err != nil {
@@ -59,9 +59,7 @@ func (p *NativePage) browserSetting(save, enabled bool) {
 				return
 			}
 			p.problem = ""
-			if p.pane == "browser-settings" {
-				p.openBrowserSettings()
-			}
+			p.openBrowserSettings()
 		})
 	}()
 }
@@ -72,7 +70,7 @@ func (p *NativePage) buildBrowserSettings(c *ui.Context) {
 		ui.Text(c, "JSON object fields: executable (absolute), env, headless, proxy (no credentials), startup_timeout_ms, operation_timeout_ms. Timeouts <=60000ms; 0 uses defaults. No arbitrary argv/user-data-dir/HOME. Executable is not hashed: same-path binary upgrades are not detected.").FontSize(11)
 		ui.TextArea(c.Key("browser-json"), &p.browserDraft).Label("Explicit browser configuration JSON").Height(220).Disabled(p.paneBusy || p.inputBlocked())
 		ui.Button(c, "Save browser snapshot disabled").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.browserSetting(true, false) })
-		ui.Text(c, fmt.Sprintf("Saved: enabled=%v · host approved=%v · headless=%v · executable=%s", p.settings.Browser.Enabled, p.settings.Browser.HostAccessApproved, p.settings.Browser.Headless, p.settings.Browser.Executable)).FontSize(12)
+		ui.Text(c, fmt.Sprintf("Saved: enabled=%v · host approved=%v · headless=%v · executable=%s", p.settings.Browser.Enabled, p.settings.Browser.HostAccessApproved, p.settings.Browser.Headless, p.settings.Browser.Executable)).FontSize(workspaceFontCaption)
 		if p.settings.Browser.Enabled {
 			ui.Button(c, "Disable browser tools next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.browserSetting(false, false) })
 		} else {

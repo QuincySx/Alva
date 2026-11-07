@@ -62,7 +62,7 @@ func TestNativeMediaMetadataIsColdAndJPEGPreviewIsExplicit(t *testing.T) {
 	page := NewNativePage(service)
 	page.selected, page.detail = s.ID, detail
 	page.applyDetail()
-	tester := ui.NewTester(page.Build, 1600, 1600)
+	tester := ui.NewTester(workspaceStaticView(page), 1600, 1600)
 	if err = workspaceTestMenu(tester, "媒体资料"); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestNativeMediaMetadataIsColdAndJPEGPreviewIsExplicit(t *testing.T) {
 	if w != 17 || h != 9 {
 		t.Fatal("preview dimensions", w, h)
 	}
-	if err = tester.Click("Chat"); err != nil {
+	if err = workspaceTestMenu(tester, "对话"); err != nil {
 		t.Fatal(err)
 	}
 	if page.media.Bitmap != nil || page.media.JSON != "" || page.media.PreviewBytes != 0 {
@@ -119,7 +119,7 @@ func TestNativeMediaSettingsSaveDisabledAndRequireIndependentDecoderConsent(t *t
 		t.Fatal(err)
 	}
 	page.applyDetail()
-	tester := ui.NewTester(page.Build, 1600, 1800)
+	tester := ui.NewTester(workspaceStaticView(page), 1600, 1800)
 	if err = workspaceTestMenu(tester, "会话设置"); err != nil {
 		t.Fatal(err)
 	}

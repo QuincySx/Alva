@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/QuincySx/Alva/apps/debug"
+	"github.com/QuincySx/Alva/apps/gateway"
 	"io"
 	"log/slog"
 	"strings"
@@ -28,13 +29,26 @@ import (
 )
 
 type NativePage struct {
+	layout                         workspaceLayoutState
+	layoutPersistence              workspaceLayoutPersistence
+	navigation                     workspaceNavigationState
+	settingsScope                  workspaceSettingsScopeState
+	workspaceAutomationIndex       workspaceAutomationIndexState
 	diagnosticLog                  *slog.Logger
 	diagnosticFrame                func()
 	diagnosticChanged              func()
 	Service                        *product.HubService
+	developer                      developerPane
 	preferences                    preferencesPane
 	connections                    modelConnectionsPane
+	goal                           workspaceGoalState
+	search                         workspaceSearchState
+	companions                     workspaceCompanionState
+	resources                      workspaceResourcesState
+	voice                          workspaceVoiceState
 	composer                       workspaceComposerState
+	durableDrafts                  workspaceDraftsState
+	engineInteractions             workspaceEngineInteractionsState
 	picker                         workspacePickerState
 	composerSelections             map[string][]product.ComposerPreparation
 	planModes                      map[string]bool
@@ -44,7 +58,15 @@ type NativePage struct {
 	pendingFirstSend               string
 	pendingFirstPrompt             string
 	pendingFirstSelections         []product.ComposerPreparation
+	pendingFirstReferences         []product.DraftReferenceSelection
+	pendingFirstFiles              []product.ComposerFileSelection
+	pendingFirstDraft              workspaceDraftSubmission
+	composerFiles                  map[string][]product.ComposerFileSelection
+	composerFileRecords            map[string]hub.ComposerFile
+	composerFilePending            map[string][]workspaceComposerPendingFile
 	workspaceFiles                 map[string][]workspaceSelectedFile
+	workspaceReferences            map[string][]product.DraftReferenceSelection
+	referenceOwner                 *workspaceReferenceOwner
 	workspaceReturn                workspaceReturnState
 	stopRequests                   map[string]string
 	stopRetry                      map[string]bool
@@ -66,17 +88,27 @@ type NativePage struct {
 	generation                     uint64
 	window                         *mygo.Window
 	openWindow                     func(string) error
+	openResourceWindow             func(string, hub.WorkspaceTab) error
+	returnResourceWindow           func()
 	ctx                            context.Context
 	list                           ui.ListState
 	targets                        []hub.Target
 	approvals                      []security.ApprovalRequest
+	approvalSubmitting             map[string]bool
+	approvalEpoch                  uint64
+	approvalReadProblem            string
 	pane, configDraft              string
 	aepDraft                       string
 	commandDraft                   string
 	toolsDraft                     string
 	gatewayCredentials             string
+	gatewayGeneration              uint64
+	gatewayStatus                  gateway.LocalSnapshot
 	gatewayBusy                    bool
 	questions                      []interaction.Question
+	questionSubmitting             map[string]bool
+	questionEpoch                  uint64
+	questionReadProblem            string
 	questionID, questionText       string
 	questionSelected               map[int]bool
 	browserDraft                   string
@@ -94,6 +126,7 @@ type NativePage struct {
 	playerPosition, playerDuration int64
 	playerSeek                     string
 	settings                       hub.Settings
+	sessionModelOptions            workspaceSessionModelOptionsState
 	wait                           waitPane
 	paneBusy                       bool
 	inspectBranch, inspectQuery    string
@@ -139,13 +172,17 @@ func NewNativePage(service *product.HubService) *NativePage {
 	model := view.NewModel(service.Demo)
 	chat := view.NewNativeView(model)
 	chat.LargePasteHint = "Pasted text exceeds 32 KiB. Use Attach file: raw bytes are stored and only an explicit reference is sent."
-	chat.SetMarkdownOptions(modules.NewRegistry().Options())
+	markdownOptions := modules.NewRegistry().Options()
+	chat.SetMarkdownOptions(markdownOptions)
 	page := &NativePage{Service: service, model: model, chat: chat, title: "New conversation", drafts: make(map[string]string), ctx: context.Background(), targets: service.AvailableTargets(), updates: make(chan func(), 8)}
+	page.referenceOwner = &workspaceReferenceOwner{service: service}
 	if err := registerWorkspaceAssets(); err != nil {
 		page.problem = err.Error()
 	}
 	chat.Send = page.send
 	chat.Stop = page.stop
+	chat.RenderMessage = newWorkspaceTranscriptRenderer(page, markdownOptions)
+	page.observeGateway()
 	return page
 }
 func Run(service *product.HubService) error {
@@ -198,10 +235,20 @@ func (p *NativePage) dispatch(fn func()) {
 }
 func (p *NativePage) setPane(name string) {
 	p.traceUI("open_pane")
+	previousPane := p.pane
 	if name != p.pane {
 		p.closeWorkspacePicker()
 	}
 	name = p.workspacePaneDestination(name)
+	if previousPane != name && name != "" {
+		p.finishWorkspaceVoiceForNavigation()
+		p.observeWorkspaceResources()
+		p.closeWorkspaceResources()
+		p.resources.suppressed = true
+	}
+	if p.pane == "connections" && name != "connections" {
+		p.connections.revealAPIKey = false
+	}
 	if p.pane == "team" && name != "team" {
 		p.worktreePatch = product.WorktreePatchPage{}
 		p.worktreeOffset = 0
@@ -213,7 +260,13 @@ func (p *NativePage) setPane(name string) {
 		p.media = MediaPane{}
 	}
 	p.pane = name
+	if name == "" {
+		p.resources.suppressed = false
+	}
 	p.restoreWorkspacePane()
+	if previousPane != "" && p.pane == "" && p.workspaceResourcesVisible() {
+		p.loadWorkspaceResource()
+	}
 }
 func (p *NativePage) refreshSessions() {
 	p.sessionBack = nil
@@ -248,15 +301,23 @@ func (p *NativePage) selectSession(id string) {
 	if p.busy {
 		return
 	}
+	p.flushWorkspaceDraft()
 	p.pendingFirstSend = ""
 	p.pendingFirstPrompt = ""
 	p.pendingFirstSelections = nil
+	p.pendingFirstReferences = nil
+	p.pendingFirstFiles = nil
+	p.pendingFirstDraft = workspaceDraftSubmission{}
 	p.composer.closePopovers()
 	p.closeWorkspacePicker()
+	p.finishWorkspaceVoiceForNavigation()
 	p.stopPlayback()
+	p.observeWorkspaceResources()
 	p.drafts[p.selected] = p.model.Draft
 	p.selected = id
+	p.selectWorkspaceResources(id)
 	p.model.Draft = p.drafts[id]
+	p.loadWorkspaceDraft()
 	p.generation++
 	p.reviewing = false
 	p.transcript = Transcript{}
@@ -267,7 +328,9 @@ func (p *NativePage) selectSession(id string) {
 	p.toolsDraft = ""
 	p.shellJobs = nil
 	p.approvals = nil
+	p.approvalReadProblem = ""
 	p.questions = nil
+	p.questionReadProblem = ""
 	p.questionID, p.questionText = "", ""
 	p.questionSelected = nil
 	p.browserDraft = ""
@@ -280,6 +343,7 @@ func (p *NativePage) selectSession(id string) {
 	p.media = MediaPane{}
 	p.decoderFFmpeg, p.decoderProbe = "", ""
 	p.settings = hub.Settings{}
+	p.sessionModelOptions = workspaceSessionModelOptionsState{}
 	p.wait = waitPane{}
 	p.inspectPage = product.InspectorPage{}
 	p.inspectGroup = ""
@@ -302,13 +366,16 @@ func (p *NativePage) loadTail() {
 		return
 	}
 	id, generation := p.selected, p.generation
+	optionsEpoch := p.sessionModelOptions.epoch
 	p.chat.Busy = true
 	p.polling = true
 	go func() {
 		detail, err := p.Service.Store.Detail(p.ctx, id)
 		var planSettings hub.Settings
+		optionsErr := err
 		if err == nil {
 			planSettings, err = p.Service.Store.Settings(p.ctx, id)
+			optionsErr = err
 		}
 		var entries []hub.HistoryEntry
 		if err == nil {
@@ -321,12 +388,17 @@ func (p *NativePage) loadTail() {
 				return
 			}
 			if err != nil {
+				if optionsErr != nil {
+					p.failWorkspaceSessionModelOptions(id, generation, optionsEpoch, optionsErr.Error())
+				}
 				p.pendingFirstSend = ""
 				p.pendingFirstPrompt = ""
 				p.problem = err.Error()
 				return
 			}
 			p.detail = detail
+			p.acceptWorkspaceNavigationDetail(id, generation)
+			p.acceptWorkspaceSessionModelOptions(id, generation, detail.Session.ActiveBranchID, optionsEpoch, planSettings.SessionID, planSettings.SessionModelOptions)
 			p.acceptWorkspacePlanSettings(id, detail.Session.ActiveBranchID, planSettings.PlanMode)
 			p.acceptWorkspacePermissionSettings(id, detail.Session.ActiveBranchID, planSettings.PermissionPolicy)
 			p.chat.Busy = false
@@ -337,10 +409,16 @@ func (p *NativePage) loadTail() {
 			if p.pendingFirstSend == id {
 				prompt := p.pendingFirstPrompt
 				selections := p.pendingFirstSelections
+				references := p.pendingFirstReferences
+				files, draft := p.pendingFirstFiles, p.pendingFirstDraft
 				p.pendingFirstSelections = nil
+				p.pendingFirstReferences = nil
+				p.pendingFirstFiles = nil
+				p.pendingFirstDraft = workspaceDraftSubmission{}
 				p.pendingFirstSend = ""
 				p.pendingFirstPrompt = ""
-				p.sendPreparedSnapshot(prompt, selections)
+				p.busy, p.chat.Busy = false, false
+				p.sendPreparedFileSnapshot(prompt, selections, references, files, draft)
 			}
 		})
 	}()
@@ -375,34 +453,45 @@ func (p *NativePage) applyDetail() {
 	}
 }
 func (p *NativePage) poll() {
+	p.pollEngineInteractions()
+	p.observeWorkspaceDraft()
+	p.observeWorkspaceVoice()
+	p.observeWorkspaceResources()
+	p.pollWorkspaceCompanions()
 	p.observePreferences()
+	p.flushWorkspaceLayoutPreferences(false)
 	p.observeConnections()
+	p.pollDeveloper()
+	p.observeGateway()
 	if p.selected == "" || p.polling || p.busy {
 		return
 	}
 	id, generation, after := p.selected, p.generation, p.transcript.Last
+	optionsEpoch := p.sessionModelOptions.epoch
+	approvalEpoch, questionEpoch := p.approvalEpoch, p.questionEpoch
 	readText := !p.reviewing && p.chat.AtEnd()
 	readWait, waitEpoch := p.pane == "waits" && !p.paneBusy, p.wait.Epoch
 	p.polling = true
 	go func() {
 		detail, err := p.Service.Store.Detail(p.ctx, id)
 		var planSettings hub.Settings
+		optionsErr := err
 		if err == nil {
 			planSettings, err = p.Service.Store.Settings(p.ctx, id)
+			optionsErr = err
 		}
 		var entries []hub.HistoryEntry
 		var approvals []security.ApprovalRequest
 		var questions []interaction.Question
+		var approvalErr, questionErr error
 		var waiting product.WaitView
 		var waitErr error
 		if err == nil && readText {
 			entries, err = p.Service.Store.History(p.ctx, id, after, 128)
 		}
 		if err == nil {
-			approvals, err = p.Service.PendingApprovals(p.ctx, id)
-		}
-		if err == nil {
-			questions, err = p.Service.PendingQuestions(p.ctx, id)
+			approvals, approvalErr = p.Service.PendingApprovals(p.ctx, id)
+			questions, questionErr = p.Service.PendingQuestions(p.ctx, id)
 		}
 		if err == nil && readWait {
 			waiting, waitErr = p.Service.Waits(p.ctx, id)
@@ -414,6 +503,11 @@ func (p *NativePage) poll() {
 				return
 			}
 			if err != nil {
+				if optionsErr != nil {
+					p.failWorkspaceSessionModelOptions(id, generation, optionsEpoch, optionsErr.Error())
+				}
+				p.approvals = nil
+				p.questions = nil
 				if readWait && p.pane == "waits" && p.wait.Epoch == waitEpoch {
 					p.wait.Current = false
 					p.wait.Problem = err.Error()
@@ -422,10 +516,26 @@ func (p *NativePage) poll() {
 				return
 			}
 			p.detail = detail
+			p.acceptWorkspaceNavigationDetail(id, generation)
+			p.acceptWorkspaceSessionModelOptions(id, generation, detail.Session.ActiveBranchID, optionsEpoch, planSettings.SessionID, planSettings.SessionModelOptions)
 			p.acceptWorkspacePlanSettings(id, detail.Session.ActiveBranchID, planSettings.PlanMode)
 			p.acceptWorkspacePermissionSettings(id, detail.Session.ActiveBranchID, planSettings.PermissionPolicy)
-			p.approvals = approvals
-			p.questions = questions
+			if p.approvalEpoch == approvalEpoch {
+				p.approvals = approvals
+				p.approvalReadProblem = ""
+				if approvalErr != nil {
+					p.approvals = nil
+					p.approvalReadProblem = "Pending permissions could not be refreshed: " + approvalErr.Error()
+				}
+			}
+			if p.questionEpoch == questionEpoch {
+				p.questions = questions
+				p.questionReadProblem = ""
+				if questionErr != nil {
+					p.questions = nil
+					p.questionReadProblem = "Pending questions could not be refreshed: " + questionErr.Error()
+				}
+			}
 			if readWait && p.pane == "waits" && !p.paneBusy && p.wait.Epoch == waitEpoch {
 				if waitErr != nil {
 					p.wait.Current = false
@@ -438,21 +548,15 @@ func (p *NativePage) poll() {
 				p.transcript.Append(entries)
 			}
 			p.applyDetail()
-		})
-	}()
-}
-func (p *NativePage) respondApproval(requestID string, allowed bool) {
-	id := p.selected
-	go func() {
-		err := p.Service.RespondApproval(p.ctx, id, requestID, allowed)
-		p.dispatch(func() {
-			if p.selected != id {
-				return
+			if p.pendingFirstSend == id {
+				prompt, preparations, references := p.pendingFirstPrompt, p.pendingFirstSelections, p.pendingFirstReferences
+				files, draft := p.pendingFirstFiles, p.pendingFirstDraft
+				p.pendingFirstSend, p.pendingFirstPrompt = "", ""
+				p.pendingFirstSelections, p.pendingFirstReferences, p.pendingFirstFiles = nil, nil, nil
+				p.pendingFirstDraft = workspaceDraftSubmission{}
+				p.busy, p.chat.Busy = false, false
+				p.sendPreparedFileSnapshot(prompt, preparations, references, files, draft)
 			}
-			if err != nil {
-				p.problem = err.Error()
-			}
-			p.poll()
 		})
 	}()
 }
@@ -460,10 +564,21 @@ func (p *NativePage) send() {
 	p.sendSnapshot(p.model.Draft)
 }
 func (p *NativePage) sendSnapshot(prompt string) {
-	p.sendPreparedSnapshot(prompt, p.captureWorkspaceSelections())
+	p.sendPreparedSnapshot(prompt, p.captureWorkspaceSelections(), p.captureWorkspaceReferences())
 }
-func (p *NativePage) sendPreparedSnapshot(prompt string, selections []product.ComposerPreparation) {
+func (p *NativePage) sendPreparedSnapshot(prompt string, selections []product.ComposerPreparation, references []product.DraftReferenceSelection) {
+	p.sendPreparedFileSnapshot(prompt, selections, references, p.captureWorkspaceComposerFiles(), workspaceDraftSubmission{})
+}
+func (p *NativePage) sendPreparedFileSnapshot(prompt string, selections []product.ComposerPreparation, references []product.DraftReferenceSelection, files []product.ComposerFileSelection, draft workspaceDraftSubmission) {
 	p.traceUI("send")
+	if problem := p.workspaceSessionModelOptionsProblem(); problem != "" {
+		p.problem = problem
+		return
+	}
+	if p.voice.recorder != nil {
+		p.voice.problem = "请先结束录音并确认文字，再发送。"
+		return
+	}
 	frozen := *p.model
 	frozen.Draft = prompt
 	if p.selected == "" || p.busy || p.chat.Busy || p.detail.Session.Status == engine.Waiting || !frozen.CanSend() || p.workspacePendingFiles() {
@@ -473,20 +588,42 @@ func (p *NativePage) sendPreparedSnapshot(prompt string, selections []product.Co
 		p.problem = problem
 		return
 	}
+	if p.Service.ComposerDrafts != nil && !draft.valid {
+		p.prepareWorkspaceDraftSubmission(func(captured workspaceDraftSubmission) {
+			p.sendPreparedFileSnapshot(prompt, selections, references, files, captured)
+		})
+		return
+	}
 	// Observations captured before admission must not replace its newer state.
 	p.generation++
 	if worker, ok := p.selectedWorker(); ok {
-		p.sendPreparedWorkerDraft(worker, prompt, selections)
+		p.sendPreparedWorkerFileDraftRevision(worker, prompt, selections, references, files, draft)
 		return
 	}
 	id := p.selected
+	finishReferences := p.referenceOwner.begin()
+	if finishReferences == nil {
+		return
+	}
 	p.busy = true
 	p.chat.Busy = true
 	go func() {
-		_, err := p.Service.SubmitComposerDraft(p.ctx, id, prompt, selections)
+		_, err := p.Service.SubmitComposerFileDraft(p.ctx, id, prompt, selections, references, files)
+		var draftErr error
+		if err == nil && draft.valid {
+			_, draftErr = p.Service.ComposerDrafts.Consume(p.ctx, draft.scope, draft.revision)
+			if draftErr == nil && draft.homeRevision != 0 {
+				_, draftErr = p.Service.ComposerDrafts.Consume(p.ctx, hub.ComposerDraftScope{Kind: "home", ID: "new-conversation"}, draft.homeRevision)
+			}
+		}
+		finishReferences()
 		p.dispatch(func() {
 			p.busy = false
 			p.chat.Busy = false
+			clearDraft := false
+			if err == nil && draft.valid {
+				clearDraft = p.finishWorkspaceDraftSubmission(draft)
+			}
 			if p.selected != id {
 				return
 			}
@@ -494,12 +631,19 @@ func (p *NativePage) sendPreparedSnapshot(prompt string, selections []product.Co
 				p.problem = err.Error()
 				return
 			}
-			if p.model.Draft == prompt {
+			if !draft.valid && p.model.Draft == prompt {
 				p.model.Draft = ""
 				delete(p.drafts, id)
 			}
-			p.consumeWorkspaceSelections(id, selections)
+			if !draft.valid || clearDraft {
+				p.consumeWorkspaceSelections(id, selections)
+				p.consumeWorkspaceReferences(id, references)
+				p.consumeWorkspaceComposerFiles(id, files)
+			}
 			p.problem = ""
+			if draftErr != nil {
+				p.problem = "请求已接收，草稿保全回执失败；请勿重复发送：" + draftErr.Error()
+			}
 			p.model.ActiveRunID = id
 			p.model.Status = view.Running
 			p.reviewing = false
@@ -509,14 +653,20 @@ func (p *NativePage) sendPreparedSnapshot(prompt string, selections []product.Co
 		})
 	}()
 }
+
+// stop is an immediate command; rendered controls pass the identity they observed.
 func (p *NativePage) stop() {
+	id := p.selected
+	executionID, _ := p.Service.Runtime.ActiveExecution(id)
+	p.stopExecution(id, executionID)
+}
+func (p *NativePage) stopExecution(id, executionID string) {
 	p.traceUI("stop")
-	if p.selected == "" || p.busy || p.modelStopping() && !p.stopRetry[p.selected] {
+	if id == "" || p.selected != id || executionID == "" || p.busy || p.modelStopping() && !p.stopRetry[id] {
 		return
 	}
-	id := p.selected
-	executionID, active := p.Service.Runtime.ActiveExecution(id)
-	if !active || executionID == "" {
+	activeID, active := p.Service.Runtime.ActiveExecution(id)
+	if !active || activeID != executionID {
 		p.poll()
 		return
 	}
@@ -532,7 +682,7 @@ func (p *NativePage) stop() {
 	go func() {
 		var err error
 		if isWorker {
-			err = p.Service.Teams.Stop(p.ctx, lead, team, worker.ID)
+			err = p.Service.Teams.StopExecution(p.ctx, lead, team, worker.ID, executionID)
 		} else {
 			err = p.Service.Runtime.CancelExecution(p.ctx, id, executionID)
 		}
@@ -582,7 +732,7 @@ func (p *NativePage) create() {
 				p.problem = err.Error()
 				return
 			}
-			p.refreshSessions()
+			p.refreshWorkspaceNavigation()
 			p.selectSession(session.ID)
 		})
 	}()
@@ -592,18 +742,28 @@ func (p *NativePage) upload() {
 		return
 	}
 	id := p.selected
+	finishReferences := p.referenceOwner.begin()
+	if finishReferences == nil {
+		return
+	}
 	p.busy = true
 	p.chat.Busy = true
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: p.window, Title: "Attach original files — 20 MiB each, no automatic model delivery", Multiple: true})
+		var references []product.DraftReferenceSelection
 		if err == nil {
 			for _, path := range paths {
-				if _, err = p.Service.Upload(p.ctx, id, path); err != nil {
+				var attachment product.DraftAttachment
+				if attachment, err = p.Service.Upload(p.ctx, id, path); err != nil {
 					break
 				}
+				references = append(references, attachment.DraftSelection())
+				p.referenceOwner.retain(id, []product.DraftReferenceSelection{attachment.DraftSelection()})
 			}
 		}
+		finishReferences()
 		p.dispatch(func() {
+			p.retainWorkspaceReferences(id, references)
 			p.busy = false
 			p.chat.Busy = false
 			if err != nil {
@@ -638,20 +798,31 @@ func (p *NativePage) older() {
 	}()
 }
 func (p *NativePage) switchBranch(target hub.Target) {
+	p.changeWorkspaceBranch(func(id string) (hub.Branch, error) {
+		return p.Service.SwitchTarget(p.ctx, id, target, "Explicit native UI selection; retained previous branch")
+	})
+}
+func (p *NativePage) selectSavedBranch(branchID string) {
+	p.changeWorkspaceBranch(func(id string) (hub.Branch, error) {
+		return p.Service.SelectBranch(p.ctx, id, branchID, "Explicit retained history branch selection")
+	})
+}
+func (p *NativePage) changeWorkspaceBranch(change func(string) (hub.Branch, error)) {
 	if p.busy || p.selected == "" {
 		return
 	}
-	id := p.selected
+	id, generation := p.selected, p.generation
 	p.composer.closePopovers()
 	p.closeWorkspacePicker()
 	p.busy = true
+	p.problem = ""
 	go func() {
-		_, err := p.Service.Store.Switch(p.ctx, id, target, "Explicit native UI selection; retained previous branch")
+		_, err := change(id)
 		p.dispatch(func() {
-			p.busy = false
-			if p.selected != id {
+			if p.selected != id || p.generation != generation {
 				return
 			}
+			p.busy = false
 			if err != nil {
 				p.problem = err.Error()
 				return
@@ -664,7 +835,7 @@ func (p *NativePage) setFallback(target *hub.Target) {
 	if p.busy || p.selected == "" || p.inputBlocked() {
 		return
 	}
-	id := p.selected
+	id, generation := p.selected, p.generation
 	var targets []hub.Target
 	if target != nil {
 		approved := *target
@@ -672,13 +843,14 @@ func (p *NativePage) setFallback(target *hub.Target) {
 		targets = []hub.Target{approved}
 	}
 	p.busy = true
+	p.problem = ""
 	go func() {
-		err := p.Service.Store.SetFallback(p.ctx, id, targets)
+		err := p.Service.SetFallback(p.ctx, id, targets)
 		p.dispatch(func() {
-			p.busy = false
-			if p.selected != id {
+			if p.selected != id || p.generation != generation {
 				return
 			}
+			p.busy = false
 			if err != nil {
 				p.problem = err.Error()
 				return
@@ -699,6 +871,10 @@ func (p *NativePage) sessionLabel(session hub.Session) string {
 }
 
 func (p *NativePage) Build(c *ui.Context) {
+	c.OnShortcut(ui.Cmd, ui.KeyK, p.openWorkspaceSearch)
+	defer p.buildWorkspaceModelDefaults(c)
+	defer p.buildWorkspaceSearch(c)
+	defer p.buildWorkspaceGoal(c)
 	if p.diagnosticFrame != nil {
 		defer p.diagnosticFrame()
 	}
@@ -710,47 +886,95 @@ func (p *NativePage) Build(c *ui.Context) {
 			i = 8
 		}
 	}
+	p.observeWorkspaceVoice()
 	p.restoreWorkspacePane()
 	p.observePreferences()
 	p.observeConnections()
 	p.applyPreferences(c)
+	p.buildWorkspaceBody(c)
+}
+
+func (p *NativePage) buildWorkspaceBody(c *ui.Context) {
+	if p.layout.sidebarResize.dragging || p.resources.resize.dragging {
+		// A drag follows the pointer directly; only open/close uses easing.
+		c.DisableAnimations()
+	}
 	if p.isWorkspaceSettings() {
 		p.buildWorkspaceSettings(c)
 		return
 	}
-	ui.Row(c).Fill().Gap(0).Children(func() {
+	workspaceShell(c).Children(func() {
+		width, _ := c.Size()
+		focused := p.workspaceResourcesFullWidth(width)
 		p.buildWorkspaceSidebar(c)
-		ui.Column(c).Grow(1).MinWidth(0).FillHeight().Gap(0).Children(func() {
-			p.buildWorkspaceHeader(c)
-			if p.playerBusy {
-				ui.Button(c, "暂停本地播放").Label("Pause local video and wait for decoder cleanup").Disabled(p.playerStopping).OnClick(p.stopPlayback)
-			}
-			if p.pane == "" && p.selected == "" {
-				p.buildWorkspaceWelcome(c)
-				return
-			}
-			ui.Column(c).Grow(1).MinHeight(0).FillWidth().Padding(24).Gap(16).Children(func() {
-				if p.problem != "" {
-					ui.Text(c, p.problem).Role(ui.RoleStatus).TextColor(c.Theme().Danger).FontSize(14)
-				}
-				if p.selected == "" {
-					p.buildWorkspaceWelcome(c)
-					return
-				}
-				p.buildApprovals(c)
-				p.buildQuestions(c)
-				if p.buildWorkspacePane(c) {
-					return
-				}
-				ui.Column(c).Grow(1).MinHeight(0).FillWidth().AlignItems(ui.Center).Children(func() {
-					ui.Column(c).FillWidth().MaxWidth(960).Grow(1).MinHeight(0).Gap(16).Children(func() {
-						p.chat.BuildMessages(c)
-						if len(p.model.Messages) > 0 && !p.chat.AtEnd() {
-							ui.Button(c, "Jump to latest").OnClick(p.chat.ScrollToEnd)
-						}
-						p.buildWorkspaceComposer(c)
-					})
+		if focused {
+			p.buildWorkspaceResources(c, true)
+		} else {
+			ui.Column(c.Key("workspace-main-column")).Label("Workspace main column").Grow(1).MinWidth(0).FillHeight().
+				Gap(workspaceRegionGap).Transition(workspacePaneTransition()).Children(func() {
+				p.buildWorkspaceHeader(c)
+				workspaceMainSurface(c, "workspace-main", "Workspace main surface").Children(func() {
+					p.buildWorkspaceMainContent(c, false)
 				})
+			})
+		}
+		if !focused && p.workspaceResourcesVisible() {
+			p.buildWorkspaceResources(c, true)
+		}
+		p.buildWorkspacePaneControls(c)
+	})
+}
+
+func (p *NativePage) buildWorkspaceMainContent(c *ui.Context, resourceFocus bool) {
+	if p.playerBusy {
+		ui.Button(c, "暂停本地播放").Label("Pause local video and wait for decoder cleanup").Disabled(p.playerStopping).OnClick(p.stopPlayback)
+	}
+	if !resourceFocus {
+		if p.pane == "companions" {
+			ui.Column(c).Grow(1).MinHeight(0).FillWidth().Padding(24).Gap(16).Children(func() { p.buildWorkspaceCompanions(c) })
+			return
+		}
+		if p.buildWorkspaceSessionScope(c) || p.buildWorkspaceAutomationIndex(c) {
+			return
+		}
+		if p.pane == "" && p.selected == "" {
+			p.buildWorkspaceWelcome(c)
+			return
+		}
+	}
+	body := ui.Column(c).Grow(1).MinHeight(0).FillWidth().Padding(24).Gap(16)
+	if p.pane == "" && p.selected != "" {
+		body.Padding(0, 24, 12, 24)
+	}
+	if resourceFocus {
+		body.Padding(0, 12, 12, 24)
+	}
+	body.Children(func() {
+		if p.problem != "" {
+			ui.Text(c, p.problem).Role(ui.RoleStatus).TextColor(c.Theme().Danger).FontSize(workspaceFontBody)
+		}
+		if p.selected != "" {
+			p.buildApprovals(c)
+			p.buildQuestions(c)
+		}
+		if resourceFocus {
+			p.buildWorkspaceResources(c, false)
+			return
+		}
+		if p.selected == "" {
+			p.buildWorkspaceWelcome(c)
+			return
+		}
+		if p.buildWorkspacePane(c) {
+			return
+		}
+		ui.Column(c).Grow(1).MinWidth(0).FillWidth().Gap(16).Children(func() {
+			p.buildWorkspaceTranscript(c)
+			if len(p.model.Messages) > 0 && !p.chat.AtEnd() {
+				ui.Button(c, "Jump to latest").OnClick(p.chat.ScrollToEnd)
+			}
+			ui.Column(c).FillWidth().MaxWidth(workspaceReadingWidth).AlignSelf(ui.Center).Children(func() {
+				p.buildWorkspaceComposer(c)
 			})
 		})
 	})

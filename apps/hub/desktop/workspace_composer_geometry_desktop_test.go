@@ -1,4 +1,4 @@
-// INPUT: Real composer typing, saved-session reference search and native headless layout at two window sizes.
+// INPUT: Real composer typing, committed session Settings/reference search and native headless layout at two window sizes.
 // OUTPUT: Above-card picker anchors, unshifted toolbar, compact symmetric insets and viewport regressions.
 // POS: [L7 Hub UI tests] Checks visible geometry and editing ownership without an OS window or model execution.
 //go:build desktop
@@ -6,14 +6,47 @@
 package hubdesktop
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/egoist/mygo/ui"
 )
+
+func TestWorkspaceCombinedReferencesAndPendingDictationKeepControlsVisible(t *testing.T) {
+	service, _ := fixture(t)
+	p := NewNativePage(service)
+	p.model.Draft = "第一行\n第二行\n第三行\n第四行\n第五行"
+	p.voice.pending, p.voice.pendingSession = strings.Repeat("待采纳语音文字", 100), ""
+	p.composerSelections = map[string][]product.ComposerPreparation{"": {}}
+	for i := range 8 {
+		p.composerSelections[""] = append(p.composerSelections[""], product.ComposerPreparation{EntryID: fmt.Sprintf("goal:%d", i), Kind: product.ComposerGoalEntry, Text: strings.Repeat("长目标名称", 30)})
+		p.retainWorkspaceFiles("", []string{filepath.Join(t.TempDir(), fmt.Sprintf("file-%d.txt", i))})
+	}
+	tester := ui.NewTester(workspaceStaticView(p), 960, 680)
+	send, ok := tester.Find("Send")
+	message, messageOK := tester.Find("Message")
+	refs, refsOK := tester.Find("Composer attachments")
+	if !ok || !messageOK || !refsOK || send.H != 28 || send.Y+send.H > 680 || message.H != 112 || refs.H > 126 {
+		t.Fatal("combined auxiliary states displaced the message or Send", send, message, refs)
+	}
+	apply, found := tester.Find("Apply dictation text")
+	if !found || math.Abs(float64(apply.H-32)) > .02 || apply.Y < refs.Y || apply.Y+apply.H > refs.Y+refs.H+.02 {
+		t.Fatal("pending dictation action must be complete before auxiliary scrolling", apply)
+	}
+	tester.Scroll(refs.X+refs.W/2, refs.Y+refs.H/2, 0, 32)
+	if after, _ := tester.Find("Send"); after != send {
+		t.Fatal("auxiliary scrolling moved Send", after, send)
+	}
+	if service.Runtime.HasActive() {
+		t.Fatal("layout executed work")
+	}
+}
 
 func TestWorkspacePickerStaysAboveComposerAndLeavesControlsReachable(t *testing.T) {
 	for _, tc := range []struct {
@@ -40,7 +73,20 @@ func TestWorkspacePickerStaysAboveComposerAndLeavesControlsReachable(t *testing.
 				p.selected, p.detail = session.ID, mustPickerDetail(t, service, session.ID)
 				p.applyDetail()
 			}
-			tester := ui.NewTester(p.Build, tc.width, tc.height)
+			tester := ui.NewTester(workspaceStaticView(p), tc.width, tc.height)
+			if tc.conversation {
+				// Assigning Detail above does not load the independently observed
+				// session model options. Finish their real Settings read before
+				// measuring: picker query waits can poll and remove that notice.
+				initial, _ := tester.Find("Task composer")
+				pendingNotice, _ := tester.Find(p.workspaceSessionModelOptionsProblem())
+				p.poll()
+				waitWorkspace(t, p, tester, func() bool {
+					return !p.polling && p.workspaceSessionModelOptionsProblem() == ""
+				})
+				loaded, _ := tester.Find("Task composer")
+				t.Logf("initial Settings observation: composer %v -> %v; pending notice %v", initial, loaded, pendingNotice)
+			}
 			if err := tester.Click("Message"); err != nil {
 				t.Fatal(err)
 			}
@@ -66,11 +112,11 @@ func TestWorkspacePickerStaysAboveComposerAndLeavesControlsReachable(t *testing.
 			for _, label := range []string{"Add attachments", "Permission policy", "Agent and model", "Send"} {
 				control, present := tester.Find(label)
 				inset := composer.Y + composer.H - control.Y - control.H
-				if !present || control.H != 32 || math.Abs(float64(inset-9)) > .5 {
+				if !present || control.H != 28 || math.Abs(float64(inset-8)) > .5 {
 					t.Fatalf("%s is not compact and bottom aligned: %v within %v (inset=%v)", label, control, composer, inset)
 				}
 			}
-			if math.Abs(float64(composer.X+composer.W-send.X-send.W-9)) > .5 {
+			if math.Abs(float64(composer.X+composer.W-send.X-send.W-8)) > .5 {
 				t.Fatal("Send does not share the composer's symmetric inset", composer, send)
 			}
 			tester.Key(0, ui.KeyEscape)
@@ -87,7 +133,7 @@ func TestWorkspaceToolbarMenusPreferAboveTheirTrigger(t *testing.T) {
 			service, requests := fixture(t)
 			p := NewNativePage(service)
 			p.model.Draft = "保留我的输入"
-			tester := ui.NewTester(p.Build, 1240, 850)
+			tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 			if err := tester.Click(label); err != nil {
 				t.Fatal(err)
 			}
@@ -104,10 +150,118 @@ func TestWorkspaceToolbarMenusPreferAboveTheirTrigger(t *testing.T) {
 	}
 }
 
+func TestWorkspaceComposerMenusMatchFoundationInsetsAndRows(t *testing.T) {
+	for _, tc := range []struct {
+		name, trigger string
+		width         float32
+		items         []string
+	}{
+		{"add", "Add attachments", 352, []string{"Attach file", "文件或路径…", "命令与 Skills…", "Plan mode", "New Goal"}},
+		{"permission", "Permission policy", 240, []string{"每次询问", "自动审批", "完全访问"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service, requests := fixture(t)
+			p := NewNativePage(service)
+			tester := ui.NewTester(func(c *ui.Context) {
+				p.applyPreferences(c)
+				ui.Column(c).FillWidth().FillHeight().Justify(ui.Center).Children(func() {
+					anchor := ui.ButtonBase(c).Label(tc.trigger).Size(32, 32).OnClick(func() {
+						if tc.name == "add" {
+							p.composer.addOpen = !p.composer.addOpen
+						} else {
+							p.composer.permissionOpen = !p.composer.permissionOpen
+						}
+					})
+					if tc.name == "add" {
+						p.buildWorkspaceAttachmentMenu(c, anchor)
+					} else {
+						p.buildNativePermissionMenu(c, anchor)
+					}
+				})
+			}, 1240, 850)
+			if err := tester.Click(tc.trigger); err != nil {
+				t.Fatal(err)
+			}
+			panel, present := tester.Find("Composer menu")
+			gap := 4
+			if tc.name == "add" {
+				gap = 0
+			}
+			wantHeight := float32(16 + len(tc.items)*28 + (len(tc.items)-1)*gap)
+			if !present || panel.W != tc.width || panel.H != wantHeight {
+				t.Fatal("menu does not match Foundation width and natural single-line height", panel, tc.width, wantHeight)
+			}
+			for i, label := range tc.items {
+				item, found := tester.Find(label)
+				if !found || item.H != 28 || item.W != panel.W-16 || item.X != panel.X+8 || item.Y != panel.Y+8+float32(i*(28+gap)) {
+					t.Fatal("menu row lost Foundation padding or spacing", label, item, panel)
+				}
+			}
+			if tc.name == "add" {
+				for _, label := range []string{"文件、图片或视频…", "计划模式", "新建或选择目标"} {
+					text, found := tester.Find(label)
+					if !found || text.X != panel.X+40 || text.H != 19.5 || math.Abs(float64(text.Y-panel.Y-12.25)-math.Round(float64(text.Y-panel.Y-12.25)/28)*28) > .5 {
+						t.Fatal("Add labels must follow the centered 20px icon and 8px gap", label, text, panel)
+					}
+				}
+			}
+			if service.Runtime.HasActive() || len(requests) != 0 {
+				t.Fatal("opening presentation-only menus started execution")
+			}
+		})
+	}
+}
+
+func TestWorkspacePermissionMenuSelectedColorsMatchFoundation(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		t.Run(map[bool]string{false: "light", true: "dark"}[dark], func(t *testing.T) {
+			service, _ := fixture(t)
+			p := NewNativePage(service)
+			p.composer.permissionOpen = true
+			var accent, text, selection ui.Color
+			tester := ui.NewTester(func(c *ui.Context) {
+				p.applyPreferences(c)
+				ui.Column(c).FillWidth().FillHeight().Justify(ui.Center).Children(func() {
+					p.buildNativePermissionMenu(c, ui.Box(c).Size(32, 32))
+				})
+				accent, text, selection = c.Theme().Accent, c.Theme().Text, workspacePalette(c).selection
+			}, 1240, 850)
+			tester.SetDark(dark)
+			image := tester.Image()
+			for _, tc := range []struct {
+				label string
+				color ui.Color
+			}{
+				{"每次询问", accent},
+				{"自动审批", text},
+			} {
+				item, _ := tester.Find(tc.label)
+				pixels := 0
+				for y := int(item.Y + 8); y < int(item.Y+item.H-8); y++ {
+					for x := int(item.X + 36); x < int(item.X+110); x++ {
+						pixel := image.RGBAAt(x, y)
+						if pixel.R == tc.color.R && pixel.G == tc.color.G && pixel.B == tc.color.B {
+							pixels++
+						}
+					}
+				}
+				if pixels < 5 {
+					t.Fatal("menu label did not retain its explicit selected/default text color", tc.label, tc.color, pixels)
+				}
+			}
+			selected, _ := tester.Find("每次询问")
+			pixel := image.RGBAAt(int(selected.X+2), int(selected.Y+selected.H/2))
+			if pixel.R != selection.R || pixel.G != selection.G || pixel.B != selection.B {
+				t.Fatal("selected permission lost its distinct shallow background", pixel, selection)
+			}
+		})
+	}
+}
+
 func TestWorkspacePickerRetainsEditorTabOrderAsCardChanges(t *testing.T) {
 	service, _ := fixture(t)
 	p := NewNativePage(service)
-	tester := ui.NewTester(p.Build, 960, 680)
+	tester := ui.NewTester(workspaceStaticView(p), 960, 680)
 	if err := tester.Click("Message"); err != nil {
 		t.Fatal(err)
 	}

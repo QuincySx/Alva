@@ -60,7 +60,7 @@ func TestNativeWorktreeIsolationEvidenceAndTwoStepAdoption(t *testing.T) {
 		t.Fatal(err)
 	}
 	page.applyDetail()
-	tester := ui.NewTester(page.Build, 1700, 4200)
+	tester := ui.NewTester(workspaceStaticView(page), 1700, 4200)
 	if err = workspaceTestMenu(tester, "协作"); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestNativeWorktreeIsolationEvidenceAndTwoStepAdoption(t *testing.T) {
 	if err != nil || string(data) != "fixture isolated proposal\n" {
 		t.Fatal("removal changed shared adopted bytes", err)
 	}
-	if err = tester.Click("Chat"); err != nil {
+	if err = workspaceTestMenu(tester, "对话"); err != nil {
 		t.Fatal(err)
 	}
 	if page.worktreePatch.Text != "" || page.worktreeConfirm != "" {

@@ -10,5 +10,5 @@
 | 文件 | 职责 |
 |---|---|
 | main.go | 可注入服务、普通Plugin/Tool/Middleware与两种实际执行回执 |
-| go.mod | 独立consumer身份与显式checkout绑定 |
+| go.mod | 独立consumer身份、与当前checkout一致的Go最低版本及显式checkout绑定 |
 | README.md | 本地、两类WASM运行与外部应用接入方法 |

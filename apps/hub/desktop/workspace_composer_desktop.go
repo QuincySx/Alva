@@ -6,9 +6,6 @@
 package hubdesktop
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
@@ -22,6 +19,8 @@ type workspaceComposerState struct {
 	targetFocus                         ui.Handle
 	targetActive, context               string
 	confirmFull                         bool
+	settingsSaving                      bool
+	modelPicker                         workspaceModelPickerState
 }
 
 func (s *workspaceComposerState) closePopovers() {
@@ -29,6 +28,7 @@ func (s *workspaceComposerState) closePopovers() {
 	s.targetActive = ""
 	s.confirmFull = false
 	s.targetFocus.CancelFocus()
+	s.modelPicker.open = false
 }
 
 func (p *NativePage) workspaceComposerTarget() hub.Target {
@@ -47,6 +47,68 @@ func (p *NativePage) workspaceComposerRunning() bool {
 	return p.model.ActiveRunID != "" || p.selected != "" && p.detail.Session.ID == p.selected && p.detail.Session.Status == hub.Running
 }
 
+func (p *NativePage) workspaceComposerLoading() bool {
+	return p.selected != "" && (p.detail.Session.ID != p.selected || p.chat.Busy && !p.busy && !p.workspaceComposerRunning() && p.detail.Session.Status != engine.Waiting)
+}
+
+func (p *NativePage) workspaceComposerKey(k ui.TextKey) bool {
+	if k.Key == ui.KeyEnter && k.Mods == ui.Cmd {
+		if p.picker.open || p.picker.composing {
+			return true
+		}
+		// TextKey includes input queued before this key. Do not send the
+		// previous frame's draft or clear text before the real receipt.
+		p.model.Draft = k.Text()
+		p.markWorkspaceDraftEdited()
+		if p.workspaceComposerSendProblem() == "" {
+			p.sendWorkspaceDraft()
+		}
+		return true
+	}
+	return p.workspacePickerKey(k)
+}
+
+// Pointer and editor shortcuts share this view-level readiness check. Durable
+// admission remains in the existing product service and execution owner.
+func (p *NativePage) workspaceComposerSendProblem() string {
+	if p.Service.ComposerDrafts != nil {
+		e := p.durableDrafts.entries[p.workspaceComposerDraftScope()]
+		if e != nil && e.loading {
+			return "正在载入共享草稿，请稍候。"
+		}
+		if e != nil && e.problem != "" {
+			return e.problem
+		}
+	}
+	switch {
+	case p.composer.settingsSaving:
+		return "正在保存下一轮设置，完成后可发送。"
+	case p.busy:
+		return "正在提交或导入附件，等待真实接收回执。"
+	case p.workspaceComposerRunning():
+		return "任务正在进行，草稿已保留；请等待完成或先停止任务。"
+	case p.inputBlocked():
+		return "任务正在等待回应，请先处理等待中的问题或审批。"
+	case p.workspaceComposerLoading():
+		return "正在加载当前会话，完成后可发送。"
+	case p.voice.recorder != nil:
+		return "请先结束录音并确认文字，再发送。"
+	}
+	if problem := p.workspaceAttachmentProblem(); problem != "" {
+		return problem
+	}
+	if problem := p.workspaceTargetProblem(); problem != "" {
+		return problem
+	}
+	if len(p.model.Draft) > view.MaxDraftBytes {
+		return "消息超过 32 KiB，请缩短内容或添加文件。"
+	}
+	if !p.model.CanSend() {
+		return "请输入消息后发送；Enter 换行。"
+	}
+	return ""
+}
+
 func (p *NativePage) workspaceComposerStatus() string {
 	if p.modelStopping() {
 		return "正在停止…"
@@ -59,6 +121,9 @@ func (p *NativePage) workspaceComposerStatus() string {
 	}
 	if p.workspaceComposerRunning() {
 		return "正在工作…"
+	}
+	if p.composer.settingsSaving {
+		return "正在保存设置…"
 	}
 	if p.busy {
 		return "正在提交…"
@@ -85,7 +150,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 	t := c.Theme()
 	running := p.workspaceComposerRunning()
 	waiting := p.selected != "" && p.detail.Session.ID == p.selected && p.detail.Session.Status == engine.Waiting
-	loading := p.selected != "" && (p.detail.Session.ID != p.selected || p.chat.Busy && !p.busy && !running && !waiting)
+	loading := p.workspaceComposerLoading()
 	target := p.workspaceComposerTarget()
 	composerContext := p.pane + "\x00" + p.workspace + "\x00" + p.selected + "\x00" + p.detail.Session.ActiveBranchID + "\x00" + hub.RouteKey(target)
 	if p.composer.context != composerContext {
@@ -100,6 +165,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 		attachmentProblem = p.workspaceTargetProblem()
 	}
 	ui.Column(c.Key("workspace-composer")).FillWidth().Gap(8).Children(func() {
+		p.buildWorkspaceDraftNotice(c)
 		if status := p.workspaceComposerStatus(); status != "" {
 			ui.Row(c.Key("status")).AlignItems(ui.Center).Gap(8).Children(func() {
 				icon := "loader-circle"
@@ -113,17 +179,25 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				case status == "执行失败":
 					icon = "triangle-alert"
 				}
-				ui.Icon(c, workspaceIcon(icon)).Size(16, 16).TextColor(t.TextMuted)
-				ui.Text(c, status).Role(ui.RoleStatus).FontSize(14).LineHeight(1.5).TextColor(t.TextMuted)
+				if icon == "loader-circle" {
+					p.workspaceLoadingIcon(c.Key("activity"), 16, t.TextMuted)
+				} else {
+					ui.Icon(c, workspaceIcon(icon)).Size(16, 16).TextColor(t.TextMuted)
+				}
+				ui.Text(c, status).Role(ui.RoleStatus).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(t.TextMuted)
 			})
 		}
 		editor := ui.Column(c.Key("editor")).Label("Task composer").FillWidth().Padding(8).Gap(8).
-			Radius(16).Border(1, t.Border).Background(t.Surface)
-		if editor.FocusWithin() {
-			editor.BorderColor(t.Accent).DrawOver(func(painter *ui.Painter, bounds ui.Rect) {
-				painter.Stroke(bounds, t.Accent, 16, 2)
-			})
-		}
+			Radius(16).Background(t.Surface)
+		// The Foundation border is an inside stroke, separate from the 8px
+		// content inset. MyGo's layout Border would add a second inset.
+		editor.DrawOver(func(painter *ui.Painter, bounds ui.Rect) {
+			color, width := t.Border, float32(1)
+			if editor.FocusWithin() {
+				color, width = t.Accent, 2
+			}
+			painter.Stroke(bounds, color, 16, width)
+		})
 		editor.Children(func() {
 			p.buildWorkspaceAttachments(c)
 			placeholder := "告诉我你要完成什么…"
@@ -131,9 +205,9 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				placeholder = "补充说明，或调整下一步…"
 			}
 			messageEditor := ui.TextAreaBase(c.Key("workspace-message"), &p.model.Draft).Label("Message").
-				Placeholder(placeholder).FillWidth().MinWidth(0).FontSize(16).LineHeight(1.75).
+				Placeholder(placeholder).FillWidth().MinWidth(0).FontSize(workspaceFontSubtitle).LineHeight(workspaceReadingLineHeight).
 				Lines(2, 5).Padding(0).Border(0, ui.Transparent).FocusRing(false).
-				Disabled(waiting || loading).OnPaste(func(text string) bool {
+				Disabled(waiting || loading).OnChange(p.markWorkspaceDraftEdited).OnPaste(func(text string) bool {
 				if len(text) <= view.MaxDraftBytes {
 					return false
 				}
@@ -142,7 +216,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 			})
 			p.buildWorkspacePicker(c, messageEditor, editor)
 			ui.Row(c.Key("controls")).FillWidth().AlignItems(ui.Center).Gap(8).Children(func() {
-				add := workspaceComposerIconButton(c.Key("add"), "plus", "Add attachments", "添加文件", 32).
+				add := workspaceComposerIconButton(c.Key("add"), "plus", "Add attachments", "添加文件", workspaceIconControlSize).
 					Disabled(p.busy || running || waiting || loading).Expanded(p.composer.addOpen).
 					OnClick(func() {
 						p.closeWorkspacePicker()
@@ -152,10 +226,20 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 					})
 				p.buildWorkspaceAttachmentMenu(c, add)
 				policy, policyDescription := p.workspacePermissionDescription(target.EngineID)
+				policyIcon := "shield-check"
+				if target.EngineID == "alva" {
+					switch p.workspacePermissionPolicy() {
+					case hub.PermissionAuto:
+						policyIcon = "sparkles"
+					case hub.PermissionFull:
+						policyIcon = "triangle-alert"
+					}
+				}
 				if p.workspacePlanEnabled() {
 					policy, policyDescription = "只读计划", p.workspacePlanDescription()
+					policyIcon = "list"
 				}
-				permission := workspaceComposerChip(c.Key("permission"), "shield-check", policy, "Permission policy").
+				permission := workspaceComposerChip(c.Key("permission"), policyIcon, policy, "Permission policy").
 					Tooltip(policyDescription).Expanded(p.composer.permissionOpen).OnClick(func() {
 					p.closeWorkspacePicker()
 					p.composer.permissionOpen = !p.composer.permissionOpen
@@ -165,7 +249,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				p.buildWorkspacePermissionMenu(c, permission, target)
 				ui.Box(c).Grow(1).MinWidth(0)
 				model := workspaceComposerChip(c.Key("target"), "bot", workspaceTargetLabel(target), "Agent and model").
-					MinWidth(0).MaxWidth(240).Shrink(1).Disabled(p.busy || running || waiting || loading).
+					MinWidth(0).MaxWidth(240).Shrink(1).Disabled(p.busy || loading).
 					Expanded(p.composer.targetOpen).OnClick(func() {
 					p.closeWorkspacePicker()
 					p.composer.targetOpen = !p.composer.targetOpen
@@ -177,6 +261,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				})
 				model.Tooltip("选择下一次提交使用的模型与 Agent。\n" + workspaceTargetDetails(target))
 				p.buildWorkspaceTargetMenu(c, model, target)
+				p.buildWorkspaceVoice(c)
 				if running {
 					hint := "停止任务；等待执行进程和回调清理完成。"
 					if p.stopRetry[p.selected] {
@@ -186,49 +271,51 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 					} else if p.busy {
 						hint = "正在提交，等待真实接收回执后可停止。"
 					}
-					workspaceComposerAction(c.Key("stop"), "square", "Stop", hint, p.busy || p.modelStopping() && !p.stopRetry[p.selected], true, p.stop)
+					id := p.selected
+					executionID, _ := p.Service.Runtime.ActiveExecution(id)
+					p.workspaceComposerAction(c.Key("stop-"+id+"-"+executionID), "square", "Stop", hint, executionID == "" || p.busy || p.modelStopping() && !p.stopRetry[id], true, p.modelStopping() && !p.stopRetry[id], func() { p.stopExecution(id, executionID) })
 				} else {
-					hint := "发送消息；Enter 换行。"
-					switch {
-					case p.busy:
-						hint = "正在提交或导入附件，等待真实接收回执。"
-					case waiting:
-						hint = "任务正在等待回应，请先处理等待中的问题或审批。"
-					case loading:
-						hint = "正在加载当前会话，完成后可发送。"
-					case attachmentProblem != "":
-						hint = attachmentProblem
-					case len(p.model.Draft) > view.MaxDraftBytes:
-						hint = "消息超过 32 KiB，请缩短内容或添加文件。"
-					case !p.model.CanSend():
-						hint = "请输入消息后发送；Enter 换行。"
+					hint, enabled := p.workspaceComposerSendProblem(), false
+					if hint == "" {
+						shortcut := "Ctrl+Enter"
+						if ui.Cmd == ui.Super {
+							shortcut = "⌘+Enter"
+						}
+						hint, enabled = "发送消息；"+shortcut+" 发送，Enter 换行。", true
 					}
-					enabled := !p.busy && !waiting && !loading && attachmentProblem == "" && p.model.CanSend()
-					workspaceComposerAction(c.Key("send"), "arrow-up", "Send", hint, !enabled, enabled, p.sendWorkspaceDraft)
+					p.workspaceComposerAction(c.Key("send"), "arrow-up", "Send", hint, !enabled, enabled || p.busy, p.busy, p.sendWorkspaceDraft)
 				}
 			})
 		})
 		if attachmentProblem != "" {
-			ui.Text(c, attachmentProblem).Role(ui.RoleStatus).FontSize(12).TextColor(t.Danger)
+			ui.Text(c, attachmentProblem).Role(ui.RoleStatus).FontSize(workspaceFontCaption).TextColor(t.Danger)
 		}
 		if len(p.model.Draft) > view.MaxDraftBytes {
-			ui.Text(c, "消息超过 32 KiB，请缩短内容或添加文件。").Role(ui.RoleStatus).FontSize(12).TextColor(t.Danger)
+			ui.Text(c, "消息超过 32 KiB，请缩短内容或添加文件。").Role(ui.RoleStatus).FontSize(workspaceFontCaption).TextColor(t.Danger)
 		}
 	})
 }
 
 // Disabled native controls do not receive tooltips. Their fixed-size parent
 // exposes the reason to pointer and keyboard users while the action stays disabled.
-func workspaceComposerAction(c *ui.Context, icon, label, hint string, disabled, primary bool, action func()) {
-	slot := ui.Box(c).Size(32, 32)
-	if disabled {
+func (p *NativePage) workspaceComposerAction(c *ui.Context, icon, label, hint string, disabled, primary, loading bool, action func()) {
+	slot := ui.Box(c).Size(workspaceIconControlSize, workspaceIconControlSize)
+	if disabled && !loading {
 		slot.Label(label + " unavailable").Focusable().Tooltip(hint)
 	}
 	slot.Children(func() {
-		button := workspaceComposerIconButton(c.Key("control"), icon, label, hint, 32).Radius(16).
-			Disabled(disabled).OnClick(action)
+		activityColor := c.Theme().TextMuted
 		if primary {
-			button.Background(c.Theme().Accent).TextColor(c.Theme().AccentText)
+			activityColor = c.Theme().Surface
+		}
+		button := workspaceComposerIconButtonState(c.Key("control"), icon, label, hint, workspaceIconControlSize, loading, activityColor, p.reducedMotion(c)).Radius(16).
+			Disabled(disabled && !loading).OnClick(func() {
+			if !disabled {
+				action()
+			}
+		})
+		if primary {
+			button.Background(c.Theme().Text).TextColor(c.Theme().Surface)
 		} else {
 			button.Background(workspacePalette(c).subtle).TextColor(c.Theme().TextMuted)
 		}
@@ -236,24 +323,35 @@ func workspaceComposerAction(c *ui.Context, icon, label, hint string, disabled, 
 }
 
 func workspaceComposerIconButton(c *ui.Context, icon, label, hint string, size float32) ui.Element {
+	return workspaceComposerIconButtonState(c, icon, label, hint, size, false, c.Theme().TextMuted, c.Preferences().ReduceMotion)
+}
+
+func workspaceComposerIconButtonState(c *ui.Context, icon, label, hint string, size float32, loading bool, activityColor ui.Color, reduced bool) ui.Element {
 	b := ui.ButtonBase(c).Label(label).Size(size, size).Padding(0).Radius(8).
 		AlignItems(ui.Center).Justify(ui.Center).TextColor(c.Theme().TextMuted).Tooltip(hint)
 	if b.Hovered() || b.FocusVisible() {
 		b.Background(workspacePalette(c).hover).TextColor(c.Theme().Text)
 	}
-	b.Children(func() { ui.Icon(c, workspaceIcon(icon)).Size(18, 18) })
+	b.Children(func() {
+		if loading {
+			workspaceLoadingIconMotion(c.Key("activity"), workspaceIconSize, activityColor, reduced)
+		} else {
+			iconSize := workspaceIconSize
+			ui.Icon(c, workspaceIcon(icon)).Size(iconSize, iconSize)
+		}
+	})
 	return b
 }
 
 func workspaceComposerChip(c *ui.Context, icon, text, label string) ui.Element {
-	b := ui.ButtonBase(c).Label(label).Height(32).Padding(4, 12).Gap(6).Radius(8).
+	b := ui.ButtonBase(c).Label(label).Height(workspaceIconControlSize).Padding(4, 8).Gap(8).Radius(8).
 		AlignItems(ui.Center).Justify(ui.Center).TextColor(c.Theme().TextMuted)
 	if b.Hovered() || b.FocusVisible() {
 		b.Background(workspacePalette(c).hover).TextColor(c.Theme().Text)
 	}
 	b.Children(func() {
 		ui.Icon(c, workspaceIcon(icon)).Size(16, 16).Shrink(0)
-		ui.Text(c, text).FontSize(14).LineHeight(1.5).SingleLine().MinWidth(0).Shrink(1)
+		ui.Text(c, text).FontSize(workspaceFontBody).LineHeight(1.5).SingleLine().MinWidth(0).Shrink(1)
 		ui.Icon(c, workspaceIcon("chevron-down")).Size(14, 14).Shrink(0)
 	})
 	return b
@@ -264,48 +362,73 @@ func workspaceComposerPopover(c *ui.Context, anchor ui.Element, open *bool, widt
 	bounds := anchor.Bounds()
 	available := max(0, max(bounds.Y, height-bounds.Y-bounds.H)-10)
 	ui.PopoverBase(c, anchor, open, func(panel ui.Element) {
-		panel.Label("Composer menu").AttachTo(anchor, ui.AnchorTopLeft, ui.AnchorBottomLeft).Width(width).MaxWidthPercent(95).MaxHeight(available).Margin(0, 0, 6, 0).Padding(8).Gap(4).
-			Radius(12).Background(c.Theme().Surface).Border(1, c.Theme().Border).
-			Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, 0.10))
-		ui.Scroll(c).Label("Composer menu contents").FillWidth().MaxHeight(max(0, available-18)).Children(content)
+		panel.Label("Composer menu").AttachTo(anchor, ui.AnchorTopLeft, ui.AnchorBottomLeft).Width(width).MaxWidthPercent(95).MaxHeight(available).Margin(0, 0, 6, 0).Padding(8).Gap(0).
+			Radius(16).Background(c.Theme().Surface).
+			Shadow(0, 8, 30, -6, ui.RGBA(28, 32, 55, 0.17)).DrawOver(func(p *ui.Painter, r ui.Rect) {
+			p.Stroke(r, c.Theme().Border, 16, 1)
+		})
+		ui.Scroll(c).Label("Composer menu contents").Column().FillWidth().Gap(0).MaxHeight(max(0, available-16)).Children(content)
 	})
 }
 
+// Single-line MenuItem and SelectOption use the normal 28px row and
+// symmetric vertical padding; the inner focus stroke never alters layout.
+func workspaceComposerMenuItem(c *ui.Context, label string) ui.Element {
+	item := ui.ButtonBase(c).Label(label).FillWidth().MinHeight(workspaceNavigationRowHeight).Padding(4, 8).Gap(8).Radius(8).
+		AlignItems(ui.Center).Justify(ui.Start).TextColor(c.Theme().Text).
+		FontSize(workspaceFontBody).FontWeight(400).LineHeight(1.5).FocusRing(false)
+	if item.Hovered() {
+		item.Background(workspacePalette(c).hover)
+	}
+	item.DrawOver(func(p *ui.Painter, r ui.Rect) {
+		if item.FocusVisible() {
+			p.Stroke(r, c.Theme().Accent, 8, 2)
+		}
+	})
+	return item
+}
+
 func (p *NativePage) buildWorkspaceAttachmentMenu(c *ui.Context, anchor ui.Element) {
-	workspaceComposerPopover(c, anchor, &p.composer.addOpen, 320, func() {
+	workspaceComposerPopover(c, anchor, &p.composer.addOpen, 352, func() {
 		target := p.workspaceComposerTarget()
-		enabled := target.EngineID == "alva" && p.window != nil && !p.busy && !p.inputBlocked()
-		item := ui.ButtonBase(c).Label("Attach file").FillWidth().Padding(8, 12).Gap(8).Radius(8).
-			Justify(ui.Start).Disabled(!enabled).OnClick(func() { p.composer.addOpen = false; p.chooseWorkspaceFiles() })
-		if item.Hovered() {
-			item.Background(workspacePalette(c).hover)
+		enabled := p.window != nil && !p.busy && !p.inputBlocked()
+		item := workspaceComposerMenuItem(c, "Attach file").Disabled(!enabled).
+			OnClick(func() { p.composer.addOpen = false; p.chooseWorkspaceFiles() })
+		if !enabled {
+			item.TextColor(c.Theme().TextMuted)
 		}
 		item.Children(func() {
-			ui.Icon(c, workspaceIcon("paperclip")).Size(16, 16)
-			ui.Text(c, "文件、图片或视频…").FontSize(14).LineHeight(1.5)
+			ui.Icon(c, workspaceIcon("paperclip")).Size(workspaceIconSize, workspaceIconSize).Shrink(0).TextColor(c.Theme().TextMuted)
+			ui.Text(c, "文件、图片或视频…").FontSize(workspaceFontBody).LineHeight(1.5).SingleLine().Grow(1).MinWidth(0)
 		})
 		for _, entry := range []struct{ kind, icon, label string }{
-			{"references", "folder", "项目文件或目录…"},
+			{"references", "folder", "文件或路径…"},
 			{"commands", "code-xml", "命令与 Skills…"},
 		} {
-			disabled := p.busy || p.inputBlocked() || entry.kind == "references" && (p.selected == "" || target.EngineID != "alva")
-			button := ui.ButtonBase(c.Key(entry.kind)).Label(entry.label).FillWidth().Padding(8, 12).Gap(8).Radius(8).
-				AlignItems(ui.Center).Justify(ui.Start).Disabled(disabled).OnClick(func() {
+			disabled := p.busy || p.inputBlocked()
+			button := workspaceComposerMenuItem(c.Key(entry.kind), entry.label).Disabled(disabled).OnClick(func() {
 				p.composer.addOpen = false
 				p.openWorkspacePicker(entry.kind)
 			})
-			if button.Hovered() {
-				button.Background(workspacePalette(c).hover)
+			if disabled {
+				button.TextColor(c.Theme().TextMuted)
 			}
 			button.Children(func() {
-				ui.Icon(c, workspaceIcon(entry.icon)).Size(16, 16)
-				ui.Text(c, entry.label).FontSize(14).LineHeight(1.5)
+				ui.Icon(c, workspaceIcon(entry.icon)).Size(workspaceIconSize, workspaceIconSize).Shrink(0).TextColor(c.Theme().TextMuted)
+				ui.Text(c, entry.label).FontSize(workspaceFontBody).LineHeight(1.5).SingleLine().Grow(1).MinWidth(0)
 			})
 		}
 		p.buildWorkspacePlanMenuItem(c)
-		if target.EngineID != "alva" {
-			ui.Text(c, "文件引用暂仅支持 Alva 引擎。").FontSize(12).TextColor(c.Theme().TextMuted).Padding(8, 12)
+		disabled := p.Service.Goals == nil || target.EngineID != "alva" || p.busy || p.inputBlocked()
+		goal := workspaceComposerMenuItem(c.Key("new-goal"), "New Goal").Disabled(disabled).
+			Tooltip("目标引用由 Alva Agent 使用").OnClick(func() { p.composer.addOpen = false; p.openWorkspaceGoal() })
+		if disabled {
+			goal.TextColor(c.Theme().TextMuted)
 		}
+		goal.Children(func() {
+			ui.Icon(c, workspaceIcon("target")).Size(workspaceIconSize, workspaceIconSize).Shrink(0).TextColor(c.Theme().TextMuted)
+			ui.Text(c, "新建或选择目标").FontSize(workspaceFontBody).LineHeight(1.5).SingleLine().Grow(1).MinWidth(0)
+		})
 	})
 }
 
@@ -335,10 +458,10 @@ func (p *NativePage) buildWorkspacePermissionMenu(c *ui.Context, anchor ui.Eleme
 		ui.Row(c).Role(ui.RoleMenuItemRadio).Label("Current permission policy").Checked(true).
 			FillWidth().Padding(8, 12).AlignItems(ui.Center).Gap(8).Children(func() {
 			ui.Icon(c, workspaceIcon("shield-check")).Size(16, 16).TextColor(c.Theme().Accent)
-			ui.Text(c, label).FontSize(14).Grow(1)
+			ui.Text(c, label).FontSize(workspaceFontBody).Grow(1)
 			ui.Icon(c, workspaceIcon("check")).Size(16, 16).TextColor(c.Theme().Accent)
 		})
-		ui.Text(c, description).FontSize(12).LineHeight(1.5).TextColor(c.Theme().TextMuted).Padding(8, 12)
+		ui.Text(c, description).FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted).Padding(8, 12)
 		if target.EngineID != "alva" {
 			workspaceUnavailablePermission(c, "每次询问（Ask）", "当前引擎未提供逐次审批策略切换。")
 		}
@@ -351,72 +474,8 @@ func workspaceUnavailablePermission(c *ui.Context, label, reason string) {
 	ui.ButtonBase(c).Role(ui.RoleMenuItemRadio).Label(label).Checked(false).Disabled(true).
 		FillWidth().Padding(8, 12).Tooltip(reason).Children(func() {
 		ui.Column(c).FillWidth().Gap(2).Children(func() {
-			ui.Text(c, label+" · 不可用").FontSize(14).TextColor(c.Theme().TextMuted)
-			ui.Text(c, reason).FontSize(12).LineHeight(1.5).TextColor(c.Theme().TextMuted)
-		})
-	})
-}
-
-func workspaceTargetLabel(target hub.Target) string {
-	return target.ModelID + " · " + strings.ToUpper(target.EngineID)
-}
-
-func workspaceTargetDetails(target hub.Target) string {
-	return fmt.Sprintf("%s · %s\n%s · %s", target.EngineID, target.ProviderID, target.AccountSource, target.BillingRoute)
-}
-
-func (p *NativePage) buildWorkspaceTargetMenu(c *ui.Context, anchor ui.Element, current hub.Target) {
-	workspaceComposerPopover(c, anchor, &p.composer.targetOpen, 352, func() {
-		ui.Text(c, "Agent 与模型").FontSize(12).TextColor(c.Theme().TextMuted).Padding(8, 12)
-		focusIndex := 0
-		for i, target := range p.targets {
-			if hub.RouteKey(target) == hub.RouteKey(current) {
-				focusIndex = i
-				break
-			}
-		}
-		ui.Column(c).Label("Configured agents and models").Role(ui.RoleList).FillWidth().Shrink(0).Gap(4).FocusGroup(ui.Vertical).Children(func() {
-			for i, target := range p.targets {
-				key := hub.RouteKey(target)
-				selected := key == hub.RouteKey(current)
-				button := ui.ButtonBase(c.Key(key)).Role(ui.RoleListItem).Selected(selected).
-					Label("Use "+target.EngineID+" · "+target.ModelID).
-					FillWidth().Shrink(0).Padding(8, 12).Gap(8).Radius(8).Justify(ui.Start).
-					Disabled(p.busy || p.inputBlocked()).OnClick(func() {
-					p.composer.closePopovers()
-					if selected {
-						return
-					}
-					if p.selected == "" {
-						p.composer.target = target
-					} else {
-						p.switchBranch(target)
-					}
-				})
-				if i == focusIndex {
-					button.Bind(&p.composer.targetFocus)
-				}
-				if button.Focused() && p.composer.targetActive != key {
-					p.composer.targetActive = key
-					button.ScrollIntoView()
-				}
-				if selected {
-					button.Background(workspacePalette(c).selection)
-				} else if button.Hovered() || button.FocusVisible() {
-					button.Background(workspacePalette(c).hover)
-				}
-				button.Children(func() {
-					ui.Icon(c, workspaceIcon("bot")).Size(16, 16).TextColor(c.Theme().TextMuted)
-					ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
-						ui.Text(c, workspaceTargetLabel(target)).FontSize(14).TextColor(c.Theme().Text).SingleLine()
-						ui.Text(c, target.ProviderID+" · "+target.AccountSource+" · "+target.BillingRoute).
-							FontSize(12).TextColor(c.Theme().TextMuted).SingleLine()
-					})
-					if selected {
-						ui.Icon(c, workspaceIcon("check")).Size(16, 16).TextColor(c.Theme().Accent)
-					}
-				})
-			}
+			ui.Text(c, label+" · 不可用").FontSize(workspaceFontBody).TextColor(c.Theme().TextMuted)
+			ui.Text(c, reason).FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted)
 		})
 	})
 }

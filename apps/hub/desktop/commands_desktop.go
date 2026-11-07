@@ -24,7 +24,7 @@ func (p *NativePage) openCommands() {
 		value, err := p.Service.Store.Settings(p.ctx, id)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != id || p.generation != generation {
+			if p.selected != id || p.generation != generation || p.pane != "commands" {
 				return
 			}
 			if err != nil {
@@ -48,7 +48,7 @@ func (p *NativePage) commandAction(kind, id string, enabled bool) {
 	if p.selected == "" || p.paneBusy || p.inputBlocked() {
 		return
 	}
-	session, raw := p.selected, p.commandDraft
+	session, raw, generation := p.selected, p.commandDraft, p.generation
 	p.paneBusy = true
 	go func() {
 		var err error
@@ -59,7 +59,7 @@ func (p *NativePage) commandAction(kind, id string, enabled bool) {
 		}
 		p.dispatch(func() {
 			p.paneBusy = false
-			if p.selected != session {
+			if p.selected != session || p.generation != generation || p.pane != "commands" {
 				return
 			}
 			if err != nil {
@@ -80,7 +80,7 @@ func (p *NativePage) buildCommands(c *ui.Context) {
 		ui.Button(c, "Save all native commands disabled").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.commandAction("", "", false) })
 		for _, entry := range p.settings.Commands.Hooks {
 			entry := entry
-			ui.Text(c, fmt.Sprintf("Hook %s · %s · matcher=%q · %s · enabled=%v", entry.ID, entry.Event, entry.Matcher, entry.Command, entry.Enabled)).FontSize(12)
+			ui.Text(c, fmt.Sprintf("Hook %s · %s · matcher=%q · %s · enabled=%v", entry.ID, entry.Event, entry.Matcher, entry.Command, entry.Enabled)).FontSize(workspaceFontCaption)
 			if entry.Enabled {
 				ui.Button(c.Key("hook-"+entry.ID), "Disable Hook next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.commandAction("hook", entry.ID, false) })
 			} else {
@@ -89,7 +89,7 @@ func (p *NativePage) buildCommands(c *ui.Context) {
 		}
 		for _, profile := range p.settings.Commands.Diagnostics {
 			profile := profile
-			ui.Text(c, fmt.Sprintf("Diagnostic %s · %s · %s · enabled=%v", profile.ID, profile.Description, profile.Command, profile.Enabled)).FontSize(12)
+			ui.Text(c, fmt.Sprintf("Diagnostic %s · %s · %s · enabled=%v", profile.ID, profile.Description, profile.Command, profile.Enabled)).FontSize(workspaceFontCaption)
 			if profile.Enabled {
 				ui.Button(c.Key("diagnostic-"+profile.ID), "Disable diagnostic profile next turn").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.commandAction("diagnostic", profile.ID, false) })
 			} else {
