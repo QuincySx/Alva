@@ -8,6 +8,7 @@
 真实owner/native绑定的input-attachment才能处理，派生字节/manifest/selection/receipt事件
 均复用native artifact authority；模型收到小索引/引用，读取清单与媒体投递是独立动作。
 未知route不猜vision；选择最多2个已验证JPEG，只在下次WrapModel请求副本附加，永不写入conversation。
+程序可明确提供SelectedInputURIs（最多2个本native原件）与InputsOnly：actual OnRunStart核对PNG/JPEG/GIF与20MiB预算，经既有ProcessImage/saveOutputs/prepare生成同一selection/receipt链，既有WrapModel仅消费一次。InputsOnly不注册hub_media Tool或其system prompt，Tool返回nil；复用Plugin run不重放已捕获输入，不额外读取历史原件。
 
 ## 约束
 Tool、模型调用及最后receipt都登记在现有Plugin owner内，run/Close取消传播到审批和模型；Close必须join全部实际调用后才释放facts，超时保持未完成，且不额外序列化模型与Tool。显式Close永久封闭，普通run end仍可复用无Processor配方；配置Processor保持原attempt-owned terminal策略。参数和耐久证据拒绝重复键/大小写别名/非法Unicode。
@@ -27,5 +28,6 @@ Plugin在注册处显式指定最大order，Finalize核对自己是最后middlew
 | lifetime.go / lifetime_test.go | Tool/model/receipt取消与active-call join、超时保留、真实选图模型调用结束后才完成清理 |
 | library.go | 同native权威的真实manifest/derivative与selection/receipt不可变事件 |
 | plugin.go | Guard Tool/实际run绑定、显式audio/video派生与单请求副本JPEG注入，不把原件送模型 |
+| selected_inputs.go / selected_inputs_test.go | 明确选中native原件复用既有派生/selection/receipt与唯一WrapModel；inputs-only默认无Tool、unknown route拒绝、Plugin复用与conversation零重放 |
 | audio_test.go | 真实ffmpeg Tool/Guard→WAV→同native manifest闭环，音频拒绝选图、伪造时长拒绝preview |
 | plugin_test.go | 真SDK处理/选图/下一请求零重放、审批/foreign/同ID伪造拒绝、真实错误与取消回执 |

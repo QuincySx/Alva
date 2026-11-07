@@ -19,3 +19,4 @@ ProtocolAdapter 直接编码/解码 native，跨协议才走 Magpie；HTTP/auth 
 |---|---|
 | `codec/` | 四 native 薄桥、真实 Magpie 跨协议、精度/续传/终态/cache presence 检查 |
 | `provider/` | 显式端点/认证与完整有界 SSE framing，供 SDK model 与独立 Gateway 共用 |
+| `eval/` | SDK外可复用单响应模型契约评测；注入LanguageModel与版本化grader，不选择Provider或执行工具 |

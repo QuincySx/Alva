@@ -1,0 +1,414 @@
+const (
+	EffectRead    Effect = "read"
+	EffectWrite   Effect = "write"
+	EffectNone    Effect = "none"
+	EffectExecute Effect = "execute"
+	EffectNetwork Effect = "network"
+	EffectUnknown Effect = "unknown"
+)
+
+const (
+	FailureStartup   FailureKind = "startup"
+	FailureRateLimit FailureKind = "rate_limit"
+	FailureAuth      FailureKind = "authentication"
+	FailureProtocol  FailureKind = "protocol"
+	FailureExecution FailureKind = "execution"
+	FailureCancelled FailureKind = "cancelled"
+)
+
+const (
+	InspectionUnsupported InspectionLevel = "unsupported"
+	InspectionSummary     InspectionLevel = "summary"
+	InspectionFull        InspectionLevel = "full"
+)
+
+const (
+	PermissionEquivalent PermissionRelation = "equivalent"
+	PermissionStricter   PermissionRelation = "stricter"
+)
+
+const (
+	SessionStarted      Kind = "session_started"
+	ExecutionActivity   Kind = "execution_activity"
+	MessageDelta        Kind = "message_delta"
+	Message             Kind = "message"
+	ReasoningDelta      Kind = "reasoning_delta"
+	ContentBlock        Kind = "content_block"
+	ToolStart           Kind = "tool_start"
+	ToolEnd             Kind = "tool_end"
+	PermissionRequest   Kind = "permission_request"
+	UserInputRequested  Kind = "user_input_requested"
+	InteractionResolved Kind = "interaction_resolved"
+	Error               Kind = "error"
+	Completed           Kind = "completed"
+)
+
+const (
+	Succeeded   Outcome = "completed"
+	Failed      Outcome = "failed"
+	Cancelled   Outcome = "cancelled"
+	Interrupted Outcome = "interrupted"
+	Waiting     Outcome = "waiting"
+)
+
+func (d Descriptor) CanSatisfy(profile string) bool
+
+func (d Descriptor) Clone() Descriptor
+
+func (d Descriptor) Description(id string) Description
+
+func (d Descriptor) Validate() error
+
+func (r UserInputRequest) Validate() error
+
+func (r UserInputResponse) ValidateFor(request UserInputRequest) error
+
+func (s *StreamContract) Accept(event Event) error
+
+func (s StreamContract) Clone() StreamContract
+
+func (v GenerationOptions) Clone() GenerationOptions
+
+func (v GenerationOptions) Empty() bool
+
+func (v GenerationOptions) Validate() error
+
+func (w WaitCheckpoint) Validate() error
+
+func CloneInputFiles(files []InputFile) []InputFile
+
+func CloneInputSkills(skills []InputSkill) []InputSkill
+
+func DescribeRuntime(runtime Runtime) Descriptor
+
+func ValidateInputFiles(files []InputFile) error
+
+func ValidateInputSkills(skills []InputSkill) error
+
+import "errors"
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"time"
+)
+
+import (
+	"encoding/hex"
+	"errors"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"errors"
+	"math"
+)
+
+import (
+	"errors"
+	"reflect"
+	"strings"
+	"unicode/utf8"
+)
+
+type Activity struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Effect Effect `json:"effect"`
+}
+
+type Capabilities struct {
+	DurableWaits       bool `json:"durable_waits"`
+	Streaming          bool `json:"streaming"`
+	Resume             bool `json:"resume"`
+	Cancel             bool `json:"cancel"`
+	PermissionCallback bool `json:"permission_callback"`
+	UserInputCallback  bool `json:"user_input_callback"`
+	FileInputs         bool `json:"file_inputs"`
+	SkillInputs        bool `json:"skill_inputs"`
+	ToolControl        bool `json:"tool_control"`
+}
+
+type ConfigSurface struct {
+	SupportsGeneration        bool   `json:"supports_generation"`
+	SupportsMaxTurns          bool   `json:"supports_max_turns"`
+	SupportsSystemPrompt      bool   `json:"supports_system_prompt"`
+	ProviderProtocol          string `json:"provider_protocol"`
+	SupportsFastMode          bool   `json:"supports_fast_mode"`
+	SupportsCustomHTTPHeaders bool   `json:"supports_custom_http_headers"`
+}
+
+type Description struct {
+	ID              string                 `json:"id"`
+	Execution       Capabilities           `json:"execution"`
+	Inspection      InspectionCapabilities `json:"inspection"`
+	PermissionPlans []PermissionPlan       `json:"permission_plans"`
+	Config          ConfigSurface          `json:"config"`
+	Install         InstallMetadata        `json:"install"`
+}
+
+type Descriptor struct {
+	Runtime         Runtime
+	Inspector       Inspector
+	PermissionPlans []PermissionPlan
+	Config          ConfigSurface
+	Install         InstallMetadata
+}
+
+type Effect string
+
+type Event struct {
+	Kind        Kind              `json:"kind"`
+	SessionID   string            `json:"session_id,omitempty"`
+	ID          string            `json:"id,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Text        string            `json:"text,omitempty"`
+	Input       json.RawMessage   `json:"input,omitempty"`
+	Reference   *Reference        `json:"reference,omitempty"`
+	Effect      Effect            `json:"effect,omitempty"`
+	IsError     bool              `json:"is_error,omitempty"`
+	Recoverable bool              `json:"recoverable,omitempty"`
+	Failure     FailureKind       `json:"failure,omitempty"`
+	Outcome     Outcome           `json:"outcome,omitempty"`
+	Usage       *Usage            `json:"usage,omitempty"`
+	Activity    *Activity         `json:"activity,omitempty"`
+	Wait        *WaitCheckpoint   `json:"wait,omitempty"`
+	Question    *UserInputRequest `json:"question,omitempty"`
+}
+
+type FailureKind string
+
+type GenerationOptions struct {
+	Temperature     *float64 `json:"temperature,omitempty"`
+	MaxTokens       *uint32  `json:"max_tokens,omitempty"`
+	ReasoningEffort string   `json:"reasoning_effort,omitempty"`
+}
+
+type InputFile struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	URI        string `json:"uri"`
+	Path       string `json:"path"`
+	MediaType  string `json:"media_type"`
+	SHA256     string `json:"sha256"`
+	Bytes      int64  `json:"bytes"`
+	TextURI    string `json:"text_uri,omitempty"`
+	TextPath   string `json:"text_path,omitempty"`
+	TextSHA256 string `json:"text_sha256,omitempty"`
+	TextBytes  int64  `json:"text_bytes,omitempty"`
+}
+
+type InputSkill struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+type InspectionBundle struct {
+	Data       []byte            `json:"-"`
+	RootID     string            `json:"root_id"`
+	Sessions   int               `json:"sessions"`
+	Records    int               `json:"records"`
+	SHA256     string            `json:"sha256"`
+	HighWaters map[string]uint64 `json:"high_waters"`
+}
+
+type InspectionCapabilities struct {
+	Level             InspectionLevel `json:"level"`
+	Historical        bool            `json:"historical"`
+	Live              bool            `json:"live"`
+	RawRecords        bool            `json:"raw_records"`
+	RecursiveChildren bool            `json:"recursive_children"`
+	ExportJSONL       bool            `json:"export_jsonl_bundle"`
+}
+
+type InspectionChild struct {
+	ParentID string                    `json:"parent_id"`
+	ChildID  string                    `json:"child_id"`
+	Link     InspectionRecordReference `json:"link"`
+}
+
+type InspectionEntry struct {
+	ID            string                     `json:"id"`
+	Sequence      uint64                     `json:"sequence"`
+	Time          time.Time                  `json:"time"`
+	Kind          string                     `json:"kind"`
+	Namespace     string                     `json:"namespace"`
+	Type          string                     `json:"type"`
+	SchemaVersion uint32                     `json:"schema_version"`
+	Parent        *InspectionRecordReference `json:"parent,omitempty"`
+	Summary       string                     `json:"summary"`
+	Value         InspectionReference        `json:"value"`
+}
+
+type InspectionLevel string
+
+type InspectionPage struct {
+	Entries   []InspectionEntry `json:"entries"`
+	Next      uint64            `json:"next"`
+	HighWater uint64            `json:"high_water"`
+	HasMore   bool              `json:"has_more"`
+}
+
+type InspectionQuery struct {
+	After, HighWater uint64
+	Limit            int
+	Literal          string
+}
+
+type InspectionRecordReference struct {
+	SessionID string `json:"session_id"`
+	RecordID  string `json:"record_id"`
+	Sequence  uint64 `json:"sequence"`
+}
+
+type InspectionReference struct {
+	URI        string `json:"uri"`
+	MediaType  string `json:"media_type,omitempty"`
+	SHA256     string `json:"sha256,omitempty"`
+	Bytes      int64  `json:"bytes,omitempty"`
+	Processing string `json:"processing,omitempty"`
+}
+
+type InspectionScope struct{ OwnerID, NativeID string }
+
+type InspectionText struct {
+	URI        string `json:"uri"`
+	Text       string `json:"text"`
+	Offset     int64  `json:"offset"`
+	NextOffset int64  `json:"next_offset"`
+	TotalBytes int64  `json:"total_bytes"`
+	Truncated  bool   `json:"truncated"`
+}
+
+type Inspector interface {
+	InspectionCapabilities() InspectionCapabilities
+	Page(context.Context, InspectionScope, InspectionQuery) (InspectionPage, error)
+	Read(context.Context, InspectionScope, string, int64) (InspectionText, error)
+	Child(context.Context, InspectionScope, uint64) (InspectionChild, error)
+	Observe(context.Context, InspectionScope, uint64, func(InspectionPage) error) error
+	Export(context.Context, InspectionScope, uint64, bool) (InspectionBundle, error)
+}
+
+type InstallMetadata struct {
+	RequiredBinary string `json:"required_binary,omitempty"`
+	InstallHint    string `json:"install_hint,omitempty"`
+}
+
+type Kind string
+
+type Outcome string
+
+type PermissionDecision struct {
+	Allow        bool
+	UpdatedInput json.RawMessage
+	Reason       string
+}
+
+type PermissionPlan struct {
+	ProfileID string             `json:"profile_id"`
+	Relation  PermissionRelation `json:"relation"`
+	Summary   string             `json:"summary"`
+}
+
+type PermissionRelation string
+
+type Reference struct {
+	SessionID string `json:"session_id"`
+	RecordID  string `json:"record_id,omitempty"`
+	Sequence  uint64 `json:"sequence,omitempty"`
+	URI       string `json:"uri,omitempty"`
+}
+
+type Request struct {
+	OwnerID       string
+	Prompt        string
+	ResumeSession string
+
+	WaitRevision  uint64
+	Workspace     string
+	Model         string
+	Provider      string
+	AccountSource string
+	BillingRoute  string
+	SystemPrompt  string
+	MaxTurns      int
+	Generation    GenerationOptions
+	InputFiles    []InputFile
+	InputSkills   []InputSkill
+
+	ReportActivity func(Activity) error `json:"-"`
+
+	RetainWorkspace func() (func(), error) `json:"-"`
+}
+
+type Runtime interface {
+	Execute(context.Context, Request, func(Event) error) error
+	Cancel(context.Context, string) error
+	RespondPermission(context.Context, string, string, PermissionDecision) error
+	Capabilities() Capabilities
+}
+
+type StreamContract struct {
+	Started, Terminal, Fatal bool
+	NativeSessionID          string
+}
+
+type Usage struct {
+	InputTokens  uint64 `json:"input_tokens"`
+	OutputTokens uint64 `json:"output_tokens"`
+}
+
+type UserInputOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+type UserInputQuestion struct {
+	ID       string            `json:"id"`
+	Header   string            `json:"header"`
+	Question string            `json:"question"`
+	Options  []UserInputOption `json:"options,omitempty"`
+	IsOther  bool              `json:"is_other,omitempty"`
+	IsSecret bool              `json:"is_secret,omitempty"`
+}
+
+type UserInputRequest struct {
+	Questions []UserInputQuestion `json:"questions"`
+}
+
+type UserInputResponder interface {
+	RespondUserInput(context.Context, string, string, UserInputResponse) error
+}
+
+type UserInputResponse struct {
+	Answers map[string][]string `json:"answers"`
+}
+
+type WaitCheckpoint struct {
+	Revision  uint64 `json:"revision"`
+	Requests  int    `json:"requests"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+type WaitingRunner interface{ WaitCheckpoint() *WaitCheckpoint }
+
+var ErrSessionNotFound = errors.New("engine session not found")
+
+var ErrUnsupported = errors.New("engine capability unsupported")

@@ -22,14 +22,20 @@ func (p *Plugin) OnRunStart(ctx context.Context, r abi.RuntimeContext) error {
 		return errors.New("image capability declaration is not bound to the actual configured provider/model identity")
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.closed || p.runID != "" || p.active != 0 {
+		p.mu.Unlock()
 		return errors.New("media plugin is active, closed or still cleaning up")
 	}
 	p.runID = r.RunID
 	p.life, p.cancel = context.WithCancel(ctx)
 	p.ending = false
 	p.pending = nil
+	prepare := !p.inputsPrepared && len(p.config.SelectedInputURIs) > 0
+	p.inputsPrepared = true
+	p.mu.Unlock()
+	if prepare {
+		return p.prepareSelectedInputs(ctx, r.RunID)
+	}
 	return nil
 }
 func (p *Plugin) OnRunEnd(ctx context.Context, r abi.RuntimeContext, _ error) error {

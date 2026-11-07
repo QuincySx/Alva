@@ -16,6 +16,7 @@ import (
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/platform/storage"
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
+	owned "github.com/QuincySx/Alva/platform/system/process"
 )
 
 func (a *Adapter) authorizeResume(ctx context.Context, request engine.Request) error {
@@ -151,6 +152,27 @@ func (a *Adapter) Close(ctx context.Context) error {
 	case <-a.closedDone:
 		a.closeMu.Lock()
 		defer a.closeMu.Unlock()
+		// Keep the actual failed process owner and selected store until explicit
+		// cleanup succeeds. An observer timeout never transfers ownership.
+		a.mu.Lock()
+		pending := make(map[*owned.Process]error, len(a.cleanup))
+		for proc, err := range a.cleanup {
+			pending[proc] = err
+		}
+		a.mu.Unlock()
+		var cleanupErr error
+		for proc, previous := range pending {
+			if err := proc.Close(ctx); err != nil || !proc.CleanupComplete() {
+				cleanupErr = errors.Join(cleanupErr, previous, err, errors.New("external process physical cleanup remains incomplete"))
+				continue
+			}
+			a.mu.Lock()
+			delete(a.cleanup, proc)
+			a.mu.Unlock()
+		}
+		if cleanupErr != nil {
+			return cleanupErr
+		}
 		if !a.storeClosed {
 			if err := a.config.Bindings.Close(); err != nil {
 				return err

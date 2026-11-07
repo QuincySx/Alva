@@ -36,7 +36,7 @@ type PermissionResponder func(context.Context, string, string, engine.Permission
 
 // FactoryOptions declares the exact request fields this trusted factory applies
 // to its actual harness. Ordinary factories conservatively reject optional settings.
-type FactoryOptions struct{ SystemPrompt, MaxTurns, Generation, DurableWaits bool }
+type FactoryOptions struct{ SystemPrompt, MaxTurns, Generation, DurableWaits, FileInputs, SkillInputs bool }
 type Adapter struct {
 	factory RunnerFactory
 	respond PermissionResponder
@@ -68,7 +68,7 @@ func (a *Adapter) Descriptor() engine.Descriptor {
 	return d
 }
 func (a *Adapter) Capabilities() engine.Capabilities {
-	return engine.Capabilities{DurableWaits: a.options.DurableWaits, Streaming: true, Resume: true, Cancel: true, ToolControl: true, PermissionCallback: a.respond != nil}
+	return engine.Capabilities{DurableWaits: a.options.DurableWaits, Streaming: true, Resume: true, Cancel: true, ToolControl: true, PermissionCallback: a.respond != nil, FileInputs: a.options.FileInputs, SkillInputs: a.options.SkillInputs}
 }
 func (a *Adapter) RespondPermission(ctx context.Context, id, requestID string, decision engine.PermissionDecision) error {
 	if a.respond == nil {
@@ -100,6 +100,20 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		return errors.New("Alva engine requires a factory and event sink")
 	}
 	request.Generation = request.Generation.Clone()
+	if err := engine.ValidateInputFiles(request.InputFiles); err != nil {
+		return err
+	}
+	if len(request.InputFiles) > 0 && !a.options.FileInputs {
+		return engine.ErrUnsupported
+	}
+	request.InputFiles = engine.CloneInputFiles(request.InputFiles)
+	if err := engine.ValidateInputSkills(request.InputSkills); err != nil {
+		return err
+	}
+	if len(request.InputSkills) > 0 && !a.options.SkillInputs {
+		return engine.ErrUnsupported
+	}
+	request.InputSkills = engine.CloneInputSkills(request.InputSkills)
 	if err := request.Generation.Validate(); err != nil {
 		return err
 	}

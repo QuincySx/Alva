@@ -31,6 +31,10 @@ type Config struct {
 	ImageCapable                 bool
 	ProviderID, ModelID          string
 	Processor                    *nativemedia.Processor
+	// SelectedInputURIs are explicit originals owned by this native session.
+	// InputsOnly contributes only the existing one-request image middleware.
+	SelectedInputURIs []string
+	InputsOnly        bool
 }
 type Plugin struct {
 	config         Config
@@ -44,6 +48,7 @@ type Plugin struct {
 	active         int
 	idle           chan struct{}
 	pending        *Selection
+	inputsPrepared bool
 	gate           chan struct{}
 }
 
@@ -51,6 +56,17 @@ func New(ctx context.Context, config Config) (*Plugin, error) {
 	if config.Guard == nil || !filepath.IsAbs(config.Cwd) || config.Route == "" || len(config.Route) > 1024 || !utf8.ValidString(config.Route) || (config.ImageCapable && (config.ProviderID == "" || config.ModelID == "")) {
 		return nil, errors.New("media requires explicit guard, workspace and configured route")
 	}
+	if len(config.SelectedInputURIs) > 2 || len(config.SelectedInputURIs) > 0 && !config.ImageCapable {
+		return nil, errors.New("selected images require an explicitly image-capable route and at most two originals")
+	}
+	seen := make(map[string]bool)
+	for _, uri := range config.SelectedInputURIs {
+		if uri == "" || len(uri) > 2048 || !utf8.ValidString(uri) || seen[uri] {
+			return nil, errors.New("selected image references must be unique and bounded")
+		}
+		seen[uri] = true
+	}
+	config.SelectedInputURIs = append([]string(nil), config.SelectedInputURIs...)
 	library, err := NewLibrary(ctx, config.Repository, config.Owner, config.SessionID)
 	if err != nil {
 		return nil, err
@@ -66,14 +82,24 @@ func (p *Plugin) Finalize(_ context.Context, late core.LateContext) ([]abi.Tool,
 	}
 	return nil, nil
 }
-func (p *Plugin) Tool() abi.Tool { return p.tool }
+func (p *Plugin) Tool() abi.Tool {
+	if p.config.InputsOnly {
+		return nil
+	}
+	return p.tool
+}
 func (p *Plugin) Register(_ context.Context, r *core.Registrar) error {
-	if err := r.Tool(p.tool); err != nil {
-		return err
+	if !p.config.InputsOnly {
+		if err := r.Tool(p.tool); err != nil {
+			return err
+		}
 	}
 	// Selected media is injected innermost; Finalize verifies this position.
 	if err := r.Middleware(p, math.MaxInt); err != nil {
 		return err
+	}
+	if p.config.InputsOnly {
+		return nil
 	}
 	return r.SystemPrompt("hub_media explicitly probes or derives only this native session's uploaded artifact references. Originals are not model inputs. Read processing manifests and losses before choosing <=2 derived JPEGs for one request only; a route must explicitly permit images. Selection is not network acceptance or visual understanding. All large data, manifests and receipts stay in native references; context_read/search retrieve selected text. No automatic decoder discovery, model delivery, startup replay, hidden audio or full-video understanding.")
 }

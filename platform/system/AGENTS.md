@@ -18,7 +18,9 @@ process 提供自有进程组/真实回收，media 提供显式字节派生与�
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | Owned process | `process/` | 明确argv、清洁环境、自有进程组/真实cleanup与有界原字节流framing |
+| Native document text | `document/` | 显式只读PDF的系统PDFKit独立worker；512页/2MiB文本/30s与真实ownedPID内存watchdog，取消join，不执行文档脚本/OCR |
 | Explicit media | `media/` | 原字节有界真实派生和完整来源，不自动向模型投递 |
+| Local dictation | `speech/` | 显式macOS设备许可、仅系统本地识别及独立Stop/Cancel真实回调收尾，不写录音或发送模型 |
 | Loopback HTTP gate | `loopback/` | 共享numeric Host/Origin/256-bit Bearer，不引入Hub/协议/执行政策 |
 | Strict JSON | `strictjson/` | 共用 Unicode/重复键/深度/DTO 精确字段校验，适用于 portable 工具/配置/协议，不读取 HTTP 或 OS 资源，传递依赖限标准库与 SDK |
 | Secret input | `secretinput/` | 命令stdin有界读与真实管道取消，无后台secret reader |

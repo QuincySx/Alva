@@ -25,8 +25,9 @@ Native-only 机制；启动授权在外层 Plugin/产品。
 | Seekable input regression | `input_file_test.go` | actual child从文件stdin seek/read、写失败、借用file不关闭、非regular拒绝；不创建copy goroutine |
 | Unix | `process_unix.go` | 自有 process group，先 kill 再 reap |
 | Darwin | `process_darwin.go` | killpg EPERM后最多100ms只重观测，不重发signal/不reap；仅waitid真退出且全组无live时确认XNU退出过渡，真实live/inspection失败保留原错误 |
+| Owned memory observation | `memory_darwin.go` / `memory_other.go` / `memory_darwin_test.go` | 同一observe锁内仅查真实未reap子PID的libproc RSS/physical footprint；关闭后拒绝，不接外部PID、不冒充硬heap上限，其他平台明确unsupported |
 | Non-reaping wait | `wait_darwin.go` / `wait_linux.go` / `wait_other.go` | libc waitid / Linux WNOWAIT 观察自然退出，保留 PID 所有权直到组清理 |
 | Other | `process_other.go` | 未实现平台拒绝启动，不冒充完整回收 |
 | Regression | `process_test.go` | 环境隔离、真实非零退出码、EOF 不是退出与取消回收 |
 | Darwin exit regressions | `process_darwin_test.go` | 首次未waitable→真实自然退出、禁止reap/额外signal、live leader/live descendant/inspection失败保留EPERM及128个partial-prefix自然退出压力 |
-| Stream framing | `lines.go` / `lines_test.go` | arbitrary Read/UTF8边界合为有界原字节完整行，EOF partial/超限明确，不持有脱敏政策 |
+| Stream framing | `lines.go` / `lines_test.go` | arbitrary Read/UTF8边界合为有界原字节完整行；消费者显式limit最高64MiB以容纳已捕获媒体native记录，其他调用预算不变；EOF partial/超限明确，不持有脱敏政策 |

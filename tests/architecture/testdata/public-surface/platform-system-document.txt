@@ -1,0 +1,63 @@
+const MaxInputBytes int64 = 32 << 20
+
+const MaxMemoryBytes uint64 = 256 << 20
+
+const MaxPages = 512
+
+const MaxTextBytes = 2 << 20
+
+func (p *Processor) CleanupComplete() bool
+
+func (p *Processor) Close(ctx context.Context) error
+
+func (p *Processor) ExtractPDF(ctx context.Context, source *os.File) (Output, error)
+
+func NewProcessor() *Processor
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/platform/system/process"
+)
+
+import (
+	"context"
+	"errors"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/platform/system/process"
+)
+
+import (
+	"context"
+	"os"
+)
+
+type Output struct {
+	Text      string
+	Pages     int
+	Processor string
+}
+
+type Processor struct {
+}
+
+var ErrInvalidPDF = errors.New("PDF is invalid, locked, or has no extractable text")
+
+var ErrMemoryLimit = errors.New("PDF decoder exceeded its 256 MiB observed memory budget")
+
+var ErrOutputLimit = errors.New("PDF text exceeds the 2 MiB extraction budget")
+
+var ErrPageLimit = errors.New("PDF exceeds the 512-page extraction budget")
+
+var ErrUnsupported = errors.New("native PDF text extraction is unavailable on this platform")

@@ -58,3 +58,20 @@ func TestStreamLineOverflowAndObserverFailureAreExplicit(t *testing.T) {
 		t.Fatal("observer failure hidden", err)
 	}
 }
+
+func TestStreamLineExplicitMediaBudgetHasAHardMaximum(t *testing.T) {
+	// Large native media records need an explicit budget; ordinary callers keep
+	// their existing smaller budgets. The reader does not allocate the limit.
+	if err := ReadLines(strings.NewReader("bounded\n"), 64<<20, func(line StreamLine) error {
+		if string(line.Data) != "bounded\n" || !line.Complete {
+			t.Fatal("large explicit budget changed framing", line)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal("explicit media budget was rejected", err)
+	}
+	called := false
+	if err := ReadLines(strings.NewReader("must not read\n"), (64<<20)+1, func(StreamLine) error { called = true; return nil }); err == nil || called {
+		t.Fatal("reader accepted a budget beyond the hard maximum", called, err)
+	}
+}

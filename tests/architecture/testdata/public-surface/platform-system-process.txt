@@ -1,0 +1,143 @@
+const SafePath = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
+
+func (closedInput) Close() error
+
+func (closedInput) Write([]byte) (int, error)
+
+func (p *Process) BeginClose()
+
+func (p *Process) CleanupComplete() bool
+
+func (p *Process) Close(ctx context.Context) error
+
+func (p *Process) Done() <-chan struct{}
+
+func (p *Process) ExitCode() (int, bool)
+
+func (p *Process) MemoryBytes() (uint64, error)
+
+func (p *Process) Wait(ctx context.Context) error
+
+func ReadLines(source io.Reader, limit int, consume func(StreamLine) error) error
+
+func Start(config Config) (*Process, error)
+
+func Start(config Config) (_ *Process, result error)
+
+import "errors"
+
+import "golang.org/x/sys/unix"
+
+import "os"
+
+import (
+	"bufio"
+	"errors"
+	"io"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+import (
+	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+import (
+	"errors"
+	"golang.org/x/sys/unix"
+	"os"
+)
+
+import (
+	"errors"
+	"os"
+	"sync"
+
+	"github.com/ebitengine/purego"
+)
+
+import (
+	"errors"
+	"os"
+)
+
+import (
+	"errors"
+	"os/exec"
+	"syscall"
+	"time"
+
+	"golang.org/x/sys/unix"
+)
+
+import (
+	"errors"
+	"os/exec"
+	"syscall"
+)
+
+import (
+	"errors"
+	"os/exec"
+)
+
+import (
+	"errors"
+	"sync"
+
+	"github.com/ebitengine/purego"
+	"golang.org/x/sys/unix"
+)
+
+type Config struct {
+	Command string
+	Args    []string
+	Cwd     string
+	Env     map[string]string
+
+	StdinFile *os.File
+
+	ReadFiles []*os.File
+
+	DirectoryFiles []*os.File
+}
+
+type Process struct {
+	Stdin  io.WriteCloser
+	Stdout io.ReadCloser
+	Stderr io.ReadCloser
+}
+
+type StreamLine struct {
+	Data                []byte
+	Complete, Truncated bool
+}
+
+var ErrLineLimit = errors.New("native stream line exceeds explicit byte limit")
+
+var SafePath = func() string { path, _ := windows.GetSystemDirectory(); return path }()

@@ -19,6 +19,9 @@ type Capabilities struct {
 	Resume             bool `json:"resume"`
 	Cancel             bool `json:"cancel"`
 	PermissionCallback bool `json:"permission_callback"`
+	UserInputCallback  bool `json:"user_input_callback"`
+	FileInputs         bool `json:"file_inputs"`
+	SkillInputs        bool `json:"skill_inputs"`
 	ToolControl        bool `json:"tool_control"`
 }
 type Request struct {
@@ -35,6 +38,8 @@ type Request struct {
 	SystemPrompt  string
 	MaxTurns      int
 	Generation    GenerationOptions
+	InputFiles    []InputFile
+	InputSkills   []InputSkill
 	// ReportActivity is rebound by an adapter to its actual event sink. A
 	// harness factory must await it BEFORE starting native build/prepare work;
 	// ToolIntent.NoSideEffect says nothing about those separate activities.
@@ -59,17 +64,19 @@ type Runtime interface {
 type Kind string
 
 const (
-	SessionStarted    Kind = "session_started"
-	ExecutionActivity Kind = "execution_activity"
-	MessageDelta      Kind = "message_delta"
-	Message           Kind = "message"
-	ReasoningDelta    Kind = "reasoning_delta"
-	ContentBlock      Kind = "content_block"
-	ToolStart         Kind = "tool_start"
-	ToolEnd           Kind = "tool_end"
-	PermissionRequest Kind = "permission_request"
-	Error             Kind = "error"
-	Completed         Kind = "completed"
+	SessionStarted      Kind = "session_started"
+	ExecutionActivity   Kind = "execution_activity"
+	MessageDelta        Kind = "message_delta"
+	Message             Kind = "message"
+	ReasoningDelta      Kind = "reasoning_delta"
+	ContentBlock        Kind = "content_block"
+	ToolStart           Kind = "tool_start"
+	ToolEnd             Kind = "tool_end"
+	PermissionRequest   Kind = "permission_request"
+	UserInputRequested  Kind = "user_input_requested"
+	InteractionResolved Kind = "interaction_resolved"
+	Error               Kind = "error"
+	Completed           Kind = "completed"
 )
 
 type Outcome string
@@ -121,21 +128,22 @@ type Usage struct {
 	OutputTokens uint64 `json:"output_tokens"`
 }
 type Event struct {
-	Kind        Kind            `json:"kind"`
-	SessionID   string          `json:"session_id,omitempty"`
-	ID          string          `json:"id,omitempty"`
-	Name        string          `json:"name,omitempty"`
-	Text        string          `json:"text,omitempty"`
-	Input       json.RawMessage `json:"input,omitempty"`
-	Reference   *Reference      `json:"reference,omitempty"`
-	Effect      Effect          `json:"effect,omitempty"`
-	IsError     bool            `json:"is_error,omitempty"`
-	Recoverable bool            `json:"recoverable,omitempty"`
-	Failure     FailureKind     `json:"failure,omitempty"`
-	Outcome     Outcome         `json:"outcome,omitempty"`
-	Usage       *Usage          `json:"usage,omitempty"`
-	Activity    *Activity       `json:"activity,omitempty"`
-	Wait        *WaitCheckpoint `json:"wait,omitempty"`
+	Kind        Kind              `json:"kind"`
+	SessionID   string            `json:"session_id,omitempty"`
+	ID          string            `json:"id,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Text        string            `json:"text,omitempty"`
+	Input       json.RawMessage   `json:"input,omitempty"`
+	Reference   *Reference        `json:"reference,omitempty"`
+	Effect      Effect            `json:"effect,omitempty"`
+	IsError     bool              `json:"is_error,omitempty"`
+	Recoverable bool              `json:"recoverable,omitempty"`
+	Failure     FailureKind       `json:"failure,omitempty"`
+	Outcome     Outcome           `json:"outcome,omitempty"`
+	Usage       *Usage            `json:"usage,omitempty"`
+	Activity    *Activity         `json:"activity,omitempty"`
+	Wait        *WaitCheckpoint   `json:"wait,omitempty"`
+	Question    *UserInputRequest `json:"question,omitempty"`
 }
 
 // StreamContract is a consumer-side invariant checker, not an execution owner.
@@ -169,6 +177,9 @@ func (s *StreamContract) Accept(event Event) error {
 	}
 	if event.Wait != nil && (event.Kind != Completed || event.Outcome != Waiting) {
 		return errors.New("checkpoint only belongs to a waiting completion")
+	}
+	if event.Question != nil && event.Kind != UserInputRequested {
+		return errors.New("user input belongs only to an explicit question event")
 	}
 	if event.SessionID != "" {
 		if s.NativeSessionID != "" && event.SessionID != s.NativeSessionID {
@@ -214,6 +225,17 @@ func (s *StreamContract) Accept(event Event) error {
 	case PermissionRequest:
 		if event.ID == "" || event.Name == "" {
 			return errors.New("permission identity missing")
+		}
+	case UserInputRequested:
+		if event.ID == "" || event.Question == nil {
+			return errors.New("user input identity and request required")
+		}
+		if err := event.Question.Validate(); err != nil {
+			return err
+		}
+	case InteractionResolved:
+		if event.ID == "" || (event.Name != "permission" && event.Name != "user_input") {
+			return errors.New("resolved interaction requires its identity and kind")
 		}
 	case Error:
 		if event.Text == "" {

@@ -25,8 +25,16 @@ func TestVendorFixtureProcess(t *testing.T) {
 	if mode == "" {
 		return
 	}
-	_, _ = io.ReadAll(os.Stdin)
+	input, _ := io.ReadAll(os.Stdin)
 	fmt.Fprintln(os.Stderr, "fixture diagnostic marker-secret-12345")
+	if mode == "before-header" {
+		if err := os.WriteFile(os.Getenv("ALVA_ENGINE_READY_FILE"), nil, 0600); err != nil {
+			os.Exit(24)
+		}
+		for {
+			time.Sleep(time.Second)
+		}
+	}
 	if mode == "split-secret" {
 		fmt.Fprint(os.Stderr, "split marker-")
 		time.Sleep(50 * time.Millisecond)
@@ -65,11 +73,44 @@ func TestVendorFixtureProcess(t *testing.T) {
 			os.Exit(0)
 		}
 		fmt.Println(`{"type":"system","subtype":"init","session_id":"fixture-native"}`)
+		switch mode {
+		case "result-is-error":
+			fmt.Println(`{"type":"result","subtype":"success","session_id":"fixture-native","is_error":true,"result":"fixture API failure"}`)
+			os.Exit(0)
+		case "result-foreign":
+			fmt.Println(`{"type":"result","subtype":"success","session_id":"foreign-native"}`)
+			os.Exit(0)
+		}
 		fmt.Println(`{"type":"assistant","message":{"content":[{"type":"text","text":"hello fixture"}]}}`)
 		if mode != "eof" {
 			fmt.Println(`{"type":"result","subtype":"success","session_id":"fixture-native"}`)
 		}
+		if mode == "after-result" {
+			fmt.Println(`{"type":"assistant","message":{"content":[{"type":"text","text":"must not replace completed turn"}]}}`)
+		}
+		if mode == "result-notice" {
+			fmt.Println(`{"type":"system","subtype":"prompt_suggestion","session_id":"fixture-native","suggestion":"fixture suggestion"}`)
+		}
 	case "pi":
+		if mode == "pi-files" {
+			image, original, text := os.Getenv("ALVA_PI_IMAGE"), os.Getenv("ALVA_PI_ORIGINAL"), os.Getenv("ALVA_PI_TEXT")
+			var images int
+			for _, arg := range os.Args {
+				if strings.HasPrefix(arg, "@") {
+					if arg != "@"+image {
+						os.Exit(81)
+					}
+					images++
+				}
+			}
+			if images != 1 || !strings.Contains(string(input), original) || !strings.Contains(string(input), text) || !strings.Contains(string(input), "artifact://pi-original") || !strings.Contains(string(input), "artifact://pi-text") {
+				os.Exit(82)
+			}
+			data, err := os.ReadFile(text)
+			if err != nil || string(data) != "selected derivative fixture" {
+				os.Exit(83)
+			}
+		}
 		for i, arg := range os.Args {
 			if arg == "--session" && i+1 < len(os.Args) {
 				cwd, _ := os.Getwd()
@@ -80,10 +121,24 @@ func TestVendorFixtureProcess(t *testing.T) {
 			}
 		}
 		fmt.Println(`{"type":"session","id":"fixture-native"}`)
+		if mode == "pi-files" {
+			fmt.Println(`{"type":"tool_execution_start","toolCallId":"read-selected","toolName":"read","args":{"path":"selected captured derivative"}}`)
+			fmt.Println(`{"type":"tool_execution_end","toolCallId":"read-selected","toolName":"read","isError":false,"result":{"content":[{"type":"text","text":"selected derivative fixture"}]}}`)
+		}
 		fmt.Println(`{"type":"message_start","message":{"role":"assistant"}}`)
+		if mode == "pi-aborted" || mode == "pi-length" {
+			reason := strings.TrimPrefix(mode, "pi-")
+			fmt.Printf("{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"stopReason\":%q}}\n", reason)
+			fmt.Println(`{"type":"agent_end","willRetry":false}`)
+			fmt.Printf("{\"type\":\"agent_settled\",\"aborted\":%t}\n", reason == "aborted")
+			os.Exit(0)
+		}
 		fmt.Println(`{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"hello fixture"}]}}`)
 		if mode != "eof" {
 			fmt.Println(`{"type":"agent_end","willRetry":false}`)
+			if mode != "pi-unsettled" {
+				fmt.Println(`{"type":"agent_settled","aborted":false}`)
+			}
 		}
 	}
 	if mode == "nonzero" {
@@ -344,6 +399,9 @@ func TestProcessFailuresNeverInventSuccessfulCompletion(t *testing.T) {
 			if len(events) == 0 || !contract.Terminal || events[len(events)-1].Outcome == engine.Succeeded {
 				t.Fatal("failure became success", events)
 			}
+			if mode == "hang" && events[len(events)-1].Outcome != engine.Cancelled || mode == "budget" && events[len(events)-1].Outcome != engine.Failed {
+				t.Fatal("cancellation and strong journal failure lost their distinct outcomes", mode, events)
+			}
 			seenFatal := false
 			for _, event := range events {
 				if seenFatal && event.Kind != engine.Completed {
@@ -356,9 +414,100 @@ func TestProcessFailuresNeverInventSuccessfulCompletion(t *testing.T) {
 		})
 	}
 }
+
+func TestEarlyCancellationReferencesOnlyAuthorizedResumeIdentity(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		t.Run(fmt.Sprintf("resume=%t", resume), func(t *testing.T) {
+			a, _ := fixtureAdapter(t, "codex", "ok")
+			request := engine.Request{OwnerID: "fixture-owner", Workspace: t.TempDir(), Prompt: "early cancellation fixture"}
+			if resume {
+				if err := a.Execute(t.Context(), request, func(engine.Event) error { return nil }); err != nil {
+					t.Fatal(err)
+				}
+				request.ResumeSession = "fixture-native"
+			}
+			ready := filepath.Join(t.TempDir(), "before-header")
+			a.config.Env["ALVA_ENGINE_FIXTURE"] = "before-header"
+			a.config.Env["ALVA_ENGINE_READY_FILE"] = ready
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var events []engine.Event
+			done := make(chan error, 1)
+			go func() {
+				done <- a.Execute(ctx, request, func(event engine.Event) error { events = append(events, event); return nil })
+			}()
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				if _, err := os.Stat(ready); err == nil {
+					break
+				} else if !os.IsNotExist(err) {
+					t.Fatal(err)
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("child did not reach its pre-header barrier")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal("early cancellation violated the terminal contract", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("early cancellation did not join its process")
+			}
+			if len(events) != 2 || events[0].Kind != engine.Error || events[0].Failure != engine.FailureCancelled || events[1].Kind != engine.Completed || events[1].Outcome != engine.Cancelled {
+				t.Fatal("early cancellation was not a clean cancelled terminal", events)
+			}
+			for _, event := range events {
+				if event.SessionID != "" || event.Reference == nil || event.Reference.SessionID != request.ResumeSession {
+					t.Fatal("journal reference fabricated or lost native confirmation", event)
+				}
+			}
+		})
+	}
+}
+
+func TestRetainedJournalReferenceCannotBypassResumeBindingOrNativeConfirmation(t *testing.T) {
+	a, directory := fixtureAdapter(t, "codex", "ok")
+	request := engine.Request{OwnerID: "fixture-owner", Workspace: t.TempDir(), Prompt: "establish native fixture"}
+	if err := a.Execute(t.Context(), request, func(engine.Event) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func(*engine.Request){
+		func(r *engine.Request) { r.ResumeSession = "missing" },
+		func(r *engine.Request) { r.OwnerID = "foreign-owner" },
+		func(r *engine.Request) { r.Workspace = t.TempDir() },
+	} {
+		invalid := request
+		invalid.ResumeSession = "fixture-native"
+		mutate(&invalid)
+		if err := a.Execute(t.Context(), invalid, func(engine.Event) error { t.Fatal("unbound resume emitted an event"); return nil }); !errors.Is(err, engine.ErrSessionNotFound) {
+			t.Fatal("journal fallback bypassed exact native binding", err)
+		}
+	}
+	files, err := os.ReadDir(filepath.Join(directory, "journals"))
+	if err != nil || len(files) != 1 {
+		t.Fatal("rejected resumes created execution journals", len(files), err)
+	}
+	m := newMapper("codex", "engine-journal://retained-fixture")
+	m.referenceSession = "fixture-native"
+	if m.session != "" || m.reference().SessionID != "fixture-native" {
+		t.Fatal("retained journal identity fabricated native confirmation")
+	}
+	events, err := m.mapLine([]byte(`{"type":"thread.started","thread_id":"fixture-native"}`))
+	if err != nil || len(events) != 1 || events[0].Kind != engine.SessionStarted {
+		t.Fatal("journal fallback suppressed the actual native confirmation", events, err)
+	}
+	request.ResumeSession = "fixture-native"
+	if err := a.bindNative(t.Context(), request, "different-native"); err == nil {
+		t.Fatal("retained journal fallback accepted a different actual native identity")
+	}
+}
 func TestPiPendingErrorCanRecoverBeforeRealEOF(t *testing.T) {
 	m := newMapper("pi", "engine-journal://fixture")
-	for _, line := range []string{`{"type":"session","id":"fixture-native"}`, `{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"errorMessage":"context pressure"}}}`, `{"type":"agent_end","willRetry":false}`, `{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"recovered"}]}}`} {
+	for _, line := range []string{`{"type":"session","id":"fixture-native"}`, `{"type":"message_update","assistantMessageEvent":{"type":"error","error":{"errorMessage":"context pressure"}}}`, `{"type":"agent_end","willRetry":false}`, `{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"recovered"}]}}`, `{"type":"agent_settled","aborted":false}`} {
 		if _, err := m.mapLine([]byte(line)); err != nil {
 			t.Fatal(err)
 		}

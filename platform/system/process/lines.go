@@ -21,7 +21,7 @@ type StreamLine struct {
 // bounded prefix is emitted as Truncated and the error requires owner shutdown.
 // The callback must consume synchronously; no goroutine or persistence is hidden.
 func ReadLines(source io.Reader, limit int, consume func(StreamLine) error) error {
-	if source == nil || consume == nil || limit < 1 || limit > 16<<20 {
+	if source == nil || consume == nil || limit < 1 || limit > 64<<20 {
 		return errors.New("bounded stream reader and consumer required")
 	}
 	reader := bufio.NewReaderSize(source, min(4096, limit))

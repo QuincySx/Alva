@@ -1,0 +1,86 @@
+func (*RepositoryInspector) InspectionCapabilities() engine.InspectionCapabilities
+
+func (a *Adapter) Cancel(_ context.Context, id string) error
+
+func (a *Adapter) Capabilities() engine.Capabilities
+
+func (a *Adapter) Descriptor() engine.Descriptor
+
+func (a *Adapter) Execute(parent context.Context, request engine.Request, sink func(engine.Event) error) error
+
+func (a *Adapter) RespondPermission(ctx context.Context, id, requestID string, decision engine.PermissionDecision) error
+
+func (i *RepositoryInspector) Child(ctx context.Context, scope engine.InspectionScope, sequence uint64) (engine.InspectionChild, error)
+
+func (i *RepositoryInspector) Export(ctx context.Context, scope engine.InspectionScope, highWater uint64, children bool) (engine.InspectionBundle, error)
+
+func (i *RepositoryInspector) Observe(ctx context.Context, scope engine.InspectionScope, after uint64, sink func(engine.InspectionPage) error) error
+
+func (i *RepositoryInspector) Page(ctx context.Context, scope engine.InspectionScope, query engine.InspectionQuery) (engine.InspectionPage, error)
+
+func (i *RepositoryInspector) Read(ctx context.Context, scope engine.InspectionScope, uri string, offset int64) (engine.InspectionText, error)
+
+func New(factory RunnerFactory) *Adapter
+
+func NewConfigured(factory RunnerFactory, respond PermissionResponder, options FactoryOptions) *Adapter
+
+func NewRepositoryInspector(repository Storage) (*RepositoryInspector, error)
+
+func NewWithPermissions(factory RunnerFactory, respond PermissionResponder) *Adapter
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/harness"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+)
+
+import (
+	"context"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+type Adapter struct {
+}
+
+type FactoryOptions struct{ SystemPrompt, MaxTurns, Generation, DurableWaits, FileInputs, SkillInputs bool }
+
+type OwnedRunner interface {
+	harness.Runner
+	Close(context.Context) error
+}
+
+type PermissionResponder func(context.Context, string, string, engine.PermissionDecision) error
+
+type RepositoryInspector struct{}
+
+type RunnerFactory func(context.Context, string, engine.Request, bool) (harness.Runner, error)
+
+type Storage interface {
+	storage.Records
+	storage.References
+	storage.ChildReader
+	storage.Bundles
+}

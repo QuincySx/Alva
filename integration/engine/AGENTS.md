@@ -18,7 +18,8 @@ DurableWaits能力必须由实际factory声明；Completed(waiting)只在Session
 | inspector.go | stdlib-only检查契约：bounded metadata/text/typed child/背压观察/显式JSONL，不含执行或删除 |
 | contract_test.go | stream终态/配对、字段身份与typed event边界回归 |
 | alva | 消费完整 L5 harness/SDK 的 Alva 产品桥接，不是轻契约或 SDK 包 |
-| process | 按 Vendor 分派 Claude/Codex/Pi 的共享原生 JSONL adapter 实现，不冒充三个独立 package |
+| process | 按 Vendor 分派 Claude/Codex/Pi 的共享原生 JSONL adapter；显式CLI配置与私有HOME分别保留；Claude结果失败/身份/尾随帧仅fixture验证，不调用真实账号；不冒充三个独立 package |
+| input_files.go / input_skills.go | 显式已捕获文件及所选Skill的stdlib DTO/校验/复制；不读文件、不发现配置或授予目录权限 |
 
 Request.RetainWorkspace is an optional nonserialized trusted host capability: native ToolControl adapters may extend the actual admitted workspace lease for explicitly application-owned background resources, releasing only after physical reap. It grants no tool permission; sealed attempts reject late retention. Opaque external engines do not receive it.
 

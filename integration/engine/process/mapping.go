@@ -1,5 +1,5 @@
 // INPUT: encoding/json, errors, strings and engine JSONL events
-// OUTPUT: Stateful vendor frame projection with native session/result provenance
+// OUTPUT: Stateful vendor frames and journal references with separately verified resume provenance
 // POS: [integration / native external-engine adapter] Claude/Codex/Pi dialect mapping without hidden reasoning or raw tool bodies in product events
 package process
 
@@ -15,17 +15,29 @@ import (
 type mapper struct {
 	vendor, session, journal, failure, pending, current string
 	done                                                bool
-	tools                                               map[string]string
-	texts                                               map[string]string
-	messageNo                                           int
-	usage                                               engine.Usage
+	piAborted                                           bool
+	// Pi RPC must redact a bounded completed aggregate before publishing any
+	// derived chunks. Print keeps the shared mapper text contract.
+	piWholeMessage bool
+	tools          map[string]string
+	texts          map[string]string
+	messageNo      int
+	usage          engine.Usage
+
+	// referenceSession is an authorized retained identity, not a native start.
+	// It qualifies early failure/cancellation journals before a CLI header arrives.
+	referenceSession string
 }
 
 func newMapper(vendor, journal string) *mapper {
 	return &mapper{vendor: vendor, journal: journal, tools: make(map[string]string), texts: make(map[string]string)}
 }
 func (m *mapper) reference() *engine.Reference {
-	return &engine.Reference{SessionID: m.session, URI: m.journal}
+	session := m.session
+	if session == "" {
+		session = m.referenceSession
+	}
+	return &engine.Reference{SessionID: session, URI: m.journal}
 }
 func decode(data []byte) map[string]json.RawMessage {
 	var value map[string]json.RawMessage
@@ -208,6 +220,21 @@ func (m *mapper) codex(kind string, frame map[string]json.RawMessage) ([]engine.
 	return nil, nil
 }
 func (m *mapper) claude(kind string, frame map[string]json.RawMessage) ([]engine.Event, error) {
+	// A print run owns exactly one native turn. Informational system frames may
+	// follow its result, but execution output cannot reopen or replace that turn.
+	if m.done {
+		switch kind {
+		case "assistant", "user", "stream_event", "result", "error":
+			return nil, errors.New("Claude emitted execution output after its native result")
+		case "system":
+			if str(frame, "subtype") == "init" {
+				return nil, errors.New("Claude restarted after its native result")
+			}
+		}
+	}
+	if id := str(frame, "session_id"); id != "" && m.session != "" && id != m.session {
+		return nil, errors.New("Claude changed native session identity")
+	}
 	switch kind {
 	case "system":
 		if str(frame, "subtype") == "init" {
@@ -267,7 +294,7 @@ func (m *mapper) claude(kind string, frame map[string]json.RawMessage) ([]engine
 	case "result":
 		m.done = true
 		subtype := str(frame, "subtype")
-		if subtype != "success" {
+		if subtype != "success" || boolean(frame, "is_error") {
 			m.failure = "Claude returned a non-success native result"
 		}
 		usage := decode(frame["usage"])
@@ -282,11 +309,18 @@ func (m *mapper) claude(kind string, frame map[string]json.RawMessage) ([]engine
 	return nil, nil
 }
 func (m *mapper) pi(kind string, frame map[string]json.RawMessage) ([]engine.Event, error) {
+	if m.done {
+		switch kind {
+		case "session", "agent_start", "agent_end", "agent_settled", "turn_start", "turn_end", "message_start", "message_update", "message_end", "tool_execution_start", "tool_execution_update", "tool_execution_end", "auto_retry_start", "auto_retry_end", "compaction_start", "compaction_end":
+			return nil, errors.New("Pi emitted execution output after its settled result")
+		}
+	}
 	switch kind {
 	case "session":
 		return m.start(str(frame, "id"))
 	case "message_start":
 		if str(decode(frame["message"]), "role") == "assistant" {
+			delete(m.texts, m.current)
 			m.current = ""
 			_ = m.messageID()
 		}
@@ -295,7 +329,11 @@ func (m *mapper) pi(kind string, frame map[string]json.RawMessage) ([]engine.Eve
 		switch str(event, "type") {
 		case "text_delta":
 			id := m.messageID()
-			return m.text(id, m.texts[id]+str(event, "delta"), false)
+			delta := str(event, "delta")
+			if len(delta) > (1<<20)-len(m.texts[id]) {
+				return nil, errors.New("Pi active message exceeds 1 MiB")
+			}
+			return m.text(id, m.texts[id]+delta, false)
 		case "error":
 			m.pending = str(decode(event["error"]), "errorMessage")
 			if m.pending == "" {
@@ -307,26 +345,41 @@ func (m *mapper) pi(kind string, frame map[string]json.RawMessage) ([]engine.Eve
 		if str(message, "role") != "assistant" {
 			return nil, nil
 		}
-		if str(message, "stopReason") == "error" {
+		id := m.messageID()
+		defer func() { delete(m.texts, id); m.current = "" }()
+		switch str(message, "stopReason") {
+		case "error", "aborted", "length":
+			m.piAborted = str(message, "stopReason") == "aborted"
 			m.pending = str(message, "errorMessage")
 			if m.pending == "" {
-				m.pending = "Pi assistant failed"
+				m.pending = "Pi assistant ended with " + str(message, "stopReason")
 			}
 			return nil, nil
 		}
 		m.pending = ""
+		m.piAborted = false
 		var content []map[string]json.RawMessage
 		_ = json.Unmarshal(message["content"], &content)
 		var text strings.Builder
 		for _, block := range content {
 			if str(block, "type") == "text" {
-				text.WriteString(str(block, "text"))
+				part := str(block, "text")
+				if len(part) > (1<<20)-text.Len() {
+					return nil, errors.New("Pi completed message exceeds 1 MiB")
+				}
+				text.WriteString(part)
 			}
 		}
 		usage := decode(message["usage"])
 		m.usage.InputTokens += number(usage, "input")
 		m.usage.OutputTokens += number(usage, "output")
-		return m.text(m.messageID(), text.String(), true)
+		if m.piWholeMessage {
+			if text.Len() == 0 {
+				return nil, nil
+			}
+			return []engine.Event{{Kind: engine.Message, ID: id, Text: text.String()}}, nil
+		}
+		return m.text(id, text.String(), true)
 	case "tool_execution_start":
 		return m.toolStart(str(frame, "toolCallId"), str(frame, "toolName"), frame["args"])
 	case "tool_execution_end":
@@ -338,9 +391,13 @@ func (m *mapper) pi(kind string, frame map[string]json.RawMessage) ([]engine.Eve
 			m.failure = "Pi retry exhausted"
 			m.pending = ""
 		}
-	case "agent_end":
-		if !boolean(frame, "willRetry") {
-			m.done = true
+	case "agent_settled":
+		// agent_end closes only a low-level run. Overflow recovery and
+		// queued work can continue even when willRetry is false.
+		m.done = true
+		if boolean(frame, "aborted") {
+			m.piAborted = true
+			m.failure = "Pi reported an aborted native result"
 		}
 	}
 	return nil, nil

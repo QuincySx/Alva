@@ -1,0 +1,161 @@
+func (*Plugin) Name() string
+
+func (*mediaTool) Description() string
+
+func (*mediaTool) Name() string
+
+func (*mediaTool) ParametersSchema() json.RawMessage
+
+func (*mediaTool) Scheduling(wire.ToolCall) abi.Scheduling
+
+func (l *Library) ListArtifacts(ctx context.Context, sourceURI string, after, highWater uint64) (storage.ArtifactIndexPage, error)
+
+func (l *Library) Original(ctx context.Context, uri string) (storage.ArtifactInfo, []byte, error)
+
+func (l *Library) ReadDerivative(ctx context.Context, manifestURI string) (Manifest, []byte, error)
+
+func (l *Library) ReadManifest(ctx context.Context, uri string) (Manifest, error)
+
+func (l *Library) ReadReceipt(ctx context.Context, uri string) (Receipt, error)
+
+func (l *Library) ReadSelection(ctx context.Context, uri string) (Selection, error)
+
+func (l *Library) Receipts(ctx context.Context, selectionID string, after, highWater uint64) (storage.ArtifactIndexPage, error)
+
+func (l *Library) Selections(ctx context.Context, after, highWater uint64) (storage.ArtifactIndexPage, error)
+
+func (l *Library) Sources(ctx context.Context, after, highWater uint64) (storage.ArtifactIndexPage, error)
+
+func (p *Plugin) CleanupComplete() bool
+
+func (p *Plugin) Close(ctx context.Context) error
+
+func (p *Plugin) Finalize(_ context.Context, late core.LateContext) ([]abi.Tool, error)
+
+func (p *Plugin) OnRunEnd(ctx context.Context, r abi.RuntimeContext, _ error) error
+
+func (p *Plugin) OnRunStart(ctx context.Context, r abi.RuntimeContext) error
+
+func (p *Plugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p *Plugin) Tool() abi.Tool
+
+func (p *Plugin) WrapModel(ctx context.Context, r abi.RuntimeContext, request abi.ModelRequest, emit func(wire.StreamChunk) error, next abi.ModelFunc) error
+
+func (t *mediaTool) DescribeEffect(call wire.ToolCall) abi.Effect
+
+func (t *mediaTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
+
+func (t *mediaTool) IsReadOnly(call wire.ToolCall) bool
+
+func New(ctx context.Context, config Config) (*Plugin, error)
+
+func NewLibrary(ctx context.Context, repository Storage, owner, id string) (*Library, error)
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"image/jpeg"
+	"io"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/platform/storage"
+	nativemedia "github.com/QuincySx/Alva/platform/system/media"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"math"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+	nativemedia "github.com/QuincySx/Alva/platform/system/media"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+import (
+	"context"
+	"errors"
+
+	nativemedia "github.com/QuincySx/Alva/platform/system/media"
+)
+
+type Config struct {
+	Repository                   Storage
+	Owner, SessionID, Cwd, Route string
+	Guard                        *security.Guard
+	ImageCapable                 bool
+	ProviderID, ModelID          string
+	Processor                    *nativemedia.Processor
+
+	SelectedInputURIs []string
+	InputsOnly        bool
+}
+
+type Library struct {
+}
+
+type Manifest struct {
+	Version    int                `json:"version"`
+	Source     wire.Reference     `json:"source"`
+	Artifact   wire.Reference     `json:"artifact"`
+	Output     nativemedia.Output `json:"output"`
+	Processing string             `json:"processing"`
+}
+
+type Plugin struct {
+}
+
+type Receipt struct {
+	Version     int       `json:"version"`
+	SelectionID string    `json:"selection_id"`
+	RunID       string    `json:"run_id"`
+	State       string    `json:"state"`
+	Time        time.Time `json:"time"`
+	ProviderID  string    `json:"provider_id,omitempty"`
+	ModelID     string    `json:"model_id,omitempty"`
+	Processing  string    `json:"processing"`
+}
+
+type Selection struct {
+	ID         string     `json:"id"`
+	RunID      string     `json:"run_id"`
+	CallID     string     `json:"call_id"`
+	Route      string     `json:"route"`
+	Reason     string     `json:"reason"`
+	Manifests  []Manifest `json:"manifests"`
+	Processing string     `json:"processing"`
+}
+
+type Storage interface {
+	storage.Journal
+	storage.ArtifactReader
+	storage.References
+}

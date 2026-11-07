@@ -1,0 +1,251 @@
+func (a *Adapter) AccountSource() string
+
+func (a *Adapter) Cancel(ctx context.Context, id string) error
+
+func (a *Adapter) Capabilities() engine.Capabilities
+
+func (a *Adapter) Close(ctx context.Context) error
+
+func (a *Adapter) Descriptor() engine.Descriptor
+
+func (a *Adapter) Execute(parent context.Context, request engine.Request, sink func(engine.Event) error) error
+
+func (a *Adapter) RespondPermission(ctx context.Context, session, id string, decision engine.PermissionDecision) error
+
+func (a *Adapter) RespondUserInput(ctx context.Context, session, id string, response engine.UserInputResponse) (dispatchErr error)
+
+func (r capturedFileReader) Read(data []byte) (int, error)
+
+func New(config Config) (*Adapter, error)
+
+import "github.com/QuincySx/Alva/integration/engine"
+
+import (
+	"bufio"
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+	owned "github.com/QuincySx/Alva/platform/system/process"
+)
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+	owned "github.com/QuincySx/Alva/platform/system/process"
+)
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"sync"
+	"unicode/utf8"
+
+	owned "github.com/QuincySx/Alva/platform/system/process"
+)
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+	owned "github.com/QuincySx/Alva/platform/system/process"
+)
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/integration/protocol/skill"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+	owned "github.com/QuincySx/Alva/platform/system/process"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
+	"os"
+
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"hash"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"sync"
+	"unicode/utf8"
+
+	owned "github.com/QuincySx/Alva/platform/system/process"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+)
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"encoding/json"
+	"errors"
+	"sort"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+)
+
+import (
+	"errors"
+	"github.com/QuincySx/Alva/platform/system/privatefs"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+import (
+	"errors"
+	"os"
+)
+
+import (
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
+
+type Adapter struct {
+}
+
+type Config struct {
+	Bindings       storage.BindingStore
+	Vendor         string
+	Command        string
+	PrefixArgs     []string
+	Env            map[string]string
+	StateDirectory string
+
+	Transport string
+
+	CodexSandbox        string
+	CodexApprovalPolicy string
+
+	CLIConfigDirectory string
+	ApprovedHostAccess bool
+	Timeout            time.Duration
+	MaxJournalBytes    int64
+}

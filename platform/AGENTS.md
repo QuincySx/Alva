@@ -20,6 +20,6 @@ storage根包是纯契约，各子目录才是provider；选型属于外层装�
 | 目录 | 职责 |
 |---|---|
 | `host/` | Agent Controller/审批/问题与 command/browser 的执行及资源 owner |
-| `system/` | 底层 owned process、媒体派生/播放、loopback/strictjson、可取消秘密输入 |
+| `system/` | 底层 owned process/真实PID内存观察、媒体派生/播放、独立PDF文本worker、loopback/strictjson、可取消秘密输入 |
 | `storage/` | native facts/授权metadata、可插拔immutable blob（目录/临时内存）、私有SQLite与可选持久memory，不合并Hub产品store |
 | `sandbox/` | 真实WASIp1 Agent guest/native host与独立plugin执行peer；共享纯Agent ABI在sdk/sandbox/abi |
