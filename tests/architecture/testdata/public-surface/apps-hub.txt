@@ -211,6 +211,8 @@ func CloneWorkspaceView(v WorkspaceView) WorkspaceView
 
 func ConversationTabDraftID(tabID string) string
 
+func DefaultCatalogURL(endpoint string) string
+
 func DefaultPreferences() Preferences
 
 func EncodeHandoff(h *Handoff) (string, error)

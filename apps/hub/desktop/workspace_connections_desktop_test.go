@@ -893,6 +893,36 @@ func TestNativeConnectionsLostCreationReceiptRetryRecoverAndCancel(t *testing.T)
 	}
 }
 
+// The catalog field sits under 高级设置. A preset's catalog that stayed on the
+// preset host after the endpoint moved elsewhere failed validation with no
+// visible field to fix, so the form keeps a form-filled catalog on the
+// endpoint's origin and never overrides one the user typed.
+func TestNativeConnectionsPresetCatalogFollowsEditedEndpoint(t *testing.T) {
+	s, store := connectionsFixture(t)
+	p := NewNativePage(s)
+	tester := openConnectionTestPage(t, p, 1240, 850)
+	startOpenAIConnection(t, tester)
+	connectionClick(t, tester, "Connection details")
+	connectionType(t, tester, "Edit 完整请求地址", "https://api.deepseek.com/chat/completions")
+	if got := p.connections.draft.CatalogURL; got != "https://api.deepseek.com/models" {
+		t.Fatal("preset catalog stayed on its own host after the endpoint moved", got)
+	}
+	connectionType(t, tester, "Edit API Key", "dummy-deepseek-key")
+	connectionClick(t, tester, "Save connection")
+	settleConnections(t, p, tester)
+	saved := s.Connections.Snapshot()
+	if len(saved) != 1 || saved[0].CatalogURL != "https://api.deepseek.com/models" || store.writes.Load() == 0 {
+		t.Fatal("moved preset connection did not save with a same-origin catalog", saved, p.connections.problem)
+	}
+	connectionClick(t, tester, "Edit connection")
+	connectionClick(t, tester, "Advanced connection headers")
+	connectionType(t, tester, "Edit 模型目录地址（可选，同源）", "https://api.deepseek.com/v1/models")
+	connectionType(t, tester, "Edit 完整请求地址", "https://api.deepseek.com/beta/chat/completions")
+	if got := p.connections.draft.CatalogURL; got != "https://api.deepseek.com/v1/models" {
+		t.Fatal("editing the endpoint replaced a catalog the user typed", got)
+	}
+}
+
 func TestNativeConnectionsRecoverCreationPreservesLaterFieldsAndSecrets(t *testing.T) {
 	s, store := connectionsFixture(t)
 	p := NewNativePage(s)

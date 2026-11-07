@@ -1,5 +1,5 @@
 // INPUT: Explicit connection edits, exact model identities and standard value validation.
-// OUTPUT: Redacted connection values, optimistic CRUD, optional request-bound creation receipts and revision-bound routes.
+// OUTPUT: Redacted connection values, optimistic CRUD, optional request-bound creation receipts, revision-bound routes and the default same-origin catalog derivation.
 // POS: [L7 Hub product] Shared connection policy without provider, credential discovery or execution dependencies.
 package hub
 
@@ -200,6 +200,34 @@ func (c ModelConnection) Validate() error {
 		}
 	}
 	return nil
+}
+
+// DefaultCatalogURL derives the conventional same-origin model catalog from a
+// request endpoint: ".../chat/completions", ".../completions", ".../responses"
+// and ".../messages" become ".../models", and a Gemini ".../models/{model}:..."
+// endpoint keeps its ".../models" prefix. It returns "" when the endpoint has no
+// recognised shape, because guessing a catalog would only move the failure.
+func DefaultCatalogURL(endpoint string) string {
+	address, err := url.Parse(endpoint)
+	if err != nil || address.Host == "" || (address.Scheme != "https" && address.Scheme != "http") || address.User != nil || address.RawQuery != "" || address.Fragment != "" {
+		return ""
+	}
+	path := address.Path
+	if index := strings.Index(path, "/models/"); index >= 0 {
+		path = path[:index] + "/models"
+	} else {
+		found := false
+		for _, suffix := range []string{"/chat/completions", "/completions", "/responses", "/messages"} {
+			if strings.HasSuffix(path, suffix) {
+				path, found = strings.TrimSuffix(path, suffix)+"/models", true
+				break
+			}
+		}
+		if !found {
+			return ""
+		}
+	}
+	return address.Scheme + "://" + address.Host + path
 }
 
 // Apply is the only connection edit policy, reused inside the provider transaction.

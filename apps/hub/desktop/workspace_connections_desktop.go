@@ -22,9 +22,13 @@ import (
 type connectionHeaderDraft struct{ name, value string }
 
 type modelConnectionsPane struct {
-	entries                         []hub.ModelConnection
-	selected, mode, source, query   string
-	draft                           hub.ConnectionUpdate
+	entries                       []hub.ModelConnection
+	selected, mode, source, query string
+	draft                         hub.ConnectionUpdate
+	// autoCatalog is the catalog URL the form filled in itself (preset or
+	// derived from the endpoint). While the draft still holds it, editing the
+	// endpoint re-derives it; a value the user typed is never replaced.
+	autoCatalog                     string
 	headers                         []connectionHeaderDraft
 	modelID, modelName              string
 	details, advanced, deleteReview bool
@@ -165,6 +169,7 @@ func (p *NativePage) chooseConnectionSource(source string) {
 		default:
 			v.draft.Protocol = "openai_responses"
 		}
+		v.autoCatalog = v.draft.CatalogURL
 	}
 	v.source, v.mode, v.problem = source, "form", ""
 	v.focus.Focus()
@@ -178,6 +183,10 @@ func (p *NativePage) editConnection(entry hub.ModelConnection) {
 	v.draft = hub.ConnectionUpdate{ID: entry.ID, ExpectedRevision: entry.Revision, Name: entry.Name,
 		Protocol: entry.Protocol, Endpoint: entry.Endpoint, CatalogURL: entry.CatalogURL, Auth: entry.Auth, Enabled: entry.Enabled,
 		Models: append([]hub.ConnectionModel(nil), entry.Models...)}
+	v.autoCatalog = ""
+	if entry.CatalogURL == "" || entry.CatalogURL == hub.DefaultCatalogURL(entry.Endpoint) {
+		v.autoCatalog = entry.CatalogURL
+	}
 	v.headers, v.modelID, v.modelName = nil, "", ""
 	v.details, v.advanced, v.deleteReview, v.problem = true, false, false, ""
 	v.draftMissing = false
@@ -739,7 +748,10 @@ func (p *NativePage) buildConnectionForm(c *ui.Context) {
 								}
 							})
 						})
-						connectionTextField(c, "connection-endpoint", "完整请求地址", &v.draft.Endpoint, busy).OnChange(p.resetConnectionProbe)
+						connectionTextField(c, "connection-endpoint", "完整请求地址", &v.draft.Endpoint, busy).OnChange(func() {
+							p.followConnectionCatalog()
+							p.resetConnectionProbe()
+						})
 					}
 					if v.draft.Auth == "api_key" {
 						var key ui.Element
@@ -768,7 +780,10 @@ func (p *NativePage) buildConnectionForm(c *ui.Context) {
 						p.buildConnectionProbe(c, busy)
 					})
 					if v.advanced {
-						connectionTextField(c, "connection-catalog-url", "模型目录地址（可选，同源）", &v.draft.CatalogURL, busy).OnChange(p.resetConnectionProbe)
+						connectionTextField(c, "connection-catalog-url", "模型目录地址（可选，同源）", &v.draft.CatalogURL, busy).OnChange(func() {
+							v.autoCatalog = "" // Typed by the user: never re-derived unless cleared.
+							p.resetConnectionProbe()
+						})
 						p.buildConnectionHeaders(c, busy)
 					}
 					p.buildConnectionProbeStatus(c)
@@ -848,6 +863,28 @@ func (p *NativePage) buildConnectionHeaders(c *ui.Context, busy bool) {
 
 // resetConnectionProbe invalidates evidence as soon as a source or credential draft changes.
 // An old operation retains ownership until its actual service call has returned.
+// followConnectionCatalog keeps a form-filled catalog URL on the endpoint's
+// origin. The field sits under 高级设置, so a preset's catalog that silently
+// stayed on another host after the endpoint changed could not be found.
+func (p *NativePage) followConnectionCatalog() {
+	v := &p.connections
+	if v.draft.CatalogURL != "" && v.draft.CatalogURL != v.autoCatalog {
+		return
+	}
+	next := hub.DefaultCatalogURL(v.draft.Endpoint)
+	if next == "" && connectionSameOrigin(v.draft.CatalogURL, v.draft.Endpoint) {
+		return // An unrecognised path on the same origin keeps a still-valid catalog.
+	}
+	v.draft.CatalogURL, v.autoCatalog = next, next
+}
+
+// connectionSameOrigin mirrors the scheme/host rule ModelConnection.Validate applies.
+func connectionSameOrigin(a, b string) bool {
+	x, errX := url.Parse(a)
+	y, errY := url.Parse(b)
+	return errX == nil && errY == nil && x.Host != "" && x.Scheme == y.Scheme && strings.EqualFold(x.Host, y.Host)
+}
+
 func (p *NativePage) resetConnectionProbe() {
 	v := &p.connections
 	v.requestID++
