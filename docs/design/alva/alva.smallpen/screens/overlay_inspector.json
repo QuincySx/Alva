@@ -1,0 +1,732 @@
+{
+  "basePresentationId": "pres_overlay_inspector_desktop",
+  "counterparts": [],
+  "id": "scr_overlay_inspector",
+  "name": "Overlay / Inspector",
+  "presentations": [
+    {
+      "id": "pres_overlay_inspector_desktop",
+      "interactions": [],
+      "name": "desktop",
+      "nodes": {
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_detachinspector": {
+          "children": [],
+          "height": 36,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_detachinspector",
+          "instance": {
+            "component": {
+              "assetId": "cmp_actionbutton",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_actionbutton_button_label:text": "在独立窗口查看"
+            },
+            "variant": {
+              "axis_state": "Default",
+              "axis_style": "Secondary"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "DetachInspector",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d16546daa36833a7dae8e898e455e052",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 108,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorreference": {
+          "children": [
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorreference_inspectorreferencebody",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorreference_inspectorreferencetitle"
+          ],
+          "cornerRadius": 14,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 98,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorreference",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 16,
+            "row-gap": 16
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "InspectorReference",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#DDE4EE",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "tokenBindings": {
+            "cornerRadius": {
+              "assetId": "tok_35467f2773c2536d1c46e5267c242a34",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fill": {
+              "assetId": "tok_1cc9e2901cfb21e86b9cd7d503019ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "itemSpacing": {
+              "assetId": "tok_d2c9c4379c16496fe93e52a9667343cf",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_1cea4868cfccd4819dc6f17bfdfae829",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_1cea4868cfccd4819dc6f17bfdfae829",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_1cea4868cfccd4819dc6f17bfdfae829",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_1cea4868cfccd4819dc6f17bfdfae829",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "stroke": {
+              "assetId": "tok_f00747707c6aa8a5b6f21ff98b74dc97",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 315,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorreference_inspectorreferencebody": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#536276",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorreference_inspectorreferencebody",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "InspectorReferenceBody",
+          "text": "展开时按需读取；离开面板不会改变任务。",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_4efbc08e88a1af930cceecb38dff7aea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_1397e6efdfb4fadcfbf41e5f42bcfec8",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_c5254aaa74dc56cdbc395414f5988cb1",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 267,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorreference_inspectorreferencetitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#182230",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 17,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorreference_inspectorreferencetitle",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "InspectorReferenceTitle",
+          "text": "结果以引用保留",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 600
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_bca4372516783110c9de6234c389cc0f",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_1397e6efdfb4fadcfbf41e5f42bcfec8",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_953b9f4087e4f0b0cf57412e684fcd1d",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 99,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary": {
+          "children": [
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary_inspectorowner",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary_inspectorstate",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary_inspectortask"
+          ],
+          "cornerRadius": 14,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 139,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 16,
+            "row-gap": 16
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "InspectorSummary",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#DDE4EE",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "tokenBindings": {
+            "cornerRadius": {
+              "assetId": "tok_35467f2773c2536d1c46e5267c242a34",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fill": {
+              "assetId": "tok_1cc9e2901cfb21e86b9cd7d503019ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "itemSpacing": {
+              "assetId": "tok_d2c9c4379c16496fe93e52a9667343cf",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_1cea4868cfccd4819dc6f17bfdfae829",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_1cea4868cfccd4819dc6f17bfdfae829",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_1cea4868cfccd4819dc6f17bfdfae829",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_1cea4868cfccd4819dc6f17bfdfae829",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "stroke": {
+              "assetId": "tok_f00747707c6aa8a5b6f21ff98b74dc97",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 207,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary_inspectorowner": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#536276",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary_inspectorowner",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "InspectorOwner",
+          "text": "当前会话 · ALVA · 当前分支",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_4efbc08e88a1af930cceecb38dff7aea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_7efcb7490b8865510284da2ebe3e1377",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_c5254aaa74dc56cdbc395414f5988cb1",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 159,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary_inspectorstate": {
+          "children": [],
+          "height": 28,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary_inspectorstate",
+          "instance": {
+            "component": {
+              "assetId": "cmp_statusbadge",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_statusbadge_badge_label:text": "已完成",
+              "node_statusbadge_badge_label:width": 38
+            },
+            "variant": {
+              "axis_tone": "Success"
+            }
+          },
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "name": "InspectorState",
+          "type": "INSTANCE",
+          "width": 54,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary_inspectortask": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#182230",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary_inspectortask",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "InspectorTask",
+          "text": "规划动态内容界面",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 600
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_bca4372516783110c9de6234c389cc0f",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_1397e6efdfb4fadcfbf41e5f42bcfec8",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_953b9f4087e4f0b0cf57412e684fcd1d",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 113,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortabs": {
+          "children": [
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortabs_inspectorrecords",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortabs_inspectortimeline"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortabs",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "InspectorTabs",
+          "type": "FRAME",
+          "width": 276,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortabs_inspectorrecords": {
+          "children": [],
+          "height": 36,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortabs_inspectorrecords",
+          "instance": {
+            "component": {
+              "assetId": "cmp_tab",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_tab_tab_label:text": "记录"
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "InspectorRecords",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d16546daa36833a7dae8e898e455e052",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 132,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortabs_inspectortimeline": {
+          "children": [],
+          "height": 36,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortabs_inspectortimeline",
+          "instance": {
+            "component": {
+              "assetId": "cmp_tab",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_tab_tab_label:text": "时间线"
+            },
+            "variant": {
+              "axis_state": "Selected"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "InspectorTimeline",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d16546daa36833a7dae8e898e455e052",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 132,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortool": {
+          "children": [],
+          "height": 69,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortool",
+          "instance": {
+            "component": {
+              "assetId": "cmp_toolactivity",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "variant": {
+              "axis_state": "Done"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "InspectorTool",
+          "type": "INSTANCE",
+          "width": 620,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading": {
+          "children": [
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_closeoverlay",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_overlayheadingtext"
+          ],
+          "fills": [],
+          "height": 42,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 16,
+            "row-gap": 16
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "OverlayHeading",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_d2c9c4379c16496fe93e52a9667343cf",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 270,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_closeoverlay": {
+          "children": [],
+          "height": 36,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_closeoverlay",
+          "instance": {
+            "component": {
+              "assetId": "cmp_actionbutton",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_actionbutton_button_label:text": "关闭"
+            },
+            "variant": {
+              "axis_state": "Default",
+              "axis_style": "Ghost"
+            }
+          },
+          "interactions": [
+            {
+              "action-type": "prev-screen",
+              "event-type": "click"
+            }
+          ],
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "CloseOverlay",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d16546daa36833a7dae8e898e455e052",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 72,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_overlayheadingtext": {
+          "children": [
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_overlayheadingtext_overlayheadingsubtitle",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_overlayheadingtext_overlayheadingtitle"
+          ],
+          "fills": [],
+          "height": 42,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_overlayheadingtext",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "OverlayHeadingText",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_167ce590e3305bf108fd9c395d7235c2",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 182,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_overlayheadingtext_overlayheadingsubtitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#536276",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_overlayheadingtext_overlayheadingsubtitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "OverlayHeadingSubtitle",
+          "text": "观察当前任务，不启动或重放执行",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_4efbc08e88a1af930cceecb38dff7aea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_7efcb7490b8865510284da2ebe3e1377",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_c5254aaa74dc56cdbc395414f5988cb1",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 182,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_overlayheadingtext_overlayheadingtitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#182230",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 24,
+          "id": "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading_overlayheadingtext_overlayheadingtitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "OverlayHeadingTitle",
+          "text": "运行详情",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 20,
+            "fontWeight": 600
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_bca4372516783110c9de6234c389cc0f",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_5b6c7a39cc833a29844337ae0c6951de",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_953b9f4087e4f0b0cf57412e684fcd1d",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 81,
+          "x": 0,
+          "y": 0
+        },
+        "node_overlay_inspector_desktop_root": {
+          "children": [
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_detachinspector",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorreference",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortool",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectorsummary",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_inspectortabs",
+            "node_overlay_inspector_desktop_inspector_desktop_u6506842d_overlayheading"
+          ],
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 760,
+          "id": "node_overlay_inspector_desktop_root",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 20,
+            "row-gap": 20
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "Inspector · desktop",
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_1cc9e2901cfb21e86b9cd7d503019ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 420,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "platform": "desktop",
+      "rootId": "node_overlay_inspector_desktop_root",
+      "viewport": {
+        "height": 760,
+        "width": 420
+      }
+    }
+  ]
+}

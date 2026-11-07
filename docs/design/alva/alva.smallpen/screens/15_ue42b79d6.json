@@ -1,0 +1,1552 @@
+{
+  "basePresentationId": "pres_15_ue42b79d6_desktop",
+  "counterparts": [],
+  "id": "scr_15_ue42b79d6",
+  "name": "伙伴 / 15 新建群聊",
+  "presentations": [
+    {
+      "id": "pres_15_ue42b79d6_desktop",
+      "interactions": [],
+      "name": "desktop",
+      "nodes": {
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupspace",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_grouppermissionshint",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupmemberstitle",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader"
+          ],
+          "cornerRadius": 10,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 668,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 18,
+            "row-gap": 18
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "CreateGroupDialog",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#CBCBCB",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 408,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchlabels",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchcheck"
+          ],
+          "cornerRadius": 6,
+          "fills": [
+            {
+              "color": "#F4F4F4",
+              "type": "solid"
+            }
+          ],
+          "height": 60,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 12,
+            "p2": 12,
+            "p3": 12,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "ChooseResearch",
+          "type": "FRAME",
+          "width": 169,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchcheck": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchcheck",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "ChooseResearchCheck",
+          "text": "[x]",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 28,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchlabels": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchlabels_chooseresearchskill",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchlabels_chooseresearchname"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchlabels",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "ChooseResearchLabels",
+          "type": "FRAME",
+          "width": 105,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchlabels_chooseresearchname": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchlabels_chooseresearchname",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ChooseResearchName",
+          "text": "研究伙伴",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 57,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchlabels_chooseresearchskill": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_chooseresearch_chooseresearchlabels_chooseresearchskill",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ChooseResearchSkills",
+          "text": "资料研究 · 文档整理",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 105,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewerlabels",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewercheck"
+          ],
+          "cornerRadius": 6,
+          "fills": [
+            {
+              "color": "#F4F4F4",
+              "type": "solid"
+            }
+          ],
+          "height": 60,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 12,
+            "p2": 12,
+            "p3": 12,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "ChooseReviewer",
+          "type": "FRAME",
+          "width": 121,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewercheck": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewercheck",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "ChooseReviewerCheck",
+          "text": "[x]",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 28,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewerlabels": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewerlabels_choosereviewerskill",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewerlabels_choosereviewername"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewerlabels",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "ChooseReviewerLabels",
+          "type": "FRAME",
+          "width": 57,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewerlabels_choosereviewername": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewerlabels_choosereviewername",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ChooseReviewerName",
+          "text": "审查伙伴",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 57,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewerlabels_choosereviewerskill": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_choosereviewer_choosereviewerlabels_choosereviewerskill",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ChooseReviewerSkills",
+          "text": "代码审查",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 45,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupconfirm",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupfooterspace",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupcancel"
+          ],
+          "fills": [],
+          "height": 32,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "CreateGroupFooter",
+          "type": "FRAME",
+          "width": 154,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupcancel": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupcancel_creategroupcancelte"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupcancel",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "bb650848-a633-5e61-adc4-4fb91813ff76",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "CreateGroupCancel",
+          "type": "FRAME",
+          "width": 52,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupcancel_creategroupcancelte": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupcancel_creategroupcancelte",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "CreateGroupCancelText",
+          "text": "取消",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 28,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupconfirm": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupconfirm_creategroupconfirm"
+          ],
+          "cornerRadius": 6,
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "height": 32,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupconfirm",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "11f4fd4a-a365-5350-afcb-205fd8d80f80",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "CreateGroupConfirm",
+          "type": "FRAME",
+          "width": 78,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupconfirm_creategroupconfirm": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupconfirm_creategroupconfirm",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "CreateGroupConfirmText",
+          "text": "创建群聊",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 54,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupfooterspace": {
+          "children": [],
+          "fills": [],
+          "height": 1,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupfooter_creategroupfooterspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CreateGroupFooterSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader_creategroupclose",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader_creategrouptitle"
+          ],
+          "fills": [],
+          "height": 32,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "CreateGroupHeader",
+          "type": "FRAME",
+          "width": 134,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader_creategroupclose": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader_creategroupclose_creategroupclosetext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader_creategroupclose",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "bb650848-a633-5e61-adc4-4fb91813ff76",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "CreateGroupClose",
+          "type": "FRAME",
+          "width": 32,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader_creategroupclose_creategroupclosetext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader_creategroupclose_creategroupclosetext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "CreateGroupCloseText",
+          "text": "x",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 8,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader_creategrouptitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 26,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupheader_creategrouptitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CreateGroupTitle",
+          "text": "新建群聊",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 22,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 90,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupspace": {
+          "children": [],
+          "fills": [],
+          "height": 0,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_creategroupspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "name": "CreateGroupSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget"
+          ],
+          "fills": [],
+          "height": 56,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "GroupBudgetRules",
+          "type": "FRAME",
+          "width": 163,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget_grouproundbudgetinput",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget_grouproundbudgetlabel"
+          ],
+          "fills": [],
+          "height": 56,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "GroupRoundBudget",
+          "type": "FRAME",
+          "width": 74,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget_grouproundbudgetinput": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget_grouproundbudgetinput_2"
+          ],
+          "cornerRadius": 5,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 36,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget_grouproundbudgetinput",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 10,
+            "p2": 12,
+            "p3": 10,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupRoundBudgetInput",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#CFCFCF",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 49,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget_grouproundbudgetinput_2": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget_grouproundbudgetinput_2",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupRoundBudgetValue",
+          "text": "3 次",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 25,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget_grouproundbudgetlabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_grouproundbudget_grouproundbudgetlabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupRoundBudgetLabel",
+          "text": "每轮回复上限",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 74,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace_groupworkspaceinput",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace_groupworkspacelabel"
+          ],
+          "fills": [],
+          "height": 56,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "GroupWorkspace",
+          "type": "FRAME",
+          "width": 77,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace_groupworkspaceinput": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace_groupworkspaceinput_gro"
+          ],
+          "cornerRadius": 5,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 36,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace_groupworkspaceinput",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 10,
+            "p2": 12,
+            "p3": 10,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupWorkspaceInput",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#CFCFCF",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 77,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace_groupworkspaceinput_gro": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace_groupworkspaceinput_gro",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupWorkspaceValue",
+          "text": "未选择  v",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 53,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace_groupworkspacelabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupbudgetrules_groupworkspace_groupworkspacelabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupWorkspaceLabel",
+          "text": "共享工作区",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 62,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupmemberstitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 18,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupmemberstitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupMembersTitle",
+          "text": "选择伙伴",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 15,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 62,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname_groupnameinput",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname_groupnamelabel"
+          ],
+          "fills": [],
+          "height": 56,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "GroupName",
+          "type": "FRAME",
+          "width": 91,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname_groupnameinput": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname_groupnameinput_groupnamevalue"
+          ],
+          "cornerRadius": 5,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 36,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname_groupnameinput",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 10,
+            "p2": 12,
+            "p3": 10,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupNameInput",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#CFCFCF",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 91,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname_groupnameinput_groupnamevalue": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname_groupnameinput_groupnamevalue",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupNameValue",
+          "text": "产品讨论组",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 67,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname_groupnamelabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupname_groupnamelabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupNameLabel",
+          "text": "群名称",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 38,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_grouppermissionshint": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_grouppermissionshint",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupPermissionsHint",
+          "text": "每位伙伴保留自己的 Skills 和权限；成员消息不会自动开启下一轮。",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 360,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy_groupprivacyinput",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy_groupprivacylabel"
+          ],
+          "fills": [],
+          "height": 56,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "GroupPrivacy",
+          "type": "FRAME",
+          "width": 304,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy_groupprivacyinput": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy_groupprivacyinput_groupprivacyvalue"
+          ],
+          "cornerRadius": 5,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 36,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy_groupprivacyinput",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 10,
+            "p2": 12,
+            "p3": 10,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupPrivacyInput",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#CFCFCF",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 304,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy_groupprivacyinput_groupprivacyvalue": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy_groupprivacyinput_groupprivacyvalue",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupPrivacyValue",
+          "text": "本群消息与已授权文件 · 不带入私聊与私人记忆",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 280,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy_groupprivacylabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupprivacy_groupprivacylabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupPrivacyLabel",
+          "text": "向伙伴共享",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 62,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode"
+          ],
+          "fills": [],
+          "height": 56,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "GroupReplyRules",
+          "type": "FRAME",
+          "width": 223,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder_grouporderinput",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder_grouporderlabel"
+          ],
+          "fills": [],
+          "height": 56,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "GroupOrder",
+          "type": "FRAME",
+          "width": 103,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder_grouporderinput": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder_grouporderinput_grouporderva"
+          ],
+          "cornerRadius": 5,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 36,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder_grouporderinput",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 10,
+            "p2": 12,
+            "p3": 10,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupOrderInput",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#CFCFCF",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 103,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder_grouporderinput_grouporderva": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder_grouporderinput_grouporderva",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupOrderValue",
+          "text": "按成员顺序  v",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 79,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder_grouporderlabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_grouporder_grouporderlabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupOrderLabel",
+          "text": "发言顺序",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 50,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode_groupreplymodeinput",
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode_groupreplymodelabel"
+          ],
+          "fills": [],
+          "height": 56,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "GroupReplyMode",
+          "type": "FRAME",
+          "width": 108,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode_groupreplymodeinput": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode_groupreplymodeinput_grou"
+          ],
+          "cornerRadius": 5,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 36,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode_groupreplymodeinput",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 10,
+            "p2": 12,
+            "p3": 10,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupReplyModeInput",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#CFCFCF",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 108,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode_groupreplymodeinput_grou": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode_groupreplymodeinput_grou",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupReplyModeValue",
+          "text": "仅 @ 的伙伴  v",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 84,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode_groupreplymodelabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog_groupreplyrules_groupreplymode_groupreplymodelabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupReplyModeLabel",
+          "text": "谁回应",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 38,
+          "x": 0,
+          "y": 0
+        },
+        "node_15_ue42b79d6_desktop_root": {
+          "children": [
+            "node_15_ue42b79d6_desktop_15_desktop_ue5639a4c_creategroupdialog"
+          ],
+          "fills": [
+            {
+              "color": "#ECECEC",
+              "type": "solid"
+            }
+          ],
+          "height": 760,
+          "id": "node_15_ue42b79d6_desktop_root",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "15 新建群聊 · desktop",
+          "type": "FRAME",
+          "width": 760,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "platform": "desktop",
+      "rootId": "node_15_ue42b79d6_desktop_root",
+      "viewport": {
+        "height": 760,
+        "width": 760
+      }
+    }
+  ]
+}

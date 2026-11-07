@@ -1,0 +1,1041 @@
+{
+  "basePresentationId": "pres_34_ubce22547_desktop",
+  "counterparts": [],
+  "id": "scr_34_ubce22547",
+  "name": "设置 / 34 数据与存储",
+  "presentations": [
+    {
+      "id": "pres_34_ubce22547_desktop",
+      "interactions": [],
+      "name": "desktop",
+      "nodes": {
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsnav": {
+          "children": [],
+          "height": 960,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsnav",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_settingsnav",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_settingsnav_settingsnav_developer:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "18740586-f654-540a-8b61-2227feb1c08f",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_settingsnav_settingsnav_gateway:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "534197d6-d9ed-54e7-8b80-e0ef9b84e226",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_settingsnav_settingsnav_general:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "a71b3c4e-554c-569f-8a6b-cb53b38d2650",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_settingsnav_settingsnav_models:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "028a0400-3a17-5b07-8cd3-ec109e2dd55f",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_settingsnav_settingsnav_plugins:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "6fcb2798-048b-589d-929d-2726fe693d28",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_settingsnav_settingsnav_security:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "9dcfe72b-94ea-5319-9851-120d9675e844",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_settingsnav_settingsnav_skills:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "775a7b88-d962-59d5-bd79-bf8afa16ed83",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_settingsnav_settingsnav_storage:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "9937ee70-bc5e-5288-a6e8-009de1e3f952",
+                  "event-type": "click"
+                }
+              ]
+            },
+            "variant": {
+              "axis_category": "Storage"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fill",
+          "name": "SettingsNav",
+          "tokenBindings": {
+            "width": {
+              "assetId": "tok_24f442289ee84ef004fabb1b026c8aaa",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 208,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain",
+            "node_34_ubce22547_shell_return_row"
+          ],
+          "cornerRadius": 16,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 979,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion",
+          "layout": "flex",
+          "layout-align-items": "start",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "name": "SettingsRegion",
+          "strokes": [],
+          "tokenBindings": {
+            "cornerRadius": {
+              "assetId": "tok_a665a14664a51526d92c0d59ce4893ca",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fill": {
+              "assetId": "tok_68a53b4d8b151cf5ba88ed6f1697ad04",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 808,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagechange",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle"
+          ],
+          "fills": [],
+          "height": 979,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 16,
+            "row-gap": 16
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-max-w": 800,
+          "layout-item-v-sizing": "fill",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "SettingsMain",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 808,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_cache",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_retention",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_export",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_datatitle"
+          ],
+          "cornerRadius": 0,
+          "fills": [
+            {
+              "color": "#FFFFFF00",
+              "type": "solid"
+            }
+          ],
+          "height": 353,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 0,
+            "p3": 0,
+            "p4": 0
+          },
+          "layout-padding-type": "multiple",
+          "name": "DataManagement",
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_ef04626d03b2a71a888465a410e145cc",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "itemSpacing": {
+              "assetId": "tok_5bffd0f980a105b176d83109dbdaa356",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 652,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_cache": {
+          "children": [],
+          "height": 79,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_cache",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_settingrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_settingrow_settingrow_action__node_alva_button_button_label:text": "查看",
+              "node_alva_settingrow_settingrow_copy_description:text": "只清理可重建内容，保留原始文件。",
+              "node_alva_settingrow_settingrow_copy_title:text": "派生缓存"
+            },
+            "variant": {
+              "axis_control": "Action"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Cache",
+          "type": "INSTANCE",
+          "width": 620,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_datatitle": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_datatitle_datatitlecopy"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_datatitle",
+          "layout": "flex",
+          "layout-align-items": "start",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "DataTitle",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 97,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_datatitle_datatitlecopy": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_datatitle_datatitlecopy_datati"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_datatitle_datatitlecopy",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "DataTitleCopy",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 97,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_datatitle_datatitlecopy_datati": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#29292D",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 36,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_datatitle_datatitlecopy_datati",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "DataTitleTitle",
+          "text": "数据管理",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 16,
+            "fontWeight": 600,
+            "lineHeight": 1.5
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_9b0b2546f8c2f692c7c65ec85922e3b5",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_58c6f78efbf581e59d15ae62b92dd4d7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_d55d4891c50cc7f6e3b9ed940e7e5701",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_27ab83246c736b383085123d756d4958",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "lineHeight": {
+              "assetId": "tok_980b0ed49510c786ff4bb8cdfbb85489",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 97,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_export": {
+          "children": [],
+          "height": 79,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_export",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_settingrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_settingrow_settingrow_action__node_alva_button_button_label:text": "导出",
+              "node_alva_settingrow_settingrow_copy_description:text": "显式选择会话、伙伴或共享内容。",
+              "node_alva_settingrow_settingrow_copy_title:text": "导出数据"
+            },
+            "variant": {
+              "axis_control": "Action"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Export",
+          "type": "INSTANCE",
+          "width": 620,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_retention": {
+          "children": [],
+          "height": 79,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_datamanagement_retention",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_settingrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_settingrow_settingrow_action__node_alva_button_button_label:text": "配置",
+              "node_alva_settingrow_settingrow_copy_description:text": "原始记录、附件与派生文件分别设置。",
+              "node_alva_settingrow_settingrow_copy_title:text": "保留策略"
+            },
+            "variant": {
+              "axis_control": "Action"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Retention",
+          "type": "INSTANCE",
+          "width": 620,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle_pagetitlecopy"
+          ],
+          "fills": [],
+          "height": 62,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle",
+          "layout": "flex",
+          "layout-align-items": "start",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "PageTitle",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 170,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle_pagetitlecopy": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle_pagetitlecopy_pagetitledescription",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle_pagetitlecopy_pagetitletitle"
+          ],
+          "fills": [],
+          "height": 62,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle_pagetitlecopy",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "PageTitleCopy",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 170,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle_pagetitlecopy_pagetitledescription": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#62616A",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 18,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle_pagetitlecopy_pagetitledescription",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "PageTitleDescription",
+          "text": "数据归属与存储组件独立选择。",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400,
+            "lineHeight": 1.5
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_6d2620c184e7ba4cfd6169ad0e8279f9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_58c6f78efbf581e59d15ae62b92dd4d7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_7f85309c9002e01e935e079f7b9b4c9d",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_cd503e52ca2e75b271028082b630b897",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "lineHeight": {
+              "assetId": "tok_980b0ed49510c786ff4bb8cdfbb85489",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "visible": false,
+          "width": 170,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle_pagetitlecopy_pagetitletitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#29292D",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 36,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_pagetitle_pagetitlecopy_pagetitletitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "PageTitleTitle",
+          "text": "数据与存储",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 24,
+            "fontWeight": 600,
+            "lineHeight": 1.5
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_9b0b2546f8c2f692c7c65ec85922e3b5",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_58c6f78efbf581e59d15ae62b92dd4d7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_a842bc9c3b65a7d7be69f45db547b1bf",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_27ab83246c736b383085123d756d4958",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "lineHeight": {
+              "assetId": "tok_980b0ed49510c786ff4bb8cdfbb85489",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 121,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_storagedetails",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_storageport",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendfields",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendtitle"
+          ],
+          "cornerRadius": 0,
+          "fills": [
+            {
+              "color": "#FFFFFF00",
+              "type": "solid"
+            }
+          ],
+          "height": 365,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 0,
+            "p3": 0,
+            "p4": 0
+          },
+          "layout-padding-type": "multiple",
+          "name": "StorageBackend",
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_ef04626d03b2a71a888465a410e145cc",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "itemSpacing": {
+              "assetId": "tok_5bffd0f980a105b176d83109dbdaa356",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 760,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendfields": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendfields_storagescope",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendfields_storageprovider"
+          ],
+          "fills": [],
+          "height": 91,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendfields",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "BackendFields",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 728,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendfields_storageprovider": {
+          "children": [],
+          "height": 91,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendfields_storageprovider",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_field",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_field_field_control:variant": {
+                "axis_kind": "Select",
+                "axis_state": "Default"
+              },
+              "node_alva_field_field_control__node_alva_input_input_value:text": "本地持久存储",
+              "node_alva_field_field_hint:text": "",
+              "node_alva_field_field_hint:visible": false,
+              "node_alva_field_field_title:text": "存储组件"
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "StorageProvider",
+          "type": "INSTANCE",
+          "width": 360,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendfields_storagescope": {
+          "children": [],
+          "height": 91,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendfields_storagescope",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_field",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_field_field_control:variant": {
+                "axis_kind": "Select",
+                "axis_state": "Default"
+              },
+              "node_alva_field_field_control__node_alva_input_input_value:text": "当前用户",
+              "node_alva_field_field_hint:text": "",
+              "node_alva_field_field_hint:visible": false,
+              "node_alva_field_field_title:text": "数据范围"
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "StorageScope",
+          "type": "INSTANCE",
+          "width": 360,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendtitle": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendtitle_backendtitlecopy"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendtitle",
+          "layout": "flex",
+          "layout-align-items": "start",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "BackendTitle",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 97,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendtitle_backendtitlecopy": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendtitle_backendtitlecopy_"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendtitle_backendtitlecopy",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "BackendTitleCopy",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 97,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendtitle_backendtitlecopy_": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#29292D",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 36,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_backendtitle_backendtitlecopy_",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "BackendTitleTitle",
+          "text": "当前存储",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 16,
+            "fontWeight": 600,
+            "lineHeight": 1.5
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_9b0b2546f8c2f692c7c65ec85922e3b5",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_58c6f78efbf581e59d15ae62b92dd4d7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_d55d4891c50cc7f6e3b9ed940e7e5701",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_27ab83246c736b383085123d756d4958",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "lineHeight": {
+              "assetId": "tok_980b0ed49510c786ff4bb8cdfbb85489",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 97,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_storagedetails": {
+          "children": [],
+          "height": 79,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_storagedetails",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_settingrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_settingrow_settingrow_action__node_alva_button_button_label:text": "查看详情",
+              "node_alva_settingrow_settingrow_copy_description:text": "查看组件声明、数据位置与可用性。",
+              "node_alva_settingrow_settingrow_copy_title:text": "连接与健康状态"
+            },
+            "variant": {
+              "axis_control": "Action"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "StorageDetails",
+          "type": "INSTANCE",
+          "width": 620,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_storageport": {
+          "children": [],
+          "height": 79,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagebackend_storageport",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_notice",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_notice_notice_copy_description:text": "可由产品装配本地、内存或远端实现；未安装的组件不显示为可用。",
+              "node_alva_notice_notice_copy_title:text": "存储通过统一能力接入"
+            },
+            "variant": {
+              "axis_tone": "Info"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "StoragePort",
+          "type": "INSTANCE",
+          "visible": false,
+          "width": 480,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagechange": {
+          "children": [],
+          "height": 79,
+          "id": "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion_settingsmain_storagechange",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_notice",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_notice_notice_copy_description:text": "切换连接和迁移历史分开操作，不自动搬运或删除原数据。",
+              "node_alva_notice_notice_copy_title:text": "切换存储前先确认数据范围"
+            },
+            "variant": {
+              "axis_tone": "Warning"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "StorageChange",
+          "type": "INSTANCE",
+          "width": 480,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_desktop_root": {
+          "children": [
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsregion",
+            "node_34_ubce22547_desktop_34_desktop_u5e589136_settingsnav"
+          ],
+          "fills": [
+            {
+              "color": "#F3F4F7",
+              "type": "solid"
+            }
+          ],
+          "height": 960,
+          "id": "node_34_ubce22547_desktop_root",
+          "layout": "flex",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 12,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "34 数据与存储 · desktop",
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_e7b4fac760cc7f5cae16888652151f87",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "height": {
+              "assetId": "tok_7ceab4b2127d266d5f180ef9d0e9021d",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "itemSpacing": {
+              "assetId": "tok_5bffd0f980a105b176d83109dbdaa356",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_5bffd0f980a105b176d83109dbdaa356",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_5bffd0f980a105b176d83109dbdaa356",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_5bffd0f980a105b176d83109dbdaa356",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_c586e09eee43e1f0432fab7d041614ac",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 1440,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_shell_back_to_work": {
+          "children": [],
+          "height": 36,
+          "id": "node_34_ubce22547_shell_back_to_work",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_button",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_button_button_icon:variant": {
+                "axis_name": "ChevronLeft"
+              },
+              "node_alva_button_button_label:text": "返回工作台"
+            },
+            "variant": {
+              "axis_content": "Leading",
+              "axis_kind": "Ghost",
+              "axis_state": "Default"
+            }
+          },
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "912497dd-dcd2-5a5d-9f3a-c287e981450a",
+              "event-type": "click"
+            }
+          ],
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "name": "HeaderReturn",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_4f3abf3ddb5ac84da2436185641aebc3",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "visible": true,
+          "width": 105,
+          "x": 0,
+          "y": 0
+        },
+        "node_34_ubce22547_shell_return_row": {
+          "children": [
+            "node_34_ubce22547_shell_back_to_work"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_34_ubce22547_shell_return_row",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 24,
+            "p3": 0,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "ReturnRow",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_4f3abf3ddb5ac84da2436185641aebc3",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "platform": "desktop",
+      "rootId": "node_34_ubce22547_desktop_root",
+      "viewport": {
+        "height": 960,
+        "width": 1440
+      }
+    }
+  ]
+}

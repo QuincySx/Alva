@@ -1,0 +1,116 @@
+{
+  "colors": [],
+  "fonts": [
+    {
+      "family": "Alva Prototype Sans SC",
+      "id": "font_10e926f6-8764-45f5-af20-66e4cbc0afe4",
+      "variants": [
+        {
+          "files": {
+            "woff": {
+              "blob": "blobs/40f6595e0d284b50bd5905cc0772194b7a49bfbcd411a9b640a9594721c4dbab",
+              "byteLength": 179876,
+              "mimeType": "font/woff",
+              "sha256": "40f6595e0d284b50bd5905cc0772194b7a49bfbcd411a9b640a9594721c4dbab"
+            }
+          },
+          "id": "fvar_e6a4f525-6470-4424-9714-69bc09bbed6f",
+          "name": "Regular",
+          "style": "normal",
+          "weight": 400
+        },
+        {
+          "files": {
+            "woff": {
+              "blob": "blobs/3c3e6f570e8ac9b5ea857d690d419abcebc8ce387f0e4e6e01e9a42c01c8d98e",
+              "byteLength": 180940,
+              "mimeType": "font/woff",
+              "sha256": "3c3e6f570e8ac9b5ea857d690d419abcebc8ce387f0e4e6e01e9a42c01c8d98e"
+            }
+          },
+          "id": "fvar_82193134-efdd-47e7-8a20-325770e56509",
+          "name": "Semi Bold",
+          "style": "normal",
+          "weight": 600
+        }
+      ]
+    },
+    {
+      "family": "Alva Interface Icons",
+      "id": "font_d67a973e-bc41-40c5-bcbd-4ac813ee0d48",
+      "variants": [
+        {
+          "files": {
+            "woff": {
+              "blob": "blobs/d73558fc282d2968626e79738d636527bd25b1d3ddf365a943d78e3f692c84a6",
+              "byteLength": 19312,
+              "mimeType": "font/woff",
+              "sha256": "d73558fc282d2968626e79738d636527bd25b1d3ddf365a943d78e3f692c84a6"
+            }
+          },
+          "id": "fvar_c59c5b25-3ad9-433d-84d1-d9e25bae32ff",
+          "name": "Regular",
+          "style": "normal",
+          "weight": 400
+        }
+      ]
+    },
+    {
+      "family": "JetBrains Mono",
+      "id": "font_44b1732b-0363-4b23-a6d7-64c405ac53a9",
+      "variants": [
+        {
+          "files": {
+            "woff": {
+              "blob": "blobs/73a716b578ce3f463dba4fc46220fa52fe7f62af2e9f8d55852671fe80ae2b6c",
+              "byteLength": 127516,
+              "mimeType": "font/woff",
+              "sha256": "73a716b578ce3f463dba4fc46220fa52fe7f62af2e9f8d55852671fe80ae2b6c"
+            }
+          },
+          "id": "fvar_e9209e19-a8e5-4375-b2fe-72113a5fc46a",
+          "name": "Regular",
+          "style": "normal",
+          "weight": 400
+        }
+      ]
+    },
+    {
+      "family": "Alva UI Sans SC",
+      "id": "font_29900018-0262-4ede-90d6-43e5fe641d2c",
+      "variants": [
+        {
+          "files": {
+            "woff": {
+              "blob": "blobs/f7d5fe3cdcff72e28e44d62be3a71af096d564045b1d29057ee73f467e80fea9",
+              "byteLength": 181532,
+              "mimeType": "font/woff",
+              "sha256": "f7d5fe3cdcff72e28e44d62be3a71af096d564045b1d29057ee73f467e80fea9"
+            }
+          },
+          "id": "fvar_1823c3ef-c0ca-4d66-8493-b572601a71a1",
+          "name": "Regular",
+          "style": "normal",
+          "weight": 400
+        },
+        {
+          "files": {
+            "woff": {
+              "blob": "blobs/e48cc499166c989dfee207aef7fe7d1532ef4a989b069a165d675ff4cb710780",
+              "byteLength": 182600,
+              "mimeType": "font/woff",
+              "sha256": "e48cc499166c989dfee207aef7fe7d1532ef4a989b069a165d675ff4cb710780"
+            }
+          },
+          "id": "fvar_da907cd6-dce0-4033-af26-7f7bf5211e0c",
+          "name": "SemiBold",
+          "style": "normal",
+          "weight": 600
+        }
+      ]
+    }
+  ],
+  "id": "alib_design",
+  "media": [],
+  "typographies": []
+}

@@ -1,0 +1,21 @@
+{
+  "entries": {
+    "assets": [
+      "assets/assets.json"
+    ],
+    "components": [
+      "components/components.json"
+    ],
+    "contexts": [],
+    "requirements": [],
+    "scenarios": [],
+    "screens": [],
+    "tokens": [
+      "tokens/tokens.json"
+    ]
+  },
+  "formatVersion": 1,
+  "name": "Alva Foundation",
+  "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef",
+  "role": "foundation"
+}

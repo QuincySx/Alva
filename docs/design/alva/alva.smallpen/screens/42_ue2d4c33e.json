@@ -1,0 +1,266 @@
+{
+  "basePresentationId": "pres_42_ue2d4c33e_desktop",
+  "counterparts": [],
+  "id": "scr_42_ue2d4c33e",
+  "name": "连接 / 42 模型设置",
+  "presentations": [
+    {
+      "id": "pres_42_ue2d4c33e_desktop",
+      "interactions": [],
+      "name": "desktop",
+      "nodes": {
+        "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog": {
+          "children": [
+            "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_dialogfooter",
+            "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_dialogspace",
+            "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_modelform",
+            "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_dialogheader"
+          ],
+          "cornerRadius": 16,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 773,
+          "id": "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 16,
+            "row-gap": 16
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-max-w": 720,
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "Dialog",
+          "shadow": {
+            "blur": 30,
+            "color": "#2026351A",
+            "offsetX": 0,
+            "offsetY": 8,
+            "spread": -6
+          },
+          "strokes": [],
+          "tokenBindings": {
+            "cornerRadius": {
+              "assetId": "tok_a665a14664a51526d92c0d59ce4893ca",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fill": {
+              "assetId": "tok_68a53b4d8b151cf5ba88ed6f1697ad04",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "itemSpacing": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "shadow": {
+              "assetId": "tok_eae005c4b2c5ec3449db2bb53d673eb3",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 720,
+          "x": 0,
+          "y": 0
+        },
+        "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_dialogfooter": {
+          "children": [],
+          "height": 52,
+          "id": "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_dialogfooter",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_dialogfooter",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_dialogfooter_dialogfooter_cancel:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "028a0400-3a17-5b07-8cd3-ec109e2dd55f",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_dialogfooter_dialogfooter_save:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "028a0400-3a17-5b07-8cd3-ec109e2dd55f",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_dialogfooter_dialogfooter_save__node_alva_button_button_label:text": "保存设置",
+              "node_alva_dialogfooter_dialogfooter_scope:text": "此连接的模型默认值 · 下一轮生效"
+            },
+            "variant": {}
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "DialogFooter",
+          "type": "INSTANCE",
+          "width": 640,
+          "x": 0,
+          "y": 0
+        },
+        "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_dialogheader": {
+          "children": [],
+          "height": 78,
+          "id": "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_dialogheader",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_dialogheader",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_dialogheader_dialogheader_close:interactions": [
+                {
+                  "action-type": "navigate",
+                  "destination": "028a0400-3a17-5b07-8cd3-ec109e2dd55f",
+                  "event-type": "click"
+                }
+              ],
+              "node_alva_dialogheader_dialogheader_copy_description:text": "OpenAI · 主连接",
+              "node_alva_dialogheader_dialogheader_copy_title:text": "模型设置"
+            },
+            "variant": {}
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "DialogHeader",
+          "type": "INSTANCE",
+          "width": 640,
+          "x": 0,
+          "y": 0
+        },
+        "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_dialogspace": {
+          "children": [],
+          "fills": [],
+          "height": 0,
+          "id": "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_dialogspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "DialogSpace",
+          "type": "FRAME",
+          "visible": false,
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_modelform": {
+          "children": [],
+          "height": 563,
+          "id": "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog_modelform",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_modelform",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "variant": {
+              "axis_mode": "Edit"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "ModelForm",
+          "type": "INSTANCE",
+          "width": 672,
+          "x": 0,
+          "y": 0
+        },
+        "node_42_ue2d4c33e_desktop_root": {
+          "children": [
+            "node_42_ue2d4c33e_desktop_42_desktop_u21e3c81b_dialog"
+          ],
+          "fills": [
+            {
+              "color": "#F3F4F7",
+              "type": "solid"
+            }
+          ],
+          "height": 960,
+          "id": "node_42_ue2d4c33e_desktop_root",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "42 模型设置 · desktop",
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_e7b4fac760cc7f5cae16888652151f87",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "height": {
+              "assetId": "tok_7ceab4b2127d266d5f180ef9d0e9021d",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_bc63bc85f51095cfb6f20edef807c34b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_c586e09eee43e1f0432fab7d041614ac",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 1440,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "platform": "desktop",
+      "rootId": "node_42_ue2d4c33e_desktop_root",
+      "viewport": {
+        "height": 960,
+        "width": 1440
+      }
+    }
+  ]
+}

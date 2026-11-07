@@ -21,6 +21,11 @@ __pycache__/
 .playwright-cli/
 alva-eval-runs.db
 
+# Regenerable SmallPen exports, review receipts and authoring batches. The saved
+# .smallpen packages are the design source of truth; these stay on local disk.
+/docs/design/alva/exports/archive/
+/docs/design/alva/source/intents/
+
 # Go build and local rendering artifacts.
 /build/
 /.mygo/

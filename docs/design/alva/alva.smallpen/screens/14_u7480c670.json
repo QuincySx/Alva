@@ -1,0 +1,3004 @@
+{
+  "basePresentationId": "pres_14_u7480c670_desktop",
+  "counterparts": [],
+  "id": "scr_14_u7480c670",
+  "name": "伙伴 / 14 伙伴群聊",
+  "presentations": [
+    {
+      "id": "pres_14_u7480c670_desktop",
+      "interactions": [],
+      "name": "desktop",
+      "nodes": {
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_grouppolicysummary",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader"
+          ],
+          "fills": [],
+          "height": 668,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 0,
+            "row-gap": 0
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "name": "CompanionMain",
+          "type": "FRAME",
+          "width": 639,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companionscopehint",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companionmessagesspace",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_grouproundended",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupuser"
+          ],
+          "fills": [],
+          "height": 554,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 14,
+            "row-gap": 14
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 32,
+            "p3": 24,
+            "p4": 32
+          },
+          "layout-padding-type": "multiple",
+          "name": "CompanionConversation",
+          "type": "FRAME",
+          "width": 639,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposersp",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companionprompt"
+          ],
+          "cornerRadius": 9,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 132,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 16,
+            "p2": 16,
+            "p3": 16,
+            "p4": 16
+          },
+          "layout-padding-type": "multiple",
+          "name": "CompanionComposer",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#CFCFCF",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 344,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_9",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_7",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_6",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_4",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_2"
+          ],
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "CompanionComposerControls",
+          "type": "FRAME",
+          "width": 312,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_10": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_10",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionSendText",
+          "text": "发送",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 28,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_2": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_3"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_2",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "CompanionAttach",
+          "type": "FRAME",
+          "width": 33,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_3": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_3",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionAttachText",
+          "text": "+",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 9,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_4": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_5"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_4",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "CompanionPermission",
+          "type": "FRAME",
+          "width": 87,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_5": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_5",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionPermissionText",
+          "text": "每次询问 v",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 63,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_6": {
+          "children": [],
+          "fills": [],
+          "height": 1,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_6",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionControlSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_7": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_8"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_7",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupReplyPolicy",
+          "type": "FRAME",
+          "width": 92,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_8": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_8",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupReplyPolicyText",
+          "text": "仅 @ 回应 v",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 68,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_9": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_10"
+          ],
+          "cornerRadius": 6,
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposerco_9",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "CompanionSend",
+          "type": "FRAME",
+          "width": 52,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposersp": {
+          "children": [],
+          "fills": [],
+          "height": 0,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companioncomposersp",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "name": "CompanionComposerSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companionprompt": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companioncomposer_companionprompt",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionPrompt",
+          "text": "@ 选择伙伴，或发一条消息…",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 186,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companionmessagesspace": {
+          "children": [],
+          "fills": [],
+          "height": 0,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companionmessagesspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "name": "CompanionMessagesSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companionscopehint": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_companionscopehint",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionScopeHint",
+          "text": "群聊拥有独立记录；不会自动带入伙伴私聊与私人记忆。",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 276,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch_groupresearchdetail",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch_groupresearchtext",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch_groupresearchauthor"
+          ],
+          "fills": [],
+          "height": 95,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 9,
+            "row-gap": 9
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 16,
+            "p2": 0,
+            "p3": 16,
+            "p4": 0
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupResearch",
+          "type": "FRAME",
+          "width": 575,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch_groupresearchauthor": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch_groupresearchauthor",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupResearchAuthor",
+          "text": "研究伙伴 · GPT / ALVA",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 126,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch_groupresearchdetail": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch_groupresearchdetail",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupResearchDetail",
+          "text": "使用 Skill：资料研究 · 本轮第 1 位",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 174,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch_groupresearchtext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 18,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupresearch_groupresearchtext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupResearchText",
+          "text": "我先核对连接和模型目录。服务没有模型列表时，也应该允许手动添加准确的模型 ID。",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 15,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 575,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview_groupreviewdetail",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview_groupreviewtext",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview_groupreviewauthor"
+          ],
+          "fills": [],
+          "height": 95,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 9,
+            "row-gap": 9
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 16,
+            "p2": 0,
+            "p3": 16,
+            "p4": 0
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupReview",
+          "type": "FRAME",
+          "width": 482,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview_groupreviewauthor": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview_groupreviewauthor",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupReviewAuthor",
+          "text": "审查伙伴 · Sonnet / Claude",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 156,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview_groupreviewdetail": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview_groupreviewdetail",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupReviewDetail",
+          "text": "使用 Skill：代码审查 · 本轮第 2 位",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 174,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview_groupreviewtext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 18,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupreview_groupreviewtext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupReviewText",
+          "text": "我来检查错误与保存边界。连接失败时保留草稿，凭据不会写进群消息。",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 15,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 482,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_grouproundended": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_grouproundended",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupRoundEnded",
+          "text": "本轮结束 · 等你继续",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 115,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupuser": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupuser_groupusertext",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupuser_groupuserauthor"
+          ],
+          "fills": [],
+          "height": 73,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupuser",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 9,
+            "row-gap": 9
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 16,
+            "p2": 0,
+            "p3": 16,
+            "p4": 0
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupUser",
+          "type": "FRAME",
+          "width": 442,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupuser_groupuserauthor": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupuser_groupuserauthor",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupUserAuthor",
+          "text": "你",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 14,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupuser_groupusertext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 18,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionconversation_groupuser_groupusertext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupUserText",
+          "text": "@研究伙伴 @审查伙伴 一起看看模型添加流程，先说各自的建议。",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 15,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 442,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companionsettings",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_groupcontinue",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companiontitleblock"
+          ],
+          "fills": [],
+          "height": 74,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 12,
+            "p2": 24,
+            "p3": 12,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "CompanionHeader",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#DDDDDD",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 347,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companionsettings": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companionsettings_companionsettingstext"
+          ],
+          "cornerRadius": 6,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companionsettings",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "CompanionSettings",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#D7D7D7",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 65,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companionsettings_companionsettingstext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companionsettings_companionsettingstext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionSettingsText",
+          "text": "群设置",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 41,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companiontitleblock": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companiontitleblock_companionsubtitle",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companiontitleblock_companiontitle"
+          ],
+          "fills": [],
+          "height": 41,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companiontitleblock",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "CompanionTitleBlock",
+          "type": "FRAME",
+          "width": 132,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companiontitleblock_companionsubtitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companiontitleblock_companionsubtitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionSubtitle",
+          "text": "你 · 研究伙伴 · 审查伙伴",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 132,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companiontitleblock_companiontitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 22,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_companiontitleblock_companiontitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionTitle",
+          "text": "产品讨论组",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 18,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 91,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_groupcontinue": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_groupcontinue_groupcontinuetext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_groupcontinue",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupContinue",
+          "type": "FRAME",
+          "width": 78,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_groupcontinue_groupcontinuetext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_companionheader_groupcontinue_groupcontinuetext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupContinueText",
+          "text": "继续讨论",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 54,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_grouppolicysummary": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_grouppolicysummary_grouppolicytext"
+          ],
+          "fills": [
+            {
+              "color": "#F5F5F5",
+              "type": "solid"
+            }
+          ],
+          "height": 40,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_grouppolicysummary",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 24,
+            "p3": 0,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "GroupPolicySummary",
+          "type": "FRAME",
+          "width": 394,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_grouppolicysummary_grouppolicytext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain_grouppolicysummary_grouppolicytext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "GroupPolicyText",
+          "text": "仅 @ 的伙伴回答 · 按成员顺序 · 每位 1 次 · 本轮最多 3 次回复",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 346,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_rosterscopehint",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_rosterspace",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_newgroup",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_productgroup",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_reviewcompanion",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_researchcompanion",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionsearch",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader"
+          ],
+          "fills": [
+            {
+              "color": "#FAFAFA",
+              "type": "solid"
+            }
+          ],
+          "height": 407,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fill",
+          "layout-padding": {
+            "p1": 16,
+            "p2": 16,
+            "p3": 16,
+            "p4": 16
+          },
+          "layout-padding-type": "multiple",
+          "name": "CompanionRoster",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#DDDDDD",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 0,
+              "widthLeft": 0,
+              "widthRight": 1,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 220,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader_newcompanion",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader_companionrostertitle"
+          ],
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "CompanionRosterHeader",
+          "type": "FRAME",
+          "width": 80,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader_companionrostertitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 20,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader_companionrostertitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionRosterTitle",
+          "text": "伙伴",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 17,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 35,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader_newcompanion": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader_newcompanion_newcompaniontext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader_newcompanion",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "NewCompanion",
+          "type": "FRAME",
+          "width": 33,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader_newcompanion_newcompaniontext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionrosterheader_newcompanion_newcompaniontext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "NewCompanionText",
+          "text": "+",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 9,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionsearch": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionsearch_companionsearchtext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 34,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionsearch",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 10,
+            "p2": 10,
+            "p3": 10,
+            "p4": 10
+          },
+          "layout-padding-type": "multiple",
+          "name": "CompanionSearch",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#D6D6D6",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 118,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionsearch_companionsearchtext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_companionsearch_companionsearchtext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionSearchText",
+          "text": "搜索伙伴和群聊…",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 98,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_newgroup": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_newgroup_newgrouptext"
+          ],
+          "cornerRadius": 6,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_newgroup",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "bb134dae-ac92-5846-ba31-750d2bfbd6e6",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "NewGroup",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#D7D7D7",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 91,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_newgroup_newgrouptext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_newgroup_newgrouptext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "NewGroupText",
+          "text": "+  新建群聊",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 67,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_productgroup": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_productgroup_productgrouphint",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_productgroup_productgroupname"
+          ],
+          "cornerRadius": 6,
+          "fills": [
+            {
+              "color": "#E7E7E7",
+              "type": "solid"
+            }
+          ],
+          "height": 60,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_productgroup",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 12,
+            "p2": 12,
+            "p3": 12,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "ProductGroup",
+          "type": "FRAME",
+          "width": 95,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_productgroup_productgrouphint": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_productgroup_productgrouphint",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ProductGroupHint",
+          "text": "你 + 2 位伙伴",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 65,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_productgroup_productgroupname": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_productgroup_productgroupname",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ProductGroupName",
+          "text": "产品讨论组",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 71,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_researchcompanion": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_researchcompanion_researchcompanionhint",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_researchcompanion_researchcompanionname"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 60,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_researchcompanion",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "bb650848-a633-5e61-adc4-4fb91813ff76",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 12,
+            "p2": 12,
+            "p3": 12,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "ResearchCompanion",
+          "type": "FRAME",
+          "width": 135,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_researchcompanion_researchcompanionhint": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_researchcompanion_researchcompanionhint",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ResearchCompanionHint",
+          "text": "资料整理 · 2 项 Skills",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 111,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_researchcompanion_researchcompanionname": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_researchcompanion_researchcompanionname",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ResearchCompanionName",
+          "text": "研究伙伴",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 57,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_reviewcompanion": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_reviewcompanion_reviewcompanionhint",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_reviewcompanion_reviewcompanionname"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 60,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_reviewcompanion",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 12,
+            "p2": 12,
+            "p3": 12,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "ReviewCompanion",
+          "type": "FRAME",
+          "width": 129,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_reviewcompanion_reviewcompanionhint": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_reviewcompanion_reviewcompanionhint",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ReviewCompanionHint",
+          "text": "代码审查 · 1 项 Skill",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 105,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_reviewcompanion_reviewcompanionname": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_reviewcompanion_reviewcompanionname",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ReviewCompanionName",
+          "text": "审查伙伴",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 57,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_rosterscopehint": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_rosterscopehint",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "RosterScopeHint",
+          "text": "伙伴身份与模型、Agent 分开管理",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 166,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_rosterspace": {
+          "children": [],
+          "fills": [],
+          "height": 0,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster_rosterspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "name": "RosterSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_sidebarspace",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_companions",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_customize",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_automations",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_search",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_newtask",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand"
+          ],
+          "fills": [
+            {
+              "color": "#F2F2F2",
+              "type": "solid"
+            }
+          ],
+          "height": 658,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fill",
+          "layout-padding": {
+            "p1": 14,
+            "p2": 14,
+            "p3": 14,
+            "p4": 14
+          },
+          "layout-padding-type": "multiple",
+          "name": "Sidebar",
+          "type": "FRAME",
+          "width": 244,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account_opensettings",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account_accountname"
+          ],
+          "fills": [],
+          "height": 40,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 4,
+            "p2": 4,
+            "p3": 4,
+            "p4": 4
+          },
+          "layout-padding-type": "multiple",
+          "name": "Account",
+          "type": "FRAME",
+          "width": 130,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account_accountname": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account_accountname",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AccountName",
+          "text": "Smallraw",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 58,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account_opensettings": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account_opensettings_opensettingstext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account_opensettings",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "11bf09c8-3860-5442-a49d-6261a0a24fd7",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "OpenSettings",
+          "type": "FRAME",
+          "width": 52,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account_opensettings_opensettingstext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_account_opensettings_opensettingstext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "OpenSettingsText",
+          "text": "设置",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 28,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_automations": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_automations_automationstext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_automations",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 10,
+            "p3": 9,
+            "p4": 10
+          },
+          "layout-padding-type": "multiple",
+          "name": "Automations",
+          "type": "FRAME",
+          "width": 63,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_automations_automationstext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_automations_automationstext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AutomationsText",
+          "text": "自动化",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 43,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand_collapsesidebar",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand_brandname"
+          ],
+          "fills": [],
+          "height": 44,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 6,
+            "p2": 4,
+            "p3": 6,
+            "p4": 4
+          },
+          "layout-padding-type": "multiple",
+          "name": "Brand",
+          "type": "FRAME",
+          "width": 111,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand_brandname": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 23,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand_brandname",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "BrandName",
+          "text": "Alva",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 19,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 39,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand_collapsesidebar": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand_collapsesidebar_collapsesidebartext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand_collapsesidebar",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "CollapseSidebar",
+          "type": "FRAME",
+          "width": 52,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand_collapsesidebar_collapsesidebartext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_brand_collapsesidebar_collapsesidebartext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "CollapseSidebarText",
+          "text": "收起",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 28,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_companions": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_companions_companionstext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_companions",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "bb650848-a633-5e61-adc4-4fb91813ff76",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 10,
+            "p3": 9,
+            "p4": 10
+          },
+          "layout-padding-type": "multiple",
+          "name": "Companions",
+          "type": "FRAME",
+          "width": 91,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_companions_companionstext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_companions_companionstext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CompanionsText",
+          "text": "伙伴与群聊",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 71,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_customize": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_customize_customizetext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_customize",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 10,
+            "p3": 9,
+            "p4": 10
+          },
+          "layout-padding-type": "multiple",
+          "name": "Customize",
+          "type": "FRAME",
+          "width": 63,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_customize_customizetext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_customize_customizetext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CustomizeText",
+          "text": "自定义",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 43,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_newtask": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_newtask_newtasktext"
+          ],
+          "cornerRadius": 6,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_newtask",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "72c341f9-f18e-55ef-8310-012279614e66",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "NewTask",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#D7D7D7",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 78,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_newtask_newtasktext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_newtask_newtasktext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "NewTaskText",
+          "text": "+  新任务",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 54,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_anotherproject",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_secondthread",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentthread",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentproject",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel"
+          ],
+          "fills": [],
+          "height": 212,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 12,
+            "p2": 0,
+            "p3": 12,
+            "p4": 0
+          },
+          "layout-padding-type": "multiple",
+          "name": "ProjectGroup",
+          "type": "FRAME",
+          "width": 131,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_anotherproject": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_anotherproject_anotherprojecttext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_anotherproject",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 10,
+            "p3": 9,
+            "p4": 10
+          },
+          "layout-padding-type": "multiple",
+          "name": "AnotherProject",
+          "type": "FRAME",
+          "width": 92,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_anotherproject_anotherprojecttext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_anotherproject_anotherprojecttext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AnotherProjectText",
+          "text": ">  我的资料",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 72,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentproject": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentproject_currentprojecttext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentproject",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 10,
+            "p3": 9,
+            "p4": 10
+          },
+          "layout-padding-type": "multiple",
+          "name": "CurrentProject",
+          "type": "FRAME",
+          "width": 104,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentproject_currentprojecttext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentproject_currentprojecttext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CurrentProjectText",
+          "text": "v  alva-agent",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 84,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentthread": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentthread_currentthreadtext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentthread",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "f7229cbe-62fe-56f6-b768-dc9a274d2cbe",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 16,
+            "p3": 9,
+            "p4": 16
+          },
+          "layout-padding-type": "multiple",
+          "name": "CurrentThread",
+          "type": "FRAME",
+          "width": 131,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentthread_currentthreadtext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_currentthread_currentthreadtext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "CurrentThreadText",
+          "text": "整理桌面工作台",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 99,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel_addproject",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel_projectslabeltext"
+          ],
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "ProjectsLabel",
+          "type": "FRAME",
+          "width": 71,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel_addproject": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel_addproject_addprojecttext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 32,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel_addproject",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 12,
+            "p3": 8,
+            "p4": 12
+          },
+          "layout-padding-type": "multiple",
+          "name": "AddProject",
+          "type": "FRAME",
+          "width": 33,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel_addproject_addprojecttext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 16,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel_addproject_addprojecttext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddProjectText",
+          "text": "+",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 9,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel_projectslabeltext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_projectslabel_projectslabeltext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ProjectsLabelText",
+          "text": "项目",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 26,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_secondthread": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_secondthread_secondthreadtext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_secondthread",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 16,
+            "p3": 9,
+            "p4": 16
+          },
+          "layout-padding-type": "multiple",
+          "name": "SecondThread",
+          "type": "FRAME",
+          "width": 117,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_secondthread_secondthreadtext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_projectgroup_secondthread_secondthreadtext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "SecondThreadText",
+          "text": "复查插件加载",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 85,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentmodels",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentresearch",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentlabel"
+          ],
+          "fills": [],
+          "height": 108,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 8,
+            "p2": 0,
+            "p3": 8,
+            "p4": 0
+          },
+          "layout-padding-type": "multiple",
+          "name": "RecentGroup",
+          "type": "FRAME",
+          "width": 105,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentlabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentlabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "RecentLabel",
+          "text": "最近",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 26,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentmodels": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentmodels_recentmodelstext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentmodels",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 10,
+            "p3": 9,
+            "p4": 10
+          },
+          "layout-padding-type": "multiple",
+          "name": "RecentModels",
+          "type": "FRAME",
+          "width": 105,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentmodels_recentmodelstext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentmodels_recentmodelstext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "RecentModelsText",
+          "text": "测试模型表现",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 85,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentresearch": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentresearch_recentresearchtext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentresearch",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 10,
+            "p3": 9,
+            "p4": 10
+          },
+          "layout-padding-type": "multiple",
+          "name": "RecentResearch",
+          "type": "FRAME",
+          "width": 105,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentresearch_recentresearchtext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_recentgroup_recentresearch_recentresearchtext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "RecentResearchText",
+          "text": "整理本周资料",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 85,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_search": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_search_searchtext"
+          ],
+          "cornerRadius": 6,
+          "fills": [],
+          "height": 35,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_search",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 9,
+            "p2": 10,
+            "p3": 9,
+            "p4": 10
+          },
+          "layout-padding-type": "multiple",
+          "name": "Search",
+          "type": "FRAME",
+          "width": 49,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_search_searchtext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_search_searchtext",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "SearchText",
+          "text": "搜索",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 29,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_sidebarspace": {
+          "children": [],
+          "fills": [],
+          "height": 0,
+          "id": "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar_sidebarspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "name": "SidebarSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_14_u7480c670_desktop_root": {
+          "children": [
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionmain",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_companionroster",
+            "node_14_u7480c670_desktop_14_desktop_u1ab593a2_sidebar"
+          ],
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 960,
+          "id": "node_14_u7480c670_desktop_root",
+          "layout": "flex",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "14 伙伴群聊 · desktop",
+          "type": "FRAME",
+          "width": 1440,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "platform": "desktop",
+      "rootId": "node_14_u7480c670_desktop_root",
+      "viewport": {
+        "height": 960,
+        "width": 1440
+      }
+    }
+  ]
+}

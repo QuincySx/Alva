@@ -1,0 +1,1425 @@
+{
+  "basePresentationId": "pres_39_ueb107170_desktop",
+  "counterparts": [],
+  "id": "scr_39_ueb107170",
+  "name": "交互 / 39 模型选择器",
+  "presentations": [
+    {
+      "id": "pres_39_ueb107170_desktop",
+      "interactions": [],
+      "name": "desktop",
+      "nodes": {
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions"
+          ],
+          "fills": [],
+          "height": 586,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface",
+          "layout": "flex",
+          "layout-align-items": "start",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-max-w": 960,
+          "layout-item-v-sizing": "auto",
+          "name": "ModelSelectionSurface",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_5bffd0f980a105b176d83109dbdaa356",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 876,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_optionscope",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_openmodelsettings",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_vision",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_context",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_efforttitle",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_optionsagent",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_optionssource",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_modeloptionsheader"
+          ],
+          "cornerRadius": 16,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 586,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 16,
+            "row-gap": 16
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 16,
+            "p2": 16,
+            "p3": 16,
+            "p4": 16
+          },
+          "layout-padding-type": "multiple",
+          "name": "ModelOptions",
+          "tokenBindings": {
+            "cornerRadius": {
+              "assetId": "tok_a665a14664a51526d92c0d59ce4893ca",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fill": {
+              "assetId": "tok_68a53b4d8b151cf5ba88ed6f1697ad04",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "itemSpacing": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 300,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_context": {
+          "children": [],
+          "height": 91,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_context",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_field",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_field_field_control:variant": {
+                "axis_kind": "Text",
+                "axis_state": "Default"
+              },
+              "node_alva_field_field_control__node_alva_input_input_value:text": "128000",
+              "node_alva_field_field_hint:text": "",
+              "node_alva_field_field_hint:visible": false,
+              "node_alva_field_field_title:text": "Context 上限 · token"
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Context",
+          "type": "INSTANCE",
+          "width": 360,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort3",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort2",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort1",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort0"
+          ],
+          "cornerRadius": 8,
+          "fills": [
+            {
+              "color": "#F0EFEC",
+              "type": "solid"
+            }
+          ],
+          "height": 40,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 4,
+            "p2": 4,
+            "p3": 4,
+            "p4": 4
+          },
+          "layout-padding-type": "multiple",
+          "name": "Effort",
+          "tokenBindings": {
+            "cornerRadius": {
+              "assetId": "tok_285c8167109df33495c9b07dc4474fe7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fill": {
+              "assetId": "tok_9233ceb60a4557de229392bdaacbd999",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "itemSpacing": {
+              "assetId": "tok_7d05fa35ad925de8691298c43bc956a4",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_7d05fa35ad925de8691298c43bc956a4",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_7d05fa35ad925de8691298c43bc956a4",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_7d05fa35ad925de8691298c43bc956a4",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_7d05fa35ad925de8691298c43bc956a4",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 232,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort0": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort0",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_segment",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_segment_segment_label:text": "默认"
+            },
+            "variant": {
+              "axis_state": "Selected"
+            }
+          },
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "name": "Effort0",
+          "type": "INSTANCE",
+          "width": 53,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort1": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort1",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_segment",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_segment_segment_label:text": "低"
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "name": "Effort1",
+          "type": "INSTANCE",
+          "width": 53,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort2": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort2",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_segment",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_segment_segment_label:text": "中"
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "name": "Effort2",
+          "type": "INSTANCE",
+          "width": 53,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort3": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_effort_effort3",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_segment",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_segment_segment_label:text": "高"
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "name": "Effort3",
+          "type": "INSTANCE",
+          "width": 53,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_efforttitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#29292D",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 21,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_efforttitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EffortTitle",
+          "text": "思考程度",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 600,
+            "lineHeight": 1.5
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_9b0b2546f8c2f692c7c65ec85922e3b5",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_58c6f78efbf581e59d15ae62b92dd4d7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_549c828baffd26d6d8c7a1dc20f8fdcf",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_27ab83246c736b383085123d756d4958",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "lineHeight": {
+              "assetId": "tok_980b0ed49510c786ff4bb8cdfbb85489",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 57,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_modeloptionsheader": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_modeloptionsheader_favoritemodel",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_modeloptionsheader_optionsname"
+          ],
+          "fills": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_modeloptionsheader",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "ModelOptionsHeader",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 73,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_modeloptionsheader_favoritemodel": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_modeloptionsheader_favoritemodel",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_iconbutton",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_iconbutton_iconbutton_icon:variant": {
+                "axis_name": "Star"
+              }
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "FavoriteModel",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 32,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_modeloptionsheader_optionsname": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#29292D",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 24,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_modeloptionsheader_optionsname",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "OptionsName",
+          "text": "GPT",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 16,
+            "fontWeight": 600,
+            "lineHeight": 1.5
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_9b0b2546f8c2f692c7c65ec85922e3b5",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_58c6f78efbf581e59d15ae62b92dd4d7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_d55d4891c50cc7f6e3b9ed940e7e5701",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_27ab83246c736b383085123d756d4958",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "lineHeight": {
+              "assetId": "tok_980b0ed49510c786ff4bb8cdfbb85489",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 33,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_openmodelsettings": {
+          "children": [],
+          "height": 36,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_openmodelsettings",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_button",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_button_button_icon:variant": {
+                "axis_name": "Sliders"
+              },
+              "node_alva_button_button_label:text": "模型设置"
+            },
+            "variant": {
+              "axis_content": "Leading",
+              "axis_kind": "Ghost",
+              "axis_state": "Default"
+            }
+          },
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "56e87671-33fa-53b1-bfe9-92fd392a28c7",
+              "event-type": "click"
+            }
+          ],
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "OpenModelSettings",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_4f3abf3ddb5ac84da2436185641aebc3",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 105,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_optionsagent": {
+          "children": [],
+          "height": 91,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_optionsagent",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_field",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_field_field_control:variant": {
+                "axis_kind": "Select",
+                "axis_state": "Default"
+              },
+              "node_alva_field_field_control__node_alva_input_input_value:text": "ALVA",
+              "node_alva_field_field_hint:text": "",
+              "node_alva_field_field_hint:visible": false,
+              "node_alva_field_field_title:text": "Agent"
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "OptionsAgent",
+          "type": "INSTANCE",
+          "width": 360,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_optionscope": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#62616A",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 18,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_optionscope",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "OptionScope",
+          "text": "当前会话 · 下一轮生效",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400,
+            "lineHeight": 1.5
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_6d2620c184e7ba4cfd6169ad0e8279f9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_58c6f78efbf581e59d15ae62b92dd4d7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_7f85309c9002e01e935e079f7b9b4c9d",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_cd503e52ca2e75b271028082b630b897",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "lineHeight": {
+              "assetId": "tok_980b0ed49510c786ff4bb8cdfbb85489",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 127,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_optionssource": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#62616A",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 18,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_optionssource",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "OptionsSource",
+          "text": "OpenAI · 主连接 · 对话",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400,
+            "lineHeight": 1.5
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_6d2620c184e7ba4cfd6169ad0e8279f9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_58c6f78efbf581e59d15ae62b92dd4d7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_7f85309c9002e01e935e079f7b9b4c9d",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_cd503e52ca2e75b271028082b630b897",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "lineHeight": {
+              "assetId": "tok_980b0ed49510c786ff4bb8cdfbb85489",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 137,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_vision": {
+          "children": [],
+          "height": 79,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modeloptions_vision",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_settingrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_settingrow_settingrow_control:variant": {
+                "axis_state": "On"
+              },
+              "node_alva_settingrow_settingrow_copy_description:text": "",
+              "node_alva_settingrow_settingrow_copy_description:visible": false,
+              "node_alva_settingrow_settingrow_copy_title:text": "视觉输入"
+            },
+            "variant": {
+              "axis_control": "Switch"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Vision",
+          "type": "INSTANCE",
+          "width": 620,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerfooter",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_searchrow"
+          ],
+          "cornerRadius": 16,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 447,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 16,
+            "row-gap": 16
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-max-w": 640,
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 16,
+            "p2": 16,
+            "p3": 16,
+            "p4": 16
+          },
+          "layout-padding-type": "multiple",
+          "name": "ModelPicker",
+          "tokenBindings": {
+            "cornerRadius": {
+              "assetId": "tok_a665a14664a51526d92c0d59ce4893ca",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fill": {
+              "assetId": "tok_68a53b4d8b151cf5ba88ed6f1697ad04",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "itemSpacing": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_351d8e866433de7abf543156494d19ff",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 564,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters"
+          ],
+          "fills": [],
+          "height": 311,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody",
+          "layout": "flex",
+          "layout-align-items": "start",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "PickerBody",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_5bffd0f980a105b176d83109dbdaa356",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 532,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model4",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model3",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model2",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model1",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model0"
+          ],
+          "fills": [],
+          "height": 311,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Models",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_7d05fa35ad925de8691298c43bc956a4",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 480,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model0": {
+          "children": [],
+          "height": 59,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model0",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_modelrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_modelrow_modelrow_copy_description:text": "OpenAI · 主连接 · 视觉输入",
+              "node_alva_modelrow_modelrow_copy_title:text": "GPT"
+            },
+            "variant": {
+              "axis_mode": "Picker",
+              "axis_state": "Hover"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Model0",
+          "type": "INSTANCE",
+          "width": 480,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model1": {
+          "children": [],
+          "height": 59,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model1",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_modelrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_modelrow_modelrow_copy_description:text": "OpenAI · 主连接 · 文本",
+              "node_alva_modelrow_modelrow_copy_title:text": "GPT Mini"
+            },
+            "variant": {
+              "axis_mode": "Picker",
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Model1",
+          "type": "INSTANCE",
+          "width": 480,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model2": {
+          "children": [],
+          "height": 59,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model2",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_modelrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_modelrow_modelrow_copy_description:text": "Anthropic · 工作连接",
+              "node_alva_modelrow_modelrow_copy_title:text": "Sonnet"
+            },
+            "variant": {
+              "axis_mode": "Picker",
+              "axis_state": "Selected"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Model2",
+          "type": "INSTANCE",
+          "width": 480,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model3": {
+          "children": [],
+          "height": 59,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model3",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_modelrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_modelrow_modelrow_copy_description:text": "Anthropic · 工作连接",
+              "node_alva_modelrow_modelrow_copy_title:text": "Opus"
+            },
+            "variant": {
+              "axis_mode": "Picker",
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Model3",
+          "type": "INSTANCE",
+          "width": 480,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model4": {
+          "children": [],
+          "height": 59,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_models_model4",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_modelrow",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_modelrow_modelrow_copy_description:text": "Google · 主连接",
+              "node_alva_modelrow_modelrow_copy_title:text": "Gemini Pro"
+            },
+            "variant": {
+              "axis_mode": "Picker",
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Model4",
+          "type": "INSTANCE",
+          "width": 480,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_localprovide",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_anthropicpro",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_openaiprovid",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_allproviders",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_favorites"
+          ],
+          "fills": [],
+          "height": 208,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fill",
+          "name": "ProviderFilters",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_5bffd0f980a105b176d83109dbdaa356",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 40,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_allproviders": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_allproviders",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_iconbutton",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_iconbutton_iconbutton_icon:variant": {
+                "axis_name": "Chip"
+              }
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AllProviders",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 32,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_anthropicpro": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_anthropicpro",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_iconbutton",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_iconbutton_iconbutton_icon:variant": {
+                "axis_name": "Brain"
+              }
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AnthropicProvider",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 32,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_favorites": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_favorites",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_iconbutton",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_iconbutton_iconbutton_icon:variant": {
+                "axis_name": "Star"
+              }
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "Favorites",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 32,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_localprovide": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_localprovide",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_iconbutton",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_iconbutton_iconbutton_icon:variant": {
+                "axis_name": "Terminal"
+              }
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "LocalProvider",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 32,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_openaiprovid": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerbody_providerfilters_openaiprovid",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_iconbutton",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_iconbutton_iconbutton_icon:variant": {
+                "axis_name": "Globe"
+              }
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "OpenAIProvider",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 32,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerfooter": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerfooter_pickerhint",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerfooter_managemodels"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerfooter",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "PickerFooter",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 223,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerfooter_managemodels": {
+          "children": [],
+          "height": 36,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerfooter_managemodels",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_button",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_button_button_icon:variant": {
+                "axis_name": "Plus"
+              },
+              "node_alva_button_button_label:text": "配置模型"
+            },
+            "variant": {
+              "axis_content": "Leading",
+              "axis_kind": "Ghost",
+              "axis_state": "Default"
+            }
+          },
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "028a0400-3a17-5b07-8cd3-ec109e2dd55f",
+              "event-type": "click"
+            }
+          ],
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "name": "ManageModels",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_4f3abf3ddb5ac84da2436185641aebc3",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 105,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerfooter_pickerhint": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#62616A",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 18,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_pickerfooter_pickerhint",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "PickerHint",
+          "text": "点击模型行直接选用",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400,
+            "lineHeight": 1.5
+          },
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_6d2620c184e7ba4cfd6169ad0e8279f9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontFamily": {
+              "assetId": "tok_58c6f78efbf581e59d15ae62b92dd4d7",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontSize": {
+              "assetId": "tok_7f85309c9002e01e935e079f7b9b4c9d",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "fontWeight": {
+              "assetId": "tok_cd503e52ca2e75b271028082b630b897",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "lineHeight": {
+              "assetId": "tok_980b0ed49510c786ff4bb8cdfbb85489",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "visible": false,
+          "width": 110,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_searchrow": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_searchrow_closepicker",
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_searchrow_modelsearch"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_searchrow",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "SearchRow",
+          "tokenBindings": {
+            "itemSpacing": {
+              "assetId": "tok_e155b906bf3af0ad9debb28c50f174ea",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 360,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_searchrow_closepicker": {
+          "children": [],
+          "height": 32,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_searchrow_closepicker",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_iconbutton",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_iconbutton_iconbutton_icon:variant": {
+                "axis_name": "Close"
+              }
+            },
+            "variant": {
+              "axis_state": "Default"
+            }
+          },
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "97a6c741-9b61-5c04-aecc-2a6d91a1283e",
+              "event-type": "click"
+            }
+          ],
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "ClosePicker",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_d61b4a37db39b484d81c41fb78f64ee9",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 32,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_searchrow_modelsearch": {
+          "children": [],
+          "height": 36,
+          "id": "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface_modelpicker_searchrow_modelsearch",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_input",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "overrides": {
+              "node_alva_input_input_value:text": "搜索模型…"
+            },
+            "variant": {
+              "axis_kind": "Search",
+              "axis_state": "Focus"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "ModelSearch",
+          "tokenBindings": {
+            "height": {
+              "assetId": "tok_4f3abf3ddb5ac84da2436185641aebc3",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "INSTANCE",
+          "width": 320,
+          "x": 0,
+          "y": 0
+        },
+        "node_39_ueb107170_desktop_root": {
+          "children": [
+            "node_39_ueb107170_desktop_39_desktop_u8caaa813_modelselectionsurface"
+          ],
+          "fills": [
+            {
+              "color": "#F3F4F7",
+              "type": "solid"
+            }
+          ],
+          "height": 760,
+          "id": "node_39_ueb107170_desktop_root",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 32,
+            "p2": 32,
+            "p3": 32,
+            "p4": 32
+          },
+          "layout-padding-type": "multiple",
+          "name": "39 模型选择器 · desktop",
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_e7b4fac760cc7f5cae16888652151f87",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_3831af8b7b844d85dd69edfdcfa83a66",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_3831af8b7b844d85dd69edfdcfa83a66",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_3831af8b7b844d85dd69edfdcfa83a66",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_3831af8b7b844d85dd69edfdcfa83a66",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_c586e09eee43e1f0432fab7d041614ac",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 1440,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "platform": "desktop",
+      "rootId": "node_39_ueb107170_desktop_root",
+      "viewport": {
+        "height": 760,
+        "width": 1440
+      }
+    }
+  ]
+}

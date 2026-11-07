@@ -1,0 +1,3659 @@
+{
+  "basePresentationId": "pres_07_u144799b1_desktop",
+  "counterparts": [],
+  "id": "scr_07_u144799b1",
+  "name": "选择器 / 07 右侧工作区",
+  "presentations": [
+    {
+      "id": "pres_07_u144799b1_desktop",
+      "interactions": [],
+      "name": "desktop",
+      "nodes": {
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenuoffset"
+          ],
+          "fills": [],
+          "height": 366,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 0,
+            "row-gap": 0
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fill",
+          "name": "AddPanelMenuAnchor",
+          "type": "FRAME",
+          "width": 248,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelmenutitle"
+          ],
+          "cornerRadius": 8,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 322,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "auto",
+          "layout-padding": {
+            "p1": 14,
+            "p2": 14,
+            "p3": 14,
+            "p4": 14
+          },
+          "layout-padding-type": "multiple",
+          "name": "AddPanelMenu",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#CBCBCB",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 248,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground_addpanelbackgroundstat",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground_addpanelbackgroundlabe",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground_addpanelbackgroundmark"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelBackground",
+          "type": "FRAME",
+          "width": 128,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground_addpanelbackgroundlabe": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground_addpanelbackgroundlabe",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelBackgroundLabel",
+          "text": "后台任务",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 54,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground_addpanelbackgroundmark": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground_addpanelbackgroundmark",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelBackgroundMark",
+          "text": "=",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 18,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground_addpanelbackgroundstat": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbackground_addpanelbackgroundstat",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelBackgroundState",
+          "text": "已打开",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 40,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser_addpanelbrowserstate",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser_addpanelbrowserlabel",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser_addpanelbrowsermark"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelBrowser",
+          "type": "FRAME",
+          "width": 115,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser_addpanelbrowserlabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser_addpanelbrowserlabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelBrowserLabel",
+          "text": "浏览器",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 41,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser_addpanelbrowsermark": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser_addpanelbrowsermark",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelBrowserMark",
+          "text": "W",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 18,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser_addpanelbrowserstate": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelbrowser_addpanelbrowserstate",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelBrowserState",
+          "text": "",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 40,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer_addpanelexplorerstate",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer_addpanelexplorerlabel",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer_addpanelexplorermark"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "c0af637e-caf1-5f71-be79-52d8693a678e",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelExplorer",
+          "type": "FRAME",
+          "width": 141,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer_addpanelexplorerlabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer_addpanelexplorerlabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelExplorerLabel",
+          "text": "文件浏览器",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 67,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer_addpanelexplorermark": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer_addpanelexplorermark",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelExplorerMark",
+          "text": "F",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 18,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer_addpanelexplorerstate": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelexplorer_addpanelexplorerstate",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelExplorerState",
+          "text": "已打开",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 40,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector_addpanelinspectorstate",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector_addpanelinspectorlabel",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector_addpanelinspectormark"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelInspector",
+          "type": "FRAME",
+          "width": 128,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector_addpanelinspectorlabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector_addpanelinspectorlabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelInspectorLabel",
+          "text": "运行详情",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 54,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector_addpanelinspectormark": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector_addpanelinspectormark",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelInspectorMark",
+          "text": "I",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 18,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector_addpanelinspectorstate": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelinspector_addpanelinspectorstate",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelInspectorState",
+          "text": "",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 40,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelmenutitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelmenutitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelMenuTitle",
+          "text": "添加标签",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 50,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview_addpanelreviewstate",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview_addpanelreviewlabel",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview_addpanelreviewmark"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelReview",
+          "type": "FRAME",
+          "width": 102,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview_addpanelreviewlabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview_addpanelreviewlabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelReviewLabel",
+          "text": "审查",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 28,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview_addpanelreviewmark": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview_addpanelreviewmark",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelReviewMark",
+          "text": "+",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 18,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview_addpanelreviewstate": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelreview_addpanelreviewstate",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelReviewState",
+          "text": "",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 40,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent_addpanelsubagentstate",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent_addpanelsubagentlabel",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent_addpanelsubagentmark"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelSubagent",
+          "type": "FRAME",
+          "width": 115,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent_addpanelsubagentlabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent_addpanelsubagentlabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelSubagentLabel",
+          "text": "子任务",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 41,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent_addpanelsubagentmark": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent_addpanelsubagentmark",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelSubagentMark",
+          "text": "A",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 18,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent_addpanelsubagentstate": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelsubagent_addpanelsubagentstate",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelSubagentState",
+          "text": "已打开",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 40,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal_addpanelterminalstate",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal_addpanelterminallabel",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal_addpanelterminalmark"
+          ],
+          "fills": [],
+          "height": 36,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 8,
+            "row-gap": 8
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelTerminal",
+          "type": "FRAME",
+          "width": 102,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal_addpanelterminallabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal_addpanelterminallabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelTerminalLabel",
+          "text": "终端",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 28,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal_addpanelterminalmark": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal_addpanelterminalmark",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelTerminalMark",
+          "text": ">",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 18,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal_addpanelterminalstate": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenu_addpanelterminal_addpanelterminalstate",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelTerminalState",
+          "text": "",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 40,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenuoffset": {
+          "children": [],
+          "fills": [],
+          "height": 44,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor_addpanelmenuoffset",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "AddPanelMenuOffset",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar"
+          ],
+          "fills": [
+            {
+              "color": "#FAFAFA",
+              "type": "solid"
+            }
+          ],
+          "height": 593,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 0,
+            "row-gap": 0
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fill",
+          "name": "EmptyArtifactPanel",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#DDDDDD",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 500,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptycloseartifact",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyfocusrightworkspace",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptydetachartifact",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptypaneltabbarspace",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyaddpanel"
+          ],
+          "fills": [
+            {
+              "color": "#F3F3F3",
+              "type": "solid"
+            }
+          ],
+          "height": 44,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 6,
+            "p2": 8,
+            "p3": 6,
+            "p4": 8
+          },
+          "layout-padding-type": "multiple",
+          "name": "EmptyPanelTabBar",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#DDDDDD",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 157,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyaddpanel": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyaddpanel_emptyaddpaneltext"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyaddpanel",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "EmptyAddPanel",
+          "type": "FRAME",
+          "width": 20,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyaddpanel_emptyaddpaneltext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyaddpanel_emptyaddpaneltext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyAddPanelText",
+          "text": "+",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 8,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptycloseartifact": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptycloseartifact_emptycloseartifact"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptycloseartifact",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "f7229cbe-62fe-56f6-b768-dc9a274d2cbe",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "EmptyCloseArtifact",
+          "type": "FRAME",
+          "width": 35,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptycloseartifact_emptycloseartifact": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptycloseartifact_emptycloseartifact",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyCloseArtifactText",
+          "text": "收起",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 23,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptydetachartifact": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptydetachartifact_emptydetachartifa"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptydetachartifact",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "EmptyDetachArtifact",
+          "type": "FRAME",
+          "width": 35,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptydetachartifact_emptydetachartifa": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptydetachartifact_emptydetachartifa",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyDetachArtifactText",
+          "text": "弹出",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 23,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyfocusrightworkspace": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyfocusrightworkspace_emptyfocusri"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyfocusrightworkspace",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "EmptyFocusRightWorkspace",
+          "type": "FRAME",
+          "width": 35,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyfocusrightworkspace_emptyfocusri": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptyfocusrightworkspace_emptyfocusri",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyFocusRightWorkspaceText",
+          "text": "专注",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 23,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptypaneltabbarspace": {
+          "children": [],
+          "fills": [],
+          "height": 1,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptypaneltabbar_emptypaneltabbarspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyPanelTabBarSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacestarthint",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacestartspace",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacedescriptio",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacetitle",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacelabel"
+          ],
+          "fills": [],
+          "height": 549,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 12,
+            "row-gap": 12
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "layout-padding": {
+            "p1": 28,
+            "p2": 24,
+            "p3": 28,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "EmptyRightWorkspaceStart",
+          "type": "FRAME",
+          "width": 323,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_37",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_31",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_25",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_19",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_13",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_7",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em"
+          ],
+          "fills": [],
+          "height": 364,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 0,
+            "row-gap": 0
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "EmptyRightWorkspaceChoices",
+          "type": "FRAME",
+          "width": 177,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_6",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_3",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_2"
+          ],
+          "fills": [],
+          "height": 52,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "c0af637e-caf1-5f71-be79-52d8693a678e",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 10,
+            "row-gap": 10
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelExplorer",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#E5E5E5",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 156,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_10": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_10",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelReviewTitle",
+          "text": "审查",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 29,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_11": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_11",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelReviewDescription",
+          "text": "查看文件变更",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 67,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_12": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_12",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelReviewMore",
+          "text": ">",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 12,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_13": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_18",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_15",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_14"
+          ],
+          "fills": [],
+          "height": 52,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_13",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 10,
+            "row-gap": 10
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelSubagent",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#E5E5E5",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 177,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_14": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_14",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelSubagentMark",
+          "text": "A",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 24,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_15": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_17",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_16"
+          ],
+          "fills": [],
+          "height": 34,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_15",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "EmptyOpenPanelSubagentLabels",
+          "type": "FRAME",
+          "width": 121,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_16": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_16",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelSubagentTitle",
+          "text": "子任务",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 43,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_17": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_17",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelSubagentDescription",
+          "text": "Subagent · 进度与结果",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 121,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_18": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_18",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelSubagentMore",
+          "text": ">",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 12,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_19": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_24",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_21",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_20"
+          ],
+          "fills": [],
+          "height": 52,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_19",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 10,
+            "row-gap": 10
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBackground",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#E5E5E5",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 134,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_2": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_2",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelExplorerMark",
+          "text": "F",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 24,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_20": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_20",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBackgroundMark",
+          "text": "=",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 24,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_21": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_23",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_22"
+          ],
+          "fills": [],
+          "height": 34,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_21",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "EmptyOpenPanelBackgroundLabels",
+          "type": "FRAME",
+          "width": 78,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_22": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_22",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBackgroundTitle",
+          "text": "后台任务",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 57,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_23": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_23",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBackgroundDescription",
+          "text": "查看任务与结果",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 78,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_24": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_24",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBackgroundMore",
+          "text": ">",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 12,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_25": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_30",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_27",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_26"
+          ],
+          "fills": [],
+          "height": 52,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_25",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 10,
+            "row-gap": 10
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBrowser",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#E5E5E5",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 101,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_26": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_26",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBrowserMark",
+          "text": "W",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 24,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_27": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_29",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_28"
+          ],
+          "fills": [],
+          "height": 34,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_27",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "EmptyOpenPanelBrowserLabels",
+          "type": "FRAME",
+          "width": 45,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_28": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_28",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBrowserTitle",
+          "text": "浏览器",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 43,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_29": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_29",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBrowserDescription",
+          "text": "打开网页",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 45,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_3": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_5",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_4"
+          ],
+          "fills": [],
+          "height": 34,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_3",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "EmptyOpenPanelExplorerLabels",
+          "type": "FRAME",
+          "width": 100,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_30": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_30",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelBrowserMore",
+          "text": ">",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 12,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_31": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_36",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_33",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_32"
+          ],
+          "fills": [],
+          "height": 52,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_31",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 10,
+            "row-gap": 10
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelTerminal",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#E5E5E5",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 134,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_32": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_32",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelTerminalMark",
+          "text": ">",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 24,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_33": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_35",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_34"
+          ],
+          "fills": [],
+          "height": 34,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_33",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "EmptyOpenPanelTerminalLabels",
+          "type": "FRAME",
+          "width": 78,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_34": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_34",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelTerminalTitle",
+          "text": "终端",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 29,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_35": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_35",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelTerminalDescription",
+          "text": "当前项目的终端",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 78,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_36": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_36",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelTerminalMore",
+          "text": ">",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 12,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_37": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_42",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_39",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_38"
+          ],
+          "fills": [],
+          "height": 52,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_37",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 10,
+            "row-gap": 10
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelInspector",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#E5E5E5",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 156,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_38": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_38",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelInspectorMark",
+          "text": "I",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 24,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_39": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_41",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_40"
+          ],
+          "fills": [],
+          "height": 34,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_39",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "EmptyOpenPanelInspectorLabels",
+          "type": "FRAME",
+          "width": 100,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_4": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_4",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelExplorerTitle",
+          "text": "文件浏览器",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 71,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_40": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_40",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelInspectorTitle",
+          "text": "运行详情",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 57,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_41": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_41",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelInspectorDescription",
+          "text": "查看模型与工具记录",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 100,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_42": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_42",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelInspectorMore",
+          "text": ">",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 12,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_5": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_5",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelExplorerDescription",
+          "text": "浏览与打开项目文件",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 100,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_6": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_6",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelExplorerMore",
+          "text": ">",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 12,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_7": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_12",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_9",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_8"
+          ],
+          "fills": [],
+          "height": 52,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_7",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 10,
+            "row-gap": 10
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelReview",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#E5E5E5",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 123,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_8": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 17,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_8",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyOpenPanelReviewMark",
+          "text": "+",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 14,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 24,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_9": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_11",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_10"
+          ],
+          "fills": [],
+          "height": 34,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacechoices_em_9",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "EmptyOpenPanelReviewLabels",
+          "type": "FRAME",
+          "width": 67,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacedescriptio": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 16,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacedescriptio",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyRightWorkspaceDescription",
+          "text": "打开文件、审查或任务，与左侧对话并行工作。",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 13,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 275,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacelabel": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacelabel",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyRightWorkspaceLabel",
+          "text": "右侧工作区",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 62,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacestarthint": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacestarthint",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyRightWorkspaceStartHint",
+          "text": "也可以通过 + 添加面板",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 112,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacestartspace": {
+          "children": [],
+          "fills": [],
+          "height": 0,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacestartspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "name": "EmptyRightWorkspaceStartSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacetitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-height",
+          "height": 26,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel_emptyrightworkspacestart_emptyrightworkspacetitle",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "EmptyRightWorkspaceTitle",
+          "text": "开始一个面板",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 22,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 134,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar"
+          ],
+          "fills": [
+            {
+              "color": "#FAFAFA",
+              "type": "solid"
+            }
+          ],
+          "height": 187,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 0,
+            "row-gap": 0
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fill",
+          "name": "JobsArtifactPanel",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#DDDDDD",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 500,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent_jobsbackgroundemptyhint",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent_jobsbackgroundemptytitle",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent_jobsbackgroundemptymark"
+          ],
+          "fills": [],
+          "height": 143,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 14,
+            "row-gap": 14
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fill",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsBackgroundPanelContent",
+          "type": "FRAME",
+          "width": 278,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent_jobsbackgroundemptyhint": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 14,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent_jobsbackgroundemptyhint",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsBackgroundEmptyHint",
+          "text": "后台任务启动后，进度和结果会显示在这里",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 12,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 230,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent_jobsbackgroundemptymark": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#666666",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 34,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent_jobsbackgroundemptymark",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsBackgroundEmptyMark",
+          "text": "=",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 28,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 17,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent_jobsbackgroundemptytitle": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 19,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobsbackgroundpanelcontent_jobsbackgroundemptytitle",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsBackgroundEmptyTitle",
+          "text": "本任务暂无后台作业",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 16,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 146,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobscloseartifact",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsfocusrightworkspace",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsdetachartifact",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbarspace",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsaddpanel",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer"
+          ],
+          "fills": [
+            {
+              "color": "#F3F3F3",
+              "type": "solid"
+            }
+          ],
+          "height": 44,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 4,
+            "row-gap": 4
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 6,
+            "p2": 8,
+            "p3": 6,
+            "p4": 8
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsPanelTabBar",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#DDDDDD",
+              "type": "solid",
+              "width": 1,
+              "widthBottom": 1,
+              "widthLeft": 0,
+              "widthRight": 0,
+              "widthTop": 0
+            }
+          ],
+          "type": "FRAME",
+          "width": 367,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsaddpanel": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsaddpanel_jobsaddpaneltext"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsaddpanel",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsAddPanel",
+          "type": "FRAME",
+          "width": 20,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsaddpanel_jobsaddpaneltext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsaddpanel_jobsaddpaneltext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsAddPanelText",
+          "text": "+",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 8,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobscloseartifact": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobscloseartifact_jobscloseartifacttext"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobscloseartifact",
+          "interactions": [
+            {
+              "action-type": "navigate",
+              "destination": "f7229cbe-62fe-56f6-b768-dc9a274d2cbe",
+              "event-type": "click"
+            }
+          ],
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsCloseArtifact",
+          "type": "FRAME",
+          "width": 35,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobscloseartifact_jobscloseartifacttext": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobscloseartifact_jobscloseartifacttext",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsCloseArtifactText",
+          "text": "收起",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 23,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsdetachartifact": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsdetachartifact_jobsdetachartifactte"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsdetachartifact",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsDetachArtifact",
+          "type": "FRAME",
+          "width": 35,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsdetachartifact_jobsdetachartifactte": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsdetachartifact_jobsdetachartifactte",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsDetachArtifactText",
+          "text": "弹出",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 23,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsfocusrightworkspace": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsfocusrightworkspace_jobsfocusrightw"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsfocusrightworkspace",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsFocusRightWorkspace",
+          "type": "FRAME",
+          "width": 35,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsfocusrightworkspace_jobsfocusrightw": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobsfocusrightworkspace_jobsfocusrightw",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsFocusRightWorkspaceText",
+          "text": "专注",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 23,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground_jobsclosebackgro",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground_jobspaneltabback"
+          ],
+          "cornerRadius": 5,
+          "fills": [
+            {
+              "color": "#FFFFFF",
+              "type": "solid"
+            }
+          ],
+          "height": 30,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 3,
+            "row-gap": 3
+          },
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 5,
+            "p3": 0,
+            "p4": 5
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsPanelTabBackground",
+          "strokes": [
+            {
+              "alignment": "inner",
+              "color": "#C9C9C9",
+              "type": "solid",
+              "width": 1
+            }
+          ],
+          "type": "FRAME",
+          "width": 77,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground_jobsclosebackgro": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground_jobsclosebackgro_2"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground_jobsclosebackgro",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsCloseBackgroundTab",
+          "type": "FRAME",
+          "width": 19,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground_jobsclosebackgro_2": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground_jobsclosebackgro_2",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsCloseBackgroundTabText",
+          "text": "x",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 7,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground_jobspaneltabback": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbackground_jobspaneltabback",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsPanelTabBackgroundText",
+          "text": "后台任务",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 45,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbarspace": {
+          "children": [],
+          "fills": [],
+          "height": 1,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabbarspace",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsPanelTabBarSpace",
+          "type": "FRAME",
+          "width": 0,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer_jobscloseexplorert",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer_jobspaneltabexplor"
+          ],
+          "cornerRadius": 5,
+          "fills": [],
+          "height": 30,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 3,
+            "row-gap": 3
+          },
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 5,
+            "p3": 0,
+            "p4": 5
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsPanelTabExplorer",
+          "type": "FRAME",
+          "width": 55,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer_jobscloseexplorert": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer_jobscloseexplorert_2"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer_jobscloseexplorert",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsCloseExplorerTab",
+          "type": "FRAME",
+          "width": 19,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer_jobscloseexplorert_2": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer_jobscloseexplorert_2",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsCloseExplorerTabText",
+          "text": "x",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 7,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer_jobspaneltabexplor": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabexplorer_jobspaneltabexplor",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsPanelTabExplorerText",
+          "text": "文件",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 23,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent_jobsclosesubagentt",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent_jobspaneltabsubage"
+          ],
+          "cornerRadius": 5,
+          "fills": [],
+          "height": 30,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 3,
+            "row-gap": 3
+          },
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 5,
+            "p3": 0,
+            "p4": 5
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsPanelTabSubagent",
+          "type": "FRAME",
+          "width": 66,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent_jobsclosesubagentt": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent_jobsclosesubagentt_2"
+          ],
+          "cornerRadius": 4,
+          "fills": [],
+          "height": 28,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent_jobsclosesubagentt",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "row",
+          "layout-item-h-sizing": "auto",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 0,
+            "p2": 6,
+            "p3": 0,
+            "p4": 6
+          },
+          "layout-padding-type": "multiple",
+          "name": "JobsCloseSubagentTab",
+          "type": "FRAME",
+          "width": 19,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent_jobsclosesubagentt_2": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent_jobsclosesubagentt_2",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsCloseSubagentTabText",
+          "text": "x",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 7,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent_jobspaneltabsubage": {
+          "children": [],
+          "fills": [
+            {
+              "color": "#252525",
+              "type": "solid"
+            }
+          ],
+          "growType": "auto-width",
+          "height": 13,
+          "id": "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel_jobspaneltabbar_jobspaneltabsubagent_jobspaneltabsubage",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "name": "JobsPanelTabSubagentText",
+          "text": "子任务",
+          "textStyle": {
+            "fontFamily": "Alva Prototype Sans SC",
+            "fontSize": 11,
+            "fontWeight": 400
+          },
+          "tokenBindings": {
+            "fontFamily": {
+              "assetId": "tok_a8ffd996f004379affb5475dfa996e3b",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "TEXT",
+          "width": 34,
+          "x": 0,
+          "y": 0
+        },
+        "node_07_u144799b1_desktop_root": {
+          "children": [
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_addpanelmenuanchor",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_jobsartifactpanel",
+            "node_07_u144799b1_desktop_07_desktop_u8255cd80_emptyartifactpanel"
+          ],
+          "fills": [
+            {
+              "color": "#EAEAEA",
+              "type": "solid"
+            }
+          ],
+          "height": 760,
+          "id": "node_07_u144799b1_desktop_root",
+          "layout": "flex",
+          "layout-align-items": "start",
+          "layout-flex-dir": "row",
+          "layout-gap": {
+            "column-gap": 20,
+            "row-gap": 20
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "layout-padding": {
+            "p1": 24,
+            "p2": 24,
+            "p3": 24,
+            "p4": 24
+          },
+          "layout-padding-type": "multiple",
+          "name": "07 右侧工作区 · desktop",
+          "type": "FRAME",
+          "width": 1336,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "platform": "desktop",
+      "rootId": "node_07_u144799b1_desktop_root",
+      "viewport": {
+        "height": 760,
+        "width": 1336
+      }
+    }
+  ]
+}

@@ -1,0 +1,143 @@
+{
+  "basePresentationId": "pres_41_u4eb7cd0e_desktop",
+  "counterparts": [],
+  "id": "scr_41_u4eb7cd0e",
+  "name": "交互 / 41 输入区添加菜单",
+  "presentations": [
+    {
+      "id": "pres_41_u4eb7cd0e_desktop",
+      "interactions": [],
+      "name": "desktop",
+      "nodes": {
+        "node_41_u4eb7cd0e_desktop_41_desktop_ub618a231_anchoredmenu": {
+          "children": [
+            "node_41_u4eb7cd0e_desktop_41_desktop_ub618a231_anchoredmenu_composer",
+            "node_41_u4eb7cd0e_desktop_41_desktop_ub618a231_anchoredmenu_addmenu"
+          ],
+          "fills": [],
+          "height": 523,
+          "id": "node_41_u4eb7cd0e_desktop_41_desktop_ub618a231_anchoredmenu",
+          "layout": "flex",
+          "layout-flex-dir": "column",
+          "layout-gap": {
+            "column-gap": 6,
+            "row-gap": 6
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-max-w": 720,
+          "layout-item-v-sizing": "auto",
+          "name": "AnchoredMenu",
+          "type": "FRAME",
+          "width": 720,
+          "x": 0,
+          "y": 0
+        },
+        "node_41_u4eb7cd0e_desktop_41_desktop_ub618a231_anchoredmenu_addmenu": {
+          "children": [],
+          "height": 359,
+          "id": "node_41_u4eb7cd0e_desktop_41_desktop_ub618a231_anchoredmenu_addmenu",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_composermenu",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "variant": {
+              "axis_view": "Add"
+            }
+          },
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "auto",
+          "name": "AddMenu",
+          "type": "INSTANCE",
+          "width": 352,
+          "x": 0,
+          "y": 0
+        },
+        "node_41_u4eb7cd0e_desktop_41_desktop_ub618a231_anchoredmenu_composer": {
+          "children": [],
+          "height": 152,
+          "id": "node_41_u4eb7cd0e_desktop_41_desktop_ub618a231_anchoredmenu_composer",
+          "instance": {
+            "component": {
+              "assetId": "cmp_alva_composer",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "variant": {
+              "axis_state": "Idle"
+            }
+          },
+          "layout-item-h-sizing": "fill",
+          "layout-item-v-sizing": "auto",
+          "name": "Composer",
+          "type": "INSTANCE",
+          "width": 720,
+          "x": 0,
+          "y": 0
+        },
+        "node_41_u4eb7cd0e_desktop_root": {
+          "children": [
+            "node_41_u4eb7cd0e_desktop_41_desktop_ub618a231_anchoredmenu"
+          ],
+          "fills": [
+            {
+              "color": "#F3F4F7",
+              "type": "solid"
+            }
+          ],
+          "height": 760,
+          "id": "node_41_u4eb7cd0e_desktop_root",
+          "layout": "flex",
+          "layout-align-items": "center",
+          "layout-flex-dir": "column",
+          "layout-item-h-sizing": "fix",
+          "layout-item-v-sizing": "fix",
+          "layout-justify-content": "center",
+          "layout-padding": {
+            "p1": 32,
+            "p2": 32,
+            "p3": 32,
+            "p4": 32
+          },
+          "layout-padding-type": "multiple",
+          "name": "41 输入区添加菜单 · desktop",
+          "tokenBindings": {
+            "fill": {
+              "assetId": "tok_e7b4fac760cc7f5cae16888652151f87",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingBottom": {
+              "assetId": "tok_3831af8b7b844d85dd69edfdcfa83a66",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingLeft": {
+              "assetId": "tok_3831af8b7b844d85dd69edfdcfa83a66",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingRight": {
+              "assetId": "tok_3831af8b7b844d85dd69edfdcfa83a66",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "paddingTop": {
+              "assetId": "tok_3831af8b7b844d85dd69edfdcfa83a66",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            },
+            "width": {
+              "assetId": "tok_c586e09eee43e1f0432fab7d041614ac",
+              "packageId": "pkg_a4039f512eb34914a9c5ac5e9d36ceef"
+            }
+          },
+          "type": "FRAME",
+          "width": 1440,
+          "x": 0,
+          "y": 0
+        }
+      },
+      "platform": "desktop",
+      "rootId": "node_41_u4eb7cd0e_desktop_root",
+      "viewport": {
+        "height": 760,
+        "width": 1440
+      }
+    }
+  ]
+}

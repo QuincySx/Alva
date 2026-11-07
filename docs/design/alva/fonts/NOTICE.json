@@ -1,0 +1,230 @@
+{
+  "source": "https://github.com/google/fonts/tree/main/ofl/notosanssc",
+  "sourceSHA256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+  "family": "Alva Prototype Sans SC",
+  "derivation": "Noto Sans SC variable font instantiated at 400 and 600, subset to the design text, renamed. SIL OFL 1.1. WOFF copies use identical glyph outlines and metrics for compatibility with SmallPen App alpha.15.",
+  "files": [
+    {
+      "file": "AlvaPrototypeSansSC-Regular.ttf",
+      "weight": 400,
+      "sha256": "f9c4660a49ee99a7e5cd65a79e5d66fdc8ff1d99881d9d624bfe5dc38fd9ec56",
+      "bytes": 286720
+    },
+    {
+      "file": "AlvaPrototypeSansSC-SemiBold.ttf",
+      "weight": 600,
+      "sha256": "dc15a939ef75a63d757ba82e41c051057dd3bca8a6b6a725f4169f3ed8492533",
+      "bytes": 285864
+    },
+    {
+      "file": "AlvaPrototypeSansSC-Regular.woff",
+      "weight": 400,
+      "sha256": "40f6595e0d284b50bd5905cc0772194b7a49bfbcd411a9b640a9594721c4dbab",
+      "bytes": 179876
+    },
+    {
+      "file": "AlvaPrototypeSansSC-SemiBold.woff",
+      "weight": 600,
+      "sha256": "3c3e6f570e8ac9b5ea857d690d419abcebc8ce387f0e4e6e01e9a42c01c8d98e",
+      "bytes": 180940
+    }
+  ],
+  "woffEquivalence": [
+    {
+      "style": "Regular",
+      "identicalTables": {
+        "glyf": true,
+        "cmap": true,
+        "hmtx": true,
+        "hhea": true,
+        "vmtx": true,
+        "vhea": true,
+        "GSUB": true,
+        "GPOS": true
+      },
+      "status": "pass"
+    },
+    {
+      "style": "SemiBold",
+      "identicalTables": {
+        "glyf": true,
+        "cmap": true,
+        "hmtx": true,
+        "hhea": true,
+        "vmtx": true,
+        "vhea": true,
+        "GSUB": true,
+        "GPOS": true
+      },
+      "status": "pass"
+    }
+  ],
+  "selectorGlyphExtension": {
+    "weight": 400,
+    "previousCodepoints": 816,
+    "currentCodepoints": 820,
+    "preservedExistingOutlinesAndAdvanceWidths": true,
+    "scope": "Product font variant only; Foundation and 600 variant unchanged."
+  },
+  "composerMenuGlyphExtension": {
+    "weight": 400,
+    "addedCodepoints": [
+      "U+9891"
+    ],
+    "text": "频",
+    "previousCodepoints": 820,
+    "currentCodepoints": 821,
+    "preservedExistingOutlinesAndAdvanceWidths": true,
+    "ttfWoffTablesEquivalent": true,
+    "scope": "Product Regular variant only; Foundation and 600 variant unchanged."
+  },
+  "providerCompanionGlyphExtension": {
+    "weight": 400,
+    "addedCodepoints": [
+      "U+2022",
+      "U+4EBA",
+      "U+4EF7",
+      "U+4F19",
+      "U+4F34",
+      "U+50CF",
+      "U+5220",
+      "U+5224",
+      "U+5237",
+      "U+5546",
+      "U+58F0",
+      "U+5E2E",
+      "U+5E93",
+      "U+6302",
+      "U+767B",
+      "U+7801",
+      "U+7814",
+      "U+79C1",
+      "U+7A76",
+      "U+7EEA",
+      "U+7FA4",
+      "U+804C",
+      "U+8BE5",
+      "U+8C01",
+      "U+8DDF",
+      "U+8FDC",
+      "U+9014"
+    ],
+    "text": "•人价伙伴像删判刷商声帮库挂登码研私究绪群职该谁跟远途",
+    "previousCodepoints": 821,
+    "currentCodepoints": 848,
+    "preservedExistingOutlinesAndAdvanceWidths": true,
+    "ttfWoffTablesEquivalent": true,
+    "scope": "Product Regular variant only; Foundation and 600 variant unchanged."
+  },
+  "designSystemGlyphExtension": {
+    "scope": "Both SmallPen packages receive the extended resources; all prior glyph outlines/advances remain unchanged.",
+    "weights": [
+      {
+        "weight": 400,
+        "previousCodepoints": 848,
+        "currentCodepoints": 877,
+        "addedCodepoints": [
+          "U+2013",
+          "U+4E86",
+          "U+4F18",
+          "U+5065",
+          "U+51CF",
+          "U+5907",
+          "U+5982",
+          "U+5EB7",
+          "U+5F31",
+          "U+642C",
+          "U+68B3",
+          "U+6E21",
+          "U+7740",
+          "U+79EF",
+          "U+7A33",
+          "U+7B80",
+          "U+7D2F",
+          "U+7F13",
+          "U+7F3A",
+          "U+800C",
+          "U+8350",
+          "U+89E3",
+          "U+8BA2",
+          "U+8F83",
+          "U+8FF0",
+          "U+9020",
+          "U+9669",
+          "U+97F3",
+          "U+98CE"
+        ],
+        "preservedExistingOutlinesAndAdvanceWidths": true,
+        "ttfWoffTablesEquivalent": true
+      },
+      {
+        "weight": 600,
+        "previousCodepoints": 816,
+        "currentCodepoints": 875,
+        "addedCodepoints": [
+          "U+2013",
+          "U+2022",
+          "U+4E86",
+          "U+4EBA",
+          "U+4EF7",
+          "U+4F18",
+          "U+4F19",
+          "U+4F34",
+          "U+4F4E",
+          "U+5065",
+          "U+50CF",
+          "U+51CF",
+          "U+5220",
+          "U+5237",
+          "U+5546",
+          "U+58F0",
+          "U+5907",
+          "U+5982",
+          "U+5E2E",
+          "U+5E93",
+          "U+5EB7",
+          "U+5F31",
+          "U+601D",
+          "U+6302",
+          "U+642C",
+          "U+68B3",
+          "U+6E21",
+          "U+767B",
+          "U+7740",
+          "U+7801",
+          "U+7814",
+          "U+79C1",
+          "U+79EF",
+          "U+7A33",
+          "U+7A76",
+          "U+7B80",
+          "U+7D2F",
+          "U+7EEA",
+          "U+7F13",
+          "U+7F3A",
+          "U+7FA4",
+          "U+8003",
+          "U+800C",
+          "U+804C",
+          "U+8350",
+          "U+89E3",
+          "U+8BA2",
+          "U+8C01",
+          "U+8DDF",
+          "U+8F6C",
+          "U+8F83",
+          "U+8FDC",
+          "U+8FF0",
+          "U+9014",
+          "U+9020",
+          "U+9669",
+          "U+97F3",
+          "U+9891",
+          "U+98CE"
+        ],
+        "preservedExistingOutlinesAndAdvanceWidths": true,
+        "ttfWoffTablesEquivalent": true
+      }
+    ]
+  }
+}
