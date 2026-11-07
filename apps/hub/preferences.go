@@ -14,13 +14,23 @@ import (
 var ErrPreferenceConflict = errors.New("preferences changed; reload before saving")
 var ErrInvalidPreferences = errors.New("invalid application preferences")
 
+// Sidebar dimensions share the saved desktop design; zero stores the default.
+const (
+	DefaultSidebarWidth = 220
+	MinSidebarWidth     = 220
+	MaxSidebarWidth     = 432
+)
+
 // Preferences is the committed application appearance, independent of sessions.
 // Revision is a positive SQLite-compatible optimistic concurrency token.
 type Preferences struct {
-	Revision uint64 `json:"revision"`
-	Theme    string `json:"theme"`
-	Density  string `json:"density"`
-	FontSize int    `json:"font_size"`
+	Revision         uint64 `json:"revision"`
+	Theme            string `json:"theme"`
+	Density          string `json:"density"`
+	FontSize         int    `json:"font_size"`
+	ReducedMotion    bool   `json:"reduced_motion"`
+	SidebarWidth     int    `json:"sidebar_width"`
+	SidebarCollapsed bool   `json:"sidebar_collapsed"`
 }
 
 // PreferenceUpdate changes only supplied fields at the expected revision.
@@ -30,6 +40,9 @@ type PreferenceUpdate struct {
 	Theme            *string `json:"theme,omitempty"`
 	Density          *string `json:"density,omitempty"`
 	FontSize         *int    `json:"font_size,omitempty"`
+	ReducedMotion    *bool   `json:"reduced_motion,omitempty"`
+	SidebarWidth     *int    `json:"sidebar_width,omitempty"`
+	SidebarCollapsed *bool   `json:"sidebar_collapsed,omitempty"`
 }
 
 type PreferenceOptions struct {
@@ -62,6 +75,9 @@ func (p Preferences) Validate() error {
 	if !slices.Contains(options.FontSizes, p.FontSize) {
 		return fmt.Errorf("%w: body size must be 14 or 16", ErrInvalidPreferences)
 	}
+	if p.SidebarWidth != 0 && (p.SidebarWidth < MinSidebarWidth || p.SidebarWidth > MaxSidebarWidth) {
+		return fmt.Errorf("%w: sidebar width", ErrInvalidPreferences)
+	}
 	return nil
 }
 
@@ -71,7 +87,7 @@ func (p Preferences) Apply(update PreferenceUpdate) (Preferences, error) {
 	if err := p.Validate(); err != nil {
 		return Preferences{}, err
 	}
-	if update.ExpectedRevision == 0 || update.Theme == nil && update.Density == nil && update.FontSize == nil {
+	if update.ExpectedRevision == 0 || update.Theme == nil && update.Density == nil && update.FontSize == nil && update.ReducedMotion == nil && update.SidebarWidth == nil && update.SidebarCollapsed == nil {
 		return Preferences{}, fmt.Errorf("%w: expected revision and at least one change required", ErrInvalidPreferences)
 	}
 	if update.ExpectedRevision != p.Revision {
@@ -88,6 +104,15 @@ func (p Preferences) Apply(update PreferenceUpdate) (Preferences, error) {
 	}
 	if update.FontSize != nil {
 		p.FontSize = *update.FontSize
+	}
+	if update.ReducedMotion != nil {
+		p.ReducedMotion = *update.ReducedMotion
+	}
+	if update.SidebarWidth != nil {
+		p.SidebarWidth = *update.SidebarWidth
+	}
+	if update.SidebarCollapsed != nil {
+		p.SidebarCollapsed = *update.SidebarCollapsed
 	}
 	p.Revision++
 	if err := p.Validate(); err != nil {

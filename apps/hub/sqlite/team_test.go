@@ -5,11 +5,105 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/integration/engine"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestTypedWorkerDraftReopenEditOwnershipAndFIFO(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "product")
+	s, err := Open(t.Context(), directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { s.Close() }()
+	lead, team, worker, sibling := teamFixture(t, s)
+	detail, err := s.Detail(t.Context(), worker.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := hub.ComposerFile{ID: "file-worker", Scope: hub.ComposerDraftScope{Kind: "session", ID: worker.SessionID}, Name: "worker.txt", SourcePath: filepath.Join(t.TempDir(), "worker.txt"), MediaType: "text/plain", SHA256: strings.Repeat("a", 64), Bytes: 8, OriginalKey: "original", ChunkSHA256: []string{strings.Repeat("a", 64)}, Text: true, Processing: "test captured original", CreatedAt: 1}
+	if _, err = s.SaveComposerFile(t.Context(), file); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "original")
+	input := hub.ComposerTurnInput{Prompt: "original task\n[file manifest remains immutable]", UserText: "original task", Files: []engine.InputFile{{ID: file.ID, Name: file.Name, URI: "composer://" + file.ID, Path: path, MediaType: file.MediaType, SHA256: file.SHA256, Bytes: file.Bytes, TextURI: "composer://" + file.ID, TextPath: path, TextSHA256: file.SHA256, TextBytes: file.Bytes}}, Skills: []engine.InputSkill{{Name: "guide", Path: filepath.Join(lead.Workspace, "guide", "SKILL.md"), SHA256: strings.Repeat("b", 64)}}}
+	siblingDetail, err := s.Detail(t.Context(), sibling.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.EnqueueComposerWorkerOnBranch(t.Context(), lead.ID, team.Team.ID, sibling.ID, siblingDetail.Session.ActiveBranchID, input, nil); !errors.Is(err, hub.ErrComposerFileChanged) {
+		t.Fatal("sibling borrowed Worker original by copying typed DTO", err)
+	}
+	forged := input
+	forged.Prompt = "old task text was lost"
+	if _, err = s.EnqueueComposerWorkerOnBranch(t.Context(), lead.ID, team.Team.ID, worker.ID, detail.Session.ActiveBranchID, forged, nil); err == nil {
+		t.Fatal("typed task without exact original text prefix admitted")
+	}
+	first, err := s.EnqueueComposerWorkerOnBranch(t.Context(), lead.ID, team.Team.ID, worker.ID, detail.Session.ActiveBranchID, input, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.Files[0].Name = "mutated caller copy"
+	input.Skills[0].Name = "mutated caller Skill"
+	second := enqueue(t, s, lead.ID, team.Team.ID, worker.ID, "second stays queued", nil)
+	if err = s.EditQueuedTask(t.Context(), lead.ID, team.Team.ID, worker.ID, first.ID, "edited task", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(t.Context(), directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.WorkerTasks(t.Context(), lead.ID, team.Team.ID, worker.ID, 0, 8)
+	if err != nil || len(page.Tasks) != 2 || page.Tasks[0].Status != hub.TaskQueued || page.Tasks[0].TurnID != "" || page.Tasks[0].ComposerInput.Prompt != "edited task\n[file manifest remains immutable]" || page.Tasks[0].ComposerInput.Files[0].Name != file.Name || page.Tasks[0].ComposerInput.Skills[0].Name != "guide" {
+		t.Fatal("reopen replayed task or edit lost frozen input", page, err)
+	}
+	if _, err = s.Switch(t.Context(), worker.SessionID, target("b"), "park typed task"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ClaimWorkerTask(t.Context(), lead.ID, team.Team.ID, worker.ID); err == nil {
+		t.Fatal("typed task followed another branch")
+	}
+	if _, err = s.Switch(t.Context(), worker.SessionID, target("a"), "restore exact typed branch"); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := s.ClaimWorkerTask(t.Context(), lead.ID, team.Team.ID, worker.ID)
+	if err != nil || claim.Claim == nil || claim.Task.ID != first.ID || claim.Claim.Turn.Prompt != page.Tasks[0].ComposerInput.Prompt || len(claim.Claim.Turn.InputFiles) != 1 || len(claim.Claim.Turn.InputSkills) != 1 {
+		t.Fatal("typed FIFO admission lost exact inputs", claim, err)
+	}
+	entries, err := s.History(t.Context(), worker.SessionID, 0, 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, entry := range entries {
+		if entry.Input != "" {
+			found = entry.Input == "edited task" && len(entry.InputFiles) == 1 && len(entry.InputSkills) == 1
+			if !found {
+				t.Fatal("model manifest replaced original manual task", entry)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("typed task input history missing")
+	}
+	complete(t, s, *claim.Claim, "typed-native")
+	if err = s.CancelQueuedTask(t.Context(), lead.ID, team.Team.ID, worker.ID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.CancelQueuedTask(t.Context(), lead.ID, team.Team.ID, worker.ID, second.ID); err == nil {
+		t.Fatal("cancelled queued task was consumed twice")
+	}
+	if next, err := s.ClaimWorkerTask(t.Context(), lead.ID, team.Team.ID, worker.ID); err != nil || next.Claim != nil {
+		t.Fatal("cancelled task executed", next, err)
+	}
+}
 
 func teamFixture(t *testing.T, s *Store) (hub.Session, hub.TeamDetail, hub.Worker, hub.Worker) {
 	t.Helper()

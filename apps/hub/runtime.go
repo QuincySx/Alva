@@ -1,5 +1,5 @@
 // INPUT: context, errors, sync, engine and the durable product Store
-// OUTPUT: Runtime registry, execution identity, serial attempts, cancellation, permission routing and authorized fallback
+// OUTPUT: Runtime registry, execution identity, serial attempts, cancellation/join, permission routing and authorized fallback
 // POS: [L7 Hub product] Product supervisor without SDK, concrete adapters or native fact storage dependencies
 package hub
 
@@ -14,14 +14,16 @@ import (
 )
 
 type activeRun struct {
-	control     sync.Mutex
-	done        chan error
-	exited      chan struct{}
-	cancel      context.CancelFunc
-	engine      engine.Runtime
-	executionID string
-	nativeID    string
-	attemptID   string
+	control      sync.Mutex
+	done         chan error
+	exited       chan struct{}
+	cancel       context.CancelFunc
+	engine       engine.Runtime
+	engineID     string
+	executionID  string
+	nativeID     string
+	attemptID    string
+	interactions map[string]*pendingEngineInteraction
 }
 
 var ErrSessionNotRunning = errors.New("Hub session is not running")
@@ -105,6 +107,42 @@ func (r *Runtime) CancelExecution(ctx context.Context, sessionID, expectedExecut
 	return r.cancel(ctx, sessionID, expectedExecutionID)
 }
 
+// CancelAndWait captures the current physical owner, including uncommitted
+// admission, then cancels and joins that owner only. A timeout retains the
+// active owner; a replacement execution is never cancelled or awaited.
+func (r *Runtime) CancelAndWait(ctx context.Context, sessionID string) error {
+	return r.cancelAndWait(ctx, sessionID, "")
+}
+
+// CancelExecutionAndWait joins only the physical owner named by an earlier
+// observation. An absent or replaced identity cannot cancel another owner.
+func (r *Runtime) CancelExecutionAndWait(ctx context.Context, sessionID, expectedExecutionID string) error {
+	if expectedExecutionID == "" {
+		return errors.New("Hub execution identity required")
+	}
+	return r.cancelAndWait(ctx, sessionID, expectedExecutionID)
+}
+
+func (r *Runtime) cancelAndWait(ctx context.Context, sessionID, expectedExecutionID string) error {
+	r.mu.Lock()
+	run := r.active[sessionID]
+	if run == nil || expectedExecutionID != "" && run.executionID != expectedExecutionID {
+		r.mu.Unlock()
+		return ErrSessionNotRunning
+	}
+	r.mu.Unlock()
+	err := r.cancelRun(ctx, sessionID, expectedExecutionID, run)
+	if expectedExecutionID == "" && errors.Is(err, ErrSessionNotRunning) {
+		err = nil // The captured owner exited before cancellation acquired it.
+	}
+	select {
+	case <-run.exited:
+		return err
+	case <-ctx.Done():
+		return errors.Join(err, ctx.Err())
+	}
+}
+
 func (r *Runtime) cancel(ctx context.Context, sessionID, expectedExecutionID string) error {
 	r.mu.Lock()
 	run, ok := r.active[sessionID]
@@ -113,6 +151,10 @@ func (r *Runtime) cancel(ctx context.Context, sessionID, expectedExecutionID str
 		return ErrSessionNotRunning
 	}
 	r.mu.Unlock()
+	return r.cancelRun(ctx, sessionID, expectedExecutionID, run)
+}
+
+func (r *Runtime) cancelRun(ctx context.Context, sessionID, expectedExecutionID string, run *activeRun) error {
 	run.control.Lock()
 	defer run.control.Unlock()
 	r.mu.Lock()
@@ -122,7 +164,7 @@ func (r *Runtime) cancel(ctx context.Context, sessionID, expectedExecutionID str
 	}
 	if r.active[sessionID] != run {
 		r.mu.Unlock()
-		return errors.New("Hub cancellation target is no longer active")
+		return ErrSessionNotRunning
 	}
 	run.cancel()
 	target, id := run.engine, run.nativeID
@@ -135,27 +177,77 @@ func (r *Runtime) cancel(ctx context.Context, sessionID, expectedExecutionID str
 	}
 	return nil
 }
-func (r *Runtime) RespondPermission(ctx context.Context, sessionID, requestID string, decision engine.PermissionDecision) error {
+
+// PermissionBinding identifies the actual admitted attempt and native callback
+// route. It grants no permission and is valid only while every field matches.
+type PermissionBinding struct {
+	ExecutionID     string
+	AttemptID       string
+	EngineID        string
+	NativeSessionID string
+}
+
+func permissionBinding(run *activeRun) PermissionBinding {
+	return PermissionBinding{ExecutionID: run.executionID, AttemptID: run.attemptID, EngineID: run.engineID, NativeSessionID: run.nativeID}
+}
+
+// ActivePermission observes a ready callback route without discovering or
+// starting an owner. Admission without an actual native identity is not ready.
+func (r *Runtime) ActivePermission(sessionID string) (PermissionBinding, bool) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	run := r.active[sessionID]
-	if run == nil {
-		r.mu.Unlock()
+	if run == nil || run.engine == nil || run.executionID == "" || run.attemptID == "" || run.engineID == "" || run.nativeID == "" {
+		return PermissionBinding{}, false
+	}
+	return permissionBinding(run), true
+}
+
+func (r *Runtime) RespondPermission(ctx context.Context, sessionID, requestID string, decision engine.PermissionDecision) error {
+	binding, ready := r.ActivePermission(sessionID)
+	if !ready {
 		return ErrSessionNotRunning
 	}
+	return r.RespondPermissionBound(ctx, sessionID, binding, requestID, decision)
+}
+
+// RespondPermissionBound dispatches only to the previously observed physical
+// owner and attempt. Fallback may keep ExecutionID but changes this binding.
+func (r *Runtime) RespondPermissionBound(ctx context.Context, sessionID string, expected PermissionBinding, requestID string, decision engine.PermissionDecision) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if expected.ExecutionID == "" || expected.AttemptID == "" || expected.EngineID == "" || expected.NativeSessionID == "" {
+		return errors.New("Hub permission binding required")
+	}
+	r.mu.Lock()
+	run := r.active[sessionID]
 	r.mu.Unlock()
+	if run == nil {
+		return ErrSessionNotRunning
+	}
 	run.control.Lock()
 	defer run.control.Unlock()
 	r.mu.Lock()
-	if r.active[sessionID] != run || run.engine == nil || run.nativeID == "" {
+	if r.active[sessionID] != run || run.engine == nil || permissionBinding(run) != expected {
 		r.mu.Unlock()
-		return errors.New("Hub permission target is no longer active")
+		return ErrSessionNotRunning
 	}
 	target, id := run.engine, run.nativeID
+	pending := run.interactions[interactionKey(engine.PermissionRequest, requestID)]
+	if pending != nil && pending.answered {
+		r.mu.Unlock()
+		return engine.ErrSessionNotFound
+	}
 	r.mu.Unlock()
 	if !target.Capabilities().PermissionCallback {
 		return engine.ErrUnsupported
 	}
-	return target.RespondPermission(ctx, id, requestID, decision)
+	if err := target.RespondPermission(ctx, id, requestID, decision); err != nil {
+		return err
+	}
+	r.markInteractionAnswered(sessionID, run, expected, engine.PermissionRequest, requestID, pending)
+	return nil
 }
 
 // Run is owned by the product execution service. UI observers consume committed
@@ -180,23 +272,37 @@ func (r *Runtime) StartOnBranch(owner context.Context, sessionID, branchID, prom
 		return r.store.BeginTurnOnBranch(ctx, sessionID, branchID, prompt)
 	})
 }
+
+// StartOnBranchOwned returns the immutable physical execution identity from
+// this admission, even if it finishes before the caller receives the result.
+func (r *Runtime) StartOnBranchOwned(owner context.Context, sessionID, branchID, prompt string) (string, string, <-chan error, error) {
+	return r.startOwned(owner, sessionID, func(ctx context.Context) (Claim, error) {
+		return r.store.BeginTurnOnBranch(ctx, sessionID, branchID, prompt)
+	})
+}
+
 func (r *Runtime) start(owner context.Context, sessionID string, admit func(context.Context) (Claim, error)) (string, <-chan error, error) {
+	turn, _, done, err := r.startOwned(owner, sessionID, admit)
+	return turn, done, err
+}
+
+func (r *Runtime) startOwned(owner context.Context, sessionID string, admit func(context.Context) (Claim, error)) (string, string, <-chan error, error) {
 	ctx, cancel := context.WithCancel(owner)
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
 		cancel()
-		return "", nil, errors.New("Hub runtime is closed")
+		return "", "", nil, errors.New("Hub runtime is closed")
 	}
 	if _, busy := r.active[sessionID]; busy {
 		r.mu.Unlock()
 		cancel()
-		return "", nil, ErrSessionBusy
+		return "", "", nil, ErrSessionBusy
 	}
 	if len(r.active) >= 64 {
 		r.mu.Unlock()
 		cancel()
-		return "", nil, errors.New("Hub execution budget exhausted (64 admitted runs)")
+		return "", "", nil, errors.New("Hub execution budget exhausted (64 admitted runs)")
 	}
 	active := &activeRun{cancel: cancel, done: make(chan error, 1), exited: make(chan struct{})}
 	r.active[sessionID] = active
@@ -210,7 +316,7 @@ func (r *Runtime) start(owner context.Context, sessionID string, admit func(cont
 		active.done <- err
 		close(active.done)
 		close(active.exited)
-		return "", nil, err
+		return "", "", nil, err
 	}
 	r.mu.Lock()
 	active.executionID = claim.Attempt.ID
@@ -227,7 +333,7 @@ func (r *Runtime) start(owner context.Context, sessionID string, admit func(cont
 		close(active.done)
 		close(active.exited)
 	}()
-	return claim.Turn.ID, active.done, nil
+	return claim.Turn.ID, claim.Attempt.ID, active.done, nil
 }
 func (r *Runtime) Close(ctx context.Context) error {
 	r.mu.Lock()
@@ -283,7 +389,7 @@ func (r *Runtime) executeClaim(ctx context.Context, active *activeRun, claim Cla
 			r.mu.Lock()
 			runtime := r.engines[target.EngineID]
 			r.mu.Unlock()
-			if runtime == nil || !supports(runtime.Capabilities(), target.RequiredCapabilities) {
+			if runtime == nil || !supports(runtime.Capabilities(), target.RequiredCapabilities) || !supportsComposerInputs(runtime.Capabilities(), claim.Turn) {
 				continue
 			}
 			candidate, candidateErr := r.store.BeginFallback(ctx, claim.Attempt.ID, target)
@@ -302,6 +408,9 @@ func (r *Runtime) executeClaim(ctx context.Context, active *activeRun, claim Cla
 }
 func retryable(kind engine.FailureKind) bool {
 	return kind == engine.FailureStartup || kind == engine.FailureRateLimit
+}
+func supportsComposerInputs(c engine.Capabilities, turn Turn) bool {
+	return (len(turn.InputFiles) == 0 || c.FileInputs) && (len(turn.InputSkills) == 0 || c.SkillInputs)
 }
 func supports(c engine.Capabilities, required []string) bool {
 	for _, name := range required {
@@ -330,6 +439,18 @@ func supports(c engine.Capabilities, required []string) bool {
 			if !c.ToolControl {
 				return false
 			}
+		case "user_input_callback":
+			if !c.UserInputCallback {
+				return false
+			}
+		case "file_inputs":
+			if !c.FileInputs {
+				return false
+			}
+		case "skill_inputs":
+			if !c.SkillInputs {
+				return false
+			}
 		default:
 			return false
 		}
@@ -341,8 +462,10 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 	target := r.engines[claim.Attempt.Target.EngineID]
 	descriptor := r.descriptors[claim.Attempt.Target.EngineID]
 	active.engine = target
+	active.engineID = claim.Attempt.Target.EngineID
 	active.nativeID = claim.Branch.NativeSessionID
 	active.attemptID = claim.Attempt.ID
+	active.interactions = make(map[string]*pendingEngineInteraction)
 	r.mu.Unlock()
 	contract := engine.StreamContract{}
 	outcome := engine.Failed
@@ -374,6 +497,15 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 		if err := next.Accept(event); err != nil {
 			return err
 		}
+		if event.Kind == engine.PermissionRequest || event.Kind == engine.UserInputRequested {
+			r.mu.Lock()
+			_, duplicate := active.interactions[interactionKey(event.Kind, event.ID)]
+			full := len(active.interactions) >= 64
+			r.mu.Unlock()
+			if duplicate || full {
+				return errors.New("duplicate or excessive pending engine interactions")
+			}
+		}
 		activityRisk := event.Kind == engine.ExecutionActivity && event.Activity != nil && event.Activity.Effect != engine.EffectRead && event.Activity.Effect != engine.EffectNone
 		possibleEffects := sideEffects || activityRisk || (event.Kind == engine.SessionStarted && target != nil && !target.Capabilities().ToolControl) || (event.Kind == engine.ToolStart && event.Effect != engine.EffectRead)
 		if err := r.store.Record(context.WithoutCancel(ctx), claim.Attempt.ID, event, possibleEffects); err != nil {
@@ -381,6 +513,20 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 			return err
 		}
 		contract = next
+		r.mu.Lock()
+		switch event.Kind {
+		case engine.PermissionRequest, engine.UserInputRequested:
+			active.interactions[interactionKey(event.Kind, event.ID)] = &pendingEngineInteraction{event: cloneInteractionEvent(event)}
+		case engine.InteractionResolved:
+			kind := engine.PermissionRequest
+			if event.Name == "user_input" {
+				kind = engine.UserInputRequested
+			}
+			delete(active.interactions, interactionKey(kind, event.ID))
+		case engine.Completed:
+			clear(active.interactions)
+		}
+		r.mu.Unlock()
 		if event.Kind == engine.ToolStart {
 			open[event.ID] = event.Name
 		}
@@ -433,6 +579,13 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 	} else if target == nil {
 		executeErr = errors.New("requested engine is not registered")
 		failure = engine.FailureStartup
+	} else if inputErr := engine.ValidateInputFiles(claim.Turn.InputFiles); inputErr != nil {
+		executeErr = inputErr
+	} else if inputErr := engine.ValidateInputSkills(claim.Turn.InputSkills); inputErr != nil {
+		executeErr = inputErr
+	} else if !supportsComposerInputs(target.Capabilities(), claim.Turn) {
+		executeErr = fmt.Errorf("%w: engine cannot accept the admitted files or Skills", engine.ErrUnsupported)
+		failure = engine.FailureStartup
 	} else if optionErr := claim.Attempt.ModelOptions.Validate(); optionErr != nil {
 		executeErr = optionErr
 		failure = engine.FailureStartup
@@ -462,6 +615,8 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 					resume = ""
 				}
 				request := engine.Request{OwnerID: claim.Session.ID, Prompt: handoff + claim.Turn.Prompt, ResumeSession: resume, Workspace: claim.Session.Workspace, Model: claim.Attempt.Target.ModelID, Provider: claim.Attempt.Target.ProviderID, AccountSource: claim.Attempt.Target.AccountSource, BillingRoute: claim.Attempt.Target.BillingRoute, SystemPrompt: claim.Attempt.ModelOptions.SystemPrompt, MaxTurns: claim.Attempt.ModelOptions.MaxTurns, Generation: claim.Attempt.ModelOptions.Generation.Clone()}
+				request.InputFiles = engine.CloneInputFiles(claim.Turn.InputFiles)
+				request.InputSkills = engine.CloneInputSkills(claim.Turn.InputSkills)
 				if claim.WaitRevision != 0 {
 					request.Prompt, request.WaitRevision = "", claim.WaitRevision
 				}

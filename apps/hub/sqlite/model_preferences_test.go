@@ -272,7 +272,7 @@ func TestModelPreferencesCorruptionFailsWithoutReset(t *testing.T) {
 	}
 }
 
-func TestModelPreferencesVersionFourMissingTableIsRejectedWithoutRepair(t *testing.T) {
+func TestModelPreferencesCurrentSchemaMissingTableIsRejectedWithoutRepair(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "private")
 	s, err := Open(t.Context(), directory)
 	if err != nil {
@@ -286,7 +286,7 @@ func TestModelPreferencesVersionFourMissingTableIsRejectedWithoutRepair(t *testi
 	}
 	if reopened, err := Open(t.Context(), directory); err == nil {
 		_ = reopened.Close()
-		t.Fatal("v4 missing model-preference authority was repaired silently")
+		t.Fatal("current missing model-preference authority was repaired silently")
 	}
 	db, err := private.Open(t.Context(), directory, "product.sqlite")
 	if err != nil {
@@ -297,7 +297,7 @@ func TestModelPreferencesVersionFourMissingTableIsRejectedWithoutRepair(t *testi
 	if err = db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='hub_model_preferences'`).Scan(&tableCount); err != nil || version != 4 || tableCount != 0 {
-		t.Fatal("failed open changed the v4 database", version, tableCount, err)
+	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='hub_model_preferences'`).Scan(&tableCount); err != nil || version != 8 || tableCount != 0 {
+		t.Fatal("failed open changed the current database", version, tableCount, err)
 	}
 }

@@ -1,5 +1,5 @@
 // INPUT: context, database/sql, encoding/json, hub, storage/sqlite and system/privatefs
-// OUTPUT: Store implementing isolated durable Hub product facts and exclusive recovery
+// OUTPUT: Store implementing isolated durable Hub facts, tombstone-safe Attempt claims and exclusive recovery
 // POS: [L7 Hub product] Product SQLite authority separate from native SessionRepository execution records
 package sqlite
 
@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -39,7 +38,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
-	if version < 0 || version > 4 {
+	if version < 0 || version > 8 {
 		s.Close()
 		return nil, errors.New("unsupported Go product database schema; existing data was not modified")
 	}
@@ -163,6 +162,94 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
+	if version < 5 {
+		if err = companionSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if err = workspaceViewsSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=5`); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+	}
+	if err = validateCompanionSchema(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
+	if err = validateWorkspaceViewsSchema(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
+	if version < 6 {
+		if err = composerDraftsSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if err = composerFilesSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=6`); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+	}
+	if err = validateComposerDraftsSchema(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
+	if err = validateComposerFilesSchema(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
+	if version < 7 {
+		if err = connectionCreationsSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=7`); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+	}
+	if err = validateConnectionCreationsSchema(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
+	if version < 8 {
+		if err = developerWorkspacesSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=8`); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+	}
+	if err = validateDeveloperWorkspacesSchema(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
 	if err = initialization.Commit(); err != nil {
 		s.Close()
 		return nil, err
@@ -172,6 +259,10 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		return nil, err
 	}
 	if err = s.RecoverWorktrees(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
+	if err = s.RecoverCompanions(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}
@@ -256,39 +347,16 @@ func writeAttempt(ctx context.Context, tx *sql.Tx, value hub.Attempt) error {
 	_, err = tx.ExecContext(ctx, `UPDATE hub_attempts SET status=?,data=? WHERE id=? AND session=?`, value.Status, data, value.ID, value.SessionID)
 	return err
 }
-func (s *Store) CreateSession(ctx context.Context, title, workspace string, target hub.Target) (providerResult0 hub.Session, providerResult1 error) {
-	defer func() {
-		providerResult1 = normalizeStoreError(providerResult1)
-	}()
-	var value hub.Session
-	if err := target.Validate(); err != nil {
-		return value, err
-	}
-	if strings.TrimSpace(title) == "" || len(title) > 256 || !utf8.ValidString(title) || !filepath.IsAbs(workspace) {
-		return value, errors.New("bounded title and absolute workspace required")
-	}
-	id, err := hub.NewID("hub-")
-	if err != nil {
-		return value, err
-	}
-	branchID, err := hub.NewID("branch-")
-	if err != nil {
-		return value, err
-	}
-	value = hub.Session{ID: id, Title: title, Workspace: workspace, ActiveBranchID: branchID, Status: engine.Succeeded, CreatedAt: now(), UpdatedAt: now()}
-	branch := hub.Branch{ID: branchID, SessionID: id, Target: target}
+func (s *Store) CreateSession(ctx context.Context, title, workspace string, target hub.Target) (value hub.Session, err error) {
+	defer func() { err = normalizeStoreError(err) }()
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
-		sessionData, err := body(value)
-		if err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO hub_sessions VALUES(?,?,?,?)`, id, value.Status, value.UpdatedAt, sessionData); err != nil {
-			return err
-		}
-		return insertBranch(ctx, tx, branch)
+		var createErr error
+		value, createErr = createSessionTx(ctx, tx, title, workspace, target)
+		return createErr
 	})
 	return value, err
 }
+
 func insertBranch(ctx context.Context, tx *sql.Tx, value hub.Branch) error {
 	data, err := body(value)
 	if err != nil {
@@ -481,6 +549,9 @@ func (s *Store) SetFallback(ctx context.Context, id string, targets []hub.Target
 	})
 }
 func beginAttempt(ctx context.Context, tx *sql.Tx, session hub.Session, branch hub.Branch, turn *hub.Turn) (hub.Attempt, error) {
+	if err := companionExecutionAllowed(ctx, tx, session.ID); err != nil {
+		return hub.Attempt{}, err
+	}
 	if err := checkPlanTarget(ctx, tx, session.ID, branch.Target); err != nil {
 		return hub.Attempt{}, err
 	}
@@ -600,6 +671,21 @@ func handoff(ctx context.Context, tx *sql.Tx, session hub.Session, branch hub.Br
 	return protectHandoff(value)
 }
 func beginTurn(ctx context.Context, tx *sql.Tx, id, prompt string) (hub.Claim, error) {
+	return beginComposerTurn(ctx, tx, id, hub.ComposerTurnInput{Prompt: prompt, UserText: prompt})
+}
+
+func beginComposerTurn(ctx context.Context, tx *sql.Tx, id string, input hub.ComposerTurnInput) (hub.Claim, error) {
+	prompt := input.Prompt
+	if err := engine.ValidateInputFiles(input.Files); err != nil {
+		return hub.Claim{}, err
+	}
+	if err := engine.ValidateInputSkills(input.Skills); err != nil {
+		return hub.Claim{}, err
+	}
+	if len(input.UserText) > 64<<10 || !utf8.ValidString(input.UserText) {
+		return hub.Claim{}, errors.New("user composer text exceeds its UTF-8 budget")
+	}
+
 	var claim hub.Claim
 	if strings.TrimSpace(prompt) == "" || len(prompt) > 64<<10 || !utf8.ValidString(prompt) {
 		return claim, errors.New("prompt must be valid text of 1..64 KiB")
@@ -631,7 +717,7 @@ func beginTurn(ctx context.Context, tx *sql.Tx, id, prompt string) (hub.Claim, e
 		if err = tx.QueryRowContext(ctx, `SELECT COALESCE(max(seq),0)+1 FROM hub_turns WHERE session=?`, id).Scan(&sequence); err != nil {
 			return err
 		}
-		turn := hub.Turn{ID: turnID, SessionID: id, Sequence: sequence, Prompt: prompt, Status: hub.Running, CreatedAt: now()}
+		turn := hub.Turn{ID: turnID, SessionID: id, Sequence: sequence, Prompt: prompt, InputFiles: engine.CloneInputFiles(input.Files), InputSkills: engine.CloneInputSkills(input.Skills), Status: hub.Running, CreatedAt: now()}
 		data, err := body(turn)
 		if err != nil {
 			return err
@@ -649,7 +735,7 @@ func beginTurn(ctx context.Context, tx *sql.Tx, id, prompt string) (hub.Claim, e
 			return err
 		}
 		claim = hub.Claim{Session: session, Branch: branch, Turn: turn, Attempt: attempt, Handoff: h}
-		input, err := body(hub.HistoryEntry{Input: prompt, SessionID: id, TurnID: turn.ID, AttemptID: attempt.ID, Time: now()})
+		input, err := body(hub.HistoryEntry{Input: input.UserText, InputFiles: engine.CloneInputFiles(input.Files), InputSkills: engine.CloneInputSkills(input.Skills), SessionID: id, TurnID: turn.ID, AttemptID: attempt.ID, Time: now()})
 		if err != nil {
 			return err
 		}
@@ -668,6 +754,9 @@ func (s *Store) BeginTurn(ctx context.Context, id, prompt string) (providerResul
 	return s.BeginTurnOnBranch(ctx, id, "", prompt)
 }
 func (s *Store) BeginTurnOnBranch(ctx context.Context, id, expectedBranch, prompt string) (providerResult0 hub.Claim, providerResult1 error) {
+	return s.BeginComposerTurn(ctx, id, expectedBranch, hub.ComposerTurnInput{Prompt: prompt, UserText: prompt})
+}
+func (s *Store) BeginComposerTurn(ctx context.Context, id, expectedBranch string, input hub.ComposerTurnInput) (providerResult0 hub.Claim, providerResult1 error) {
 	defer func() {
 		providerResult1 = normalizeStoreError(providerResult1)
 	}()
@@ -690,7 +779,7 @@ func (s *Store) BeginTurnOnBranch(ctx context.Context, id, expectedBranch, promp
 			return errors.New("Worker session must consume its durable task queue, not bypass it with a plain Turn")
 		}
 		var err error
-		claim, err = beginTurn(ctx, tx, id, prompt)
+		claim, err = beginComposerTurn(ctx, tx, id, input)
 		return err
 	})
 	return claim, err

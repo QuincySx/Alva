@@ -1,6 +1,18 @@
 const (
+	DefaultSidebarWidth = 220
+	MinSidebarWidth     = 220
+	MaxSidebarWidth     = 432
+)
+
+const (
 	GoalProjectScope GoalScopeKind = "project"
 	GoalSessionScope GoalScopeKind = "session"
+)
+
+const (
+	MaxConversationTabs = 1024
+
+	ConversationMaxTabID = 251
 )
 
 const (
@@ -14,6 +26,16 @@ const (
 	WorkerHibernated WorkerLifecycle = "hibernated"
 	WorkerArchived   WorkerLifecycle = "archived"
 )
+
+const ComposerFileChunkBytes = 256 << 10
+
+const ComposerFileReadBytes = 64 << 10
+
+const LocalCompanionOwner = "local"
+
+const MaxComposerExtractedBytes int64 = 2 << 20
+
+const MaxComposerFileBytes int64 = 256 << 20
 
 const Running engine.Outcome = "running"
 
@@ -37,17 +59,29 @@ func (c ModelConnection) Clone() ModelConnection
 
 func (c ModelConnection) ModelEndpoint(modelID string) string
 
+func (c ModelConnection) SameConfiguration(other ModelConnection) bool
+
 func (c ModelConnection) Target(model ConnectionModel) Target
 
 func (c ModelConnection) Validate() error
 
 func (d AutomationDraft) Validate() error
 
+func (d ComposerDraft) Validate() error
+
 func (d MediaDecoder) Validate() error
+
+func (f ComposerFile) Validate() error
+
+func (g CompanionGroup) Validate() error
 
 func (g Goal) Creation() GoalCreate
 
 func (g Goal) Validate() error
+
+func (i DeveloperRepositoryIdentity) Validate() error
+
+func (p CompanionProfile) Validate() error
 
 func (p PermissionPolicy) Effective() PermissionPolicy
 
@@ -59,9 +93,15 @@ func (p Preferences) Validate() error
 
 func (r *Runtime) ActiveExecution(sessionID string) (executionID string, active bool)
 
+func (r *Runtime) ActivePermission(sessionID string) (PermissionBinding, bool)
+
 func (r *Runtime) Cancel(ctx context.Context, sessionID string) error
 
+func (r *Runtime) CancelAndWait(ctx context.Context, sessionID string) error
+
 func (r *Runtime) CancelExecution(ctx context.Context, sessionID, expectedExecutionID string) error
+
+func (r *Runtime) CancelExecutionAndWait(ctx context.Context, sessionID, expectedExecutionID string) error
 
 func (r *Runtime) Close(ctx context.Context) error
 
@@ -71,13 +111,21 @@ func (r *Runtime) EngineDescriptions() []engine.Description
 
 func (r *Runtime) HasActive() bool
 
+func (r *Runtime) PendingEngineInteractions(sessionID string) []EngineInteraction
+
 func (r *Runtime) Register(id string, runtime engine.Runtime) error
 
 func (r *Runtime) RegisterDescriptor(id string, descriptor engine.Descriptor) error
 
 func (r *Runtime) RespondPermission(ctx context.Context, sessionID, requestID string, decision engine.PermissionDecision) error
 
+func (r *Runtime) RespondPermissionBound(ctx context.Context, sessionID string, expected PermissionBinding, requestID string, decision engine.PermissionDecision) error
+
+func (r *Runtime) RespondUserInputBound(ctx context.Context, sessionID string, expected PermissionBinding, requestID string, response engine.UserInputResponse) error
+
 func (r *Runtime) ResumeWait(ctx context.Context, id, branch, turn string, revision uint64) (string, <-chan error, error)
+
+func (r *Runtime) ResumeWaitOwned(ctx context.Context, id, branch, turn string, revision uint64) (string, string, <-chan error, error)
 
 func (r *Runtime) Run(owner context.Context, sessionID, prompt string) error
 
@@ -87,19 +135,43 @@ func (r *Runtime) Start(owner context.Context, sessionID, prompt string) (string
 
 func (r *Runtime) StartAutomation(owner, admission context.Context, tick AutomationTick, at int64) (string, <-chan error, error)
 
+func (r *Runtime) StartComposerOnBranch(owner context.Context, id, branch string, input ComposerTurnInput) (string, <-chan error, error)
+
 func (r *Runtime) StartOnBranch(owner context.Context, sessionID, branchID, prompt string) (string, <-chan error, error)
+
+func (r *Runtime) StartOnBranchOwned(owner context.Context, sessionID, branchID, prompt string) (string, string, <-chan error, error)
 
 func (r *Runtime) StartWorkerTask(owner context.Context, lead, team, workerID string) (WorkerTask, <-chan error, error)
 
 func (r *Runtime) WithExclusiveWorkspaces(ctx context.Context, paths []string, apply func(context.Context) error) error
 
+func (r ConnectionCreate) Validate() error
+
+func (r ConnectionCreationReceipt) Clone() ConnectionCreationReceipt
+
+func (r ConnectionCreationReceipt) Validate() error
+
+func (r DeveloperRepository) Validate() error
+
 func (r GoalCreate) Validate() error
+
+func (s *CompanionSkillScope) Clone() *CompanionSkillScope
+
+func (s *CompanionSkillScope) Validate() error
+
+func (s ComposerDraftScope) Validate() error
+
+func (s ConversationTabSet) Validate() error
 
 func (s GoalScope) Validate() error
 
 func (s Settings) Validate() error
 
 func (s ToolSettings) Validate() error
+
+func (s WorktreeScope) Validate() error
+
+func (t ConversationTab) Validate() error
 
 func (t Target) Validate() error
 
@@ -117,9 +189,27 @@ func (v ModelPreferencesSnapshot) Clone() ModelPreferencesSnapshot
 
 func (v ModelPreferencesSnapshot) Validate() error
 
+func (v SessionModelOptionsSnapshot) Clone() SessionModelOptionsSnapshot
+
+func (v SessionModelOptionsSnapshot) Options(target Target) (ModelOptions, bool)
+
+func (v SessionModelOptionsSnapshot) Validate() error
+
+func (v WorkspaceView) Validate() error
+
+func (w DeveloperWorktree) Validate(repositoryID string) error
+
 func BlocksInput(status engine.Outcome) bool
 
 func ClaimsConflict(a, b []ResourceClaim) bool
+
+func CloneComposerDraft(d ComposerDraft) ComposerDraft
+
+func CloneConversationTabSet(value ConversationTabSet) ConversationTabSet
+
+func CloneWorkspaceView(v WorkspaceView) WorkspaceView
+
+func ConversationTabDraftID(tabID string) string
 
 func DefaultPreferences() Preferences
 
@@ -143,6 +233,8 @@ func RouteKey(target Target) string
 func ValidateAEP(entries []AEPBundle) error
 
 func ValidateTask(scope string, claims []ResourceClaim) error
+
+func ValidateWorkspaceNavigation(query WorkspaceNavigationQuery, cursor WorkspaceCursor, limit int) error
 
 import "context"
 
@@ -176,6 +268,24 @@ import (
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"encoding/hex"
+	"errors"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -189,6 +299,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -223,6 +334,14 @@ import (
 import (
 	"context"
 	"errors"
+	"math"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"errors"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -250,7 +369,23 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
 	"sync"
+)
+
+import (
+	"context"
+	"errors"
+	"sort"
+
+	"github.com/QuincySx/Alva/integration/engine"
 )
 
 import (
@@ -263,6 +398,11 @@ import (
 import (
 	"context"
 	"errors"
+)
+
+import (
+	"context"
+	"github.com/QuincySx/Alva/integration/engine"
 )
 
 import (
@@ -271,6 +411,11 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+)
+
+import (
+	"encoding/hex"
+	"errors"
 )
 
 import (
@@ -341,6 +486,10 @@ type Automation struct {
 	RunningTurnID string `json:"running_turn_id,omitempty"`
 }
 
+type AutomationBrowseStore interface {
+	ListAutomationIndex(context.Context) ([]Automation, error)
+}
+
 type AutomationDraft struct {
 	Title           string `json:"title"`
 	Prompt          string `json:"prompt"`
@@ -400,6 +549,236 @@ type CommandSettings struct {
 	Diagnostics []DiagnosticSpec `json:"diagnostics"`
 }
 
+type CompanionArchive struct {
+	Profiles []CompanionProfile `json:"profiles"`
+	Groups   []CompanionGroup   `json:"groups"`
+}
+
+type CompanionConversation struct {
+	ID            string           `json:"id"`
+	OwnerID       string           `json:"owner_id"`
+	CompanionID   string           `json:"companion_id"`
+	GroupID       string           `json:"group_id,omitempty"`
+	GroupRevision uint64           `json:"group_revision,omitempty"`
+	SessionID     string           `json:"session_id"`
+	Profile       CompanionProfile `json:"profile"`
+	CreatedAt     int64            `json:"created_at"`
+}
+
+type CompanionGroup struct {
+	ID            string   `json:"id"`
+	OwnerID       string   `json:"owner_id"`
+	Revision      uint64   `json:"revision"`
+	Name          string   `json:"name"`
+	Members       []string `json:"members"`
+	ScopeRevision uint64   `json:"scope_revision"`
+	ReplyMode     string   `json:"reply_mode"`
+	ReplyLimit    int      `json:"reply_limit"`
+	Workspace     string   `json:"workspace"`
+	Enabled       bool     `json:"enabled"`
+	Deleted       bool     `json:"deleted,omitempty"`
+	CreatedAt     int64    `json:"created_at"`
+	UpdatedAt     int64    `json:"updated_at"`
+}
+
+type CompanionHistoryQuery struct {
+	Before string `json:"before,omitempty"`
+	Limit  int    `json:"limit"`
+}
+
+type CompanionHistoryStore interface {
+	CompanionArchive(context.Context, string) (CompanionArchive, error)
+	CompanionMessagePage(context.Context, string, string, uint64, CompanionHistoryQuery) (CompanionMessagePage, error)
+	CompanionRoundPage(context.Context, string, string, uint64, CompanionHistoryQuery) (CompanionRoundPage, error)
+}
+
+type CompanionMessage struct {
+	ID            string `json:"id"`
+	RoundID       string `json:"round_id"`
+	GroupID       string `json:"group_id"`
+	GroupRevision uint64 `json:"group_revision"`
+	CompanionID   string `json:"companion_id,omitempty"`
+	Author        string `json:"author"`
+	Text          string `json:"text"`
+	SessionID     string `json:"session_id,omitempty"`
+	TurnID        string `json:"turn_id,omitempty"`
+	Status        string `json:"status"`
+	CreatedAt     int64  `json:"created_at"`
+}
+
+type CompanionMessagePage struct {
+	Messages   []CompanionMessage `json:"messages"`
+	NextBefore string             `json:"next_before,omitempty"`
+	HasMore    bool               `json:"has_more"`
+}
+
+type CompanionProfile struct {
+	ID               string           `json:"id"`
+	OwnerID          string           `json:"owner_id"`
+	Revision         uint64           `json:"revision"`
+	Name             string           `json:"name"`
+	Role             string           `json:"role"`
+	Target           Target           `json:"target"`
+	PermissionPolicy PermissionPolicy `json:"permission_policy"`
+	Workspace        string           `json:"workspace,omitempty"`
+	Skills           []CompanionSkill `json:"skills,omitempty"`
+	Enabled          bool             `json:"enabled"`
+	Deleted          bool             `json:"deleted,omitempty"`
+	CreatedAt        int64            `json:"created_at"`
+	UpdatedAt        int64            `json:"updated_at"`
+}
+
+type CompanionRound struct {
+	OperationID         string                  `json:"operation_id"`
+	Revision            uint64                  `json:"revision"`
+	NextMember          int                     `json:"next_member"`
+	Stage               string                  `json:"stage"`
+	ActiveBranchID      string                  `json:"active_branch_id,omitempty"`
+	ActiveTurnID        string                  `json:"active_turn_id,omitempty"`
+	BeforeTurnID        string                  `json:"before_turn_id,omitempty"`
+	PendingPromptSHA256 string                  `json:"pending_prompt_sha256,omitempty"`
+	ID                  string                  `json:"id"`
+	OwnerID             string                  `json:"owner_id"`
+	GroupID             string                  `json:"group_id"`
+	GroupRevision       uint64                  `json:"group_revision"`
+	Prompt              string                  `json:"prompt"`
+	Members             []CompanionConversation `json:"members"`
+	Status              string                  `json:"status"`
+	Error               string                  `json:"error,omitempty"`
+	CreatedAt           int64                   `json:"created_at"`
+	EndedAt             int64                   `json:"ended_at"`
+}
+
+type CompanionRoundPage struct {
+	Rounds     []CompanionRound `json:"rounds"`
+	NextBefore string           `json:"next_before,omitempty"`
+	HasMore    bool             `json:"has_more"`
+}
+
+type CompanionSkill struct {
+	SourceSessionID string `json:"source_session_id"`
+	SourceBranchID  string `json:"source_branch_id"`
+	Name            string `json:"name"`
+	SHA256          string `json:"sha256"`
+	GroupAllowed    bool   `json:"group_allowed"`
+}
+
+type CompanionSkillScope struct {
+	Skills []CompanionSkill `json:"skills"`
+}
+
+type CompanionStore interface {
+	Companions(context.Context, string) ([]CompanionProfile, error)
+	Companion(context.Context, string, string) (CompanionProfile, error)
+	SaveCompanion(context.Context, CompanionProfile, uint64) (CompanionProfile, error)
+	DeleteCompanion(context.Context, string, string, uint64) error
+	CompanionGroups(context.Context, string) ([]CompanionGroup, error)
+	CompanionGroup(context.Context, string, string) (CompanionGroup, error)
+	SaveCompanionGroup(context.Context, CompanionGroup, uint64) (CompanionGroup, error)
+	DeleteCompanionGroup(context.Context, string, string, uint64) error
+	CompanionSession(context.Context, string) (CompanionConversation, error)
+	CompanionConversation(context.Context, string, string, string, uint64) (CompanionConversation, error)
+	OpenCompanionConversation(context.Context, string, string, string, uint64, string) (CompanionConversation, error)
+	BeginCompanionRound(context.Context, string, string, uint64, string, []string) (CompanionRound, error)
+	CompanionRound(context.Context, string, string) (CompanionRound, error)
+	SaveCompanionRoundProgress(context.Context, string, CompanionRound, uint64) (CompanionRound, error)
+	PublishCompanionReply(context.Context, string, string, uint64, CompanionMessage) (CompanionRound, error)
+	FinishCompanionRound(context.Context, string, string, string, string) error
+	AppendCompanionMessage(context.Context, string, CompanionMessage) error
+	CompanionMessages(context.Context, string, string, uint64, int) ([]CompanionMessage, error)
+	CompanionRounds(context.Context, string, string, uint64, int) ([]CompanionRound, error)
+	RecoverCompanions(context.Context) error
+}
+
+type ComposerDraft struct {
+	Scope            ComposerDraftScope       `json:"scope"`
+	Revision         uint64                   `json:"revision"`
+	Text             string                   `json:"text"`
+	PendingSessionID string                   `json:"pending_session_id,omitempty"`
+	References       []ComposerDraftReference `json:"references,omitempty"`
+	PreparedCommands json.RawMessage          `json:"prepared_commands,omitempty"`
+}
+
+type ComposerDraftAdmissionStore interface {
+	CreateComposerSession(context.Context, ComposerDraft, string, string, Target) (Session, ComposerDraft, error)
+}
+
+type ComposerDraftReference struct {
+	Kind   string `json:"kind"`
+	ID     string `json:"id"`
+	SHA256 string `json:"sha256"`
+}
+
+type ComposerDraftScope struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+type ComposerDraftStore interface {
+	ComposerDraft(context.Context, ComposerDraftScope) (ComposerDraft, error)
+	SaveComposerDraft(context.Context, ComposerDraft, uint64) (ComposerDraft, error)
+}
+
+type ComposerExecutionStore interface {
+	BeginComposerTurn(context.Context, string, string, ComposerTurnInput) (Claim, error)
+}
+
+type ComposerFile struct {
+	ID              string             `json:"id"`
+	Scope           ComposerDraftScope `json:"scope"`
+	Name            string             `json:"name"`
+	SourcePath      string             `json:"source_path"`
+	MediaType       string             `json:"media_type"`
+	SHA256          string             `json:"sha256"`
+	Bytes           int64              `json:"bytes"`
+	OriginalKey     string             `json:"original_key"`
+	ChunkSHA256     []string           `json:"chunk_sha256"`
+	Text            bool               `json:"is_text"`
+	TextKey         string             `json:"text_key,omitempty"`
+	TextBytes       int64              `json:"text_bytes,omitempty"`
+	TextSHA256      string             `json:"text_sha256,omitempty"`
+	TextChunkSHA256 []string           `json:"text_chunk_sha256,omitempty"`
+	Processing      string             `json:"processing"`
+	CreatedAt       int64              `json:"created_at"`
+}
+
+type ComposerFileOwnershipStore interface {
+	ComposerFileSession(context.Context, string, string, string) (bool, error)
+}
+
+type ComposerFileStore interface {
+	SaveComposerFile(context.Context, ComposerFile) (ComposerFile, error)
+	ComposerFile(context.Context, string) (ComposerFile, error)
+	ListComposerFiles(context.Context, ComposerDraftScope, int) ([]ComposerFile, error)
+}
+
+type ComposerTurnInput struct {
+	Prompt   string
+	UserText string
+	Files    []engine.InputFile
+	Skills   []engine.InputSkill
+}
+
+type ComposerWorkerDraftStore interface {
+	EnqueueComposerWorkerOnBranch(context.Context, string, string, string, string, ComposerTurnInput, []ResourceClaim) (WorkerTask, error)
+}
+
+type ConnectionCreate struct {
+	RequestID string           `json:"request_id"`
+	Update    ConnectionUpdate `json:"update"`
+}
+
+type ConnectionCreationReceipt struct {
+	RequestID string           `json:"request_id"`
+	Created   ModelConnection  `json:"created"`
+	Current   *ModelConnection `json:"current,omitempty"`
+}
+
+type ConnectionCreationStore interface {
+	CreateConnection(context.Context, ConnectionCreate) (ModelConnection, error)
+	ConnectionCreation(context.Context, string) (ConnectionCreationReceipt, error)
+}
+
 type ConnectionModel struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -438,16 +817,86 @@ type ConnectionsStore interface {
 	ConnectionSecrets(context.Context, string, uint64) (ConnectionSecrets, error)
 }
 
+type ConversationTab struct {
+	ID         string `json:"id"`
+	SessionID  string `json:"session_id,omitempty"`
+	DraftID    string `json:"draft_id,omitempty"`
+	Title      string `json:"title"`
+	CreatedAt  int64  `json:"created_at"`
+	SelectedAt int64  `json:"selected_at,omitempty"`
+	Archived   bool   `json:"archived,omitempty"`
+}
+
+type ConversationTabAdmission struct {
+	Session Session            `json:"session"`
+	Draft   ComposerDraft      `json:"draft"`
+	Tabs    ConversationTabSet `json:"tabs"`
+}
+
+type ConversationTabAdmissionStore interface {
+	AdmitConversationTab(context.Context, ComposerDraft, string, WorktreeScope, string, uint64, Target) (ConversationTabAdmission, error)
+}
+
+type ConversationTabSet struct {
+	Scope       WorktreeScope     `json:"scope"`
+	Revision    uint64            `json:"revision"`
+	Tabs        []ConversationTab `json:"tabs"`
+	ActiveTabID string            `json:"active_tab_id,omitempty"`
+}
+
+type ConversationTabStore interface {
+	ConversationTabs(context.Context, WorktreeScope) (ConversationTabSet, error)
+	SaveConversationTabs(context.Context, ConversationTabSet, uint64) (ConversationTabSet, error)
+}
+
 type Detail struct {
 	Session  Session  `json:"session"`
 	Branches []Branch `json:"branches"`
 	Fallback []Target `json:"fallback"`
 }
 
+type DeveloperRepository struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	CommonDir string `json:"common_dir"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+type DeveloperRepositoryIdentity struct {
+	Path      string `json:"path"`
+	CommonDir string `json:"common_dir"`
+}
+
+type DeveloperRepositoryStore interface {
+	ListDeveloperRepositories(context.Context) ([]DeveloperRepository, error)
+	ImportDeveloperRepository(context.Context, DeveloperRepository) (DeveloperRepository, error)
+}
+
+type DeveloperWorktree struct {
+	RepositoryID string `json:"repository_id"`
+	Path         string `json:"path"`
+	Name         string `json:"name"`
+	Branch       string `json:"branch,omitempty"`
+	Head         string `json:"head"`
+	Main         bool   `json:"main"`
+	Detached     bool   `json:"detached"`
+}
+
+type DeveloperWorktreeSource interface {
+	InspectDeveloperRepository(context.Context, string) (DeveloperRepositoryIdentity, error)
+	ListDeveloperWorktrees(context.Context, string, string) ([]DeveloperWorktree, error)
+}
+
 type DiagnosticSpec struct {
 	ID          string `json:"id"`
 	Description string `json:"description,omitempty"`
 	NativeCommand
+}
+
+type EngineInteraction struct {
+	Binding PermissionBinding
+	Event   engine.Event
 }
 
 type ExecutionStore interface {
@@ -474,6 +923,22 @@ type GoalCreate struct {
 	Name               string    `json:"name"`
 	CompletionCriteria string    `json:"completion_criteria"`
 	Scope              GoalScope `json:"scope"`
+}
+
+type GoalCursor struct {
+	Created int64     `json:"created"`
+	ID      string    `json:"id"`
+	Scope   GoalScope `json:"scope"`
+}
+
+type GoalPage struct {
+	Entries []Goal     `json:"entries"`
+	Next    GoalCursor `json:"next"`
+	HasMore bool       `json:"has_more"`
+}
+
+type GoalPageStore interface {
+	PageGoals(context.Context, GoalScope, GoalCursor, int) (GoalPage, error)
 }
 
 type GoalReceipt struct {
@@ -516,14 +981,16 @@ type HandoffEntry struct {
 }
 
 type HistoryEntry struct {
-	Input     string         `json:"input,omitempty"`
-	Sequence  uint64         `json:"sequence"`
-	SessionID string         `json:"session_id"`
-	TurnID    string         `json:"turn_id"`
-	AttemptID string         `json:"attempt_id"`
-	Event     engine.Event   `json:"event"`
-	Time      int64          `json:"time"`
-	Timeline  *TimelineEvent `json:"timeline,omitempty"`
+	Input       string              `json:"input,omitempty"`
+	InputFiles  []engine.InputFile  `json:"input_files,omitempty"`
+	InputSkills []engine.InputSkill `json:"input_skills,omitempty"`
+	Sequence    uint64              `json:"sequence"`
+	SessionID   string              `json:"session_id"`
+	TurnID      string              `json:"turn_id"`
+	AttemptID   string              `json:"attempt_id"`
+	Event       engine.Event        `json:"event"`
+	Time        int64               `json:"time"`
+	Timeline    *TimelineEvent      `json:"timeline,omitempty"`
 }
 
 type HookSpec struct {
@@ -602,6 +1069,13 @@ type NativeOwnerResolver interface {
 	NativeOwner(context.Context, string, string) (string, error)
 }
 
+type PermissionBinding struct {
+	ExecutionID     string
+	AttemptID       string
+	EngineID        string
+	NativeSessionID string
+}
+
 type PermissionPolicy string
 
 type PreferenceOptions struct {
@@ -615,13 +1089,19 @@ type PreferenceUpdate struct {
 	Theme            *string `json:"theme,omitempty"`
 	Density          *string `json:"density,omitempty"`
 	FontSize         *int    `json:"font_size,omitempty"`
+	ReducedMotion    *bool   `json:"reduced_motion,omitempty"`
+	SidebarWidth     *int    `json:"sidebar_width,omitempty"`
+	SidebarCollapsed *bool   `json:"sidebar_collapsed,omitempty"`
 }
 
 type Preferences struct {
-	Revision uint64 `json:"revision"`
-	Theme    string `json:"theme"`
-	Density  string `json:"density"`
-	FontSize int    `json:"font_size"`
+	Revision         uint64 `json:"revision"`
+	Theme            string `json:"theme"`
+	Density          string `json:"density"`
+	FontSize         int    `json:"font_size"`
+	ReducedMotion    bool   `json:"reduced_motion"`
+	SidebarWidth     int    `json:"sidebar_width"`
+	SidebarCollapsed bool   `json:"sidebar_collapsed"`
 }
 
 type PreferencesStore interface {
@@ -652,6 +1132,30 @@ type SessionCursor struct {
 	ID      string
 }
 
+type SessionModelOption struct {
+	Key     string       `json:"key"`
+	Options ModelOptions `json:"options"`
+}
+
+type SessionModelOptionsSnapshot struct {
+	Revision uint64               `json:"revision"`
+	Entries  []SessionModelOption `json:"entries,omitempty"`
+}
+
+type SessionModelOptionsStore interface {
+	SessionModelOptions(context.Context, string) (SessionModelOptionsSnapshot, error)
+	SaveSessionModelOptions(context.Context, SessionModelOptionsUpdate) (SessionModelOptionsSnapshot, error)
+}
+
+type SessionModelOptionsUpdate struct {
+	SessionID        string `json:"session_id"`
+	BranchID         string `json:"branch_id"`
+	Target           Target `json:"target"`
+	ExpectedRevision uint64 `json:"expected_revision"`
+
+	Options *ModelOptions `json:"options,omitempty"`
+}
+
 type SessionPage struct {
 	Sessions []Session
 	Next     SessionCursor
@@ -672,24 +1176,26 @@ type SessionStore interface {
 }
 
 type Settings struct {
-	ModelOptions      ModelOptions     `json:"model_options,omitempty"`
-	DurableWaits      bool             `json:"durable_waits"`
-	PlanMode          bool             `json:"plan_mode,omitempty"`
-	PermissionPolicy  PermissionPolicy `json:"permission_policy,omitempty"`
-	Version           int              `json:"version"`
-	SessionID         string           `json:"session_id"`
-	MCP               []MCPServer      `json:"mcp"`
-	AEP               []AEPBundle      `json:"aep,omitempty"`
-	SkillsEnabled     bool             `json:"skills_enabled"`
-	SubagentsEnabled  bool             `json:"subagents_enabled"`
-	PersistentMemory  bool             `json:"persistent_memory"`
-	MediaEnabled      bool             `json:"media_enabled"`
-	MediaDecoder      MediaDecoder     `json:"media_decoder"`
-	Browser           BrowserSettings  `json:"browser"`
-	Commands          CommandSettings  `json:"commands"`
-	Tools             ToolSettings     `json:"tools"`
-	SkillArchives     []string         `json:"skill_archives,omitempty"`
-	CompatibilityFile string           `json:"compatibility_file,omitempty"`
+	ModelOptions        ModelOptions                `json:"model_options,omitempty"`
+	SessionModelOptions SessionModelOptionsSnapshot `json:"session_model_options,omitempty"`
+	DurableWaits        bool                        `json:"durable_waits"`
+	PlanMode            bool                        `json:"plan_mode,omitempty"`
+	PermissionPolicy    PermissionPolicy            `json:"permission_policy,omitempty"`
+	Version             int                         `json:"version"`
+	SessionID           string                      `json:"session_id"`
+	MCP                 []MCPServer                 `json:"mcp"`
+	AEP                 []AEPBundle                 `json:"aep,omitempty"`
+	SkillsEnabled       bool                        `json:"skills_enabled"`
+	CompanionSkills     *CompanionSkillScope        `json:"companion_skills,omitempty"`
+	SubagentsEnabled    bool                        `json:"subagents_enabled"`
+	PersistentMemory    bool                        `json:"persistent_memory"`
+	MediaEnabled        bool                        `json:"media_enabled"`
+	MediaDecoder        MediaDecoder                `json:"media_decoder"`
+	Browser             BrowserSettings             `json:"browser"`
+	Commands            CommandSettings             `json:"commands"`
+	Tools               ToolSettings                `json:"tools"`
+	SkillArchives       []string                    `json:"skill_archives,omitempty"`
+	CompatibilityFile   string                      `json:"compatibility_file,omitempty"`
 }
 
 type SettingsStore interface {
@@ -700,6 +1206,7 @@ type SettingsStore interface {
 	ReplaceMCP(context.Context, string, []MCPServer) error
 	SetMCPEnabled(context.Context, string, string, bool, bool) error
 	SetSkillsEnabled(context.Context, string, bool) error
+	SetCompanionSkills(context.Context, string, *CompanionSkillScope) error
 	SetCompatibilityFile(context.Context, string, string) error
 	SetSubagentsEnabled(context.Context, string, bool) error
 	SetPersistentMemory(context.Context, string, bool) error
@@ -820,15 +1327,17 @@ type ToolSettingsStore interface {
 }
 
 type Turn struct {
-	ID              string         `json:"id"`
-	AutomationID    string         `json:"automation_id,omitempty"`
-	SessionID       string         `json:"session_id"`
-	Sequence        uint64         `json:"sequence"`
-	Prompt          string         `json:"prompt"`
-	Status          engine.Outcome `json:"status"`
-	ActiveAttemptID string         `json:"active_attempt_id"`
-	CreatedAt       int64          `json:"created_at"`
-	EndedAt         int64          `json:"ended_at"`
+	ID              string              `json:"id"`
+	AutomationID    string              `json:"automation_id,omitempty"`
+	SessionID       string              `json:"session_id"`
+	Sequence        uint64              `json:"sequence"`
+	Prompt          string              `json:"prompt"`
+	InputFiles      []engine.InputFile  `json:"input_files,omitempty"`
+	InputSkills     []engine.InputSkill `json:"input_skills,omitempty"`
+	Status          engine.Outcome      `json:"status"`
+	ActiveAttemptID string              `json:"active_attempt_id"`
+	CreatedAt       int64               `json:"created_at"`
+	EndedAt         int64               `json:"ended_at"`
 }
 
 type WaitStore interface {
@@ -882,18 +1391,19 @@ type WorkerOutcome struct {
 }
 
 type WorkerTask struct {
-	ID               string          `json:"id"`
-	Sequence         uint64          `json:"sequence"`
-	TeamID           string          `json:"team_id"`
-	WorkerID         string          `json:"worker_id"`
-	Scope            string          `json:"scope"`
-	Claims           []ResourceClaim `json:"claims"`
-	Status           engine.Outcome  `json:"status"`
-	TurnID           string          `json:"turn_id"`
-	Outcome          *WorkerOutcome  `json:"outcome,omitempty"`
-	CreatedAt        int64           `json:"created_at"`
-	EndedAt          int64           `json:"ended_at"`
-	RequiredBranchID string          `json:"required_branch_id,omitempty"`
+	ID               string             `json:"id"`
+	Sequence         uint64             `json:"sequence"`
+	TeamID           string             `json:"team_id"`
+	WorkerID         string             `json:"worker_id"`
+	Scope            string             `json:"scope"`
+	Claims           []ResourceClaim    `json:"claims"`
+	Status           engine.Outcome     `json:"status"`
+	TurnID           string             `json:"turn_id"`
+	Outcome          *WorkerOutcome     `json:"outcome,omitempty"`
+	CreatedAt        int64              `json:"created_at"`
+	EndedAt          int64              `json:"ended_at"`
+	RequiredBranchID string             `json:"required_branch_id,omitempty"`
+	ComposerInput    *ComposerTurnInput `json:"composer_input,omitempty"`
 }
 
 type WorkerTaskPage struct {
@@ -910,6 +1420,64 @@ type WorkerWorktree struct {
 	Problem  string                 `json:"problem,omitempty"`
 	Revision uint64                 `json:"revision"`
 	Removal  *WorktreeRemovalReview `json:"removal,omitempty"`
+}
+
+type WorkspaceCursor struct {
+	Path string `json:"path"`
+}
+
+type WorkspaceEntry struct {
+	Path         string `json:"path"`
+	Name         string `json:"name"`
+	SessionCount int    `json:"session_count"`
+	LastActiveAt int64  `json:"last_active_at"`
+}
+
+type WorkspaceFileSource struct {
+	ID, BranchID, WorkspaceID, Path, Name, Kind, Revision string
+	Bytes                                                 int64
+}
+
+type WorkspaceNavigationQuery struct {
+	Query       string
+	ExcludeRoot string
+}
+
+type WorkspaceNavigationStore interface {
+	PageWorkspaces(context.Context, WorkspaceNavigationQuery, WorkspaceCursor, int) (WorkspacePage, error)
+	PageWorkspaceSessions(context.Context, string, string, SessionCursor, int) (SessionPage, error)
+}
+
+type WorkspacePage struct {
+	Items   []WorkspaceEntry `json:"items"`
+	Next    WorkspaceCursor  `json:"next"`
+	HasMore bool             `json:"has_more"`
+}
+
+type WorkspaceTab struct {
+	ID, Kind, Title, BranchID, URI string
+	File                           *WorkspaceFileSource `json:",omitempty"`
+	TeamID, WorkerID, TaskID       string
+	TaskSequence                   uint64
+	Offset                         int64
+	ScrollX, ScrollY               float32
+	Cursor, HighWater              uint64
+	Query, After                   string
+}
+
+type WorkspaceView struct {
+	SessionID          string
+	Revision           uint64
+	Tabs               []WorkspaceTab
+	Active             string
+	Collapsed, Focused bool
+
+	Width float32
+}
+
+type WorkspaceViewStore interface {
+	WorkspaceView(context.Context, string) (WorkspaceView, error)
+	SaveWorkspaceView(context.Context, WorkspaceView, uint64) (WorkspaceView, error)
 }
 
 type WorktreeBinding struct {
@@ -951,6 +1519,11 @@ type WorktreeRemovalReview struct {
 	CreatedAt    int64  `json:"created_at"`
 }
 
+type WorktreeScope struct {
+	RepositoryID string `json:"repository_id"`
+	Path         string `json:"path"`
+}
+
 type WorktreeStore interface {
 	BeginWorkerWorktree(context.Context, string, string, string) (Worker, error)
 	FinishWorkerWorktree(context.Context, string, string, string, uint64, WorktreeBinding, string) (Worker, error)
@@ -968,7 +1541,21 @@ var ErrAutomationSkipped = errors.New("automation tick skipped; no catch-up or q
 
 var ErrAutomationStale = errors.New("automation changed, paused, claimed or not due; refresh before acting")
 
+var ErrCompanionConflict = errors.New("companion configuration changed; reload before saving")
+
+var ErrCompanionDisabled = errors.New("companion or group is disabled")
+
+var ErrComposerDraftConflict = errors.New("composer draft changed; reload the shared draft before saving")
+
+var ErrComposerFileChanged = errors.New("captured composer file identity or bytes changed")
+
 var ErrConnectionConflict = errors.New("model connection changed; reload before saving")
+
+var ErrConnectionCreationConflict = errors.New("connection creation changed or its connection was edited or deleted; resolve the original request")
+
+var ErrConversationTabsConflict = errors.New("conversation tabs changed; reload the worktree before saving")
+
+var ErrDeveloperRepositoryConflict = errors.New("developer repository identity changed; refresh explicit imports")
 
 var ErrGoalConflict = errors.New("goal request changed; use a new request identity")
 
@@ -986,6 +1573,8 @@ var ErrPreferenceConflict = errors.New("preferences changed; reload before savin
 
 var ErrSessionBusy = errors.New("Hub session already running")
 
+var ErrSessionModelOptionsConflict = errors.New("session model options changed; reload before saving")
+
 var ErrSessionNotRunning = errors.New("Hub session is not running")
 
 var ErrWorkerDormant = errors.New("Worker is dormant or Team has ended")
@@ -993,3 +1582,5 @@ var ErrWorkerDormant = errors.New("Worker is dormant or Team has ended")
 var ErrWorkerQueueEmpty = errors.New("Worker queue is empty")
 
 var ErrWorkerResourcesBlocked = errors.New("Worker head is waiting for older or running resource claims")
+
+var ErrWorkspaceViewConflict = errors.New("workspace view changed in another window; reload before saving")

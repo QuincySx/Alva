@@ -71,15 +71,17 @@ type Branch struct {
 	Parked          bool   `json:"parked"`
 }
 type Turn struct {
-	ID              string         `json:"id"`
-	AutomationID    string         `json:"automation_id,omitempty"`
-	SessionID       string         `json:"session_id"`
-	Sequence        uint64         `json:"sequence"`
-	Prompt          string         `json:"prompt"`
-	Status          engine.Outcome `json:"status"`
-	ActiveAttemptID string         `json:"active_attempt_id"`
-	CreatedAt       int64          `json:"created_at"`
-	EndedAt         int64          `json:"ended_at"`
+	ID              string              `json:"id"`
+	AutomationID    string              `json:"automation_id,omitempty"`
+	SessionID       string              `json:"session_id"`
+	Sequence        uint64              `json:"sequence"`
+	Prompt          string              `json:"prompt"`
+	InputFiles      []engine.InputFile  `json:"input_files,omitempty"`
+	InputSkills     []engine.InputSkill `json:"input_skills,omitempty"`
+	Status          engine.Outcome      `json:"status"`
+	ActiveAttemptID string              `json:"active_attempt_id"`
+	CreatedAt       int64               `json:"created_at"`
+	EndedAt         int64               `json:"ended_at"`
 }
 type Attempt struct {
 	ModelOptions        ModelOptions           `json:"model_options,omitempty"`
@@ -106,14 +108,16 @@ type Detail struct {
 	Fallback []Target `json:"fallback"`
 }
 type HistoryEntry struct {
-	Input     string         `json:"input,omitempty"`
-	Sequence  uint64         `json:"sequence"`
-	SessionID string         `json:"session_id"`
-	TurnID    string         `json:"turn_id"`
-	AttemptID string         `json:"attempt_id"`
-	Event     engine.Event   `json:"event"`
-	Time      int64          `json:"time"`
-	Timeline  *TimelineEvent `json:"timeline,omitempty"`
+	Input       string              `json:"input,omitempty"`
+	InputFiles  []engine.InputFile  `json:"input_files,omitempty"`
+	InputSkills []engine.InputSkill `json:"input_skills,omitempty"`
+	Sequence    uint64              `json:"sequence"`
+	SessionID   string              `json:"session_id"`
+	TurnID      string              `json:"turn_id"`
+	AttemptID   string              `json:"attempt_id"`
+	Event       engine.Event        `json:"event"`
+	Time        int64               `json:"time"`
+	Timeline    *TimelineEvent      `json:"timeline,omitempty"`
 }
 type TimelineEvent struct {
 	Kind         string  `json:"kind"`
@@ -190,6 +194,7 @@ type SettingsStore interface {
 	ReplaceMCP(context.Context, string, []MCPServer) error
 	SetMCPEnabled(context.Context, string, string, bool, bool) error
 	SetSkillsEnabled(context.Context, string, bool) error
+	SetCompanionSkills(context.Context, string, *CompanionSkillScope) error
 	SetCompatibilityFile(context.Context, string, string) error
 	SetSubagentsEnabled(context.Context, string, bool) error
 	SetPersistentMemory(context.Context, string, bool) error

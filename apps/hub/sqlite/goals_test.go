@@ -1,5 +1,5 @@
 // INPUT: Real temporary SQLite, immutable Goal requests and frozen schema-three fixtures.
-// OUTPUT: Reopen/idempotency, competing creation, scope rejection and non-destructive migration/failure regressions.
+// OUTPUT: Durable scope-bound keyset pagination, idempotent creation and non-destructive migration/failure regressions.
 // POS: [L7 SQLite adapter tests] Proves committed Goal facts independently of execution or model accounts.
 package sqlite
 
@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -15,6 +16,74 @@ import (
 	"github.com/QuincySx/Alva/apps/hub"
 	private "github.com/QuincySx/Alva/platform/storage/sqlite"
 )
+
+func TestGoalsPagesReachOlderThanListLimitAndPinScopeAcrossReopen(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "paged-goals")
+	s, err := Open(t.Context(), directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	request := goalRequest(t)
+	want := make(map[string]bool, 125)
+	for index := range 125 {
+		request.RequestID = fmt.Sprintf("goal-request-%03d", index)
+		receipt, err := s.CreateGoal(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[receipt.Goal.ID] = true
+	}
+	first, err := s.PageGoals(t.Context(), request.Scope, hub.GoalCursor{}, 20)
+	if err != nil || len(first.Entries) != 20 || !first.HasMore || first.Next.Scope != request.Scope {
+		t.Fatal("first scoped page", first, err)
+	}
+	for _, goal := range first.Entries {
+		delete(want, goal.ID)
+	}
+	// A newer insert must not shift or duplicate the opened descending pages.
+	request.RequestID = "new-after-first-page"
+	if _, err = s.CreateGoal(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(t.Context(), directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := first.Next
+	for {
+		page, err := s.PageGoals(t.Context(), request.Scope, cursor, 20)
+		if err != nil || len(page.Entries) > 20 {
+			t.Fatal("continued page", page, err)
+		}
+		for _, goal := range page.Entries {
+			if !want[goal.ID] {
+				t.Fatal("page repeated or admitted a newer Goal", goal.ID)
+			}
+			delete(want, goal.ID)
+		}
+		if !page.HasMore {
+			break
+		}
+		cursor = page.Next
+	}
+	if len(want) != 0 {
+		t.Fatal("pagination hid older saved Goals", len(want))
+	}
+	foreign := request.Scope
+	foreign.Workspace = t.TempDir()
+	if _, err = s.PageGoals(t.Context(), foreign, first.Next, 20); err == nil {
+		t.Fatal("cursor crossed project scope")
+	}
+	bad := first.Next
+	bad.Created = 0
+	if _, err = s.PageGoals(t.Context(), request.Scope, bad, 20); err == nil {
+		t.Fatal("partial cursor accepted")
+	}
+}
 
 func goalRequest(t *testing.T) hub.GoalCreate {
 	t.Helper()
@@ -167,7 +236,7 @@ func TestGoalsVersionThreeMigrationPreservesConnections(t *testing.T) {
 	}
 	defer s.Close()
 	var version int
-	if err = s.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 4 {
+	if err = s.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 8 {
 		t.Fatal("schema", version, err)
 	}
 	connections, err := s.Connections(t.Context())

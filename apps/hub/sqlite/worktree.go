@@ -38,6 +38,14 @@ func worktreeWorker(ctx context.Context, tx *sql.Tx, lead, team, worker string) 
 	}
 	return w, parent, child, nil
 }
+
+func worktreeMutationWorker(ctx context.Context, tx *sql.Tx, lead, team, worker string) (hub.Worker, hub.Session, hub.Session, error) {
+	w, parent, child, err := worktreeWorker(ctx, tx, lead, team, worker)
+	if err == nil && hub.BlocksInput(parent.Status) {
+		err = errors.New("resolve the waiting Lead Turn before mutating its workspaces")
+	}
+	return w, parent, child, err
+}
 func (s *Store) BeginWorkerWorktree(ctx context.Context, lead, team, worker string) (providerResult0 hub.Worker, providerResult1 error) {
 	defer func() {
 		providerResult1 = normalizeStoreError(providerResult1)
@@ -46,7 +54,7 @@ func (s *Store) BeginWorkerWorktree(ctx context.Context, lead, team, worker stri
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var parent, child hub.Session
 		var err error
-		w, parent, child, err = worktreeWorker(ctx, tx, lead, team, worker)
+		w, parent, child, err = worktreeMutationWorker(ctx, tx, lead, team, worker)
 		if err != nil {
 			return err
 		}
@@ -77,9 +85,22 @@ func (s *Store) FinishWorkerWorktree(ctx context.Context, lead, team, worker str
 	}()
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		var parent, child hub.Session
+		// Completion belongs to the admitted provisioning owner. A Lead may
+		// already be admitted behind its workspace lease, or the Team may have
+		// ended; neither decision erases the actual private target it created.
+		if _, err := teamRecord(ctx, tx, lead, team); err != nil {
+			return err
+		}
 		var err error
-		w, parent, child, err = worktreeWorker(ctx, tx, lead, team, worker)
+		w, err = workerRecord(ctx, tx, team, worker)
+		if err != nil {
+			return err
+		}
+		parent, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, lead)
+		if err != nil {
+			return err
+		}
+		child, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, w.SessionID)
 		if err != nil {
 			return err
 		}
@@ -152,7 +173,7 @@ func (s *Store) BeginWorkerAdoption(ctx context.Context, lead, team, worker stri
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var err error
-		w, _, _, err = worktreeWorker(ctx, tx, lead, team, worker)
+		w, _, _, err = worktreeMutationWorker(ctx, tx, lead, team, worker)
 		if err != nil {
 			return err
 		}
@@ -265,7 +286,7 @@ func (s *Store) BeginWorkerRemoval(ctx context.Context, lead, team, worker strin
 	var w hub.Worker
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		var err error
-		w, _, _, err = worktreeWorker(ctx, tx, lead, team, worker)
+		w, _, _, err = worktreeMutationWorker(ctx, tx, lead, team, worker)
 		if err != nil {
 			return err
 		}

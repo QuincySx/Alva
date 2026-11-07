@@ -1,5 +1,5 @@
 // INPUT: Shared connection edits, selected private SQLite and existing transaction helpers.
-// OUTPUT: Durable optimistic connection CRUD and explicitly scoped credential resolution.
+// OUTPUT: Atomic request-bound creations, redacted recovery, optimistic CRUD and explicitly scoped credential resolution.
 // POS: [L7 SQLite adapter] Separates public connection metadata from private credential rows; never discovers accounts.
 package sqlite
 
@@ -10,6 +10,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/QuincySx/Alva/apps/hub"
 )
@@ -19,6 +20,87 @@ import (
 type connectionCredentialRow struct {
 	APIKey  string            `json:"api_key"`
 	Headers map[string]string `json:"headers"`
+}
+
+// The durable replay index contains only the original redacted receipt and a
+// non-secret edit flag. Secret equality is checked against the still-original
+// private credential row; edited/deleted creations can never be replayed.
+type connectionCreationRow struct {
+	Created        hub.ModelConnection `json:"created"`
+	ReplaceHeaders bool                `json:"replace_headers"`
+}
+
+func connectionCreationsSchema(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `CREATE TABLE hub_connection_creations(request TEXT PRIMARY KEY,connection TEXT NOT NULL UNIQUE,data BLOB NOT NULL)`)
+	return err
+}
+
+func validateConnectionCreationsSchema(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `SELECT request,connection,data FROM hub_connection_creations LIMIT 0`)
+	if err != nil {
+		return err
+	}
+	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	var columns, primaryKeys, uniqueConnection int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('hub_connection_creations') WHERE (name='request' AND pk=1) OR (name='connection' AND "notnull"=1) OR (name='data' AND "notnull"=1)`).Scan(&columns); err != nil {
+		return err
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('hub_connection_creations') WHERE pk>0`).Scan(&primaryKeys); err != nil {
+		return err
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM pragma_index_list('hub_connection_creations') AS i WHERE i."unique"=1 AND i.partial=0 AND (SELECT group_concat(name,',') FROM pragma_index_info(i.name))='connection'`).Scan(&uniqueConnection); err != nil {
+		return err
+	}
+	if columns != 3 || primaryKeys != 1 || uniqueConnection != 1 {
+		return errors.New("product connection creation schema lacks atomic identity constraints")
+	}
+	return nil
+}
+
+func connectionCreation(ctx context.Context, tx *sql.Tx, request string) (hub.ConnectionCreationReceipt, connectionCreationRow, error) {
+	row, err := read[connectionCreationRow](ctx, tx, `SELECT data FROM hub_connection_creations WHERE request=?`, request)
+	if err != nil {
+		return hub.ConnectionCreationReceipt{}, row, err
+	}
+	var id string
+	if err = tx.QueryRowContext(ctx, `SELECT connection FROM hub_connection_creations WHERE request=?`, request).Scan(&id); err != nil {
+		return hub.ConnectionCreationReceipt{}, row, err
+	}
+	receipt := hub.ConnectionCreationReceipt{RequestID: request, Created: row.Created}
+	if row.Created.ID != id || receipt.Validate() != nil {
+		return hub.ConnectionCreationReceipt{}, row, errors.New("product connection creation receipt is corrupt")
+	}
+	current, err := connection(ctx, tx, id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return hub.ConnectionCreationReceipt{}, row, err
+	}
+	if err == nil {
+		if _, err = connectionCredentials(ctx, tx, current); err != nil {
+			return hub.ConnectionCreationReceipt{}, row, err
+		}
+		receipt.Current = &current
+	}
+	if err = receipt.Validate(); err != nil {
+		return hub.ConnectionCreationReceipt{}, row, err
+	}
+	return receipt, row, nil
+}
+
+func (s *Store) ConnectionCreation(ctx context.Context, request string) (receipt hub.ConnectionCreationReceipt, err error) {
+	defer func() { err = normalizeStoreError(err) }()
+	if strings.TrimSpace(request) == "" || len(request) > 128 {
+		return receipt, errors.New("bounded connection creation request identity required")
+	}
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		receipt, _, err = connectionCreation(ctx, tx, request)
+		return err
+	})
+	if err != nil {
+		return hub.ConnectionCreationReceipt{}, err
+	}
+	return receipt.Clone(), nil
 }
 
 func connection(ctx context.Context, q querier, id string) (hub.ModelConnection, error) {
@@ -91,12 +173,49 @@ func (s *Store) Connections(ctx context.Context) (value []hub.ModelConnection, e
 	return value, nil
 }
 func (s *Store) SaveConnection(ctx context.Context, u hub.ConnectionUpdate) (value hub.ModelConnection, err error) {
+	return s.saveConnection(ctx, u, "")
+}
+
+func (s *Store) CreateConnection(ctx context.Context, request hub.ConnectionCreate) (hub.ModelConnection, error) {
+	if err := request.Validate(); err != nil {
+		return hub.ModelConnection{}, err
+	}
+	return s.saveConnection(ctx, request.Update, request.RequestID)
+}
+
+func (s *Store) saveConnection(ctx context.Context, u hub.ConnectionUpdate, requestID string) (value hub.ModelConnection, err error) {
 	defer func() { err = normalizeStoreError(err) }()
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		var current hub.ModelConnection
 		var secret hub.ConnectionSecrets
 		creating := u.ID == ""
 		if creating {
+			if requestID != "" {
+				receipt, original, readErr := connectionCreation(ctx, tx, requestID)
+				if readErr == nil {
+					if receipt.Current == nil || receipt.Current.Revision != receipt.Created.Revision || original.ReplaceHeaders != u.ReplaceHeaders {
+						return hub.ErrConnectionCreationConflict
+					}
+					check := u
+					check.ID = receipt.Created.ID
+					candidate, private, applyErr := (hub.ModelConnection{ID: check.ID}).Apply(check, hub.ConnectionSecrets{})
+					if applyErr != nil || !candidate.SameConfiguration(receipt.Created) {
+						return hub.ErrConnectionCreationConflict
+					}
+					stored, err := connectionCredentials(ctx, tx, *receipt.Current)
+					if err != nil {
+						return err
+					}
+					if stored.APIKey != private.APIKey || !maps.Equal(stored.Headers, private.Headers) {
+						return hub.ErrConnectionCreationConflict
+					}
+					value = receipt.Created.Clone()
+					return nil
+				}
+				if !errors.Is(readErr, sql.ErrNoRows) {
+					return readErr
+				}
+			}
 			if u.ExpectedRevision != 0 {
 				return hub.ErrConnectionConflict
 			}
@@ -143,8 +262,18 @@ func (s *Store) SaveConnection(ctx context.Context, u hub.ConnectionUpdate) (val
 			if _, err = tx.ExecContext(ctx, `INSERT INTO hub_connections(id,revision,created,data) VALUES(?,?,?,?)`, value.ID, value.Revision, value.CreatedAt, data); err != nil {
 				return err
 			}
-			_, err = tx.ExecContext(ctx, `INSERT INTO hub_connection_credentials(connection,data) VALUES(?,?)`, value.ID, private)
-			return err
+			if _, err = tx.ExecContext(ctx, `INSERT INTO hub_connection_credentials(connection,data) VALUES(?,?)`, value.ID, private); err != nil {
+				return err
+			}
+			if requestID != "" {
+				receipt, err := body(connectionCreationRow{Created: value, ReplaceHeaders: u.ReplaceHeaders})
+				if err != nil {
+					return err
+				}
+				_, err = tx.ExecContext(ctx, `INSERT INTO hub_connection_creations(request,connection,data) VALUES(?,?,?)`, requestID, value.ID, receipt)
+				return err
+			}
+			return nil
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE hub_connections SET revision=?,data=? WHERE id=? AND revision=?`, value.Revision, data, value.ID, u.ExpectedRevision)
 		if err != nil {
@@ -202,3 +331,4 @@ func (s *Store) ConnectionSecrets(ctx context.Context, id string, revision uint6
 }
 
 var _ hub.ConnectionsStore = (*Store)(nil)
+var _ hub.ConnectionCreationStore = (*Store)(nil)

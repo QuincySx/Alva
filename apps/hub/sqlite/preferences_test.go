@@ -58,8 +58,68 @@ func TestPreferencesDefaultsAndDurableAtomicUpdate(t *testing.T) {
 	if err = store.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_preferences`).Scan(&rows); err != nil || version != 4 || rows != 1 {
+	if err = store.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_preferences`).Scan(&rows); err != nil || version != 8 || rows != 1 {
 		t.Fatalf("schema=%d singleton rows=%d: %v", version, rows, err)
+	}
+}
+
+func TestPreferencesSidebarSparseCASReopenAndExplicitReset(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "private")
+	store, err := Open(t.Context(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if store != nil {
+			_ = store.Close()
+		}
+	})
+	initial, err := store.Preferences(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Existing current-schema preference records omit the newly optional
+	// layout fields. Reading them must preserve their appearance and revision.
+	if _, err = store.db.ExecContext(t.Context(), `UPDATE hub_preferences SET data=json_remove(data,'$.sidebar_width','$.sidebar_collapsed')`); err != nil {
+		t.Fatal(err)
+	}
+	if observed, err := store.Preferences(t.Context()); err != nil || observed != initial {
+		t.Fatal("absent layout fields changed an existing record", observed, err)
+	}
+	theme, size, motion := "dark", 16, true
+	appearance, err := store.UpdatePreferences(t.Context(), hub.PreferenceUpdate{ExpectedRevision: initial.Revision, Theme: &theme, FontSize: &size, ReducedMotion: &motion})
+	if err != nil {
+		t.Fatal(err)
+	}
+	width, collapsed := 364, true
+	update := hub.PreferenceUpdate{ExpectedRevision: initial.Revision, SidebarWidth: &width, SidebarCollapsed: &collapsed}
+	if value, err := store.UpdatePreferences(t.Context(), update); !errors.Is(err, hub.ErrPreferenceConflict) || value != (hub.Preferences{}) {
+		t.Fatal("stale layout replaced concurrent appearance", value, err)
+	}
+	update.ExpectedRevision = appearance.Revision
+	saved, err := store.UpdatePreferences(t.Context(), update)
+	if err != nil || saved.Theme != theme || saved.FontSize != size || !saved.ReducedMotion || saved.SidebarWidth != width || !saved.SidebarCollapsed {
+		t.Fatal("sparse retry did not preserve independent appearance", saved, err)
+	}
+	invalidWidth := hub.MaxSidebarWidth + 1
+	if value, err := store.UpdatePreferences(t.Context(), hub.PreferenceUpdate{ExpectedRevision: saved.Revision, Theme: &theme, SidebarWidth: &invalidWidth}); !errors.Is(err, hub.ErrInvalidPreferences) || value != (hub.Preferences{}) {
+		t.Fatal("invalid layout partially committed", value, err)
+	}
+	if err = store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(t.Context(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, err := store.Preferences(t.Context())
+	if err != nil || actual != saved {
+		t.Fatal("reopening lost sidebar or appearance", actual, saved, err)
+	}
+	width, collapsed = 0, false
+	reset, err := store.UpdatePreferences(t.Context(), hub.PreferenceUpdate{ExpectedRevision: actual.Revision, SidebarWidth: &width, SidebarCollapsed: &collapsed})
+	if err != nil || reset.SidebarWidth != 0 || reset.SidebarCollapsed || reset.Theme != saved.Theme || reset.FontSize != saved.FontSize || reset.ReducedMotion != saved.ReducedMotion {
+		t.Fatal("reset erased other preferences or ignored explicit zero/false", reset, err)
 	}
 }
 
@@ -284,7 +344,7 @@ func TestPreferencesUnknownSchemaIsNotModified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.ExecContext(ctx, `CREATE TABLE future_facts(data TEXT); INSERT INTO future_facts VALUES('retain future'); PRAGMA user_version=5`); err != nil {
+	if _, err = db.ExecContext(ctx, `CREATE TABLE future_facts(data TEXT); INSERT INTO future_facts VALUES('retain future'); PRAGMA user_version=9`); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Close(); err != nil {
@@ -310,7 +370,7 @@ func TestPreferencesUnknownSchemaIsNotModified(t *testing.T) {
 	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE name LIKE 'hub_%'`).Scan(&added); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRowContext(ctx, `SELECT data FROM future_facts`).Scan(&original); err != nil || version != 5 || added != 0 || original != "retain future" {
+	if err = db.QueryRowContext(ctx, `SELECT data FROM future_facts`).Scan(&original); err != nil || version != 9 || added != 0 || original != "retain future" {
 		t.Fatalf("future schema changed: version=%d added=%d original=%q %v", version, added, original, err)
 	}
 }

@@ -1,5 +1,5 @@
 // INPUT: context, immutable goal metadata and explicit project/session ownership.
-// OUTPUT: Goal facts, idempotent creation receipts and a separate GoalStore capability.
+// OUTPUT: Goal facts, idempotent creation receipts and separate scope-bound listing capabilities.
 // POS: [L7 Hub product] Goals describe desired outcomes; creation never starts an execution or changes permissions.
 package hub
 
@@ -102,4 +102,24 @@ type GoalStore interface {
 	CreateGoal(context.Context, GoalCreate) (GoalReceipt, error)
 	Goal(context.Context, string) (Goal, error)
 	ListGoals(context.Context, GoalScope, int) ([]Goal, error)
+}
+
+// GoalCursor continues a descending immutable creation order in one exact scope.
+// New goals do not shift an already opened page or hide older saved goals.
+type GoalCursor struct {
+	Created int64     `json:"created"`
+	ID      string    `json:"id"`
+	Scope   GoalScope `json:"scope"`
+}
+
+type GoalPage struct {
+	Entries []Goal     `json:"entries"`
+	Next    GoalCursor `json:"next"`
+	HasMore bool       `json:"has_more"`
+}
+
+// GoalPageStore is the explicit capability for browsing every saved Goal.
+// GoalStore's original bounded ListGoals contract remains available.
+type GoalPageStore interface {
+	PageGoals(context.Context, GoalScope, GoalCursor, int) (GoalPage, error)
 }

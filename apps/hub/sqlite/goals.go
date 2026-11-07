@@ -1,5 +1,5 @@
 // INPUT: Shared immutable Goal policy, explicit scope and selected SQLite transactions.
-// OUTPUT: Durable goal IDs, atomic idempotent creation receipts and bounded scope-specific cold reads.
+// OUTPUT: Durable goal IDs, atomic idempotent receipts and scope-bound cold keyset pages.
 // POS: [L7 SQLite adapter] Saves desired outcomes independently of execution, Team and native records.
 package sqlite
 
@@ -151,3 +151,57 @@ func (s *Store) ListGoals(ctx context.Context, scope hub.GoalScope, limit int) (
 }
 
 var _ hub.GoalStore = (*Store)(nil)
+
+func (s *Store) PageGoals(ctx context.Context, scope hub.GoalScope, cursor hub.GoalCursor, limit int) (page hub.GoalPage, err error) {
+	defer func() { err = normalizeStoreError(err) }()
+	if limit < 1 || limit > 100 || cursor != (hub.GoalCursor{}) && (cursor.Created <= 0 || len(cursor.ID) == 0 || len(cursor.ID) > 128 || cursor.Scope != scope) {
+		return hub.GoalPage{}, errors.New("goal page requires a bounded limit and same-scope cursor")
+	}
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		if err := validateGoalScope(ctx, tx, scope); err != nil {
+			return err
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM hub_goals WHERE scope_kind=? AND workspace=? AND session=? AND (?=0 OR created<? OR (created=? AND id<?)) ORDER BY created DESC,id DESC LIMIT ?`, scope.Kind, scope.Workspace, scope.SessionID, cursor.Created, cursor.Created, cursor.Created, cursor.ID, limit+1)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err = rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		if err = errors.Join(rows.Err(), rows.Close()); err != nil {
+			return err
+		}
+		page.HasMore = len(ids) > limit
+		if page.HasMore {
+			ids = ids[:limit]
+		}
+		page.Entries = make([]hub.Goal, 0, len(ids))
+		for _, id := range ids {
+			g, err := goal(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if g.Scope != scope {
+				return hub.ErrGoalScope
+			}
+			page.Entries = append(page.Entries, g)
+		}
+		if page.HasMore {
+			last := page.Entries[len(page.Entries)-1]
+			page.Next = hub.GoalCursor{Created: last.CreatedAt, ID: last.ID, Scope: scope}
+		}
+		return nil
+	})
+	if err != nil {
+		return hub.GoalPage{}, err
+	}
+	return page, nil
+}
+
+var _ hub.GoalPageStore = (*Store)(nil)

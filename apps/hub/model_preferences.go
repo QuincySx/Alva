@@ -72,7 +72,9 @@ type ModelPreferencesSnapshot struct {
 }
 
 func (v ModelPreferencesSnapshot) Clone() ModelPreferencesSnapshot {
-	v.Entries = append([]ModelPreference(nil), v.Entries...)
+	if v.Entries != nil {
+		v.Entries = append([]ModelPreference{}, v.Entries...)
+	}
 	for i := range v.Entries {
 		v.Entries[i] = v.Entries[i].Clone()
 	}

@@ -5,12 +5,15 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/hub"
 )
+
+const ordinarySessionFilter = `NOT EXISTS(SELECT 1 FROM hub_workers WHERE hub_workers.session=hub_sessions.id) AND NOT EXISTS(SELECT 1 FROM hub_companion_conversations WHERE hub_companion_conversations.session=hub_sessions.id)`
 
 func (s *Store) PageSessions(ctx context.Context, query string, cursor hub.SessionCursor, limit int) (providerResult0 hub.SessionPage, providerResult1 error) {
 	defer func() {
@@ -20,14 +23,19 @@ func (s *Store) PageSessions(ctx context.Context, query string, cursor hub.Sessi
 	if len(query) > 256 || !utf8.ValidString(query) || limit < 1 || limit > 128 || cursor.Updated < 0 || len(cursor.ID) > 128 {
 		return page, errors.New("bounded session query/cursor/limit required")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT data FROM hub_sessions WHERE NOT EXISTS(SELECT 1 FROM hub_workers WHERE hub_workers.session=hub_sessions.id) AND (?='' OR instr(lower(json_extract(data,'$.title')),lower(?))>0 OR instr(lower(json_extract(data,'$.workspace')),lower(?))>0) AND (?=0 OR updated<? OR (updated=? AND id<?)) ORDER BY updated DESC,id DESC LIMIT ?`, query, query, query, cursor.Updated, cursor.Updated, cursor.Updated, cursor.ID, limit+1)
+	rows, err := s.db.QueryContext(ctx, `SELECT data FROM hub_sessions WHERE `+ordinarySessionFilter+` AND (?='' OR instr(lower(json_extract(data,'$.title')),lower(?))>0 OR instr(lower(json_extract(data,'$.workspace')),lower(?))>0) AND (?=0 OR updated<? OR (updated=? AND id<?)) ORDER BY updated DESC,id DESC LIMIT ?`, query, query, query, cursor.Updated, cursor.Updated, cursor.Updated, cursor.ID, limit+1)
 	if err != nil {
 		return page, err
 	}
 	defer rows.Close()
+	return readSessionPage(rows, limit)
+}
+
+func readSessionPage(rows *sql.Rows, limit int) (hub.SessionPage, error) {
+	var page hub.SessionPage
 	for rows.Next() {
 		var data []byte
-		if err = rows.Scan(&data); err != nil {
+		if err := rows.Scan(&data); err != nil {
 			return page, err
 		}
 		if len(page.Sessions) == limit {

@@ -8,6 +8,7 @@ Concrete L7 native capability; Hub core consumes only pure product facts. No SDK
 ## 逻辑
 
 Git executable is an explicit host-approved immutable configuration snapshot. Fixed commands clear host environment and disable system/global config, hooks, fsmonitor, credential helpers, external diffs and network protocols. Owned process capture is bounded and cancellation joins actual readers/reap; incomplete physical cleanup retains the exact child for Close retry.
+Read-only developer navigation accepts only an explicit existing toplevel, canonicalizes linked worktrees to the Git common root and enumerates `git worktree list --porcelain -z` through the same approved Manager. It creates no managed tree, invokes no hook, scans no ambient Git/PATH/recent directory and grants no Worker binding or execution authority.
 Whole operations serialize their large snapshots, have at most eight owned admissions and a two-minute owner/caller deadline. Every command has thirty seconds and 64KiB stderr/explicit stdout limits. Trees have at most4096 regular files,32 path components,20MiB/file and128MiB raw total. Private old/new evidence is64MiB/snapshot; patches16MiB; retained evidence at most32/256MiB. Reaching a cap fails visibly; nothing is silently deleted. Explicit evidence archive/recovery UI remains unimplemented. Removal has a separate cold whole-tree/index/HEAD review, exact product revision plus independent deletion confirmation, registered-path/branch/common-repository validation and actual Git removal/postcondition. It works after the Lead HEAD advances, retains branch/history/evidence, and refuses stale bytes/index or unmanaged targets; failures remain unknown, never replayed.
 
 ## 约束
@@ -22,6 +23,7 @@ Windows parity is unfinished: the constructor checks Unix executable bits, and s
 | 文件 | 职责 |
 |---|---|
 | git.go | Explicit approved Git executor, bounded process/reader ownership and terminal Close |
+| discovery.go / discovery_test.go | Explicit toplevel inspection and live main/linked/detached worktree enumeration through approved Git Manager; common-root idempotency, cancellation and no ambient discovery; refusal reasons keep the real command/cancel cause inspectable by callers |
 | create.go | Repository-root validation, no-checkout managed worktree and bounded direct blob population |
 | remove.go / remove_test.go | Explicit reviewed managed-only removal, revalidated whole-tree/index/HEAD, real Git exit and retained branch/evidence; stale/foreign/cancel refusal |
 | create_test.go | Actual temporary Git repository, unadopted edits stay isolated, hooks/smudge trap and explicit target/mode refusal |

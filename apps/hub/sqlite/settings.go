@@ -91,6 +91,8 @@ func (s *Store) SaveSettings(ctx context.Context, value hub.Settings) (providerR
 		value.PlanMode = previous.PlanMode // Importing configuration is not a permission-policy transition.
 		value.PermissionPolicy = previous.PermissionPolicy
 		value.ModelOptions = previous.ModelOptions.Clone()
+		value.SessionModelOptions = previous.SessionModelOptions.Clone()
+		value.CompanionSkills = previous.CompanionSkills.Clone()
 		return saveSettings(ctx, tx, value)
 	})
 }

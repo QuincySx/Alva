@@ -1,5 +1,5 @@
 // INPUT: Shared product SQL transactions, Hub team contracts and durable session routing
-// OUTPUT: Actual independent Worker sessions, FIFO task claims, lifecycle and terminal receipts
+// OUTPUT: Independent Worker sessions, branch/owner-checked typed FIFO claims, lifecycle and terminal receipts
 // POS: [L7 Hub product] Team facts share product.sqlite; native execution records stay in their own owner-scoped repository
 package sqlite
 
@@ -258,7 +258,7 @@ func (s *Store) EnqueueWorker(ctx context.Context, lead, team, id, scope string,
 	defer func() {
 		providerResult1 = normalizeStoreError(providerResult1)
 	}()
-	return s.enqueueWorker(ctx, lead, team, id, "", scope, claims)
+	return s.enqueueWorker(ctx, lead, team, id, "", scope, claims, nil)
 }
 func (s *Store) EnqueueWorkerOnBranch(ctx context.Context, lead, team, id, branch, scope string, claims []hub.ResourceClaim) (providerResult0 hub.WorkerTask, providerResult1 error) {
 	defer func() {
@@ -267,9 +267,68 @@ func (s *Store) EnqueueWorkerOnBranch(ctx context.Context, lead, team, id, branc
 	if branch == "" {
 		return hub.WorkerTask{}, errors.New("exact saved Worker draft branch required")
 	}
-	return s.enqueueWorker(ctx, lead, team, id, branch, scope, claims)
+	return s.enqueueWorker(ctx, lead, team, id, branch, scope, claims, nil)
 }
-func (s *Store) enqueueWorker(ctx context.Context, lead, team, id, requiredBranch, scope string, claims []hub.ResourceClaim) (hub.WorkerTask, error) {
+func (s *Store) EnqueueComposerWorkerOnBranch(ctx context.Context, lead, team, id, branch string, input hub.ComposerTurnInput, claims []hub.ResourceClaim) (task hub.WorkerTask, err error) {
+	defer func() { err = normalizeStoreError(err) }()
+	if branch == "" {
+		return task, errors.New("exact saved Worker draft branch required")
+	}
+	input.Files = engine.CloneInputFiles(input.Files)
+	input.Skills = engine.CloneInputSkills(input.Skills)
+	return s.enqueueWorker(ctx, lead, team, id, branch, input.UserText, claims, &input)
+}
+
+func validateWorkerComposerInput(ctx context.Context, tx *sql.Tx, session string, input hub.ComposerTurnInput) error {
+	if len(input.Prompt) > 64<<10 || !utf8.ValidString(input.Prompt) || !strings.HasPrefix(input.Prompt, input.UserText) {
+		return errors.New("Worker composer prompt must preserve its original task prefix within 64 KiB")
+	}
+	if err := engine.ValidateInputFiles(input.Files); err != nil {
+		return err
+	}
+	if err := engine.ValidateInputSkills(input.Skills); err != nil {
+		return err
+	}
+	for _, input := range input.Files {
+		file, err := composerFile(ctx, tx, input.ID)
+		if err != nil {
+			return err
+		}
+		if input.SHA256 != file.SHA256 || input.Name != file.Name || input.MediaType != file.MediaType || input.Bytes != file.Bytes || input.URI != "composer://"+file.ID {
+			return hub.ErrComposerFileChanged
+		}
+		switch {
+		case file.Text:
+			if input.TextURI != input.URI || input.TextPath != input.Path || input.TextSHA256 != file.SHA256 || input.TextBytes != file.Bytes {
+				return hub.ErrComposerFileChanged
+			}
+		case file.TextKey != "":
+			if input.TextURI != input.URI+"/text" || input.TextSHA256 != file.TextSHA256 || input.TextBytes != file.TextBytes || input.TextPath == "" {
+				return hub.ErrComposerFileChanged
+			}
+		default:
+			if input.TextPath != "" {
+				return hub.ErrComposerFileChanged
+			}
+		}
+		if file.Scope.Kind == "session" {
+			if file.Scope.ID != session {
+				return hub.ErrComposerFileChanged
+			}
+		} else {
+			allowed, err := composerFileSession(ctx, tx, session, file.ID, file.SHA256)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return hub.ErrComposerFileChanged
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Store) enqueueWorker(ctx context.Context, lead, team, id, requiredBranch, scope string, claims []hub.ResourceClaim, composer *hub.ComposerTurnInput) (hub.WorkerTask, error) {
 	var task hub.WorkerTask
 	if len(claims) == 0 {
 		claims = []hub.ResourceClaim{{Path: ".", Write: true}}
@@ -301,6 +360,11 @@ func (s *Store) enqueueWorker(ctx context.Context, lead, team, id, requiredBranc
 				return errors.New("Worker draft branch changed before queue admission; draft retained")
 			}
 		}
+		if composer != nil {
+			if err = validateWorkerComposerInput(ctx, tx, w.SessionID, *composer); err != nil {
+				return err
+			}
+		}
 		var local, global int
 		if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM hub_worker_tasks WHERE worker=? AND status=?`, id, hub.TaskQueued).Scan(&local); err != nil {
 			return err
@@ -315,7 +379,7 @@ func (s *Store) enqueueWorker(ctx context.Context, lead, team, id, requiredBranc
 		if err != nil {
 			return err
 		}
-		task = hub.WorkerTask{ID: tid, TeamID: team, WorkerID: id, Scope: scope, Claims: append([]hub.ResourceClaim(nil), claims...), Status: hub.TaskQueued, CreatedAt: now(), RequiredBranchID: requiredBranch}
+		task = hub.WorkerTask{ID: tid, TeamID: team, WorkerID: id, Scope: scope, Claims: append([]hub.ResourceClaim(nil), claims...), Status: hub.TaskQueued, CreatedAt: now(), RequiredBranchID: requiredBranch, ComposerInput: composer}
 		data, err := body(task)
 		if err != nil {
 			return err
@@ -368,8 +432,22 @@ func (s *Store) EditQueuedTask(ctx context.Context, lead, team, worker, id, scop
 		if err != nil {
 			return err
 		}
+		if task.ComposerInput != nil && task.ComposerInput.UserText != task.Scope {
+			return errors.New("queued Worker composer task identity is corrupt")
+		}
 		task.Scope = scope
 		task.Claims = append([]hub.ResourceClaim(nil), claims...)
+		if task.ComposerInput != nil {
+			input := task.ComposerInput
+			if !strings.HasPrefix(input.Prompt, input.UserText) {
+				return errors.New("queued Worker composer prefix is corrupt")
+			}
+			input.Prompt = scope + strings.TrimPrefix(input.Prompt, input.UserText)
+			input.UserText = scope
+			if len(input.Prompt) > 64<<10 {
+				return errors.New("edited Worker composer prompt exceeds 64 KiB")
+			}
+		}
 		return writeTask(ctx, tx, task)
 	})
 }
@@ -523,7 +601,17 @@ func (s *Store) ClaimWorkerTask(ctx context.Context, lead, team, worker string) 
 		if len(result.BlockedBy) > 0 {
 			return nil
 		}
-		claim, err := beginTurn(ctx, tx, w.SessionID, task.Scope)
+		input := hub.ComposerTurnInput{Prompt: task.Scope, UserText: task.Scope}
+		if task.ComposerInput != nil {
+			input = *task.ComposerInput
+			if input.UserText != task.Scope {
+				return errors.New("queued Worker composer task identity is corrupt")
+			}
+			if err = validateWorkerComposerInput(ctx, tx, w.SessionID, input); err != nil {
+				return err
+			}
+		}
+		claim, err := beginComposerTurn(ctx, tx, w.SessionID, input)
 		if err != nil {
 			return err
 		}
@@ -618,3 +706,4 @@ func settleWorkerTask(ctx context.Context, tx *sql.Tx, turn hub.Turn) error {
 }
 
 var _ hub.TeamStore = (*Store)(nil)
+var _ hub.ComposerWorkerDraftStore = (*Store)(nil)

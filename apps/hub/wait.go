@@ -27,10 +27,17 @@ func NewWithWaits(store interface {
 	return r
 }
 func (r *Runtime) ResumeWait(ctx context.Context, id, branch, turn string, revision uint64) (string, <-chan error, error) {
+	resumed, _, done, err := r.ResumeWaitOwned(ctx, id, branch, turn, revision)
+	return resumed, done, err
+}
+
+// ResumeWaitOwned returns the exact new physical owner of the same Turn;
+// callers can cancel it without discovering a later replacement owner.
+func (r *Runtime) ResumeWaitOwned(ctx context.Context, id, branch, turn string, revision uint64) (string, string, <-chan error, error) {
 	if r.waits == nil || revision == 0 {
-		return "", nil, errors.New("durable continuation store and reviewed revision required")
+		return "", "", nil, errors.New("durable continuation store and reviewed revision required")
 	}
-	return r.start(ctx, id, func(ctx context.Context) (Claim, error) {
+	return r.startOwned(ctx, id, func(ctx context.Context) (Claim, error) {
 		return r.waits.BeginWaitResume(ctx, id, branch, turn, revision)
 	})
 }

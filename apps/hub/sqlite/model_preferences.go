@@ -1,5 +1,5 @@
 // INPUT: Explicit model preference edits and the selected product transaction.
-// OUTPUT: Independent revision CAS, corruption rejection and defaults frozen at actual Attempt admission.
+// OUTPUT: Independent default/session revision CAS and effective options frozen at actual Attempt admission.
 // POS: [L7 product storage] Shares the v4 migration transaction; never changes a connection credential revision.
 package sqlite
 
@@ -104,11 +104,14 @@ func captureModelOptions(ctx context.Context, tx *sql.Tx, session hub.Session, b
 			break
 		}
 	}
-	if err = options.ValidateTarget(branch.Target); err != nil {
-		return options, err
-	}
 	settings, err := settings(ctx, tx, session.ID)
 	if err != nil {
+		return options, err
+	}
+	if override, found := settings.SessionModelOptions.Options(branch.Target); found {
+		options = override
+	}
+	if err = options.ValidateTarget(branch.Target); err != nil {
 		return options, err
 	}
 	settings.ModelOptions = options.Clone()
@@ -116,4 +119,54 @@ func captureModelOptions(ctx context.Context, tx *sql.Tx, session hub.Session, b
 		return options, err
 	}
 	return options, nil
+}
+
+func (s *Store) SessionModelOptions(ctx context.Context, id string) (hub.SessionModelOptionsSnapshot, error) {
+	v, err := s.Settings(ctx, id)
+	return v.SessionModelOptions.Clone(), err
+}
+
+func (s *Store) SaveSessionModelOptions(ctx context.Context, edit hub.SessionModelOptionsUpdate) (value hub.SessionModelOptionsSnapshot, result error) {
+	defer func() { result = normalizeStoreError(result) }()
+	if result = edit.Target.Validate(); result != nil {
+		return
+	}
+	if edit.Options != nil {
+		if result = edit.Options.ValidateTarget(edit.Target); result != nil {
+			return
+		}
+		copy := edit.Options.Clone()
+		edit.Options = &copy
+	}
+	result = s.transaction(ctx, func(tx *sql.Tx) error {
+		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, edit.SessionID)
+		if err != nil {
+			return err
+		}
+		if session.ActiveBranchID != edit.BranchID {
+			return hub.ErrSessionModelOptionsConflict
+		}
+		current, err := settings(ctx, tx, edit.SessionID)
+		if err != nil {
+			return err
+		}
+		value = current.SessionModelOptions.Clone()
+		if value.Revision != edit.ExpectedRevision {
+			return hub.ErrSessionModelOptionsConflict
+		}
+		key := hub.ModelPreferenceKey(edit.Target)
+		entries := make([]hub.SessionModelOption, 0, len(value.Entries)+1)
+		for _, entry := range value.Entries {
+			if entry.Key != key {
+				entries = append(entries, entry)
+			}
+		}
+		if edit.Options != nil {
+			entries = append(entries, hub.SessionModelOption{Key: key, Options: edit.Options.Clone()})
+		}
+		value.Entries, value.Revision = entries, value.Revision+1
+		current.SessionModelOptions = value.Clone()
+		return saveSettings(ctx, tx, current)
+	})
+	return
 }

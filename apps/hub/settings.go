@@ -1,4 +1,4 @@
-// INPUT: Bounded explicit next-turn product capability/process snapshots
+// INPUT: Bounded explicit next-turn product capability/process snapshots and session model overrides
 // OUTPUT: Settings and capability approvals validated without protocol or process imports
 // POS: [L7 Hub product] Private product configuration snapshots; not SDK policy or execution authority
 package hub
@@ -12,24 +12,26 @@ import (
 )
 
 type Settings struct {
-	ModelOptions      ModelOptions     `json:"model_options,omitempty"`
-	DurableWaits      bool             `json:"durable_waits"`
-	PlanMode          bool             `json:"plan_mode,omitempty"`
-	PermissionPolicy  PermissionPolicy `json:"permission_policy,omitempty"`
-	Version           int              `json:"version"`
-	SessionID         string           `json:"session_id"`
-	MCP               []MCPServer      `json:"mcp"`
-	AEP               []AEPBundle      `json:"aep,omitempty"`
-	SkillsEnabled     bool             `json:"skills_enabled"`
-	SubagentsEnabled  bool             `json:"subagents_enabled"`
-	PersistentMemory  bool             `json:"persistent_memory"`
-	MediaEnabled      bool             `json:"media_enabled"`
-	MediaDecoder      MediaDecoder     `json:"media_decoder"`
-	Browser           BrowserSettings  `json:"browser"`
-	Commands          CommandSettings  `json:"commands"`
-	Tools             ToolSettings     `json:"tools"`
-	SkillArchives     []string         `json:"skill_archives,omitempty"`
-	CompatibilityFile string           `json:"compatibility_file,omitempty"`
+	ModelOptions        ModelOptions                `json:"model_options,omitempty"`
+	SessionModelOptions SessionModelOptionsSnapshot `json:"session_model_options,omitempty"`
+	DurableWaits        bool                        `json:"durable_waits"`
+	PlanMode            bool                        `json:"plan_mode,omitempty"`
+	PermissionPolicy    PermissionPolicy            `json:"permission_policy,omitempty"`
+	Version             int                         `json:"version"`
+	SessionID           string                      `json:"session_id"`
+	MCP                 []MCPServer                 `json:"mcp"`
+	AEP                 []AEPBundle                 `json:"aep,omitempty"`
+	SkillsEnabled       bool                        `json:"skills_enabled"`
+	CompanionSkills     *CompanionSkillScope        `json:"companion_skills,omitempty"`
+	SubagentsEnabled    bool                        `json:"subagents_enabled"`
+	PersistentMemory    bool                        `json:"persistent_memory"`
+	MediaEnabled        bool                        `json:"media_enabled"`
+	MediaDecoder        MediaDecoder                `json:"media_decoder"`
+	Browser             BrowserSettings             `json:"browser"`
+	Commands            CommandSettings             `json:"commands"`
+	Tools               ToolSettings                `json:"tools"`
+	SkillArchives       []string                    `json:"skill_archives,omitempty"`
+	CompatibilityFile   string                      `json:"compatibility_file,omitempty"`
 }
 type MCPServer struct {
 	ID                 string            `json:"id"`
@@ -41,6 +43,12 @@ type MCPServer struct {
 }
 
 func (s Settings) Validate() error {
+	if err := s.CompanionSkills.Validate(); err != nil {
+		return err
+	}
+	if err := s.SessionModelOptions.Validate(); err != nil {
+		return err
+	}
 	if err := s.ModelOptions.Validate(); err != nil {
 		return err
 	}

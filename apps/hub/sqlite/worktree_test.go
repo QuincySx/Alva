@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
 )
 
 func TestWorktreeRemovalRetiresWithoutRetargetingHistoryAndCrashNeverReplays(t *testing.T) {
@@ -189,5 +190,107 @@ func TestWorktreeRecoveryPreservesPrivateTargetAndUnknownWithoutReplay(t *testin
 	}
 	if _, err = s.BeginWorkerWorktree(ctx, lead.ID, team.Team.ID, w.ID); err == nil {
 		t.Fatal("interrupted provision automatically replayed")
+	}
+}
+
+func TestWorktreeProvisionOwnerCanSettleAfterLeadAdmissionOrTeamEnd(t *testing.T) {
+	for _, mode := range []string{"lead_running", "team_ended"} {
+		t.Run(mode, func(t *testing.T) {
+			s := newStore(t)
+			ctx := t.Context()
+			lead, team, worker, _ := teamFixture(t, s)
+			worker, err := s.BeginWorkerWorktree(ctx, lead.ID, team.Team.ID, worker.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "lead_running" {
+				if _, err = s.BeginTurn(ctx, lead.ID, "admitted while provisioning owns the workspace"); err != nil {
+					t.Fatal(err)
+				}
+			} else if err = s.EndTeam(ctx, lead.ID, team.Team.ID); err != nil {
+				t.Fatal(err)
+			}
+			binding := hub.WorktreeBinding{Version: 1, WorkerID: worker.ID, Workspace: lead.Workspace, Path: filepath.Join(t.TempDir(), "managed"), Branch: "alva/" + worker.ID, BaseCommit: strings.Repeat("a", 40)}
+			if _, err = s.FinishWorkerWorktree(ctx, lead.ID, team.Team.ID, worker.ID, worker.Worktree.Revision+1, binding, ""); err == nil {
+				t.Fatal("replacement revision accepted old provisioning completion")
+			}
+			worker, err = s.FinishWorkerWorktree(ctx, lead.ID, team.Team.ID, worker.ID, worker.Worktree.Revision, binding, "")
+			if err != nil || worker.Worktree.State != "ready" {
+				t.Fatal("actual provisioning owner could not settle", worker, err)
+			}
+			if mode == "team_ended" && worker.Lifecycle != hub.WorkerArchived {
+				t.Fatal("completion revived retired Worker", worker)
+			}
+			if _, err = s.FinishWorkerWorktree(ctx, lead.ID, team.Team.ID, worker.ID, worker.Worktree.Revision, binding, ""); err == nil {
+				t.Fatal("completed provisioning replayed")
+			}
+			child, err := s.Detail(ctx, worker.SessionID)
+			if err != nil || child.Session.Workspace != binding.Path {
+				t.Fatal("completed provisioning lost its actual cwd", child, err)
+			}
+		})
+	}
+}
+
+func TestWorktreeWaitingLeadAllowsEvidenceButRefusesMutationAdmission(t *testing.T) {
+	s := newStore(t)
+	ctx := t.Context()
+	lead, team, worker, other := teamFixture(t, s)
+	worker, err := s.BeginWorkerWorktree(ctx, lead.ID, team.Team.ID, worker.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := hub.WorktreeBinding{Version: 1, WorkerID: worker.ID, Workspace: lead.Workspace, Path: filepath.Join(t.TempDir(), "managed"), Branch: "alva/" + worker.ID, BaseCommit: strings.Repeat("a", 40)}
+	worker, err = s.FinishWorkerWorktree(ctx, lead.ID, team.Team.ID, worker.ID, worker.Worktree.Revision, binding, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetDurableWaits(ctx, lead.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := s.BeginTurn(ctx, lead.ID, "original unresolved Lead task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordWaiting(t, s, claim)
+	if err = s.FinishTurn(ctx, claim.Turn.ID, engine.Waiting); err != nil {
+		t.Fatal(err)
+	}
+	evidence := hub.WorktreeEvidence{ID: "fixture-diff", WorkerID: worker.ID, BaseCommit: binding.BaseCommit, Changes: []hub.WorktreeChange{{Path: "a.txt", AfterSHA256: "fixture-hash"}}}
+	worker, err = s.SaveWorkerEvidence(ctx, lead.ID, team.Team.ID, worker.ID, worker.Worktree.Revision, evidence)
+	if err != nil {
+		t.Fatal("waiting Lead prevented non-executing evidence inspection", err)
+	}
+	review := hub.WorktreeRemovalReview{WorkerSHA256: strings.Repeat("b", 64), IndexSHA256: strings.Repeat("c", 64), Head: binding.BaseCommit, Files: 1, Bytes: 12, CreatedAt: 1}
+	worker, err = s.SaveWorkerRemovalReview(ctx, lead.ID, team.Team.ID, worker.ID, worker.Worktree.Revision, review)
+	if err != nil {
+		t.Fatal("waiting Lead prevented removal review", err)
+	}
+	for name, action := range map[string]func() error{
+		"provision": func() error { _, err := s.BeginWorkerWorktree(ctx, lead.ID, team.Team.ID, other.ID); return err },
+		"adopt": func() error {
+			_, err := s.BeginWorkerAdoption(ctx, lead.ID, team.Team.ID, worker.ID, worker.Worktree.Revision, evidence.ID)
+			return err
+		},
+		"remove": func() error {
+			_, err := s.BeginWorkerRemoval(ctx, lead.ID, team.Team.ID, worker.ID, worker.Worktree.Revision, review.WorkerSHA256)
+			return err
+		},
+	} {
+		if err := action(); err == nil {
+			t.Fatal("unresolved Lead admitted workspace mutation", name)
+		}
+	}
+	actual, err := s.Team(ctx, lead.ID, team.Team.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, current := range actual.Workers {
+		if current.ID == worker.ID && (current.Worktree.Revision != worker.Worktree.Revision || current.Worktree.Adoption != "" || current.Worktree.State != "ready") {
+			t.Fatal("refused mutation changed reviewed facts", current)
+		}
+		if current.ID == other.ID && current.Worktree != nil {
+			t.Fatal("refused provision created a target decision", current)
+		}
 	}
 }

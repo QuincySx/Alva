@@ -1,5 +1,5 @@
 // INPUT: Explicit connection edits, exact model identities and standard value validation.
-// OUTPUT: Redacted connection values, optimistic CRUD storage contract and revision-bound routes.
+// OUTPUT: Redacted connection values, optimistic CRUD, optional request-bound creation receipts and revision-bound routes.
 // POS: [L7 Hub product] Shared connection policy without provider, credential discovery or execution dependencies.
 package hub
 
@@ -10,12 +10,14 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
 )
 
 var ErrConnectionConflict = errors.New("model connection changed; reload before saving")
+var ErrConnectionCreationConflict = errors.New("connection creation changed or its connection was edited or deleted; resolve the original request")
 
 // ModelConnection is safe for lists and editors: credential/header values are never returned.
 type ModelConnection struct {
@@ -79,10 +81,71 @@ type ConnectionsStore interface {
 	ConnectionSecrets(context.Context, string, uint64) (ConnectionSecrets, error)
 }
 
+// ConnectionCreate freezes one explicit creation identity. Its secrets retain
+// ConnectionUpdate's private serialization and are never receipt metadata.
+type ConnectionCreate struct {
+	RequestID string           `json:"request_id"`
+	Update    ConnectionUpdate `json:"update"`
+}
+
+func (r ConnectionCreate) Validate() error {
+	if !connectionText(r.RequestID, 128) || r.Update.ID != "" || r.Update.ExpectedRevision != 0 || r.Update.ClearAPIKey ||
+		r.Update.Auth == "none" && r.Update.APIKey != "" || !r.Update.ReplaceHeaders && len(r.Update.Headers) != 0 {
+		return errors.New("connection creation requires an explicit request identity and new configuration without ignored credential edits")
+	}
+	check := r.Update
+	check.ID = "connection-validation"
+	_, _, err := (ModelConnection{ID: check.ID}).Apply(check, ConnectionSecrets{})
+	return err
+}
+
+// Created is the immutable redacted save receipt. Current is nil after explicit
+// deletion; an edited connection retains its identity and newer revision.
+type ConnectionCreationReceipt struct {
+	RequestID string           `json:"request_id"`
+	Created   ModelConnection  `json:"created"`
+	Current   *ModelConnection `json:"current,omitempty"`
+}
+
+func (r ConnectionCreationReceipt) Validate() error {
+	if !connectionText(r.RequestID, 128) || r.Created.Revision != 1 || r.Created.Validate() != nil ||
+		r.Current != nil && (r.Current.ID != r.Created.ID || r.Current.Revision < r.Created.Revision || r.Current.Validate() != nil ||
+			r.Current.Revision == r.Created.Revision && !r.Current.SameConfiguration(r.Created)) {
+		return errors.New("invalid connection creation receipt")
+	}
+	return nil
+}
+
+func (r ConnectionCreationReceipt) Clone() ConnectionCreationReceipt {
+	r.Created = r.Created.Clone()
+	if r.Current != nil {
+		current := r.Current.Clone()
+		r.Current = &current
+	}
+	return r
+}
+
+// ConnectionCreationStore is an optional configuration capability, independent
+// of execution. Create atomically commits a RequestID and the actual connection;
+// only an identical, still-unchanged creation may replay the original receipt.
+// Resolve remains available after edit/delete and never recreates a connection.
+type ConnectionCreationStore interface {
+	CreateConnection(context.Context, ConnectionCreate) (ModelConnection, error)
+	ConnectionCreation(context.Context, string) (ConnectionCreationReceipt, error)
+}
+
 func (c ModelConnection) Clone() ModelConnection {
 	c.Models = append([]ConnectionModel(nil), c.Models...)
 	c.HeaderNames = append([]string(nil), c.HeaderNames...)
 	return c
+}
+
+// SameConfiguration compares submitted configuration, excluding storage-owned
+// identity, revision and timestamps. Secret values remain a separate capability.
+func (c ModelConnection) SameConfiguration(other ModelConnection) bool {
+	return c.Name == other.Name && c.Protocol == other.Protocol && c.Endpoint == other.Endpoint && c.CatalogURL == other.CatalogURL &&
+		c.Auth == other.Auth && c.Enabled == other.Enabled && c.HasAPIKey == other.HasAPIKey &&
+		slices.Equal(c.Models, other.Models) && slices.Equal(c.HeaderNames, other.HeaderNames)
 }
 func connectionText(s string, max int) bool {
 	return strings.TrimSpace(s) != "" && len(s) <= max && utf8.ValidString(s) && !strings.ContainsAny(s, "\x00\r\n")

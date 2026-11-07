@@ -1,5 +1,5 @@
-// INPUT: context, filepath, durable product identities and engine outcomes
-// OUTPUT: TeamRun/Worker/WorkerTask facts, resource claim algebra and TeamStore contract
+// INPUT: context, filepath, durable product identities, frozen composer inputs and engine outcomes
+// OUTPUT: TeamRun/Worker/WorkerTask facts, resource claims and independent plain/typed draft queue contracts
 // POS: [L7 Hub product] Product collaboration uses complete independent Hub sessions, not SDK native subagents
 package hub
 
@@ -84,24 +84,31 @@ type WorkerOutcome struct {
 	Processing     string         `json:"processing"`
 }
 type WorkerTask struct {
-	ID               string          `json:"id"`
-	Sequence         uint64          `json:"sequence"`
-	TeamID           string          `json:"team_id"`
-	WorkerID         string          `json:"worker_id"`
-	Scope            string          `json:"scope"`
-	Claims           []ResourceClaim `json:"claims"`
-	Status           engine.Outcome  `json:"status"`
-	TurnID           string          `json:"turn_id"`
-	Outcome          *WorkerOutcome  `json:"outcome,omitempty"`
-	CreatedAt        int64           `json:"created_at"`
-	EndedAt          int64           `json:"ended_at"`
-	RequiredBranchID string          `json:"required_branch_id,omitempty"`
+	ID               string             `json:"id"`
+	Sequence         uint64             `json:"sequence"`
+	TeamID           string             `json:"team_id"`
+	WorkerID         string             `json:"worker_id"`
+	Scope            string             `json:"scope"`
+	Claims           []ResourceClaim    `json:"claims"`
+	Status           engine.Outcome     `json:"status"`
+	TurnID           string             `json:"turn_id"`
+	Outcome          *WorkerOutcome     `json:"outcome,omitempty"`
+	CreatedAt        int64              `json:"created_at"`
+	EndedAt          int64              `json:"ended_at"`
+	RequiredBranchID string             `json:"required_branch_id,omitempty"`
+	ComposerInput    *ComposerTurnInput `json:"composer_input,omitempty"`
 }
 
 // Drafts with native attachment references pin their exact saved branch at
 // queue admission and claim. They cannot silently follow a later route switch.
 type WorkerDraftStore interface {
 	EnqueueWorkerOnBranch(context.Context, string, string, string, string, string, []ResourceClaim) (WorkerTask, error)
+}
+
+// Typed drafts freeze model input separately from the original manual task.
+// The same FIFO claim owns their Turn; queueing never starts another runtime.
+type ComposerWorkerDraftStore interface {
+	EnqueueComposerWorkerOnBranch(context.Context, string, string, string, string, ComposerTurnInput, []ResourceClaim) (WorkerTask, error)
 }
 type WorkerTaskPage struct {
 	Tasks   []WorkerTask `json:"tasks"`
