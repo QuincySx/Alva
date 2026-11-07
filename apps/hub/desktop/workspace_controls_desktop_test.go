@@ -180,9 +180,11 @@ func TestWorkspaceControlDisabledColorsAndNativeAdmission(t *testing.T) {
 					// the same native opacity, rather than Primary's on-ink text.
 					text := blend(muted, want)
 					closest := 256
+					// Tester.Image converts the whole frame on each call; scan one copy.
+					frame := tester.Image()
 					for y := int(after.Y + 8); y < int(after.Y+after.H-8); y++ {
 						for x := int(after.X + 12); x < int(after.X+after.W-12); x++ {
-							p := tester.Image().RGBAAt(x, y)
+							p := frame.RGBAAt(x, y)
 							distance := max(difference(p.R, text.R), difference(p.G, text.G), difference(p.B, text.B))
 							closest = min(closest, distance)
 						}

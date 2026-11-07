@@ -89,8 +89,10 @@ func TestPortableAEPPinsNextTurnActualLaunchAndCleanup(t *testing.T) {
 			if _, err = a.Service.Submit(t.Context(), session.ID, "local portable plugin demonstration", nil); err != nil {
 				t.Fatal(err)
 			}
-			// Cold WASM compilation belongs to actual attempt preparation.
-			ctx, stop := context.WithTimeout(t.Context(), 30*time.Second)
+			// Cold WASM compilation belongs to actual attempt preparation. Under
+			// -race on a three-core CI runner it alone takes tens of seconds, so
+			// the budget is generous and the poll leaves the CPU to the compiler.
+			ctx, stop := context.WithTimeout(t.Context(), 2*time.Minute)
 			defer stop()
 			var detail hub.Detail
 			for {
@@ -104,7 +106,7 @@ func TestPortableAEPPinsNextTurnActualLaunchAndCleanup(t *testing.T) {
 				select {
 				case <-ctx.Done():
 					t.Fatal("actual plugin attempt did not finish")
-				case <-time.After(time.Millisecond):
+				case <-time.After(terminalPollInterval):
 				}
 			}
 			if detail.Session.Status != engine.Succeeded {

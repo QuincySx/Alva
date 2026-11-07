@@ -142,7 +142,19 @@ func TestActualUIDevtoolsCommandUsesExplicitPrivateFileWithoutTokenInProtocol(t 
 		t.Fatal(err)
 	}
 	path := filepath.Join(directory, "explicit-token")
-	if err := os.WriteFile(path, []byte(token), 0600); err != nil {
+	// Create the credential through the owner-only primitive. On Windows an
+	// elevated creator (as on CI runners) gives os.WriteFile files the
+	// Administrators group as owner, which the production owner check rightly
+	// rejects; that check must not be weakened for the fixture.
+	file, err := privatefs.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(token); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 	client, err := mcp.Open(ctx, mcp.Config{ID: "ui-devtools", Process: process.Config{Command: os.Args[0], Args: []string{"-test.run=^TestDevtoolsCommandHelper$", "--", path}, Cwd: directory, Env: map[string]string{"ALVA_DEVTOOLS_HELPER": "ui", "ALVA_DEVTOOLS_ADDRESS": upstream.URL}}}, mcp.ObserverFunc(func(_ context.Context, event mcp.IOEvent) (string, error) {

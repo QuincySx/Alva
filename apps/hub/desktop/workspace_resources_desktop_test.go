@@ -521,9 +521,11 @@ func TestWorkspaceResourcesDropTargetKeepsVisibleCue(t *testing.T) {
 	tester.Move(target.X+20, target.Y+16)
 	tester.Frame()
 	count := 0
+	// Tester.Image converts the whole frame on each call; scan one copy.
+	frame := tester.Image()
 	for y := int(target.Y); y < int(target.Y+target.H); y++ {
 		for x := int(target.X - 8); x < int(closeTarget.X+closeTarget.W+8); x++ {
-			pixel := tester.Image().RGBAAt(x, y)
+			pixel := frame.RGBAAt(x, y)
 			if pixel.R == accent.R && pixel.G == accent.G && pixel.B == accent.B {
 				count++
 			}

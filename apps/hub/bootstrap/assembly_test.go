@@ -29,12 +29,18 @@ func closeApp(t *testing.T, a *Application) {
 		t.Fatal(err)
 	}
 }
+
+// terminalPollInterval spaces terminal-state polls. Each poll is a full product
+// Detail transaction; polling every millisecond starved real Chrome startup and
+// cold WASM compilation of CPU on three-core race-enabled CI runners.
+const terminalPollInterval = 10 * time.Millisecond
+
 func awaitTerminal(t *testing.T, a *Application, id string) hub.Detail {
 	t.Helper()
 	// Real Chrome startup/owned cleanup may each have independent finite
 	// budgets. Do not turn an otherwise explicit terminal failure into a
-	// misleading five-second "demo" polling timeout under full race builds.
-	deadline := time.Now().Add(15 * time.Second)
+	// misleading "demo" polling timeout under full race builds on slow runners.
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		detail, err := a.Store.Detail(context.Background(), id)
 		if err != nil {
@@ -55,7 +61,7 @@ func awaitTerminal(t *testing.T, a *Application, id string) hub.Detail {
 			}
 			return detail
 		}
-		time.Sleep(time.Millisecond)
+		time.Sleep(terminalPollInterval)
 	}
 	t.Fatal("demo did not terminate")
 	return hub.Detail{}
