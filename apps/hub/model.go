@@ -118,6 +118,9 @@ type HistoryEntry struct {
 	Event       engine.Event        `json:"event"`
 	Time        int64               `json:"time"`
 	Timeline    *TimelineEvent      `json:"timeline,omitempty"`
+	// TurnSequence is the owning Turn's ordinal, filled when history is read.
+	// It is never written into the stored event; events without a Turn keep 0.
+	TurnSequence uint64 `json:"turn_sequence,omitempty"`
 }
 type TimelineEvent struct {
 	Kind         string  `json:"kind"`

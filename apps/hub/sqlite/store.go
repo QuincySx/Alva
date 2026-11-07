@@ -1,5 +1,5 @@
 // INPUT: context, database/sql, encoding/json, hub, storage/sqlite and system/privatefs
-// OUTPUT: Store implementing isolated durable Hub facts, tombstone-safe Attempt claims and exclusive recovery
+// OUTPUT: Store implementing isolated durable Hub facts, tombstone-safe Attempt claims, superseded-delta deletion, Turn-sequenced history and exclusive recovery
 // POS: [L7 Hub product] Product SQLite authority separate from native SessionRepository execution records
 package sqlite
 
@@ -897,14 +897,42 @@ func (s *Store) Record(ctx context.Context, attemptID string, event engine.Event
 		if err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO hub_events(session,turn,attempt,data) VALUES(?,?,?,?)`, attempt.SessionID, attempt.TurnID, attempt.ID, data); err != nil {
+		inserted, err := tx.ExecContext(ctx, `INSERT INTO hub_events(session,turn,attempt,data) VALUES(?,?,?,?)`, attempt.SessionID, attempt.TurnID, attempt.ID, data)
+		if err != nil {
 			return err
+		}
+		if deltas := mergedDeltaKind(event); deltas != "" {
+			seq, err := inserted.LastInsertId()
+			if err != nil {
+				return err
+			}
+			// Deltas are derived display drafts. Once the final text (or its
+			// reference) is committed they are redundant; delete them in this
+			// same transaction. hub_events_turn serves the turn/seq range.
+			if _, err = tx.ExecContext(ctx, `DELETE FROM hub_events WHERE turn=? AND seq<? AND attempt=? AND json_extract(data,'$.event.kind')=? AND json_extract(data,'$.event.id')=?`, attempt.TurnID, seq, attempt.ID, string(deltas), event.ID); err != nil {
+				return err
+			}
 		}
 		if err = writeBranch(ctx, tx, branch); err != nil {
 			return err
 		}
 		return writeAttempt(ctx, tx, attempt)
 	})
+}
+
+// mergedDeltaKind names the delta rows a final event supersedes. A truncated
+// final event without a reference keeps them: they are the only full text.
+func mergedDeltaKind(event engine.Event) engine.Kind {
+	if event.ID == "" || event.Truncated && event.Reference == nil {
+		return ""
+	}
+	switch {
+	case event.Kind == engine.Message:
+		return engine.MessageDelta
+	case event.Kind == engine.ContentBlock && event.Name == "reasoning":
+		return engine.ReasoningDelta
+	}
+	return ""
 }
 func (s *Store) FinishTurn(ctx context.Context, id string, status engine.Outcome) (providerResult0 error) {
 	defer func() {
@@ -985,23 +1013,30 @@ func (s *Store) History(ctx context.Context, id string, after uint64, limit int)
 	if _, err := read[hub.Session](ctx, s.db, `SELECT data FROM hub_sessions WHERE id=?`, id); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT seq,data FROM hub_events WHERE session=? AND seq>? ORDER BY seq LIMIT ?`, id, after, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT e.seq,e.data,COALESCE(t.seq,0) FROM hub_events e LEFT JOIN hub_turns t ON t.id=e.turn WHERE e.session=? AND e.seq>? ORDER BY e.seq LIMIT ?`, id, after, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return historyRows(rows)
+}
+
+// historyRows decodes history pages. TurnSequence comes from the joined Turn
+// row at read time; events without a Turn (Team notices) keep 0.
+func historyRows(rows *sql.Rows) ([]hub.HistoryEntry, error) {
 	var result []hub.HistoryEntry
 	for rows.Next() {
-		var seq uint64
+		var seq, turn uint64
 		var data []byte
 		var entry hub.HistoryEntry
-		if err := rows.Scan(&seq, &data); err != nil {
+		if err := rows.Scan(&seq, &data, &turn); err != nil {
 			return nil, err
 		}
 		if len(data) > 128<<10 || json.Unmarshal(data, &entry) != nil {
 			return nil, errors.New("history record is corrupt")
 		}
 		entry.Sequence = seq
+		entry.TurnSequence = turn
 		result = append(result, entry)
 	}
 	return result, rows.Err()
@@ -1016,37 +1051,27 @@ func (s *Store) HistoryBefore(ctx context.Context, id string, before uint64, lim
 	if _, err := read[hub.Session](ctx, s.db, `SELECT data FROM hub_sessions WHERE id=?`, id); err != nil {
 		return nil, err
 	}
-	query := `SELECT seq,data FROM hub_events WHERE session=?`
+	query := `SELECT e.seq,e.data,COALESCE(t.seq,0) FROM hub_events e LEFT JOIN hub_turns t ON t.id=e.turn WHERE e.session=?`
 	args := []any{id}
 	if before != 0 {
-		query += ` AND seq<?`
+		query += ` AND e.seq<?`
 		args = append(args, before)
 	}
-	query += ` ORDER BY seq DESC LIMIT ?`
+	query += ` ORDER BY e.seq DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var result []hub.HistoryEntry
-	for rows.Next() {
-		var seq uint64
-		var data []byte
-		var entry hub.HistoryEntry
-		if err := rows.Scan(&seq, &data); err != nil {
-			return nil, err
-		}
-		if len(data) > 128<<10 || json.Unmarshal(data, &entry) != nil {
-			return nil, errors.New("history record is corrupt")
-		}
-		entry.Sequence = seq
-		result = append(result, entry)
+	result, err := historyRows(rows)
+	if err != nil {
+		return nil, err
 	}
 	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
 		result[i], result[j] = result[j], result[i]
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 // BindNative records an already-created, owner-scoped empty native session for

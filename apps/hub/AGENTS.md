@@ -16,6 +16,7 @@ Runtime仅消费六方法ExecutionStore；设置/浏览由实际产品consumer�
 应用外观走独立PreferencesStore，选项/默认/合并校验集中preferences.go；不混入按会话的SettingsStore或执行依赖。界面拥有草稿，共享PreferencesService只发布成功提交的revision，存储端在原子事务内复用同一政策。
 产品 ID 永远不等于 native ID。UI 只观察已提交产品历史，不拥有执行取消。可恢复 Error 不释放 active；唯一 Completed 收尾。SQLite产品store在子包，与native session.sqlite隔离，不读旧Rust DB。
 引擎回调在产品层串行提交；首次校验/持久化错误锁存，adapter忽略错误或后补成功也必须失败且不fallback。Execute返回后关闭回调准入，迟到回调不能修改facts。
+同键（Kind/ID/SessionID）纯文本增量在eventMu下合并，每条原始增量仍立即校验；不超过16KiB、约250ms提交一行，非增量事件先flush再提交，顺序不变。独立100ms时钟保证模型停顿时已收文字最晚一个窗口可见；Execute返回后先join时钟再flush剩余缓冲，最后关闭准入。
 Completed后的真实Execute返回错误也不能让Turn成功或fallback；原始engine事件保留，产品记录execution_owner_failure并失败收尾，不能用早到事件覆盖owner错误。
 NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统一缺失对象语义，不泄漏SQL实现。Runtime仍仅要求ExecutionStore六方法，不因Service的完整profile扩大执行依赖。
 
@@ -35,10 +36,11 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | composer_files.go | 首会话前不可变本地文件catalog、显式来源scope与分块SHA DTO；独立只读ownership插口读取真实home→session grant，原件不重归属，ID/URI/hash不代替会话授权 |
 | runtime_options_test.go | 冻结参数传给真实adapter、配置能力不支持时零Execute |
 | permissions.go | 产品Ask/Auto/Full值与校验；Settings仅保存下一Turn意图，真实宿主执行政策不进入SDK |
-| model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引 |
+| model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引；HistoryEntry.TurnSequence读取时填充、不写入事件 |
 | preferences.go / preferences_test.go | 应用级外观与左栏折叠/有界宽度DTO、三组选项与唯一纯值政策、稀疏revision CAS端口；消费者修改选项不改变共享校验，布局不覆盖独立外观 |
 | wait.go | 可选WaitStore、分支最近Turn观察、显式同Turn继续与输入冻结政策，不增加SDK状态 |
-| runtime.go / runtime_identity_test.go | 独立Descriptor/engine registry、串行执行、绑定实际owner身份的取消/审批与授权fallback；权限四项binding原子分派、同run fallback拒绝旧审批及准入/替换/取消收尾身份回归 |
+| runtime.go / runtime_identity_test.go | 独立Descriptor/engine registry、串行执行与流式增量合并写入、绑定实际owner身份的取消/审批与授权fallback；权限四项binding原子分派、同run fallback拒绝旧审批及准入/替换/取消收尾身份回归 |
+| runtime_coalesce_test.go / export_test.go | 1000增量合并且逐字节一致、穿插工具保序、停顿期内可见、契约拒绝与持久化错误锁存后零写入；仅测试可调短合并窗口 |
 | descriptor_test.go | 第五engine声明/不可替换、纯冷读与snapshot切片隔离、关闭后拒绝注册 |
 | settings.go / aep.go | next-turn私有MCP/AEP进程snapshot、native SubAgent及项目兼容配置文件的opt-in纯值与预算，不引入protocol/进程依赖 |
 | tools.go | Shell/Web显式配置、独立access批准与Planning/Notebook/Interaction/Utility下一Turn可选开关纯值 |

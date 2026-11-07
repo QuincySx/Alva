@@ -321,6 +321,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/QuincySx/Alva/integration/engine"
 )
@@ -991,6 +992,8 @@ type HistoryEntry struct {
 	Event       engine.Event        `json:"event"`
 	Time        int64               `json:"time"`
 	Timeline    *TimelineEvent      `json:"timeline,omitempty"`
+
+	TurnSequence uint64 `json:"turn_sequence,omitempty"`
 }
 
 type HookSpec struct {

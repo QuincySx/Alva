@@ -1,5 +1,5 @@
-// INPUT: context, errors, sync, engine and the durable product Store
-// OUTPUT: Runtime registry, execution identity, serial attempts, cancellation/join, permission routing and authorized fallback
+// INPUT: context, errors, sync, time, engine and the durable product Store
+// OUTPUT: Runtime registry, execution identity, serial attempts with coalesced stream deltas, cancellation/join, permission routing and authorized fallback
 // POS: [L7 Hub product] Product supervisor without SDK, concrete adapters or native fact storage dependencies
 package hub
 
@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/QuincySx/Alva/integration/engine"
 )
@@ -562,14 +563,67 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 	var eventMu sync.Mutex
 	var eventErr error
 	accepting := true
+	// Streaming deltas are coalesced under eventMu before their durable commit.
+	// Each raw delta is still validated immediately, so the first error stays
+	// latched at the callback that caused it; relative event order is unchanged.
+	window, tick, limit := streamCoalesceWindow, streamCoalesceTick, streamCoalesceBytes
+	var pending engine.Event
+	buffered := false
+	var bufferedAt time.Time
+	flush := func() {
+		if !buffered {
+			return
+		}
+		event := pending
+		pending, buffered = engine.Event{}, false
+		if eventErr == nil {
+			eventErr = commit(event)
+		}
+	}
 	observe := func(event engine.Event) error {
 		eventMu.Lock()
 		defer eventMu.Unlock()
 		if !accepting {
 			return errors.New("engine callback after Execute returned")
 		}
-		if eventErr == nil {
-			eventErr = commit(event)
+		if eventErr != nil {
+			return eventErr
+		}
+		if !coalescibleDelta(event) {
+			flush()
+			if eventErr == nil {
+				eventErr = commit(event)
+			}
+			return eventErr
+		}
+		probe := contract.Clone()
+		if buffered {
+			// The buffered delta was validated against this same state.
+			_ = probe.Accept(pending)
+		}
+		if err := probe.Accept(event); err != nil {
+			// Deltas accepted before the rejected one stay durable, as they
+			// would have been without coalescing.
+			flush()
+			if eventErr == nil {
+				eventErr = err
+			}
+			return eventErr
+		}
+		if buffered && pending.Kind == event.Kind && pending.ID == event.ID && pending.SessionID == event.SessionID && len(pending.Text)+len(event.Text) <= limit {
+			pending.Text += event.Text
+			if time.Since(bufferedAt) >= window {
+				flush()
+			}
+			return eventErr
+		}
+		flush()
+		if eventErr != nil {
+			return eventErr
+		}
+		pending, buffered, bufferedAt = event, true, time.Now()
+		if len(event.Text) >= limit {
+			flush()
 		}
 		return eventErr
 	}
@@ -623,12 +677,34 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 				if target.Capabilities().ToolControl {
 					request.RetainWorkspace = retain
 				}
+				// A paused model still publishes received text within one window.
+				stopTicker, tickerDone := make(chan struct{}), make(chan struct{})
+				go func() {
+					defer close(tickerDone)
+					ticker := time.NewTicker(tick)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-stopTicker:
+							return
+						case <-ticker.C:
+							eventMu.Lock()
+							if accepting && eventErr == nil && buffered && time.Since(bufferedAt) >= window {
+								flush()
+							}
+							eventMu.Unlock()
+						}
+					}
+				}()
 				executeErr = target.Execute(ctx, request, observe)
+				close(stopTicker)
+				<-tickerDone
 				seal()
 			}
 		}
 	}
 	eventMu.Lock()
+	flush()
 	accepting = false
 	observedErr := eventErr
 	eventMu.Unlock()
@@ -673,6 +749,23 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 		}
 	}
 	return outcome, sideEffects, failure, executeErr
+}
+
+// Streaming deltas are merged into one durable row per window or byte budget.
+// Tests may shorten the window; product code never changes these at runtime.
+var (
+	streamCoalesceWindow = 250 * time.Millisecond
+	streamCoalesceTick   = 100 * time.Millisecond
+	streamCoalesceBytes  = 16 << 10
+)
+
+// coalescibleDelta admits only plain text deltas. Any other field would be
+// lost by concatenation, so such an event is committed on its own.
+func coalescibleDelta(event engine.Event) bool {
+	if event.Kind != engine.MessageDelta && event.Kind != engine.ReasoningDelta {
+		return false
+	}
+	return event.Name == "" && len(event.Input) == 0 && event.Reference == nil && event.Effect == "" && !event.IsError && !event.Recoverable && event.Failure == "" && event.Outcome == "" && event.Usage == nil && event.Activity == nil && event.Wait == nil && event.Question == nil
 }
 func cancellationOnly(err error) bool {
 	if err == nil {
