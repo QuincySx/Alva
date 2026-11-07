@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -169,12 +168,8 @@ func (c ModelConnection) Validate() error {
 	if err != nil || len(c.Endpoint) > 256 || endpoint.Host == "" || (endpoint.Scheme != "https" && endpoint.Scheme != "http") || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.Path == "" || strings.HasSuffix(endpoint.Path, "/") {
 		return errors.New("complete HTTP(S) request endpoint without credentials, query or fragment required (maximum 256 bytes)")
 	}
-	if endpoint.Scheme == "http" && endpoint.Hostname() != "localhost" {
-		ip := net.ParseIP(endpoint.Hostname())
-		if ip == nil || !ip.IsLoopback() {
-			return errors.New("non-loopback model endpoints require HTTPS")
-		}
-	}
+	// Plain HTTP is allowed for any host by product decision (2026-11-07), for
+	// LAN and self-hosted gateways; it carries the API key unencrypted.
 	if strings.Contains(c.Endpoint, "{") || strings.Contains(c.Endpoint, "}") {
 		if c.Protocol != "gemini" || strings.Count(c.Endpoint, "{model}") != 1 || strings.ContainsAny(strings.ReplaceAll(c.Endpoint, "{model}", ""), "{}") {
 			return errors.New("only Gemini supports an explicit {model} endpoint placeholder")

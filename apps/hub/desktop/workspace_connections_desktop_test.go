@@ -366,17 +366,18 @@ func TestNativeConnectionsNativeChoicesValidationAndViewport(t *testing.T) {
 				t.Fatalf("%s outside the connection viewport: %+v", label, r)
 			}
 		}
+		connectionType(t, tester, "Edit 完整请求地址", "http://remote.example/v1/messages?debug=1")
+		connectionClick(t, tester, "Save connection")
+		settleConnections(t, p, tester)
+		if p.connections.mode != "form" || p.connections.draft.Endpoint != "http://remote.example/v1/messages?debug=1" || !tester.HasText("草稿已保留") || store.writes.Load() != 0 {
+			t.Fatal("invalid endpoint reached storage or discarded the draft")
+		}
+		// Plain HTTP to a non-loopback host is allowed (LAN and self-hosted gateways).
 		connectionType(t, tester, "Edit 完整请求地址", "http://remote.example/v1/messages")
 		connectionClick(t, tester, "Save connection")
 		settleConnections(t, p, tester)
-		if p.connections.mode != "form" || p.connections.draft.Endpoint != "http://remote.example/v1/messages" || !tester.HasText("草稿已保留") || store.writes.Load() != 0 {
-			t.Fatal("invalid endpoint reached storage or discarded the draft")
-		}
-		connectionType(t, tester, "Edit 完整请求地址", "http://127.0.0.1:11434/v1/messages")
-		connectionClick(t, tester, "Save connection")
-		settleConnections(t, p, tester)
-		if len(s.Connections.Snapshot()) != 1 || len(s.Connections.Targets()) != 0 || s.Runtime.HasActive() {
-			t.Fatal("empty-model local connection could not save or fabricated a usable model")
+		if saved := s.Connections.Snapshot(); len(saved) != 1 || saved[0].Endpoint != "http://remote.example/v1/messages" || len(s.Connections.Targets()) != 0 || s.Runtime.HasActive() {
+			t.Fatal("empty-model remote HTTP connection could not save or fabricated a usable model", p.connections.problem)
 		}
 	}
 }

@@ -1,5 +1,5 @@
 // INPUT: Actual local HTTP endpoints, explicit raw transport configuration and failing SSE readers.
-// OUTPUT: Gemini operation/auth parity, raw completion bounds and terminal/error preservation regressions.
+// OUTPUT: Gemini operation/auth parity, raw completion bounds, terminal/error preservation and remote-HTTP endpoint acceptance regressions.
 // POS: [integration / model transport] Validates shared transport behavior independently of model conversion and paid provider accounts.
 package provider
 
@@ -184,5 +184,20 @@ func TestDefaultProviderDoesNotUseAmbientProxy(t *testing.T) {
 			t.Fatal("default request consulted an ambient proxy instead of explicit transport", proxyCalls.Load())
 		}
 		transport.client.CloseIdleConnections()
+	}
+}
+
+// Plain HTTP is allowed for non-loopback hosts (LAN and self-hosted gateways);
+// the remaining endpoint rules still reject queries, fragments and non-HTTP(S).
+func TestTransportAcceptsRemoteHTTPButKeepsEndpointRules(t *testing.T) {
+	for _, endpoint := range []string{"http://192.168.1.20:8000/v1/chat/completions", "http://gateway.lan/v1/chat/completions"} {
+		if _, err := BuildTransport(OpenAIChatKind, Config{Endpoint: endpoint, Model: "actual"}); err != nil {
+			t.Fatal("remote HTTP endpoint rejected", endpoint, err)
+		}
+	}
+	for _, endpoint := range []string{"http://gateway.lan/v1/chat/completions?key=1", "http://gateway.lan/v1/chat/completions#part", "ftp://gateway.lan/v1/chat/completions"} {
+		if _, err := BuildTransport(OpenAIChatKind, Config{Endpoint: endpoint, Model: "actual"}); err == nil {
+			t.Fatal("endpoint rule no longer enforced", endpoint)
+		}
 	}
 }

@@ -82,12 +82,8 @@ func BuildTransport(kind Kind, config Config) (*RawTransport, error) {
 	if strings.TrimSpace(config.Model) == "" {
 		return nil, errors.New("explicit model required")
 	}
-	if endpoint.Scheme == "http" && endpoint.Hostname() != "localhost" {
-		address := net.ParseIP(endpoint.Hostname())
-		if address == nil || !address.IsLoopback() {
-			return nil, errors.New("non-loopback model endpoints require HTTPS")
-		}
-	}
+	// Plain HTTP is allowed for any host (LAN and self-hosted gateways); it
+	// sends the API key unencrypted, which is the caller's explicit choice.
 	if strings.ContainsAny(config.APIKey, "\r\n") {
 		return nil, errors.New("invalid API key")
 	}

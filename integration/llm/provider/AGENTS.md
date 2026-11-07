@@ -13,7 +13,7 @@ RawTransport.CompleteRaw 返回有界 JSON 对象，StreamRaw 返回完整 SSE E
 
 ## 约束
 
-默认transport禁用ambient HTTP(S)_PROXY；HTTPClient未指定Transport时也沿用该默认；代理仅由显式HTTPClient.Transport提供。大小写折叠后重复的header拒绝，避免认证随机覆盖。无 ambient credential/config、无 redirects，HTTP 仅 loopback，其他端点必须 HTTPS。显式 API key 不可序列化。响应和错误不公开私有 body/URL；取消关闭 HTTP 请求，无自动 replay/retry。调用方若显式提供 HTTPClient，仍使用其 transport，但强制禁止 redirect。
+默认transport禁用ambient HTTP(S)_PROXY；HTTPClient未指定Transport时也沿用该默认；代理仅由显式HTTPClient.Transport提供。大小写折叠后重复的header拒绝，避免认证随机覆盖。无 ambient credential/config、无 redirects，HTTP 与 HTTPS 均可用于任意主机（局域网与自建网关）；HTTP 不加密，API key 会明文传输，由调用方显式选择。显式 API key 不可序列化。响应和错误不公开私有 body/URL；取消关闭 HTTP 请求，无自动 replay/retry。调用方若显式提供 HTTPClient，仍使用其 transport，但强制禁止 redirect。
 
 传输限额：请求/完整响应/stream 原始字节各 8 MiB，SSE event 最大 1 MiB，可收紧；SSE LF/CRLF/standalone CR 正确分帧，comment/CRLF 原始字节同计预算，EOF 未关闭帧明确失败。codec 另拥有工具参数/内容/原生终态验证。
 
