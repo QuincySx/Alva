@@ -10,8 +10,11 @@ Do not treat archived Rust paths or competitor examples as active implementation
 ## 业务域清单
 | 路径 | 职责 |
 |---|---|
-| ARCHITECTURE.md | Current Go architecture, physical layout, owners, same-Turn waiting and consumer-specific storage ports、Hub页面/服务/存储映射、typed输入草稿与只读计划准入及交互行为验收 |
-| USAGE.md | Root-run commands、live/demo/HTTP、SDK两类WASM与独立JS/WASIp1作者插件、按需规范compatibility配置与真实兼容范围、CLI插件检查/批准及CLI/Hub等待恢复、storage conformance/durable APIs和数据生命周期、正式Hub工作台/首发附件/命令Skills与项目引用/只读计划/设置返回/项目选择、Hub外观设置与revision API |
+| ARCHITECTURE.md | Current Go architecture、owners、Hub页面/服务/存储映射、typed输入草稿与只读计划准入及交互行为验收、UI/问答/权限分工、模型工具名称及独立开发者测试/评估、same-Turn等待和共享存储插口 |
+| USAGE.md | Root-run commands、live/demo/HTTP、正式Hub工作台/首发附件/命令Skills与项目引用/只读计划/设置返回/项目选择、外观设置与revision API、SDK/WASM作者插件、compatibility、CLI选项/Other/审批/等待、显式本机CLI配置复用及原生UI诊断、独立test/eval及storage conformance |
+| HUB-FLOWS.md | 业务owner与各层职责、逐模块UI/SPEC/服务/存储对齐顺序与关闭条件、用户动作到服务/SQLite事实的可重复验收入口、真实Codex与fixture边界、带稳定编号/关闭条件的已知未闭环账；非完整需求总表，不据测试数计算产品完成率 |
+| MYGO-WEBVIEW-VALIDATION.md | MyGo v0.6.0隔离实测、系统WebView/多窗口归属、混合尺寸/滚动交接与测量边界；不改变生产依赖或桌面ADR |
+| design/ | SmallPen bundled Skill入口、基础Token/组件与Lucide图标、稳定功能SPEC、包外组合预览和revision绑定Review；保留正式页面与线稿，跨平台规范不改变生产栈或代表业务已验收 |
 | history/ | Complete dated Go checkpoints and initial repository layout review |
 | BUS-RULES.md | Typed capabilities and explicit bounded notifications |
 | REGISTRAR-RULES.md | Assembly contribution boundaries |

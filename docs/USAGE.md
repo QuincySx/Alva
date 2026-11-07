@@ -71,7 +71,7 @@ go run -mod=readonly -tags desktop ./cmd/alva-hub-desktop --demo --data-dir /abs
 ```
 
 demo 是真实走模型接口 → echo 工具 → 模型接口的本地确定性 fixture，不调用模型账户。
-桌面启动不发送请求；明确点击 Send 才执行，Enter 换行，Stop 等待运行方确认。
+桌面启动不发送请求；明确发送才执行，Enter 换行，Stop 等待运行方确认。Hub 工作台还支持下文说明的 ⌘/Ctrl+Enter 发送。
 消息使用虚拟列表，阅读旧消息时不强制拉到底部，可以点击 Jump to latest。
 
 live 必须显式指定完整 endpoint 和 model，不发现环境变量或旧配置。
@@ -134,13 +134,14 @@ startup JSON 为 `{"debug_token":"独立256-bit随机token"}`，live 可另带 `
 MCP提供日志/动态level读取、实际视图状态/revision、产品语义树和注册窗口PNG；不导出框架内部layout，也不截取全屏。
 如需UI action，桌面增加 `--debug-controls`，MCP增加 `--ui-controls`；Send还需桌面独立 `--debug-execution`，仍走实际产品审批/计费。
 action必须带当前revision和唯一operation ID；原ID重试只返回原结果。凭据编辑页拒绝截图，诊断shutdown不停止Agent。
+Hub快照提供`current_route_key`与有界`available_routes`；`select_route`的参数为`{"route_key":"快照给出的64位SHA256键"}`，仅选择当前可用路由，沿模型菜单同一个handler执行，受controls门控。该键独立于持久route JSON，不暴露账号来源或连接端点。`set_draft`和`send`沿可见工作台路径处理首页首次创建、附件和业务约束；Send仍需execution门控。快照只提供草稿字节数/SHA，不返回草稿正文。
 详见 [UI diagnostics](../apps/debug/AGENTS.md) 和 [命令约束](../cmd/alva-devtools-mcp/AGENTS.md)。
 
 direct/Hub Inspector均有当前页LLM/Tools/Middleware分类和显式JSONL导出；导出包含选中native snapshot的所有record种类，UI搜索/分类不代表导出选择。Hub可额外包含验证过的typed children，文件和媒体保留引用。原生写自己的私有exports目录且不覆盖旧文件；认证HTTP `/v1/sessions/ID/inspector-bundle?branch=BRANCH` 只下载bytes，不写宿主路径。8MiB/2048 records/32 sessions/8hop任一超限或hash错误均明确失败，不返回半份成功。
 
 Hub 原生面板或认证 HTTP `/v1/gateway` 还可显式启动/停止内嵌模型 API；启用需单独确认模型费用，
 只使用本进程已配置的 live route。状态读取不泄露 bearer；每次启动返回新 token，停止会等待实际请求取消/收尾。
-原生的多窗口共享同一个执行 owner，各自保留草稿与视图；关闭旁观窗口不等于 Stop。
+原生多窗口共享同一个执行owner及同一逻辑会话的已提交草稿；各自保留光标、视图和未保存编辑，CAS冲突保留本窗内容。关闭旁观窗口不等于Stop。
 可选工具设置已接 Shell/Web/Planning/Notebook/Interaction/Utility 的真实装配，编辑与独立权限确认只影响下一 Turn。
 媒体可显式生成≤60秒 mono16kHz PCM WAV，原生 Play/Pause/seek 控制本地音频；上传/索引不自动播放或投递模型。
 
@@ -189,6 +190,14 @@ CGO_ENABLED=0 go build -mod=readonly -tags desktop -o build/alva-hub-desktop ./c
 普通测试不启动窗口；带 `desktop` 的测试使用 MyGo Tester，不调用真实模型。
 SDK 同时执行跨目标编译；WASIp1 worker已有真实fresh-host执行回归，完整平台分发仍在迁移。
 
+MyGo v0.7.4 的 [`ui.NewTester`](https://mygo.egoist.dev/docs/ui/testing) 在内存中渲染真实控件，可操作 Click/Press/Move/Release/Key/Type/Scroll、切换尺寸和明暗主题，并读取 Image/Frame；不需要启动 Alva 窗口。优先用这一入口测试布局、浮层位置、焦点、审批、发送/停止和 SQLite 重开；测试中的本地 HTTP/helper 不代表真实账户通过。`Advance` 推进 UI 动画时钟，不代替等待实际数据库/子进程收尾。
+
+```sh
+go test -mod=readonly -tags desktop -race -p 1 -timeout 6m ./apps/hub/desktop
+```
+
+需要检查安装后的真实窗口时，`desktop e2e` 构建才导入 MyGo 官方 `plugins/automation`；额外显式设置 `MYGO_AUTOMATION` 为私有目录内的 Unix socket 路径，未设置则不监听。插件使用官方 JSONL 的 windows/tree/act/input/menu/capture/idle，可检查实际元素树与画面；它仍连接真实运行窗口，不能算无窗口验收。普通 `desktop` 发布构建不包含插件。只替换唯一安装入口进行这类验收，结束后恢复普通构建，不另外启动多个客户端。框架 Inspector 的窗口树/盒模型/性能面板见[官方说明](https://mygo.egoist.dev/docs/ui/inspector)，与无窗口测试及产品 Inspector 各有不同职责。
+
 ```sh
 CGO_ENABLED=0 GOOS=js GOARCH=wasm go build -mod=readonly ./sdk/... ./integration/llm/codec
 CGO_ENABLED=0 GOOS=wasip1 GOARCH=wasm go build -mod=readonly ./sdk/... ./integration/llm/codec
@@ -212,7 +221,7 @@ Script有编译完成后开始的10秒独立初始化/执行deadline、32MiB跟�
 引擎出自固定C源码，可用[显式maintainer构建脚本](../platform/sandbox/host/scriptwasm/build.py)重建；普通Go编译无需C工具链；引擎重建使用显式WASI SDK clang。
 
 依赖首次下载后，可给这些命令设置 `GOPROXY=off GOTOOLCHAIN=local` 验证离线构建。
-MyGo 固定 v0.5.5，checksum 校验保持开启；无需安装 Node/Bun/npm。
+MyGo 固定 v0.7.4，Go 工具链固定 1.27.3，checksum 校验保持开启；普通原生程序无需 Node/Bun/npm，显式选择的外部 Agent CLI 自行拥有其运行环境。
 当前只在 macOS arm64 环境编译和测试，真实 OS 窗口、其他平台另行验收。
 
 ## 数据与生命周期
@@ -250,8 +259,16 @@ go run -mod=readonly ./cmd/alva-hub --data-dir /absolute/new-go-hub --session PR
 ```
 
 REPL支持`/session`、`/sessions`、`/engine alva|claude|codex|pi`、`/history [after]`、`/quit`。
-外部引擎须显式exe及`--external-host-approved`，不发现既有账户；手动切换保留branch/native身份，冷读不执行。
+外部引擎须显式exe及`--external-host-approved`，默认使用私有CLI配置目录。三个 Hub 入口可另传`--codex-config-dir /absolute/selected-codex-profile`、`--pi-config-dir /absolute/selected-pi-profile`或`--claude-config-dir /absolute/selected-claude-profile`，必须配对应 vendor 的`--*-command`；目录由使用者明确选择，Alva只验证目录并交给CLI，不读取、复制或链接认证文件。此方式复用完整CLI配置，CLI可以自行使用或刷新其账号；不能理解为只共享登录。所选配置目录的canonical路径SHA进入route账号来源，切换目录后旧route不能借新配置执行，旧CLI会话不自动导入。
+
+Codex app-server按用户指定的[Cindy原生环境方式](https://github.com/makecindy/cindy/blob/5f9a219d8d789ac96de779e17c61b8126845f1bd/packages/maker-core/src/agents/codex/env-builder.ts)继承宿主环境，保留HOME、工具链与原生hook所需上下文，再设置独立CODEX_HOME；未明确选择配置时该目录仍由产品管理。补缺的Python/纯文本终端默认值，并合并NO_PROXY的本机地址；不写入mise信任或CLI配置。原生hook和信任检查继续生效。Claude、Pi与显式Codex exec继续使用私有HOME/显式环境。日志与binding均保存在产品私有目录；已知敏感环境值和人类秘密答案分别经过有界脱敏，不将宿主环境清单写入日志。
+路径SHA只标识所选目录，不证明目录内当前登录者；Alva不检查目录内部的账号变化。手动切换保留branch/native身份，冷读不执行。
+指定 `--codex-command` 后默认 `--codex-transport app-server`，支持实际双向审批、人类问题及同thread恢复。厂商策略显式使用 `--codex-sandbox read-only|workspace-write`（默认workspace-write，网络关闭）和 `--codex-approval-policy on-request|untrusted|never`（默认on-request），与Alva的Ask/Auto/Full不是同义映射。`--codex-transport exec`仅显式使用旧只读transport，不支持typed文件/Skill或回调，也不在协议失败时自动退回。Claude保持既有safe-mode/dontAsk，仅使用fixture验实现，不调用真实账户。
+
+指定 `--pi-command` 后默认 `--pi-transport rpc`；应用只注入固定内容哈希的私有扩展，核对native session及ready后才发送。read/grep/find/ls保持读取，bash/edit/write每次由实际产品审批后执行，`ask_user`支持单个自由文本问答；不把Alva权限profile当Pi沙箱，也不启用全局extension/MCP/Skill发现。`--pi-transport exec`保留明确只读模式，失败不回退。两种模式的CLI完整配置仅由Pi读取。大型图片留在原件/native session，UI事件队列仅保留媒体投影并限制8MiB/64条；完成正文整体脱敏，长安全回复经诚实Delta与Completed保留全文。
+桌面问题与审批分开；秘密答案之后的raw日志/流式片段不会保存，完整结果投影先脱敏。CLI默认deny，`--permission ask --repl`按不透明请求handle明确批准；CLI遇native问题会清楚报unsupported并取消/join，回答需桌面。重启/旁观/关闭面板不重放副作用。所选完整CLI配置可能包含MCP、hooks或Shell环境；用户的工具/信任错误如实返回，不自动trust全局配置或继承另一套授权。
 stdout只在实际owner成功收尾后输出最终答复；Alva从exact committed native record恢复完整正文，不拿60KiB产品预览冒充完整答案。
+process外部adapter当前没有Inspector，journal引用本身不保证UI/CLI可读；其长安全正文优先经持久Delta聚合，不能声称已有与Alva Repository相同的原始记录读取能力。
 默认`--permission deny`；`--permission ask --repl`须输入actual request ID逐次批准，没有auto-allow/bypass。
 live的API key用独立`--api-key-fd 3`（显式regular/pipe FD3..10），不占REPL stdin、不进argv/environment。
 
@@ -282,19 +299,35 @@ JS/Python填写绝对interpreter路径；WASM的interpreter/args/env全部留空
 
 ## Hub 原生工作台
 
-`alva-hub-desktop`现在使用正式21/22工作台布局：轻灰绿侧栏、任务搜索、真实会话列表、顶部项目/会话位置与限宽输入区。当前窗口标题仍为ALVA Hub · Go native；本机仅维护一个Alva Layout Preview.app，不逐轮另开客户端。
+`alva-hub-desktop`使用21/22工作台结构：侧栏、任务搜索、真实会话列表、顶部项目/会话位置与限宽输入区。窗口标题为Alva，MyGo v0.7.4保留原生系统按钮，macOS使用`TitleBarHiddenInset`，其他平台使用隐藏标题栏；36px页头按实时`TitleBar`安全区避让，与侧栏顶部同线。侧栏收起后完全隐藏，页头提供展开入口，“更多→新任务”仍可使用；原宽度偏好与草稿保留。空白处支持原生拖动/双击，关闭仍沿用原保存和收尾守卫，系统圆角、阴影与缩放边缘保留；跨平台实机验收分别记录。本机仅维护`/Users/smallraw/Applications/Alva.app`，沿用同一显式数据目录，不逐轮另开客户端。窗口壳实现与全部产品页面的视觉/业务验收分别见MIGRATION。
+
+安装后的 `.app` 无参数启动只读取固定的 `Contents/Resources/alva-launch.json`（version 1）；安装者在其中明确给出 arguments 与可选 external_environment 的每引擎 PATH。它不搜索 HOME、旧配置或凭据；未知/重复字段、超限内容和 stdin 秘密请求均拒绝。普通终端显式传参时不合并此文件，仍需 `--data-dir`。本机安装配置可同时注册明确选择的 Codex/Pi，以及离线演示 Alva；选中保存的模型连接才通过 Alva 的真实 provider 路由执行，演示模式不代表真实推理。
 首页“新任务”只回到编辑页，不创建空会话；建议按钮只填草稿。点击顶部工作区可显式选择项目文件夹；未选目录则使用新的私有工作区。文件夹选择不授予工具权限，也不改变已有会话的目录。
-首条Send才创建耐久会话、绑定实际所选路由、导入所选文件并经同一HubService.Submit提交点击时的文本；输入/Enter不发送。导入、创建或准入失败保留草稿、已创建身份和已成功引用；重试只导入失败及剩余文件。提交期间可继续编辑，旧接收回执不清除更新后的草稿，初次/同会话重载期间禁发。运行显示Stop并等待实际owner确认，切到其他会话再回来仍保留未完成停止；下一条草稿不自动提交。
-“+”允许首页先选文件，页面只保留本窗待导入路径，明确Send时才读取/保存原件；不是已经保存的可恢复附件。已有会话继续使用真实上传。模型菜单列程序目标与已启用应用连接，方向键/Enter选择、长列表滚动；失效路由或切分支后不兼容附件提前禁发并保留稿。原生权限菜单可选择每次询问、自动审批与完全访问；外部引擎继续其真实固定政策，不借原生授权。当前没有语音录制/转写。
+首条Send先保存捕获草稿，再以同一SQLite事务创建会话并绑定home PendingSessionID；同一产品准入冻结路由、正文、typed文件/Skill，原始用户正文与模型小索引分别保存；输入/Enter不发送。Message 中可用 macOS ⌘+Enter（其他平台 Ctrl+Enter）沿同一 Send 路径提交，Enter/Shift+Enter 换行；菜单打开时发送键不选择、不发送，IME/录音/提交中/运行/等待或会话未就绪也不能绕过准入。导入、创建或准入失败保留草稿、已创建身份和已成功引用；重试只导入失败及剩余文件。提交期间可继续编辑，旧接收回执不清除更新后的草稿，初次/同会话重载期间禁发。运行显示Stop并等待实际owner确认，切到其他会话再回来仍保留未完成停止；下一条草稿不自动提交。
+“+”允许首页及已有会话先选任意位置/类型的本机文件，立即流式捕获原件与SHA到私有附属目录，随后与正文/引用一起保存草稿；重开不依赖原路径仍存在。捕获、解析与模型实际可用分别显示；失败可重试/移除，不默默丢弃后Send。模型菜单列程序目标与已启用应用连接，方向键/Enter选择、长列表滚动；失效路由或切分支后不兼容附件提前禁发并保留稿。原生权限菜单可选择每次询问、自动审批与完全访问；外部引擎继续其真实固定政策，不借原生授权。macOS系统本地语音见下方说明，其他平台明确不支持。
 会话设置、等待、Inspector、协作、自动化和“路由与故障切换”从页头更多菜单进入；已批准fallback仍可查看与明确禁用。播放资源未收尾时保留暂停/清理入口，切页或关闭观察窗口不等于停止Agent。
 
-输入 `/` 或打开“+ → 命令与 Skills…”可选择内置 `plan`/`review` 和当前项目已管理的 `.alva/skills`。菜单方向键移动，Enter选取、Escape关闭；选择准备可编辑的下一条草稿，仍须明确Send。Skills必须先在既有面板启用；发送前重验来源/SHA与分支，修改、禁用或归档后会拒绝，保留草稿供重新选择。兼容配置中的其他Skills尚未纳入此目录；这些命令不会执行shell。
+输入 `/` 或打开“+ → 命令与 Skills…”可在首发前选择内置plan/review和明确项目中的 `.alva/skills`。方向键移动、Enter只选取、Escape关闭，仍须明确Send；选择不运行脚本或进程。项目Skill固定workspace/名称/原文SHA，创建后绑定实际会话/分支，Send重验。未全局启用Skills时只暴露本轮所选来源，不启用兄弟目录；来源改变或引擎不支持会拒绝保稿。不会隐式扫描HOME或导入compatibility目录。
 
-已有Alva会话可输入 `@` 或打开“+ → 项目文件或目录…”搜索已存项目，支持有界分页。所选文件保存检查后的原件；目录只保存最多256项/256KiB名称及metadata，非完整或原子目录快照，不读子文件正文。与普通附件共用8条/40MiB预算，发送只带小引用/处理说明，删除chip不删除原件。首页不为搜索偷偷创建会话。
+首页和会话均可输入 `@` 搜索项目/最近文件，或用明确绝对路径、`~/`路径、目录导航和原生选择器选电脑上的文件；有界候选不建立全盘正文索引。选择保存不可变原件，移除chip不删除原件。单轮至多8个所选文件，捕获技术上限256MiB/文件；UTF-8短文本至多4KiB/文件和16KiB/请求，并受实际上下文准入限制，长文本经既有context_read/search按需读取。
+Office是有损文本派生；macOS PDF使用独立PDFKit处理器，超限/扫描PDF/锁定/不支持如实报告，无OCR或版面还原。PNG/JPEG/GIF只在明确视觉路由上通过既有media派生与receipt一次投递，不自动启用media Tool、推断视觉能力或重放历史像素。捕获文件由原scope及home→session实际采纳grant守护，不能靠DTO把另一会话的原件拿来使用。同一会话后续仍可读取已选文本引用；新一轮不自动附加旧图片。
+旧HTTP/Worker的session/branch暂存引用继续使用下面明确DraftID/SHA协议及既有8条/40MiB限制；新的桌面捕获文件不是该HTTP字段，不将共享服务等同于HTTP已曝光。
+
+HTTP上传回执提供`draft_id`与`info.sha256`。`POST /v1/sessions/{id}/turns`和Worker新任务的JSON按本次选择传`references:[{"kind":"attachment","id":"回执draft_id","sha256":"回执SHA256"}]`；省略或空数组均无附件，未知、重复、跨分支或版本不匹配拒绝且不创建Turn。Worker任务不再接受`include_draft_attachments`。`DELETE /v1/sessions/{id}/attachments/{draft_id}`仅移除该草稿引用，保留原件。
 
 “+ → 计划模式”首页只保留本窗意图，首条Send创建会话后才保存；已有会话只在空闲且无未放弃checkpoint时更改下一Turn。只读计划允许读取，写入/进程/网络/未知效果直接拒绝，本轮不装配Hooks、诊断、MCP/AEP、Shell/Web、Browser、Media、SubAgents。退出恢复逐次询问且不自动发送；运行或等待中的配方不变。Plan不支持外部引擎，也不能通过fallback转到外部引擎。`/plan`选择本身不改变设置，明确Send才应用计划意图。
 
 每次询问允许读取，其他操作逐次询问。自动审批仅自动批准原生工作区文件写入；命令、网络、MCP和未知效果继续询问，尚不提供“安全命令”自动分类。完全访问需在同一菜单确认范围，只在现有Guard工作区与独立host批准范围内自动批准，不启用插件或放宽敏感路径限制。首页选择仅属于当前workspace/route，换范围恢复Ask；首发后保存到实际会话，不沿用给新任务。选择权限显式退出Plan；切入Plan重置Ask，退出不会恢复旧Full。运行/waiting/未放弃checkpoint期间不能更改，选择本身不执行任务。
+
+## 伙伴、资源标签与系统语音
+
+侧栏“伙伴”无需先创建普通会话。先保存伙伴名称、角色、模型/引擎和明确项目，可从已存项目选固定Skill；保存不执行、不批准账号。私聊/群发送前确认所选账号和计费，配置变更撤销旧确认。群选择成员、全部回复或明确@、有限回复数；私聊与群×成员各用独立会话，改成员/项目后保留旧范围历史。
+群的“查看执行/审批”进入实际成员会话，只用于真实审批、问题、原Turn等待与Stop；新消息从群页面发。等待先在原面板解决请求，再明确“继续本群回合”，保持原Round/Turn，只补未交付结果及未开始成员。未知效果需要先审阅原checkpoint并Abandon，再确认终止；重开和查看记录不会执行或自动重试。
+
+会话页头的文件入口打开资源标签，可关闭、通过菜单重排、专注或在同一app窗口弹出。文件/原件/任务/Inspector读取既有事实，保存查询、分页与滚动位置；关闭标签/观察窗口不停止Agent，重开不重放浏览或进程。拖拽和拖动改宽尚未提供。
+
+点击输入区麦克风才请求系统许可。macOS要求系统本地识别可用，默认zh-CN/最长60秒，无远程fallback或音频文件。结束录音与任务Stop独立；录音/转写时先结束并核对文字后再Send。草稿未变化时结果追加，修改或导航后留作原会话的待采纳文字，可采纳/丢弃；离开聊天页停止采集，首页首次创建时文字归属跟随该草稿。取消或关窗会取消并等待实际设备/回调收尾。真实系统许可、设备和识别质量需实际点击验收。
+开发者打包macOS app必须在Info.plist提供`NSMicrophoneUsageDescription`与`NSSpeechRecognitionUsageDescription`并重新签名；缺失时显示原因，不能绕过系统许可。普通go run或无用途声明的测试包不会冒充录音可用。
 
 ## Hub 模型连接
 
@@ -302,18 +335,20 @@ JS/Python填写绝对interpreter路径；WASM的interpreter/args/env全部留空
 
 API Key和自定义请求头值只在本窗掩码草稿和私有SQLite凭据分表保存，列表/普通DTO/错误不回显；不是加密或系统钥匙串。编辑时Key留空保留原值，显式清除或改为无认证才删除。普通导航保留本窗草稿，Cancel明确放弃；保存失败/版本冲突留稿，刷新后重新编辑。启停/编辑/删除影响之后的选择与准入，已有会话须重新选择新revision路由；不会中断当前执行或静默切换账号。
 
-保存、打开页面和添加手填模型都不调用网络；尚无测试连接、自动模型目录或本机Agent账户认证入口。远程端点要求HTTPS，本地HTTP只允许loopback。产品库v3按事务升级，保留会话/原始native库与外观。不要并发运行两个进程打开同一数据目录。
+保存、打开页面和添加手填模型都不调用网络。明确点击测试/获取目录才访问同源目录，支持四协议及有界分页；目录测试不能证明真实推理成功，本机Agent账户认证仍未提供。远程端点要求HTTPS，本地HTTP只允许loopback。产品库通过v4→v5事务升级，保留已有会话/连接/目标/模型偏好与独立native库；失败不会重置。不要并发运行两个进程打开同一数据目录。
+
+模型选择器支持真实目录聚合、搜索/连接筛选/收藏及参数范围。当前会话参数按所选账户/模型独立Save/Reload/Clear；模型默认用于未覆盖的新Turn。运行中修改只影响下一新Turn，Waiting继续保留原Attempt参数；Clear恢复已提交默认。失败/冲突保留草稿并要求Reload，不改当前模型或执行。Context无可信声明时只读未声明。
 
 ## Hub 通用外观设置
 
-Hub原生侧栏 **General settings** 无需创建会话。应用设置使用独立分类导航，左上“返回工作台”回到进入前的会话和视图；分类切换不覆盖返回来源，未保存偏好和工作台草稿保持，返回不保存、不停止任务。媒体正文离开时仍释放/真实清理播放，返回只恢复索引位置。主题支持跟随系统/浅色/深色，信息密度支持舒适/紧凑，正文字号支持14/16。
+Hub原生侧栏 **General settings** 无需创建会话。应用设置使用独立分类导航，左上“返回工作台”回到进入前的会话和视图；分类切换不覆盖返回来源，未保存偏好和工作台草稿保持，返回不保存、不停止任务。媒体正文离开时仍释放/真实清理播放，返回只恢复索引位置。主题支持跟随系统/浅色/深色，正文字号支持14/16。语言/密度暂固定并隐藏入口；密度保留已存值，HTTP可保存旧字段但不代表布局已改变。
 编辑只改变当前窗口草稿；明确Save后所有窗口使用已提交的外观。Reload重新读取并替换草稿；另一窗口或HTTP先保存时，旧revision保存失败，保留当前草稿并提示重新加载。
-减少动态效果继续跟随系统，尚无应用级覆盖；语言资源也未实现，不提供只存值而不生效的开关。
+减弱动效为同一CAS保存的 `reduced_motion` 应用开关，默认false跟随系统；实际消费者使用系统要求OR已提交应用开关。开启后框架动画及共享Loader停转并停止持续请求帧，静态忙碌状态保留；系统要求不能被应用关闭覆盖。
 
 认证Hub HTTP提供`GET /v1/preferences`与`PATCH /v1/preferences`，使用现有Bearer、Host/Origin和严格JSON校验。例如GET得到revision1后提交：
 
 ```json
-{"expected_revision":1,"theme":"dark","density":"compact","font_size":16}
+{"expected_revision":1,"theme":"dark","font_size":16,"reduced_motion":true}
 ```
 
 允许只提供部分设置；省略或null的字段不变，至少提供一个非null字段。成功返回完整已提交快照及新revision；输入无效400、版本冲突409、存储故障500，均不替换为默认值。
@@ -348,6 +383,121 @@ go test -mod=readonly -race ./tests/storagecontract ./platform/storage/blob/...
 go test -mod=readonly ./tests/extensibility -run TestExternalModuleSDKConsumer
 ```
 
+## 开发者选项：测试与评估
+
+开发者能力在产品中：Hub侧栏 **Developer options**，以及同一个CLI的 `alva developer test` / `alva developer eval`。
+共享逻辑位于[`apps/developer`](../apps/developer/AGENTS.md)，单响应测量复用SDK外的[`integration/llm/eval`](../integration/llm/eval/AGENTS.md)。
+
+| 功能 | 目标 | 输出 |
+|---|---|---|
+| Integration tests / test | 接入和工具契约是否正确；目前检查单选、多选、自由文字、无需工具、选另一个工具 | passed/failed/error，不输出模型质量分 |
+| Model evaluation / eval | 在独立版本化任务集上比较多次表现 | 加权任务分、全部trial通过的任务数、覆盖/错误、耗时/首输出及已报告usage |
+
+模型评分不是普通实现测试的通过数量。协议/CLI/UI回归仍使用本地fixture，不等于GPT/Claude/Gemini真实成绩。
+当前两条开发者流程都是单响应：不执行广告工具、不读取聊天历史，不证明多轮Agent、Other回填、真实权限/持久恢复或视觉能力。
+
+### Hub UI
+
+无需创建聊天会话，点击侧栏Developer options。Integration tests与Model evaluation分别选择；模型来自本进程明确装配的route，
+live默认提供当前配置的模型，程序也可通过bootstrap.Config.DeveloperRoutes注入额外模型。外部Agent CLI订阅不自动转换成模型API权限。
+
+选择模型、trial/总调用/token/超时预算；测试可设置工具名称变体，评估可编辑独立任务集JSON。点击Preview developer plan只校验，
+确认调用数量后明确Run才请求模型；修改预览内容必须重新预览。Stop会取消并等待实际请求；多个窗口共享同一owner和最新结果，
+最后窗口有开发者任务时须先Stop。打开/切页/观察不启动任务，评测也不创建聊天session或执行其插件。
+报告JSON可复制；最新报告只保留在当前进程，尚无持久评测历史。每次实际Run使用所选模型账户并可能产生推理费用。
+
+### CLI接入测试
+
+```json
+{
+  "version": 1,
+  "routes": [
+    {"id":"route-a","protocol":"openai_chat","endpoint":"https://example.invalid/v1/chat/completions","model":"EXPLICIT_MODEL"},
+    {"id":"route-b","protocol":"anthropic","endpoint":"https://example.invalid/v1/messages","model":"EXPLICIT_MODEL"}
+  ],
+  "tool_names": ["ask_human","AskUserQuestion","request_user_input"],
+  "repeats": 2,
+  "max_output_tokens": 2048
+}
+```
+
+协议可选openai_chat/openai_responses/anthropic/gemini。名称对照保持相同prompt/description/真实Alva问答Schema，单轮只广告一个问答名称与weather干扰工具。
+名称使用保守子集：以ASCII字母或下划线开头，后续仅字母/数字/下划线/连字符，最多64字节；不能占用get_weather。
+这种对照只测当前定义下的调用可靠性，不证明训练过该工具，也不等价于厂商完整工具Schema。
+此例2 routes×3名称×5检查×2 trials=60次请求，超过默认32次预算，须明确提高：
+
+```sh
+go run -mod=readonly ./cmd/alva developer test --config /absolute/tests.json --max-calls 60
+# 上一条只是冷计划；--run才实际请求模型：
+go run -mod=readonly ./cmd/alva developer test --config /absolute/tests.json --max-calls 60 --run --secrets-stdin < /absolute/explicit-secrets.json > tests-report.json
+```
+
+### CLI模型评估
+
+评估不用tool_names或测试用例；配置中的dataset可省略，使用可审阅的developer-basics v1五任务集，默认每任务3次。
+以下示例替换为自己的固定任务和客观评分标准：
+
+```json
+{
+  "version": 1,
+  "routes": [{"id":"route-a","protocol":"openai_chat","endpoint":"https://example.invalid/v1/chat/completions","model":"EXPLICIT_MODEL"}],
+  "repeats": 3,
+  "dataset": {
+    "id": "project-tasks", "version": "v1",
+    "tasks": [
+      {"id":"invoice","prompt":"3 items at 49 each plus 2 at 18 each, minus a single discount of 15. Reply only with the integer total.","expected_text":"168","weight":2},
+      {"id":"extract","prompt":"Lin ordered three tickets. Reply only with JSON containing exactly name and tickets; tickets is a number.","expected_json":{"name":"Lin","tickets":3},"weight":1}
+    ]
+  }
+}
+```
+
+```sh
+go run -mod=readonly ./cmd/alva developer eval --config /absolute/evals.json
+go run -mod=readonly ./cmd/alva developer eval --config /absolute/evals.json --run --secrets-stdin < /absolute/explicit-secrets.json > eval-report.json
+```
+
+expected_text去除外侧空白后逐字节比较；expected_json忽略对象键顺序，严格比较字段、类型、数组顺序及数字表示，不接受Markdown fence。
+每任务只能设置一个grader；权重1..100。加权分是已完成且可评分trial的通过权重/全部评分权重×100；执行错误不进分母，
+所以必须同时看planned/attempted/graded/errors，不能把只完成少数任务的高分当作完整结果。consistent_task_passes仅统计所有计划trial都通过的任务。
+完整数据集（含期望/权重）SHA与请求SHA用于区分版本；小任务集分数只描述该任务集，不是通用模型排行榜。
+计时为本地模型接口的端到端时间/首个规范化内容事件，不是服务商纯推理时间；平均耗时含所有已尝试调用，首输出只统计实际有内容的调用。
+接入测试失败返回非零；评估低分正常返回报告，API/流/取消等执行故障仍返回非零。不会自动重试或改路由。
+
+### 共用执行边界
+
+秘密JSON仅为route ID到API key映射，如`{"route-a":"KEY_A","route-b":"KEY_B"}`，不放进routes、argv或环境。
+没有鉴权的明确本地端点可省略--secrets-stdin；不发现旧配置/账户。完整矩阵、全部route和凭据在任何请求前校验。
+配置32KiB、数据集64KiB/64任务、8 routes/8名称；秘密64KiB；最多20 trial/任务、全矩阵默认32/最多256调用；
+--per-call-timeout默认30s、最多2m；输出token默认2048/最多16384。模型需遵守ctx并真实join，不用后台goroutine假装硬超时。
+报告不输出密钥、URL、完整prompt/响应/工具参数或思考签名；API错误与行为不合格分开，取消返回部分结果，未执行不算成功。
+配置模型名不证明网关实际后端身份，usage不是费用结算。真实模型需显式运行，目前没有默认真实模型成绩。
+
+## CLI 选项、Other 与权限
+
+`--repl`显式开启终端交互；模型调用现有`ask_human`时，在同一轮停下来等有效回答，不先结束这一轮。仅输出一句普通文字问题不会自动变成工具等待。
+
+```sh
+go run -mod=readonly ./cmd/alva --repl --live --endpoint https://example.invalid/v1/chat/completions --model MODEL --workspace /absolute/project
+```
+
+模型提供2..4个选项，终端额外显示Other。例如：
+
+```text
+Pick storage
+1) Memory
+2) Cloud
+3) Local
+4) Other — type a custom answer
+Answer (one option number, or Other):
+```
+
+单选输入`2`，多选按提示输入`1,3`。输入`4`或`Other`后再输入一行自定义文字；Other是自由文本答案，不是模型的第四个选项，不与其他选择混合提交。没有选项时直接输入自由文本。无预选/默认回答，空输入、越界、重复选择或单选时选多项均继续等输入；EOF/取消不虚构答案。沿用32KiB/行与1024行/1MiB输入预算，Ctrl-C取消并等待真实收尾。
+
+权限审批使用另一种提示：`allow REQUEST_ID`只批准当前实际调用一次，`deny REQUEST_ID`拒绝；其他输入、数字、Other或旧ID同样拒绝。问题与审批串行共用stdin，Other的第二行不会被审批抢走。回答“可以写入”或“允许所有操作”仍只是问答文字，不授予权限。`--permission-mode ask/accept_edits/plan`仍控制原有执行政策；Plan不因问答变成可写，accept_edits不放行未知效果。
+
+有`--data-dir`时复用现有native问答审计/同会话引用，普通问答沿用默认5分钟等待期限；未给时使用普通问答工具与进程内引用，遵循运行context及已装配工具超时。模型先得到小回执，再按需`context_read`读取答案。未开启`--repl`或`--durable`的headless模式不广告问答工具。整Agent的`--sandbox wasm`仍不支持此REPL；Windows目前支持明确file/pipe输入，交互console/TTY仍未实现。
+
 ## CLI 插件与持久等待
 
 插件配置是显式 JSON 数组，与 Hub 使用同一 AEP loader，例如：
@@ -369,7 +519,7 @@ go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --
 
 检查、列表、批准、禁用都不启动代码或模型；重新检查清除全部启用状态。每轮复核配置字节和 bundle，变动后须重新检查/批准。空 REPL 不启动插件；每个实际 turn 使用新的插件实例，收尾后删除其私有快照。AEP工具调用仍单独审批，批准加载不批准任意工具。整套 Agent 的 `--sandbox wasm` 不会忽略会话中已启用的原生宿主管理插件，而是要求先显式禁用。
 
-添加 `--durable` 后，审批改为可持久化的等待；模型也可调用 `await_external` 提交外部结果请求。此工具只存请求，不替你启动外部任务。挂起输出 `status:"waiting"`、请求 ID/binding 并退出，REPL不自动读取下一条输入。
+添加 `--durable` 后，审批和`ask_human`问答改为可持久化的等待；模型也可调用 `await_external` 提交外部结果请求。此工具只存请求，不替你启动外部任务。挂起输出 `status:"waiting"`、请求 ID/binding 并退出，REPL不自动读取下一条输入。
 
 ```sh
 go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --live --endpoint https://example.invalid/v1/chat/completions --model MODEL --durable --prompt '执行需要审批或外部结果的任务'
@@ -378,9 +528,9 @@ go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --
 go run -mod=readonly ./cmd/alva --data-dir /absolute/private/cli --session ID --live --endpoint https://example.invalid/v1/chat/completions --model MODEL --resume-wait
 ```
 
-审批结果是 `{"allow":true}` 或 `{"allow":false}`，external结果是调用者显式提供的JSON，均最多16KiB。Resolve只交付结果，不执行模型/工具。Resume不给新prompt/附件/REPL，须保持模型端点/型号、canonical工作区、权限、memory开关与启用插件配置；密钥继续由显式秘密输入提供，不进recipe。等待未解决时不启动插件，过期明确失败。
+审批结果是 `{"allow":true}` 或 `{"allow":false}`；问答单选`{"selected":[2]}`、多选`{"selected":[1,3]}`，Other/自由文本`{"text":"我的自定义回答"}`，text和selected互斥，选项必须是原问题中的1-based编号。external结果是调用者显式提供的JSON，均最多16KiB。Resolve只交付结果，不执行模型/工具。Resume不给新prompt/附件/REPL，须保持模型端点/型号、canonical工作区、权限、memory开关与启用插件配置；密钥继续由显式秘密输入提供，不进recipe。等待未解决时不启动插件，过期明确失败。
 
-审批绑定实际会话、工具、原参数与效果，只消费一次。恢复将结果原子提交后让模型继续，宿主不重跑旧工具。进程在 running/interrupted 期间退出，结果未知；普通运行也不能绕过。先检查 `--waits` 和 native历史，再用 `--abandon-wait --wait-revision N` 明确解除该版本状态。解除不撤销副作用，也不证明外部工作取消。已批准的插件会在恢复的新turn重新启动，启动本身可能有宿主副作用。启动意图与物理收尾分别记录；崩溃留下未收尾启动时，`--waits`显示`plugin_startup_unknown`，普通运行/恢复均拒绝，须检查后按当前revision明确abandon（初始revision0也必须显式填写）。Hub的等待展示与HTTP控制未因CLI接入而完成。
+审批绑定实际会话、工具、原参数与效果，只消费一次。恢复将结果原子提交后让模型继续，宿主不重跑旧工具。进程在 running/interrupted 期间退出，结果未知；普通运行也不能绕过。先检查 `--waits` 和 native历史，再用 `--abandon-wait --wait-revision N` 明确解除该版本状态。解除不撤销副作用，也不证明外部工作取消。已批准的插件会在恢复的新turn重新启动，启动本身可能有宿主副作用。启动意图与物理收尾分别记录；崩溃留下未收尾启动时，`--waits`显示`plugin_startup_unknown`，普通运行/恢复均拒绝，须检查后按当前revision明确abandon（初始revision0也必须显式填写）。Hub的独立等待UI/HTTP见下节。
 
 实际跨进程恢复和JS/WASIp1执行验收：
 

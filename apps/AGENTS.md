@@ -22,7 +22,8 @@
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | 共享呈现 | `ui/` | 有界聊天控件、原生消息 renderer，不拥有产品执行或会话 |
+| 开发者选项 | `developer/` | CLI/Hub共用的独立接入测试、版本化任务评估及可取消模型请求owner；可选目标源在Run前冻结精确revision，不依赖Hub/engine或聊天会话 |
 | Direct 耐久应用与界面 | `direct/` | 独立 native facts/workspace/route 与 Controller owner；desktop 子包只负责直接产品界面，不依赖 Hub/engine |
-| 原生 UI diagnostics | `debug/` | 独立默认关闭的认证日志/level、实际视图状态/语义树/窗口PNG与声明action，不拥有Agent/Hub事实 |
-| 模型 Gateway | `gateway/` | 独立认证 HTTP/SSE 模型 API，真实协议转换，不是会话或 Agent runtime |
-| Hub 产品 | `hub/` | 多引擎会话/Team/自动化/worktree、同Turn持久等待、独立应用外观偏好及共享产品服务、bootstrap、UI、HTTP、SQLite |
+| 原生 UI diagnostics | `debug/` | 独立默认关闭、显式监听的诊断owner；认证日志/level、实际视图/语义树/本窗PNG与声明action，Stop仍交原执行owner，关闭诊断不Stop Agent |
+| 模型 Gateway | `gateway/` | 独立认证 HTTP/SSE 模型 API及真实协议转换；冷生命周期快照、监听generation绑定停止和实际取消/join，不拥有会话或 Agent runtime |
+| Hub 产品 | `hub/` | 多引擎会话/Team typed Worker FIFO/自动化/worktree、同Turn持久等待、耐久共享编辑器/文件/所选Skill、范围目标/伙伴/群、实际native交互、独立应用外观及共享产品服务、bootstrap、UI、HTTP、SQLite |

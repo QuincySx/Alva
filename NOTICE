@@ -69,3 +69,30 @@ Embedded QuickJS engine asset
 The archived Rust implementation at archive/rust-final-2026-10-18 retains its original licensing.
 
 The optional AEP Python author client in integration/protocol/aep/python is carried from the archived SDK and preserves its original MIT declaration in pyproject.toml. It is not a Rust runtime dependency.
+
+Alva desktop prototype fonts
+  docs/design/alva/fonts contains Noto Sans SC derivatives named
+  Alva Prototype Sans SC and Alva UI Sans SC, instantiated at weights 400 and 600 and subset
+  for the design text. TTF and WOFF copies preserve the same glyph outlines
+  and metrics. The complete original copyright notice and SIL Open Font
+  License 1.1 are retained in docs/design/alva/fonts/OFL.txt; source and
+  derived-file hashes are recorded in that directory's NOTICE.json and
+  UI-NOTICE.json. The formal UI family uses Noto's existing OS/2 typographic
+  metrics consistently; historical Prototype metrics remain unchanged.
+  Keep these notices with redistributed font assets. They are design
+  resources, not a change to the Go runtime's dependency or licensing.
+
+Alva prototype monospace font and interface icons
+  JetBrains Mono v2.304, pinned commit cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9,
+  provides the design code/log font. The upstream TTF and equivalent WOFF are
+  under SIL OFL 1.1; preserve docs/design/alva/fonts/JetBrainsMono-OFL.txt and
+  JetBrainsMono-NOTICE.json with copies.
+  The 68 interface symbols use lucide-static v1.61.0 only. Original SVGs and
+  official outlined glyph paths are preserved in docs/design/alva/fonts/lucide.
+  Lucide is ISC licensed; Feather-derived icons retain the MIT notice of
+  Cole Bemis. The complete combined upstream notice is lucide/LICENSE.
+  Alva's SmallPen font subset remaps symbols to stable local names/codepoints
+  and converts curves while preserving the upstream canvas. Provenance and
+  hashes are in fonts/icons.json and fonts/lucide/glyphs.json. Keep these
+  notices with redistributed SVG and font assets. No JavaScript framework,
+  runtime package dependency or change to Alva's AGPL-3.0-only license is implied.

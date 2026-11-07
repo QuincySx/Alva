@@ -49,19 +49,56 @@ namespace。工具目录读取调用方的实时 registry；偏好投影由明�
 
 可选[durable harness](../harness/durable/AGENTS.md)复用现有Plugin/Tool/hooks和四方法Backend，支持持久等待、受参数约束的一次性审批/问题结果与原子继续投递。MemoryBackend明确volatile；journal adapter消费同一事实插口，不绑定数据库。等待成功持久化后可退出进程；running/interrupted不自动重放，外部任务启动/取消仍归实际owner。direct CLI以`--durable`显式启用；Hub的Alva配方通过共享bootstrap/product接入UI与HTTP，默认off。Engine的Completed(waiting)仅结束本次Attempt；产品Turn保留，显式继续创建同Turn的新Attempt，无新prompt/handoff且禁止fallback，SDK内核不增加waiting状态。
 
+## 人机交互、界面与模型评测
+
+问答语义由现有`interaction.Question/Answer/Handler`表达；权限由`security.ApprovalRequest/Decision/Handler`表达。
+CLI可直接实现Handler并串行读终端；Hub桌面/HTTP通过已有QuestionBroker/ApprovalBroker及产品Service观察与提交，
+由产品校验实际session/run/call与子会话归属。UI不启动第二执行器，不把按钮点击或草稿当作已提交答案。
+
+| 共享语义 | CLI表现 | 桌面/HTTP表现 |
+|---|---|---|
+| 单选、多选、自由文字 | 编号/逗号、Other后输入下一行 | 控件选项、文本框或表单 |
+| 自定义答案 | Other提交Text | 自定义文本提交Text；不把界面额外行号当原选项 |
+| 本次允许/拒绝 | exact request ID或未来绑定请求的按键 | 绑定实际请求的按钮/JSON，不显示后端未允许的授权范围 |
+| 取消/到期/已回答 | 输入停止/拒绝晚答 | 禁用旧控件、清除已失效草稿；观察关闭不等于Stop |
+| durable等待 | 输出回执退出、冷保存结果、显式恢复 | 保存后保持暂停、明确Continue，复用同一Controller与日志 |
+
+各端可以改布局和键位，不能改选项原始编号、Text/Selected互斥、权限范围和结果提交语义。已有平台broker拥有待办与真实等待，
+UI拥有焦点/草稿/控件；如多个前端控制同次执行，接同一个owner的Service/Broker，不能各持一份授权或等待状态。
+当前直接CLI与Hub是独立产品装配，不假称它们已经跨进程控制同一个运行实例。
+
+模型工具名、UI显示名和外部协议消息名分别维护。`ask_human`向模型提供真实name/description/Schema，界面可显示“需要你选择”或“澄清问题”；
+不能从显示名推断模型训练情况，也不能只改名便冒充厂商定型工具。Provider转换只负责线格式，是否需要模型专属Schema应由实际评测支持。
+
+`apps/developer`是CLI/Hub开发者选项共用的产品外围能力，入口是`alva developer test/eval`与Hub侧栏Developer options，不增加独立维护程序。
+test的接入用例检查工具选择/参数、输出通过/失败，不当作模型排名；eval使用独立版本化任务集、评分与重复trial，输出加权分、持续通过的任务数、延迟和实际usage。
+评分绑定数据集ID/版本/包含期望与权重的SHA，模型请求另有SHA；执行故障不混入质量分母，未执行无分，覆盖与错误必须同时审阅。
+当前均为single_response范围，测试不证明多轮权限/Other、评估不冒充整个Agent质量；小型基础任务可换成显式自有任务集。
+
+共享Service拥有明确绑定的模型route与唯一job，UI只拥有选择/草稿/预览；观察不执行、退出非最后窗口不Stop，取消/Close实际join模型请求。
+Hub无需聊天会话即可使用；程序可注入额外DeveloperRoutes，默认live只加入当前明确模型，不借用外部Agent CLI的订阅/账户。
+CLI显式配置端点/模型/秘密，默认plan，--run才执行；Hub预览后明确Run，不向会话历史写评测正文，最新报告仅进程内保留。
+`integration/llm/eval`在SDK之外只消费既有LanguageModel/wire并测量一次响应，不选择测试/评估政策、Provider或UI；新增场景与grader由外围扩展。
+不向内核添加评分政策，普通CI只运行本地fixture。真实模型成绩、多轮Agent任务评估与本地实现回归分别记录。
+
 ## Hub 页面与业务落地
 
 SmallPen页面描述布局、组件和交互意图；可运行能力以Go入口、共享服务与耐久事实为准。新增页面先找现有owner及端口，再补缺失领域，不能按“每页一个Service、每层一份规则”重复实现。
 
-| 页面/能力 | 共享业务owner | 持久化与当前边界 |
-|---|---|---|
-| 工作台、会话、分支、运行/停止 | `product.HubService` + `hub.Runtime` | Hub产品Turn/Attempt与native记录分开；现有Submit/切换/订阅链路继续复用 |
-| 通用外观设置 | `product.PreferencesService` | 独立`hub.PreferencesStore` → 产品SQLite的`hub_preferences`；本批接通主题、密度和正文字号 |
-| 权限、问题、等待恢复 | 现有broker/Guard + `HubService`的等待服务 | 原始审批/问题及同Turn等待事实复用；界面草稿不授予权限 |
-| Skills、MCP、工具与插件设置 | 现有产品服务及next-turn装配 | 已有会话级SettingsStore；设计中的应用级目录/安装体验仍需逐项接线 |
-| Team、Worker、自动化、工作树 | 现有Team/Automation服务及Runtime/工作树owner | 沿用相应产品端口和SQLite事务，不再为页面创建第二执行系统 |
-| 模型连接、Provider增删改查 | 独立`product.ConnectionsService` | `hub.ConnectionsStore`→SQLite v3的metadata/credential分表；手填模型及CRUD/CAS生成真正revision绑定路由，测试连接/自动目录/本机账户认证仍缺 |
-| 常驻伙伴、伙伴分组 | 尚缺独立持久领域 | 当前Team/Worker是执行任务事实；不以同名界面推断它已实现常驻伙伴配置 |
+| 业务域 | 政策与执行owner | 持久化事实 | 入口与当前边界 |
+|---|---|---|---|
+| 会话、分支、草稿 | HubService明确提交；product/routing统一账户/计费准入；唯一Runtime拥有执行与取消/join | Session/Branch/Turn/Attempt；原件仍在native Repository | 桌面与HTTP；提交携带明确引用集合，不能隐式消费整个session草稿；历史branch导航不授予新执行 |
+| 外观 | PreferencesService唯一默认/patch/CAS政策 | PreferencesStore / hub_preferences | 桌面与HTTP GET/PATCH；主题/字号生效，Density仅保存且布局未区分，原生暂禁切换；语言资源/应用级减弱动效未实现 |
+| 权限、问答、等待 | 真实broker/Guard与原Controller；页面仅持回答草稿 | 原始审批/问题和同Turn checkpoint，独立WaitStore | Alva桌面与HTTP；审批必须匹配真实Alva owner；外部双向回调未接通 |
+| 工具、Skills、插件 | 产品服务保存next-turn配方，bootstrap装配实际能力 | SettingsStore与实际Skill原件 | 桌面及已有会话级HTTP；应用级目录/安装体验未齐 |
+| Team、Worker、自动化、工作树 | FIFO、timer和工作树owner各负其责，认领后仍交原Runtime | 独立Team/Automation/worktree端口及SQLite事务 | 桌面与HTTP；构造不执行，暂停只停未来调度，Stop等待实际owner；未提供Run once契约 |
+| 模型连接与参数 | ConnectionsService唯一配置/私值/CAS；bootstrap解析Provider；Developer冻结job目标 | 连接metadata/credential分表，默认/会话参数独立revision | 桌面CRUD/目录/参数；HTTP只有冷targets，没有这些CRUD/参数入口；动态连接已进入Developer测试，本机账户认证仍缺 |
+| 目标与引用 | GoalsService管理幂等目标和明确范围，选择仅准备typed原件引用 | 独立GoalStore/PageStore；原件用既有Artifact | 桌面创建/复用/首发；HTTP尚无目标/typed项目引用入口，普通上传另有接口 |
+| 伙伴与群 | CompanionService独立身份/成员scope/有限回合，执行复用原Runtime | CompanionStore与可选HistoryStore，群×成员会话/回合/消息 | 桌面；HTTP未曝光伙伴域；删除保留只读历史，新执行事务拒绝tombstone，重开不执行 |
+| 资源视图 | WorkspaceViewsService拥有位置/观察I/O；正文由实际资源owner提供 | WorkspaceViewStore只保存CAS位置，不是第二资源库 | 桌面文件/原件/任务/Inspector标签；HTTP尚无视图接口；关闭观察不Stop |
+| 系统语音 | platform/system/speech拥有录音/回调，原生页持有草稿 | 无音频文件或云fallback | 仅macOS代码接线，明确on-device；许可/设备质量另验，其他平台明确不支持 |
+
+表按业务权威划分，页面和目录只是消费者。core保留通用产品事实/执行契约，product维护共享业务规则，sqlite负责事务事实和迁移，bootstrap选择实现，desktop/server负责交互与传输。相同服务被两个入口装配，不等于两个入口已经曝光同样功能，不能把缺失入口写成端到端闭环。
 
 原生工作台21/22现已消费该链路：页面只持草稿与浮层，明确首发经现有Create、可选Switch、逐项导入、初次Detail读取及捕获文本的Submit。首发失败保留实际身份与输入；普通导航、建议和Build不启动执行。正文复用共享chat的有界列表、Markdown及阅读锚点，输入区由Hub装配；旧高级能力收进可达菜单，业务owner不复制。
 
@@ -80,18 +117,18 @@ SmallPen页面描述布局、组件和交互意图；可运行能力以Go入口�
 
 权限是产品策略而非SDK新模式：Auto仅自动批准已知原生write_file/edit_file在Guard确认后的工作区写入，命令/网络/MCP/未知效果仍问，可信安全命令分类尚缺。Full在已有Guard与独立host批准范围内自动批准，不启用插件或扩大根目录；首页确认绑定workspace/route并在首发迁移后消费。Plan、运行/waiting与未放弃checkpoint冻结共用同一gate，普通配置导入不能升权或恢复潜在Full。
 
-目标表单、常驻伙伴/群组、跨项目目录、兼容来源Skills目录、任意shell型slash命令、语音录制/转写仍缺产品契约或服务；现有菜单/组件、工具元数据与临时Team不等于这些领域已经实现。右侧标签工作区、联合模型选择器的收藏/参数、自动模型目录和全局自动化也尚未由旧Inspector/会话面板替代完成。
+目标共用表单/稳定事实与首发原件引用、伙伴/群独立领域、资源标签、模型收藏/默认和会话参数以及显式目录GET已有专门产品服务，均复用原Runtime/事实与共享存储端口。跨项目目录、compatibility来源Skills枚举、任意shell型slash、本机Agent认证、语言资源切换与应用级减弱动效覆盖仍缺；运行中插话/自动排队策略未定。macOS语音代码不等于设备验收，媒体播放和递归Inspector仍由专用pane承接。
 
 外观链路为：**原生草稿或HTTP请求 → 同一个PreferencesService → PreferencesStore → SQLite事务**。
 允许值、默认值、patch合并及revision规则只定义在`apps/hub/preferences.go`；存储在事务内调用同一纯值政策。
 传输层只做认证/格式/错误映射，UI只做输入与呈现。共享owner发布已提交的不可变快照，构建界面不等待数据库；读写失败保留旧快照并报错。
-多窗口/HTTP使用expected revision，冲突拒绝覆盖并保留草稿，由用户重新加载；保存成功后统一应用主题、密度和正文字号。
+多窗口/HTTP使用expected revision，冲突拒绝覆盖并保留草稿，由用户重新加载；保存成功后统一应用主题和正文字号。Density值虽可耐久保存，当前正式两档布局未区分，原生切换暂禁用，不能以CAS通过宣称布局功能已完成。
 Application.Close先停止偏好读写准入、取消并等待实际存储调用；超时保留owner及数据库供重试。已提交但迟到返回的结果按事实发布，不自动重放写入。
 
-产品SQLite由schema v1→v2→v3原子升级，保留单行外观表并增加连接metadata/credential分表；新建/迁移才写默认值。
+产品SQLite由schema v1→v2→v3→v4→v5原子升级，保留外观/连接/目标/模型偏好事实，v5新增独立伙伴/群/回合/消息及资源视图表；会话参数覆盖保存在原Settings JSON。新建/迁移才写初始事实，迁移与完整schema验证先于执行恢复。
 未知版本、缺行或损坏会失败，不重建为默认，也不修改独立native数据库。会话SettingsStore与六方法ExecutionStore的职责不变。
 连接链路为原生草稿→同一个ConnectionsService→ConnectionsStore事务→已提交缓存→显式路由选择→实际Attempt的immutable Provider配置。Key与自定义header值不进入列表、普通DTO、日志/历史或错误；仅私有SQLite权限保护，不宣称加密或系统钥匙串。空Key编辑保留，显式清除/Auth=none删除；编辑/启停/删除增加revision，使旧路由明确失效，不悄悄切账号，也不取消已经使用旧快照的实际Attempt。冷AvailableTargets共用于桌面、HTTP和Team/Automation，不在Build访问SQLite，默认仍由程序明确配置。
-新增连接不发网络请求；连接测试、自动模型目录与本机Agent账户认证需由实际产品适配owner继续实现。
+新增连接不发网络请求；显式连接测试/模型目录GET与动态连接推理fixture已接通，目录成功不等于模型推理授权或质量通过。本机Agent账户认证仍须由实际产品适配owner实现。
 
 ## 存储替换边界
 

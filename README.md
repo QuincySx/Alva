@@ -20,13 +20,13 @@ SDK、direct harness 与 Hub 保留独立职责。技术栈已正式切换；能
 sdk/          L0–L3   第三方可直接使用的可移植 SDK
 extension/    L4      可选 Tool / Plugin / Middleware
 harness/      L5      我们的 BaseAgent 默认配方
-apps/         L6/L7   direct 产品、Gateway、Hub 与共享呈现
+apps/         L6/L7   direct 产品、Gateway、Hub、开发者测试/评估与共享呈现
 cmd/          入口    CLI、桌面、HTTP、MCP 桥与 WASIp1 Worker
 integration/  横向    外部模型 / 协议 / 引擎适配
 platform/     横向    执行 owner / OS 原语 / 存储 / WASM 实现
 tests/        验证    import 防火墙、公开面、分形闸与 SDK 消费者实验
 examples/     接入    独立 module 的公开 SDK 示例与可单独加载的 WASIp1 插件
-tools/        手工    显式维护与本机验收工具
+tools/        手工    显式维护与本机验收
 ```
 
 | 层级 | 实际目录 | 这一层回答什么问题 |
@@ -41,7 +41,7 @@ tools/        手工    显式维护与本机验收工具
 | L4.5 | [integration/engine](./integration/engine/AGENTS.md) **仅根契约包** | Hub 如何统一驱动完整 Agent；不是 Model/Provider |
 | L5 | [harness](./harness/AGENTS.md) | 默认Plugin、引用/历史/子会话政策；[可选持久等待](./harness/durable/AGENTS.md) |
 | L6 | [apps/direct](./apps/direct/AGENTS.md)、[apps/direct/desktop](./apps/direct/desktop/AGENTS.md)、[apps/gateway](./apps/gateway/AGENTS.md)、direct 程序入口 | 用户直接聊天或显式调用模型 API；Gateway 不运行 Agent |
-| L7 | [apps/hub](./apps/hub/AGENTS.md) 与 Hub 程序入口 | 多引擎会话、branch/Turn/Attempt、Team、自动化和产品服务/UI |
+| L7 | [apps/hub](./apps/hub/AGENTS.md) 与 Hub 程序入口 | 多引擎会话、branch/Turn/Attempt、共享耐久草稿/文件/Skill与native交互、Team、自动化和产品服务/UI |
 
 纯SDK默认不安装诊断保存政策；默认harness的telemetry Plugin可按名替换，诊断失败报告后继续，执行事实失败仍中断。可选durable Controller支持外部结果、审批和问题跨进程等待/继续；native适配复用原会话存储。direct CLI以`--durable`启用；Hub的Alva在“Waiting tasks”面板或认证HTTP显式启用，保存结果后明确继续同一个Turn。默认均关闭，SDK内核不增加产品等待状态。
 
@@ -113,7 +113,9 @@ Go 实现采用 [GNU AGPL-3.0-only](./LICENSE) 开源，第三方声明见 [NOTI
 协议转换吸收 yetone/magpie 固定 MIT 源码切片，不引入其完整应用或 new-api 服务。native协议直连薄适配，
 跨协议才调用Magpie；有损工具/推理续传明确拒绝，不以EOF补成功。第三方 DTO 不进入 wire/kernel/Agent SDK。
 
-页面进入Go实现时先看[页面/业务/存储映射](./docs/ARCHITECTURE.md#hub-页面与业务落地)；原生General与模型连接已接共享服务/SQLite，输入区权限使用真实下一Turn策略。自动模型目录、常驻伙伴和语音仍待接线。
+界面规范从 [SmallPen 基础设计与功能契约](./docs/design/alva/DESIGN.md) 进入；设计或预览前通过 `smallpen help skills --json` 加载工具自带 Skill，并读项目 [CLI 指南](./docs/design/alva/CLI-GUIDE.md)。基础 Token/组件与原生功能 SPEC 复用现有定义，业务组合可用 `page draw --preview` 先渲染而不保存样例页面。已有 [设计包](./docs/design/alva/alva.smallpen) 保留「00 工作台线稿」与「01 产品界面」；离线预览是旧细化草稿。设计规范可映射不同平台，Alva 当前生产桌面栈与实际平台验收仍分别以 ADR 和 MIGRATION 为准。
+页面进入Go实现时先看[页面/业务/存储映射](./docs/ARCHITECTURE.md#hub-页面与业务落地)；页面共用产品服务与所选存储，功能实施和真实平台验收分别以[MIGRATION](./MIGRATION.md)及设计状态表为准，不以静态页面或构建完成代替业务验收。
+Hub业务先按[领域职责与各入口覆盖表](./docs/ARCHITECTURE.md#hub-页面与业务落地)定位owner；引用、路由、审批、调度、目标、伙伴历史及连接推理的可重复操作见[Hub业务验收](./docs/HUB-FLOWS.md)。两份地图分别说明职责与实际流程，不以某个页面完成代替整个领域完成。
 
 ## 快速开始
 

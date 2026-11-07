@@ -50,16 +50,16 @@ go mod verify
 
 | 路径 | 层级/职责 |
 |---|---|
-| `cmd/` | 八个可执行程序入口；direct CLI承接显式插件控制与可选等待恢复，另有桌面、HTTP、MCP 调试桥与 WASIp1 Worker |
+| `cmd/` | 八个可执行程序入口；direct CLI承接选项/Other问答、独立审批、显式插件控制与可选等待恢复，另有桌面、HTTP、MCP 调试桥与 WASIp1 Worker |
 | `sdk/` | L0 wire/bus/沙箱 ABI；L1 kernel 契约；L2 通用循环；L2.3 Agent 语义；L2.5 装配；L3 能力库 |
 | `extension/` | L4 可选 Tool/Plugin/Middleware；planning/interaction/utility 根包是可独立安装的普通能力（引用输出可选），native/ 才绑定原生会话政策 |
 | `harness/` | L5 默认配方、同名替换、引用/历史选择/子会话政策；durable/为可选可插拔等待恢复 |
-| `apps/` | L6 direct/Gateway 与 L7 Hub；CLI/桌面/HTTP/MCP/Worker 程序入口在 cmd，Hub desktop/server 共用 bootstrap/product、应用外观及同Turn等待恢复 |
-| `integration/` | 模型/协议/引擎适配；仅 engine 根契约为 L4.5，具体 adapter 是产品桥接 |
+| `apps/` | L6 direct/Gateway、共享developer test/eval与L7 Hub；入口在cmd，Hub desktop/server共用bootstrap/product、应用外观及同Turn等待恢复 |
+| `integration/` | 模型/协议/引擎适配及注入模型的契约eval；仅engine根契约为L4.5，具体adapter是产品桥接 |
 | `platform/` | host 执行/审批 owner、独立 workspace 文件能力、system 底层原语、storage共享契约及独立facts/memory/bindings/blob实现、sandbox |
 | `tests/` | architecture 静态闸/公开快照/分形检查与独立 extensibility 消费者实验 |
 | `examples/` | 独立go.mod的SDK消费者与standalone WASIp1 AEP插件；不进入生产依赖 |
-| `tools/` | 显式维护和手工验收工具，不进入生产执行或普通测试路径 |
-| `docs/` | 当前架构、使用说明、治理/ADR 与完整 history；实现状态以根 MIGRATION.md 为准 |
+| `tools/` | 显式维护与窗口验收；产品开发者测试/评估位于apps/developer，由CLI/Hub调用 |
+| `docs/` | 当前架构、使用说明、治理/ADR、MyGo候选混合界面验证、SmallPen桌面原型与完整 history；实现状态以根 MIGRATION.md 为准，设计原型不改变生产栈 |
 | `.github/` | 唯一维护的 Go CI，无 Rust 构建/测试工作流 |
 | `CONTEXT.md` | 领域词汇，不替代实际接口或验收记录 |
