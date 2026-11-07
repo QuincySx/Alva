@@ -8,6 +8,8 @@ const ComposerIntentPlan ComposerIntent = "plan"
 
 const ManagedSkillDirectory = ".alva/skills"
 
+const WorkspaceResourcePageBytes = 4096
+
 func (*HistoryTool) DescribeEffect(wire.ToolCall) abi.Effect
 
 func (*HistoryTool) IsReadOnly(wire.ToolCall) bool
@@ -44,11 +46,29 @@ func (a *AutomationCoordinator) Start() error
 
 func (a *AutomationCoordinator) Tick(ctx context.Context, at int64) error
 
+func (b *composerReferences) ReadText(ctx context.Context, uri string, offset int64, limit int) (agentcontext.TextPage, error)
+
+func (b *composerReferences) SearchText(ctx context.Context, uri, query string, limit int) ([]agentcontext.TextMatch, error)
+
+func (b *composerReferences) StoreText(ctx context.Context, text string) (wire.Reference, error)
+
 func (b reviewedWaitBackend) Commit(ctx context.Context, revision uint64, state durable.State, messages []wire.Message) (durable.Snapshot, error)
+
+func (d DraftAttachment) DraftSelection() DraftReferenceSelection
+
+func (d DraftWorkspaceReference) DraftSelection() DraftReferenceSelection
+
+func (e companionStorageError) Error() string
+
+func (e companionStorageError) Unwrap() error
 
 func (e connectionStorageError) Error() string
 
 func (e connectionStorageError) Unwrap() error
+
+func (f ComposerFileSelection) DraftSelection() hub.ComposerDraftReference
+
+func (h EngineInteractionHandle) ID() string
 
 func (p HistoryPlugin) Register(_ context.Context, r *core.Registrar) error
 
@@ -56,9 +76,59 @@ func (p SharedLocksPlugin) Register(_ context.Context, r *core.Registrar) error
 
 func (p TeamPlugin) Register(_ context.Context, r *core.Registrar) error
 
+func (s *CompanionService) Archive(ctx context.Context, owner string) (hub.CompanionArchive, error)
+
+func (s *CompanionService) Close(ctx context.Context) error
+
+func (s *CompanionService) Conversation(ctx context.Context, owner, id, group string, scope uint64) (hub.CompanionConversation, error)
+
+func (s *CompanionService) Delete(ctx context.Context, owner, id string, expected uint64) error
+
+func (s *CompanionService) DeleteGroup(ctx context.Context, owner, id string, expected uint64) error
+
+func (s *CompanionService) Group(ctx context.Context, owner, id string) (hub.CompanionGroup, error)
+
+func (s *CompanionService) Groups(ctx context.Context, owner string) ([]hub.CompanionGroup, error)
+
+func (s *CompanionService) List(ctx context.Context, owner string) ([]hub.CompanionProfile, error)
+
+func (s *CompanionService) MessagePage(ctx context.Context, owner, id string, scope uint64, query hub.CompanionHistoryQuery) (hub.CompanionMessagePage, error)
+
+func (s *CompanionService) Messages(ctx context.Context, owner, id string, scope uint64, limit int) ([]hub.CompanionMessage, error)
+
+func (s *CompanionService) Read(ctx context.Context, owner, id string) (hub.CompanionProfile, error)
+
+func (s *CompanionService) Round(ctx context.Context, owner, id string) (hub.CompanionRound, error)
+
+func (s *CompanionService) RoundPage(ctx context.Context, owner, id string, scope uint64, query hub.CompanionHistoryQuery) (hub.CompanionRoundPage, error)
+
+func (s *CompanionService) Rounds(ctx context.Context, owner, id string, scope uint64, limit int) ([]hub.CompanionRound, error)
+
+func (s *CompanionService) Save(ctx context.Context, p hub.CompanionProfile, expected uint64) (hub.CompanionProfile, error)
+
+func (s *CompanionService) SaveGroup(ctx context.Context, g hub.CompanionGroup, expected uint64) (hub.CompanionGroup, error)
+
+func (s *CompanionService) Session(ctx context.Context, id string) (hub.CompanionConversation, error)
+
+func (s *CompanionService) SessionReadOnly(ctx context.Context, id string) (bool, error)
+
+func (s *ComposerDraftsService) Close(ctx context.Context) error
+
+func (s *ComposerDraftsService) Consume(ctx context.Context, scope hub.ComposerDraftScope, capturedRevision uint64) (bool, error)
+
+func (s *ComposerDraftsService) CreateSession(ctx context.Context, captured hub.ComposerDraft, title, workspace string, target hub.Target) (hub.Session, hub.ComposerDraft, error)
+
+func (s *ComposerDraftsService) Read(ctx context.Context, scope hub.ComposerDraftScope) (hub.ComposerDraft, error)
+
+func (s *ComposerDraftsService) Save(ctx context.Context, next hub.ComposerDraft, expected uint64) (hub.ComposerDraft, error)
+
+func (s *ComposerDraftsService) Snapshot(scope hub.ComposerDraftScope) (hub.ComposerDraft, bool)
+
 func (s *ConnectionsService) Close(ctx context.Context) error
 
 func (s *ConnectionsService) Connection(id string) (hub.ModelConnection, bool)
+
+func (s *ConnectionsService) Create(ctx context.Context, request hub.ConnectionCreate) (hub.ModelConnection, error)
 
 func (s *ConnectionsService) Delete(ctx context.Context, id string, expected uint64) error
 
@@ -69,6 +139,8 @@ func (s *ConnectionsService) ModelPreference(target hub.Target) hub.ModelPrefere
 func (s *ConnectionsService) Read(ctx context.Context) ([]hub.ModelConnection, error)
 
 func (s *ConnectionsService) ReloadModelPreferences(ctx context.Context) error
+
+func (s *ConnectionsService) ResolveCreation(ctx context.Context, requestID string) (hub.ConnectionCreationReceipt, error)
 
 func (s *ConnectionsService) ResolveTarget(ctx context.Context, target hub.Target) (provider.Kind, provider.Config, bool, error)
 
@@ -84,9 +156,27 @@ func (s *ConnectionsService) Targets() []hub.Target
 
 func (s *ConnectionsService) TestConnection(ctx context.Context, draft hub.ConnectionUpdate) (ConnectionTest, error)
 
+func (s *ConversationTabsService) Close(ctx context.Context) error
+
+func (s *ConversationTabsService) CreateFirstSession(ctx context.Context, captured hub.ComposerDraft, title string, scope hub.WorktreeScope, tabID string, expected uint64) (hub.ConversationTabAdmission, error)
+
+func (s *ConversationTabsService) Read(ctx context.Context, scope hub.WorktreeScope) (hub.ConversationTabSet, error)
+
+func (s *ConversationTabsService) Save(ctx context.Context, next hub.ConversationTabSet, expected uint64) (hub.ConversationTabSet, error)
+
+func (s *DeveloperWorkspacesService) Close(ctx context.Context) error
+
+func (s *DeveloperWorkspacesService) Import(ctx context.Context, path string) (hub.DeveloperRepository, error)
+
+func (s *DeveloperWorkspacesService) Repositories(ctx context.Context) ([]hub.DeveloperRepository, error)
+
+func (s *DeveloperWorkspacesService) Worktrees(ctx context.Context, repositoryID string) ([]hub.DeveloperWorktree, error)
+
 func (s *GoalsService) Create(ctx context.Context, request hub.GoalCreate) (hub.GoalReceipt, error)
 
 func (s *GoalsService) List(ctx context.Context, scope hub.GoalScope, limit int) ([]hub.Goal, error)
+
+func (s *GoalsService) Page(ctx context.Context, scope hub.GoalScope, cursor hub.GoalCursor, limit int) (hub.GoalPage, error)
 
 func (s *GoalsService) Read(ctx context.Context, id string) (hub.Goal, error)
 
@@ -102,11 +192,31 @@ func (s *HubService) AudioPlayback(ctx context.Context, id, branchID, manifestUR
 
 func (s *HubService) AvailableTargets() []hub.Target
 
+func (s *HubService) BrowseAutomations(ctx context.Context) ([]hub.Automation, error)
+
+func (s *HubService) BrowseWorkspaceSessions(ctx context.Context, workspace, query string, cursor hub.SessionCursor, limit int) (hub.SessionPage, error)
+
+func (s *HubService) BrowseWorkspaces(ctx context.Context, query string, cursor hub.WorkspaceCursor, limit int) (hub.WorkspacePage, error)
+
+func (s *HubService) CaptureComposerFile(ctx context.Context, scope hub.ComposerDraftScope, path string) (hub.ComposerFile, error)
+
 func (s *HubService) ComposerCatalog(ctx context.Context, id string, query ComposerCatalogQuery) (ComposerCatalogPage, error)
 
 func (s *HubService) ComposerEntry(ctx context.Context, id, entryID string) (ComposerEntryDetail, error)
 
+func (s *HubService) ComposerFilePrivatePath(ctx context.Context, selection ComposerFileSelection, derivative bool) (string, error)
+
+func (s *HubService) ComposerFileReferences(ctx context.Context, ownerID string, files []engine.InputFile, native agentcontext.ReferenceBackend) (agentcontext.ReferenceBackend, error)
+
+func (s *HubService) ComposerHomeCatalog(ctx context.Context, workspace string, query ComposerCatalogQuery) (ComposerCatalogPage, error)
+
+func (s *HubService) ComposerHomeEntry(ctx context.Context, workspace, entryID string) (ComposerEntryDetail, error)
+
+func (s *HubService) ContinueCompanionGroup(ctx context.Context, owner, id string, expected uint64, target *WaitTarget, approved bool) (hub.CompanionRound, error)
+
 func (s *HubService) Create(ctx context.Context, title, workspace string) (hub.Session, error)
+
+func (s *HubService) CreateComposerSession(ctx context.Context, captured hub.ComposerDraft, title, workspace string) (hub.Session, hub.ComposerDraft, error)
 
 func (s *HubService) DraftAttachments(id string) []DraftAttachment
 
@@ -114,9 +224,11 @@ func (s *HubService) DraftWorkspaceReferences(id string) []DraftWorkspaceReferen
 
 func (s *HubService) EnableDurableWaits(ctx context.Context, id string, enabled bool) error
 
-func (s *HubService) EnqueueComposerWorkerDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim, selections []ComposerPreparation) (hub.WorkerTask, error)
+func (s *HubService) EnqueueComposerWorkerDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim, selections []ComposerPreparation, references []DraftReferenceSelection) (hub.WorkerTask, error)
 
-func (s *HubService) EnqueueWorkerDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim) (hub.WorkerTask, error)
+func (s *HubService) EnqueueComposerWorkerFileDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim, selections []ComposerPreparation, references []DraftReferenceSelection, files []ComposerFileSelection) (hub.WorkerTask, error)
+
+func (s *HubService) EnqueueWorkerDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim, references []DraftReferenceSelection) (hub.WorkerTask, error)
 
 func (s *HubService) InitializeSkills(ctx context.Context, id string) error
 
@@ -154,11 +266,21 @@ func (s *HubService) MediaSources(ctx context.Context, id, branchID string, afte
 
 func (s *HubService) ObserveInspectorAt(ctx context.Context, id, branchID string, path []ChildHop, after uint64, sink func(InspectorPage) error) error
 
+func (s *HubService) OpenCompanion(ctx context.Context, owner, id string, approved bool) (hub.CompanionConversation, error)
+
 func (s *HubService) PendingApprovals(ctx context.Context, id string) ([]security.ApprovalRequest, error)
+
+func (s *HubService) PendingEngineInteractions(ctx context.Context, id string) ([]EngineInteraction, error)
 
 func (s *HubService) PendingQuestions(ctx context.Context, id string) ([]interaction.Question, error)
 
+func (s *HubService) PinCompanionSkill(ctx context.Context, sourceSession, name string, groupAllowed bool) (hub.CompanionSkill, error)
+
+func (s *HubService) PrepareComposerFileContext(ctx context.Context, selections []ComposerFileSelection, inlineBudget int) ([]ComposerFileManifest, string, error)
+
 func (s *HubService) PrepareComposerGoal(ctx context.Context, id, workspace, goalID string) (ComposerPreparation, error)
+
+func (s *HubService) PrepareComposerHomeSelection(ctx context.Context, workspace string, request ComposerSelectionRequest) (ComposerPreparation, error)
 
 func (s *HubService) PrepareComposerSelection(ctx context.Context, id string, request ComposerSelectionRequest) (ComposerPreparation, error)
 
@@ -168,11 +290,17 @@ func (s *HubService) PreviewWorkerChanges(ctx context.Context, lead, team, worke
 
 func (s *HubService) ProvisionWorkerWorktree(ctx context.Context, lead, team, worker string, approved bool) (result hub.Worker, err error)
 
+func (s *HubService) ReadComposerFile(ctx context.Context, selection ComposerFileSelection, derivative bool, offset int64, limit int) (storage.ArtifactPage, error)
+
+func (s *HubService) ReadWorkspaceArtifact(ctx context.Context, id, branchID, uri string, offset int64) (WorkspaceResourceBody, error)
+
+func (s *HubService) ReadWorkspaceFile(ctx context.Context, id string, selection WorkspaceReferenceSelection, offset int64) (WorkspaceResourceBody, error)
+
 func (s *HubService) RebindComposerGoals(ctx context.Context, id string, selections []ComposerPreparation) ([]ComposerPreparation, error)
 
-func (s *HubService) RemoveDraftAttachment(id, artifactID string)
+func (s *HubService) RemoveDraftAttachment(id, draftID string)
 
-func (s *HubService) RemoveDraftWorkspaceReference(id, selectionID string)
+func (s *HubService) RemoveDraftWorkspaceReference(id, draftID string)
 
 func (s *HubService) RemoveWorkerWorktree(ctx context.Context, lead, team, worker string, revision uint64, snapshot string, approved bool) (result hub.Worker, err error)
 
@@ -182,9 +310,15 @@ func (s *HubService) ResolveWait(ctx context.Context, id string, answer WaitReso
 
 func (s *HubService) RespondApproval(ctx context.Context, id, requestID string, allowed bool) error
 
+func (s *HubService) RespondEnginePermission(ctx context.Context, id string, handle EngineInteractionHandle, allow bool) error
+
+func (s *HubService) RespondEngineUserInput(ctx context.Context, id string, handle EngineInteractionHandle, response engine.UserInputResponse) error
+
 func (s *HubService) RespondNativeApproval(ctx context.Context, engineID, root, requestID string, allow bool) error
 
 func (s *HubService) RespondQuestion(ctx context.Context, id, questionID string, answer interaction.Answer) error
+
+func (s *HubService) RestoreComposerFileSelections(ctx context.Context, draft hub.ComposerDraft) ([]ComposerFileSelection, map[string]hub.ComposerFile, error)
 
 func (s *HubService) RestoreSkill(ctx context.Context, id, receipt string) error
 
@@ -192,7 +326,11 @@ func (s *HubService) ResumeWait(ctx context.Context, id string, target WaitTarge
 
 func (s *HubService) RevalidateComposerPreparation(ctx context.Context, id string, prepared ComposerPreparation) error
 
+func (s *HubService) ReviewCompanionRound(ctx context.Context, owner, id string) (CompanionRoundReview, error)
+
 func (s *HubService) ReviewWorkerRemoval(ctx context.Context, lead, team, worker string) (result hub.Worker, err error)
+
+func (s *HubService) RunCompanionGroup(ctx context.Context, owner, id string, expected uint64, prompt string, members []string, approved bool, approvedProfiles ...hub.CompanionProfile) (out hub.CompanionRound, result error)
 
 func (s *HubService) SaveAEPDraft(ctx context.Context, id, raw string) error
 
@@ -200,17 +338,33 @@ func (s *HubService) SaveBrowserDraft(ctx context.Context, id, raw string) error
 
 func (s *HubService) SaveCommandsDraft(ctx context.Context, id, raw string) error
 
+func (s *HubService) SaveCompanionGroup(ctx context.Context, g hub.CompanionGroup, expected uint64) (hub.CompanionGroup, error)
+
+func (s *HubService) SaveCompanionProfile(ctx context.Context, p hub.CompanionProfile, expected uint64) (hub.CompanionProfile, error)
+
 func (s *HubService) SaveInspectorBundleAt(ctx context.Context, id, branchID string, path []ChildHop, highWater uint64, children bool) (InspectorExport, error)
 
 func (s *HubService) SaveMCPDraft(ctx context.Context, id, raw string) error
 
+func (s *HubService) SaveSessionModelOptions(ctx context.Context, edit hub.SessionModelOptionsUpdate) (hub.SessionModelOptionsSnapshot, error)
+
 func (s *HubService) SaveToolsDraft(ctx context.Context, id, raw string) error
 
+func (s *HubService) SearchComposerFile(ctx context.Context, selection ComposerFileSelection, derivative bool, query string, offset int64, limit int) (ComposerFileSearchPage, error)
+
+func (s *HubService) SearchComposerFileCandidates(ctx context.Context, scope hub.ComposerDraftScope, workspace, query string, limit int) (ComposerFileCandidatePage, error)
+
 func (s *HubService) SearchWorkspaceReferences(ctx context.Context, id, query, after string, limit int) (WorkspaceReferencePage, error)
+
+func (s *HubService) SelectBranch(ctx context.Context, id, branchID string, reason string) (hub.Branch, error)
+
+func (s *HubService) SessionModelOptions(ctx context.Context, id string) (hub.SessionModelOptionsSnapshot, error)
 
 func (s *HubService) SetAutomationEnabled(ctx context.Context, owner, id string, revision uint64, enabled, approved bool) (hub.Automation, error)
 
 func (s *HubService) SetCompatibilityFile(ctx context.Context, id, file string) error
+
+func (s *HubService) SetFallback(ctx context.Context, id string, targets []hub.Target) error
 
 func (s *HubService) SetPermissionPolicy(ctx context.Context, id string, policy hub.PermissionPolicy, confirmed bool) error
 
@@ -226,19 +380,39 @@ func (s *HubService) SkillRaw(ctx context.Context, id, name string) (string, err
 
 func (s *HubService) Skills(ctx context.Context, id string) ([]skill.Skill, error)
 
+func (s *HubService) StopCompanionGroup(ctx context.Context, owner, groupID, roundID string, expected uint64, operationID string) error
+
 func (s *HubService) StopShellJob(ctx context.Context, id, branchID, job string) error
 
-func (s *HubService) Submit(ctx context.Context, id, prompt string) (string, error)
+func (s *HubService) Submit(ctx context.Context, id, prompt string, references []DraftReferenceSelection) (string, error)
 
-func (s *HubService) SubmitComposerDraft(ctx context.Context, id, prompt string, selections []ComposerPreparation) (string, error)
+func (s *HubService) SubmitCompanion(ctx context.Context, owner, id, prompt string, approved bool, approvedProfiles ...hub.CompanionProfile) (string, error)
+
+func (s *HubService) SubmitComposerDraft(ctx context.Context, id, prompt string, selections []ComposerPreparation, references []DraftReferenceSelection) (string, error)
+
+func (s *HubService) SubmitComposerFileDraft(ctx context.Context, id, prompt string, selections []ComposerPreparation, legacy []DraftReferenceSelection, captured []ComposerFileSelection) (string, error)
+
+func (s *HubService) SwitchTarget(ctx context.Context, id string, target hub.Target, reason string) (hub.Branch, error)
+
+func (s *HubService) TerminateCompanionGroup(ctx context.Context, owner, id string, expected uint64, confirmed bool) (hub.CompanionRound, error)
 
 func (s *HubService) Upload(ctx context.Context, id, path string) (DraftAttachment, error)
 
 func (s *HubService) UploadReader(ctx context.Context, id, name string, source io.Reader) (DraftAttachment, error)
 
+func (s *HubService) ValidateComposerFileOwner(ctx context.Context, id string, file hub.ComposerFile) error
+
+func (s *HubService) ValidateTarget(target hub.Target) error
+
 func (s *HubService) Waits(ctx context.Context, id string) (WaitView, error)
 
 func (s *HubService) WorkerPatch(ctx context.Context, lead, team, worker, evidenceID string, offset int) (WorktreePatchPage, error)
+
+func (s *HubService) WorkspaceArtifacts(ctx context.Context, id, branchID string, after, high uint64) (storage.ArtifactIndexPage, error)
+
+func (s *HubService) WorkspaceResource(ctx context.Context, id string, tab hub.WorkspaceTab) (WorkspaceResourcePage, error)
+
+func (s *HubService) WorkspaceTask(ctx context.Context, lead, team, worker, task string, sequence uint64, offset int64) (WorkspaceResourceBody, error)
 
 func (s *PreferencesService) Close(ctx context.Context) error
 
@@ -247,6 +421,12 @@ func (s *PreferencesService) Read(ctx context.Context) (hub.Preferences, error)
 func (s *PreferencesService) Snapshot() hub.Preferences
 
 func (s *PreferencesService) Update(ctx context.Context, update hub.PreferenceUpdate) (hub.Preferences, error)
+
+func (s *WorkspaceViewsService) Close(ctx context.Context) error
+
+func (s *WorkspaceViewsService) Read(ctx context.Context, id string) (hub.WorkspaceView, error)
+
+func (s *WorkspaceViewsService) Save(ctx context.Context, view hub.WorkspaceView, expected uint64) (hub.WorkspaceView, error)
 
 func (t *HistoryTool) Execute(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
 
@@ -258,15 +438,29 @@ func (t *TeamCoordinator) Status(worker string) WorkerPumpStatus
 
 func (t *TeamCoordinator) Stop(ctx context.Context, lead, team, worker string) error
 
+func (t *TeamCoordinator) StopExecution(ctx context.Context, lead, team, worker, executionID string) error
+
 func (t *TeamTool) DescribeEffect(call wire.ToolCall) abi.Effect
 
 func (t *TeamTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
 
 func ActiveBranch(detail hub.Detail) (hub.Branch, error)
 
+func DecodeComposerDraftPreparations(draft hub.ComposerDraft) ([]ComposerPreparation, error)
+
+func EncodeComposerDraftPreparations(selections []ComposerPreparation) (json.RawMessage, error)
+
 func IsConnectionTarget(target hub.Target) bool
 
+func NewCompanionService(store hub.CompanionStore) (*CompanionService, error)
+
+func NewComposerDraftsService(store hub.ComposerDraftStore) (*ComposerDraftsService, error)
+
 func NewConnectionsService(ctx context.Context, store hub.ConnectionsStore) (*ConnectionsService, error)
+
+func NewConversationTabsService(store hub.ConversationTabStore, target hub.Target, drafts *ComposerDraftsService, workspaces *DeveloperWorkspacesService) (*ConversationTabsService, error)
+
+func NewDeveloperWorkspacesService(store hub.DeveloperRepositoryStore, source hub.DeveloperWorktreeSource) (*DeveloperWorkspacesService, error)
 
 func NewGoalsService(store hub.GoalStore, sessions GoalSessions, repository GoalArtifacts) (*GoalsService, error)
 
@@ -276,7 +470,34 @@ func NewPreferencesService(ctx context.Context, store hub.PreferencesStore) (*Pr
 
 func NewTeamCoordinator(store hub.TeamStore, runtime *hub.Runtime) *TeamCoordinator
 
+func NewWorkspaceViewsService(store hub.WorkspaceViewStore) (*WorkspaceViewsService, error)
+
+func SelectedComposerFile(f hub.ComposerFile) ComposerFileSelection
+
 func StagePinnedAEP(ctx context.Context, entry hub.AEPBundle, parent string) (*loader.Bundle, error)
+
+func ValidateConfiguredTarget(target hub.Target, configured []hub.Target) error
+
+import (
+	"archive/zip"
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
 
 import (
 	"bytes"
@@ -370,6 +591,38 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -378,6 +631,54 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/integration/protocol/skill"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"reflect"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/harness/durable"
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/integration/protocol/skill"
+)
+
+import (
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"sync"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/protocol/skill"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+	"github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 import (
@@ -454,6 +755,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/QuincySx/Alva/apps/developer"
 	"github.com/QuincySx/Alva/apps/gateway"
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/worktree"
@@ -461,9 +763,25 @@ import (
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/platform/host"
 	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/system/document"
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
 
 import (
@@ -493,6 +811,22 @@ import (
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
+
+import (
+	"context"
+	"errors"
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/integration/protocol/skill"
 	"os"
@@ -508,11 +842,90 @@ import (
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/platform/storage"
+)
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"strings"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
 	"path/filepath"
 
 	mediaextension "github.com/QuincySx/Alva/extension/media"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"sync"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/platform/storage"
+)
+
+import (
+	"context"
+	"errors"
+	"reflect"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
+	"reflect"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/platform/storage"
 )
 
 import (
@@ -601,6 +1014,14 @@ import (
 	"errors"
 
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/platform/host"
 	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -611,6 +1032,13 @@ import (
 	"errors"
 
 	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"errors"
+
+	"github.com/QuincySx/Alva/integration/engine"
 )
 
 import (
@@ -635,6 +1063,15 @@ type AutomationCoordinator struct {
 
 type ChildHop struct {
 	LinkSequence uint64 `json:"link_sequence"`
+}
+
+type CompanionRoundReview struct {
+	Round   hub.CompanionRound
+	Wait    *WaitView
+	Problem string
+}
+
+type CompanionService struct {
 }
 
 type ComposerArgument struct {
@@ -671,6 +1108,9 @@ type ComposerCatalogQuery struct {
 	Limit  int               `json:"limit,omitempty"`
 }
 
+type ComposerDraftsService struct {
+}
+
 type ComposerEntryDetail struct {
 	Entry    ComposerCatalogEntry `json:"entry"`
 	Document *skill.Document      `json:"document,omitempty"`
@@ -678,6 +1118,48 @@ type ComposerEntryDetail struct {
 }
 
 type ComposerEntryKind string
+
+type ComposerFileCandidate struct {
+	Path        string                 `json:"path"`
+	Name        string                 `json:"name"`
+	Kind        string                 `json:"kind"`
+	DisplayPath string                 `json:"display_path"`
+	Bytes       int64                  `json:"bytes"`
+	Revision    string                 `json:"revision"`
+	Captured    *ComposerFileSelection `json:"captured,omitempty"`
+}
+
+type ComposerFileCandidatePage struct {
+	Entries   []ComposerFileCandidate `json:"entries"`
+	Scanned   int                     `json:"scanned"`
+	Truncated bool                    `json:"truncated"`
+}
+
+type ComposerFileManifest struct {
+	Selection     ComposerFileSelection `json:"selection"`
+	Info          storage.ArtifactInfo  `json:"info"`
+	Reference     wire.Reference        `json:"reference"`
+	TextReference *wire.Reference       `json:"text_reference,omitempty"`
+	InlineText    string                `json:"inline_text,omitempty"`
+}
+
+type ComposerFileSearch struct {
+	Offset int64  `json:"offset"`
+	Text   string `json:"text"`
+}
+
+type ComposerFileSearchPage struct {
+	Matches    []ComposerFileSearch `json:"matches"`
+	Scanned    int64                `json:"scanned"`
+	NextOffset int64                `json:"next_offset"`
+	Truncated  bool                 `json:"truncated"`
+}
+
+type ComposerFileSelection struct {
+	Scope  hub.ComposerDraftScope `json:"scope"`
+	ID     string                 `json:"id"`
+	SHA256 string                 `json:"sha256"`
+}
 
 type ComposerGoalReference struct {
 	GoalID    string               `json:"goal_id"`
@@ -709,6 +1191,7 @@ type ComposerSelectionRequest struct {
 }
 
 type ComposerSkillReference struct {
+	Workspace    string       `json:"workspace,omitempty"`
 	SessionID    string       `json:"session_id"`
 	BranchID     string       `json:"branch_id"`
 	Name         string       `json:"name"`
@@ -729,16 +1212,40 @@ type ConnectionTest struct {
 type ConnectionsService struct {
 }
 
+type ConversationTabsService struct {
+}
+
+type DeveloperWorkspacesService struct {
+}
+
 type DraftAttachment struct {
+	DraftID   string               `json:"draft_id"`
 	BranchID  string               `json:"branch_id"`
 	Info      storage.ArtifactInfo `json:"info"`
 	Reference wire.Reference       `json:"reference"`
 }
 
+type DraftReferenceSelection struct {
+	Kind   string `json:"kind"`
+	ID     string `json:"id"`
+	SHA256 string `json:"sha256"`
+}
+
 type DraftWorkspaceReference struct {
+	DraftID   string                      `json:"draft_id"`
 	Selection WorkspaceReferenceSelection `json:"selection"`
 	Info      storage.ArtifactInfo        `json:"info"`
 	Reference wire.Reference              `json:"reference"`
+}
+
+type EngineInteraction struct {
+	Handle   EngineInteractionHandle
+	Event    engine.Event
+	BranchID string
+	EngineID string
+}
+
+type EngineInteractionHandle struct {
 }
 
 type GoalArtifacts interface {
@@ -765,24 +1272,31 @@ type HistoryTool struct {
 }
 
 type HubService struct {
-	Store              ServiceStore
-	Runtime            *hub.Runtime
-	Repository         storage.Repository
-	DefaultTarget      hub.Target
-	Targets            []hub.Target
-	DataDirectory      string
-	Demo               bool
-	ValidateWaitRecipe func(context.Context, hub.Branch, hub.Settings) error
-	Approvals          *host.ApprovalBroker
-	Questions          *host.QuestionBroker
-	Gateway            *gateway.Local
-	Preferences        *PreferencesService
-	Connections        *ConnectionsService
-	Goals              *GoalsService
-	Teams              *TeamCoordinator
-	Automations        *AutomationCoordinator
-	Worktrees          *worktree.Manager
-	Shells             *shell.Sessions
+	Store               ServiceStore
+	Runtime             *hub.Runtime
+	Repository          storage.Repository
+	DefaultTarget       hub.Target
+	Targets             []hub.Target
+	DataDirectory       string
+	Demo                bool
+	ValidateWaitRecipe  func(context.Context, hub.Branch, hub.Settings) error
+	Approvals           *host.ApprovalBroker
+	Questions           *host.QuestionBroker
+	Gateway             *gateway.Local
+	Developer           *developer.Service
+	Preferences         *PreferencesService
+	ComposerDrafts      *ComposerDraftsService
+	Documents           *document.Processor
+	Connections         *ConnectionsService
+	Goals               *GoalsService
+	Companions          *CompanionService
+	WorkspaceViews      *WorkspaceViewsService
+	DeveloperWorkspaces *DeveloperWorkspacesService
+	ConversationTabs    *ConversationTabsService
+	Teams               *TeamCoordinator
+	Automations         *AutomationCoordinator
+	Worktrees           *worktree.Manager
+	Shells              *shell.Sessions
 }
 
 type InspectorExport struct {
@@ -806,6 +1320,7 @@ type ServiceStore interface {
 	hub.Store
 	hub.WaitStore
 	hub.NativeOwnerResolver
+	hub.SessionModelOptionsStore
 }
 
 type SharedLocksPlugin struct{ Registry *core.ToolLockRegistry }
@@ -875,6 +1390,30 @@ type WorkspaceReferenceSelection struct {
 	Bytes       int64  `json:"bytes"`
 }
 
+type WorkspaceResourceBody struct {
+	Title, MediaType, Processing, SHA256 string
+	Data                                 []byte
+	Offset, NextOffset, TotalBytes       int64
+	HasMore                              bool
+}
+
+type WorkspaceResourceEntry struct {
+	Location hub.WorkspaceTab
+	Detail   string
+}
+
+type WorkspaceResourcePage struct {
+	Entries         []WorkspaceResourceEntry
+	Body            WorkspaceResourceBody
+	Next, HighWater uint64
+	After           string
+	HasMore         bool
+	Processing      string
+}
+
+type WorkspaceViewsService struct {
+}
+
 type WorktreePatchPage struct {
 	Text       string `json:"text"`
 	Next       int    `json:"next"`
@@ -883,5 +1422,7 @@ type WorktreePatchPage struct {
 }
 
 var ErrConnectionCatalogUnavailable = errors.New("model catalog unavailable; enter an explicit same-origin catalog URL or add model IDs manually")
+
+var ErrRouteUnavailable = errors.New("route changed or is unavailable; select a current configured route")
 
 var ErrWorkspaceReferenceChanged = errors.New("workspace selection changed; search and select it again")

@@ -5,6 +5,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -75,7 +76,7 @@ func TestSharedAssemblyStartupAndNativeResumeAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Service.Submit(ctx, s.ID, "first retained turn"); err != nil {
+	if _, err = a.Service.Submit(ctx, s.ID, "first retained turn", nil); err != nil {
 		t.Fatal(err)
 	}
 	detail := awaitTerminal(t, a, s.ID)
@@ -89,7 +90,7 @@ func TestSharedAssemblyStartupAndNativeResumeAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { closeApp(t, b) })
-	if _, err = b.Service.Submit(ctx, s.ID, "second retained turn"); err != nil {
+	if _, err = b.Service.Submit(ctx, s.ID, "second retained turn", nil); err != nil {
 		t.Fatal(err)
 	}
 	resumed := awaitTerminal(t, b, s.ID)
@@ -132,12 +133,22 @@ func TestLiveOpenMakesNoHTTPCallsAndRejectsMislabeledRoute(t *testing.T) {
 	if _, err = a.Store.Switch(context.Background(), s.ID, target, "explicit test route"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Service.Submit(context.Background(), s.ID, "do not run another model"); err != nil {
+	if _, err = a.Service.Submit(context.Background(), s.ID, "do not run another model", nil); !errors.Is(err, product.ErrRouteUnavailable) || a.Runtime.HasActive() || calls.Load() != 0 {
+		t.Fatal("product admitted an unconfigured route", err)
+	}
+	// The adapter must also bind its real provider when a core consumer starts
+	// the persisted branch directly, without the product admission policy.
+	_, done, err := a.Runtime.Start(t.Context(), s.ID, "do not run another model")
+	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for a.Runtime.HasActive() && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	select {
+	case err = <-done:
+		if err == nil {
+			t.Fatal("mislabeled adapter route succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("mislabeled route owner did not finish")
 	}
 	detail, err := a.Store.Detail(context.Background(), s.ID)
 	if err != nil || detail.Session.Status != engine.Failed || calls.Load() != 0 {

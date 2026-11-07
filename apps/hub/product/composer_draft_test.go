@@ -21,7 +21,7 @@ func TestComposerDraftRejectsTamperingBeforeModeOrAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	selection.Text += " altered"
-	if _, err = s.SubmitComposerDraft(t.Context(), p.ID, "task", []ComposerPreparation{selection}); err == nil {
+	if _, err = s.SubmitComposerDraft(t.Context(), p.ID, "task", []ComposerPreparation{selection}, nil); err == nil {
 		t.Fatal("altered preparation admitted")
 	}
 	settings, err := s.Store.Settings(t.Context(), p.ID)
@@ -32,7 +32,7 @@ func TestComposerDraftRejectsTamperingBeforeModeOrAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.SubmitComposerDraft(t.Context(), p.ID, "task", []ComposerPreparation{selection, selection}); err == nil {
+	if _, err = s.SubmitComposerDraft(t.Context(), p.ID, "task", []ComposerPreparation{selection, selection}, nil); err == nil {
 		t.Fatal("duplicate selection admitted")
 	}
 }
@@ -62,7 +62,7 @@ func TestComposerDraftRejectsChangedSkillBeforeAdmission(t *testing.T) {
 	if err = os.WriteFile(path, []byte(strings.ReplaceAll(raw, "relevant", "different")), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.SubmitComposerDraft(t.Context(), p.ID, "task", []ComposerPreparation{selection}); err == nil {
+	if _, err = s.SubmitComposerDraft(t.Context(), p.ID, "task", []ComposerPreparation{selection}, nil); err == nil {
 		t.Fatal("changed original admitted")
 	}
 	if s.Runtime.HasActive() || len(requests) != 0 {

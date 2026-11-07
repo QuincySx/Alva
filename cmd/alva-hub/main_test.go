@@ -4,8 +4,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +29,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "app-server" {
+		runCodexAppServerCLIFixture()
+		os.Exit(0)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "exec" {
 		if _, err := io.ReadAll(os.Stdin); err != nil {
 			os.Exit(80)
@@ -36,6 +43,88 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
+}
+
+func runCodexAppServerCLIFixture() {
+	if strings.Join(os.Args[1:], " ") != "app-server --listen stdio://" {
+		os.Exit(90)
+	}
+	write := func(value any) { data, _ := json.Marshal(value); fmt.Println(string(data)) }
+	notify := func(method string, params map[string]any) {
+		params["threadId"] = "hub-cli-rpc"
+		params["turnId"] = "cli-turn"
+		write(map[string]any{"method": method, "params": params})
+	}
+	finish := func() {
+		notify("item/started", map[string]any{"item": map[string]string{"type": "agentMessage", "id": "answer"}})
+		notify("item/completed", map[string]any{"item": map[string]string{"type": "agentMessage", "id": "answer", "text": "app-server fixture answer"}})
+		notify("turn/completed", map[string]any{"turn": map[string]string{"id": "cli-turn", "status": "completed"}})
+	}
+	scan := bufio.NewScanner(os.Stdin)
+	wantDecision := "decline"
+	for scan.Scan() {
+		var frame struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+			Result json.RawMessage `json:"result"`
+		}
+		if json.Unmarshal(scan.Bytes(), &frame) != nil {
+			os.Exit(91)
+		}
+		reply := func(value any) { write(map[string]any{"id": frame.ID, "result": value}) }
+		switch frame.Method {
+		case "initialize":
+			reply(map[string]string{"userAgent": "cli-fixture"})
+		case "initialized":
+		case "thread/start", "thread/resume":
+			var params struct {
+				Sandbox  string `json:"sandbox"`
+				Approval string `json:"approvalPolicy"`
+			}
+			json.Unmarshal(frame.Params, &params)
+			if params.Sandbox != "workspace-write" || params.Approval != "on-request" {
+				os.Exit(92)
+			}
+			cwd, _ := os.Getwd()
+			reply(map[string]any{"thread": map[string]string{"id": "hub-cli-rpc", "cwd": cwd}})
+		case "turn/start":
+			var params struct {
+				Input []struct {
+					Text string `json:"text"`
+				} `json:"input"`
+			}
+			json.Unmarshal(frame.Params, &params)
+			reply(map[string]any{"turn": map[string]string{"id": "cli-turn", "status": "inProgress"}})
+			if len(params.Input) > 0 && strings.Contains(params.Input[0].Text, "ask permission fixture") {
+				wantDecision = "accept"
+			}
+			if len(params.Input) > 0 && strings.Contains(params.Input[0].Text, "permission fixture") {
+				notify("item/started", map[string]any{"item": map[string]string{"id": "cmd", "type": "commandExecution", "status": "inProgress", "command": "echo fixture"}})
+				write(map[string]any{"id": 7, "method": "item/commandExecution/requestApproval", "params": map[string]string{"threadId": "hub-cli-rpc", "turnId": "cli-turn", "itemId": "cmd", "command": "echo fixture"}})
+			} else if len(params.Input) > 0 && strings.Contains(params.Input[0].Text, "question fixture") {
+				write(map[string]any{"id": 8, "method": "item/tool/requestUserInput", "params": map[string]any{"threadId": "hub-cli-rpc", "turnId": "cli-turn", "itemId": "q", "questions": []any{map[string]any{"id": "clarify", "header": "Clarify", "question": "Choose", "isOther": true, "isSecret": false, "options": nil}}}})
+			} else {
+				finish()
+			}
+		case "turn/interrupt":
+			reply(map[string]any{})
+			notify("turn/completed", map[string]any{"turn": map[string]string{"id": "cli-turn", "status": "interrupted"}})
+		case "":
+			var decision struct {
+				Decision string `json:"decision"`
+			}
+			json.Unmarshal(frame.Result, &decision)
+			if decision.Decision != wantDecision {
+				os.Exit(93)
+			}
+			notify("serverRequest/resolved", map[string]any{"requestId": 7})
+			notify("item/completed", map[string]any{"item": map[string]string{"id": "cmd", "type": "commandExecution", "status": "declined"}})
+			finish()
+		default:
+			os.Exit(94)
+		}
+	}
 }
 
 func TestPortableExplicitPrivateKeyFileKeepsHubCommandInputIndependent(t *testing.T) {
@@ -156,7 +245,7 @@ func TestREPLIsLazyAndManualEngineRoundTripRetainsBothNativeBranches(t *testing.
 		t.Fatal(err)
 	}
 	dir = filepath.Join(t.TempDir(), "switch")
-	out, _, err = invoke(t, []string{"--data-dir", dir, "--repl", "--codex-command", exe, "--external-host-approved"}, "first native turn\n/engine codex\nexternal turn\n/engine alva\nreturn native turn\n/session\n/quit\n")
+	out, _, err = invoke(t, []string{"--data-dir", dir, "--repl", "--codex-command", exe, "--codex-transport", "exec", "--external-host-approved"}, "first native turn\n/engine codex\nexternal turn\n/engine alva\nreturn native turn\n/session\n/quit\n")
 	if err != nil || !strings.Contains(out, "external fixture answer") || !strings.Contains(out, "return native turn") {
 		t.Fatal(out, err)
 	}
@@ -256,6 +345,143 @@ func TestBadCLIInvocationFailsBeforeStoreCreation(t *testing.T) {
 		}
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
 			t.Fatal("invalid grammar created stores", args, err)
+		}
+	}
+}
+
+func TestExplicitCLIConfigurationFlagsRequireTheirOwnExecutable(t *testing.T) {
+	for _, vendor := range []string{"codex", "claude", "pi"} {
+		directory := filepath.Join(t.TempDir(), "not-created")
+		_, _, err := invoke(t, []string{"--data-dir", directory, "--prompt", "must not run", "--" + vendor + "-config-dir", t.TempDir()}, "")
+		if err == nil || !strings.Contains(err.Error(), "corresponding") {
+			t.Fatal("CLI configuration without corresponding executable accepted", vendor, err)
+		}
+		if _, err := os.Stat(directory); !os.IsNotExist(err) {
+			t.Fatal("invalid CLI configuration flags created storage", err)
+		}
+	}
+}
+
+func TestExplicitCodexConfigurationFlagBindsPersistedRoute(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(t.TempDir(), "data")
+	_, _, err = invoke(t, []string{"--data-dir", directory, "--prompt", "explicit fixture profile", "--engine", "codex", "--codex-command", binary, "--codex-transport", "exec", "--codex-config-dir", profile, "--external-host-approved"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte(profile))
+	want := "explicit CLI configuration sha256:" + hex.EncodeToString(digest[:])
+	inspect(t, directory, func(store *productstore.Store) {
+		sessions, err := store.ListSessions(t.Context(), 8)
+		if err != nil || len(sessions) != 1 {
+			t.Fatal(sessions, err)
+		}
+		detail, err := store.Detail(t.Context(), sessions[0].ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, branch := range detail.Branches {
+			if branch.ID == detail.Session.ActiveBranchID && branch.Target.AccountSource == want {
+				return
+			}
+		}
+		t.Fatal("CLI profile flag did not bind the actual persisted route")
+	})
+}
+
+func TestExplicitCodexCommandDefaultsToActualAppServerWire(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := invoke(t, []string{"--data-dir", filepath.Join(t.TempDir(), "data"), "--prompt", "explicit app-server fixture", "--engine", "codex", "--codex-command", binary, "--external-host-approved"}, "")
+	if err != nil || out != "app-server fixture answer\n" {
+		t.Fatal("stock Codex command did not use actual app-server argv/wire", out, err)
+	}
+}
+
+func TestAppServerCLIDefaultDeniesPermissionAndQuestionsFailClearly(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prompt := range []string{"permission fixture", "question fixture"} {
+		out, _, err := invoke(t, []string{"--data-dir", filepath.Join(t.TempDir(), "data"), "--prompt", prompt, "--engine", "codex", "--codex-command", binary, "--external-host-approved", "--timeout", "5s"}, "")
+		if prompt == "permission fixture" {
+			if err != nil || out != "app-server fixture answer\n" {
+				t.Fatal("native permission was not denied through owned CLI callback", out, err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), "native human questions require Hub desktop") || out != "" {
+			t.Fatal("native question hung or silently answered", out, err)
+		}
+	}
+}
+
+type nativeConsentDiagnostic struct {
+	input *io.PipeWriter
+	asked bool
+	done  chan error
+}
+
+func (w *nativeConsentDiagnostic) Write(data []byte) (int, error) {
+	text := string(data)
+	if index := strings.Index(text, "Type allow "); index >= 0 {
+		fields := strings.Fields(text[index:])
+		if len(fields) < 3 {
+			return 0, errors.New("native consent prompt missing handle")
+		}
+		w.asked = true
+		go func() {
+			_, err := io.WriteString(w.input, "allow "+fields[2]+"\n/quit\n")
+			w.done <- errors.Join(err, w.input.Close())
+		}()
+	}
+	return len(data), nil
+}
+
+func TestAppServerCLIExplicitAskConfirmsCapturedOpaqueHandle(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, writer := io.Pipe()
+	defer input.Close()
+	defer writer.Close()
+	diagnostic := &nativeConsentDiagnostic{input: writer, done: make(chan error, 1)}
+	defer func() {
+		_ = input.Close()
+		_ = writer.Close()
+		if diagnostic.asked {
+			if err := <-diagnostic.done; err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	var output bytes.Buffer
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	err = run(ctx, []string{"--data-dir", filepath.Join(t.TempDir(), "data"), "--repl", "--permission", "ask", "--prompt", "ask permission fixture", "--engine", "codex", "--codex-command", binary, "--external-host-approved"}, input, &output, diagnostic)
+	if err != nil || !diagnostic.asked || output.String() != "app-server fixture answer\n" {
+		t.Fatal("native ask did not confirm actual captured callback", output.String(), err)
+	}
+}
+
+func TestCodexTransportPolicyFlagsRejectBeforeStoreIO(t *testing.T) {
+	for _, flags := range [][]string{{"--codex-transport", "exec"}, {"--codex-command", "not-started", "--codex-transport", "unknown"}, {"--codex-command", "not-started", "--codex-sandbox", "danger-full-access"}, {"--codex-command", "not-started", "--codex-approval-policy", "auto"}, {"--codex-command", "not-started", "--codex-transport", "exec", "--codex-sandbox", "read-only"}} {
+		dir := filepath.Join(t.TempDir(), "not-created")
+		args := append([]string{"--data-dir", dir, "--prompt", "must not run"}, flags...)
+		if _, _, err := invoke(t, args, ""); err == nil {
+			t.Fatal("invalid Codex native flags accepted", flags)
+		}
+		if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("invalid native flags created store", err)
 		}
 	}
 }
@@ -377,4 +603,24 @@ func TestTurnDeadlineCancelsActualStreamAndNeverPrintsPartialAnswer(t *testing.T
 			t.Fatal("deadline invented terminal success or lost cleanup", all, err)
 		}
 	})
+}
+
+func TestPiConfigurationAndTransportColdCLIAdmission(t *testing.T) {
+	for _, transport := range []string{"rpc", "exec"} {
+		directory := filepath.Join(t.TempDir(), "product")
+		_, _, err := invoke(t, []string{"--data-dir", directory, "--sessions", "--pi-command", "not-started", "--pi-config-dir", t.TempDir(), "--pi-transport", transport, "--external-host-approved"}, "")
+		if err != nil {
+			t.Fatal("explicit Pi source rejected on cold startup", transport, err)
+		}
+	}
+	for _, flags := range [][]string{{"--pi-transport", "rpc"}, {"--pi-command", "not-started", "--pi-transport", "unknown"}, {"--pi-command", "not-started", "--pi-config-dir", filepath.Join(t.TempDir(), "missing"), "--external-host-approved"}} {
+		directory := filepath.Join(t.TempDir(), "not-created")
+		_, _, err := invoke(t, append([]string{"--data-dir", directory, "--sessions"}, flags...), "")
+		if err == nil {
+			t.Fatal("invalid Pi source/transport accepted", flags)
+		}
+		if _, err := os.Stat(directory); !os.IsNotExist(err) {
+			t.Fatal("invalid Pi source/transport created storage", err)
+		}
+	}
 }

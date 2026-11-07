@@ -114,14 +114,14 @@ func TestWorkspaceReferenceFrozenOriginalSubmitsOnlyActualReference(t *testing.T
 		t.Fatal("prepare lacked a real retained artifact or started execution", draft, err)
 	}
 	repeated, err := s.PrepareWorkspaceReference(t.Context(), project.ID, selected)
-	if err != nil || repeated != draft || len(s.DraftWorkspaceReferences(project.ID)) != 1 {
-		t.Fatal("same selected version created another artifact/draft", repeated, err)
+	if err != nil || repeated.DraftID == draft.DraftID || repeated.Info != draft.Info || len(s.DraftWorkspaceReferences(project.ID)) != 2 {
+		t.Fatal("same retained original did not receive independent observer draft identities", repeated, err)
 	}
 	if _, _, err = s.Repository.ReadArtifactFull(t.Context(), "foreign owner", draft.Info.SessionID, draft.Reference.URI, 4096); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("reference URI granted another owner the original", err)
 	}
 	referenceFile(t, project, "notes/input.txt", "edited after prepare")
-	if _, err = s.Submit(t.Context(), project.ID, "inspect the selected original"); err != nil {
+	if _, err = s.Submit(t.Context(), project.ID, "inspect the selected original", []DraftReferenceSelection{draft.DraftSelection()}); err != nil {
 		t.Fatal(err)
 	}
 	request := <-requests
@@ -130,7 +130,7 @@ func TestWorkspaceReferenceFrozenOriginalSubmitsOnlyActualReference(t *testing.T
 	}
 	waitIdle(t, s, project.ID)
 	_, bytes, err := s.Repository.ReadArtifactFull(t.Context(), project.ID, draft.Info.SessionID, draft.Reference.URI, 4096)
-	if err != nil || string(bytes) != original || len(s.DraftWorkspaceReferences(project.ID)) != 0 {
+	if err != nil || string(bytes) != original || len(s.DraftWorkspaceReferences(project.ID)) != 1 {
 		t.Fatal("retained original changed or admitted draft was not consumed", string(bytes), err)
 	}
 }
@@ -166,7 +166,7 @@ func TestWorkspaceDirectoryReferenceRetainsOnlyBoundedMetadataAndRemovalPreserve
 	if err != nil || string(before) != string(after) {
 		t.Fatal("directory selection changed next-turn grants or settings", err)
 	}
-	s.RemoveDraftWorkspaceReference(project.ID, draft.Selection.ID)
+	s.RemoveDraftWorkspaceReference(project.ID, draft.DraftID)
 	_, bytes, err = s.Repository.ReadArtifactFull(t.Context(), project.ID, draft.Info.SessionID, draft.Reference.URI, maxWorkspaceDirectoryBytes)
 	actual, readErr := os.ReadFile(filepath.Join(project.Workspace, "docs/readme.txt"))
 	if err != nil || readErr != nil || len(bytes) == 0 || string(actual) != body || len(s.DraftWorkspaceReferences(project.ID)) != 0 {
@@ -210,7 +210,7 @@ func TestWorkspaceReferenceRejectsTraversalSymlinksForeignScopesAndParkedBranche
 	if _, err = s.Store.Switch(t.Context(), project.ID, target, "explicit route change"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Submit(t.Context(), project.ID, "must keep draft"); err == nil || len(s.DraftWorkspaceReferences(project.ID)) != 1 || s.Runtime.HasActive() {
+	if _, err = s.Submit(t.Context(), project.ID, "must keep draft", []DraftReferenceSelection{s.DraftWorkspaceReferences(project.ID)[0].DraftSelection()}); err == nil || len(s.DraftWorkspaceReferences(project.ID)) != 1 || s.Runtime.HasActive() {
 		t.Fatal("parked-branch reference crossed admission or was discarded", err)
 	}
 }
@@ -250,7 +250,7 @@ func TestWorkspaceReferencesShareUploadBudgetAndFailedArtifactWriteHasNoFallback
 	if _, err := s.UploadReader(t.Context(), project.ID, "overflow.txt", strings.NewReader("small")); err == nil {
 		t.Fatal("upload ignored already prepared project references")
 	}
-	s.RemoveDraftWorkspaceReference(project.ID, selected.ID)
+	s.RemoveDraftWorkspaceReference(project.ID, s.DraftWorkspaceReferences(project.ID)[0].DraftID)
 	if _, err := s.UploadReader(t.Context(), project.ID, "last.txt", strings.NewReader("small")); err != nil {
 		t.Fatal("removing a draft did not release the draft count budget", err)
 	}
@@ -258,7 +258,7 @@ func TestWorkspaceReferencesShareUploadBudgetAndFailedArtifactWriteHasNoFallback
 		t.Fatal("project reference ignored existing uploaded files")
 	}
 	for _, attachment := range s.DraftAttachments(project.ID) {
-		s.RemoveDraftAttachment(project.ID, attachment.Info.ID)
+		s.RemoveDraftAttachment(project.ID, attachment.DraftID)
 	}
 	failure := errors.New("explicit artifact provider is offline")
 	s.Repository = failingReferenceWriter{Repository: s.Repository, problem: failure}
@@ -316,7 +316,7 @@ func TestWorkspaceReferenceSubmitRejectsWorkspaceAndConcurrentBranchChange(t *te
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	_, err = s.workspaceReferencePromptLocked(project.ID, branch, t.TempDir(), "changed workspace")
+	_, err = s.workspaceReferencePromptLocked(project.ID, branch, t.TempDir(), "changed workspace", s.DraftWorkspaceReferences(project.ID))
 	s.mu.Unlock()
 	if err == nil {
 		t.Fatal("source scope was silently rebound to another workspace")
@@ -327,7 +327,7 @@ func TestWorkspaceReferenceSubmitRejectsWorkspaceAndConcurrentBranchChange(t *te
 	s.Store = wrapped
 	s.Runtime = hub.New(wrapped)
 	t.Cleanup(func() { _ = s.Runtime.Close(context.Background()) })
-	if _, err = s.Submit(t.Context(), project.ID, "must not reach another branch"); err == nil || len(s.DraftWorkspaceReferences(project.ID)) != 1 {
+	if _, err = s.Submit(t.Context(), project.ID, "must not reach another branch", []DraftReferenceSelection{s.DraftWorkspaceReferences(project.ID)[0].DraftSelection()}); err == nil || len(s.DraftWorkspaceReferences(project.ID)) != 1 {
 		t.Fatal("stale selected scope reached another branch or lost the draft", err)
 	}
 	history, err := s.Store.History(t.Context(), project.ID, 0, 128)
@@ -365,10 +365,10 @@ func TestWorkspaceReferenceWorkerQueueConsumesOnlyItsOwnPinnedDraft(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.EnqueueWorkerDraft(t.Context(), lead.ID, team.Team.ID, worker.ID, strings.Repeat("x", 16<<10), nil); err == nil || len(s.DraftWorkspaceReferences(worker.SessionID)) != 1 {
+	if _, err = s.EnqueueWorkerDraft(t.Context(), lead.ID, team.Team.ID, worker.ID, strings.Repeat("x", 16<<10), nil, []DraftReferenceSelection{s.DraftWorkspaceReferences(worker.SessionID)[0].DraftSelection()}); err == nil || len(s.DraftWorkspaceReferences(worker.SessionID)) != 1 {
 		t.Fatal("rejected queue admission consumed the reference draft", err)
 	}
-	task, err := s.EnqueueWorkerDraft(t.Context(), lead.ID, team.Team.ID, worker.ID, "inspect selected source ranges", nil)
+	task, err := s.EnqueueWorkerDraft(t.Context(), lead.ID, team.Team.ID, worker.ID, "inspect selected source ranges", nil, []DraftReferenceSelection{s.DraftWorkspaceReferences(worker.SessionID)[0].DraftSelection()})
 	if err != nil || strings.Contains(task.Scope, original) || !strings.Contains(task.Scope, draft.Reference.URI) || task.RequiredBranchID != draft.Selection.BranchID || len(s.DraftWorkspaceReferences(worker.SessionID)) != 0 || len(requests) != 0 {
 		t.Fatal("queue did not freeze the exact Worker reference or executed it", task, err)
 	}

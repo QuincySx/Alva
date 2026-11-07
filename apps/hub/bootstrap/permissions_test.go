@@ -54,7 +54,7 @@ func TestNativePermissionPoliciesEnforceRealWrites(t *testing.T) {
 			if calls.Load() != 0 {
 				t.Fatal("saving/reopening executed a model")
 			}
-			if _, err = a.Service.Submit(t.Context(), session.ID, "write now"); err != nil {
+			if _, err = a.Service.Submit(t.Context(), session.ID, "write now", nil); err != nil {
 				t.Fatal(err)
 			}
 			if policy == hub.PermissionAsk {

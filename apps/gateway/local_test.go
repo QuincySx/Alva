@@ -67,6 +67,9 @@ func TestEmbeddedGatewayColdConsentSecretRotationAndActualModelRequest(t *testin
 		t.Fatal(err)
 	}
 	status, _ := json.Marshal(l.Snapshot())
+	if c.Generation == 0 || l.Snapshot().Generation != c.Generation || l.Snapshot().Closed || l.Snapshot().Stopping {
+		t.Fatal("cold status lost the active listener identity")
+	}
 	if strings.Contains(string(status), c.Token) {
 		t.Fatal("cold status exposed token")
 	}
@@ -81,11 +84,11 @@ func TestEmbeddedGatewayColdConsentSecretRotationAndActualModelRequest(t *testin
 	if response.StatusCode != 200 || !strings.Contains(string(raw), "real gateway response") || calls.Load() != 1 {
 		t.Fatal("actual model API failed", response.StatusCode, string(raw))
 	}
-	if err = l.Stop(context.Background()); err != nil || l.Snapshot().Running {
+	if err = l.Stop(context.Background()); err != nil || l.Snapshot().Running || l.Snapshot().Generation != 0 || l.Snapshot().Stopping || l.Snapshot().Closed {
 		t.Fatal("Stop did not reclaim listener", err)
 	}
 	next, err := l.Start(context.Background(), true)
-	if err != nil || next.Token == c.Token {
+	if err != nil || next.Token == c.Token || next.Generation <= c.Generation {
 		t.Fatal("restart reused bearer", err)
 	}
 	old := next
@@ -97,6 +100,9 @@ func TestEmbeddedGatewayColdConsentSecretRotationAndActualModelRequest(t *testin
 	}
 	if err = l.Close(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	if !l.Snapshot().Closed || l.Snapshot().Running {
+		t.Fatal("closed owner was shown as available")
 	}
 	if _, err = l.Start(context.Background(), true); err == nil {
 		t.Fatal("closed owner restarted")
@@ -153,22 +159,84 @@ func TestEmbeddedGatewayStopTimeoutRetainsExactOwnerAndSnapshotStaysResponsive(t
 	}
 	deadline, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if err = l.Stop(deadline); !errors.Is(err, context.DeadlineExceeded) {
+	if err = l.StopGeneration(deadline, c.Generation); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("hung upstream falsely reaped", err)
 	}
-	if !l.Snapshot().Running {
-		t.Fatal("timeout forgot still-active owner")
+	if status := l.Snapshot(); !status.Running || !status.Stopping || status.Generation != c.Generation || status.Closed {
+		t.Fatal("timeout forgot the stopped-admission cleanup owner", status)
+	}
+	response := localRequest(t, c, "/v1/models", "")
+	response.Body.Close()
+	if response.StatusCode != http.StatusServiceUnavailable {
+		t.Fatal("timed-out Stop left server admission open", response.StatusCode)
 	}
 	if _, err = l.Start(context.Background(), true); err == nil {
 		t.Fatal("second owner admitted during old cleanup")
 	}
 	releaseTransport()
-	if err = l.Stop(context.Background()); err != nil {
+	if err = l.StopGeneration(context.Background(), c.Generation); err != nil {
 		t.Fatal("real cleanup retry failed", err)
 	}
 	select {
 	case <-finished:
 	case <-time.After(3 * time.Second):
 		t.Fatal("request not joined")
+	}
+}
+
+func TestEmbeddedGatewayGenerationStopRejectsDelayedAndUnknownOwners(t *testing.T) {
+	l, err := NewLocal(map[string]Route{"explicit": {Kind: provider.OpenAIChatKind, Provider: provider.Config{Endpoint: "http://127.0.0.1:1", Model: "actual"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close(context.Background())
+	previous, err := l.Start(t.Context(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = l.StopGeneration(t.Context(), 0); err == nil {
+		t.Fatal("zero generation stopped a listener")
+	}
+	if err = l.StopGeneration(t.Context(), previous.Generation+1); err == nil || l.Snapshot().Stopping {
+		t.Fatal("unknown generation changed listener admission", err)
+	}
+	// A rendered Stop can be waiting to reach its background owner while a
+	// different window completes Stop and explicit Start.
+	queued, release, finished := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	var releaseOnce sync.Once
+	releaseStop := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseStop()
+	go func() {
+		close(queued)
+		<-release
+		finished <- l.StopGeneration(t.Context(), previous.Generation)
+	}()
+	<-queued
+	if err = l.Stop(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	next, err := l.Start(t.Context(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseStop()
+	select {
+	case err = <-finished:
+		if err == nil {
+			t.Fatal("delayed Stop canceled a replacement listener")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("delayed Stop did not settle")
+	}
+	if status := l.Snapshot(); !status.Running || status.Stopping || status.Generation != next.Generation {
+		t.Fatal("stale Stop changed the replacement owner", status)
+	}
+	response := localRequest(t, next, "/v1/models", "")
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatal("replacement server admission closed after stale Stop", response.StatusCode)
+	}
+	if err = l.StopGeneration(t.Context(), next.Generation); err != nil || l.Snapshot().Running {
+		t.Fatal("current observed Stop did not join its listener", err)
 	}
 }

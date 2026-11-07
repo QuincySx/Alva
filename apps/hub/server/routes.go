@@ -37,7 +37,8 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 			return
 		}
 		var v struct {
-			Prompt string `json:"prompt"`
+			Prompt     string                            `json:"prompt"`
+			References []product.DraftReferenceSelection `json:"references"`
 		}
 		if !decode(w, r, &v, 64<<10) {
 			return
@@ -46,7 +47,7 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 			fail(w, 400)
 			return
 		}
-		turnID, err := s.service.Submit(r.Context(), id, v.Prompt)
+		turnID, err := s.service.Submit(r.Context(), id, v.Prompt, v.References)
 		if err != nil {
 			operationError(w, err)
 			return
@@ -87,7 +88,7 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 			fail(w, 400)
 			return
 		}
-		branch, err := s.service.Store.Switch(r.Context(), id, v.Target, v.Reason)
+		branch, err := s.service.SwitchTarget(r.Context(), id, v.Target, v.Reason)
 		reply(w, branch, err)
 	case "fallback":
 		if r.Method != http.MethodPut {
@@ -110,7 +111,7 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 				return
 			}
 		}
-		reply(w, map[string]bool{"saved": true}, s.service.Store.SetFallback(r.Context(), id, v.Targets))
+		reply(w, map[string]bool{"saved": true}, s.service.SetFallback(r.Context(), id, v.Targets))
 	case "approvals":
 		if r.Method != http.MethodGet {
 			fail(w, 405)

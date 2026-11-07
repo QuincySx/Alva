@@ -1,4 +1,4 @@
-// INPUT: Explicit native CLI recipe, supplied storage, workspace capabilities and optional durable controller.
+// INPUT: Explicit native CLI recipe, supplied storage, human handlers, workspace capabilities and optional durable controller.
 // OUTPUT: Per-turn Agent/plugin assembly and a process owner that joins execution before closing shared resources.
 // POS: [L6 application] Keeps remote plugins fresh per turn, claims before startup and retains failed cleanup ownership.
 package main
@@ -14,6 +14,8 @@ import (
 	"time"
 
 	filetools "github.com/QuincySx/Alva/extension/files"
+	"github.com/QuincySx/Alva/extension/interaction"
+	interactionnative "github.com/QuincySx/Alva/extension/interaction/native"
 	memoryplugin "github.com/QuincySx/Alva/extension/memory"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/harness/durable"
@@ -41,6 +43,7 @@ type cliNativeConfig struct {
 	Memory                   bool
 	OpenMemory               func(context.Context) (storage.MemoryStore, error)
 	Approval                 security.ApprovalHandler
+	Questions                interaction.Handler
 	Durable                  bool
 	Resume                   bool
 	RouteHash                string
@@ -266,6 +269,27 @@ func (r *cliNativeRuntime) build(ctx context.Context) (*core.Agent, *durable.Con
 		tools = append(tools, p.Tools()...)
 	}
 	plugins = append(plugins, memoryContribution)
+	questions := r.config.Questions
+	if waits != nil {
+		questions = waits
+	}
+	if questions != nil {
+		if r.config.Native != nil {
+			plugin, err := interactionnative.New(ctx, interactionnative.Config{Repository: r.config.Repository, Owner: cliOwner, SessionID: log.ID(), Cwd: r.workspace, Guard: guard, Handler: questions})
+			if err != nil {
+				return nil, nil, err
+			}
+			plugins = append(plugins, plugin)
+			tools = append(tools, plugin.Tools()...)
+		} else {
+			tool, err := interaction.NewTool(interaction.ToolConfig{Handler: questions, References: refs})
+			if err != nil {
+				return nil, nil, err
+			}
+			builder.Tool(tool).SystemPrompt("ask_human asks the human a clarification with free text or 2..4 options. The terminal also offers Other for a custom answer. Wait for the actual answer; never invent a selection. Answers are not permission approval and grant no file, shell or network rights. Use context_read on the answer reference to read the accepted clarification.")
+			tools = append(tools, tool)
+		}
+	}
 	compatPlugins, compatTools, err := r.compatibilityPlugins(ctx, compatibility, refs, guard, childFileTools)
 	if err != nil {
 		return nil, nil, err

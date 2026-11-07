@@ -1,0 +1,160 @@
+const (
+	Test     Mode = "test"
+	Evaluate Mode = "eval"
+)
+
+func (m observedModel) Stream(ctx context.Context, r abi.ModelRequest, emit func(wire.StreamChunk) error) error
+
+func (s *Service) Cancel(ctx context.Context) error
+
+func (s *Service) Close(ctx context.Context) error
+
+func (s *Service) Plan(request Request) (Report, error)
+
+func (s *Service) Snapshot() Snapshot
+
+func (s *Service) Start(request Request) error
+
+func (s *Service) Targets() []eval.Target
+
+func DefaultDataset() Dataset
+
+func NewService(routes []Route) (*Service, error)
+
+func NewServiceWithSource(routes []Route, source TargetSource) (*Service, error)
+
+func RunCLI(ctx context.Context, args []string, input io.Reader, stdout, stderr io.Writer) error
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"time"
+
+	"github.com/QuincySx/Alva/integration/llm/eval"
+	"github.com/QuincySx/Alva/integration/llm/provider"
+	"github.com/QuincySx/Alva/platform/system/secretinput"
+	"github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/llm/eval"
+	"github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+
+	"github.com/QuincySx/Alva/extension/interaction"
+	"github.com/QuincySx/Alva/integration/llm/eval"
+	"github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/integration/llm/eval"
+	"github.com/QuincySx/Alva/integration/llm/provider"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+type Dataset struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	Tasks   []Task `json:"tasks"`
+}
+
+type Mode string
+
+type Report struct {
+	Version           int           `json:"version"`
+	Kind              Mode          `json:"kind"`
+	DatasetID         string        `json:"dataset_id,omitempty"`
+	DatasetVersion    string        `json:"dataset_version,omitempty"`
+	DatasetSHA256     string        `json:"dataset_sha256,omitempty"`
+	Scores            []Score       `json:"scores,omitempty"`
+	Mode              string        `json:"mode"`
+	TotalPlannedCalls int           `json:"total_planned_calls"`
+	Reports           []eval.Report `json:"reports"`
+}
+
+type Request struct {
+	Mode            Mode     `json:"mode"`
+	Targets         []string `json:"targets"`
+	ToolNames       []string `json:"tool_names,omitempty"`
+	Dataset         *Dataset `json:"dataset,omitempty"`
+	Repeats         int      `json:"repeats"`
+	MaxCalls        int      `json:"max_calls"`
+	TimeoutMS       int      `json:"timeout_ms"`
+	MaxOutputTokens uint32   `json:"max_output_tokens"`
+}
+
+type Route struct {
+	ID       string
+	Protocol provider.Kind
+	Provider provider.Config
+}
+
+type Score struct {
+	TargetID             string   `json:"target_id"`
+	GradedTrials         int      `json:"graded_trials"`
+	ExecutionErrors      int      `json:"execution_errors"`
+	WeightedScore        *float64 `json:"weighted_score_percent,omitempty"`
+	ConsistentTaskPasses int      `json:"consistent_task_passes"`
+	TotalTasks           int      `json:"total_tasks"`
+	PlannedCalls         int      `json:"planned_calls"`
+	AttemptedCalls       int      `json:"attempted_calls"`
+	MeanDurationMS       *float64 `json:"mean_duration_ms,omitempty"`
+	MeanFirstOutputMS    *float64 `json:"mean_first_output_ms,omitempty"`
+	UsageReportedTrials  int      `json:"usage_reported_trials"`
+}
+
+type Service struct {
+}
+
+type Snapshot struct {
+	ID           uint64 `json:"id"`
+	State        string `json:"state"`
+	StartedCalls int    `json:"started_calls"`
+	Report       Report `json:"report"`
+}
+
+type TargetSource interface {
+	Targets() []eval.Target
+	Resolve(context.Context, []eval.Target) ([]Route, error)
+}
+
+type Task struct {
+	ID           string          `json:"id"`
+	Prompt       string          `json:"prompt"`
+	ExpectedText *string         `json:"expected_text,omitempty"`
+	ExpectedJSON json.RawMessage `json:"expected_json,omitempty"`
+	Weight       int             `json:"weight"`
+}

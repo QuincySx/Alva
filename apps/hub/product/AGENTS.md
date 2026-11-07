@@ -10,28 +10,42 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 
 持久等待从已存active branch及该branch自己的Turn派生owner；冷读不运行Agent。Resolve绑定完整请求/revision且不执行，Resume绑定不变配方并交唯一Hub Runtime；Abandon在实际claim内重置native并协调产品边，保留未知/外部效果说明。
 
-输入区的命令/Skills选择与项目引用共用同一产品服务：选择只准备草稿，明确Send在同一准入锁下重验typed来源、应用真实Plan意图并复用原Submit/Worker入队。项目引用和上传共用8条/40MiB预算，原件存既有Artifact，按session/branch/workspace绑定；目录只保留有界metadata，不增权限。草稿列表由独立短时读写锁发布；观察者不等待准入或文件I/O，移除不删除原件。Plan选择只通过共享setPlanModeLocked校验空闲和native checkpoint，再由已选store原子保存，不能绕过冻结配方。
+输入区的命令/Skills选择与项目引用共用同一产品服务：选择只准备草稿，明确Send在同一准入锁下重验typed来源、应用真实Plan意图并复用原Submit/Worker入队。每个窗口只持有本窗回执的DraftID/SHA256集合，Send必须显式携带捕获集合；空集合无附件，未知、重复、版本或branch不匹配拒绝且不执行，成功只消费该集合。项目引用和上传共用每会话8条/40MiB暂存总上限，选中集合另重验相同单轮上限，尚非每窗独立暂存预算。原件存既有Artifact，按session/branch/workspace绑定；目录只保留有界metadata，不增权限。草稿列表由独立短时读写锁发布；观察者不等待准入或文件I/O，移除不删除原件。Plan选择只通过共享setPlanModeLocked校验空闲和native checkpoint，再由已选store原子保存，不能绕过冻结配方。
 
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
-| connections.go / connections_test.go | 独立应用连接owner、脱敏已提交缓存、CRUD/CAS、exact revision provider解析与取消/join；动态路由共用现有执行准入，不联网探测 |
+| navigation.go / navigation_test.go | 真实保存workspace与精确子会话冷分页、managed路径显示政策、可选port回执/游标校验与100计划索引；不退回最近页、不扫描目录、不Tick执行 |
+| connections.go / connections_test.go | 独立连接owner与完整保存回执校验；可选RequestID创建/明确恢复共用Apply/provider校验，精确重试不重复创建，编辑/删除不被重放覆盖；聊天/开发者共用凭据插口与取消/join |
+| routing.go / routing_test.go | 完整账户/计费/能力route的一份准入政策；显式Switch/Fallback与既存branch历史选择分别表达，过期route在新Turn前拒绝，不把历史访问当执行授权 |
 | connection_catalog.go / connection_catalog_test.go | 明确同源目录GET/测试、四协议分页/预算、来源绑定凭据及取消/join；保存不联网、不声称完成推理测试 |
 | model_preferences.go / model_preferences_test.go | 收藏/Agent/默认参数独立保存、已提交快照、未知回执显式Reload和真实关闭，不改变连接版本或选择模型 |
-| goals.go / goals_test.go | 幂等目标创建、明确范围、原件Artifact引用和首发同锁绑定；Send重审来源，创建与移除引用不执行/删除 |
+| session_model_options.go / session_model_options_test.go | 当前会话参数读/CAS保存/清除、实际Descriptor和完整回执校验；复用连接owner取消/join，不改当前或挂起Attempt |
+| companions.go / companions_receipts.go / companions_test.go | 伙伴/群CRUD真回执、稳定Skill来源与私聊/群成员隔离；有限回合复用既有Runtime和真实审批/Stop，取消/join后再关闭存储 |
+| companions_browse.go | 可选删除身份冷索引、绑定owner/group/scope的keyset页回执与当前tombstone只读gate；浏览不创建或执行 |
+| companions_rounds.go | 固定成员与Turn的同回合进度、等待审阅/明确继续/终止、已知回复幂等补投；未知效果不自动重放 |
+| companions_history_test.go | 较新Turn占满历史页时仍找到原成员回复；真实私聊/群聊删除重开后可发现历史，普通Submit/direct Runtime均零执行 |
+| workspace_views.go / workspace_views_resources.go / workspace_views_test.go | 逐会话标签/顺序/宽度CAS与严格回执；真实文件/任务/原件/Inspector有界读取、来源重验及独立观察I/O取消/join，固定共享metadata预算保留浅层根文件与partial分页范围回归；ABA不覆盖新位置，不重放执行 |
+| developer_workspaces.go / developer_workspaces_test.go | 显式Repository/approved Git Worktree导航与worktree-scoped conversation tabs；Worktrees先只读复验保存的Path/CommonDir identity，changed common-dir以repository conflict拒绝且不列成员；tab/home draft身份跨workspace唯一且归档不释放，纯view metadata CAS/归档/重开；首Send显式注入DeveloperWorkspaces owner，写库前verify-only确认scope仍存在且canonical等值并仍是同repo实时成员（缺能力fail closed、绝不创建目录），再复用home draft原子Session准入并在取消时join，不启动模型、不Stop或删Git/session |
+| goals.go / goals_test.go | Create核对精确canonical请求及已存不可变事实，Read核对Goal ID；坏/取消回执不自动重试，显式原RequestID恢复唯一目标。范围冷keyset分页、原件引用/首发同锁绑定与Send重审；创建/移除引用不执行或删原件 |
 | permissions.go / permissions_test.go | 与Plan共用空闲native/checkpoint gate；显式Full范围确认、下一Turn策略持久且不启用可选能力 |
 | composer_commands.go / composer_commands_test.go | 冷命令/受管Skills目录、有限参数、来源/branch/SHA绑定的typed preparation，选取不启用不执行 |
+| composer_home.go / composer_home_test.go | 首发前显式项目受管Skill目录/原文与workspace/SHA准备；创建后复制绑定真实branch，Send产生精确typed Skill输入，不扫描HOME或开启全目录 |
 | composer_draft.go / composer_draft_test.go | 明确Send重验全部选择、应用计划意图并共用普通/Worker准入；变动或篡改拒绝保留稿 |
+| composer_drafts.go / composer_drafts_test.go | 显式逻辑范围的耐久手稿owner、严格保存既有准备DTO、跨窗已提交缓存与匹配revision消费；取消/join真实I/O，旧Send回执不清新稿；普通首Send与开发tab首Send共用只校验已存在canonical目录的gate，普通空workspace仍按原策略创建私有目录，开发tab绝不创建目录 |
+| composer_files.go / composer_files_candidates.go / composer_files_documents.go / composer_files_test.go / composer_files_pdf_darwin_test.go | 首会话前显式本地文件流式捕获、private关联原件/有界Office文本派生、SQLite不可变catalog、项目/最近/绝对路径fuzzy候选与精确scope/SHA的Read/Search；短文本4KiB/总16KiB及上下文预算；PDF可注入系统独立worker，扫描/锁定/越界及媒体未处理状态真实记录 |
+| composer_file_submission.go / composer_file_restore.go / composer_file_ownership.go / composer_file_submission_test.go | 真实持久草稿关联恢复原scope文件回执、仅atomic home→session的不可变grant、foreign session拒绝；普通Send/Worker共用typed engine.InputFile冻结器，原始正文/模型manifest分开，经原路由/Plan/准入，不从prompt解析授权 |
 | workspace_references.go / workspace_references_test.go | saved项目有界分页搜索、文件原件/目录metadata artifact、共享附件预算和分支准入 |
 | plan_mode.go / plan_mode_test.go | 下一Turn只读计划配置，空闲native/checkpoint校验与普通配置批准保留 |
 | preferences.go / preferences_test.go | application级偏好共享owner、取消感知的串行存储及非阻塞已提交快照；Close停准入/取消并等待实际I/O、超时保留owner可重试，失败/旧版本不覆盖缓存，不选择后端或启动会话 |
 | wait.go | Alva journal专属的共享UI/HTTP等待DTO、persistent opt-in、陈旧/跨分支拒绝、结果保存/同Turn继续/审阅放弃 |
-| service.go | 产品session/Turn服务、expected-branch原子准入、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答owner |
-| service_test.go | 真实双store/local harness、上传/权限/历史/Inspector和其他engine等待不借Alva authority回归 |
+| service.go | 产品session/Turn服务、expected-branch原子准入、独立DraftID/版本显式选择与精确消费、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答/会话外Developer及可选DeveloperWorkspaces/ConversationTabs owner |
+| service_test.go | 真实双store/local harness、双观察者捕获/迟到发布/失败重试、上传/权限/历史/Inspector和其他engine等待不借Alva authority回归 |
 | history.go | 产品绑定的有界metadata/字面关键词/正文range Tool与Plugin |
 | inspector.go | 消费registered EngineInspector；分支/最多8hop真实typed child授权、小索引/搜索/2KiB正文DTO/背压live metadata、默认禁用MCP导入 |
 | export.go | 精确branch/typed child授权的bounded JSONL；HTTP只返回bytes，native显式保存到私有exports，不接受client host/native path |
-| approvals.go | 真实running root/typed child权限路由，不接受UI childID或借用父权限 |
+| approvals.go / approvals_test.go | 真实running Alva root/typed child权限路由；首次读前冻结实际Runtime四项binding，替换owner与native同名字符串均不借用外部engine权限回调，不接受UI childID或借用父权限 |
+| engine_interactions.go / engine_interactions_test.go | 非Alva的已提交native审批/问题冷快照、session/branch与完整physical binding的opaque handle；响应重审原handle、种类隔离，迟到点击不重新发现替换owner；不借用Alva broker |
 | aep.go / aep_test.go | native/operator-only显式source检查、JS/Python解释器或嵌入WASIp1模式绑定、disabled pin/批准/变更拒绝；不执行检查或开放HTTP任意path导入 |
 | commands.go | native/operator-only显式Hooks/diagnostics JSON disabled编辑，不读取或执行命令，也不作为HTTP任意命令导入 |
 | tools.go / questions.go | native严格工具JSON编辑与显式下一Turn开关；actual root/typed ancestry过滤的独立真人问题/回答，不借用审批授权 |
@@ -42,11 +56,12 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | playback.go | 显式本地Play的product/branch/transcode-only归属；视频需独立decoder批准并构造caller-owned Playback，音频返回SHA/canonical验证PCM bytes；不发模型/新receipt |
 | skills_test.go | 完整frontmatter、归档receipt与symlink祖先拒绝 |
 | locks.go | 同一实际SDK ToolLockRegistry装配Plugin，非第二执行runtime |
-| team.go | 有界owned Worker队列pumps、显式resume/stop、drain边界kick与账户路由准入 |
-| team_test.go | 实际完整Alva Worker FIFO/同native续轮、observer detach与byte-only上传预算 |
+| team.go | 有界owned Worker队列pumps、显式resume/stop、drain边界kick与账户路由准入；Stop先冻结pump，再由Runtime join实际owner，涵盖独立同Turn等待续轮；StopExecution保留UI身份，旧ID不取消replacement或pump |
+| team_test.go | 实际完整Alva Worker FIFO/同native续轮、observer detach与byte-only上传预算；等待续轮Stop超时保留真实清理与后续队列，Stop成功发布前禁下一claim、迟到旧ID拒绝后FIFO继续 |
 | team_tool.go | 绑定实际Lead/native的hub_team Tool/Plugin，mutation HITL、roster与独立8KiB路由分页/绝对索引、selected task 2KiB读取 |
 | team_tool_test.go | foreign native拒绝、mutation拒批零变更与显式批准真实Team回归 |
-| automation.go / automation_test.go | 显式owned本地timer与真实SDK普通Turn；构造不执行、下一完整间隔、无补跑/OS daemon，关闭先阻止准入再交既有Runtime收尾 |
+| automation.go / automation_test.go | 显式owned本地timer与真实SDK普通Turn；构造不执行、下一完整间隔、无补跑/OS daemon，连接revision失效零Turn并经显式重审恢复，关闭先阻止准入再交既有Runtime收尾 |
 | shell.go | 已存分支授权的应用内后台job冷状态/真实Stop/idle reset，无PID或nativeID客户端输入 |
-| worker_draft.go / worker_draft_test.go | Worker附件仅本会话引用入队，事务固定原branch，失败保留草稿、入队不执行，不转移Lead/sibling原件 |
-| worktree.go | 已认领Lead/Team/Worker的explicit隔离、冷SHA index/raw diff小页与双workspace租约下二次确认原字节采纳；整树/index/HEAD删除审阅与单独确认、retire保留历史/证据，不接受client host/native path |
+| worker_draft.go / worker_draft_test.go | Worker引用及typed文件/Skill共用冻结器入原FIFO，重验真实Worker会话/branch，不借Lead/sibling/未采纳home原件；手动正文与增强prompt分别保存，失败保留稿、入队不执行 |
+| worktree.go / worktree_test.go | 已认领Lead/Team/Worker隔离、冷SHA/raw diff与双workspace租约采纳；真实Git完成后按原binding/revision收尾，不重做fresh idle gate；Waiting阻止新写动作而保留只读审阅 |
+| composer_references.go / composer_references_test.go | 实际owner校验与执行准备时原件/派生字节重验，context_read/search有界分页/长文检索；排队后损坏在HTTP前失败，不重放图像或扩大主机路径权限 |

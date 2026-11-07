@@ -1,5 +1,5 @@
 // INPUT: Explicit GoalStore, persisted session routing and native artifact repository.
-// OUTPUT: Shared goal creation and typed, scope-checked composer references with retained source artifacts.
+// OUTPUT: Verified immutable creation receipts, scope-bound cold pages and typed composer references retaining source artifacts.
 // POS: [L7 Hub product] Creates desired outcomes without creating chats or executing; Send revalidates the original scope and revision.
 package product
 
@@ -33,6 +33,8 @@ type GoalsService struct {
 	Sessions   GoalSessions
 	Repository GoalArtifacts
 }
+
+var errGoalReceipt = fmt.Errorf("%w: storage returned an invalid receipt; reload the original scope before retrying", hub.ErrInvalidGoal)
 
 func NewGoalsService(store hub.GoalStore, sessions GoalSessions, repository GoalArtifacts) (*GoalsService, error) {
 	if storage.Missing(store) || storage.Missing(sessions) || storage.Missing(repository) {
@@ -94,7 +96,21 @@ func (s *GoalsService) Create(ctx context.Context, request hub.GoalCreate) (hub.
 	if err = request.Validate(); err != nil {
 		return hub.GoalReceipt{}, err
 	}
-	return s.Store.CreateGoal(ctx, request)
+	receipt, err := s.Store.CreateGoal(ctx, request)
+	if err != nil {
+		return hub.GoalReceipt{}, err
+	}
+	if receipt.Goal.Validate() != nil || receipt.Goal.Creation() != request {
+		return hub.GoalReceipt{}, errGoalReceipt
+	}
+	committed, err := s.Read(ctx, receipt.Goal.ID)
+	if err != nil {
+		return hub.GoalReceipt{}, err
+	}
+	if committed != receipt.Goal {
+		return hub.GoalReceipt{}, errGoalReceipt
+	}
+	return receipt, nil
 }
 
 func (s *GoalsService) Read(ctx context.Context, id string) (hub.Goal, error) {
@@ -102,7 +118,10 @@ func (s *GoalsService) Read(ctx context.Context, id string) (hub.Goal, error) {
 	if err != nil {
 		return hub.Goal{}, err
 	}
-	return goal, goal.Validate()
+	if goal.Validate() != nil || goal.ID != id {
+		return hub.Goal{}, errGoalReceipt
+	}
+	return goal, nil
 }
 
 func (s *GoalsService) List(ctx context.Context, scope hub.GoalScope, limit int) ([]hub.Goal, error) {
@@ -111,6 +130,18 @@ func (s *GoalsService) List(ctx context.Context, scope hub.GoalScope, limit int)
 		return nil, err
 	}
 	return s.Store.ListGoals(ctx, scope, limit)
+}
+
+func (s *GoalsService) Page(ctx context.Context, scope hub.GoalScope, cursor hub.GoalCursor, limit int) (hub.GoalPage, error) {
+	scope, err := s.canonicalScope(ctx, scope)
+	if err != nil {
+		return hub.GoalPage{}, err
+	}
+	pages, ok := s.Store.(hub.GoalPageStore)
+	if !ok {
+		return hub.GoalPage{}, errors.New("goal store does not provide saved-goal pages")
+	}
+	return pages.PageGoals(ctx, scope, cursor, limit)
 }
 
 // A home project reference has no session, branch or artifact until the first

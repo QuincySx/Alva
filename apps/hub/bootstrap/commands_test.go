@@ -107,7 +107,7 @@ func TestNativeHookAndDiagnosticSettingsRunOnlyAtApprovedBoundaries(t *testing.T
 			if _, err = os.Stat(marker); !os.IsNotExist(err) || calls.Load() != 0 {
 				t.Fatal("save/enable started native command or model", err)
 			}
-			if _, err = a.Service.Submit(ctx, session.ID, "actual local command fixture"); err != nil {
+			if _, err = a.Service.Submit(ctx, session.ID, "actual local command fixture", nil); err != nil {
 				t.Fatal(err)
 			}
 			approval := nextApproval(t, a, session.ID)

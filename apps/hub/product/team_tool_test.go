@@ -26,7 +26,7 @@ func TestTeamToolActualBindingAndFailClosedMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Submit(ctx, p.ID, "bind native fixture"); err != nil {
+	if _, err = s.Submit(ctx, p.ID, "bind native fixture", nil); err != nil {
 		t.Fatal(err)
 	}
 	<-requests
@@ -131,7 +131,7 @@ func TestTeamToolPagesManyDynamicRoutesWithStableAbsoluteIndices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Submit(ctx, lead.ID, "bind native fixture"); err != nil {
+	if _, err = s.Submit(ctx, lead.ID, "bind native fixture", nil); err != nil {
 		t.Fatal(err)
 	}
 	<-requests

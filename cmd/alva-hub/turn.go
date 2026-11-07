@@ -65,6 +65,7 @@ func (c *cli) turn(parent context.Context, prompt string) error {
 	}
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
+	handledNative := make(map[string]bool)
 	for {
 		select {
 		case err := <-done:
@@ -103,6 +104,40 @@ func (c *cli) turn(parent context.Context, prompt string) error {
 				}
 				if err := c.app.Service.RespondApproval(ctx, c.session, request.ID, allow); err != nil {
 					return settle(err)
+				}
+			}
+			binding, ready := c.app.Runtime.ActivePermission(c.session)
+			if !ready || binding.EngineID == "alva" {
+				continue
+			}
+			interactions, err := c.app.Service.PendingEngineInteractions(ctx, c.session)
+			if err != nil {
+				return settle(err)
+			}
+			for _, request := range interactions {
+				key := request.Handle.ID()
+				if handledNative[key] {
+					continue
+				}
+				switch request.Event.Kind {
+				case engine.PermissionRequest:
+					allow := false
+					if c.ask {
+						if _, err := fmt.Fprintf(c.diagnostic, "Native permission %s · %s\n%s\nType allow %s to approve this call; anything else denies: ", key, terminaltext.Escape(request.Event.Name), terminaltext.Escape(string(request.Event.Input)), key); err != nil {
+							return settle(err)
+						}
+						line, err := c.input.line(ctx)
+						if err != nil {
+							return settle(err)
+						}
+						allow = strings.TrimSpace(line) == "allow "+key
+					}
+					if err := c.app.Service.RespondEnginePermission(ctx, c.session, request.Handle, allow); err != nil {
+						return settle(err)
+					}
+					handledNative[key] = true
+				case engine.UserInputRequested:
+					return settle(fmt.Errorf("%w: native human questions require Hub desktop", engine.ErrUnsupported))
 				}
 			}
 		}

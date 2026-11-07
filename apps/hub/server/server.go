@@ -327,13 +327,5 @@ func operationError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) targetAllowed(target hub.Target) bool {
-	if target.Validate() != nil {
-		return false
-	}
-	for _, configured := range s.availableTargets() {
-		if hub.RouteKey(configured) == hub.RouteKey(target) {
-			return true
-		}
-	}
-	return false
+	return product.ValidateConfiguredTarget(target, s.availableTargets()) == nil
 }

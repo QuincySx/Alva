@@ -5,6 +5,7 @@ package bootstrap
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -62,7 +63,7 @@ func TestDynamicConnectionUsesRealProviderAcrossReopenAndRejectsOldRoute(t *test
 	if _, err = a.Store.Switch(t.Context(), session.ID, target, "explicit fixture model selection"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Service.Submit(t.Context(), session.ID, "actual dynamic request"); err != nil {
+	if _, err = a.Service.Submit(t.Context(), session.ID, "actual dynamic request", nil); err != nil {
 		t.Fatal(err)
 	}
 	detail := awaitTerminal(t, a, session.ID)
@@ -86,7 +87,7 @@ func TestDynamicConnectionUsesRealProviderAcrossReopenAndRejectsOldRoute(t *test
 	if requests.Load() != 1 {
 		t.Fatal("reopen replayed a model request")
 	}
-	if _, err = a.Service.Submit(t.Context(), session.ID, "resume exact route"); err != nil {
+	if _, err = a.Service.Submit(t.Context(), session.ID, "resume exact route", nil); err != nil {
 		t.Fatal(err)
 	}
 	detail = awaitTerminal(t, a, session.ID)
@@ -101,12 +102,22 @@ func TestDynamicConnectionUsesRealProviderAcrossReopenAndRejectsOldRoute(t *test
 	if len(a.Service.AvailableTargets()) != 1 {
 		t.Fatal("disabled route remained selectable")
 	}
-	if _, err = a.Service.Submit(t.Context(), session.ID, "must not call changed route"); err != nil {
+	if _, err = a.Service.Submit(t.Context(), session.ID, "must not call changed route", nil); !errors.Is(err, product.ErrRouteUnavailable) || a.Runtime.HasActive() || requests.Load() != 2 {
+		t.Fatal("product admitted a disabled connection route", err)
+	}
+	// Direct core admission still reaches the actual recipe's immutable
+	// connection binding and must refuse a stale revision without HTTP.
+	_, done, err := a.Runtime.Start(t.Context(), session.ID, "must not call changed route")
+	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for a.Runtime.HasActive() && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	select {
+	case err = <-done:
+		if err == nil {
+			t.Fatal("stale connection recipe succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stale connection owner did not finish")
 	}
 	detail, err = a.Store.Detail(t.Context(), session.ID)
 	if err != nil || detail.Session.Status != engine.Failed || requests.Load() != 2 {

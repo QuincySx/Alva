@@ -37,7 +37,7 @@ func TestComposerPlanRejectsInterruptedDurableCheckpoint(t *testing.T) {
 	if err = a.Service.EnableDurableWaits(t.Context(), p.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	turnID, err := a.Service.Submit(t.Context(), p.ID, "Inspect the project before proposing changes")
+	turnID, err := a.Service.Submit(t.Context(), p.ID, "Inspect the project before proposing changes", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestComposerPlanRejectsInterruptedDurableCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Service.SubmitComposerDraft(t.Context(), p.ID, "Propose a plan", []product.ComposerPreparation{selection}); err == nil {
+	if _, err = a.Service.SubmitComposerDraft(t.Context(), p.ID, "Propose a plan", []product.ComposerPreparation{selection}, nil); err == nil {
 		t.Fatal("composer Plan admitted a new Turn before checkpoint review and abandonment")
 	}
 	settings, err := a.Store.Settings(t.Context(), p.ID)

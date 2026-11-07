@@ -1,15 +1,17 @@
-// INPUT: Explicit product directory, provider and approved external executable snapshots
-// OUTPUT: Shared bootstrap.Open Application assembly and owned shutdown for desktop/server
+// INPUT: Explicit product directory, chat/developer routes and approved external executable/CLI configuration snapshots
+// OUTPUT: Shared Application assembly and owned developer/chat shutdown for desktop/server
 // POS: [L7 Hub product] One Hub product recipe above engine adapters; no UI dependency or startup execution
 package bootstrap
 
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/QuincySx/Alva/apps/developer"
 	"github.com/QuincySx/Alva/apps/gateway"
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
@@ -37,9 +39,11 @@ import (
 	browserhost "github.com/QuincySx/Alva/platform/host/browser"
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/system/document"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	ownedprocess "github.com/QuincySx/Alva/platform/system/process"
+	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/agent/core"
 	"github.com/QuincySx/Alva/sdk/agent/memory"
 	"github.com/QuincySx/Alva/sdk/agent/security"
@@ -48,10 +52,16 @@ import (
 )
 
 type ExternalEngine struct {
-	Vendor             string
-	Command            string
-	PrefixArgs         []string
-	Env                map[string]string
+	Vendor              string
+	Command             string
+	PrefixArgs          []string
+	Env                 map[string]string
+	Transport           string
+	CodexSandbox        string
+	CodexApprovalPolicy string
+	// CLIConfigDirectory reuses a complete explicit vendor CLI configuration.
+	// The CLI alone reads it; this assembly only validates its canonical directory.
+	CLIConfigDirectory string
 	ApprovedHostAccess bool
 }
 type Config struct {
@@ -64,7 +74,10 @@ type Config struct {
 	Provider      provider.Config
 	// ImageCapable is an operator declaration for exactly ProviderKind/Model.
 	// No protocol, model name or external route implies this capability.
-	ImageCapable          bool
+	ImageCapable bool
+	// DeveloperRoutes are explicit extra model routes for developer tests/evals.
+	// They never change conversation routes or confer external CLI account access.
+	DeveloperRoutes       []developer.Route
 	External              []ExternalEngine
 	GitExecutable         string
 	GitHostAccessApproved bool
@@ -125,13 +138,28 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		headers[k] = v
 	}
 	config.Provider.Headers = headers
+	config.External = append([]ExternalEngine(nil), config.External...)
 	seen := make(map[string]bool)
-	for _, entry := range config.External {
+	for index, entry := range config.External {
 		if !entry.ApprovedHostAccess || entry.Command == "" {
 			return nil, errors.New("explicit external executable and host/account access approval required")
 		}
 		if (entry.Vendor != "claude" && entry.Vendor != "codex" && entry.Vendor != "pi") || seen[entry.Vendor] {
 			return nil, errors.New("unique supported external engine identity required")
+		}
+		if entry.CLIConfigDirectory != "" {
+			if !filepath.IsAbs(entry.CLIConfigDirectory) {
+				return nil, errors.New("explicit CLI configuration requires an absolute existing directory")
+			}
+			canonical, err := filepath.EvalSymlinks(entry.CLIConfigDirectory)
+			if err != nil {
+				return nil, errors.New("explicit CLI configuration directory is unavailable")
+			}
+			info, err := os.Stat(canonical)
+			if err != nil || !info.IsDir() {
+				return nil, errors.New("explicit CLI configuration must be an existing directory")
+			}
+			config.External[index].CLIConfigDirectory = canonical
 		}
 		seen[entry.Vendor] = true
 	}
@@ -245,6 +273,36 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if err != nil {
 			return nil, err
 		}
+		companion, bindingErr := store.CompanionSession(ctx, request.OwnerID)
+		if bindingErr != nil && !errors.Is(bindingErr, hub.ErrNotFound) {
+			return nil, bindingErr
+		}
+		if bindingErr == nil {
+			if companion.SessionID != request.OwnerID || settings.CompanionSkills == nil {
+				return nil, errors.New("companion session requires its explicit restricted Skill scope")
+			}
+			if companion.GroupID != "" {
+				for _, ref := range settings.CompanionSkills.Skills {
+					if !ref.GroupAllowed {
+						return nil, errors.New("group Skill has not been explicitly shared")
+					}
+				}
+			}
+		}
+		if settings.CompanionSkills != nil {
+			if settings.CompatibilityFile != "" {
+				return nil, errors.New("companion Skill scope does not allow compatibility imports; disable the project compatibility source first")
+			}
+			for _, ref := range settings.CompanionSkills.Skills {
+				source, sourceErr := store.Detail(ctx, ref.SourceSessionID)
+				if sourceErr != nil {
+					return nil, sourceErr
+				}
+				if source.Session.Workspace != request.Workspace || source.Session.ActiveBranchID != ref.SourceBranchID {
+					return nil, errors.New("companion Skill source branch or workspace changed; select it again")
+				}
+			}
+		}
 		var compatibility *compatibilityextension.Snapshot
 		compatibilitySHA := ""
 		if settings.CompatibilityFile != "" {
@@ -314,6 +372,22 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if err != nil {
 			return nil, err
 		}
+		{
+			if a.Service == nil {
+				return nil, errors.New("captured file service is unavailable")
+			}
+			var captured agentcontext.ReferenceBackend
+			captured, err = a.Service.ComposerFileReferences(ctx, request.OwnerID, request.InputFiles, backend)
+			if err != nil {
+				return nil, err
+			}
+			backend = captured
+			for i, plugin := range plugins {
+				if plugin.Name() == "context-retrieval" {
+					plugins[i] = harness.NewContextRetrievalPlugin(nativeID, captured)
+				}
+			}
+		}
 		tools := filetools.FileTools(workspace, guard, backend, nativeID)
 		history := &product.HistoryTool{Store: store, ProductID: request.OwnerID, NativeID: nativeID}
 		builder.Plugin(product.HistoryPlugin{Tool: history})
@@ -325,9 +399,13 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			plugins = append(plugins, waits)
 			trustedTools = append(trustedTools, waits.Tool())
 		}
-		if settings.MediaEnabled {
+		selectedImages, err := a.stageComposerImages(ctx, request, nativeID, runConfig.ImageCapable)
+		if err != nil {
+			return nil, err
+		}
+		if settings.MediaEnabled || len(selectedImages) > 0 {
 			var processor *nativemedia.Processor
-			if settings.MediaDecoder.Enabled {
+			if settings.MediaEnabled && settings.MediaDecoder.Enabled {
 				if !settings.MediaDecoder.HostAccessApproved {
 					return nil, errors.New("media decoder snapshot lacks explicit host approval")
 				}
@@ -340,13 +418,15 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 					return nil, err
 				}
 			}
-			plugin, err := mediaextension.New(ctx, mediaextension.Config{Repository: repository, Owner: request.OwnerID, SessionID: nativeID, Cwd: request.Workspace, Route: hub.RouteKey(hub.Target{EngineID: "alva", ModelID: request.Model, ProviderID: request.Provider, AccountSource: request.AccountSource, BillingRoute: request.BillingRoute}), Guard: guard, ImageCapable: runConfig.ImageCapable, ProviderID: request.Provider, ModelID: request.Model, Processor: processor})
+			plugin, err := mediaextension.New(ctx, mediaextension.Config{Repository: repository, Owner: request.OwnerID, SessionID: nativeID, Cwd: request.Workspace, Route: hub.RouteKey(hub.Target{EngineID: "alva", ModelID: request.Model, ProviderID: request.Provider, AccountSource: request.AccountSource, BillingRoute: request.BillingRoute}), Guard: guard, ImageCapable: runConfig.ImageCapable, ProviderID: request.Provider, ModelID: request.Model, Processor: processor, SelectedInputURIs: selectedImages, InputsOnly: !settings.MediaEnabled})
 			if err != nil {
 				return nil, err
 			}
 			loaded = append(loaded, plugin)
 			plugins = append(plugins, plugin)
-			trustedTools = append(trustedTools, plugin.Tool())
+			if tool := plugin.Tool(); tool != nil {
+				trustedTools = append(trustedTools, tool)
+			}
 		}
 		reportCommand := func(ctx context.Context, sessionID, id, name string) error {
 			if err := ctx.Err(); err != nil {
@@ -422,13 +502,20 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			plugins = append(plugins, plugin)
 			trustedTools = append(trustedTools, plugin.Tools()...)
 		}
-		if settings.SkillsEnabled {
+		if settings.SkillsEnabled || len(request.InputSkills) > 0 {
+			if len(request.InputSkills) > 0 && compatibility != nil {
+				return nil, errors.New("explicit selected project Skills require the native managed repository; project compatibility imports are active")
+			}
 			skillFiles, err = skill.OpenWithin(request.Workspace, ".alva/skills", false)
 			if err != nil {
 				return nil, err
 			}
 			if compatibility == nil {
-				plugin := skillextension.New(skillFiles, nativeID, backend)
+				restricted, scopeErr := filterComposerSkills(skillFiles, request.Workspace, request.InputSkills, settings.CompanionSkills)
+				if scopeErr != nil {
+					return nil, scopeErr
+				}
+				plugin := skillextension.New(restricted, nativeID, backend)
 				plugins = append(plugins, plugin)
 				trustedTools = append(trustedTools, plugin.Tools()...)
 			}
@@ -529,7 +616,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			return errors.New("product permission service unavailable")
 		}
 		return a.Service.RespondNativeApproval(ctx, "alva", nativeID, requestID, decision.Allow)
-	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true, Generation: true, DurableWaits: true})
+	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true, Generation: true, DurableWaits: true, FileInputs: true, SkillInputs: true})
 	inspector, err := alva.NewRepositoryInspector(repository)
 	if err != nil {
 		return nil, err
@@ -555,7 +642,16 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		return nil, err
 	}
 	a.Service = service
+	service.Documents = document.NewProcessor()
 	service.Goals, err = product.NewGoalsService(store, store, repository)
+	if err != nil {
+		return nil, err
+	}
+	service.Companions, err = product.NewCompanionService(store)
+	if err != nil {
+		return nil, err
+	}
+	service.WorkspaceViews, err = product.NewWorkspaceViewsService(store)
 	if err != nil {
 		return nil, err
 	}
@@ -584,11 +680,23 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 	}
 	service.Approvals = approvals
 	service.Questions = a.Questions
+	service.ComposerDrafts, err = product.NewComposerDraftsService(store)
+	if err != nil {
+		return nil, err
+	}
 	service.Preferences, err = product.NewPreferencesService(ctx, store)
 	if err != nil {
 		return nil, err
 	}
 	service.Connections, err = product.NewConnectionsService(ctx, store)
+	if err != nil {
+		return nil, err
+	}
+	developerRoutes := append([]developer.Route(nil), config.DeveloperRoutes...)
+	if !config.Demo {
+		developerRoutes = append(developerRoutes, developer.Route{ID: "configured", Protocol: config.ProviderKind, Provider: config.Provider})
+	}
+	service.Developer, err = developer.NewServiceWithSource(developerRoutes, connectionDeveloperSource{connections: service.Connections})
 	if err != nil {
 		return nil, err
 	}
@@ -614,7 +722,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if storage.Missing(bindings) {
 			return nil, errors.New("binding factory returned a missing or typed-nil provider")
 		}
-		adapter, err := vendorengine.New(vendorengine.Config{Bindings: bindings, Vendor: entry.Vendor, Command: entry.Command, PrefixArgs: entry.PrefixArgs, Env: entry.Env, StateDirectory: stateDirectory, ApprovedHostAccess: entry.ApprovedHostAccess})
+		adapter, err := vendorengine.New(vendorengine.Config{Bindings: bindings, Vendor: entry.Vendor, Command: entry.Command, PrefixArgs: entry.PrefixArgs, Env: entry.Env, StateDirectory: stateDirectory, CLIConfigDirectory: entry.CLIConfigDirectory, ApprovedHostAccess: entry.ApprovedHostAccess, Transport: entry.Transport, CodexSandbox: entry.CodexSandbox, CodexApprovalPolicy: entry.CodexApprovalPolicy})
 		if err != nil {
 			return nil, err
 		}
@@ -623,13 +731,21 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if err = runtime.RegisterDescriptor(entry.Vendor, adapter.Descriptor()); err != nil {
 			return nil, err
 		}
-		service.Targets = append(service.Targets, hub.Target{EngineID: entry.Vendor, ModelID: "engine-default", ProviderID: "engine-default", AccountSource: "explicit executable; private HOME", BillingRoute: "external runtime account"})
+		service.Targets = append(service.Targets, hub.Target{EngineID: entry.Vendor, ModelID: "engine-default", ProviderID: "engine-default", AccountSource: adapter.AccountSource(), BillingRoute: "external runtime account"})
 	}
 	if config.GitExecutable != "" || config.GitHostAccessApproved {
 		service.Worktrees, err = worktree.New(worktree.Config{GitExecutable: config.GitExecutable, Root: filepath.Join(dir, "managed-workers"), ApprovedHostAccess: config.GitHostAccessApproved})
 		if err != nil {
 			return nil, err
 		}
+		service.DeveloperWorkspaces, err = product.NewDeveloperWorkspacesService(store, service.Worktrees)
+		if err != nil {
+			return nil, err
+		}
+	}
+	service.ConversationTabs, err = product.NewConversationTabsService(store, service.DefaultTarget, service.ComposerDrafts, service.DeveloperWorkspaces)
+	if err != nil {
+		return nil, err
 	}
 	a.Targets = append([]hub.Target(nil), service.Targets...)
 	a.Service = service
@@ -645,6 +761,42 @@ func (a *Application) Close(ctx context.Context) error {
 	if a.closed {
 		return a.closeErr
 	}
+	if a.Service != nil && a.Service.Companions != nil {
+		if err := a.Service.Companions.Close(ctx); err != nil {
+			return err
+		}
+	}
+	if a.Service != nil && a.Service.WorkspaceViews != nil {
+		if err := a.Service.WorkspaceViews.Close(ctx); err != nil {
+			return err
+		}
+	}
+	// Conversation tabs depend on developer worktree navigation for first-Send
+	// live-worktree proof, so the dependent owner closes first and an in-flight
+	// Send can still finish its checks; afterwards both fail closed.
+	if a.Service != nil && a.Service.ConversationTabs != nil {
+		if err := a.Service.ConversationTabs.Close(ctx); err != nil {
+			return err
+		}
+	}
+	if a.Service != nil && a.Service.DeveloperWorkspaces != nil {
+		if err := a.Service.DeveloperWorkspaces.Close(ctx); err != nil {
+			return err
+		}
+	}
+	if a.Service != nil && a.Service.ComposerDrafts != nil {
+		if err := a.Service.ComposerDrafts.Close(ctx); err != nil {
+			return err
+		}
+	}
+	if a.Service != nil && a.Service.Documents != nil {
+		if err := a.Service.Documents.Close(ctx); err != nil {
+			return err
+		}
+		if !a.Service.Documents.CleanupComplete() {
+			return errors.New("document processing physical cleanup incomplete; stores retained")
+		}
+	}
 	if a.Service != nil && a.Service.Preferences != nil {
 		if err := a.Service.Preferences.Close(ctx); err != nil {
 			return err
@@ -652,6 +804,11 @@ func (a *Application) Close(ctx context.Context) error {
 	}
 	if a.Service != nil && a.Service.Connections != nil {
 		if err := a.Service.Connections.Close(ctx); err != nil {
+			return err
+		}
+	}
+	if a.Service != nil && a.Service.Developer != nil {
+		if err := a.Service.Developer.Close(ctx); err != nil {
 			return err
 		}
 	}

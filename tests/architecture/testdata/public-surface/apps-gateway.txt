@@ -1,0 +1,104 @@
+func (l *Local) Close(ctx context.Context) error
+
+func (l *Local) Snapshot() LocalSnapshot
+
+func (l *Local) Start(ctx context.Context, approved bool) (Credentials, error)
+
+func (l *Local) Stop(ctx context.Context) error
+
+func (l *Local) StopGeneration(ctx context.Context, generation uint64) error
+
+func (s *Server) Close(ctx context.Context) error
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request)
+
+func New(config Config) (*Server, error)
+
+func NewLocal(routes map[string]Route) (*Local, error)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"mime"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/integration/llm/codec"
+	"github.com/QuincySx/Alva/integration/llm/provider"
+	"github.com/QuincySx/Alva/platform/system/loopback"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
+)
+
+import (
+	"context"
+	"errors"
+	"net"
+	"net/http"
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/platform/system/loopback"
+)
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/QuincySx/Alva/integration/llm/codec"
+)
+
+type Config struct {
+	Authority string
+	Token     string `json:"-"`
+	Routes    map[string]Route
+
+	Observe func(context.Context, Observation) error
+}
+
+type Credentials struct {
+	Generation uint64 `json:"generation"`
+	Address    string `json:"address"`
+	Token      string `json:"token"`
+}
+
+type Local struct {
+}
+
+type LocalSnapshot struct {
+	Generation uint64   `json:"generation"`
+	Closed     bool     `json:"closed"`
+	Stopping   bool     `json:"stopping"`
+	Running    bool     `json:"running"`
+	Address    string   `json:"address,omitempty"`
+	Models     []string `json:"models"`
+}
+
+type Observation struct {
+	Stage              string
+	Alias              string
+	From, To           codec.Protocol
+	Converter, Quality string
+	Steps              []codec.Step
+	SHA256             string
+}
+
+type Route struct {
+	Kind     provider.Kind
+	Provider provider.Config
+}
+
+type Server struct {
+}

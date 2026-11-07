@@ -77,6 +77,7 @@ type ComposerSelectionRequest struct {
 // ComposerSkillReference pins the selected original document and its saved
 // product branch. It requests the existing Skill capability; it grants no tools.
 type ComposerSkillReference struct {
+	Workspace    string       `json:"workspace,omitempty"`
 	SessionID    string       `json:"session_id"`
 	BranchID     string       `json:"branch_id"`
 	Name         string       `json:"name"`
@@ -177,16 +178,23 @@ func (s *HubService) composerEntries(ctx context.Context, id string, includeSkil
 // ComposerCatalog is a cold metadata query. Empty sessionID exposes only the
 // product's application commands; it never invents a project or scans HOME.
 func (s *HubService) ComposerCatalog(ctx context.Context, id string, query ComposerCatalogQuery) (ComposerCatalogPage, error) {
-	var result ComposerCatalogPage
-	if query.Kind != "" && query.Kind != ComposerCommandEntry && query.Kind != ComposerSkillEntry || query.Offset < 0 || query.Offset > 1026 || query.Limit < 0 || query.Limit > 100 || len(query.Search) > 256 || !utf8.ValidString(query.Search) || strings.ContainsRune(query.Search, 0) {
-		return result, errors.New("invalid bounded composer catalog query")
-	}
-	if query.Limit == 0 {
-		query.Limit = 20
+	if err := validateComposerCatalogQuery(query); err != nil {
+		return ComposerCatalogPage{}, err
 	}
 	entries, err := s.composerEntries(ctx, id, query.Kind != ComposerCommandEntry)
 	if err != nil {
+		return ComposerCatalogPage{}, err
+	}
+	return composerCatalogPage(ctx, entries, query)
+}
+
+func composerCatalogPage(ctx context.Context, entries []ComposerCatalogEntry, query ComposerCatalogQuery) (ComposerCatalogPage, error) {
+	var result ComposerCatalogPage
+	if err := validateComposerCatalogQuery(query); err != nil {
 		return result, err
+	}
+	if query.Limit == 0 {
+		query.Limit = 20
 	}
 	words := strings.Fields(strings.ToLower(query.Search))
 	matched := make([]ComposerCatalogEntry, 0, len(entries))
@@ -209,6 +217,13 @@ func (s *HubService) ComposerCatalog(ctx context.Context, id string, query Compo
 		result.Entries = matched[query.Offset:end]
 	}
 	return result, ctx.Err()
+}
+
+func validateComposerCatalogQuery(query ComposerCatalogQuery) error {
+	if query.Kind != "" && query.Kind != ComposerCommandEntry && query.Kind != ComposerSkillEntry || query.Offset < 0 || query.Offset > 1026 || query.Limit < 0 || query.Limit > 100 || len(query.Search) > 256 || !utf8.ValidString(query.Search) || strings.ContainsRune(query.Search, 0) {
+		return errors.New("invalid bounded composer catalog query")
+	}
+	return nil
 }
 
 func (s *HubService) ComposerEntry(ctx context.Context, id, entryID string) (ComposerEntryDetail, error) {
@@ -254,13 +269,8 @@ func (s *HubService) ComposerEntry(ctx context.Context, id, entryID string) (Com
 
 func (s *HubService) PrepareComposerSelection(ctx context.Context, id string, request ComposerSelectionRequest) (ComposerPreparation, error) {
 	var result ComposerPreparation
-	if len(request.Arguments) > 1 {
-		return result, errors.New("composer selection accepts at most one request argument")
-	}
-	for name, value := range request.Arguments {
-		if name != "request" || len(value) > 8192 || !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
-			return result, errors.New("composer selection accepts only a bounded UTF-8 request argument")
-		}
+	if err := validateComposerSelectionArguments(request); err != nil {
+		return result, err
 	}
 	detail, err := s.ComposerEntry(ctx, id, request.EntryID)
 	if err != nil {
@@ -298,12 +308,27 @@ func (s *HubService) PrepareComposerSelection(ctx context.Context, id string, re
 	return result, ctx.Err()
 }
 
+func validateComposerSelectionArguments(request ComposerSelectionRequest) error {
+	if len(request.Arguments) > 1 {
+		return errors.New("composer selection accepts at most one request argument")
+	}
+	for name, value := range request.Arguments {
+		if name != "request" || len(value) > 8192 || !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
+			return errors.New("composer selection accepts only a bounded UTF-8 request argument")
+		}
+	}
+	return nil
+}
+
 // RevalidateComposerPreparation must be called on the frozen Send selection.
 // It rejects disabled, archived, changed, foreign-branch or altered references;
 // it performs no submission, PlanMode change, Skill enablement or execution.
 func (s *HubService) RevalidateComposerPreparation(ctx context.Context, id string, prepared ComposerPreparation) error {
 	if prepared.Kind == ComposerGoalEntry {
 		return s.revalidateGoalPreparation(ctx, id, prepared)
+	}
+	if prepared.SkillRef != nil && prepared.SkillRef.Workspace != "" {
+		return s.revalidatePinnedComposerSkill(ctx, id, prepared)
 	}
 	current, err := s.PrepareComposerSelection(ctx, id, ComposerSelectionRequest{EntryID: prepared.EntryID, Arguments: prepared.Arguments})
 	if err != nil {

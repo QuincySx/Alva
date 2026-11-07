@@ -29,6 +29,17 @@ type ProductStorage interface {
 	hub.PreferencesStore
 	hub.ConnectionsStore
 	hub.GoalStore
+	hub.CompanionStore
+	hub.WorkspaceViewStore
+	hub.DeveloperRepositoryStore
+	hub.ConversationTabStore
+	hub.ConversationTabAdmissionStore
+	hub.SessionModelOptionsStore
+	hub.ComposerDraftStore
+	hub.ComposerFileStore
+	hub.ComposerFileOwnershipStore
+	hub.ComposerDraftAdmissionStore
+	hub.ComposerExecutionStore
 	Close() error
 }
 

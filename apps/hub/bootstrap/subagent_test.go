@@ -99,7 +99,7 @@ func TestOptInNativeChildHITLAndTypedColdInspector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Service.Submit(ctx, p.ID, "ROOT-DELEGATE"); err != nil {
+	if _, err = a.Service.Submit(ctx, p.ID, "ROOT-DELEGATE", nil); err != nil {
 		t.Fatal(err)
 	}
 	root := nextApproval(t, a, p.ID)

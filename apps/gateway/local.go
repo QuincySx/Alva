@@ -1,5 +1,5 @@
 // INPUT: Operator-frozen model routes, explicit local start consent and owned HTTP resources
-// OUTPUT: Local gateway lifecycle, cold Snapshot and one-start-only secret Credentials
+// OUTPUT: Generation-bound local Gateway lifecycle, cold closed/stopping status and one-start-only Credentials
 // POS: [L6 application] Embeddable loopback model API reuses the standalone Gateway without another Agent runtime.
 package gateway
 
@@ -15,30 +15,40 @@ import (
 	"github.com/QuincySx/Alva/platform/system/loopback"
 )
 
+// LocalSnapshot keeps Running true while a stopped-admission listener still
+// owns unfinished cleanup. Generation identifies that exact owner and is zero
+// when no listener remains; Closed permanently forbids another Start.
 type LocalSnapshot struct {
-	Running bool     `json:"running"`
-	Address string   `json:"address,omitempty"`
-	Models  []string `json:"models"`
+	Generation uint64   `json:"generation"`
+	Closed     bool     `json:"closed"`
+	Stopping   bool     `json:"stopping"`
+	Running    bool     `json:"running"`
+	Address    string   `json:"address,omitempty"`
+	Models     []string `json:"models"`
 }
 
 // Credentials are returned only by explicit Start. Status and stored settings
 // never expose the bearer; a restart creates a fresh unrelated secret.
 type Credentials struct {
-	Address string `json:"address"`
-	Token   string `json:"token"`
+	Generation uint64 `json:"generation"`
+	Address    string `json:"address"`
+	Token      string `json:"token"`
 }
 type localRun struct {
-	gateway *Server
-	http    *http.Server
-	done    chan error
-	address string
+	gateway    *Server
+	http       *http.Server
+	done       chan error
+	address    string
+	generation uint64
+	stopping   bool
 }
 type Local struct {
-	mu      sync.Mutex
-	control chan struct{}
-	routes  map[string]Route
-	current *localRun
-	closed  bool
+	mu         sync.Mutex
+	control    chan struct{}
+	routes     map[string]Route
+	current    *localRun
+	closed     bool
+	generation uint64
 }
 
 func NewLocal(routes map[string]Route) (*Local, error) {
@@ -68,13 +78,15 @@ func NewLocal(routes map[string]Route) (*Local, error) {
 func (l *Local) Snapshot() LocalSnapshot {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	value := LocalSnapshot{Models: make([]string, 0, len(l.routes))}
+	value := LocalSnapshot{Closed: l.closed, Models: make([]string, 0, len(l.routes))}
 	for alias := range l.routes {
 		value.Models = append(value.Models, alias)
 	}
 	sort.Strings(value.Models)
 	if l.current != nil {
 		value.Running = true
+		value.Generation = l.current.generation
+		value.Stopping = l.current.stopping
 		value.Address = l.current.address
 	}
 	return value
@@ -119,14 +131,23 @@ func (l *Local) Start(ctx context.Context, approved bool) (Credentials, error) {
 		handler.Close(context.Background())
 		return Credentials{}, errors.New("local gateway closed during admission")
 	}
+	l.generation++
+	run.generation = l.generation
 	l.current = run
 	l.mu.Unlock()
 	go func() { run.done <- httpServer.Serve(listener); close(run.done) }()
-	return Credentials{Address: run.address, Token: token}, nil
+	return Credentials{Generation: run.generation, Address: run.address, Token: token}, nil
 }
-func (l *Local) stop(ctx context.Context) error {
+func (l *Local) stop(ctx context.Context, generation uint64) error {
 	l.mu.Lock()
 	run := l.current
+	if generation != 0 && (run == nil || run.generation != generation) {
+		l.mu.Unlock()
+		return errors.New("local gateway listener changed; observe the current listener before stopping")
+	}
+	if run != nil {
+		run.stopping = true
+	}
 	l.mu.Unlock()
 	if run == nil {
 		return nil
@@ -159,8 +180,22 @@ func (l *Local) Stop(ctx context.Context) error {
 		return err
 	}
 	defer func() { <-l.control }()
-	return l.stop(ctx)
+	return l.stop(ctx, 0)
 }
+
+// StopGeneration joins only the listener observed by the caller. A delayed UI
+// action cannot close admission or cancel work belonging to a replacement.
+func (l *Local) StopGeneration(ctx context.Context, generation uint64) error {
+	if generation == 0 {
+		return errors.New("explicit local gateway generation required")
+	}
+	if err := l.enter(ctx); err != nil {
+		return err
+	}
+	defer func() { <-l.control }()
+	return l.stop(ctx, generation)
+}
+
 func (l *Local) Close(ctx context.Context) error {
 	l.mu.Lock()
 	l.closed = true
@@ -169,7 +204,7 @@ func (l *Local) Close(ctx context.Context) error {
 		return err
 	}
 	defer func() { <-l.control }()
-	return l.stop(ctx)
+	return l.stop(ctx, 0)
 }
 func (l *Local) enter(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {

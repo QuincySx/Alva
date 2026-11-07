@@ -60,9 +60,14 @@ type WorkspaceReferencePage struct {
 }
 
 type DraftWorkspaceReference struct {
+	DraftID   string                      `json:"draft_id"`
 	Selection WorkspaceReferenceSelection `json:"selection"`
 	Info      storage.ArtifactInfo        `json:"info"`
 	Reference wire.Reference              `json:"reference"`
+}
+
+func (d DraftWorkspaceReference) DraftSelection() DraftReferenceSelection {
+	return DraftReferenceSelection{Kind: "workspace", ID: d.DraftID, SHA256: d.Info.SHA256}
 }
 
 type workspaceReferenceCursor struct {
@@ -271,17 +276,9 @@ func (s *HubService) PrepareWorkspaceReference(ctx context.Context, id string, s
 	if selection.BranchID != branch.ID || selection.WorkspaceID != workspaceReferenceScope(id, detail.Session.Workspace) {
 		return result, ErrWorkspaceReferenceChanged
 	}
-	for _, draft := range s.DraftWorkspaceReferences(id) {
-		if draft.Selection.ID == selection.ID {
-			if draft.Selection == selection {
-				return draft, nil
-			}
-			return result, errors.New("remove the previous draft reference before replacing its version")
-		}
-	}
 	count, total := s.draftReferenceBudgetLocked(id)
 	if count >= maxDraftReferenceCount {
-		return result, errors.New("at most 8 files or project references per Turn")
+		return result, errors.New("shared session staging allows at most 8 files or project references")
 	}
 	w, guard, root, err := openReferenceWorkspace(detail.Session.Workspace)
 	if err != nil {
@@ -329,7 +326,7 @@ func (s *HubService) PrepareWorkspaceReference(ctx context.Context, id string, s
 		return result, ErrWorkspaceReferenceChanged
 	}
 	if total+int64(len(input.Data)) > maxDraftReferenceBytes {
-		return result, errors.New("files and project references exceed 40 MiB/Turn budget")
+		return result, errors.New("files and project references exceed the shared 40 MiB session staging budget")
 	}
 	// Re-read persisted routing before any artifact/binding write. Concurrent
 	// changes can park a prepared draft, but can never submit it on a new branch.
@@ -360,7 +357,11 @@ func (s *HubService) PrepareWorkspaceReference(ctx context.Context, id string, s
 	if err != nil {
 		return result, err
 	}
-	result = DraftWorkspaceReference{Selection: selection, Info: info, Reference: info.Reference()}
+	draftID, err := hub.NewID("draft-")
+	if err != nil {
+		return result, err
+	}
+	result = DraftWorkspaceReference{DraftID: draftID, Selection: selection, Info: info, Reference: info.Reference()}
 	s.draftMu.Lock()
 	if s.workspaceReferences == nil {
 		s.workspaceReferences = make(map[string][]DraftWorkspaceReference)
@@ -376,11 +377,11 @@ func (s *HubService) DraftWorkspaceReferences(id string) []DraftWorkspaceReferen
 	return append([]DraftWorkspaceReference(nil), s.workspaceReferences[id]...)
 }
 
-func (s *HubService) RemoveDraftWorkspaceReference(id, selectionID string) {
+func (s *HubService) RemoveDraftWorkspaceReference(id, draftID string) {
 	s.draftMu.Lock()
 	defer s.draftMu.Unlock()
 	for i, reference := range s.workspaceReferences[id] {
-		if reference.Selection.ID == selectionID {
+		if reference.DraftID == draftID {
 			s.workspaceReferences[id] = append(s.workspaceReferences[id][:i], s.workspaceReferences[id][i+1:]...)
 			return
 		}
@@ -401,8 +402,7 @@ func (s *HubService) draftReferenceBudgetLocked(id string) (count int, bytes int
 	return
 }
 
-func (s *HubService) workspaceReferencePromptLocked(id string, branch hub.Branch, directory, prompt string) (string, error) {
-	references := s.workspaceReferences[id]
+func (s *HubService) workspaceReferencePromptLocked(id string, branch hub.Branch, directory, prompt string, references []DraftWorkspaceReference) (string, error) {
 	if len(references) == 0 {
 		return prompt, nil
 	}

@@ -90,7 +90,7 @@ func TestNativeBrowserRecipeIsExplicitRunOwnedAndReferenceOnly(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(dir, "browser-profiles")); !os.IsNotExist(err) || pageCalls.Load() != 0 || modelCalls.Load() != 0 {
 		t.Fatal("browser settings launched/scanned", err)
 	}
-	if _, err = a.Service.Submit(ctx, s.ID, "explicit actual local browser task"); err != nil {
+	if _, err = a.Service.Submit(ctx, s.ID, "explicit actual local browser task", nil); err != nil {
 		t.Fatal(err)
 	}
 	approval := nextApproval(t, a, s.ID)

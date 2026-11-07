@@ -48,6 +48,9 @@ func hubWaitRecipe(c Config, workspace string, target hub.Target, settings hub.S
 	}
 	target.AutomaticAuthorized, target.RequiredCapabilities = false, nil
 	settings.SkillArchives = nil // Observation receipts do not change the execution recipe.
+	// Editable next-Turn choices are not the admitted recipe. ModelOptions is
+	// the actual Attempt snapshot and remains frozen across continuation.
+	settings.SessionModelOptions = hub.SessionModelOptionsSnapshot{}
 	data, err := json.Marshal(struct {
 		Workspace       string
 		Target          hub.Target

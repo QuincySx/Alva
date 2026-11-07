@@ -103,6 +103,19 @@ func (t *TeamCoordinator) Resume(ctx context.Context, lead, team, worker string)
 			if owner.Err() != nil {
 				return
 			}
+			t.mu.Lock()
+			stopping := t.stopping[worker]
+			t.mu.Unlock()
+			if stopping {
+				// An execution-bound Stop must validate its owner before it can
+				// cancel this pump. Freeze the next claim until that review ends.
+				select {
+				case <-owner.Done():
+					return
+				case <-pump.kick:
+				}
+				continue
+			}
 			_, done, err := t.runtime.StartWorkerTask(owner, lead, team, worker)
 			if errors.Is(err, hub.ErrWorkerResourcesBlocked) {
 				timer := time.NewTimer(250 * time.Millisecond)
@@ -156,6 +169,19 @@ func (t *TeamCoordinator) Resume(ctx context.Context, lead, team, worker string)
 	return nil
 }
 func (t *TeamCoordinator) Stop(ctx context.Context, lead, team, worker string) error {
+	return t.stop(ctx, lead, team, worker, "")
+}
+
+// StopExecution preserves a UI observation of the physical owner across the
+// Team read and pump coordination; stale actions cannot cancel its successor.
+func (t *TeamCoordinator) StopExecution(ctx context.Context, lead, team, worker, executionID string) error {
+	if executionID == "" {
+		return errors.New("Worker execution identity required")
+	}
+	return t.stop(ctx, lead, team, worker, executionID)
+}
+
+func (t *TeamCoordinator) stop(ctx context.Context, lead, team, worker, executionID string) error {
 	detail, err := t.Store.Team(ctx, lead, team)
 	if err != nil {
 		return err
@@ -175,15 +201,36 @@ func (t *TeamCoordinator) Stop(ctx context.Context, lead, team, worker string) e
 		return errors.New("Worker stop already in progress")
 	}
 	t.stopping[worker] = true
-	defer func() { t.mu.Lock(); delete(t.stopping, worker); t.mu.Unlock() }()
 	pump := t.pumps[worker]
-	if pump != nil {
+	defer func() {
+		t.mu.Lock()
+		delete(t.stopping, worker)
+		if pump != nil {
+			select {
+			case pump.kick <- struct{}{}:
+			default:
+			}
+		}
+		t.mu.Unlock()
+	}()
+	if pump != nil && executionID == "" {
 		pump.cancel()
 	}
 	t.mu.Unlock()
 	// Cancel only this actual Worker owner. A missing active generation is not
 	// a fabricated cancelled outcome; the durable Turn remains authoritative.
-	cancelErr := t.runtime.Cancel(ctx, sid)
+	var cancelErr error
+	if executionID == "" {
+		cancelErr = t.runtime.CancelAndWait(ctx, sid)
+	} else {
+		cancelErr = t.runtime.CancelExecutionAndWait(ctx, sid, executionID)
+		if errors.Is(cancelErr, hub.ErrSessionNotRunning) {
+			return cancelErr
+		}
+		if pump != nil {
+			pump.cancel()
+		}
+	}
 	if pump != nil {
 		select {
 		case <-pump.exited:
@@ -221,14 +268,7 @@ func (s *HubService) AddWorker(ctx context.Context, lead, team, name string, tar
 	if !accountAndBillingApproved {
 		return hub.Worker{}, errors.New("Worker account/billing route requires explicit approval")
 	}
-	configured := false
-	for _, candidate := range s.AvailableTargets() {
-		if hub.RouteKey(candidate) == hub.RouteKey(target) {
-			configured = true
-			break
-		}
-	}
-	if !configured {
+	if s.ValidateTarget(target) != nil {
 		return hub.Worker{}, errors.New("Worker target is not one of the actually configured engine routes")
 	}
 	return s.Teams.Store.AddWorker(ctx, lead, team, name, target)

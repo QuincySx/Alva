@@ -38,7 +38,11 @@ func TestHTTPWorkerAttachmentQueuePinsOnlyUploadedWorkerBranchWithoutExecution(t
 	}
 	base := "/v1/sessions/" + lead.ID + "/teams/" + team.Team.ID + "/workers/" + w.ID
 	var task hub.WorkerTask
-	if json.Unmarshal(body(t, f.request(t, "POST", base+"/tasks", []byte(`{"scope":"explicit file task","include_draft_attachments":true}`), nil), 201), &task) != nil || !strings.Contains(task.Scope, upload.Reference.URI) || strings.Contains(task.Scope, original) || task.RequiredBranchID != upload.BranchID {
+	send, err := json.Marshal(map[string]any{"scope": "explicit file task", "references": []product.DraftReferenceSelection{upload.DraftSelection()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if json.Unmarshal(body(t, f.request(t, "POST", base+"/tasks", send, nil), 201), &task) != nil || !strings.Contains(task.Scope, upload.Reference.URI) || strings.Contains(task.Scope, original) || task.RequiredBranchID != upload.BranchID {
 		t.Fatal("queue lost reference/native binding", task)
 	}
 	if f.app.Runtime.HasActive() || len(f.app.Service.DraftAttachments(w.SessionID)) != 0 {

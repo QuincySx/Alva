@@ -6,7 +6,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuincySx/Alva/apps/hub"
 	bootstrap "github.com/QuincySx/Alva/apps/hub/bootstrap"
 	"github.com/QuincySx/Alva/platform/system/loopback"
 )
@@ -55,6 +58,9 @@ func TestBadInputDoesNotCreateStores(t *testing.T) {
 		{[]string{"--secrets-stdin"}, `{"Token":"` + token + `"}`},
 		{[]string{"--secrets-stdin"}, `{"token":"` + token + `","api_key":null}`},
 		{[]string{"--secrets-stdin", "--image-capable"}, `{"token":"` + token + `"}`},
+		{[]string{"--secrets-stdin", "--pi-config-dir", t.TempDir()}, `{}`},
+		{[]string{"--secrets-stdin", "--pi-transport", "rpc"}, `{}`},
+		{[]string{"--secrets-stdin", "--pi-command", "not-started", "--pi-transport", "unknown"}, `{}`},
 	} {
 		dir := filepath.Join(t.TempDir(), "not-created")
 		args := append([]string{"--data-dir", dir}, test.args...)
@@ -97,12 +103,16 @@ func TestRealServerStopsAndReleasesApplicationLocks(t *testing.T) {
 	}
 	secrets, _ := json.Marshal(map[string]string{"token": token})
 	dir := filepath.Join(t.TempDir(), "product")
+	piConfig, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	output := &startupWriter{ready: make(chan string, 1)}
 	done := make(chan error, 1)
 	go func() {
-		done <- run(ctx, []string{"--data-dir", dir, "--secrets-stdin"}, bytes.NewReader(secrets), output, io.Discard)
+		done <- run(ctx, []string{"--data-dir", dir, "--secrets-stdin", "--pi-command", "not-started", "--pi-config-dir", piConfig, "--external-host-approved"}, bytes.NewReader(secrets), output, io.Discard)
 	}()
 	var line string
 	select {
@@ -131,6 +141,29 @@ func TestRealServerStopsAndReleasesApplicationLocks(t *testing.T) {
 	response.Body.Close()
 	if response.StatusCode != 200 {
 		t.Fatal("server not authenticated/ready")
+	}
+	request, err = http.NewRequest(http.MethodGet, url+"/v1/targets", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err = client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var targets []hub.Target
+	err = json.NewDecoder(response.Body).Decode(&targets)
+	response.Body.Close()
+	if err != nil || response.StatusCode != 200 {
+		t.Fatal("configured targets unavailable", err)
+	}
+	digest := sha256.Sum256([]byte(piConfig))
+	want, found := "explicit CLI configuration sha256:"+hex.EncodeToString(digest[:]), false
+	for _, target := range targets {
+		found = found || target.EngineID == "pi" && target.AccountSource == want
+	}
+	if !found {
+		t.Fatal("server Pi configuration flag did not reach its actual selectable target")
 	}
 	cancel()
 	select {

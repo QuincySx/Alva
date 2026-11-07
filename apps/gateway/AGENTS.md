@@ -21,4 +21,4 @@ model/stream控制字段严格大小写，不接受DTO大小写别名导致准�
 | server.go | 显式route装配、request准入/JSON/Magpie Exchange与nonstream response |
 | stream.go | 有界背压SSE、真实终态与协议error envelope，不用EOF造DONE |
 | server_test.go | 真实local upstream/Magpie/HTTP，auth/转换/调用身份/取消/损耗/断流回归 |
-| local.go / local_test.go | 可嵌入的cold route快照、显式同意后真实loopback监听与一次token、独立Stop/重启rotate、真实请求取消/join和超时保留owner |
+| local.go / local_test.go | cold快照含Generation/Closed/Stopping，不含Bearer；显式loopback监听与一次token、按观察generation停止及应用全局Stop共用真实取消/join，超时保留原owner与关闭准入 |

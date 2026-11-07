@@ -6,6 +6,7 @@
 
 ## 逻辑
 显式 data-dir/listen/模型/外部执行授权；stdin 只接 token/api_key JSON。
+可选--pi-config-dir必须配明确--pi-command与--external-host-approved，只验证absolute既存agent配置目录，由CLI独占读取。--pi-transport默认rpc带产品审批，显式exec保留只读print；非法值或无对应command在存储I/O前拒绝，不按失败fallback。
 共享secretinput在open pipe收到取消时真实结束读取；不支持不可取消交互终端。
 实际 listener authority 通过安全校验后装配，冷启动不请求模型/启动 MCP。
 退出先关闭 transport 观察者、drain HTTP，再取消等待应用拥有的执行并关闭 stores。
@@ -22,4 +23,4 @@
 | 文件 | 职责 |
 |---|---|
 | main.go | 显式配置、loopback listener、stdin secrets、安全资源关闭 |
-| main_test.go | token 单独生成、坏输入不创建 DB、真实 server 退出/无泄密 |
+| main_test.go | token 单独生成、坏输入/Pi参数不创建DB、真实server可选Pi来源目标/退出锁释放与无泄密 |

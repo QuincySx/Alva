@@ -1,0 +1,298 @@
+func (a *Application) Close(ctx context.Context) error
+
+func (b claimedWaitBackend) Claim(ctx context.Context) (func(), error)
+
+func (r *companionSkillRepository) List(ctx context.Context) ([]skill.Skill, error)
+
+func (r *companionSkillRepository) Load(ctx context.Context, name string) (skill.Document, error)
+
+func (r *companionSkillRepository) Resource(ctx context.Context, name, relative string) (skill.Resource, error)
+
+func (r *companionSkillRepository) Resources(ctx context.Context, name string) ([]string, error)
+
+func (r *durableRunner) Run(ctx context.Context, input []wire.Message, emit func(abi.Event) error) error
+
+func (r *durableRunner) WaitCheckpoint() *engine.WaitCheckpoint
+
+func (r *ownedRunner) CleanupComplete() bool
+
+func (r *ownedRunner) Close(ctx context.Context) error
+
+func (r *ownedRunner) Run(ctx context.Context, messages []wire.Message, emit func(abi.Event) error) (err error)
+
+func (r *ownedRunner) WaitCheckpoint() *engine.WaitCheckpoint
+
+func (s connectionDeveloperSource) Resolve(ctx context.Context, selected []eval.Target) ([]developer.Route, error)
+
+func (s connectionDeveloperSource) Targets() []eval.Target
+
+func LocalBindings(ctx context.Context, directory string) (storage.BindingStore, error)
+
+func LocalMemory(ctx context.Context, directory string) (storage.MemoryStore, error)
+
+func LocalStores(ctx context.Context, directory string) (Stores, error)
+
+func Open(ctx context.Context, config Config) (application *Application, result error)
+
+import "github.com/QuincySx/Alva/apps/hub"
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/extension/compatibility"
+	"github.com/QuincySx/Alva/harness/durable"
+	"github.com/QuincySx/Alva/harness/durable/journal"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"path/filepath"
+	"time"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/apps/hub/product"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/integration/protocol/skill"
+	"github.com/QuincySx/Alva/platform/storage"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/apps/hub/product"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	nativemedia "github.com/QuincySx/Alva/platform/system/media"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"path/filepath"
+
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/agent/memory"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/developer"
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/apps/hub/product"
+	"github.com/QuincySx/Alva/integration/llm/eval"
+)
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/apps/developer"
+	"github.com/QuincySx/Alva/apps/gateway"
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/apps/hub/product"
+	"github.com/QuincySx/Alva/apps/hub/worktree"
+	browserextension "github.com/QuincySx/Alva/extension/browser"
+	compatibilityextension "github.com/QuincySx/Alva/extension/compatibility"
+	diagnostictools "github.com/QuincySx/Alva/extension/diagnostics"
+	filetools "github.com/QuincySx/Alva/extension/files"
+	"github.com/QuincySx/Alva/extension/hooks"
+	"github.com/QuincySx/Alva/extension/loader"
+	managedmcp "github.com/QuincySx/Alva/extension/mcp"
+	mediaextension "github.com/QuincySx/Alva/extension/media"
+	memoryplugin "github.com/QuincySx/Alva/extension/memory"
+	"github.com/QuincySx/Alva/extension/shell"
+	skillextension "github.com/QuincySx/Alva/extension/skill"
+	"github.com/QuincySx/Alva/extension/subagent"
+	"github.com/QuincySx/Alva/harness"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/integration/engine/alva"
+	vendorengine "github.com/QuincySx/Alva/integration/engine/process"
+	"github.com/QuincySx/Alva/integration/llm/provider"
+	mcpprotocol "github.com/QuincySx/Alva/integration/protocol/mcp"
+	"github.com/QuincySx/Alva/integration/protocol/skill"
+	"github.com/QuincySx/Alva/platform/host"
+	browserhost "github.com/QuincySx/Alva/platform/host/browser"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/system/document"
+	nativemedia "github.com/QuincySx/Alva/platform/system/media"
+	private "github.com/QuincySx/Alva/platform/system/privatefs"
+	ownedprocess "github.com/QuincySx/Alva/platform/system/process"
+	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/agent/memory"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/extension/interaction"
+	interactionnative "github.com/QuincySx/Alva/extension/interaction/native"
+	"github.com/QuincySx/Alva/extension/notebook"
+	planningnative "github.com/QuincySx/Alva/extension/planning/native"
+	"github.com/QuincySx/Alva/extension/shell"
+	utilitynative "github.com/QuincySx/Alva/extension/utility/native"
+	"github.com/QuincySx/Alva/extension/web"
+	"github.com/QuincySx/Alva/harness/durable"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+import (
+	"context"
+	"errors"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"sync"
+	"time"
+
+	"github.com/QuincySx/Alva/harness"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/integration/protocol/skill"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/apps/hub/product"
+)
+
+import (
+	"context"
+	"path/filepath"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	productstore "github.com/QuincySx/Alva/apps/hub/sqlite"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/bindings"
+	memorysqlite "github.com/QuincySx/Alva/platform/storage/memory"
+	"github.com/QuincySx/Alva/platform/storage/session"
+)
+
+import (
+	"context"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+type Application struct {
+	Store      ProductStorage
+	Repository storage.Repository
+	Runtime    *hub.Runtime
+	Approvals  *host.ApprovalBroker
+	Questions  *host.QuestionBroker
+	Shells     *shell.Sessions
+	Targets    []hub.Target
+	Service    *product.HubService
+}
+
+type BindingsFactory func(context.Context, string) (storage.BindingStore, error)
+
+type Config struct {
+	OpenStores    StoresFactory
+	OpenMemory    MemoryFactory
+	OpenBindings  BindingsFactory
+	DataDirectory string
+	Demo          bool
+	ProviderKind  provider.Kind
+	Provider      provider.Config
+
+	ImageCapable bool
+
+	DeveloperRoutes       []developer.Route
+	External              []ExternalEngine
+	GitExecutable         string
+	GitHostAccessApproved bool
+}
+
+type ExternalEngine struct {
+	Vendor              string
+	Command             string
+	PrefixArgs          []string
+	Env                 map[string]string
+	Transport           string
+	CodexSandbox        string
+	CodexApprovalPolicy string
+
+	CLIConfigDirectory string
+	ApprovedHostAccess bool
+}
+
+type MemoryFactory func(context.Context, string) (storage.MemoryStore, error)
+
+type ProductStorage interface {
+	hub.Store
+	hub.WaitStore
+	hub.ToolSettingsStore
+	hub.TeamStore
+	hub.WorkerDraftStore
+	hub.AutomationStore
+	hub.WorktreeStore
+	hub.NativeOwnerResolver
+	hub.PreferencesStore
+	hub.ConnectionsStore
+	hub.GoalStore
+	hub.CompanionStore
+	hub.WorkspaceViewStore
+	hub.DeveloperRepositoryStore
+	hub.ConversationTabStore
+	hub.ConversationTabAdmissionStore
+	hub.SessionModelOptionsStore
+	hub.ComposerDraftStore
+	hub.ComposerFileStore
+	hub.ComposerFileOwnershipStore
+	hub.ComposerDraftAdmissionStore
+	hub.ComposerExecutionStore
+	Close() error
+}
+
+type Stores struct {
+	Product  ProductStorage
+	Sessions storage.Repository
+}
+
+type StoresFactory func(context.Context, string) (Stores, error)

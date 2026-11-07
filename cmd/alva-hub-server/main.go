@@ -53,6 +53,8 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	claude := flags.String("claude-command", "", "explicit native Claude executable, started only on Send")
 	codex := flags.String("codex-command", "", "explicit native Codex executable, started only on Send")
 	pi := flags.String("pi-command", "", "explicit native Pi executable, started only on Send")
+	piConfig := flags.String("pi-config-dir", "", "optional absolute existing Pi agent configuration directory; reuses the complete CLI configuration")
+	piTransport := flags.String("pi-transport", "rpc", "Pi rpc with product tool approvals (default), or explicit read-only exec transport")
 	approved := flags.Bool("external-host-approved", false, "acknowledge selected executables' host/account access, not automatic fallback")
 	gitExecutable := flags.String("git-executable", "", "optional explicit absolute Git executable for managed Worker worktrees")
 	gitApproved := flags.Bool("git-host-approved", false, "approve the explicit Git host snapshot; provision/adopt still need independent consent")
@@ -84,6 +86,14 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	}
 	if *live && (*endpoint == "" || *model == "") {
 		return errors.New("--live requires --endpoint and --model")
+	}
+	if *piConfig != "" && *pi == "" {
+		return errors.New("--pi-config-dir requires its corresponding --pi-command")
+	}
+	var piFlags bool
+	flags.Visit(func(f *flag.Flag) { piFlags = piFlags || f.Name == "pi-transport" })
+	if piFlags && *pi == "" || *piTransport != "rpc" && *piTransport != "exec" {
+		return errors.New("Pi transport must be rpc or exec and requires its corresponding --pi-command")
 	}
 	host, port, err := net.SplitHostPort(*listen)
 	if err != nil {
@@ -123,7 +133,11 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	config := bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, DataDirectory: *directory, Demo: !*live, ProviderKind: provider.Kind(*kind), Provider: provider.Config{Endpoint: *endpoint, Model: *model, APIKey: secrets.APIKey}, ImageCapable: *imageCapable, GitExecutable: *gitExecutable, GitHostAccessApproved: *gitApproved}
 	for _, entry := range []struct{ vendor, command string }{{"claude", *claude}, {"codex", *codex}, {"pi", *pi}} {
 		if entry.command != "" {
-			config.External = append(config.External, bootstrap.ExternalEngine{Vendor: entry.vendor, Command: entry.command, ApprovedHostAccess: *approved})
+			external := bootstrap.ExternalEngine{Vendor: entry.vendor, Command: entry.command, ApprovedHostAccess: *approved}
+			if entry.vendor == "pi" {
+				external.CLIConfigDirectory, external.Transport = *piConfig, *piTransport
+			}
+			config.External = append(config.External, external)
 		}
 	}
 	application, err := bootstrap.Open(ctx, config)

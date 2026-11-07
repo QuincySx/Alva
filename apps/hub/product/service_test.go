@@ -5,6 +5,7 @@ package product
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,6 +142,155 @@ func waitIdle(t *testing.T, s *HubService, id string) {
 	}
 	t.Fatal("run did not terminate")
 }
+
+func TestSubmitConsumesOnlyTheObserversCapturedReferences(t *testing.T) {
+	s, requests := fixture(t)
+	p, err := s.Create(t.Context(), "two observers", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.UploadReader(t.Context(), p.ID, "first.txt", strings.NewReader("first original"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The first observer captures its draft here. Another observer publishes a
+	// reference before that captured send reaches product admission.
+	second, err := s.UploadReader(t.Context(), p.ID, "second.txt", strings.NewReader("second original"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Submit(t.Context(), p.ID, "first observer sends", []DraftReferenceSelection{first.DraftSelection()}); err != nil {
+		t.Fatal(err)
+	}
+	request := <-requests
+	waitIdle(t, s, p.ID)
+	if !strings.Contains(request.Prompt, first.Reference.URI) || strings.Contains(request.Prompt, second.Reference.URI) {
+		t.Fatal("a captured send included another observer's later reference", request.Prompt)
+	}
+	remaining := s.DraftAttachments(p.ID)
+	if len(remaining) != 1 || remaining[0] != second {
+		t.Fatal("a captured send consumed another observer's draft", remaining)
+	}
+}
+
+func TestSubmitEmptyReferenceSelectionDoesNotReadOrConsumeSharedDrafts(t *testing.T) {
+	s, requests := fixture(t)
+	p, err := s.Create(t.Context(), "text-only observer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment, err := s.UploadReader(t.Context(), p.ID, "other-observer.txt", strings.NewReader("retained original"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Submit(t.Context(), p.ID, "text only", nil); err != nil {
+		t.Fatal(err)
+	}
+	request := <-requests
+	waitIdle(t, s, p.ID)
+	if request.Prompt != "text only" || len(s.DraftAttachments(p.ID)) != 1 || s.DraftAttachments(p.ID)[0] != attachment {
+		t.Fatal("empty selection borrowed or consumed shared attachments", request.Prompt)
+	}
+}
+
+func TestSubmitRejectsInvalidReferenceSetsAndPreservesRetryableDrafts(t *testing.T) {
+	s, requests := fixture(t)
+	p, err := s.Create(t.Context(), "invalid selections", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment, err := s.UploadReader(t.Context(), p.ID, "input.txt", strings.NewReader("original"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := attachment.DraftSelection()
+	changed := selected
+	changed.SHA256 = strings.Repeat("0", 64)
+	unknown := selected
+	unknown.ID = "draft-unknown"
+	for _, selection := range [][]DraftReferenceSelection{{selected, selected}, {changed}, {unknown}} {
+		if _, err = s.Submit(t.Context(), p.ID, "must not execute", selection); err == nil {
+			t.Fatal("invalid references admitted", selection)
+		}
+	}
+	foreign, err := s.Create(t.Context(), "other session", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Submit(t.Context(), foreign.ID, "must not borrow", []DraftReferenceSelection{selected}); err == nil {
+		t.Fatal("cross-session reference admitted")
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err = s.Submit(canceled, p.ID, "canceled capture", []DraftReferenceSelection{selected}); !errors.Is(err, context.Canceled) {
+		t.Fatal("canceled capture admitted", err)
+	}
+	if len(requests) != 0 || s.Runtime.HasActive() || len(s.DraftAttachments(p.ID)) != 1 {
+		t.Fatal("rejected send executed or consumed its retryable draft")
+	}
+	if _, err = s.Submit(t.Context(), p.ID, "explicit retry", []DraftReferenceSelection{selected}); err != nil {
+		t.Fatal(err)
+	}
+	<-requests
+	waitIdle(t, s, p.ID)
+	if len(s.DraftAttachments(p.ID)) != 0 {
+		t.Fatal("successful retry did not consume its exact selection")
+	}
+}
+
+type publishReferenceDuringAdmission struct {
+	ServiceStore
+	publish func()
+}
+
+func (s publishReferenceDuringAdmission) BeginTurnOnBranch(ctx context.Context, id, branch, prompt string) (hub.Claim, error) {
+	s.publish()
+	return s.ServiceStore.BeginTurnOnBranch(ctx, id, branch, prompt)
+}
+
+func TestSubmitPreservesReferencesPublishedDuringAdmissionAndIndependentDuplicateOriginals(t *testing.T) {
+	s, _ := fixture(t)
+	p, err := s.Create(t.Context(), "publication fixture", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.UploadReader(t.Context(), p.ID, "same.txt", strings.NewReader("same original"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	later, err := s.UploadReader(t.Context(), p.ID, "same.txt", strings.NewReader("same original"))
+	if err != nil || first.Info != later.Info || first.DraftID == later.DraftID {
+		t.Fatal("artifact reuse lost independent draft ownership", first, later, err)
+	}
+	s.RemoveDraftAttachment(p.ID, later.DraftID)
+	descriptor, _ := s.Runtime.Descriptor("alva")
+	wrapped := publishReferenceDuringAdmission{ServiceStore: s.Store, publish: func() {
+		// Deterministically publish an already-saved second observer's reference
+		// between prompt validation and the admission receipt.
+		s.draftMu.Lock()
+		s.attachments[p.ID] = append(s.attachments[p.ID], later)
+		s.draftMu.Unlock()
+	}}
+	s.Store = wrapped
+	s.Runtime = hub.New(wrapped)
+	t.Cleanup(func() { _ = s.Runtime.Close(context.Background()) })
+	if err = s.Runtime.RegisterDescriptor("alva", descriptor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Submit(t.Context(), p.ID, "consume only captured reference", []DraftReferenceSelection{first.DraftSelection()}); err != nil {
+		t.Fatal(err)
+	}
+	remaining := s.DraftAttachments(p.ID)
+	if len(remaining) != 1 || remaining[0] != later {
+		t.Fatal("admission erased a later published reference", remaining)
+	}
+	waitIdle(t, s, p.ID)
+	_, data, err := s.Repository.ReadArtifactFull(t.Context(), p.ID, first.Info.SessionID, first.Reference.URI, 1024)
+	if err != nil || string(data) != "same original" {
+		t.Fatal("consuming a reference changed its retained original", err)
+	}
+}
+
 func TestUploadStoresOriginalWithoutStartingAndSubmitsOnlyReference(t *testing.T) {
 	s, requests := fixture(t)
 	ctx := context.Background()
@@ -174,7 +324,7 @@ func TestUploadStoresOriginalWithoutStartingAndSubmitsOnlyReference(t *testing.T
 	if _, err = s.Repository.ReadArtifact(ctx, other.ID, upload.Info.SessionID, upload.Reference.URI, 0, 4096); err == nil {
 		t.Fatal("foreign product read another native artifact")
 	}
-	if _, err = s.Submit(ctx, product.ID, "Find the relevant errors in the selected file"); err != nil {
+	if _, err = s.Submit(ctx, product.ID, "Find the relevant errors in the selected file", []DraftReferenceSelection{upload.DraftSelection()}); err != nil {
 		t.Fatal(err)
 	}
 	request := <-requests
@@ -223,7 +373,7 @@ func TestUploadBudgetAndParkedBranchKeepDraft(t *testing.T) {
 	if _, err = s.Store.Switch(ctx, product.ID, target, "test explicit route"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Submit(ctx, product.ID, "look"); err == nil {
+	if _, err = s.Submit(ctx, product.ID, "look", []DraftReferenceSelection{s.DraftAttachments(product.ID)[0].DraftSelection()}); err == nil {
 		t.Fatal("parked branch references submitted elsewhere")
 	}
 	if len(s.DraftAttachments(product.ID)) != 1 || s.Runtime.HasActive() {
@@ -259,7 +409,7 @@ func TestSelectedFileManifestCannotRaceIntoAnotherBranch(t *testing.T) {
 	s.Store = wrapped
 	s.Runtime = hub.New(wrapped)
 	t.Cleanup(func() { _ = s.Runtime.Close(ctx) })
-	if _, err = s.Submit(ctx, p.ID, "inspect selected reference"); err == nil {
+	if _, err = s.Submit(ctx, p.ID, "inspect selected reference", []DraftReferenceSelection{attachment.DraftSelection()}); err == nil {
 		t.Fatal("stale branch file manifest admitted")
 	}
 	if len(s.DraftAttachments(p.ID)) != 1 || s.DraftAttachments(p.ID)[0].BranchID != attachment.BranchID || len(requests) != 0 {
@@ -283,7 +433,7 @@ func TestHistoryToolBoundNativeOwnershipAndExplicitRanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Submit(ctx, product.ID, "a relevant marker"); err != nil {
+	if _, err = s.Submit(ctx, product.ID, "a relevant marker", nil); err != nil {
 		t.Fatal(err)
 	}
 	request := <-requests
@@ -339,7 +489,7 @@ func TestInspectorReadsOnlyCommittedBoundBranchWithoutStarting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Submit(ctx, product.ID, "small input"); err != nil {
+	if _, err = s.Submit(ctx, product.ID, "small input", nil); err != nil {
 		t.Fatal(err)
 	}
 	<-requests

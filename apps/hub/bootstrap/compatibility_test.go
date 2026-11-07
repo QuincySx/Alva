@@ -111,7 +111,7 @@ func TestHubCompatibilityIsOptionalMergesNativeSkillsAndDispatchesTemplate(t *te
 	if err != nil || settings.CompatibilityFile != "" {
 		t.Fatal(settings, err)
 	}
-	if _, err := a.Service.Submit(t.Context(), s.ID, "default off"); err != nil {
+	if _, err := a.Service.Submit(t.Context(), s.ID, "default off", nil); err != nil {
 		t.Fatal(err)
 	}
 	awaitTerminal(t, a, s.ID)
@@ -128,7 +128,7 @@ func TestHubCompatibilityIsOptionalMergesNativeSkillsAndDispatchesTemplate(t *te
 	if err := a.Service.SetCompatibilityFile(t.Context(), s.ID, "compat.json"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Service.Submit(t.Context(), s.ID, "opt in"); err != nil {
+	if _, err := a.Service.Submit(t.Context(), s.ID, "opt in", nil); err != nil {
 		t.Fatal(err)
 	}
 	approval := nextApproval(t, a, s.ID)
@@ -181,7 +181,7 @@ func TestHubCompatibilityWaitRejectsChangedRulesBeforeExecution(t *testing.T) {
 	if err := a.Service.EnableDurableWaits(t.Context(), s.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	turn, err := a.Service.Submit(t.Context(), s.ID, "wait")
+	turn, err := a.Service.Submit(t.Context(), s.ID, "wait", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

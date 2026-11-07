@@ -1,5 +1,5 @@
 // INPUT: context, flag, os/signal, app, host, llm/provider, kernel/abi.
-// OUTPUT: Explicit demo/live CLI, cold plugin controls, native wait/resume and reference-only original attachments.
+// OUTPUT: Explicit CLI/REPL, developer test/eval, plugin controls, human choices/approval and native wait/resume.
 // POS: [L6 application] Native reference harness entry independent of the desktop and Hub product store.
 package main
 
@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/QuincySx/Alva/apps/developer"
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/host"
@@ -47,8 +48,15 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, input io.Reader, output, diagnostics io.Writer) (runErr error) {
+	if len(args) > 0 && args[0] == "developer" {
+		return developer.RunCLI(ctx, args[1:], input, output, diagnostics)
+	}
 	flags := flag.NewFlagSet("alva", flag.ContinueOnError)
 	flags.SetOutput(diagnostics)
+	flags.Usage = func() {
+		fmt.Fprintln(diagnostics, "Usage: alva [options]\n       alva developer test|eval [options]\nDeveloper help: alva developer --help")
+		flags.PrintDefaults()
+	}
 	demo := flags.Bool("demo", false, "use the deterministic local model/tool fixture (default)")
 	live := flags.Bool("live", false, "explicitly opt in to the configured remote model")
 	endpoint := flags.String("endpoint", "", "full protocol endpoint; no automatic discovery")
@@ -291,6 +299,9 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 		Provider, Endpoint, Model string
 	}{*live, *providerKind, *endpoint, *model})
 	config := cliNativeConfig{Model: liveModel, Repository: repository, Native: native, DataDirectory: *dataDir, Workspace: *workspace, Mode: mode, Memory: *persistentMemory, Approval: handler, Durable: waits.enabled || waits.resume, Resume: waits.resume, RouteHash: cliSHA(route), Diagnostics: diagnostics}
+	if interactive != nil {
+		config.Questions = interactive
+	}
 	config.CompatibilityFile = *compatConfig
 	if *persistentMemory {
 		config.OpenMemory = func(ctx context.Context) (storage.MemoryStore, error) { return memorysqlite.Open(ctx, *dataDir) }

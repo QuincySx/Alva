@@ -4,9 +4,11 @@
 L7产品配方：组合apps/hub/product、共享存储profile、integration/engine/alva、外部engine和可选插件。
 ## 逻辑
 Open仅接显式存储工厂/目录/provider/approved executable snapshots，验证但不联网、不起CLI/MCP/任务。每次Alva装配绑定实际Hub owner/nativeID、同一审批Guard/ToolLockRegistry、native refs、History/Team/Skills/MCP；Close先Team pumps与owner执行再adapter再store。真实demo echo实例来自Builder.DeclaredTools，不用同名假对象或放宽unknown。
+外部Codex/Claude/Pi可显式指定已存在的absolute CLI配置目录；Open只验证canonical目录元数据，由实际adapter返回SHA256 AccountSource绑定产品target。目录变化后旧branch来源在adapter执行前拒绝；已批准Codex app-server按Cindy继承本机HOME/工具链环境并单独设置CODEX_HOME，未选择配置时CODEX_HOME仍为产品私有目录；其他transport/vendor仍私有HOME，Pi仅传对应PI_CODING_AGENT_DIR并保留禁自动发现选项。所选目录代表完整CLI配置复用，由CLI自行读取，不读取/复制/链接凭据，不写CLI信任文件。
 Native SubAgent必须显式opt-in，其Plugin也进入exact attempt资源registry；递归child的setup失败owner和physical cleanup持续保留，绑定actual parent identity ceiling及子会话独立facts/审批，不冒充Hub Worker。AEP仅已检查pin+独立host批准后下一TurnStage/Open；未知native风险先耐久commit，失败构建仍绑定已知native日志供Inspector；factory/SDK终态均owned Close，cleanup强失败不降为取消。
 持久memory默认关闭，仅显式opt-in后lazy调用程序选择的MemoryFactory；opaque namespace由saved canonical workspace path派生，模型不能选择其他project namespace；无远程embedding/自动scan/extract，不自动委派给child。Hooks/diagnostics同样显式disabled edits+独立host批准，下一Turn装配实际Plugin；Hook pre-input仍重新HITL，diagnostic exit0不冒充零问题。
 媒体默认off，启用仅下一Alva Turn注册actual media Tool；可选decoder只消费明确两exe+独立host批准的snapshot，不发现程序。模型视觉支持仅由operator Config.ImageCapable声明并绑定exact provider/model，未知拒绝select，demo不能自称支持；原始上传不自动投递，实际JPEG选择只进入一个请求副本。
+明确Send的typed captured images可在MediaEnabled=false时装配inputs-only同一media middleware：最多2个PNG/JPEG/GIF/每个20MiB，只从已存catalog和认证bounded chunks完整重验SHA/path/route。product原件保持不变，额外native input-attachment副本用于Library要求的实际session原件authority与派生provenance；既有ProcessImage/JPEG/selection/receipt一次投递，不启用media Tool/decoder、不读取未选历史上传、不伪称原件直接进入模型或视觉理解。
 Browser只消费显式批准snapshot并注册actual7个Tools，同Guard/先耐久risk；每run fresh private profile，不读用户浏览器、登录、keychain或已有配置。构造/保存不启动，正常结束/取消/early失败都由exact attempt资源registry收尾，清理未完成不关facts。未委派给native child。
 Alva持久等待默认off，使用同一个native journal、Guard/问题Handler和实际Controller；factory在插件启动前获得native claim，直到真实资源收尾才释放。恢复绑定route/canonical workspace/设置与process配方hash；冷读/Resolve不启动Agent，UI/HTTP只调用共享Service。
 ## 约束
@@ -27,13 +29,20 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 | connections.go / connections_test.go | 每attempt按已提交连接revision解析实际provider/模型/账户/计费与视觉声明；真实HTTP、重开续轮与过期路由零调用回归 |
 | permissions.go / permissions_test.go | frozen Ask/Auto/Full真实approval handler；Auto仅原生文件写入，Full不放宽Guard/独立host批准，真实HTTP文件执行和危险效果回归 |
 | wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环 |
+| companion_skills.go / companion_skills_test.go | 实际伙伴Skill repo的name/原文SHA限制、四类读取重验及真实HTTP未共享Skill隔离；受限scope不接受compatibility导入 |
+| session_model_wait_test.go | Waiting期间可编辑的下一Turn参数不改变原配方hash，真实重开续轮保持旧参数且新Turn应用新值 |
 | wait_crash_test.go | 杀死真实Hub续跑进程后unknown/no replay、过期拒绝及显式审阅Abandon |
 | plan_mode.go / plan_test.go / composer_checkpoint_test.go | 真实只读Guard配方、移除process/network可选集成而保留已存批准；实际模型拒写/Ask恢复和冻结checkpoint入口一致性回归 |
-| assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；live仅构造cold Gateway，Close先取消/join其真实handler |
+| assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；live仅构造cold Gateway与Developer，后者组合明确主/额外route与保存的Connections目标源；approved Git存在时追加DeveloperWorkspaces，ConversationTabs显式接收该owner（无Git为nil）使首Send能复验live worktree；Close先取消/join真实请求，依赖方ConversationTabs先于DeveloperWorkspaces关闭 |
 | tools.go | 六类可选Plugin真实装配（planning/interaction/utility 显式导入 native 适配，普通 Tool 根包不再绑定原生产品）、same-session问题broker、actual tool信任与Shell跨轮Session owner/attempt Lease与Web物理收尾 |
 | assembly_test.go | no-start、真实demo跨重启native resume、route绑定与未批准零副作用回归 |
+| external_profiles_test.go | 显式CLI配置canonical来源、冷启动/非法目录零存储、跨重开账号目录变化的旧route零进程；Codex/Pi实际resume在header前Stop的cancelled/保留native/同branch继续与产品重开历史回归 |
 | options_test.go | actual registered factory→local HTTP system role；opt-in请求轮数/系统prompt实际传给harness，不只改Descriptor |
 | generation_options_test.go | 保存模型默认值→Attempt→Runtime→harness→真实本地HTTP；温度/输出token/推理/system及工具后轮数限制 |
+| session_model_options_test.go | 保存当前会话覆盖→SQLite重开→真实HTTP；请求中修改不影响已发请求、下一Turn换新覆盖与清除恢复默认 |
+| developer_test.go | 主/额外模型route的冷装配、独立开发者任务与应用Close实际取消/join HTTP、不创建聊天会话或切换账户 |
+| developer_dynamic.go / developer_dynamic_test.go | 已提交Connections映射revision绑定开发者目标；显式Run复用唯一凭据插口，SQLite重开/编辑禁用中冻结job/精确HTTP与真实工具参数评分回归，目录探测不冒充推理 |
+| developer_workspaces_test.go | 无approved Git时明确nil导航、普通chat不变；显式Git装配真实Repository/Worktree，临时draft首Send不绕过耐久tab/draft准入且启动零执行 |
 | compatibility_test.go | 默认off、native/标准Skill一个目录一个Tool、真实模板child与独立HITL、规则变更拒绝同Turn恢复；Snapshot进attempt owner |
 | subagent_test.go | 真实四次local model/root-child HITL、typed关系、引用隔离与冷Inspector闭环 |
 | mcp_test.go | 明确本地真实MCP子进程、lazy启动、actual attempt资源注册及SDK/应用物理收尾 |
@@ -42,8 +51,10 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 | commands_test.go | 实际本地命令/SDK/HITL、pre-input新权限、诊断来源/exit/reap证据和prior Activity |
 | resources.go / resources_test.go | exact per-attempt资源注册、early-observer失败/physical cleanup重试、strong错误、实际native claim与facts关闭顺序，以及actual Hooks.Notify取消/Close超时重试 |
 | media_test.go | 真实HTTP/SDK/SQLite原件保留、JPEG派生、未知route拒绝、单请求图、重启预览和无历史重放 |
+| composer_images.go / composer_images_test.go | 显式typed捕获图的route/2张/20MiB/原文SHA与path核验、native provenance副本及inputs-only现有media装配；真实local HTTP验证图像实际一次投递、默认Tool off、receipt链、未知route/原件变化零模型调用 |
 | browser_test.go | 显式真实Chrome/local HTTP、actual SDK/HITL、prior risk、文本/截图refs与实际reap/profile removal |
 | worktree_test.go | 显式真实Git+HTTP/SDK write_file/HITL Worker隔离、显式原字节采纳、持久冷证据与重开不重放 |
-| storage.go | 共享产品profile（含独立应用外观端口）与显式Stores/Memory/Bindings工厂；仅Local配方选择具体provider |
+| storage.go | 共享产品profile（含独立应用外观及可选repository/tab/admission端口）与显式Stores/Memory/Bindings工厂；仅Local配方选择具体provider |
 | storage_test.go | opaque组件贯穿实际Turn、缺失/失败零fallback、部分资源与failed-close所有权 |
 | preferences_test.go | 选定opaque外观端口贯穿共享owner、无会话冷读写、读取失败零fallback；实际写入忽略取消时Close超时仍保留组件直到完成，重开无重放 |
+| composer_skills_test.go | 首发前选定Skill经过产品/SQLite/Runtime到真实本地HTTP的目录与Tool读取；全局SkillsEnabled保持false、兄弟来源不暴露 |

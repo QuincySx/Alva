@@ -81,7 +81,7 @@ func TestExplicitPersistentMemorySurvivesRestartWithoutScanningOrCrossWorkspaceR
 	if calls.Load() != 0 {
 		t.Fatal("preference executed a model")
 	}
-	if _, err = a.Service.Submit(ctx, session.ID, "STORE-MEMORY"); err != nil {
+	if _, err = a.Service.Submit(ctx, session.ID, "STORE-MEMORY", nil); err != nil {
 		t.Fatal(err)
 	}
 	request := nextApproval(t, a, session.ID)
@@ -113,7 +113,7 @@ func TestExplicitPersistentMemorySurvivesRestartWithoutScanningOrCrossWorkspaceR
 		t.Fatal(err)
 	}
 	defer closeApp(t, b)
-	if _, err = b.Service.Submit(ctx, session.ID, "SEARCH-MEMORY"); err != nil {
+	if _, err = b.Service.Submit(ctx, session.ID, "SEARCH-MEMORY", nil); err != nil {
 		t.Fatal(err)
 	}
 	awaitTerminal(t, b, session.ID)

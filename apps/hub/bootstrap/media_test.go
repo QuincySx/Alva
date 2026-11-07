@@ -111,7 +111,7 @@ func TestNativeMediaActualRecipeIsExplicitAndSelectedForOneRequest(t *testing.T)
 			if err != nil || len(before.Entries) != 0 || calls.Load() != 0 {
 				t.Fatal("upload/preference executed media", err)
 			}
-			if _, err = a.Service.Submit(ctx, s.ID, "derive uploaded image, inspect only the selected derivative"); err != nil {
+			if _, err = a.Service.Submit(ctx, s.ID, "derive uploaded image, inspect only the selected derivative", []product.DraftReferenceSelection{upload.DraftSelection()}); err != nil {
 				t.Fatal(err)
 			}
 			terminal := awaitMediaTerminal(t, a, s.ID)
@@ -159,7 +159,7 @@ func TestNativeMediaActualRecipeIsExplicitAndSelectedForOneRequest(t *testing.T)
 			if _, _, err = a.Service.MediaPreview(ctx, s.ID, branch.ID, entries.Entries[0].Info.Reference().URI); err != nil {
 				t.Fatal("durable media preview lost", err)
 			}
-			if _, err = a.Service.Submit(ctx, s.ID, "next turn; do not select again"); err != nil {
+			if _, err = a.Service.Submit(ctx, s.ID, "next turn; do not select again", nil); err != nil {
 				t.Fatal(err)
 			}
 			awaitTerminal(t, a, s.ID)

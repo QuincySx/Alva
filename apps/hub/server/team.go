@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/apps/hub/product"
 )
 
 func (s *Server) team(w http.ResponseWriter, r *http.Request, lead string) {
@@ -209,23 +210,23 @@ func (s *Server) workerTasks(w http.ResponseWriter, r *http.Request, lead, team,
 		return
 	}
 	var v struct {
-		Scope                   string              `json:"scope"`
-		Claims                  []hub.ResourceClaim `json:"claims"`
-		IncludeDraftAttachments bool                `json:"include_draft_attachments,omitempty"`
+		Scope      string                            `json:"scope"`
+		Claims     []hub.ResourceClaim               `json:"claims"`
+		References []product.DraftReferenceSelection `json:"references"`
 	}
 	if !decode(w, r, &v, 32<<10) {
 		return
 	}
 	if task != "" {
-		if v.IncludeDraftAttachments {
+		if len(v.References) != 0 {
 			fail(w, 400)
 			return
 		}
 		reply(w, map[string]bool{"saved": true}, s.service.Teams.Store.EditQueuedTask(r.Context(), lead, team, worker, task, v.Scope, v.Claims))
 		return
 	}
-	if v.IncludeDraftAttachments {
-		value, err := s.service.EnqueueWorkerDraft(r.Context(), lead, team, worker, v.Scope, v.Claims)
+	if len(v.References) != 0 {
+		value, err := s.service.EnqueueWorkerDraft(r.Context(), lead, team, worker, v.Scope, v.Claims, v.References)
 		if err != nil {
 			operationError(w, err)
 			return

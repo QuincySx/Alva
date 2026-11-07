@@ -1,11 +1,12 @@
 // INPUT: Real Alva harness, private product/native stores and explicit local schedule actions
-// OUTPUT: Actual scheduled normal conversation, no implicit Open execution and owned timer shutdown tests
+// OUTPUT: Scheduled normal conversations, exact connection revision recovery and owned timer shutdown tests
 // POS: [L7 Hub product] Product coordinator acceptance does not mock or duplicate the normal Hub runtime
 package product
 
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -123,5 +124,77 @@ func TestAutomationActualNativeConversationAndExplicitOwner(t *testing.T) {
 	}
 	if len(requests) != 0 || s.Runtime.HasActive() {
 		t.Fatal("timer Start/Close replayed work")
+	}
+}
+
+func TestAutomationConnectionRevisionPausesBeforeClaimAndRequiresExplicitRecovery(t *testing.T) {
+	s, requests := fixture(t)
+	ctx := t.Context()
+	connections, err := NewConnectionsService(ctx, s.Store.(hub.ConnectionsStore))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Connections = connections
+	t.Cleanup(func() { _ = connections.Close(context.Background()) })
+	saved, err := connections.Save(ctx, productConnectionFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.Create(ctx, "revision-bound schedule", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Store.Switch(ctx, p.ID, saved.Target(saved.Models[0]), "explicit saved connection"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.Automations.Store.CreateAutomation(ctx, p.ID, hub.AutomationDraft{Title: "review", Prompt: "exact scheduled fixture", IntervalMinutes: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err = s.SetAutomationEnabled(ctx, p.ID, a.ID, a.Revision, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.Store.History(ctx, p.ID, 0, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit := connectionEdit(saved)
+	edit.Name = "new revision, same model and endpoint"
+	saved, err = connections.Save(ctx, edit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Automations.Tick(ctx, a.NextRunAt); err != nil {
+		t.Fatal(err)
+	}
+	a, err = s.Automations.Store.Automation(ctx, p.ID, a.ID)
+	if err != nil || a.Enabled || a.RunningTurnID != "" || a.NextRunAt != 0 || a.LastStatus != "failed" || s.Runtime.HasActive() || len(requests) != 0 {
+		t.Fatal("stale connection revision admitted or fabricated work", a, err)
+	}
+	if history, err := s.Store.History(ctx, p.ID, 0, 32); err != nil || !reflect.DeepEqual(history, before) {
+		t.Fatal("stale route consumed a durable Turn", history, err)
+	}
+	if _, err = s.SetAutomationEnabled(ctx, p.ID, a.ID, a.Revision, true, true); err == nil {
+		t.Fatal("enable silently retargeted the old approved connection revision")
+	}
+	if _, err = s.Store.Switch(ctx, p.ID, saved.Target(saved.Models[0]), "explicit current connection revision"); err != nil {
+		t.Fatal(err)
+	}
+	a, err = s.Automations.Store.UpdateAutomation(ctx, p.ID, a.ID, a.Revision, a.AutomationDraft)
+	if err != nil || a.Enabled {
+		t.Fatal("route review did not leave schedule paused", a, err)
+	}
+	a, err = s.SetAutomationEnabled(ctx, p.ID, a.ID, a.Revision, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Automations.Tick(ctx, a.NextRunAt); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, s, p.ID)
+	request := <-requests
+	if request.AccountSource != saved.Target(saved.Models[0]).AccountSource || request.Prompt != a.Prompt || len(requests) != 0 {
+		t.Fatal("explicit recovery lost the exact approved route or repeated work", request)
 	}
 }

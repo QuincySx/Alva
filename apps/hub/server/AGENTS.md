@@ -12,7 +12,7 @@ Turn 由产品 runtime 认领，SSE 从耐久 Sequence 续读，观察断线不�
 
 ## 约束
 JSON 严格字段/Unicode/大小；无 token query/CORS/隐式别名。上传 2 并发、20MiB 原字节、
-仅 plain 文件名，经共享 UploadReader 继续限每轮 40MiB/8件且引用优先。
+仅 plain 文件名，经共享 UploadReader 限每会话暂存40MiB/8件且引用优先。turns与Worker新任务必须按回执显式提交references集合（kind/id/sha256），空或省略无附件；未知/重复/跨branch拒绝且不执行，成功只消费同集合。删除以draft_id标识，仅移除引用，保留原件。
 SSE 16 路、每页32条、写 deadline；Inspector 2KiB 文本/4KiB 字节且不启动 Agent/MCP。
 子Inspector仅接受≤8层typed link Sequence路径，不能客户端给native/child ID。
 SubAgent下一轮开关与真实子审批复用同产品服务，不借父identity/父授权。
@@ -24,6 +24,7 @@ transport error 不泄露 host path/数据库/provider stderr；真实执行错�
 | 文件 | 职责 |
 |---|---|
 | preferences.go / preferences_test.go | authenticated /v1/preferences GET/PATCH复用共享owner及应用级SQLite，严格JSON/乐观revision/错误脱敏，不创建session或执行模型 |
+| routing_test.go | HTTP branch/fallback复用产品route政策，完整账户批准与动态连接失效均零执行；程序路由仍保留装配快照 |
 | security.go | 实际 listener authority 与随机 token 校验、Host/Origin/认证 |
 | server.go | 冷/v1/engines能力声明、bounded handler、严格 JSON/query、session 发现与创建 |
 | gateway.go / gateway_test.go | authenticated /v1/gateway冷status/独立model计费同意start/Stop，一次token仅start返回、不接受Provider/key导入 |
@@ -34,7 +35,7 @@ transport error 不泄露 host path/数据库/provider stderr；真实执行错�
 | export.go / export_test.go | /inspector-bundle认证只读JSONL下载，固定高水位/typed路径与显式child scope；两路导出上限、不接受host/native path、不写宿主文件或restore |
 | inspection.go / inspection_test.go | /inspector-events绑定实际branch/typed path，通过独立EngineInspector背压SSE；durable Last-Event-ID续读，transport Close/断线仅detach，不restore或Stop |
 | events.go | 耐久分页与 sequence/Last-Event-ID SSE，不拥有执行 |
-| team.go | 同产品Team持久FIFO/生命周期与显式dispatch，Worker上传可explicit include_draft_attachments引用入队，事务固定branch；冷读取不重放 |
+| team.go | 同产品Team持久FIFO/生命周期与显式dispatch，Worker上传以明确references数组引用入队，移除隐式include_draft_attachments参数，事务固定branch；冷读取不重放 |
 | tools.go / tools_test.go | 六类预存工具next-turn启用、Shell/Web独立access同意与真实问题/回答，实际HTTP→SDK→Tool→model反例 |
 | shell.go / shell_test.go | authenticated已存branch/job冷状态、operator Stop/显式reset；真实两轮SDK后台存活、foreign拒绝与product租约排他回归 |
 | worktree.go / worktree_test.go | owned Lead/Team/Worker隔离、冷diff小页与exact evidence/revision+独立同意的原字节采纳及whole-tree删除review/独立confirm/retire，保留branch/history/evidence，无客户端host path |

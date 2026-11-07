@@ -1,5 +1,5 @@
 // INPUT: context, private files, hub supervisor/store and owner-scoped native artifact repository
-// OUTPUT: HubService with durable session/history admission and reference-only attachment drafts
+// OUTPUT: HubService with durable admission, explicit immutable draft selections and shared developer job owner
 // POS: [L7 Hub product] UI-independent shared Hub product service, not an alternate native fact authority
 package product
 
@@ -15,6 +15,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"github.com/QuincySx/Alva/apps/developer"
 	"github.com/QuincySx/Alva/apps/gateway"
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/worktree"
@@ -22,15 +23,29 @@ import (
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/platform/host"
 	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/system/document"
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 type DraftAttachment struct {
+	DraftID   string               `json:"draft_id"`
 	BranchID  string               `json:"branch_id"`
 	Info      storage.ArtifactInfo `json:"info"`
 	Reference wire.Reference       `json:"reference"`
+}
+
+// DraftReferenceSelection identifies one prepared draft and its immutable
+// artifact version. Empty selections mean no files or project references.
+type DraftReferenceSelection struct {
+	Kind   string `json:"kind"`
+	ID     string `json:"id"`
+	SHA256 string `json:"sha256"`
+}
+
+func (d DraftAttachment) DraftSelection() DraftReferenceSelection {
+	return DraftReferenceSelection{Kind: "attachment", ID: d.DraftID, SHA256: d.Info.SHA256}
 }
 
 // ServiceStore declares the required product routing capability explicitly;
@@ -39,27 +54,35 @@ type ServiceStore interface {
 	hub.Store
 	hub.WaitStore
 	hub.NativeOwnerResolver
+	hub.SessionModelOptionsStore
 }
 
 type HubService struct {
-	Store              ServiceStore
-	Runtime            *hub.Runtime
-	Repository         storage.Repository
-	DefaultTarget      hub.Target
-	Targets            []hub.Target
-	DataDirectory      string
-	Demo               bool
-	ValidateWaitRecipe func(context.Context, hub.Branch, hub.Settings) error
-	Approvals          *host.ApprovalBroker
-	Questions          *host.QuestionBroker
-	Gateway            *gateway.Local
-	Preferences        *PreferencesService
-	Connections        *ConnectionsService
-	Goals              *GoalsService
-	Teams              *TeamCoordinator
-	Automations        *AutomationCoordinator
-	Worktrees          *worktree.Manager
-	Shells             *shell.Sessions
+	Store               ServiceStore
+	Runtime             *hub.Runtime
+	Repository          storage.Repository
+	DefaultTarget       hub.Target
+	Targets             []hub.Target
+	DataDirectory       string
+	Demo                bool
+	ValidateWaitRecipe  func(context.Context, hub.Branch, hub.Settings) error
+	Approvals           *host.ApprovalBroker
+	Questions           *host.QuestionBroker
+	Gateway             *gateway.Local
+	Developer           *developer.Service
+	Preferences         *PreferencesService
+	ComposerDrafts      *ComposerDraftsService
+	Documents           *document.Processor
+	Connections         *ConnectionsService
+	Goals               *GoalsService
+	Companions          *CompanionService
+	WorkspaceViews      *WorkspaceViewsService
+	DeveloperWorkspaces *DeveloperWorkspacesService
+	ConversationTabs    *ConversationTabsService
+	Teams               *TeamCoordinator
+	Automations         *AutomationCoordinator
+	Worktrees           *worktree.Manager
+	Shells              *shell.Sessions
 	// mu serializes admission and source preparation; draftMu protects only the
 	// small published draft lists so observers never wait for disk/admission I/O.
 	mu                  sync.Mutex
@@ -85,7 +108,7 @@ func (s *HubService) PendingApprovals(ctx context.Context, id string) ([]securit
 	if err != nil {
 		return nil, err
 	}
-	if branch.NativeSessionID == "" {
+	if branch.Target.EngineID != "alva" || branch.NativeSessionID == "" {
 		return nil, nil
 	}
 	return s.pendingAtRoot(ctx, id, branch.NativeSessionID)
@@ -94,6 +117,10 @@ func (s *HubService) RespondApproval(ctx context.Context, id, requestID string, 
 	if s.Approvals == nil {
 		return errors.New("approval service is unavailable")
 	}
+	binding, ready := s.Runtime.ActivePermission(id)
+	if !ready || binding.EngineID != "alva" {
+		return host.ErrApprovalExpired
+	}
 	detail, err := s.Store.Detail(ctx, id)
 	if err != nil {
 		return err
@@ -101,7 +128,18 @@ func (s *HubService) RespondApproval(ctx context.Context, id, requestID string, 
 	if detail.Session.Status != hub.Running {
 		return host.ErrApprovalExpired
 	}
-	return s.Runtime.RespondPermission(ctx, id, requestID, engine.PermissionDecision{Allow: allowed})
+	branch, err := ActiveBranch(detail)
+	if err != nil {
+		return err
+	}
+	if branch.Target.EngineID != binding.EngineID || branch.NativeSessionID != binding.NativeSessionID {
+		return host.ErrApprovalExpired
+	}
+	err = s.Runtime.RespondPermissionBound(ctx, id, binding, requestID, engine.PermissionDecision{Allow: allowed})
+	if errors.Is(err, hub.ErrSessionNotRunning) {
+		return host.ErrApprovalExpired
+	}
+	return err
 }
 
 func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.Repository, target hub.Target, directory string, demo bool) (*HubService, error) {
@@ -125,23 +163,9 @@ func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.
 	return service, nil
 }
 func (s *HubService) Create(ctx context.Context, title, workspace string) (hub.Session, error) {
-	if workspace == "" {
-		id, err := hub.NewID("workspace-")
-		if err != nil {
-			return hub.Session{}, err
-		}
-		workspace, err = private.EnsureDir(filepath.Join(s.DataDirectory, "workspaces", id))
-		if err != nil {
-			return hub.Session{}, err
-		}
-	}
-	canonical, err := filepath.EvalSymlinks(workspace)
+	canonical, err := s.prepareSessionWorkspace(workspace)
 	if err != nil {
 		return hub.Session{}, err
-	}
-	info, err := os.Stat(canonical)
-	if err != nil || !info.IsDir() {
-		return hub.Session{}, errors.New("workspace must be an existing directory")
 	}
 	return s.Store.CreateSession(ctx, title, canonical, s.DefaultTarget)
 }
@@ -155,14 +179,40 @@ func ActiveBranch(detail hub.Detail) (hub.Branch, error) {
 	}
 	return hub.Branch{}, errors.New("active branch is missing")
 }
-func (s *HubService) Submit(ctx context.Context, id, prompt string) (string, error) {
-	return s.submitDraft(ctx, id, prompt, nil)
+func (s *HubService) Submit(ctx context.Context, id, prompt string, references []DraftReferenceSelection) (string, error) {
+	return s.submitDraft(ctx, id, prompt, nil, references)
 }
-func (s *HubService) submitDraft(ctx context.Context, id, prompt string, selections []ComposerPreparation) (string, error) {
+func (s *HubService) submitDraft(ctx context.Context, id, prompt string, selections []ComposerPreparation, references []DraftReferenceSelection) (string, error) {
+	return s.submitDraftWithFiles(ctx, id, prompt, selections, references, nil, prompt)
+}
+
+func (s *HubService) submitDraftWithFiles(ctx context.Context, id, prompt string, selections []ComposerPreparation, references []DraftReferenceSelection, inputFiles []engine.InputFile, userText string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.Companions != nil {
+		binding, err := s.Companions.Session(ctx, id)
+		if err != nil && !errors.Is(err, hub.ErrNotFound) {
+			return "", err
+		}
+		if err == nil {
+			readOnly, readErr := s.Companions.SessionReadOnly(ctx, id)
+			if readErr != nil {
+				return "", readErr
+			}
+			if readOnly {
+				return "", hub.ErrCompanionDisabled
+			}
+		}
+		if err == nil && binding.GroupID != "" {
+			return "", errors.New("send from the companion group; this member session is for execution review, approvals and original-Turn continuation")
+		}
+	}
 	var err error
 	selections, err = s.rebindComposerGoalsLocked(ctx, id, selections)
+	if err != nil {
+		return "", err
+	}
+	selections, err = s.rebindComposerSkillsLocked(ctx, id, selections)
 	if err != nil {
 		return "", err
 	}
@@ -184,7 +234,20 @@ func (s *HubService) submitDraft(ctx context.Context, id, prompt string, selecti
 	if err = s.validatePlanTarget(ctx, id, branch); err != nil {
 		return "", err
 	}
-	prompt, err = s.draftPromptLocked(id, branch, detail.Session.Workspace, prompt)
+	if err = s.ValidateTarget(branch.Target); err != nil {
+		return "", err
+	}
+	inputSkills, err := s.composerSkillInputs(ctx, detail, selections)
+	if err != nil {
+		return "", err
+	}
+	if len(inputSkills) > 0 {
+		descriptor, ok := s.Runtime.Descriptor(branch.Target.EngineID)
+		if !ok || descriptor.Runtime == nil || !descriptor.Runtime.Capabilities().SkillInputs {
+			return "", engine.ErrUnsupported
+		}
+	}
+	prompt, err = s.draftPromptLocked(id, branch, detail.Session.Workspace, prompt, references)
 	if err != nil {
 		return "", err
 	}
@@ -193,20 +256,25 @@ func (s *HubService) submitDraft(ctx context.Context, id, prompt string, selecti
 	}
 	// Runtime owns the admitted Turn. A UI admission timeout must not become an
 	// accidental execution cancellation after the durable claim has committed.
-	turnID, _, err := s.Runtime.StartOnBranch(context.Background(), id, branch.ID, prompt)
+	var turnID string
+	if len(inputFiles) == 0 && len(inputSkills) == 0 {
+		turnID, _, err = s.Runtime.StartOnBranch(context.Background(), id, branch.ID, prompt)
+	} else {
+		turnID, _, err = s.Runtime.StartComposerOnBranch(context.Background(), id, branch.ID, hub.ComposerTurnInput{Prompt: prompt, UserText: userText, Files: inputFiles, Skills: inputSkills})
+	}
 	if err != nil {
 		return "", err
 	}
-	s.draftMu.Lock()
-	delete(s.attachments, id)
-	delete(s.workspaceReferences, id)
-	s.draftMu.Unlock()
+	s.consumeDraftReferences(id, references)
 	return turnID, nil
 }
-func (s *HubService) draftPromptLocked(id string, branch hub.Branch, workspace, prompt string) (string, error) {
+func (s *HubService) draftPromptLocked(id string, branch hub.Branch, workspace, prompt string, references []DraftReferenceSelection) (string, error) {
 	s.draftMu.RLock()
 	defer s.draftMu.RUnlock()
-	files := s.attachments[id]
+	files, projects, err := s.selectedDraftReferencesLocked(id, references)
+	if err != nil {
+		return "", err
+	}
 	if len(files) > 0 {
 		for _, file := range files {
 			if file.BranchID != branch.ID || file.Info.SessionID != branch.NativeSessionID {
@@ -219,7 +287,82 @@ func (s *HubService) draftPromptLocked(id string, branch hub.Branch, workspace, 
 		}
 		prompt += "\n\n[User-selected files: references/processing manifests only. Original bytes were saved; not delivered to the model. Read/search only relevant ranges.]\n" + string(manifest)
 	}
-	return s.workspaceReferencePromptLocked(id, branch, workspace, prompt)
+	return s.workspaceReferencePromptLocked(id, branch, workspace, prompt, projects)
+}
+
+// Caller holds draftMu. Selection never defaults to a session-wide draft list.
+func (s *HubService) selectedDraftReferencesLocked(id string, selections []DraftReferenceSelection) ([]DraftAttachment, []DraftWorkspaceReference, error) {
+	if len(selections) > maxDraftReferenceCount {
+		return nil, nil, errors.New("at most 8 selected file or project references per Turn")
+	}
+	var files []DraftAttachment
+	var projects []DraftWorkspaceReference
+	var bytes int64
+	seen := make(map[string]bool, len(selections))
+	for _, selection := range selections {
+		if selection.ID == "" || seen[selection.ID] {
+			return nil, nil, errors.New("unknown or duplicate draft reference selection")
+		}
+		seen[selection.ID] = true
+		found := false
+		switch selection.Kind {
+		case "attachment":
+			for _, draft := range s.attachments[id] {
+				if draft.DraftSelection() == selection {
+					files = append(files, draft)
+					bytes += draft.Info.Bytes
+					found = true
+					break
+				}
+			}
+		case "workspace":
+			for _, draft := range s.workspaceReferences[id] {
+				if draft.DraftSelection() == selection {
+					projects = append(projects, draft)
+					bytes += draft.Info.Bytes
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			return nil, nil, errors.New("draft reference is missing or its retained version changed")
+		}
+		if bytes > maxDraftReferenceBytes {
+			return nil, nil, errors.New("selected files and project references exceed 40 MiB/Turn budget")
+		}
+	}
+	return files, projects, nil
+}
+
+func (s *HubService) consumeDraftReferences(id string, selections []DraftReferenceSelection) {
+	if len(selections) == 0 {
+		return
+	}
+	s.draftMu.Lock()
+	defer s.draftMu.Unlock()
+	selected := make(map[DraftReferenceSelection]bool, len(selections))
+	for _, selection := range selections {
+		selected[selection] = true
+	}
+	files := s.attachments[id][:0]
+	for _, file := range s.attachments[id] {
+		if !selected[file.DraftSelection()] {
+			files = append(files, file)
+		}
+	}
+	if s.attachments != nil {
+		s.attachments[id] = files
+	}
+	projects := s.workspaceReferences[id][:0]
+	for _, project := range s.workspaceReferences[id] {
+		if !selected[project.DraftSelection()] {
+			projects = append(projects, project)
+		}
+	}
+	if s.workspaceReferences != nil {
+		s.workspaceReferences[id] = projects
+	}
 }
 
 func (s *HubService) validatePlanTarget(ctx context.Context, id string, branch hub.Branch) error {
@@ -258,7 +401,7 @@ func (s *HubService) Upload(ctx context.Context, id, path string) (DraftAttachme
 }
 
 // UploadReader accepts bytes, never a remote caller-selected host path. Native
-// file-picker and authenticated HTTP multipart routes share this exact admission
+// file-picker and authenticated HTTP byte routes share this exact admission
 // and persistence policy; the caller cannot assert media processing occurred.
 func (s *HubService) UploadReader(ctx context.Context, id, name string, source io.Reader) (DraftAttachment, error) {
 	var result DraftAttachment
@@ -283,7 +426,7 @@ func (s *HubService) UploadReader(ctx context.Context, id, name string, source i
 	defer s.mu.Unlock()
 	count, total := s.draftReferenceBudgetLocked(id)
 	if count >= maxDraftReferenceCount {
-		return result, errors.New("at most 8 files per Turn")
+		return result, errors.New("shared session staging allows at most 8 files or project references")
 	}
 
 	data, err := io.ReadAll(io.LimitReader(source, 20<<20+1))
@@ -291,7 +434,7 @@ func (s *HubService) UploadReader(ctx context.Context, id, name string, source i
 		return result, err
 	}
 	if len(data) > 20<<20 || total+int64(len(data)) > maxDraftReferenceBytes {
-		return result, errors.New("selected file exceeds 20 MiB/file or 40 MiB/Turn upload budget")
+		return result, errors.New("selected file exceeds 20 MiB/file or the shared 40 MiB session staging budget")
 	}
 	if branch.NativeSessionID == "" {
 		nativeID, err := hub.NewID("native-")
@@ -312,7 +455,11 @@ func (s *HubService) UploadReader(ctx context.Context, id, name string, source i
 	if err != nil {
 		return result, err
 	}
-	result = DraftAttachment{BranchID: branch.ID, Info: artifact, Reference: artifact.Reference()}
+	draftID, err := hub.NewID("draft-")
+	if err != nil {
+		return result, err
+	}
+	result = DraftAttachment{DraftID: draftID, BranchID: branch.ID, Info: artifact, Reference: artifact.Reference()}
 	s.draftMu.Lock()
 	s.attachments[id] = append(s.attachments[id], result)
 	s.draftMu.Unlock()
@@ -323,12 +470,12 @@ func (s *HubService) DraftAttachments(id string) []DraftAttachment {
 	defer s.draftMu.RUnlock()
 	return append([]DraftAttachment(nil), s.attachments[id]...)
 }
-func (s *HubService) RemoveDraftAttachment(id, artifactID string) {
+func (s *HubService) RemoveDraftAttachment(id, draftID string) {
 	s.draftMu.Lock()
 	defer s.draftMu.Unlock()
 	files := s.attachments[id]
 	for i, file := range files {
-		if file.Info.ID == artifactID {
+		if file.DraftID == draftID {
 			s.attachments[id] = append(files[:i], files[i+1:]...)
 			return
 		}

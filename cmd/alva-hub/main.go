@@ -1,4 +1,4 @@
-// INPUT: Explicit Hub CLI arguments, separately granted API-key fd, owned stdin and process signals
+// INPUT: Explicit Hub CLI/profile arguments, separately granted API-key fd, owned stdin and process signals
 // OUTPUT: Independent alva-hub one-shot/REPL, cold diagnostics and durable resume/manual handoff
 // POS: [L7 CLI entry] Thin shared bootstrap/product consumer; direct alva entry remains engine-free.
 package main
@@ -79,7 +79,14 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 	timeout := flags.Duration("timeout", 30*time.Minute, "per-Turn deadline1s..30m; cancellation joins actual execution")
 	claude := flags.String("claude-command", "", "explicit Claude executable")
 	codex := flags.String("codex-command", "", "explicit Codex executable")
+	codexTransport := flags.String("codex-transport", "app-server", "Codex app-server (default) or explicit exec transport; no protocol fallback")
+	codexSandbox := flags.String("codex-sandbox", "workspace-write", "Codex app-server read-only or workspace-write in the saved cwd; network disabled")
+	codexApproval := flags.String("codex-approval-policy", "on-request", "Codex app-server on-request, untrusted or explicit never; independent of Alva permissions")
+	claudeConfig := flags.String("claude-config-dir", "", "optional absolute existing Claude configuration directory; reuses the complete CLI configuration")
+	codexConfig := flags.String("codex-config-dir", "", "optional absolute existing Codex configuration directory; reuses the complete CLI configuration")
 	pi := flags.String("pi-command", "", "explicit Pi executable")
+	piConfig := flags.String("pi-config-dir", "", "optional absolute existing Pi agent configuration directory; reuses the complete CLI configuration")
+	piTransport := flags.String("pi-transport", "rpc", "Pi rpc with product tool approvals (default), or explicit read-only exec transport")
 	approved := flags.Bool("external-host-approved", false, "approve explicitly selected native executable/account access; not fallback or bypass")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -117,6 +124,32 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 	if *engineID != "" && *engineID != "alva" && *engineID != "claude" && *engineID != "codex" && *engineID != "pi" {
 		return errors.New("unknown configured engine")
 	}
+	if *claudeConfig != "" && *claude == "" || *codexConfig != "" && *codex == "" || *piConfig != "" && *pi == "" {
+		return errors.New("--claude-config-dir/--codex-config-dir/--pi-config-dir require their corresponding --claude-command/--codex-command/--pi-command")
+	}
+	var codexFlags, codexPolicyFlags, piFlags bool
+	flags.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "pi-transport":
+			piFlags = true
+		case "codex-transport":
+			codexFlags = true
+		case "codex-sandbox", "codex-approval-policy":
+			codexFlags, codexPolicyFlags = true, true
+		}
+	})
+	if piFlags && *pi == "" || *piTransport != "rpc" && *piTransport != "exec" {
+		return errors.New("Pi transport must be rpc or exec and requires its corresponding --pi-command")
+	}
+	if codexFlags && *codex == "" {
+		return errors.New("Codex transport/policy flags require their corresponding --codex-command")
+	}
+	if *codexTransport != "app-server" && *codexTransport != "exec" || *codexSandbox != "read-only" && *codexSandbox != "workspace-write" || *codexApproval != "on-request" && *codexApproval != "untrusted" && *codexApproval != "never" {
+		return errors.New("invalid explicit Codex transport or native policy")
+	}
+	if *codexTransport == "exec" && codexPolicyFlags {
+		return errors.New("Codex native policy flags require app-server transport")
+	}
 	if len(*prompt) > 32<<10 || !utf8.ValidString(*prompt) {
 		return errors.New("prompt exceeds32KiB or is not UTF-8")
 	}
@@ -152,9 +185,20 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 		}
 		config.Provider.APIKey = strings.TrimSpace(string(key))
 	}
-	for _, v := range []struct{ vendor, command string }{{"claude", *claude}, {"codex", *codex}, {"pi", *pi}} {
+	for _, v := range []struct{ vendor, command, configuration string }{{"claude", *claude, *claudeConfig}, {"codex", *codex, *codexConfig}, {"pi", *pi, *piConfig}} {
 		if v.command != "" {
-			config.External = append(config.External, bootstrap.ExternalEngine{Vendor: v.vendor, Command: v.command, ApprovedHostAccess: *approved})
+			external := bootstrap.ExternalEngine{Vendor: v.vendor, Command: v.command, CLIConfigDirectory: v.configuration, ApprovedHostAccess: *approved}
+			if v.vendor == "pi" {
+				external.Transport = *piTransport
+			}
+			if v.vendor == "codex" {
+				external.Transport = *codexTransport
+				if *codexTransport == "app-server" {
+					external.CodexSandbox = map[string]string{"read-only": "readOnly", "workspace-write": "workspaceWrite"}[*codexSandbox]
+					external.CodexApprovalPolicy = map[string]string{"on-request": "onRequest", "untrusted": "unlessTrusted", "never": "never"}[*codexApproval]
+				}
+			}
+			config.External = append(config.External, external)
 		}
 	}
 	if ctx.Err() != nil {
@@ -169,6 +213,11 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 		}()
 	}
 	if err != nil {
+		// A backend may surface its own interrupted operation while opening.
+		// Keep the owner's cancellation identity without interpreting backend errors.
+		if ctx.Err() != nil {
+			return errors.Join(err, ctx.Err())
+		}
 		return err
 	}
 	c := &cli{app: app, input: newInput(input), output: output, diagnostic: diagnostic, session: *selected, timeout: *timeout, ask: *permission == "ask"}

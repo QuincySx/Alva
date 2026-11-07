@@ -1,5 +1,5 @@
-// INPUT: Explicit direct REPL stdin, same process owner/log and ordinary guarded tool approval requests
-// OUTPUT: Bounded sequential direct-agent prompts and exact per-call HITL without EngineRuntime
+// INPUT: Explicit direct REPL stdin, same process owner/log, human questions and guarded tool approvals
+// OUTPUT: Bounded sequential direct-agent prompts and serialized clarification/once-call approval input without EngineRuntime
 // POS: [L6 application] Reuses the direct execution owner/session, never routes through Hub, imports legacy settings or auto-runs an empty prompt.
 package main
 
@@ -57,16 +57,17 @@ func (r *directREPL) line(ctx context.Context) (string, error) {
 	return strings.TrimSuffix(strings.TrimSuffix(value, "\n"), "\r"), nil
 }
 func (r *directREPL) Approve(ctx context.Context, request security.ApprovalRequest) (security.ApprovalDecision, error) {
-	select {
-	case r.gate <- struct{}{}:
-	case <-ctx.Done():
-		return security.ApprovalDecision{}, ctx.Err()
+	if err := r.acquireInput(ctx); err != nil {
+		return security.ApprovalDecision{}, err
 	}
 	defer func() { <-r.gate }()
-	if err := writeString(r.diagnostic, fmt.Sprintf("Permission %s · %s\n%s\nType allow %s to approve only this actual call; any other line denies: ", request.ID, request.ToolName, request.InputSummary, request.ID)); err != nil {
+	if err := writeString(r.diagnostic, fmt.Sprintf("Permission %s · %s\n%s\nAllow this call once: allow %s\nDeny this call: deny %s\nAny other line denies; a question answer or Other never grants permission: ", request.ID, request.ToolName, request.InputSummary, request.ID, request.ID)); err != nil {
 		return security.ApprovalDecision{}, err
 	}
 	line, err := r.line(ctx)
+	if ctx.Err() != nil {
+		return security.ApprovalDecision{}, ctx.Err()
+	}
 	if errors.Is(err, io.EOF) {
 		return security.ApprovalDecision{Allowed: false, Scope: security.Once}, nil
 	}
@@ -102,7 +103,7 @@ func (r *directREPL) run(ctx context.Context, runner harness.Runner, session str
 			}
 			continue
 		case "/help":
-			if err := writeString(r.diagnostic, "/session /help /quit; per-call approvals never grant broader or future permission.\n"); err != nil {
+			if err := writeString(r.diagnostic, "/session /help /quit; ask_human waits for choices or Other text; per-call approvals never grant broader or future permission.\n"); err != nil {
 				return err
 			}
 			continue

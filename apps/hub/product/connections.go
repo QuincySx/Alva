@@ -1,5 +1,5 @@
 // INPUT: Explicit connection storage, shared connection policy and native provider constructors.
-// OUTPUT: Shared committed connection snapshots, CRUD, exact route resolution and joined shutdown.
+// OUTPUT: Shared committed snapshots, request-bound create/recovery, CRUD, exact route resolution and joined shutdown.
 // POS: [L7 product service] Owns connection configuration, explicit catalog probes and joined lifecycle without account discovery.
 package product
 
@@ -42,6 +42,8 @@ func connectionError(operation string, err error) error {
 	switch {
 	case errors.Is(err, hub.ErrConnectionConflict):
 		return hub.ErrConnectionConflict
+	case errors.Is(err, hub.ErrConnectionCreationConflict):
+		return hub.ErrConnectionCreationConflict
 	case errors.Is(err, hub.ErrModelPreferenceConflict):
 		return hub.ErrModelPreferenceConflict
 	case errors.Is(err, hub.ErrNotFound):
@@ -149,7 +151,67 @@ func (s *ConnectionsService) Save(ctx context.Context, u hub.ConnectionUpdate) (
 	defer s.release()
 	return s.save(ctx, u)
 }
+
+// Create retains a caller-owned identity across uncertain commits. It never
+// falls back to non-idempotent creation when the selected storage lacks the port.
+func (s *ConnectionsService) Create(ctx context.Context, request hub.ConnectionCreate) (hub.ModelConnection, error) {
+	if err := request.Validate(); err != nil {
+		return hub.ModelConnection{}, err
+	}
+	store, ok := s.store.(hub.ConnectionCreationStore)
+	if !ok || storage.Missing(store) {
+		return hub.ModelConnection{}, errors.New("recoverable connection creation is unavailable for the selected storage")
+	}
+	ctx, err := s.acquire(ctx)
+	if err != nil {
+		return hub.ModelConnection{}, err
+	}
+	defer s.release()
+	return s.saveWith(ctx, request.Update, func(ctx context.Context, _ hub.ConnectionUpdate) (hub.ModelConnection, error) {
+		return store.CreateConnection(ctx, request)
+	})
+}
+
+// ResolveCreation observes the exact original receipt and its current identity.
+// It never matches names, recreates a deleted entry or retries a write.
+func (s *ConnectionsService) ResolveCreation(ctx context.Context, requestID string) (hub.ConnectionCreationReceipt, error) {
+	store, ok := s.store.(hub.ConnectionCreationStore)
+	if !ok || storage.Missing(store) {
+		return hub.ConnectionCreationReceipt{}, errors.New("connection creation recovery is unavailable for the selected storage")
+	}
+	ctx, err := s.acquire(ctx)
+	if err != nil {
+		return hub.ConnectionCreationReceipt{}, err
+	}
+	defer s.release()
+	receipt, err := store.ConnectionCreation(ctx, requestID)
+	if err != nil {
+		return hub.ConnectionCreationReceipt{}, connectionError("resolve creation", err)
+	}
+	if err = receipt.Validate(); err != nil || receipt.RequestID != requestID {
+		return hub.ConnectionCreationReceipt{}, errors.New("connection storage returned an invalid creation receipt")
+	}
+	values := s.Snapshot()
+	out := values[:0]
+	for _, value := range values {
+		if value.ID != receipt.Created.ID {
+			out = append(out, value)
+		}
+	}
+	if receipt.Current != nil {
+		out = append(out, receipt.Current.Clone())
+	}
+	if err = s.publish(out); err != nil {
+		return hub.ConnectionCreationReceipt{}, err
+	}
+	return receipt.Clone(), nil
+}
+
 func (s *ConnectionsService) save(ctx context.Context, u hub.ConnectionUpdate) (hub.ModelConnection, error) {
+	return s.saveWith(ctx, u, s.store.SaveConnection)
+}
+
+func (s *ConnectionsService) saveWith(ctx context.Context, u hub.ConnectionUpdate, commit func(context.Context, hub.ConnectionUpdate) (hub.ModelConnection, error)) (hub.ModelConnection, error) {
 	var current hub.ModelConnection
 	var secret hub.ConnectionSecrets
 	var err error
@@ -189,11 +251,11 @@ func (s *ConnectionsService) save(ctx context.Context, u hub.ConnectionUpdate) (
 			return hub.ModelConnection{}, errors.New("model connection transport configuration is invalid")
 		}
 	}
-	saved, err := s.store.SaveConnection(ctx, u)
+	saved, err := commit(ctx, u)
 	if err != nil {
 		return hub.ModelConnection{}, connectionError("save", err)
 	}
-	if saved.Validate() != nil || saved.ID == "" || saved.Revision != u.ExpectedRevision+1 || u.ID != "" && saved.ID != u.ID {
+	if saved.Validate() != nil || saved.ID == "" || saved.Revision != validated.Revision || u.ID != "" && saved.ID != u.ID || !saved.SameConfiguration(validated) {
 		return hub.ModelConnection{}, errors.New("connection store returned an invalid save receipt; reload before retrying")
 	}
 	values := s.Snapshot()
@@ -280,10 +342,12 @@ func (s *ConnectionsService) ResolveTarget(ctx context.Context, target hub.Targe
 			if err != nil {
 				return "", provider.Config{}, false, connectionError("resolve", err)
 			}
-			config := provider.Config{Endpoint: c.ModelEndpoint(m.ID), Model: m.ID, APIKey: secret.APIKey, Headers: secret.Headers}
-			if _, err = provider.Build(provider.Kind(c.Protocol), config); err != nil {
-				return "", provider.Config{}, false, errors.New("saved model transport configuration is invalid")
+			// Revalidate private storage values using the shared pure edit policy.
+			// The actual consumer constructs the provider once from this recipe.
+			if _, secret, err = c.Apply(connectionEdit(c), secret); err != nil {
+				return "", provider.Config{}, false, errors.New("saved model connection configuration is invalid")
 			}
+			config := provider.Config{Endpoint: c.ModelEndpoint(m.ID), Model: m.ID, APIKey: secret.APIKey, Headers: secret.Headers}
 			return provider.Kind(c.Protocol), config, m.ImageCapable, nil
 		}
 	}

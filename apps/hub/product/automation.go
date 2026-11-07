@@ -162,12 +162,7 @@ func (a *AutomationCoordinator) Close(ctx context.Context) error {
 }
 
 func (s *HubService) configuredAutomationRoute(target hub.Target) bool {
-	for _, configured := range s.AvailableTargets() {
-		if hub.RouteKey(target) == hub.RouteKey(configured) {
-			return true
-		}
-	}
-	return false
+	return s.ValidateTarget(target) == nil
 }
 
 func (s *HubService) SetAutomationEnabled(ctx context.Context, owner, id string, revision uint64, enabled, approved bool) (hub.Automation, error) {

@@ -159,36 +159,42 @@ func (s *HubService) ResolveWait(ctx context.Context, id string, answer WaitReso
 	return c.Resolve(ctx, durable.Resolution{RequestID: answer.RequestID, Binding: answer.Binding, Result: answer.Result})
 }
 func (s *HubService) ResumeWait(ctx context.Context, id string, target WaitTarget) (string, error) {
+	turn, _, _, err := s.resumeWaitOwned(ctx, id, target, context.Background())
+	return turn, err
+}
+
+// resumeWaitOwned keeps ordinary continuation admission and its exact Runtime
+// completion receipt together for a product operation that owns cancellation.
+func (s *HubService) resumeWaitOwned(ctx context.Context, id string, target WaitTarget, owner context.Context) (string, string, <-chan error, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	view, b, _, err := s.waitView(ctx, id)
 	if err != nil {
-		return "", err
+		return "", "", nil, err
 	}
 	if err = checkWaitTarget(view, target); err != nil {
-		return "", err
+		return "", "", nil, err
 	}
 	if !view.CanResume || s.ValidateWaitRecipe == nil {
 		if view.ResumeProblem != "" {
-			return "", errors.New(view.ResumeProblem)
+			return "", "", nil, errors.New(view.ResumeProblem)
 		}
-		return "", errors.New("resolve all live requests before explicit continuation")
+		return "", "", nil, errors.New("resolve all live requests before explicit continuation")
 	}
 	settings, err := s.Store.Settings(ctx, id)
 	if err != nil {
-		return "", err
+		return "", "", nil, err
 	}
 	if err = s.ValidateWaitRecipe(ctx, b, settings); err != nil {
-		return "", err
+		return "", "", nil, err
 	}
 	if count, _ := s.draftReferenceBudgetLocked(id); count != 0 {
-		return "", errors.New("continuation does not submit draft attachments")
+		return "", "", nil, errors.New("continuation does not submit draft attachments")
 	}
 	if err = ctx.Err(); err != nil {
-		return "", err
+		return "", "", nil, err
 	}
-	turn, _, err := s.Runtime.ResumeWait(context.Background(), id, b.ID, target.TurnID, target.Revision)
-	return turn, err
+	return s.Runtime.ResumeWaitOwned(owner, id, b.ID, target.TurnID, target.Revision)
 }
 func (s *HubService) AbandonWait(ctx context.Context, id string, target WaitTarget) error {
 	s.mu.Lock()

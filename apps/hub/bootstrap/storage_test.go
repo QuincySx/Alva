@@ -42,7 +42,7 @@ func TestProgramSelectedStorageFlowsThroughActualTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, prompt := range []string{"run through the supplied storage slot", "resume the same supplied storage slot"} {
-		if _, err = app.Service.Submit(t.Context(), product.ID, prompt); err != nil {
+		if _, err = app.Service.Submit(t.Context(), product.ID, prompt, nil); err != nil {
 			t.Fatal(err)
 		}
 		awaitTerminal(t, app, product.ID)

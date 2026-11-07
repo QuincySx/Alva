@@ -237,7 +237,7 @@ func TestNativeAEPPinApprovalAndNextTurnActualLaunch(t *testing.T) {
 	if _, err = os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatal("approval launched native code", err)
 	}
-	if _, err = a.Service.Submit(ctx, session.ID, "local demonstration with explicitly approved fixture plugin"); err != nil {
+	if _, err = a.Service.Submit(ctx, session.ID, "local demonstration with explicitly approved fixture plugin", nil); err != nil {
 		t.Fatal(err)
 	}
 	detail := awaitTerminal(t, a, session.ID)
@@ -289,7 +289,7 @@ func TestNativeAEPPinChangesFailBeforeAnyProcessStarts(t *testing.T) {
 	if err = os.WriteFile(entry, []byte("# Changed after explicit inspection\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Service.Submit(ctx, session.ID, "must fail closed"); err != nil {
+	if _, err = a.Service.Submit(ctx, session.ID, "must fail closed", nil); err != nil {
 		t.Fatal(err)
 	}
 	waitOutcome(t, a, session.ID, engine.Failed)
@@ -323,7 +323,7 @@ func TestNativeAEPHandshakeFailureIsDurableAndOwned(t *testing.T) {
 	if err = a.Store.SetAEPEnabled(ctx, session.ID, snapshot.ID, true, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Service.Submit(ctx, session.ID, "local failure fixture"); err != nil {
+	if _, err = a.Service.Submit(ctx, session.ID, "local failure fixture", nil); err != nil {
 		t.Fatal(err)
 	}
 	waitOutcome(t, a, session.ID, engine.Failed)

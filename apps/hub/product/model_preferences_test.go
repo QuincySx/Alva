@@ -85,6 +85,18 @@ func serviceModelRoute() hub.Target {
 	return hub.Target{EngineID: "alva", ModelID: "model", ProviderID: "configured", AccountSource: "explicit-account", BillingRoute: "explicit-billing"}
 }
 
+func TestModelPreferenceFreshDatabaseReloadDoesNotReportFalseConflict(t *testing.T) {
+	service, backend := modelPreferenceService(t)
+	for range 2 {
+		if err := service.ReloadModelPreferences(t.Context()); err != nil {
+			t.Fatal("fresh SQLite snapshot must remain reloadable before any save", err)
+		}
+	}
+	if backend.writes != 0 || service.ModelPreference(serviceModelRoute()).Revision != 0 {
+		t.Fatal("reading empty preferences wrote or manufactured a model preference")
+	}
+}
+
 func TestModelPreferenceSaveRejectsMissingOrMismatchedReceipts(t *testing.T) {
 	for _, kind := range []string{"missing", "old-entry", "wrong-content"} {
 		t.Run(kind, func(t *testing.T) {

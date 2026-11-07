@@ -202,7 +202,11 @@ func TestOriginalUploadReferenceColdInspectorAndForeignRead(t *testing.T) {
 	}
 	body(t, f.request(t, "POST", "/v1/sessions/"+a.ID+"/attachments", raw, map[string]string{"X-File-Name": "../../host-secret"}), 409)
 	body(t, f.request(t, "POST", "/v1/sessions/"+a.ID+"/attachments?path=/etc/passwd", nil, map[string]string{"X-File-Name": "not-opened"}), 400)
-	body(t, f.request(t, "POST", "/v1/sessions/"+a.ID+"/turns", []byte(`{"prompt":"Search the relevant file error"}`), nil), 202)
+	send, err := json.Marshal(map[string]any{"prompt": "Search the relevant file error", "references": []product.DraftReferenceSelection{upload.DraftSelection()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body(t, f.request(t, "POST", "/v1/sessions/"+a.ID+"/turns", send, nil), 202)
 	waitIdle(t, f, a.ID)
 	history := body(t, f.request(t, "GET", "/v1/sessions/"+a.ID+"/history?limit=64", nil, nil), 200)
 	if bytes.Contains(history, raw) || !bytes.Contains(history, []byte(upload.Reference.URI)) {
@@ -212,6 +216,48 @@ func TestOriginalUploadReferenceColdInspectorAndForeignRead(t *testing.T) {
 		t.Fatal("admitted attachment draft not consumed")
 	}
 	body(t, f.request(t, "GET", "/v1/sessions/"+a.ID+"/history?limit=65", nil, nil), 400)
+}
+
+func TestHTTPTurnsOnlyConsumeExplicitCapturedReferenceSets(t *testing.T) {
+	f := newFixture(t, bootstrap.Config{OpenStores: bootstrap.LocalStores, OpenMemory: bootstrap.LocalMemory, OpenBindings: bootstrap.LocalBindings, Demo: true})
+	session := create(t, f, "two HTTP observers")
+	base := "/v1/sessions/" + session.ID
+	upload := func(name string) product.DraftAttachment {
+		t.Helper()
+		var draft product.DraftAttachment
+		if err := json.Unmarshal(body(t, f.request(t, "POST", base+"/attachments", []byte(name+" original"), map[string]string{"X-File-Name": name}), 201), &draft); err != nil {
+			t.Fatal(err)
+		}
+		return draft
+	}
+	first := upload("first.txt")
+	second := upload("second.txt")
+	body(t, f.request(t, "POST", base+"/turns", []byte(`{"prompt":"text only"}`), nil), 202)
+	waitIdle(t, f, session.ID)
+	if len(f.app.Service.DraftAttachments(session.ID)) != 2 {
+		t.Fatal("omitted HTTP selection consumed another observer's drafts")
+	}
+	for _, references := range [][]product.DraftReferenceSelection{{first.DraftSelection(), first.DraftSelection()}, {{Kind: "attachment", ID: "draft-missing", SHA256: first.Info.SHA256}}} {
+		data, err := json.Marshal(map[string]any{"prompt": "invalid selection", "references": references})
+		if err != nil {
+			t.Fatal(err)
+		}
+		body(t, f.request(t, "POST", base+"/turns", data, nil), 409)
+	}
+	data, err := json.Marshal(map[string]any{"prompt": "first observer sends", "references": []product.DraftReferenceSelection{first.DraftSelection()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body(t, f.request(t, "POST", base+"/turns", data, nil), 202)
+	waitIdle(t, f, session.ID)
+	remaining := f.app.Service.DraftAttachments(session.ID)
+	history := body(t, f.request(t, "GET", base+"/history?limit=64", nil, nil), 200)
+	if len(remaining) != 1 || remaining[0] != second || !bytes.Contains(history, []byte(first.Reference.URI)) || bytes.Contains(history, []byte(second.Reference.URI)) {
+		t.Fatal("HTTP send included or consumed another observer's draft", remaining)
+	}
+	if _, _, err = f.app.Repository.ReadArtifactFull(t.Context(), session.ID, first.Info.SessionID, first.Reference.URI, 1024); err != nil {
+		t.Fatal("consuming HTTP reference deleted the saved original", err)
+	}
 }
 
 func readHistoryEvent(t *testing.T, r *bufio.Reader) (uint64, []byte) {

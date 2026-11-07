@@ -81,7 +81,7 @@ func TestHubWaitKilledContinuationDoesNotReplayEffects(t *testing.T) {
 	if err = a.Service.EnableDurableWaits(t.Context(), s.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	turn, err := a.Service.Submit(t.Context(), s.ID, "one original mutation request")
+	turn, err := a.Service.Submit(t.Context(), s.ID, "one original mutation request", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestHubWaitExpiredCheckpointRequiresReviewWithoutExecution(t *testing.T) {
 	if err = a.Service.EnableDurableWaits(t.Context(), s.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Service.Submit(t.Context(), s.ID, "wait explicitly"); err != nil {
+	if _, err = a.Service.Submit(t.Context(), s.ID, "wait explicitly", nil); err != nil {
 		t.Fatal(err)
 	}
 	v := waitStatus(t, a, s.ID, engine.Waiting)

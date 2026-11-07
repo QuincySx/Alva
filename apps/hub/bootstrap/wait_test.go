@@ -103,7 +103,7 @@ func TestHubWaitExternalRestartSameTurnAndRecipe(t *testing.T) {
 	if err = a.Service.EnableDurableWaits(t.Context(), s.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	original, err := a.Service.Submit(t.Context(), s.ID, "one original prompt")
+	original, err := a.Service.Submit(t.Context(), s.ID, "one original prompt", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestHubWaitExternalRestartSameTurnAndRecipe(t *testing.T) {
 	if view.TurnID != original || len(view.Snapshot.State.Requests) != 1 || view.CanResume || calls.Load() != 1 {
 		t.Fatal(view, calls.Load())
 	}
-	if _, err = a.Service.Submit(t.Context(), s.ID, "bypass"); err == nil {
+	if _, err = a.Service.Submit(t.Context(), s.ID, "bypass", nil); err == nil {
 		t.Fatal("new input bypassed wait")
 	}
 	d, _ := a.Store.Detail(t.Context(), s.ID)
@@ -238,7 +238,7 @@ func TestHubWaitApprovalAndQuestion(t *testing.T) {
 			if err = a.Service.EnableDurableWaits(t.Context(), s.ID, true); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = a.Service.Submit(t.Context(), s.ID, "explicit wait"); err != nil {
+			if _, err = a.Service.Submit(t.Context(), s.ID, "explicit wait", nil); err != nil {
 				t.Fatal(err)
 			}
 			view := waitStatus(t, a, s.ID, engine.Waiting)

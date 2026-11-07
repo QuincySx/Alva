@@ -103,7 +103,7 @@ func TestPlanModeRealGuardReadWriteAndExplicitAskRestoration(t *testing.T) {
 	if calls.Load() != 0 {
 		t.Fatal("save/reopen started model")
 	}
-	if _, err = a.Service.Submit(t.Context(), p.ID, "Inspect and propose a plan"); err != nil {
+	if _, err = a.Service.Submit(t.Context(), p.ID, "Inspect and propose a plan", nil); err != nil {
 		t.Fatal(err)
 	}
 	waitStatus(t, a, p.ID, engine.Failed)
@@ -158,7 +158,7 @@ func TestPlanModeRealGuardReadWriteAndExplicitAskRestoration(t *testing.T) {
 	if _, err = os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatal("exiting Plan executed a lifecycle command")
 	}
-	if _, err = a.Service.Submit(t.Context(), p.ID, "Now request a change"); err != nil {
+	if _, err = a.Service.Submit(t.Context(), p.ID, "Now request a change", nil); err != nil {
 		t.Fatal(err)
 	}
 	approval := nextApproval(t, a, p.ID)
@@ -226,7 +226,7 @@ func TestPlanModeProducesAPlanThroughTheActualModel(t *testing.T) {
 	if err = a.Service.SetPlanMode(t.Context(), p.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Service.Submit(t.Context(), p.ID, "Produce a plan"); err != nil {
+	if _, err = a.Service.Submit(t.Context(), p.ID, "Produce a plan", nil); err != nil {
 		t.Fatal(err)
 	}
 	waitStatus(t, a, p.ID, engine.Succeeded)
@@ -278,7 +278,7 @@ func TestPlanModeCannotChangeFrozenDurableWaitRecipe(t *testing.T) {
 	if err = a.Service.EnableDurableWaits(t.Context(), p.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	turn, err := a.Service.Submit(t.Context(), p.ID, "wait explicitly")
+	turn, err := a.Service.Submit(t.Context(), p.ID, "wait explicitly", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

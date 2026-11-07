@@ -86,7 +86,7 @@ func TestPortableAEPPinsNextTurnActualLaunchAndCleanup(t *testing.T) {
 			if a.Runtime.HasActive() {
 				t.Fatal("approval started runtime")
 			}
-			if _, err = a.Service.Submit(t.Context(), session.ID, "local portable plugin demonstration"); err != nil {
+			if _, err = a.Service.Submit(t.Context(), session.ID, "local portable plugin demonstration", nil); err != nil {
 				t.Fatal(err)
 			}
 			// Cold WASM compilation belongs to actual attempt preparation.

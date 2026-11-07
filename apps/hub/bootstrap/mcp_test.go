@@ -110,7 +110,7 @@ func TestMCPActualAssemblyOwnsLazyWorkerUntilPhysicalCleanup(t *testing.T) {
 	if _, err = os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatal("saving approved recipe eagerly started MCP", err)
 	}
-	if _, err = app.Service.Submit(ctx, product.ID, "invoke the explicit local MCP fixture"); err != nil {
+	if _, err = app.Service.Submit(ctx, product.ID, "invoke the explicit local MCP fixture", nil); err != nil {
 		t.Fatal(err)
 	}
 	awaitTerminal(t, app, product.ID)

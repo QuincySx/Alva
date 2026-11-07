@@ -1,9 +1,10 @@
 // INPUT: Real product/native SQLite, explicit Goal services and frozen composer references.
-// OUTPUT: Cold creation, scope boundaries, retained source, first-Send binding and rejected tampering regressions.
+// OUTPUT: Cold creation, exact/cancelled receipt recovery, scope boundaries, retained source and first-Send/tampering regressions.
 // POS: [L7 Hub product tests] Goals reuse ordinary draft admission and never become another execution runtime.
 package product
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -59,7 +60,7 @@ func TestGoalsMaximumEncodedSourceRetainsOriginalAndSubmits(t *testing.T) {
 			if len(requests) != 0 || s.Runtime.HasActive() {
 				t.Fatal("Goal creation or source preparation executed")
 			}
-			if _, err = s.SubmitComposerDraft(t.Context(), session.ID, "Review the selected maximum-size Goal", []ComposerPreparation{prepared}); err != nil {
+			if _, err = s.SubmitComposerDraft(t.Context(), session.ID, "Review the selected maximum-size Goal", []ComposerPreparation{prepared}, nil); err != nil {
 				t.Fatal("valid expanded source prevented explicit Send", err)
 			}
 			actual := <-requests
@@ -135,7 +136,7 @@ func TestGoalsHomeCreationDoesNotCreateSessionAndBindsOnlyOnExplicitFirstSend(t 
 	if len(requests) != 0 || s.Runtime.HasActive() {
 		t.Fatal("binding executed")
 	}
-	if _, err = s.SubmitComposerDraft(t.Context(), session.ID, "Review the selected goal", bound); err != nil {
+	if _, err = s.SubmitComposerDraft(t.Context(), session.ID, "Review the selected goal", bound, nil); err != nil {
 		t.Fatal(err)
 	}
 	actual := <-requests
@@ -178,10 +179,10 @@ func TestGoalsSessionScopeAndArtifactTamperingRejectedBeforeAdmission(t *testing
 	copyRef.Reference.SHA256 = "forged-source"
 	tampered := selection
 	tampered.GoalRef = &copyRef
-	if _, err = s.SubmitComposerDraft(t.Context(), a.ID, "task", []ComposerPreparation{tampered}); err == nil {
+	if _, err = s.SubmitComposerDraft(t.Context(), a.ID, "task", []ComposerPreparation{tampered}, nil); err == nil {
 		t.Fatal("forged Goal source admitted")
 	}
-	if _, err = s.SubmitComposerDraft(t.Context(), b.ID, "task", []ComposerPreparation{selection}); err == nil {
+	if _, err = s.SubmitComposerDraft(t.Context(), b.ID, "task", []ComposerPreparation{selection}, nil); err == nil {
 		t.Fatal("foreign Goal reference admitted")
 	}
 	if len(requests) != 0 || s.Runtime.HasActive() {
@@ -192,7 +193,7 @@ func TestGoalsSessionScopeAndArtifactTamperingRejectedBeforeAdmission(t *testing
 	if _, err = s.Store.Switch(t.Context(), a.ID, target, "explicit route switch"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.SubmitComposerDraft(t.Context(), a.ID, "task", []ComposerPreparation{selection}); err == nil {
+	if _, err = s.SubmitComposerDraft(t.Context(), a.ID, "task", []ComposerPreparation{selection}, nil); err == nil {
 		t.Fatal("parked Goal source admitted on new branch")
 	}
 	stored, err := s.Goals.Read(t.Context(), receipt.Goal.ID)
@@ -237,5 +238,121 @@ func TestGoalsInvalidScopeCreatesNothing(t *testing.T) {
 	sessions, err := s.Store.ListSessions(t.Context(), 100)
 	if err != nil || len(sessions) != 0 || len(requests) != 0 {
 		t.Fatal("invalid Goal created chat or execution", err)
+	}
+}
+
+type goalChangedReceiptStore struct {
+	hub.GoalStore
+	change func(hub.Goal) hub.Goal
+	reads  bool
+	calls  int
+	cancel context.CancelFunc
+}
+
+func (s *goalChangedReceiptStore) CreateGoal(ctx context.Context, request hub.GoalCreate) (hub.GoalReceipt, error) {
+	s.calls++
+	receipt, err := s.GoalStore.CreateGoal(ctx, request)
+	if err == nil && !s.reads && s.change != nil {
+		receipt.Goal = s.change(receipt.Goal)
+	}
+	if err == nil && s.cancel != nil {
+		s.cancel()
+	}
+	return receipt, err
+}
+func (s *goalChangedReceiptStore) Goal(ctx context.Context, id string) (hub.Goal, error) {
+	goal, err := s.GoalStore.Goal(ctx, id)
+	if err == nil && s.reads {
+		goal = s.change(goal)
+	}
+	return goal, err
+}
+
+func TestGoalsCreationRejectsChangedReceiptWithoutReplayingCommittedFact(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		reads  bool
+		change func(hub.Goal) hub.Goal
+	}{
+		{name: "request", change: func(g hub.Goal) hub.Goal { g.RequestID += "-foreign"; return g }},
+		{name: "name", change: func(g hub.Goal) hub.Goal { g.Name += "-changed"; return g }},
+		{name: "criteria", change: func(g hub.Goal) hub.Goal { g.CompletionCriteria += "-changed"; return g }},
+		{name: "scope", change: func(g hub.Goal) hub.Goal { g.Scope.Workspace += "-foreign"; return g }},
+		{name: "revision", change: func(g hub.Goal) hub.Goal { g.Revision++; return g }},
+		{name: "identity", change: func(g hub.Goal) hub.Goal { g.ID += "-foreign"; return g }},
+		{name: "persisted identity", reads: true, change: func(g hub.Goal) hub.Goal { g.ID += "-foreign"; return g }},
+		{name: "persisted criteria", reads: true, change: func(g hub.Goal) hub.Goal { g.CompletionCriteria += "-changed"; return g }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, requests := fixture(t)
+			enableTestGoals(t, s)
+			original := s.Goals.Store
+			store := &goalChangedReceiptStore{GoalStore: original, change: test.change, reads: test.reads}
+			s.Goals.Store = store
+			request := productGoalRequest(t, hub.GoalScope{Kind: hub.GoalProjectScope, Workspace: t.TempDir()})
+			scope, err := s.Goals.canonicalScope(t.Context(), request.Scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Scope = scope
+			if receipt, err := s.Goals.Create(t.Context(), request); err == nil || receipt != (hub.GoalReceipt{}) {
+				t.Fatal("changed creation result became a successful Goal receipt", receipt, err)
+			}
+			facts, err := original.ListGoals(t.Context(), request.Scope, 100)
+			if err != nil || len(facts) != 1 || facts[0].Creation() != request || store.calls != 1 || s.Runtime.HasActive() || len(requests) != 0 {
+				t.Fatal("bad receipt replayed execution or lost the original committed Goal", facts, store.calls, err)
+			}
+			s.Goals.Store = original
+			recovered, err := s.Goals.Create(t.Context(), request)
+			if err != nil || !recovered.Replayed || recovered.Goal != facts[0] {
+				t.Fatal("explicit retry did not recover the original Goal", recovered, err)
+			}
+		})
+	}
+}
+
+func TestGoalsReadRejectsAnotherValidGoalIdentityBeforePreparingSource(t *testing.T) {
+	s, requests := fixture(t)
+	enableTestGoals(t, s)
+	request := productGoalRequest(t, hub.GoalScope{Kind: hub.GoalProjectScope, Workspace: t.TempDir()})
+	receipt, err := s.Goals.Create(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Goals.Store = &goalChangedReceiptStore{GoalStore: s.Goals.Store, reads: true, change: func(g hub.Goal) hub.Goal { g.ID += "-foreign"; return g }}
+	if _, err = s.PrepareComposerGoal(t.Context(), "", request.Scope.Workspace, receipt.Goal.ID); err == nil {
+		t.Fatal("selecting one saved Goal prepared another identity")
+	}
+	sessions, err := s.Store.ListSessions(t.Context(), 100)
+	if err != nil || len(sessions) != 0 || s.Runtime.HasActive() || len(requests) != 0 {
+		t.Fatal("rejected Goal identity created or executed a session", sessions, err)
+	}
+}
+
+func TestGoalsCancelledReceiptCheckPreservesFactForExplicitRetry(t *testing.T) {
+	s, requests := fixture(t)
+	enableTestGoals(t, s)
+	original := s.Goals.Store
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	store := &goalChangedReceiptStore{GoalStore: original, cancel: cancel}
+	s.Goals.Store = store
+	request := productGoalRequest(t, hub.GoalScope{Kind: hub.GoalProjectScope, Workspace: t.TempDir()})
+	scope, err := s.Goals.canonicalScope(t.Context(), request.Scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Scope = scope
+	if receipt, err := s.Goals.Create(ctx, request); !errors.Is(err, context.Canceled) || receipt != (hub.GoalReceipt{}) {
+		t.Fatal("receipt verification detached from the cancelled caller", receipt, err)
+	}
+	facts, err := original.ListGoals(t.Context(), scope, 100)
+	if err != nil || len(facts) != 1 || facts[0].Creation() != request || store.calls != 1 || s.Runtime.HasActive() || len(requests) != 0 {
+		t.Fatal("cancelled verification lost or replayed the committed Goal", facts, err)
+	}
+	s.Goals.Store = original
+	recovered, err := s.Goals.Create(t.Context(), request)
+	if err != nil || !recovered.Replayed || recovered.Goal != facts[0] {
+		t.Fatal("explicit retry did not recover the fact after cancellation", recovered, err)
 	}
 }

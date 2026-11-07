@@ -1,4 +1,4 @@
-// INPUT: Active committed product route, typed child ancestry and bounded actual broker snapshot
+// INPUT: Active committed Alva route, typed child ancestry and bounded actual broker snapshot
 // OUTPUT: Root/descendant pending approvals and real-native response without identity rewriting
 // POS: [L7 Hub product] Trusted product mediation never treats arbitrary child IDs or metadata-only parent links as grants
 package product
@@ -59,7 +59,7 @@ func (s *HubService) pendingAtRoot(ctx context.Context, id, root string) ([]secu
 // after Runtime's generation/permission dispatch checks. UI still supplies only
 // product ID + opaque request ID, never a chosen child native identity.
 func (s *HubService) RespondNativeApproval(ctx context.Context, engineID, root, requestID string, allow bool) error {
-	if s.Approvals == nil {
+	if s.Approvals == nil || engineID != "alva" {
 		return host.ErrApprovalExpired
 	}
 	id, err := s.Store.NativeOwner(ctx, engineID, root)
