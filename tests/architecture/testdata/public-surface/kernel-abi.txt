@@ -585,6 +585,9 @@ type ToolOutcome struct {
 	Status OutcomeStatus   `json:"status"`
 	Result wire.ToolResult `json:"result"`
 	Error  string          `json:"error,omitempty"`
+
+	StartedAt time.Time `json:"started_at,omitzero"`
+	EndedAt   time.Time `json:"ended_at,omitzero"`
 }
 
 type ToolPattern struct {

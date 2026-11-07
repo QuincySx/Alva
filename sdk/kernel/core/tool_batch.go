@@ -1,6 +1,6 @@
-// INPUT: context, errors, fmt, sync, kernel/abi, llm/wire
+// INPUT: context, errors, fmt, sync, time, kernel/abi, llm/wire
 // OUTPUT: ToolBatchCoordinator
-// POS: [L2 kernel runtime] Conflict-aware bounded waves with model-order durable settlement and truthful cancellation.
+// POS: [L2 kernel runtime] Conflict-aware bounded waves with model-order durable settlement, per-call execution times and truthful cancellation.
 package core
 
 import (
@@ -11,6 +11,7 @@ import (
 	"github.com/QuincySx/Alva/sdk/kernel/bus"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 	"sync"
+	"time"
 )
 
 type ToolBatchCoordinator struct{}
@@ -24,10 +25,11 @@ type ToolBatchConfig struct {
 	PreparedResults    map[string]wire.ToolResult
 }
 type executedCall struct {
-	result  wire.ToolResult
-	err     error
-	started bool
-	audit   *toolHookAudit
+	result             wire.ToolResult
+	err                error
+	started            bool
+	startedAt, endedAt time.Time
+	audit              *toolHookAudit
 }
 
 func (ToolBatchCoordinator) Execute(ctx context.Context, config ToolBatchConfig, runID string, calls []wire.ToolCall, intents []abi.SessionRecord, tools map[string]abi.Tool, runtime *ContextRuntime, emit func(abi.Event) error) error {
@@ -82,7 +84,13 @@ func (ToolBatchCoordinator) Execute(ctx context.Context, config ToolBatchConfig,
 				execution := abi.ToolExecutionContext{SessionID: config.Session.ID(), Session: config.Session, RunID: runID, CallID: call.ID, Workspace: config.Workspace, Progress: callbackSink{emit: safeEmit}, Capabilities: config.Bus, Scheduling: intents[cursor+index].ToolIntent.Scheduling, ActualTool: tools[call.Name]}
 				outcomes[index].started = true
 				outcomes[index].audit = newToolHookAudit(runID, call.ID)
+				// Per-call instants: the wave still settles in model order after
+				// every sibling joins, so settlement time is not this call's end.
+				// The end adds monotonic elapsed time to the start, so a wall-clock
+				// step during execution can never persist an end before the start.
+				started := time.Now()
 				outcomes[index].result, outcomes[index].err = executeTool(ctx, execution, tools[call.Name], call, config.Middleware, outcomes[index].audit)
+				outcomes[index].startedAt, outcomes[index].endedAt = started.UTC(), started.Add(time.Since(started)).UTC()
 			}(i)
 		}
 		wait.Wait()
@@ -113,7 +121,7 @@ func (ToolBatchCoordinator) Execute(ctx context.Context, config ToolBatchConfig,
 				}
 				result.Content = []wire.ContentBlock{{Kind: wire.ContentText, Text: prefix + executionErr.Error()}}
 			}
-			fact := &abi.ToolOutcome{RunID: runID, CallID: call.ID, Status: status, Result: result}
+			fact := &abi.ToolOutcome{RunID: runID, CallID: call.ID, Status: status, Result: result, StartedAt: outcome.startedAt, EndedAt: outcome.endedAt}
 			if executionErr != nil {
 				fact.Error = executionErr.Error()
 			}

@@ -21,6 +21,7 @@ Optional middleware hooks 是机制；权限、日志检索、模型投递策略
 Middleware只描述身份和按需实现的typed hooks；装配顺序由agent/core注册入口处理，kernel不定义Priority或Configure契约。
 PrepareToolHook通过ToolPreparationContext取得本轮ActualTool（nil为未知/不许可），在intent前处理typed参数/结果union，name/ID固定；原assistant声明不改，ToolIntent.Call为有效参数，DeclaredCall仅在改参时保留原值。
 NoSideEffect只证明该Tool.Execute/执行hooks未调用，不证明prepare/native插件IO无副作用，不能据此安全重放Attempt。
+ToolOutcome.StartedAt/EndedAt是宿主时钟上该调用实际执行阶段（BeforeTool、WrapTool链内的Tool.Execute、AfterTool）的进入与离开时刻（内核以单调时钟耗时推出EndedAt，不早于StartedAt），JSON `omitzero`；prepared result、开始前取消与未执行补齐两者均为零。它们是观察事实，不是授权或重放依据；两者都非零且EndedAt早于StartedAt时Validate拒绝该记录。
 SessionError 保留实际 messages/append_records/flush 操作及 session identity；即使其原因是超时也不能降级为普通任务取消。
 OnlyCancellation 递归检查 Join 的全部叶子，任何真实失败或 typed session failure 都不是纯取消。
 EventMessageCommitted仅为完整assistant响应的实际耐久事实（含effective AfterModel与record identity），中间toolcall响应也可能出现；不是Run成功终态，partial失败正文不发此事件。
@@ -31,7 +32,7 @@ ToolFunc每层零或一次；ModelFunc保留无公开输出的顺序多次尝试
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | Loop contracts | `contracts.go` | Model/tool/log/store/event/middleware、prepare union 与 typed records |
-| Record integrity | `records.go` | 当前 envelope 构造、union 校验与完整 deep clone |
+| Record integrity | `records.go` / `records_test.go` | 当前 envelope 构造、union 校验（含工具执行时间先后）与完整 deep clone |
 | Error semantics | `errors.go` | 类型化会话操作失败与无损取消分类 |
 | Event ownership | `events.go` | 队列/订阅者的 event 深拷贝 |
 | Runtime state | `state.go` / `state_test.go` | typed-nil model/log/tool拒绝且失败替换不改变live state/registry version； 实际mutable model/session/tool registry与typed Extensions |

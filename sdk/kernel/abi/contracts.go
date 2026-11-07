@@ -146,6 +146,16 @@ type ToolOutcome struct {
 	Status OutcomeStatus   `json:"status"`
 	Result wire.ToolResult `json:"result"`
 	Error  string          `json:"error,omitempty"`
+	// StartedAt/EndedAt are host-clock instants immediately before and after
+	// this call's actual post-intent execution phase (BeforeTool hooks, the
+	// ToolWrapper chain around Tool.Execute and AfterTool hooks), so calls that
+	// share a parallel wave keep their own end times. The kernel derives
+	// EndedAt from monotonic elapsed time, so it never precedes StartedAt.
+	// Calls that never entered execution (prepared results, cancellation
+	// before start, unexecuted settlement) leave both zero. They are
+	// observations, never authorization or replay evidence.
+	StartedAt time.Time `json:"started_at,omitzero"`
+	EndedAt   time.Time `json:"ended_at,omitzero"`
 }
 
 // Exactly one payload must correspond to Kind. Sequence/ID/time are store-owned.

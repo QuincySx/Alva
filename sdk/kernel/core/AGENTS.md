@@ -37,6 +37,7 @@ Tool/WrapTool 真正返回 error 表示执行/基础设施/授权中止：先提
 ## 约束
 ToolBatchCoordinator 将显式ConcurrentSafe且无规范化资源冲突的工具放入有界wave；SerialGlobal为屏障，Coordinator可参与wave。
 开始事件/intent与outcome按模型顺序，执行可并行；等待所有已开始调用真正退出，失败兄弟也各自记录实际结果。
+每个调用在goroutine内紧挨executeTool前后记录自己的StartedAt/EndedAt（UTC；EndedAt=StartedAt+单调时钟耗时，墙钟回拨也不会写出终点早于起点而被存储拒绝）写入outcome，因此同一wave里的快工具不会被记成与慢工具同时结束；未进入执行的调用（prepared result、开始前取消、未执行补齐、prepare失败批次）保持零值。
 取消不等于执行停止：工具忽略取消并正常返回时保留成功结果，run仍返回取消；真正失败+取消是Failed，保留两者证据。
 模型响应有显式字节上限和 finish 验证；吞掉 callback error 也不会授权工具。
 Run callback 必须有界/支持调用方取消；本层不偷偷启动异步回调 goroutine。
@@ -58,7 +59,7 @@ ModelConfig每次调用deep clone；disable/allowlist既过滤schema也限制实
 | Execution | `loop.go` | AgentLoop、默认循环、耐久 intent/outcome 与 settlement |
 | Log identity | `log_identity_test.go` | 含map/slice动态配置的value log可正常取消/Flush，可比较实际handle继续去重 |
 | Model invocation | `model_invoke.go` | canonical身份、顺序next/逐尝试callback lease、公开失败保护与最终只读准入 |
-| Tool waves | `tool_batch.go` | 冲突感知并行与模型顺序settlement |
+| Tool waves | `tool_batch.go` / `tool_batch_test.go` | 冲突感知并行、逐调用真实起止时间与模型顺序settlement |
 | Tool preparation | `tool_prepare.go` | intent前改参/替代结果与失败批次原子结算 |
 | Frozen execution | `tool_execute.go` | post-intent参数不可变与真实execution authority绑定 |
 | Hook observations | `hook_audit.go` | typed阶段观察、实际顺序/inclusive耗时、固定错误类别，无具体持久化schema |

@@ -80,6 +80,9 @@ func (r SessionRecord) Validate() error {
 		if r.ToolOutcome == nil || r.ToolOutcome.RunID == "" || r.ToolOutcome.CallID == "" || r.ToolOutcome.Result.CallID != r.ToolOutcome.CallID || !validStatus(r.ToolOutcome.Status) {
 			return errors.New("tool outcome identity/status invalid")
 		}
+		if started, ended := r.ToolOutcome.StartedAt, r.ToolOutcome.EndedAt; !started.IsZero() && !ended.IsZero() && ended.Before(started) {
+			return errors.New("tool outcome ends before it starts")
+		}
 		if err := (wire.ContentBlock{Kind: wire.ContentToolResult, ToolResult: &r.ToolOutcome.Result}).Validate(); err != nil {
 			return err
 		}

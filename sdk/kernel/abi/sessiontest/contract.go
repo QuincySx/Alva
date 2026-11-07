@@ -1,4 +1,4 @@
-// INPUT: context, encoding/json, testing, kernel/abi, llm/wire
+// INPUT: context, encoding/json, testing, time, kernel/abi, llm/wire
 // OUTPUT: Run shared ConversationLog/PersistentSession backend conformance tests
 // POS: [SDK contract testing] Third-party backends reuse execution-fact guarantees without a platform dependency.
 package sessiontest
@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -136,6 +137,33 @@ func matchingOutcomes(t *testing.T, log abi.PersistentSession) {
 	}
 	if len(read(t, log)) != 2 {
 		t.Fatal("protocol rejection changed records")
+	}
+	// Execution instants are kernel observations, preserved verbatim by every
+	// backend and absent (zero) when never supplied.
+	started := time.Date(2026, 11, 7, 8, 0, 0, 123456789, time.UTC)
+	ended := started.Add(250 * time.Millisecond)
+	timedIntent := abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolIntent, ToolIntent: &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "timed", Name: "tool", Arguments: json.RawMessage(`{}`)}}})
+	timedOutcome := abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolOutcome, ToolOutcome: &abi.ToolOutcome{RunID: "run", CallID: "timed", Status: abi.OutcomeSucceeded, Result: wire.ToolResult{CallID: "timed"}, StartedAt: started, EndedAt: ended}})
+	if _, err := log.AppendRecords(t.Context(), []abi.SessionRecord{timedIntent, timedOutcome}); err != nil {
+		t.Fatal(err)
+	}
+	stored := read(t, log)
+	if len(stored) != 4 || stored[1].ToolOutcome == nil || stored[3].ToolOutcome == nil {
+		t.Fatal("timed outcome not retained", len(stored))
+	}
+	if !stored[1].ToolOutcome.StartedAt.IsZero() || !stored[1].ToolOutcome.EndedAt.IsZero() {
+		t.Fatal("backend invented execution times")
+	}
+	if !stored[3].ToolOutcome.StartedAt.Equal(started) || !stored[3].ToolOutcome.EndedAt.Equal(ended) {
+		t.Fatal("backend lost tool execution times", stored[3].ToolOutcome.StartedAt, stored[3].ToolOutcome.EndedAt)
+	}
+	reversedIntent := abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolIntent, ToolIntent: &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "reversed", Name: "tool", Arguments: json.RawMessage(`{}`)}}})
+	reversed := abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolOutcome, ToolOutcome: &abi.ToolOutcome{RunID: "run", CallID: "reversed", Status: abi.OutcomeSucceeded, Result: wire.ToolResult{CallID: "reversed"}, StartedAt: ended, EndedAt: started}})
+	if _, err := log.AppendRecords(t.Context(), []abi.SessionRecord{reversedIntent, reversed}); err == nil {
+		t.Fatal("outcome ending before it started accepted")
+	}
+	if len(read(t, log)) != 4 {
+		t.Fatal("reversed-time rejection changed records")
 	}
 }
 
