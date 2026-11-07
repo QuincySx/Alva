@@ -22,6 +22,7 @@ type ComposerEntryKind string
 const (
 	ComposerCommandEntry ComposerEntryKind = "command"
 	ComposerSkillEntry   ComposerEntryKind = "skill"
+	ComposerGoalEntry    ComposerEntryKind = "goal"
 )
 
 type ComposerIntent string
@@ -95,6 +96,7 @@ type ComposerPreparation struct {
 	Intent    ComposerIntent          `json:"intent,omitempty"`
 	Text      string                  `json:"text"`
 	SkillRef  *ComposerSkillReference `json:"skill_ref,omitempty"`
+	GoalRef   *ComposerGoalReference  `json:"goal_ref,omitempty"`
 }
 
 func composerArguments() []ComposerArgument {
@@ -300,6 +302,9 @@ func (s *HubService) PrepareComposerSelection(ctx context.Context, id string, re
 // It rejects disabled, archived, changed, foreign-branch or altered references;
 // it performs no submission, PlanMode change, Skill enablement or execution.
 func (s *HubService) RevalidateComposerPreparation(ctx context.Context, id string, prepared ComposerPreparation) error {
+	if prepared.Kind == ComposerGoalEntry {
+		return s.revalidateGoalPreparation(ctx, id, prepared)
+	}
 	current, err := s.PrepareComposerSelection(ctx, id, ComposerSelectionRequest{EntryID: prepared.EntryID, Arguments: prepared.Arguments})
 	if err != nil {
 		return err

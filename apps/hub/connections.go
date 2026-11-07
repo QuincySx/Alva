@@ -24,6 +24,7 @@ type ModelConnection struct {
 	Name        string            `json:"name"`
 	Protocol    string            `json:"protocol"`
 	Endpoint    string            `json:"endpoint"`
+	CatalogURL  string            `json:"catalog_url,omitempty"`
 	Auth        string            `json:"auth"`
 	Enabled     bool              `json:"enabled"`
 	HasAPIKey   bool              `json:"has_api_key"`
@@ -47,6 +48,7 @@ type ConnectionUpdate struct {
 	Name             string            `json:"name"`
 	Protocol         string            `json:"protocol"`
 	Endpoint         string            `json:"endpoint"`
+	CatalogURL       string            `json:"catalog_url,omitempty"`
 	Auth             string            `json:"auth"`
 	Enabled          bool              `json:"enabled"`
 	Models           []ConnectionModel `json:"models"`
@@ -70,6 +72,7 @@ func (ConnectionUpdate) String() string    { return "[private model connection e
 func (ConnectionUpdate) GoString() string  { return "[private model connection edit]" }
 
 type ConnectionsStore interface {
+	ModelPreferencesStore
 	Connections(context.Context) ([]ModelConnection, error)
 	SaveConnection(context.Context, ConnectionUpdate) (ModelConnection, error)
 	DeleteConnection(context.Context, string, uint64) error
@@ -112,6 +115,12 @@ func (c ModelConnection) Validate() error {
 	if strings.Contains(c.Endpoint, "{") || strings.Contains(c.Endpoint, "}") {
 		if c.Protocol != "gemini" || strings.Count(c.Endpoint, "{model}") != 1 || strings.ContainsAny(strings.ReplaceAll(c.Endpoint, "{model}", ""), "{}") {
 			return errors.New("only Gemini supports an explicit {model} endpoint placeholder")
+		}
+	}
+	if c.CatalogURL != "" {
+		catalog, err := url.Parse(c.CatalogURL)
+		if err != nil || len(c.CatalogURL) > 256 || catalog.Scheme != endpoint.Scheme || !strings.EqualFold(catalog.Host, endpoint.Host) || catalog.User != nil || catalog.RawQuery != "" || catalog.Fragment != "" || catalog.Path == "" || strings.ContainsAny(c.CatalogURL, "{}\r\n\x00") {
+			return errors.New("catalog URL must be an explicit same-origin HTTP(S) URL without credentials, query, fragment or model placeholder")
 		}
 	}
 	if len(c.Models) > 128 || len(c.HeaderNames) > 64 {
@@ -186,6 +195,7 @@ func (c ModelConnection) Apply(u ConnectionUpdate, secret ConnectionSecrets) (Mo
 	c.Name = u.Name
 	c.Protocol = u.Protocol
 	c.Endpoint = u.Endpoint
+	c.CatalogURL = u.CatalogURL
 	c.Auth = u.Auth
 	c.Enabled = u.Enabled
 	c.Models = append([]ConnectionModel(nil), u.Models...)

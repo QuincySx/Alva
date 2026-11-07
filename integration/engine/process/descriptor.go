@@ -12,7 +12,7 @@ func (a *Adapter) Descriptor() engine.Descriptor {
 		descriptor.Config.SupportsSystemPrompt = true
 		descriptor.Config.SupportsMaxTurns = true
 	}
-	// No provider headers/fast mode are routed. Codex/Pi user-message prefixing
+	// No generation/provider headers/fast mode are routed. Codex/Pi user-message prefixing
 	// is not a real system prompt; those options remain explicitly unsupported.
 	return descriptor
 }

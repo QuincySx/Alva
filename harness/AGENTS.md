@@ -20,6 +20,7 @@ Default demo/live factories remain explicitly volatile unless supplied an actual
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | BaseAgent recipe | base.go | Default-by-name Plugin assembly and retained Runner factories |
+| Model request recipe | model_config_test.go | 通用ModelConfig复制后透传SDK，setter/Build回调修改不改变当前冻结请求 |
 | Default roles | defaults.go | Distinct memory capability wrapper and honest system context |
 | Reference policy | context.go | Product large-text/unselected-media DTO projection against explicitly bound SDK backends/tools |
 | Media projection regressions | media_test.go | Tool media never auto-delivers or fetches URLs; complete owned references and fail-closed budgets |

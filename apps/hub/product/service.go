@@ -55,6 +55,7 @@ type HubService struct {
 	Gateway            *gateway.Local
 	Preferences        *PreferencesService
 	Connections        *ConnectionsService
+	Goals              *GoalsService
 	Teams              *TeamCoordinator
 	Automations        *AutomationCoordinator
 	Worktrees          *worktree.Manager
@@ -160,7 +161,16 @@ func (s *HubService) Submit(ctx context.Context, id, prompt string) (string, err
 func (s *HubService) submitDraft(ctx context.Context, id, prompt string, selections []ComposerPreparation) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var err error
+	selections, err = s.rebindComposerGoalsLocked(ctx, id, selections)
+	if err != nil {
+		return "", err
+	}
 	if err := s.prepareComposerDraftLocked(ctx, id, selections); err != nil {
+		return "", err
+	}
+	prompt, err = s.composerGoalPrompt(ctx, id, selections, prompt)
+	if err != nil {
 		return "", err
 	}
 	detail, err := s.Store.Detail(ctx, id)

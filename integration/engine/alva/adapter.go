@@ -35,8 +35,8 @@ type OwnedRunner interface {
 type PermissionResponder func(context.Context, string, string, engine.PermissionDecision) error
 
 // FactoryOptions declares the exact request fields this trusted factory applies
-// to its actual harness. Ordinary factories conservatively accept neither.
-type FactoryOptions struct{ SystemPrompt, MaxTurns, DurableWaits bool }
+// to its actual harness. Ordinary factories conservatively reject optional settings.
+type FactoryOptions struct{ SystemPrompt, MaxTurns, Generation, DurableWaits bool }
 type Adapter struct {
 	factory RunnerFactory
 	respond PermissionResponder
@@ -64,6 +64,7 @@ func (a *Adapter) Descriptor() engine.Descriptor {
 	d := engine.DescribeRuntime(a)
 	d.Config.SupportsSystemPrompt = a.options.SystemPrompt
 	d.Config.SupportsMaxTurns = a.options.MaxTurns
+	d.Config.SupportsGeneration = a.options.Generation
 	return d
 }
 func (a *Adapter) Capabilities() engine.Capabilities {
@@ -97,6 +98,13 @@ func (a *Adapter) Cancel(_ context.Context, id string) error {
 func (a *Adapter) Execute(parent context.Context, request engine.Request, sink func(engine.Event) error) error {
 	if a.factory == nil || sink == nil {
 		return errors.New("Alva engine requires a factory and event sink")
+	}
+	request.Generation = request.Generation.Clone()
+	if err := request.Generation.Validate(); err != nil {
+		return err
+	}
+	if !request.Generation.Empty() && !a.options.Generation {
+		return fmt.Errorf("%w: configure Alva generation options in the harness factory", engine.ErrUnsupported)
 	}
 	if request.MaxTurns < 0 || request.MaxTurns > 1024 || len(request.SystemPrompt) > 8<<10 || !utf8.ValidString(request.SystemPrompt) || strings.ContainsRune(request.SystemPrompt, '\x00') {
 		return errors.New("engine request requires0..1024 turns and at most8KiB UTF-8 system prompt")

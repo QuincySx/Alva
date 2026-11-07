@@ -97,6 +97,17 @@ func (DefaultAgentLoop) Run(ctx context.Context, config RunConfig, input []wire.
 	contextRuntime := NewContextRuntime(session.ID(), config.ContextSystem)
 	// Flush failure is observable even if execution itself succeeded or failed.
 	defer func() {
+		// An interrupted dependency can return its own error without wrapping
+		// the request cancellation. Preserve both before end hooks observe it.
+		// A cancellation arriving after successful execution does not change
+		// that completed result into a failure.
+		if runErr != nil {
+			for _, cause := range []error{ctx.Err(), context.Cause(ctx)} {
+				if cause != nil && !errors.Is(runErr, cause) {
+					runErr = errors.Join(runErr, cause)
+				}
+			}
+		}
 		cleanup, cancel := settlementContext(ctx)
 		defer cancel()
 		runErr = errors.Join(runErr, contextRuntime.Dispose(cleanup))

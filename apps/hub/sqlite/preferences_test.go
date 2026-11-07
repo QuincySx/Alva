@@ -58,7 +58,7 @@ func TestPreferencesDefaultsAndDurableAtomicUpdate(t *testing.T) {
 	if err = store.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_preferences`).Scan(&rows); err != nil || version != 3 || rows != 1 {
+	if err = store.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_preferences`).Scan(&rows); err != nil || version != 4 || rows != 1 {
 		t.Fatalf("schema=%d singleton rows=%d: %v", version, rows, err)
 	}
 }
@@ -188,10 +188,7 @@ func TestPreferencesVersionOneUpgradePreservesProductAndNativeFacts(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim, err := old.BeginTurn(ctx, session.ID, "existing prompt")
-	if err != nil {
-		t.Fatal(err)
-	}
+	claim := preferencesVersionOneClaim(t, old, session, "existing prompt")
 	complete(t, old, claim, "existing-native-session")
 	detail, err := old.Detail(ctx, session.ID)
 	if err != nil {
@@ -287,7 +284,7 @@ func TestPreferencesUnknownSchemaIsNotModified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.ExecContext(ctx, `CREATE TABLE future_facts(data TEXT); INSERT INTO future_facts VALUES('retain future'); PRAGMA user_version=4`); err != nil {
+	if _, err = db.ExecContext(ctx, `CREATE TABLE future_facts(data TEXT); INSERT INTO future_facts VALUES('retain future'); PRAGMA user_version=5`); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Close(); err != nil {
@@ -313,7 +310,7 @@ func TestPreferencesUnknownSchemaIsNotModified(t *testing.T) {
 	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE name LIKE 'hub_%'`).Scan(&added); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRowContext(ctx, `SELECT data FROM future_facts`).Scan(&original); err != nil || version != 4 || added != 0 || original != "retain future" {
+	if err = db.QueryRowContext(ctx, `SELECT data FROM future_facts`).Scan(&original); err != nil || version != 5 || added != 0 || original != "retain future" {
 		t.Fatalf("future schema changed: version=%d added=%d original=%q %v", version, added, original, err)
 	}
 }
@@ -403,4 +400,53 @@ PRAGMA user_version=1;`
 		t.Fatal(err)
 	}
 	return db
+}
+
+// Frozen v1 facts must not invoke today's admission recipe, which requires
+// newer settings tables. This exercises migration of an actual old record.
+func preferencesVersionOneClaim(t *testing.T, store *Store, session hub.Session, prompt string) hub.Claim {
+	t.Helper()
+	detail, err := store.Detail(t.Context(), session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var branch hub.Branch
+	for _, current := range detail.Branches {
+		if current.ID == session.ActiveBranchID {
+			branch = current
+		}
+	}
+	turnID, err := hub.NewID("turn-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID, err := hub.NewID("attempt-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := now()
+	turn := hub.Turn{ID: turnID, SessionID: session.ID, Sequence: 1, Prompt: prompt, Status: hub.Running, ActiveAttemptID: attemptID, CreatedAt: stamp}
+	attempt := hub.Attempt{ID: attemptID, TurnID: turnID, SessionID: session.ID, BranchID: branch.ID, Target: branch.Target, Status: hub.Running, CreatedAt: stamp}
+	session.Status, session.UpdatedAt = hub.Running, stamp
+	err = store.transaction(t.Context(), func(tx *sql.Tx) error {
+		turnData, err := body(turn)
+		if err != nil {
+			return err
+		}
+		attemptData, err := body(attempt)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(t.Context(), `INSERT INTO hub_turns(id,session,seq,status,data) VALUES(?,?,?,?,?)`, turn.ID, session.ID, turn.Sequence, turn.Status, turnData); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(t.Context(), `INSERT INTO hub_attempts(id,session,turn,status,data) VALUES(?,?,?,?,?)`, attempt.ID, session.ID, turn.ID, attempt.Status, attemptData); err != nil {
+			return err
+		}
+		return writeSession(t.Context(), tx, session)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hub.Claim{Session: session, Branch: branch, Turn: turn, Attempt: attempt}
 }

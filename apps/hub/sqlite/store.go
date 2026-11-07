@@ -39,7 +39,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
-	if version < 0 || version > 3 {
+	if version < 0 || version > 4 {
 		s.Close()
 		return nil, errors.New("unsupported Go product database schema; existing data was not modified")
 	}
@@ -127,6 +127,38 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		}
 	}
 	if _, err = connections(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
+	if version < 4 {
+		for _, statement := range []string{
+			`CREATE TABLE hub_goals(id TEXT PRIMARY KEY,request TEXT NOT NULL UNIQUE,created INTEGER NOT NULL,scope_kind TEXT NOT NULL,workspace TEXT NOT NULL,session TEXT NOT NULL,data BLOB NOT NULL)`,
+			`CREATE INDEX hub_goal_scope ON hub_goals(scope_kind,workspace,session,created,id)`,
+		} {
+			if _, err = initialization.ExecContext(ctx, statement); err != nil {
+				initialization.Rollback()
+				s.Close()
+				return nil, err
+			}
+		}
+		if err = modelPreferencesSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=4`); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+	}
+	if err = validateGoalsSchema(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
+	if _, err = modelPreferences(ctx, initialization); err != nil {
 		initialization.Rollback()
 		s.Close()
 		return nil, err
@@ -457,6 +489,10 @@ func beginAttempt(ctx context.Context, tx *sql.Tx, session hub.Session, branch h
 		return hub.Attempt{}, err
 	}
 	attempt := hub.Attempt{ID: id, SessionID: session.ID, TurnID: turn.ID, BranchID: branch.ID, Target: branch.Target, NativeSessionID: branch.NativeSessionID, Status: hub.Running, CreatedAt: now()}
+	attempt.ModelOptions, err = captureModelOptions(ctx, tx, session, branch, *turn)
+	if err != nil {
+		return hub.Attempt{}, err
+	}
 	data, err := body(attempt)
 	if err != nil {
 		return attempt, err

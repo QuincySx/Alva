@@ -33,6 +33,7 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 | tools.go | 六类可选Plugin真实装配（planning/interaction/utility 显式导入 native 适配，普通 Tool 根包不再绑定原生产品）、same-session问题broker、actual tool信任与Shell跨轮Session owner/attempt Lease与Web物理收尾 |
 | assembly_test.go | no-start、真实demo跨重启native resume、route绑定与未批准零副作用回归 |
 | options_test.go | actual registered factory→local HTTP system role；opt-in请求轮数/系统prompt实际传给harness，不只改Descriptor |
+| generation_options_test.go | 保存模型默认值→Attempt→Runtime→harness→真实本地HTTP；温度/输出token/推理/system及工具后轮数限制 |
 | compatibility_test.go | 默认off、native/标准Skill一个目录一个Tool、真实模板child与独立HITL、规则变更拒绝同Turn恢复；Snapshot进attempt owner |
 | subagent_test.go | 真实四次local model/root-child HITL、typed关系、引用隔离与冷Inspector闭环 |
 | mcp_test.go | 明确本地真实MCP子进程、lazy启动、actual attempt资源注册及SDK/应用物理收尾 |

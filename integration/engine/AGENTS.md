@@ -12,6 +12,7 @@ DurableWaits能力必须由实际factory声明；Completed(waiting)只在Session
 | 文件/目录 | 职责 |
 |---|---|
 | contract.go | 统一 Request/Event/Runtime/能力与流契约 |
+| options.go | stdlib-only可选生成参数、数值校验和复制；adapter显式声明支持，不静默忽略 |
 | wait.go | stdlib-only可选WaitingRunner及有界checkpoint收尾回执，不依赖harness/产品存储 |
 | descriptor.go | 独立Runtime/Inspector装配、保守配置/权限关系/安装声明；不探测宿主或账户 |
 | inspector.go | stdlib-only检查契约：bounded metadata/text/typed child/背压观察/显式JSONL，不含执行或删除 |

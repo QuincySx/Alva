@@ -399,3 +399,22 @@ func TestJournalSanitizationFailureRemainsLatched(t *testing.T) {
 		t.Fatal("failed journal retained successful suffix", info, err)
 	}
 }
+
+func TestAllExternalEnginesRejectGenerationBeforeFilesystemOrProcess(t *testing.T) {
+	temperature := 0.7
+	for _, vendor := range []string{"claude", "codex", "pi"} {
+		t.Run(vendor, func(t *testing.T) {
+			adapter, _ := fixtureAdapter(t, vendor, "ok")
+			if adapter.Descriptor().Config.SupportsGeneration {
+				t.Fatal("external adapter claimed unimplemented generation flags")
+			}
+			request := engine.Request{OwnerID: "fixture-owner", Workspace: filepath.Join(t.TempDir(), "does-not-exist"), Prompt: "must not start", Generation: engine.GenerationOptions{Temperature: &temperature}}
+			if _, err := adapter.args(request, "fixture"); !errors.Is(err, engine.ErrUnsupported) {
+				t.Fatal("argv preparation silently ignored generation", err)
+			}
+			if err := adapter.Execute(t.Context(), request, func(engine.Event) error { t.Fatal("unsupported request emitted process events"); return nil }); !errors.Is(err, engine.ErrUnsupported) {
+				t.Fatal("generation reached filesystem or process admission", err)
+			}
+		})
+	}
+}

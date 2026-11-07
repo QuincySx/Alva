@@ -23,6 +23,7 @@ type PermissionPlan struct {
 	Summary   string             `json:"summary"`
 }
 type ConfigSurface struct {
+	SupportsGeneration        bool   `json:"supports_generation"`
 	SupportsMaxTurns          bool   `json:"supports_max_turns"`
 	SupportsSystemPrompt      bool   `json:"supports_system_prompt"`
 	ProviderProtocol          string `json:"provider_protocol"`

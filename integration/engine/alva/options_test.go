@@ -68,3 +68,32 @@ func TestConfiguredFactoryActualIterationLimitAndUnsupportedPreflight(t *testing
 		t.Fatal("invalid options reached factory", builds, err)
 	}
 }
+
+func TestGenerationOptionsRequireDeclaredFactoryAndDetachInput(t *testing.T) {
+	temperature := 0.35
+	calls := 0
+	fixtureStop := errors.New("explicit fixture factory stop")
+	factory := func(_ context.Context, _ string, request engine.Request, _ bool) (harness.Runner, error) {
+		calls++
+		if request.Generation.Temperature == nil || *request.Generation.Temperature != 0.35 {
+			t.Fatal("factory did not receive actual generation snapshot")
+		}
+		*request.Generation.Temperature = 0.9
+		return nil, fixtureStop
+	}
+	request := engine.Request{Prompt: "one explicit prompt", Generation: engine.GenerationOptions{Temperature: &temperature}}
+	if err := New(factory).Execute(t.Context(), request, func(engine.Event) error { return nil }); !errors.Is(err, engine.ErrUnsupported) || calls != 0 {
+		t.Fatal("undeclared generation reached factory", calls, err)
+	}
+	adapter := NewConfigured(factory, nil, FactoryOptions{Generation: true})
+	if !adapter.Descriptor().Config.SupportsGeneration || New(factory).Descriptor().Config.SupportsGeneration {
+		t.Fatal("generation declaration does not reflect actual factory opt-in")
+	}
+	if err := adapter.Execute(t.Context(), request, func(engine.Event) error { return nil }); !errors.Is(err, fixtureStop) || calls != 1 || temperature != 0.35 {
+		t.Fatal("factory input did not detach caller configuration", calls, temperature, err)
+	}
+	request.Generation.ReasoningEffort = "unsupported-value"
+	if err := adapter.Execute(t.Context(), request, func(engine.Event) error { return nil }); err == nil || calls != 1 {
+		t.Fatal("invalid generation reached actual factory", calls, err)
+	}
+}

@@ -12,6 +12,7 @@ import (
 )
 
 type Settings struct {
+	ModelOptions      ModelOptions     `json:"model_options,omitempty"`
 	DurableWaits      bool             `json:"durable_waits"`
 	PlanMode          bool             `json:"plan_mode,omitempty"`
 	PermissionPolicy  PermissionPolicy `json:"permission_policy,omitempty"`
@@ -40,6 +41,9 @@ type MCPServer struct {
 }
 
 func (s Settings) Validate() error {
+	if err := s.ModelOptions.Validate(); err != nil {
+		return err
+	}
 	if err := s.PermissionPolicy.Validate(); err != nil {
 		return err
 	}

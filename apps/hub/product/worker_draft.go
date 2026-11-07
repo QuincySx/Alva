@@ -39,7 +39,25 @@ func (s *HubService) enqueueWorkerDraft(ctx context.Context, lead, team, worker,
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		selections, err = s.rebindComposerGoalsLocked(ctx, w.SessionID, selections)
+		if err != nil {
+			return hub.WorkerTask{}, err
+		}
+		// Goal preparation may establish the first native identity. Read the
+		// branch again before applying existing attachment ownership checks.
+		current, err = s.Store.Detail(ctx, w.SessionID)
+		if err != nil {
+			return hub.WorkerTask{}, err
+		}
+		branch, err = ActiveBranch(current)
+		if err != nil {
+			return hub.WorkerTask{}, err
+		}
 		if err = s.prepareComposerDraftLocked(ctx, w.SessionID, selections); err != nil {
+			return hub.WorkerTask{}, err
+		}
+		prompt, err = s.composerGoalPrompt(ctx, w.SessionID, selections, prompt)
+		if err != nil {
 			return hub.WorkerTask{}, err
 		}
 		if err = s.validatePlanTarget(ctx, w.SessionID, branch); err != nil {

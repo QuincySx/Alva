@@ -1,6 +1,7 @@
 const (
 	ComposerCommandEntry ComposerEntryKind = "command"
 	ComposerSkillEntry   ComposerEntryKind = "skill"
+	ComposerGoalEntry    ComposerEntryKind = "goal"
 )
 
 const ComposerIntentPlan ComposerIntent = "plan"
@@ -61,17 +62,33 @@ func (s *ConnectionsService) Connection(id string) (hub.ModelConnection, bool)
 
 func (s *ConnectionsService) Delete(ctx context.Context, id string, expected uint64) error
 
+func (s *ConnectionsService) FetchModels(ctx context.Context, draft hub.ConnectionUpdate) (ConnectionCatalog, error)
+
+func (s *ConnectionsService) ModelPreference(target hub.Target) hub.ModelPreference
+
 func (s *ConnectionsService) Read(ctx context.Context) ([]hub.ModelConnection, error)
+
+func (s *ConnectionsService) ReloadModelPreferences(ctx context.Context) error
 
 func (s *ConnectionsService) ResolveTarget(ctx context.Context, target hub.Target) (provider.Kind, provider.Config, bool, error)
 
 func (s *ConnectionsService) Save(ctx context.Context, u hub.ConnectionUpdate) (hub.ModelConnection, error)
+
+func (s *ConnectionsService) SaveModelPreference(ctx context.Context, target hub.Target, p hub.ModelPreference) (hub.ModelPreference, error)
 
 func (s *ConnectionsService) SetEnabled(ctx context.Context, id string, expected uint64, enabled bool) (hub.ModelConnection, error)
 
 func (s *ConnectionsService) Snapshot() []hub.ModelConnection
 
 func (s *ConnectionsService) Targets() []hub.Target
+
+func (s *ConnectionsService) TestConnection(ctx context.Context, draft hub.ConnectionUpdate) (ConnectionTest, error)
+
+func (s *GoalsService) Create(ctx context.Context, request hub.GoalCreate) (hub.GoalReceipt, error)
+
+func (s *GoalsService) List(ctx context.Context, scope hub.GoalScope, limit int) ([]hub.Goal, error)
+
+func (s *GoalsService) Read(ctx context.Context, id string) (hub.Goal, error)
 
 func (s *HubService) AbandonWait(ctx context.Context, id string, target WaitTarget) error
 
@@ -141,6 +158,8 @@ func (s *HubService) PendingApprovals(ctx context.Context, id string) ([]securit
 
 func (s *HubService) PendingQuestions(ctx context.Context, id string) ([]interaction.Question, error)
 
+func (s *HubService) PrepareComposerGoal(ctx context.Context, id, workspace, goalID string) (ComposerPreparation, error)
+
 func (s *HubService) PrepareComposerSelection(ctx context.Context, id string, request ComposerSelectionRequest) (ComposerPreparation, error)
 
 func (s *HubService) PrepareWorkspaceReference(ctx context.Context, id string, selection WorkspaceReferenceSelection) (DraftWorkspaceReference, error)
@@ -148,6 +167,8 @@ func (s *HubService) PrepareWorkspaceReference(ctx context.Context, id string, s
 func (s *HubService) PreviewWorkerChanges(ctx context.Context, lead, team, worker string) (result hub.Worker, err error)
 
 func (s *HubService) ProvisionWorkerWorktree(ctx context.Context, lead, team, worker string, approved bool) (result hub.Worker, err error)
+
+func (s *HubService) RebindComposerGoals(ctx context.Context, id string, selections []ComposerPreparation) ([]ComposerPreparation, error)
 
 func (s *HubService) RemoveDraftAttachment(id, artifactID string)
 
@@ -246,6 +267,8 @@ func ActiveBranch(detail hub.Detail) (hub.Branch, error)
 func IsConnectionTarget(target hub.Target) bool
 
 func NewConnectionsService(ctx context.Context, store hub.ConnectionsStore) (*ConnectionsService, error)
+
+func NewGoalsService(store hub.GoalStore, sessions GoalSessions, repository GoalArtifacts) (*GoalsService, error)
 
 func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.Repository, target hub.Target, directory string, demo bool) (*HubService, error)
 
@@ -362,6 +385,38 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"sync"
 	"unicode/utf8"
 
@@ -458,6 +513,14 @@ import (
 	mediaextension "github.com/QuincySx/Alva/extension/media"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
+)
+
+import (
+	"context"
+	"errors"
+	"reflect"
+
+	"github.com/QuincySx/Alva/apps/hub"
 )
 
 import (
@@ -616,6 +679,16 @@ type ComposerEntryDetail struct {
 
 type ComposerEntryKind string
 
+type ComposerGoalReference struct {
+	GoalID    string               `json:"goal_id"`
+	Revision  uint64               `json:"revision"`
+	Scope     hub.GoalScope        `json:"scope"`
+	SessionID string               `json:"session_id,omitempty"`
+	BranchID  string               `json:"branch_id,omitempty"`
+	Info      storage.ArtifactInfo `json:"info"`
+	Reference wire.Reference       `json:"reference"`
+}
+
 type ComposerIntent string
 
 type ComposerPreparation struct {
@@ -627,6 +700,7 @@ type ComposerPreparation struct {
 	Intent    ComposerIntent          `json:"intent,omitempty"`
 	Text      string                  `json:"text"`
 	SkillRef  *ComposerSkillReference `json:"skill_ref,omitempty"`
+	GoalRef   *ComposerGoalReference  `json:"goal_ref,omitempty"`
 }
 
 type ComposerSelectionRequest struct {
@@ -643,6 +717,15 @@ type ComposerSkillReference struct {
 	Policy       skill.Policy `json:"policy"`
 }
 
+type ConnectionCatalog struct {
+	Models []hub.ConnectionModel `json:"models"`
+}
+
+type ConnectionTest struct {
+	Scope      string `json:"scope"`
+	ModelCount int    `json:"model_count"`
+}
+
 type ConnectionsService struct {
 }
 
@@ -656,6 +739,22 @@ type DraftWorkspaceReference struct {
 	Selection WorkspaceReferenceSelection `json:"selection"`
 	Info      storage.ArtifactInfo        `json:"info"`
 	Reference wire.Reference              `json:"reference"`
+}
+
+type GoalArtifacts interface {
+	Create(context.Context, string, string, string) (storage.Session, error)
+	PutArtifact(context.Context, string, string, storage.ArtifactInput) (storage.ArtifactInfo, error)
+	ReadArtifactFull(context.Context, string, string, string, int) (storage.ArtifactInfo, []byte, error)
+}
+
+type GoalSessions interface {
+	Detail(context.Context, string) (hub.Detail, error)
+}
+
+type GoalsService struct {
+	Store      hub.GoalStore
+	Sessions   GoalSessions
+	Repository GoalArtifacts
 }
 
 type HistoryPlugin struct{ Tool *HistoryTool }
@@ -679,6 +778,7 @@ type HubService struct {
 	Gateway            *gateway.Local
 	Preferences        *PreferencesService
 	Connections        *ConnectionsService
+	Goals              *GoalsService
 	Teams              *TeamCoordinator
 	Automations        *AutomationCoordinator
 	Worktrees          *worktree.Manager
@@ -781,5 +881,7 @@ type WorktreePatchPage struct {
 	HasMore    bool   `json:"has_more"`
 	Processing string `json:"processing"`
 }
+
+var ErrConnectionCatalogUnavailable = errors.New("model catalog unavailable; enter an explicit same-origin catalog URL or add model IDs manually")
 
 var ErrWorkspaceReferenceChanged = errors.New("workspace selection changed; search and select it again")

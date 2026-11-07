@@ -1,4 +1,9 @@
 const (
+	GoalProjectScope GoalScopeKind = "project"
+	GoalSessionScope GoalScopeKind = "session"
+)
+
+const (
 	PermissionAsk  PermissionPolicy = "ask"
 	PermissionAuto PermissionPolicy = "auto"
 	PermissionFull PermissionPolicy = "full"
@@ -39,6 +44,10 @@ func (c ModelConnection) Validate() error
 func (d AutomationDraft) Validate() error
 
 func (d MediaDecoder) Validate() error
+
+func (g Goal) Creation() GoalCreate
+
+func (g Goal) Validate() error
 
 func (p PermissionPolicy) Effective() PermissionPolicy
 
@@ -84,11 +93,29 @@ func (r *Runtime) StartWorkerTask(owner context.Context, lead, team, workerID st
 
 func (r *Runtime) WithExclusiveWorkspaces(ctx context.Context, paths []string, apply func(context.Context) error) error
 
+func (r GoalCreate) Validate() error
+
+func (s GoalScope) Validate() error
+
 func (s Settings) Validate() error
 
 func (s ToolSettings) Validate() error
 
 func (t Target) Validate() error
+
+func (v ModelOptions) Clone() ModelOptions
+
+func (v ModelOptions) Validate() error
+
+func (v ModelOptions) ValidateTarget(target Target) error
+
+func (v ModelPreference) Clone() ModelPreference
+
+func (v ModelPreference) Validate() error
+
+func (v ModelPreferencesSnapshot) Clone() ModelPreferencesSnapshot
+
+func (v ModelPreferencesSnapshot) Validate() error
 
 func BlocksInput(status engine.Outcome) bool
 
@@ -97,6 +124,8 @@ func ClaimsConflict(a, b []ResourceClaim) bool
 func DefaultPreferences() Preferences
 
 func EncodeHandoff(h *Handoff) (string, error)
+
+func ModelPreferenceKey(target Target) string
 
 func New(store ExecutionStore) *Runtime
 
@@ -135,6 +164,18 @@ import (
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -150,6 +191,16 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -259,6 +310,7 @@ type AEPBundle struct {
 }
 
 type Attempt struct {
+	ModelOptions        ModelOptions           `json:"model_options,omitempty"`
 	Wait                *engine.WaitCheckpoint `json:"wait,omitempty"`
 	ID                  string                 `json:"id"`
 	TurnID              string                 `json:"turn_id"`
@@ -367,6 +419,7 @@ type ConnectionUpdate struct {
 	Name             string            `json:"name"`
 	Protocol         string            `json:"protocol"`
 	Endpoint         string            `json:"endpoint"`
+	CatalogURL       string            `json:"catalog_url,omitempty"`
 	Auth             string            `json:"auth"`
 	Enabled          bool              `json:"enabled"`
 	Models           []ConnectionModel `json:"models"`
@@ -378,6 +431,7 @@ type ConnectionUpdate struct {
 }
 
 type ConnectionsStore interface {
+	ModelPreferencesStore
 	Connections(context.Context) ([]ModelConnection, error)
 	SaveConnection(context.Context, ConnectionUpdate) (ModelConnection, error)
 	DeleteConnection(context.Context, string, uint64) error
@@ -403,6 +457,42 @@ type ExecutionStore interface {
 	BeginFallback(context.Context, string, Target) (Claim, error)
 	Record(context.Context, string, engine.Event, bool) error
 	FinishTurn(context.Context, string, engine.Outcome) error
+}
+
+type Goal struct {
+	ID                 string    `json:"id"`
+	Revision           uint64    `json:"revision"`
+	RequestID          string    `json:"request_id"`
+	Name               string    `json:"name"`
+	CompletionCriteria string    `json:"completion_criteria"`
+	Scope              GoalScope `json:"scope"`
+	CreatedAt          int64     `json:"created_at"`
+}
+
+type GoalCreate struct {
+	RequestID          string    `json:"request_id"`
+	Name               string    `json:"name"`
+	CompletionCriteria string    `json:"completion_criteria"`
+	Scope              GoalScope `json:"scope"`
+}
+
+type GoalReceipt struct {
+	Goal     Goal `json:"goal"`
+	Replayed bool `json:"replayed"`
+}
+
+type GoalScope struct {
+	Kind      GoalScopeKind `json:"kind"`
+	Workspace string        `json:"workspace"`
+	SessionID string        `json:"session_id,omitempty"`
+}
+
+type GoalScopeKind string
+
+type GoalStore interface {
+	CreateGoal(context.Context, GoalCreate) (GoalReceipt, error)
+	Goal(context.Context, string) (Goal, error)
+	ListGoals(context.Context, GoalScope, int) ([]Goal, error)
 }
 
 type Handoff struct {
@@ -465,6 +555,7 @@ type ModelConnection struct {
 	Name        string            `json:"name"`
 	Protocol    string            `json:"protocol"`
 	Endpoint    string            `json:"endpoint"`
+	CatalogURL  string            `json:"catalog_url,omitempty"`
 	Auth        string            `json:"auth"`
 	Enabled     bool              `json:"enabled"`
 	HasAPIKey   bool              `json:"has_api_key"`
@@ -472,6 +563,30 @@ type ModelConnection struct {
 	Models      []ConnectionModel `json:"models"`
 	CreatedAt   int64             `json:"created_at"`
 	UpdatedAt   int64             `json:"updated_at"`
+}
+
+type ModelOptions struct {
+	Generation   engine.GenerationOptions `json:"generation"`
+	SystemPrompt string                   `json:"system_prompt,omitempty"`
+	MaxTurns     int                      `json:"max_turns,omitempty"`
+}
+
+type ModelPreference struct {
+	Key             string       `json:"key"`
+	Revision        uint64       `json:"revision"`
+	Favorite        bool         `json:"favorite"`
+	PreferredEngine string       `json:"preferred_engine,omitempty"`
+	Options         ModelOptions `json:"options"`
+}
+
+type ModelPreferencesSnapshot struct {
+	Revision uint64            `json:"revision"`
+	Entries  []ModelPreference `json:"entries"`
+}
+
+type ModelPreferencesStore interface {
+	ModelPreferences(context.Context) (ModelPreferencesSnapshot, error)
+	SaveModelPreference(context.Context, ModelPreference) (ModelPreferencesSnapshot, error)
 }
 
 type NativeCommand struct {
@@ -557,6 +672,7 @@ type SessionStore interface {
 }
 
 type Settings struct {
+	ModelOptions      ModelOptions     `json:"model_options,omitempty"`
 	DurableWaits      bool             `json:"durable_waits"`
 	PlanMode          bool             `json:"plan_mode,omitempty"`
 	PermissionPolicy  PermissionPolicy `json:"permission_policy,omitempty"`
@@ -854,7 +970,15 @@ var ErrAutomationStale = errors.New("automation changed, paused, claimed or not 
 
 var ErrConnectionConflict = errors.New("model connection changed; reload before saving")
 
+var ErrGoalConflict = errors.New("goal request changed; use a new request identity")
+
+var ErrGoalScope = errors.New("goal belongs to a different project or session")
+
+var ErrInvalidGoal = errors.New("invalid goal")
+
 var ErrInvalidPreferences = errors.New("invalid application preferences")
+
+var ErrModelPreferenceConflict = errors.New("model preference changed; reload before saving")
 
 var ErrNotFound = errors.New("product object is unavailable in this scope")
 

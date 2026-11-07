@@ -28,6 +28,7 @@ type ProductStorage interface {
 	hub.NativeOwnerResolver
 	hub.PreferencesStore
 	hub.ConnectionsStore
+	hub.GoalStore
 	Close() error
 }
 

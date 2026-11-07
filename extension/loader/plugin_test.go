@@ -531,6 +531,21 @@ func TestPluginCancelledPreparationDoesNotExecuteOrReplay(t *testing.T) {
 	if err = f.p.healthy(); err == nil {
 		t.Fatal("closed failed worker reusable")
 	}
+	if !f.p.CleanupComplete() {
+		t.Fatal("cancelled run returned before physically reaping the Plugin and removing its snapshot")
+	}
+	before, err := f.log.Records(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := f.repo.Recover(t.Context(), "owner", f.log.ID())
+	if err != nil || report != (storage.RecoveryReport{}) {
+		t.Fatal("cancelled run left unsettled execution facts", report, err)
+	}
+	after, err := f.log.Records(t.Context(), 0)
+	if err != nil || len(after) != len(before) || tool.calls.Load() != 0 {
+		t.Fatal("recovery changed settled facts or replayed the cancelled tool", len(before), len(after), tool.calls.Load(), err)
+	}
 }
 
 func TestPluginFailedRiskRecordPreventsLaunchAndDoesNotConsumeSnapshot(t *testing.T) {

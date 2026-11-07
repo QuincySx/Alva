@@ -22,6 +22,9 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | 文件/目录 | 职责 |
 |---|---|
 | connections.go | 独立应用连接/模型DTO、秘值隔离、唯一编辑校验、CAS存储端口与revision绑定路由；无Provider/SDK依赖 |
+| goals.go / goals_test.go | 不可变目标事实、项目/会话范围、RequestID幂等回执与独立存储插口；创建不执行 |
+| model_preferences.go / model_preferences_test.go | 连接/模型稳定收藏键、Agent偏好、参数校验/能力准入及独立revision；Attempt冻结不受后续编辑影响 |
+| runtime_options_test.go | 冻结参数传给真实adapter、配置能力不支持时零Execute |
 | permissions.go | 产品Ask/Auto/Full值与校验；Settings仅保存下一Turn意图，真实宿主执行政策不进入SDK |
 | model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引 |
 | preferences.go / preferences_test.go | 应用级外观DTO、三组选项与唯一纯值政策、revision CAS端口；消费者修改选项不改变共享校验 |

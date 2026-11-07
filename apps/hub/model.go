@@ -82,6 +82,7 @@ type Turn struct {
 	EndedAt         int64          `json:"ended_at"`
 }
 type Attempt struct {
+	ModelOptions        ModelOptions           `json:"model_options,omitempty"`
 	Wait                *engine.WaitCheckpoint `json:"wait,omitempty"`
 	ID                  string                 `json:"id"`
 	TurnID              string                 `json:"turn_id"`

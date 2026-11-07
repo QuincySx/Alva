@@ -3,7 +3,7 @@
 ## 地位
 具体存储依赖 `hub` 与安全SQLite宿主封装；Hub core 不反向依赖本目录。
 ## 逻辑
-独占进程锁后打开0700/0600私有库、建表并修复中断Turn。新Turn和首Attempt、fallback认领、事件/终态都在事务提交；固定产品归属与activeAttempt防止迟到结果覆盖新轮。schema v3延续v1→v2偏好singleton并事务增加应用连接metadata/credential分表；读取/更新复用Hub共享纯值政策，私有文件不等于加密或OS密钥库。
+独占进程锁后打开0700/0600私有库、建表并修复中断Turn。新Turn和首Attempt、fallback认领、事件/终态都在事务提交；固定产品归属与activeAttempt防止迟到结果覆盖新轮。schema v4延续v1→v2偏好与v3应用连接metadata/credential分表，原子增加目标事实与独立模型偏好；读取/更新复用Hub共享纯值政策，私有文件不等于加密或OS密钥库。
 ## 约束
 首次版本不读取旧Rust数据；user_version=0但已有任何业务表的库拒绝准入，不向未知库补建Hub表。最多64分支、7个授权fallback路由；history每页128项。handoff只传32条有界Turn索引，超量明确要求检索，不静默声称完整历史。Stop/可能副作用禁止自动fallback。实例锁释放与DB关闭由Store.Close显式拥有。
 所有公开Store错误在provider边界映射共享hub.ErrNotFound；product/Tool/HTTP不得识别sql.ErrNoRows。内部SQL原因可保留供诊断，事务/schema行为保持。应用偏好按 expected revision 原子更新，与会话设置独立；v2 缺失/损坏偏好在恢复前失败，不补建、不重置。未知较新 schema 拒绝且保留原数据。
@@ -14,9 +14,11 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | 文件 | 职责 |
 |---|---|
 | connections.go / connections_test.go | 应用连接/credential分表CRUD、revision CAS、exact revision秘值读取、事务回滚/重开/损坏拒绝与v2→v3升级 |
+| goals.go / goals_test.go | 目标稳定事实、RequestID幂等/冲突、范围索引与v3→v4原子升级，不隐式创建会话 |
+| model_preferences.go / model_preferences_test.go | 独立模型参数/收藏CAS、失败原子回滚及重开；真实Attempt冻结和Waiting续轮沿用旧参数，不支持的目标零准入 |
 | permissions.go / permissions_test.go | 空闲native下一Turn权限事务、Full显式确认、普通导入不升权与Plan清除潜在Full |
 | wait.go / wait_test.go | 独立WaitStore、branch归属审阅、同Turn新Attempt事务、waiting冻结与Worker/计划crash edge/no fallback回归 |
-| store.go | schema、v1→v2→v3偏好/连接事务迁移、产品事务、分支保留、handoff、分页历史与中断修复 |
+| store.go | schema、v1→v2→v3→v4偏好/连接/目标事务迁移、产品事务、分支保留、handoff、分页历史与中断修复 |
 | preferences.go / preferences_test.go | 应用级偏好 singleton、共享政策/乐观 revision 原子保存；新库、真实 v1 升级、并发、取消及损坏不重置回归 |
 | store_test.go | 可逆路由/安全fallback、native事实归属、commit失败/忽略sink错误不能成功/大handoff/恢复回归 |
 | plan_mode.go / plan_mode_test.go | 事务内只改PlanMode且保留批准；统一beginAttempt拒绝Plan借外部引擎，覆盖Worker/自动化/fallback/等待恢复 |

@@ -1,6 +1,6 @@
 // INPUT: Explicit connection storage, shared connection policy and native provider constructors.
 // OUTPUT: Shared committed connection snapshots, CRUD, exact route resolution and joined shutdown.
-// POS: [L7 product service] Owns connection I/O without networking, account discovery or a second execution runtime.
+// POS: [L7 product service] Owns connection configuration, explicit catalog probes and joined lifecycle without account discovery.
 package product
 
 import (
@@ -15,14 +15,15 @@ import (
 )
 
 type ConnectionsService struct {
-	store   hub.ConnectionsStore
-	access  chan struct{}
-	mu      sync.RWMutex
-	current []hub.ModelConnection
-	closed  bool
-	stopped chan struct{}
-	cancel  context.CancelFunc
-	done    chan struct{}
+	store      hub.ConnectionsStore
+	access     chan struct{}
+	mu         sync.RWMutex
+	current    []hub.ModelConnection
+	modelPrefs hub.ModelPreferencesSnapshot
+	closed     bool
+	stopped    chan struct{}
+	cancel     context.CancelFunc
+	done       chan struct{}
 }
 
 type connectionStorageError struct {
@@ -41,6 +42,8 @@ func connectionError(operation string, err error) error {
 	switch {
 	case errors.Is(err, hub.ErrConnectionConflict):
 		return hub.ErrConnectionConflict
+	case errors.Is(err, hub.ErrModelPreferenceConflict):
+		return hub.ErrModelPreferenceConflict
 	case errors.Is(err, hub.ErrNotFound):
 		return hub.ErrNotFound
 	case errors.Is(err, context.Canceled):
@@ -62,7 +65,15 @@ func NewConnectionsService(ctx context.Context, store hub.ConnectionsStore) (*Co
 	if err != nil {
 		return nil, connectionError("read", err)
 	}
+	prefs, err := store.ModelPreferences(ctx)
+	if err != nil {
+		return nil, connectionError("read model preferences", err)
+	}
+	if err = prefs.Validate(); err != nil {
+		return nil, err
+	}
 	s := &ConnectionsService{store: store, access: make(chan struct{}, 1), stopped: make(chan struct{})}
+	s.modelPrefs = prefs.Clone()
 	s.access <- struct{}{}
 	if err = s.publish(value); err != nil {
 		return nil, err
@@ -128,7 +139,7 @@ func (s *ConnectionsService) Read(ctx context.Context) ([]hub.ModelConnection, e
 	return cloneConnections(value), nil
 }
 func connectionEdit(c hub.ModelConnection) hub.ConnectionUpdate {
-	return hub.ConnectionUpdate{ID: c.ID, ExpectedRevision: c.Revision, Name: c.Name, Protocol: c.Protocol, Endpoint: c.Endpoint, Auth: c.Auth, Enabled: c.Enabled, Models: append([]hub.ConnectionModel(nil), c.Models...)}
+	return hub.ConnectionUpdate{ID: c.ID, ExpectedRevision: c.Revision, Name: c.Name, Protocol: c.Protocol, Endpoint: c.Endpoint, CatalogURL: c.CatalogURL, Auth: c.Auth, Enabled: c.Enabled, Models: append([]hub.ConnectionModel(nil), c.Models...)}
 }
 func (s *ConnectionsService) Save(ctx context.Context, u hub.ConnectionUpdate) (hub.ModelConnection, error) {
 	ctx, err := s.acquire(ctx)

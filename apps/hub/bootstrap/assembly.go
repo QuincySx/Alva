@@ -44,6 +44,7 @@ import (
 	"github.com/QuincySx/Alva/sdk/agent/memory"
 	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 type ExternalEngine struct {
@@ -280,6 +281,16 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			builder = harness.NewBuilder(model, agentLog)
 		}
 		builder.Workspace(request.Workspace)
+		generation := request.Generation.Clone()
+		modelConfig := wire.ModelConfig{Temperature: generation.Temperature, MaxTokens: generation.MaxTokens}
+		if generation.ReasoningEffort != "" {
+			effort, parseErr := wire.ParseReasoningEffort(generation.ReasoningEffort)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			modelConfig.ReasoningEffort = &effort
+		}
+		builder.ModelConfig(modelConfig)
 		if prompt := planSystemPrompt(request.SystemPrompt, settings.PlanMode); prompt != "" {
 			builder.SystemPrompt(prompt)
 		}
@@ -518,7 +529,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			return errors.New("product permission service unavailable")
 		}
 		return a.Service.RespondNativeApproval(ctx, "alva", nativeID, requestID, decision.Allow)
-	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true, DurableWaits: true})
+	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true, Generation: true, DurableWaits: true})
 	inspector, err := alva.NewRepositoryInspector(repository)
 	if err != nil {
 		return nil, err
@@ -544,6 +555,10 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		return nil, err
 	}
 	a.Service = service
+	service.Goals, err = product.NewGoalsService(store, store, repository)
+	if err != nil {
+		return nil, err
+	}
 	service.ValidateWaitRecipe = func(ctx context.Context, branch hub.Branch, settings hub.Settings) error {
 		detail, err := store.Detail(ctx, branch.SessionID)
 		if err != nil {

@@ -35,6 +35,7 @@ type Builder struct {
 	prompt                          string
 	maxIterations, maxResponseBytes int
 	contextSystem                   *abi.ContextSystem
+	modelConfig                     wire.ModelConfig
 }
 
 func NewBuilder(model abi.LanguageModel, session abi.ConversationLog) *Builder {
@@ -63,6 +64,12 @@ func (b *Builder) Middleware(middleware abi.Middleware, order ...int) *Builder {
 	return b
 }
 func (b *Builder) SystemPrompt(prompt string) *Builder { b.prompt = prompt; return b }
+
+// ModelConfig forwards an explicit generic model request recipe to the SDK.
+func (b *Builder) ModelConfig(config wire.ModelConfig) *Builder {
+	b.modelConfig = wire.CloneModelConfig(config)
+	return b
+}
 func (b *Builder) MaxIterations(limit int) *Builder    { b.maxIterations = limit; return b }
 func (b *Builder) MaxResponseBytes(limit int) *Builder { b.maxResponseBytes = limit; return b }
 func (b *Builder) ContextSystem(system *abi.ContextSystem) *Builder {
@@ -78,6 +85,7 @@ func (b *Builder) Build(ctx context.Context) (*core.Agent, error) {
 	// Freeze the harness recipe before ID/Name or other user implementations
 	// can mutate the original Builder. Such edits belong to the next Build.
 	recipe := *b
+	recipe.modelConfig = wire.CloneModelConfig(b.modelConfig)
 	recipe.plugins = append([]core.Plugin(nil), b.plugins...)
 	recipe.tools = append([]abi.Tool(nil), b.tools...)
 	recipe.middleware = append([]middlewareContribution(nil), b.middleware...)
@@ -103,7 +111,7 @@ func (b *Builder) Build(ctx context.Context) (*core.Agent, error) {
 	if !filepath.IsAbs(workspace) {
 		return nil, errors.New("harness workspace must be absolute")
 	}
-	builder := core.NewBuilder(b.model, b.session).Workspace(workspace)
+	builder := core.NewBuilder(b.model, b.session).Workspace(workspace).ModelConfig(b.modelConfig)
 	builder.Middleware(RecoveryEvidence(), -9000)
 	if b.prompt != "" {
 		builder.SystemPrompt(b.prompt)

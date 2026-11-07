@@ -1,5 +1,5 @@
-// INPUT: context, json, errors, fmt, filepath, strings, testing, agent/core/context, kernel/abi, wire
-// OUTPUT: Atomic 85-call failure parity and long-history compaction/reopen regressions
+// INPUT: context, json, errors, fmt, filepath, strings, testing, native SQLite authorizer, agent/core/context, kernel/abi, wire
+// OUTPUT: Atomic failure parity, real query-cancellation identity and long-history compaction/reopen regressions
 // POS: [Native runtime integration testing] Reproduces concrete SDK/SQLite boundary failures without real providers or side effects.
 package session
 
@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ncruces/go-sqlite3"
+	"github.com/ncruces/go-sqlite3/driver"
 
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -188,5 +191,50 @@ func TestConversationRestorePreflightsBytesAndMissingMetadata(t *testing.T) {
 				t.Fatal("corrupt metadata returned partial or empty success", err)
 			}
 		})
+	}
+}
+
+func TestNativeConversationReadCancellationRetainsBackendAndOwnerCause(t *testing.T) {
+	repo, log := repoSession(t)
+	model := &contractModel{}
+	agent, err := core.NewBuilder(model, log).Build(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	cause := errors.New("owner cancelled native conversation restore")
+	connection, err := repo.db.Conn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The authorizer runs inside actual query preparation, after the driver
+	// accepts a live context. Cancel at that precise point rather than racing
+	// a short timeout against agent startup or substituting a fake SQL error.
+	err = connection.Raw(func(raw any) error {
+		return raw.(driver.Conn).Raw().SetAuthorizer(func(action sqlite3.AuthorizerActionCode, table, _, _, _ string) sqlite3.AuthorizerReturnCode {
+			if action == sqlite3.AUTH_READ && table == "sessions" {
+				cancel(cause)
+			}
+			return sqlite3.AUTH_OK
+		})
+	})
+	closeErr := connection.Close()
+	if err != nil || closeErr != nil {
+		t.Fatal(errors.Join(err, closeErr))
+	}
+	err = agent.Run(ctx, nil, func(abi.Event) error { return nil })
+	for _, want := range []error{sqlite3.INTERRUPT, context.Canceled, cause} {
+		if !errors.Is(err, want) {
+			t.Fatalf("actual query cancellation lost %v: %v", want, err)
+		}
+	}
+	var sessionErr *abi.SessionError
+	if !errors.As(err, &sessionErr) || sessionErr.Operation != "messages" || model.invocations != 0 {
+		t.Fatal("conversation read failure lost its operation or reached model execution", model.invocations, err)
+	}
+	records, err := log.Records(t.Context(), 0)
+	if err != nil || len(records) != 0 {
+		t.Fatal("cancelled restore changed native execution facts or left the connection unusable", len(records), err)
 	}
 }

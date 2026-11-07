@@ -31,7 +31,7 @@ Owner/session identifiers are opaque, not paths. Owner is injected by trusted pr
 | Child regressions | child_test.go | Causal intent requirements, atomic identity/link, owner isolation and no inherited artifact access |
 | Regressions | repository_test.go | Atomicity, reopen, corruption, isolation, bounded reads and recovery |
 | Backend conformance | contract_test.go | SDK共用原子性、身份、游标与取消验收 |
-| Runtime boundaries | loop_contract_test.go | 85调用prepare失败结算、4097消息reopen/压缩与字节/坏metadata拒绝 |
+| Runtime boundaries | loop_contract_test.go | 85调用prepare失败结算、4097消息reopen/压缩与字节/坏metadata拒绝；原生查询准备内部取消保留SQLITE_INTERRUPT、run取消与owner Cause |
 | Privacy/upload regressions | redaction_test.go | Canonical receipts, framed text/binary/incomplete markers, safe-field/idempotency preservation, immutable originals and upload limits |
 
 BoundConversationTail返回固定高水位的私有metadata snapshot及有界Read；不会选择模型历史或生成提示词。conversation专用partial index在Open时增建；原facts不变。返回metadata是独立copy，Read只恢复该snapshot选择的数量并校验hash/身份/tool协议。harness选择近期完整turn及真实省略引用，不回退全量Messages。

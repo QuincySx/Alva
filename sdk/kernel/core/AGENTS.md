@@ -32,6 +32,7 @@ Tool/WrapTool 真正返回 error 表示执行/基础设施/授权中止：先提
 每个Tool wrapper的next只允许零次或一次，每层与base都拒绝重复/并发进入，违规不能被吞；返回即关闭准入并同步等待已进入next真实退出，拒绝迟到执行。
 内层next真正error不可被外层包装吞成成功，但正常result的短路/变换仍保留。ToolFunc不能在窗口外保存后调用。
 退出用独立五秒 cleanup context 执行结束 hooks 与 Flush；失败不能发成功终态。
+实际执行失败时，run owner在结算入口保留原错误并合并已发生的ctx.Err/context.Cause，再交结束hooks观察；不识别具体依赖的错误类型，不把成功结算后到达的取消反转成失败。
 
 ## 约束
 ToolBatchCoordinator 将显式ConcurrentSafe且无规范化资源冲突的工具放入有界wave；SerialGlobal为屏障，Coordinator可参与wave。
@@ -63,7 +64,7 @@ ModelConfig每次调用deep clone；disable/allowlist既过滤schema也限制实
 | Hook observations | `hook_audit.go` | typed阶段观察、实际顺序/inclusive耗时、固定错误类别，无具体持久化schema |
 | Optional diagnostics | `diagnostics.go` | 窄DiagnosticObserver、独立request副本、显式报告诊断失败而不改变执行 |
 | Stream observations | `llm_audit.go` | 无正文计数/耗时/usage，指纹及具体记录已在extension/telemetry |
-| Context lifecycle | `context_runtime.go` / `context_runtime_test.go` | 七hooks/prepare/budget、只读Source选择/归属/失败不回退与deepcopy |
+| Context lifecycle | `context_runtime.go` / `context_runtime_test.go` | 七hooks/prepare/budget、只读Source选择/归属/失败不回退与deepcopy；read fault保留取消/原错误/真实Cause与晚到取消不反转成功 |
 | Hygiene | `builtins.go`, `loop_detection.go` | 同步超时、dangling修复、运行态循环检测 |
 | Event transport | `events.go` | BoundedEventSink 的 lossless/backpressure/cancel/close |
 | Event regression | `events_test.go` | 1000 事件、满队列取消与并发 shutdown |

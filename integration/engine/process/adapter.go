@@ -113,6 +113,12 @@ func (a *Adapter) Cancel(_ context.Context, id string) error {
 	return nil
 }
 func (a *Adapter) args(request engine.Request, runID string) ([]string, error) {
+	if err := request.Generation.Validate(); err != nil {
+		return nil, err
+	}
+	if !request.Generation.Empty() {
+		return nil, fmt.Errorf("%w: external engine generation options are not configured", engine.ErrUnsupported)
+	}
 	if request.ResumeSession != "" && !nativeID.MatchString(request.ResumeSession) {
 		return nil, errors.New("native session identity is not a safe opaque ID")
 	}
@@ -218,6 +224,12 @@ func (j *journal) write(direction string, value string, complete ...bool) error 
 func (a *Adapter) Execute(parent context.Context, request engine.Request, sink func(engine.Event) error) error {
 	if err := parent.Err(); err != nil {
 		return err
+	}
+	if err := request.Generation.Validate(); err != nil {
+		return err
+	}
+	if !request.Generation.Empty() {
+		return fmt.Errorf("%w: external engine generation options are not configured", engine.ErrUnsupported)
 	}
 	if sink == nil || request.OwnerID == "" || len(request.OwnerID) > 256 || len(request.Prompt) > 64<<10 || strings.TrimSpace(request.Prompt) == "" || !filepath.IsAbs(request.Workspace) {
 		return errors.New("bounded prompt, absolute cwd and event sink required")

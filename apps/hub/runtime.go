@@ -339,6 +339,7 @@ func supports(c engine.Capabilities, required []string) bool {
 func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) (engine.Outcome, bool, engine.FailureKind, error) {
 	r.mu.Lock()
 	target := r.engines[claim.Attempt.Target.EngineID]
+	descriptor := r.descriptors[claim.Attempt.Target.EngineID]
 	active.engine = target
 	active.nativeID = claim.Branch.NativeSessionID
 	active.attemptID = claim.Attempt.ID
@@ -432,6 +433,12 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 	} else if target == nil {
 		executeErr = errors.New("requested engine is not registered")
 		failure = engine.FailureStartup
+	} else if optionErr := claim.Attempt.ModelOptions.Validate(); optionErr != nil {
+		executeErr = optionErr
+		failure = engine.FailureStartup
+	} else if (!claim.Attempt.ModelOptions.Generation.Empty() && !descriptor.Config.SupportsGeneration) || (claim.Attempt.ModelOptions.SystemPrompt != "" && !descriptor.Config.SupportsSystemPrompt) || (claim.Attempt.ModelOptions.MaxTurns != 0 && !descriptor.Config.SupportsMaxTurns) {
+		executeErr = fmt.Errorf("%w: engine does not support the admitted model options", engine.ErrUnsupported)
+		failure = engine.FailureStartup
 	} else if !supports(target.Capabilities(), claim.Attempt.Target.RequiredCapabilities) {
 		executeErr = fmt.Errorf("%w: required engine capabilities", engine.ErrUnsupported)
 		failure = engine.FailureStartup
@@ -454,7 +461,7 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 				if !target.Capabilities().Resume {
 					resume = ""
 				}
-				request := engine.Request{OwnerID: claim.Session.ID, Prompt: handoff + claim.Turn.Prompt, ResumeSession: resume, Workspace: claim.Session.Workspace, Model: claim.Attempt.Target.ModelID, Provider: claim.Attempt.Target.ProviderID, AccountSource: claim.Attempt.Target.AccountSource, BillingRoute: claim.Attempt.Target.BillingRoute}
+				request := engine.Request{OwnerID: claim.Session.ID, Prompt: handoff + claim.Turn.Prompt, ResumeSession: resume, Workspace: claim.Session.Workspace, Model: claim.Attempt.Target.ModelID, Provider: claim.Attempt.Target.ProviderID, AccountSource: claim.Attempt.Target.AccountSource, BillingRoute: claim.Attempt.Target.BillingRoute, SystemPrompt: claim.Attempt.ModelOptions.SystemPrompt, MaxTurns: claim.Attempt.ModelOptions.MaxTurns, Generation: claim.Attempt.ModelOptions.Generation.Clone()}
 				if claim.WaitRevision != 0 {
 					request.Prompt, request.WaitRevision = "", claim.WaitRevision
 				}

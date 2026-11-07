@@ -26,7 +26,7 @@ No global scan, installation, ambient credentials or automatic startup. 64 KiB m
 | gateway.go | One progressive catalog/call Tool with real Guard and reference-only results |
 | journal.go | Full redacted in-memory/durable I/O with hard budgets and small receipts |
 | boundary_test.go | Actual dispatched identity, total input bound and Close cancellation/join of approval |
-| plugin_test.go | Real helper + Go SDK + Python/JS/WASM作者实际hooks与SQLite effective args、过期句柄/替换/取消/引用/risk |
+| plugin_test.go | Real helper + Go SDK + Python/JS/WASM作者实际hooks与SQLite effective args、过期句柄/替换/取消/引用/risk；取消Run返回前物理收尾及已结算事实Recover不重放 |
 | portable_test.go | JS/WASM实际Tool成功/失败、进入后取消/物理join、无ambient环境/宿主文件与拒绝runtime混用 |
 | testdata/ | 明确Python/JavaScript作者SDK fixture，无用户代码或全局配置 |
 

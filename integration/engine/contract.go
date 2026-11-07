@@ -34,6 +34,7 @@ type Request struct {
 	BillingRoute  string
 	SystemPrompt  string
 	MaxTurns      int
+	Generation    GenerationOptions
 	// ReportActivity is rebound by an adapter to its actual event sink. A
 	// harness factory must await it BEFORE starting native build/prepare work;
 	// ToolIntent.NoSideEffect says nothing about those separate activities.

@@ -1,6 +1,6 @@
-// INPUT: Direct kernel context systems with typed-nil lifecycle and optional executor/counter parts
-// OUTPUT: Invalid executable context and direct-loop rejection before lifecycle or cleanup invocation
-// POS: [L2 kernel runtime] Direct kernel entry retains the same required-interface semantics without depending on Agent assembly.
+// INPUT: Direct kernel context systems, conversation read faults and cancellation-aware lifecycle probes
+// OUTPUT: Invalid executable context rejection and run cancellation/error identity through synchronous settlement
+// POS: [L2 kernel runtime] Direct kernel entry validates executable context and preserves actual failure causes without depending on Agent assembly.
 package core
 
 import (
@@ -173,5 +173,85 @@ func TestContextSourceErrorsNeverFallBackToFullHistory(t *testing.T) {
 	messages, err := NewContextRuntime(reader.ID(), nil).Load(t.Context(), reader, nil)
 	if err != nil || len(messages) != 1 || reader.messages != 1 {
 		t.Fatal("default reader path changed", messages, err)
+	}
+}
+
+type cancellationReadLog struct {
+	fixtureLog
+	cancel  func()
+	failure error
+	flushes int
+}
+
+func (log *cancellationReadLog) Messages(context.Context) ([]wire.Message, error) {
+	if log.cancel != nil {
+		log.cancel()
+	}
+	return nil, log.failure
+}
+func (*cancellationReadLog) AppendRecords(_ context.Context, records []abi.SessionRecord) ([]abi.SessionRecord, error) {
+	return records, nil
+}
+func (log *cancellationReadLog) Flush(ctx context.Context) error {
+	log.flushes++
+	return ctx.Err()
+}
+
+type cancellationEndHook struct {
+	observed error
+	end      func()
+	context  error
+}
+
+func (*cancellationEndHook) Name() string { return "cancellation-end-probe" }
+func (hook *cancellationEndHook) OnRunEnd(ctx context.Context, _ abi.RuntimeContext, err error) error {
+	hook.observed, hook.context = err, ctx.Err()
+	if hook.end != nil {
+		hook.end()
+	}
+	return nil
+}
+
+type finishedModel struct{}
+
+func (finishedModel) Stream(_ context.Context, _ abi.ModelRequest, emit func(wire.StreamChunk) error) error {
+	return emit(wire.StreamChunk{Kind: wire.ChunkFinish})
+}
+
+func TestConversationReadFailureRetainsRunCancellationAndCause(t *testing.T) {
+	failure := errors.New("backend interrupted conversation read")
+	cause := errors.New("owner stopped this run")
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	log := &cancellationReadLog{fixtureLog: "cancelled-read", cancel: func() { cancel(cause) }, failure: failure}
+	state, err := abi.NewAgentState(fixtureModel{}, log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook := &cancellationEndHook{}
+	err = (DefaultAgentLoop{}).Run(ctx, RunConfig{State: state, Middleware: []abi.Middleware{hook}}, nil, func(abi.Event) error { return nil })
+	for _, want := range []error{failure, context.Canceled, cause} {
+		if !errors.Is(err, want) || !errors.Is(hook.observed, want) {
+			t.Fatalf("run/end hook lost %v: returned=%v observed=%v", want, err, hook.observed)
+		}
+	}
+	var sessionErr *abi.SessionError
+	if !errors.As(err, &sessionErr) || sessionErr.Operation != "messages" || hook.context != nil || log.flushes != 1 {
+		t.Fatal("cancelled read did not retain session evidence and settle with a live cleanup context", err, hook.context, log.flushes)
+	}
+}
+
+func TestSuccessfulRunIsNotFailedByCancellationDuringSettlement(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	defer cancel(nil)
+	log := &cancellationReadLog{fixtureLog: "successful-read"}
+	state, err := abi.NewAgentState(finishedModel{}, log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook := &cancellationEndHook{end: func() { cancel(errors.New("late owner cancellation")) }}
+	err = (DefaultAgentLoop{}).Run(ctx, RunConfig{State: state, Middleware: []abi.Middleware{hook}}, nil, func(abi.Event) error { return nil })
+	if err != nil || hook.observed != nil || hook.context != nil || ctx.Err() == nil || log.flushes != 1 {
+		t.Fatal("settled success changed after late cancellation", err, hook.observed, hook.context, log.flushes)
 	}
 }
