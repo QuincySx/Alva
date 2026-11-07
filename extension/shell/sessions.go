@@ -1,5 +1,5 @@
 // INPUT: Trusted per-attempt shell configuration, actual native session authority and explicit application lifetime
-// OUTPUT: Sessions registry, per-attempt Lease, scoped job status/Stop and bounded interruption recovery
+// OUTPUT: Sessions registry, per-attempt Lease, scoped job status/Stop and snapshot-based interruption recovery
 // POS: [L4 extension] Explicit product resource owner keeps successful background jobs across turns; no daemon/PID adoption or replay.
 package shell
 
@@ -281,58 +281,40 @@ func (s *Sessions) CleanupComplete() bool {
 	return true
 }
 
+// recoverInterrupted reads the latest pending_jobs snapshot (or pages a
+// pre-snapshot session once) and records every unfinished job as abandoned
+// with outcome unknown, together with the emptied snapshot in one batch.
 func (p *Plugin) recoverInterrupted(ctx context.Context) error {
-	records, err := p.log.Records(ctx, 0)
+	p.pendingMu.Lock()
+	defer p.pendingMu.Unlock()
+	found, err := p.loadPendingLocked(ctx)
 	if err != nil {
 		return err
 	}
-	pending := map[string]bool{}
-	for _, record := range records {
-		if record.Kind != abi.RecordExtension || record.Namespace != "alva.shell" {
-			continue
-		}
-		var value struct {
-			Task struct {
-				ID string `json:"id"`
-			} `json:"task"`
-			Status json.RawMessage `json:"status"`
-			JobID  string          `json:"job_id"`
-		}
-		if json.Unmarshal(record.Payload, &value) != nil {
-			return errors.New("invalid saved shell ownership fact")
-		}
-		switch record.Type {
-		case "job_intent":
-			if value.Task.ID != "" {
-				pending[value.Task.ID] = true
-			}
-		case "job_outcome":
-			var status struct {
-				Task struct {
-					ID string `json:"id"`
-				} `json:"task"`
-			}
-			if json.Unmarshal(value.Status, &status) != nil {
-				return errors.New("invalid saved shell outcome")
-			}
-			delete(pending, status.Task.ID)
-		case "job_start_failed", "job_abandoned":
-			delete(pending, value.JobID)
-		}
-	}
-	if len(pending) > 64 {
+	if len(p.pending) > 64 {
 		return errors.New("interrupted shell ownership recovery exceeds64 jobs; no job was restarted")
 	}
-	ids := make([]string, 0, len(pending))
-	for id := range pending {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
+	ids := sortedJobIDs(p.pending)
 	p.recoveredUnknown = append([]string(nil), ids...)
+	if found && len(ids) == 0 {
+		return nil
+	}
+	// A pre-snapshot session writes its first snapshot here even when nothing
+	// is pending, so later recoveries never page the history again.
+	records := make([]abi.SessionRecord, 0, len(ids))
+	at := time.Now().UTC()
 	for _, id := range ids {
-		if err := p.append(ctx, "job_abandoned", map[string]any{"job_id": id, "status": "unknown", "at": time.Now().UTC(), "notice": "Previous process owner ended without a completed outcome; execution and side effects unknown. No PID adoption, signals, restart or replay."}); err != nil {
+		data, err := json.Marshal(map[string]any{"job_id": id, "status": "unknown", "at": at, "notice": "Previous process owner ended without a completed outcome; execution and side effects unknown. No PID adoption, signals, restart or replay."})
+		if err != nil {
 			return err
 		}
+		records = append(records, abi.SessionRecord{Kind: abi.RecordExtension, Namespace: shellNamespace, Type: "job_abandoned", SchemaVersion: 1, Payload: data})
+	}
+	if err := p.commitOwnershipLocked(ctx, records); err != nil {
+		return &abi.SessionError{Operation: "append shell interruption recovery", SessionID: p.config.SessionID, Err: err}
+	}
+	if err := p.log.Flush(ctx); err != nil {
+		return &abi.SessionError{Operation: "flush shell interruption recovery", SessionID: p.config.SessionID, Err: err}
 	}
 	return nil
 }

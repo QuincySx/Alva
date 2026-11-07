@@ -18,9 +18,13 @@ import (
 	"github.com/QuincySx/Alva/sdk/kernel/bus"
 )
 
-// Storage is the capability contract supplied by the outer assembly.
+// Storage is the capability contract supplied by the outer assembly. Records
+// and ArtifactReader restore the pending_jobs ownership snapshot (or page a
+// pre-snapshot session once) without reading the whole native session.
 type Storage interface {
 	storage.Journal
+	storage.Records
+	storage.ArtifactReader
 }
 
 type Activity struct {
@@ -60,6 +64,12 @@ type Plugin struct {
 	reserved         bool
 	generation       uint64
 	recoveredUnknown []string
+	// pendingMu serializes the alva.shell/pending_jobs compare-and-append. It
+	// is a leaf lock: never held with mu or while waiting for a process.
+	pendingMu       sync.Mutex
+	pending         map[string]bool
+	pendingRevision uint64
+	pendingLoaded   bool
 }
 
 func New(ctx context.Context, c Config) (*Plugin, error) {
@@ -336,12 +346,22 @@ func (p *Plugin) CleanupComplete() bool {
 		return false
 	}
 }
+
+// append durably records one shell fact. Ownership facts (job intent/outcome/
+// start failure/abandonment) commit atomically with the pending_jobs snapshot.
 func (p *Plugin) append(ctx context.Context, kind string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	_, err = p.log.AppendRecords(ctx, []abi.SessionRecord{{Kind: abi.RecordExtension, Namespace: "alva.shell", Type: kind, SchemaVersion: 1, Payload: data}})
+	record := abi.SessionRecord{Kind: abi.RecordExtension, Namespace: shellNamespace, Type: kind, SchemaVersion: 1, Payload: data}
+	if ownershipKind(kind) {
+		p.pendingMu.Lock()
+		err = p.commitOwnershipLocked(ctx, []abi.SessionRecord{record})
+		p.pendingMu.Unlock()
+	} else {
+		_, err = p.log.AppendRecords(ctx, []abi.SessionRecord{record})
+	}
 	if err != nil {
 		return &abi.SessionError{Operation: "append shell " + kind, SessionID: p.config.SessionID, Err: err}
 	}

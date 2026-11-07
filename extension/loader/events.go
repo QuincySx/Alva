@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/QuincySx/Alva/integration/protocol/aep"
@@ -20,7 +21,11 @@ import (
 type stateHandle struct {
 	id, runID string
 	runtime   abi.RuntimeContext
-	messages  []wire.Message
+	// messages is the event's own model request (on_llm_call_start); other
+	// events lazily cache one bounded native tail so pages share one snapshot.
+	messages []wire.Message
+	mu       sync.Mutex
+	recent   *stateMessages
 }
 
 func (p *Plugin) dispatch(ctx context.Context, runtime abi.RuntimeContext, event string, params map[string]any, messages []wire.Message) (aep.Action, error) {

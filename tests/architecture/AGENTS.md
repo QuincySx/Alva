@@ -39,6 +39,7 @@ platform/storage/blob根契约和adapter仅可标准库与根契约；根不依�
 纯容器目录即使没有 Go 源文件也必须保留含分形四节的地图文档。
 手工窗口工具在 ../../tools/qa/native_window.py，不由本包、Go测试或CI隐式运行。
 
+长会话全量读取闸用AST扫描 apps/、extension/、harness/、integration/、platform/host/ 的非测试 Go 文件：任何名为`Messages`且只有一个参数的方法调用、或第二个参数为字面量0的`Records(x, 0)`都报错，提示改用`BoundConversationTail`、`Page`或`LatestRecord`。按名字匹配是刻意的：复用旧名的新全量读取必须经审阅。确属有界或只作用于小规模私有会话的调用进带一句理由的显式白名单（键为路径#外层函数#方法名），白名单条目不再命中即判过期；当前白名单为空。
 共享storage根契约仅可依赖SDK/纯blob词汇，普通消费者不能直接/传递进入具体session/memory/bindings/Hub SQLite；SQL错误不作为消费者协议。bootstrap只有storage.go选择stock provider，含同包assembly绕过的负例。存储根与blob公开面一并显式快照。
 
 ## 业务域清单
@@ -52,3 +53,4 @@ platform/storage/blob根契约和adapter仅可标准库与根契约；根不依�
 | `fractal_test.go` | 所有源码（含tagged/helper）三行头与目录分形文档强制检查 |
 | `surface_test.go` / `testdata` | SDK、共享存储与Hub根契约公开面AST快照与扫描器反例，须显式审核更新 |
 | storage_test.go | 统一存储插口、具体provider/SQL泄漏与显式配方位置的正反例 |
+| reads_test.go | 禁止新增全量会话读取（单参`Messages`、`Records(x, 0)`）的AST闸、带理由白名单过期检查与扫描器正反例 |

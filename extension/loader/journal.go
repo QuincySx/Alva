@@ -16,10 +16,14 @@ import (
 )
 
 // Storage is the capability contract supplied by the outer assembly.
+// Conversations and ArtifactReader serve AEP state reads from a bounded recent
+// conversation tail instead of the whole native session.
 type Storage interface {
 	storage.Journal
 	storage.Records
 	storage.References
+	storage.Conversations
+	storage.ArtifactReader
 }
 
 type pluginJournal struct {

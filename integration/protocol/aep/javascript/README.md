@@ -35,6 +35,7 @@ Go 应用可直接用 `extension/loader.ReadManifest`、`Stage`、`OpenPlugin`�
 
 显式请求并获批后，`host` 支持 log/notify/emitMetric，以及当前事件的 getMessages/getMetadata/countTokens/readReference/searchReference。
 state 读取仅限事件存活期间；定时器和后台任务不能复用过期句柄，tools/call 本身不授予事件状态。当前宿主未提供 memory 或 request_approval 回调。
+getMessages/countTokens 只覆盖最近一段，不是完整会话：`on_llm_call_start` 时是该次模型请求的消息，其余事件是最近已提交的至多 512 条、8 MiB 消息；offset 从这一段最旧的消息算起。宿主原始响应另带 `truncated` 与 `omitted_at_least`（被省略的更早消息数下限），count_tokens 还带 `counted_messages`；SDK 的 getMessages/countTokens 仍只返回 messages/tokens。
 状态正文有界，大结果通过引用读取；notify/metric 是耐久事实，不代表已交付系统通知或外部遥测。
 
 始终 await 宿主调用，长操作响应 `host.signal`。SDK 序列化事件并允许等待中的反向回调完成；16 MiB 帧、128 个排队请求/回调和 4096 次 lifetime 回调超限后失败关闭。

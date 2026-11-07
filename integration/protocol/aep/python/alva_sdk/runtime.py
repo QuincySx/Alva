@@ -81,7 +81,14 @@ class HostProxy:
         await self._send_call("host/emit_metric", params)
 
     async def state_get_messages(self, limit: Optional[int] = None, offset: int = 0) -> Any:
-        """Read messages for the currently handled event."""
+        """Read one page (limit <= 16) of only the most recent messages.
+
+        Not the whole session: during on_llm_call_start this is the event's
+        model request, otherwise the newest committed messages (at most 512
+        messages / 8 MiB). ``offset`` counts from that window's oldest message.
+        The raw host response also carries ``truncated`` and
+        ``omitted_at_least``; this helper returns only the messages.
+        """
         params: Dict[str, Any] = {}
         if limit is not None:
             params["limit"] = limit
@@ -100,7 +107,11 @@ class HostProxy:
         return result.get("metadata", {})
 
     async def state_count_tokens(self) -> int:
-        """Estimate token count for the currently handled event."""
+        """Heuristically estimate tokens over the same recent window only.
+
+        Older omitted history is not counted; the raw host response adds
+        ``counted_messages``, ``truncated`` and ``omitted_at_least``.
+        """
         result = await self._send_call(
             "host/state.count_tokens", self._state_params()
         )

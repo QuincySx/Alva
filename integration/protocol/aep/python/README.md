@@ -24,6 +24,11 @@ response or result mutations. The real Go loader test checks those wire actions 
 pre-intent arguments, model context and committed tool results, rather than a Python-only mock.
 
 Host helpers use expiring event handles and explicit manifest/host capability grants.
+state_get_messages/state_count_tokens cover only the most recent window, not the whole session:
+the event's model request during on_llm_call_start, otherwise the newest committed messages (at
+most 512 messages / 8 MiB); offsets count from that window's oldest message. The raw host response
+also carries truncated/omitted_at_least (and counted_messages for token counts); the helpers return
+only messages/tokens.
 Log/notification/metric calls record host facts; they do not prove UI notification delivery or
 external telemetry export. Memory/approval helpers are not supported by the current Go host.
 The subprocess has native host access after separate approval; it is not an OS sandbox.

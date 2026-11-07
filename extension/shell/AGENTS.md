@@ -15,14 +15,18 @@ Guard/HITL、实际工具身份/会话/cwd/run 和持久 risk/intent 先于启�
 
 Sessions.List与私有job snapshot均在锁内复制Task开始/结束时间和ExitCode指针，返回状态不授予owner元数据写入权。
 
-存储只消费本包按需组合的共享storage能力插口；会话/引用/DTO/错误从同一契约返回，不导入具体session.Repository或SQL实现。后端由上层程序/插件装配选择，组件不回落默认库、不downcast实现，不持有存储Close。
+所有权事实（job_intent/job_outcome/job_start_failed/job_abandoned）每次都与`alva.shell`/`pending_jobs`快照（排序后的未完成任务ID JSON数组）经`AppendExtensionSnapshot`原子同批写入，revision为该流最新记录sequence；任一写入错误都让下次写入先重读最新快照，revision冲突视为另一owner在写、不自动重试。中断恢复只用`LatestRecord`读最新快照，不再全量`Records`；没有快照的旧会话一次性按`Page`（每页100条元数据，只打开所有权记录正文）重建未完成集合，内存只留集合，随后写入首个快照（无待办也写空快照）。这不是兼容桥，旧会话数据照常可读。
+
+存储只消费本包按需组合的共享storage能力插口（Journal + Records + ArtifactReader）；会话/引用/DTO/错误从同一契约返回，不导入具体session.Repository或SQL实现。后端由上层程序/插件装配选择，组件不回落默认库、不downcast实现，不持有存储Close。
 
 ## 业务域清单
 
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | 装配 | `plugin.go` | 显式配方、同会话生命周期、Close 与持久事实 |
-| 应用内会话owner | `sessions.go` / `sessions_test.go` | 跨Turn后台资源、generation Lease、scoped分离状态/Stop/Reset、真实Close与重启unknown不重放 |
+| 应用内会话owner | `sessions.go` / `sessions_test.go` | 跨Turn后台资源、generation Lease、scoped分离状态/Stop/Reset、真实Close与基于快照的重启unknown不重放 |
+| 所有权快照 | `ownership.go` | 所有权事实与pending_jobs快照原子同批、最新快照读取与旧会话一次性分页重建 |
+| 快照回归 | `ownership_test.go` | 超4096条记录会话首次绑定只读快照、旧会话分页结果与原全量扫描一致后写快照、注入失败时事实与快照都不出现 |
 | 任务 | `job.go` | 实际 Task/进程、完整脱敏帧/输入、真实收尾 |
 | 工具 | `tools.go` | 启动/输出分页/写 stdin/终止的真实消费者 |
 | 调用收尾回归 | `cleanup_test.go` | 审批/后台stdin管理的取消、超时保留及真实join，歧义参数拒绝 |

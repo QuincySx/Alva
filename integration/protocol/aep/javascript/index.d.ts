@@ -13,8 +13,15 @@ export interface Host {
   log(message: string, level?: string, fields?: Record<string, unknown>): Promise<unknown>;
   notify(message: string, level?: string): Promise<unknown>;
   emitMetric(name: string, value: number, labels?: Record<string, string>): Promise<unknown>;
+  /**
+   * One page (limit <= 16) of only the most recent messages, not the whole session:
+   * the event's model request during on_llm_call_start, otherwise the newest committed
+   * messages (at most 512 / 8 MiB). offset counts from that window's oldest message.
+   * The raw host response also carries truncated/omitted_at_least; this helper returns messages.
+   */
   getMessages(limit?: number, offset?: number): Promise<Message[]>;
   getMetadata(): Promise<Record<string, unknown>>;
+  /** Heuristic estimate over the same recent window only (raw response adds counted_messages/truncated/omitted_at_least). */
   countTokens(): Promise<number>;
   readReference(uri: string, offset?: number, limit?: number): Promise<unknown>;
   searchReference(uri: string, query: string, limit?: number): Promise<unknown>;

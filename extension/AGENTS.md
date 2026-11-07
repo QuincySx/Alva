@@ -25,14 +25,14 @@
 | Skills | `skill/` | 元数据提示与按需Skill Tool，替换仓库同样执行参数/实际调用/输出/取消边界，完整正文按会话引用读取 |
 | Convention compatibility | `compatibility/` | 默认关闭的 Agent Skills / 项目规则 / Claude 基础 Agent 模板转换，显式范围/来源/冻结指纹，不导入厂商授权或 runtime |
 | Managed MCP | `mcp/` | 按需单 gateway、实际Tool/native authority、审批至进程收尾的owned stdio 与同会话完整脱敏 journal |
-| Plugin loader | `loader/` | 安全bundle、JS/Python原生与独立WASIp1运行、同一AEP七钩子/gateway/审批/引用/取消join，Hub下一Turn装配 |
+| Plugin loader | `loader/` | 安全bundle、JS/Python原生与独立WASIp1运行、同一AEP七钩子/gateway/审批/引用/取消join、有界最近消息state读取，Hub下一Turn装配 |
 | Memory | `memory/` | 显式 service 替换、实际调用/严格参数与引用工具、受控 MEMORY.md 扫描与结构化笔记提取 |
 | SubAgent | `subagent/` | SDK scope驱动的真实独立native子会话、直接父实际值授权与有限递归；可执行贡献/Attach返回值在child IO前校验，部分setup返回owner也收尾 |
 | Hooks | `hooks/` | 显式授权外部Hook与严格控制JSON、pre-intent改参、Notify取消/join、terminal Close/physical cleanup和真实输入/输出引用 |
 | Diagnostics | `diagnostics/` | 显式诊断命令/可替换 Manager、严格调用与同 native 证据核对、真实 exit，不搬空 LSP stub |
 | Media | `media/` | 显式原件派生、完整清单/哈希与单请求选中图/真实receipt及Tool/model完整取消/join；不自动送原件 |
 | Browser | `browser/` | 七实际Tool、显式owned私有profile/启动risk/HITL，join实际Tool/事实与进程收尾，全量大结果仅引用 |
-| Shell | `shell/` | 明确shell/clean env、同一真实global lease持至reap，run-owned后台stdin/output/kill、审批/管理调用取消与join及脱敏完整引用 |
+| Shell | `shell/` | 明确shell/clean env、同一真实global lease持至reap，run-owned后台stdin/output/kill、审批/管理调用取消与join、脱敏完整引用及pending_jobs快照式中断恢复 |
 | Web | `web/` | 明确network opt-in、无ambient proxy/凭据、审批/risk取消、逐跳安全URL/DNS与有界原文/HTML文本引用，搜索不冒充完整SERP |
 | Planning | `planning/` | 独立计划/六任务工具只消费写入函数或 TaskService，可选详情 writer；native/ 包装默认 typed 任务/DAG/CAS 与执行/引用 authority |
 | Interaction | `interaction/` | Handler驱动的普通问答工具，可选引用后端；native/ 保留会话/审批分离、期限和完整 journal |
