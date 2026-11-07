@@ -190,6 +190,8 @@ type Event struct {
 	Activity    *Activity         `json:"activity,omitempty"`
 	Wait        *WaitCheckpoint   `json:"wait,omitempty"`
 	Question    *UserInputRequest `json:"question,omitempty"`
+
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 type FailureKind string

@@ -98,3 +98,23 @@ func TestWaitingRequiresExclusiveStartedCheckpointReceipt(t *testing.T) {
 		})
 	}
 }
+
+func TestTruncatedOnlyMarksBoundedFinalContent(t *testing.T) {
+	var c StreamContract
+	for _, event := range []Event{
+		{Kind: ToolStart, ID: "t", Name: "read"},
+		{Kind: ToolEnd, ID: "t", Name: "read", Text: "prefix", Truncated: true},
+		{Kind: ContentBlock, ID: "b", Name: "text", Text: "prefix", Truncated: true},
+		{Kind: Message, ID: "m", Text: "prefix", Truncated: true, Reference: &Reference{SessionID: "native", RecordID: "r"}},
+	} {
+		if err := c.Accept(event); err != nil {
+			t.Fatal("bounded final content rejected", event.Kind, err)
+		}
+	}
+	for _, kind := range []Kind{MessageDelta, ReasoningDelta, ToolStart, Error, Completed} {
+		probe := StreamContract{}
+		if probe.Accept(Event{Kind: kind, ID: "x", Name: "x", Text: "x", Outcome: Succeeded, Truncated: true}) == nil {
+			t.Fatal("truncation accepted on a non-final event", kind)
+		}
+	}
+}

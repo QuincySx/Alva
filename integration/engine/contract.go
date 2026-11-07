@@ -144,6 +144,9 @@ type Event struct {
 	Activity    *Activity         `json:"activity,omitempty"`
 	Wait        *WaitCheckpoint   `json:"wait,omitempty"`
 	Question    *UserInputRequest `json:"question,omitempty"`
+	// Truncated says Text is only a bounded prefix. When Reference is set the
+	// complete content is read through it; otherwise the prefix is all there is.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // StreamContract is a consumer-side invariant checker, not an execution owner.
@@ -180,6 +183,9 @@ func (s *StreamContract) Accept(event Event) error {
 	}
 	if event.Question != nil && event.Kind != UserInputRequested {
 		return errors.New("user input belongs only to an explicit question event")
+	}
+	if event.Truncated && event.Kind != Message && event.Kind != ContentBlock && event.Kind != ToolEnd {
+		return errors.New("only a final message, content block or tool result can be truncated")
 	}
 	if event.SessionID != "" {
 		if s.NativeSessionID != "" && event.SessionID != s.NativeSessionID {

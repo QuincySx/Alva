@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/platform/storage/redaction"
@@ -132,11 +133,32 @@ func (r *codexRun) event(event engine.Event) error {
 }
 
 func (r *codexRun) publish(event engine.Event) error {
+	if event.Kind == engine.Message && len(event.Text) > codexMessagePrefix {
+		// A final answer keeps a readable bounded prefix; the native journal
+		// record behind the reference holds the complete text.
+		event.Text = utf8Prefix(event.Text, codexMessagePrefix)
+		event.Truncated = true
+		event.Reference = r.reference(event.ID)
+	}
 	if len(event.Text) > 64<<10 || len(event.Input) > 16<<10 {
 		event.Text, event.Input = "", nil
 		event.Reference = r.reference(event.ID)
 	}
 	return r.emit(event)
+}
+
+const codexMessagePrefix = 60 << 10
+
+// utf8Prefix cuts at most limit bytes without splitting a rune.
+func utf8Prefix(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	end := limit
+	for end > 0 && !utf8.RuneStart(text[end]) {
+		end--
+	}
+	return text[:end]
 }
 
 func (a *Adapter) codexRun(session string) *codexRun {

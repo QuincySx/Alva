@@ -169,6 +169,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/platform/storage/redaction"

@@ -24,10 +24,10 @@ Adapter.New不创建engine.sqlite，缺失Bindings在IO前拒绝；上层成功�
 | descriptor.go | 独立保守能力声明；不把CLI安全flag冒充等价权限profile，Claude真实append-system-prompt/max-turns，Codex/Pi明确拒绝，不声明native Inspector/provider headers/fast mode |
 | codex_app_server.go | 显式app-server握手/thread/turn与owner/cwd绑定；启动前有界流式重验原件/派生大小/SHA/文件身份及选中Skill，不把路径或Prompt当授权；配置隔离与interrupt/真实join |
 | codex_rpc.go | 双向JSON-RPC stdio、有界framing/backlog/请求关联、失败清理及禁止自动重放 |
-| codex_events.go | 原生item/tool/result与approval/question独立映射、pending/resolved关联和native policy校验；人类答案正文不入journal |
+| codex_events.go | 原生item/tool/result与approval/question独立映射、pending/resolved关联和native policy校验；超60KiB最终消息保留UTF-8前缀、Truncated与journal引用；人类答案正文不入journal |
 | codex_environment.go / codex_environment_test.go | app-server专用本机环境合并、终端默认值、代理去重及已知敏感键快照；不读取真实配置/认证/信任文件 |
 | codex_output.go | run-local有界跨片literal脱敏和完整native日志可恢复性；与人类秘密答案的严格省略区分，回归见codex_environment_test.go |
-| codex_app_server_test.go | 仅owned helper process验证双向审批/连续秘密问题/迟到响应、native身份、帧错误、真实interrupt/exit、日志及有界native政策 |
+| codex_app_server_test.go | 仅owned helper process验证双向审批/连续秘密问题/迟到响应、native身份、帧错误、真实interrupt/exit、日志及有界native政策；超限最终消息截断前缀回归 |
 | mapping.go | 各vendor真实JSONL方言、tool配对、可恢复错误与结果证据；已验证resume引用来源独立于CLI session确认 |
 | selected_files.go | Codex/Pi共用的明确选中文件流式SHA/大小/SameFile重验，不新增文件权限 |
 | pi_events_test.go / pi_files_test.go | Pi1.4 settled/overflow恢复、abort/length及零退出失败、已结束消息缓存零累计/活跃1MiB上限、typed图片argv/原件派生path index与真实工具事实回归；只用自有helper进程 |

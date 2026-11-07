@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/platform/storage/bindings"
@@ -989,5 +990,39 @@ func TestCodexSecretQuestionIdentityFailurePhysicallyClosesNativeRequest(t *test
 	data, _ := json.Marshal(events)
 	if strings.Contains(string(data), "human-secret-answer") {
 		t.Fatal("unsafe private question identity leaked to product sink")
+	}
+}
+
+func TestCodexOversizedFinalMessageKeepsMarkedPrefixAndJournalReference(t *testing.T) {
+	for _, size := range []int{(60 << 10) + 512, 70 << 10, 200 << 10} {
+		// A multi-byte rune straddles the 60 KiB cut.
+		text := strings.Repeat("a", (60<<10)-1) + "答" + strings.Repeat("b", size-(60<<10)-2)
+		var events []engine.Event
+		run := codexRun{session: "native", journalURI: "journal://codex/native", rpc: &codexRPC{journal: &journal{}}, emit: func(event engine.Event) error { events = append(events, event); return nil }}
+		if err := run.event(engine.Event{Kind: engine.Message, ID: "answer", Text: text}); err != nil {
+			t.Fatal(err)
+		}
+		if len(events) != 1 {
+			t.Fatal("final message was not published once", len(events))
+		}
+		message := events[0]
+		if !message.Truncated || message.Text == "" || len(message.Text) > 60<<10 || !utf8.ValidString(message.Text) || !strings.HasPrefix(text, message.Text) {
+			t.Fatal("oversized Codex answer lost its bounded readable prefix", size, message.Truncated, len(message.Text))
+		}
+		if message.Reference == nil || message.Reference.SessionID != "native" || message.Reference.RecordID != "answer" || message.Reference.URI != "journal://codex/native" {
+			t.Fatal("truncated Codex answer lost its complete journal reference", message.Reference)
+		}
+		contract := engine.StreamContract{}
+		if err := contract.Accept(engine.Event{Kind: engine.SessionStarted, SessionID: "native"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := contract.Accept(message); err != nil {
+			t.Fatal("bounded Codex answer still fails the stream contract", err)
+		}
+	}
+	var events []engine.Event
+	run := codexRun{session: "native", rpc: &codexRPC{journal: &journal{}}, emit: func(event engine.Event) error { events = append(events, event); return nil }}
+	if err := run.event(engine.Event{Kind: engine.Message, ID: "answer", Text: "short answer"}); err != nil || len(events) != 1 || events[0].Truncated || events[0].Reference != nil || events[0].Text != "short answer" {
+		t.Fatal("bounded Codex answer was rewritten", err, events)
 	}
 }

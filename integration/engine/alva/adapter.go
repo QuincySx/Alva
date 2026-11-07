@@ -207,7 +207,7 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		// actual classification and terminal edge without inventing a successful
 		// SessionStarted or retrying an uncommitted observation.
 		outcome, failure := executionFailure(ctx, err, false)
-		if sendErr := emit(engine.Event{Kind: engine.Error, Text: bounded(err.Error(), 4096), Failure: failure}); sendErr != nil {
+		if sendErr := emit(engine.Event{Kind: engine.Error, Text: boundedError(err.Error()), Failure: failure}); sendErr != nil {
 			return errors.Join(err, sendErr)
 		}
 		return errors.Join(err, emit(engine.Event{Kind: engine.Completed, SessionID: id, Outcome: outcome}))
@@ -264,7 +264,8 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 				// This replaces only this response's stream draft. It is the
 				// actual effective committed answer, not joined deltas, reasoning
 				// or a tool-call preface. Whole-run success still waits for cleanup.
-				output = &engine.Event{Kind: engine.Message, ID: id, Text: bounded(message.Text(), 60<<10), Reference: reference}
+				text, truncated := bounded(message.Text(), 60<<10)
+				output = &engine.Event{Kind: engine.Message, ID: id, Text: text, Truncated: truncated, Reference: reference}
 			}
 		case abi.EventReasoningDelta:
 			responseStarted = true
@@ -291,7 +292,8 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 			if block.Kind == wire.ContentText {
 				visible = block.Text
 			}
-			output = &engine.Event{Kind: engine.ContentBlock, ID: id, Name: string(block.Kind), Text: bounded(visible, 16<<10)}
+			text, truncated := bounded(visible, 16<<10)
+			output = &engine.Event{Kind: engine.ContentBlock, ID: id, Name: string(block.Kind), Text: text, Truncated: truncated}
 		case abi.EventToolStarted:
 			if event.ToolCall == nil {
 				return errors.New("tool start missing payload")
@@ -345,19 +347,31 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	if err != nil {
 		var failure engine.FailureKind
 		outcome, failure = executionFailure(ctx, err, responseStarted)
-		if sendErr := emit(engine.Event{Kind: engine.Error, Text: bounded(err.Error(), 4096), Failure: failure}); sendErr != nil {
+		if sendErr := emit(engine.Event{Kind: engine.Error, Text: boundedError(err.Error()), Failure: failure}); sendErr != nil {
 			return errors.Join(err, sendErr)
 		}
 	}
 	return emit(engine.Event{Kind: engine.Completed, SessionID: id, Outcome: outcome, Usage: &usage, Wait: checkpoint})
 }
-func bounded(value string, limit int) string {
+
+// bounded returns a UTF-8-safe prefix and whether bytes were dropped. Final
+// messages and content blocks report that through engine.Event.Truncated.
+func bounded(value string, limit int) (string, bool) {
 	if len(value) <= limit {
-		return value
+		return value, false
 	}
 	value = value[:limit]
 	for !utf8.ValidString(value) && len(value) > 0 {
 		value = value[:len(value)-1]
 	}
-	return value + " [bounded]"
+	return value, true
+}
+
+// boundedError keeps the visible marker: Error events cannot carry Truncated.
+func boundedError(value string) string {
+	text, truncated := bounded(value, 4096)
+	if truncated {
+		text += " [bounded]"
+	}
+	return text
 }
