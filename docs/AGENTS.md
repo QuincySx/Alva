@@ -18,4 +18,5 @@ Do not treat archived Rust paths or competitor examples as active implementation
 | history/ | Complete dated Go checkpoints and initial repository layout review |
 | BUS-RULES.md | Typed capabilities and explicit bounded notifications |
 | REGISTRAR-RULES.md | Assembly contribution boundaries |
-| adr/ | Accepted Go stack decision and historical archive pointer |
+| ROADMAP.md | 模块固定与 v1 的阶段顺序、阶段 1 消息流拆分与工具块呈现、长会话验收预算；进度与证据仍在 MIGRATION |
+| adr/ | Accepted Go stack decision, ADR 0013 v1 scope/content blocks/long-session/narrowing amendments and historical archive pointer |

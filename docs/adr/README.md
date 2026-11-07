@@ -2,6 +2,8 @@
 
 当前实现的技术栈与边界决策见 [ADR 0012](./0012-go-native-stack.md)：
 Go、MyGo 自绘、独立 SDK/扩展/harness/产品、无历史兼容桥。
+[ADR 0013](./0013-module-freeze-and-v1-scope.md) 修订其中两处，并记录 v1 范围、中间窗口内容块、
+长会话验收线以及经批准的内核/SDK 与 Hub interface 收窄；落地顺序见 [ROADMAP](../ROADMAP.md)。
 2026-10-18 用户明确授权先提交 Rust 完整快照，再删除旧实现并将 Go 转正。
 
 Rust 时代的 ADR、产品规范和实现记录已归档到 `archive/rust-final-2026-10-18`，

@@ -1,6 +1,6 @@
 # Alva
 
-Alva 唯一受维护的 Go 实现，桌面使用 MyGo 自绘，不使用 React、WebView 或 npm。
+Alva 唯一受维护的 Go 实现，桌面外壳与原生 UI 使用 MyGo 自绘，不使用 React 或 npm；WebView 只用于中间窗口的 HTML 内容块（见 [ADR 0013](./docs/adr/0013-module-freeze-and-v1-scope.md)）。
 SDK、direct harness 与 Hub 保留独立职责。技术栈已正式切换；能力与平台的独立验收边界见
 [MIGRATION.md](./MIGRATION.md)，决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)。
 

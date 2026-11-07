@@ -4,6 +4,7 @@
 - Date: 2026-10-16
 - Scope: 全栈目标实现、SDK 边界、原生桌面与迁移验收
 - Supersedes: ADR-0006 中 Tauri/React 的目标技术栈选择；领域、交互与可访问性要求不变
+- Amended by: [ADR 0013](./0013-module-freeze-and-v1-scope.md)（2026-11-07）：WebView 只允许作为中间窗口的 HTML 内容块；经批准的内核/SDK 收窄
 
 ## 2026-10-18：Go 转正与旧栈归档
 
