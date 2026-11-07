@@ -221,6 +221,7 @@ func TestWorkspaceLayoutPreferencesConcurrentWidthAndCollapseMergePerField(t *te
 			if err != nil {
 				t.Fatal(err)
 			}
+			b.Transcripts = a.Transcripts
 			release := make(chan struct{})
 			var once sync.Once
 			defer once.Do(func() { close(release) })

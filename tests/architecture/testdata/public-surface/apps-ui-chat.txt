@@ -39,6 +39,8 @@ func (v *NativeView) ScrollToEnd()
 
 func (v *NativeView) SetMarkdownOptions(options *markdown.Options)
 
+func (v *NativeView) VisibleRows() (first, last int)
+
 func InspectionGroup(entry storage.RecordEntry) string
 
 func InspectionGroupVisible(entry storage.RecordEntry, group string) bool

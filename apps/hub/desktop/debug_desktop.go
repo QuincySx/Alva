@@ -58,7 +58,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 		for _, session := range p.sessions {
 			ids = append(ids, session.ID)
 		}
-		state := map[string]any{"demo": p.Service.Demo, "session_id": p.selected, "pane": p.pane, "generation": p.generation, "status": p.model.Status, "active_run_id": p.model.ActiveRunID, "busy": p.busy, "pane_busy": p.paneBusy, "draft_bytes": len(p.model.Draft), "draft_sha256": hex.EncodeToString(hash[:]), "message_rows": len(p.model.Messages), "history_sequence": p.transcript.Last, "sessions": ids, "pending_approvals": len(p.approvals), "pending_questions": len(p.questions), "player_busy": p.playerBusy, "gateway_busy": p.gatewayBusy, "can_send": canSend(), "can_stop": p.selected != "" && p.pane == "" && !p.busy && !p.chat.Busy && p.model.ActiveRunID != "" && p.model.Status != chat.Stopping, "has_problem": p.problem != ""}
+		state := map[string]any{"demo": p.Service.Demo, "session_id": p.selected, "pane": p.pane, "generation": p.generation, "status": p.model.Status, "active_run_id": p.model.ActiveRunID, "busy": p.busy, "pane_busy": p.paneBusy, "draft_bytes": len(p.model.Draft), "draft_sha256": hex.EncodeToString(hash[:]), "message_rows": len(p.model.Messages), "history_sequence": p.transcript.Last(), "sessions": ids, "pending_approvals": len(p.approvals), "pending_questions": len(p.questions), "player_busy": p.playerBusy, "gateway_busy": p.gatewayBusy, "can_send": canSend(), "can_stop": p.selected != "" && p.pane == "" && !p.busy && !p.chat.Busy && p.model.ActiveRunID != "" && p.model.Status != chat.Stopping, "has_problem": p.problem != ""}
 		state["can_set_draft"] = canSetDraft()
 		state["gateway_credentials_visible"] = p.pane == "gateway" && p.gatewayCredentialsCurrent()
 		if p.Service.Gateway != nil {
@@ -105,7 +105,7 @@ func (p *NativePage) Diagnostic(owner context.Context, enqueue func(func()), cap
 		if bounds != nil {
 			rectangle = bounds()
 		}
-		tree := debug.Node{ID: "window", Type: "AlvaHubWindow", Bounds: rectangle, Children: []debug.Node{{ID: "sessions", Type: "SessionPage", Properties: map[string]any{"rows": len(p.sessions), "selected": p.selected}}, {ID: "navigation", Type: "ProductPane", Properties: map[string]any{"selected": p.pane}}, {ID: "transcript", Type: "BoundedProductHistory", Properties: map[string]any{"rows": len(p.model.Messages), "sequence": p.transcript.Last}}, {ID: "composer", Type: "NativeComposer", Properties: map[string]any{"draft_bytes": len(p.model.Draft)}}, {ID: "approvals", Type: "ActualOwnerRequests", Properties: map[string]any{"permissions": len(p.approvals), "questions": len(p.questions)}}}}
+		tree := debug.Node{ID: "window", Type: "AlvaHubWindow", Bounds: rectangle, Children: []debug.Node{{ID: "sessions", Type: "SessionPage", Properties: map[string]any{"rows": len(p.sessions), "selected": p.selected}}, {ID: "navigation", Type: "ProductPane", Properties: map[string]any{"selected": p.pane}}, {ID: "transcript", Type: "BoundedProductHistory", Properties: map[string]any{"rows": len(p.model.Messages), "sequence": p.transcript.Last()}}, {ID: "composer", Type: "NativeComposer", Properties: map[string]any{"draft_bytes": len(p.model.Draft)}}, {ID: "approvals", Type: "ActualOwnerRequests", Properties: map[string]any{"permissions": len(p.approvals), "questions": len(p.questions)}}}}
 		return debug.Snapshot{Tree: tree, State: state}
 	}
 	apply := func(method string, raw json.RawMessage) error {

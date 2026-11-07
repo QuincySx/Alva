@@ -14,6 +14,7 @@ Developer options是会话外页面，Integration tests与Model evaluation使用
 
 AEP pane区分原生JS/Python的完整host访问与嵌入式WASIp1的无目录/环境/网络运行，二者都先检查disabled pin并单独批准下一Turn；空interpreter仅选择manifest=wasm。
 apps/hub/product.HubService拥有产品认领与原始文件耐久保存；本窗仅持有自己的上传/项目准备回执，发送捕获明确DraftID/版本集合，成功仅清理匹配集合，不借用或清除其他窗口或HTTP暂存引用。关闭本窗释放其未提交暂存claim，实际prepare/upload/Submit返回前保留在途引用；晚到回执仍由原窗口owner登记并收尾，已取消且未被UI采纳的项目准备释放claim，原件保留。UI只提交引用清单与读取有限产品历史；本包仅拥有页面交互、轮询与展示转换。
+消息流只经HubService.Transcripts（Tail/Newer/Older）读取，按块累积在product.TranscriptWindow并转成共享行（ID=Block.ID）；上一帧可见首行<5且MoreBefore时自动加载更早内容，Key保证可见行不动；每次应用后按是否停在底部Trim，窗口裁掉最新端（MoreAfter）时暂停跟随新文字，滚到底部附近再重新加载最新。不再直接调用Store.History*，菜单只保留“最新消息”。
 原生窗口独立250ms观察时钟最多一个排队UI closure，进度/审批与终态查询不依赖Build或compositor重绘；关闭observer取消时钟，过期closure不查询或Stop。自绘Build仅呈现当前状态。
 等待pane复用同一观察时钟冷读已提交checkpoint；其他窗口保存/继续/放弃会更新本窗，只为同branch/Turn、同请求ID与binding的未解决请求保留草稿。revision变化撤销旧放弃确认，明确操作/刷新后的旧读不得回盖；读失败禁用checkpoint操作，成功后恢复，不自动执行。
 持久问答复用同一binding草稿与既有interaction.Answer，提供无默认选项的单选/多选/自由文本；显式保存后仍暂停，不授予文件/进程/网络权限。结果按实际编码后的16KiB限制；到期请求只展示不再接受回答或审批。
@@ -80,7 +81,7 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | developer_desktop.go / developer_desktop_test.go | 无聊天会话的开发者测试/评估入口、动态Connections目标刷新/旧预览失效、明确模型选择/预算/任务集、冷预览绑定与运行/停止/分开报告；1240×850实际保存连接至推理、跨窗禁用及阻塞解析时Stop可达/实际join的无窗口控件回归 |
 | wait_desktop.go / wait_desktop_test.go | 默认off等待面板、完整请求/已保存结果与可复制Turn ID、跨窗观察/绑定草稿/旧读排除/读失败禁用；只保存结果、同Turn继续和重新审阅后放弃，1240×850无窗口控件回归 |
 | wait_question_desktop.go / wait_question_desktop_test.go | 持久单选/多选/文本与编码限额，拒绝空白保存；重开/明确继续同Turn、过期禁用、独立写审批、多问题草稿隔离及滚动动作可达，不要求手写JSON |
-| app_desktop.go | 正式工作台装配、共享虚拟消息、异步会话/观察/发送与明确审批；会话参数已提交观察独立于高级配置编辑态，真实导航/轮询复用已有Settings读取；高级面板由workspace入口分派 |
+| app_desktop.go | 正式工作台装配、共享虚拟消息、异步会话/观察/发送与明确审批；会话参数已提交观察独立于高级配置编辑态，真实导航/轮询复用已有Settings读取；高级面板由workspace入口分派；打开/轮询/更早内容分别走Transcripts Tail/Newer/Older，MoreAfter取代旧reviewing |
 | panes_desktop.go | MCP/native SubAgent/持久Memory显式冷settings与原视图回执；固定高水位Inspector、typed child钻取/返回父页与2KiB原文 |
 | export_desktop.go | 已选branch/typed子路径的实际JSONL私有导出；可选真实关联child，失败不报成功，Close等待写入；分类只筛当前metadata页 |
 | aep_desktop.go | native-only显式文件夹/JSON检查、disabled pin保存、独立host同意与下一Turn启停 |
@@ -94,7 +95,7 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | media_settings_desktop.go | 默认off媒体工具、显式decoder绝对路径、编辑禁用和独立host批准，不自动启动 |
 | media_desktop.go / media_desktop_test.go | cold来源/产物/selection/receipt分页、显式实际JPEG预览/释放及MyGo无窗口回归 |
 | browser_desktop.go / browser_desktop_test.go | explicit browser JSON禁用保存/独立host-network批准/编辑撤销与零启动控件回归 |
-| handoff_desktop.go / handoff_desktop_test.go | 仅当前bounded历史页的handoff ID→显式读取exact已保存脱敏snapshot，不恢复或执行 |
+| handoff_desktop.go / handoff_desktop_test.go | 仅当前消息窗口内时间线块的handoff ID→显式读取exact已保存脱敏snapshot，不恢复或执行 |
 | playback_desktop.go / playback_desktop_test.go | actual ffmpeg+MyGo Play/Pause/seek、单Bitmap.Update或audio mixer position、one-closure背压、导航回收；fixture双流排空后回收，失败也清理；真实OS窗口另验 |
 | audio_desktop.go / audio_desktop_test.go | canonical WAV→有界in-memory MyGo voice、显式Play/seek/Close，设备错误不冒充可听成功；冷构造/非发声fake voice测试，不声称真实声学验收 |
 | automation_desktop.go / automation_desktop_test.go | 普通会话paused-first CRUD、固定账户/计费确认、冲突保存保稿/重开已提交事实、编辑暂停与ID/revision绑定二次config-only删除；刷新撤销旧审阅，不私自Tick或执行 |
@@ -104,9 +105,8 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | windows_desktop.go / windows_desktop_test.go | 最多8个同app观察窗共享product/runtime；资源收回走真实Close守卫后聚焦来源，来源关闭则原位/现存工作台，清除双向关系不保留旧缓存；关闭不冒充Stop |
 | skills_desktop.go | 受管项目Skills原生编辑/下一轮enable、显式compatibility文件冷读与下一轮启停；无目录时仍可用规则插件，旧原文读取/操作回执不覆盖后来视图 |
 | compatibility_desktop_test.go | MyGo实际配置路径输入/明确启停、未初始化native Skills仍可用、导航/重开隔离旧Skill原文与零执行回归 |
-| transcript.go | bounded产品历史转稳定ID、typed消息行；工具原native owner独立于结果引用按同attempt/产品会话保留，未知不猜当前branch；不是模型上下文 |
-| transcript_test.go | 消息ID、类型与重叠分页去重回归 |
-| workspace_transcript_desktop.go / workspace_transcript_desktop_test.go | 共享有界列表独立top16/行距24、右对齐subtle用户气泡、32头像/12间距回复列、仅已存native/attempt来源匹配的真实身份与当前消息复制；沿同一Markdown注册及工具披露/原始读取owner，拒绝旧会话/分支/行绑定，不用composer目标给历史贴模型 |
+| workspace_transcript_desktop.go / workspace_transcript_desktop_test.go | product内容块→稳定ID行与工具/来源投影（类型来自Block而非引擎名）、截断块明示只显示开头、可见行驱动的自动分页；共享有界列表独立top16/行距24、右对齐subtle用户气泡、32头像/12间距回复列、仅已存native/attempt来源匹配的真实身份与当前消息复制；沿同一Markdown注册及工具披露/原始读取owner，拒绝旧会话/分支/行绑定，不用composer目标给历史贴模型 |
+| workspace_transcript_scroll_desktop_test.go | 真实SQLite历史下滚到顶部自动加载且首个可见行不变、往上翻时新内容不拉回底部、裁剪窗口滚到底部重新加载最新、无“更早的消息”菜单；ALVA_UI_BENCH=1时2万行无窗口滚动帧CPU p95≤8ms门 |
 | team_desktop.go | 原生collaboration、真实Worker会话focus；捕获该Worker文件/Skill与手动正文入原branch的typed FIFO，提交才消费匹配回执；队列编辑/取消/分页、显式resume/stop和持久生命周期 |
 | team_desktop_test.go | MyGo建Team/Worker零执行、typed文件/Skill入队重开/防重/显式FIFO与同Turn等待继续、原件/派生损坏在HTTP前失败且保留新稿；跨pane审批及真实Stop等待owner清理并保留后续队列 |
 | worktree_desktop.go / worktree_desktop_test.go | explicit首Turn前隔离、冷SHA/path索引与8KiB raw diff页、二次确认真实采纳及整树删除审阅/独立确认/Worker退休；离开释放正文、未知不重试，无OS窗口验收主张 |

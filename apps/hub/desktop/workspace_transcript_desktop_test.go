@@ -1,5 +1,5 @@
-// INPUT: Actual private native record storage, cold Inspector adapter and headless MyGo transcript controls.
-// OUTPUT: Canonical light/dark message geometry, explicit tool record reads and stale binding rejection.
+// INPUT: Actual private native record storage, product TranscriptService pages, cold Inspector adapter and headless MyGo transcript controls.
+// OUTPUT: Canonical light/dark message geometry, explicit tool record reads, stale binding rejection and scroll-driven paging.
 // POS: [L7 Hub UI tests] Exercises retained original evidence without launching a model, process or OS window.
 //go:build desktop
 
@@ -24,6 +24,58 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 )
+
+// fixedHistory serves fixture entries through the product TranscriptService, so
+// tests reach the window the same way a reopened page does.
+type fixedHistory []hub.HistoryEntry
+
+func (h fixedHistory) History(_ context.Context, _ string, after uint64, limit int) ([]hub.HistoryEntry, error) {
+	var page []hub.HistoryEntry
+	for _, entry := range h {
+		if entry.Sequence > after && len(page) < limit {
+			page = append(page, entry)
+		}
+	}
+	return page, nil
+}
+
+func (h fixedHistory) HistoryBefore(_ context.Context, _ string, before uint64, limit int) ([]hub.HistoryEntry, error) {
+	var page []hub.HistoryEntry
+	for i := len(h) - 1; i >= 0 && len(page) < limit; i-- {
+		if before == 0 || h[i].Sequence < before {
+			page = append([]hub.HistoryEntry{h[i]}, page...)
+		}
+	}
+	return page, nil
+}
+
+func replaceTranscript(t *testing.T, p *NativePage, entries ...hub.HistoryEntry) {
+	t.Helper()
+	chunk, err := (&product.TranscriptService{Store: fixedHistory(entries)}).Tail(t.Context(), p.selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.transcript.Reset(chunk)
+	p.projectTranscript()
+}
+
+func appendTranscript(t *testing.T, p *NativePage, entries ...hub.HistoryEntry) {
+	t.Helper()
+	chunk, err := (&product.TranscriptService{Store: fixedHistory(entries)}).Newer(t.Context(), p.selected, p.transcript.Last())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.transcript.ApplyNewer(chunk)
+	p.projectTranscript()
+}
+
+func transcriptFixtureHistory(session, native string, reference *engine.Reference, failed bool) []hub.HistoryEntry {
+	return []hub.HistoryEntry{
+		{Sequence: 1, SessionID: session, TurnID: "turn", Input: "User paragraph"},
+		{Sequence: 2, SessionID: session, AttemptID: "attempt", Event: engine.Event{Kind: engine.ToolEnd, SessionID: native, ID: "tool", Name: "demo_echo", Text: "Original result summary", Reference: reference, IsError: failed}},
+		{Sequence: 3, SessionID: session, AttemptID: "attempt", Event: engine.Event{Kind: engine.Message, ID: "reply", Text: "Assistant paragraph"}},
+	}
+}
 
 type transcriptColdRuntime struct{ engine.Runtime }
 
@@ -107,11 +159,7 @@ func transcriptPageFixture(t *testing.T, failed, noReference bool) (*NativePage,
 	if !noReference {
 		ref = &reference
 	}
-	p.transcript.Replace([]hub.HistoryEntry{
-		{Sequence: 1, SessionID: session.ID, TurnID: "turn", Input: "User paragraph"},
-		{Sequence: 2, SessionID: session.ID, AttemptID: "attempt", Event: engine.Event{Kind: engine.ToolEnd, SessionID: native, ID: "tool", Name: "demo_echo", Text: "Original result summary", Reference: ref, IsError: failed}},
-		{Sequence: 3, SessionID: session.ID, AttemptID: "attempt", Event: engine.Event{Kind: engine.Message, ID: "reply", Text: "Assistant paragraph"}},
-	})
+	replaceTranscript(t, p, transcriptFixtureHistory(session.ID, native, ref, failed)...)
 	p.applyDetail()
 	return p, inspector, reference
 }
@@ -180,7 +228,7 @@ func TestWorkspaceTranscriptToolDisclosureReadsActualQualifiedRecord(t *testing.
 			if p.problem != "" || p.inspectURI == "" || p.inspectText.URI != p.inspectURI || !strings.Contains(p.inspectText.Text, "exact retained original tool result") || inspector.pages.Load() != 1 || inspector.reads.Load() != 1 {
 				t.Fatal("tool details did not resolve and read the actual qualified reference", p.problem, p.inspectURI, p.inspectText, inspector.pages.Load(), inspector.reads.Load())
 			}
-			if p.Service.Runtime.HasActive() || p.transcript.Rows[1].Text != "Original result summary" {
+			if p.Service.Runtime.HasActive() || p.transcriptRows[1].Text != "Original result summary" {
 				t.Fatal("inspection executed or replaced retained evidence")
 			}
 		})
@@ -194,7 +242,7 @@ func TestWorkspaceTranscriptNoReferenceAndStaleBindings(t *testing.T) {
 	if !tester.HasText("Original result summary") {
 		t.Fatal("failure without a reference lost its inspectable summary")
 	}
-	oldBinding, oldTool := p.transcriptBinding(), p.transcript.tools["attempt/tool"]
+	oldBinding, oldTool := p.transcriptBinding(), p.transcriptTools["attempt/tool"]
 	p.generation++
 	p.inspectTranscriptTool(oldBinding, "attempt/tool", oldTool)
 	tester.Frame()
@@ -204,18 +252,18 @@ func TestWorkspaceTranscriptNoReferenceAndStaleBindings(t *testing.T) {
 	connectionClick(t, tester, "Tool activity attempt/tool")
 	connectionClick(t, tester, "Inspect tool result attempt/tool")
 	settlePage(t, tester, p)
-	if p.pane != "inspector" || inspector.pages.Load() != 1 || inspector.reads.Load() != 0 || p.transcript.Rows[1].Status != view.Failed {
+	if p.pane != "inspector" || inspector.pages.Load() != 1 || inspector.reads.Load() != 0 || p.transcriptRows[1].Status != view.Failed {
 		t.Fatal("missing-reference fallback fabricated a body or hid failure", p.pane, inspector.pages.Load(), inspector.reads.Load())
 	}
-	entries := append([]hub.HistoryEntry(nil), p.transcript.Entries...)
+	entries := transcriptFixtureHistory(oldBinding.session, "native-transcript", nil, true)
 	for _, change := range []func(){
 		func() { p.generation++ },
 		func() { p.selected = "other-session" },
 		func() { p.detail.Session.ActiveBranchID = "other-branch" },
-		func() { p.transcript.Replace(nil) },
+		func() { replaceTranscript(t, p) },
 	} {
 		p.selected, p.detail.Session.ActiveBranchID = oldBinding.session, oldBinding.branch
-		p.transcript.Replace(entries)
+		replaceTranscript(t, p, entries...)
 		binding := p.transcriptBinding()
 		change()
 		p.inspectTranscriptTool(binding, "attempt/tool", oldTool)
@@ -249,16 +297,16 @@ func TestWorkspaceTranscriptUnsettledToolInspectsOriginalOwnerAfterBranchSwitch(
 			} else {
 				start.Reference = &engine.Reference{SessionID: reference.SessionID, RecordID: "tool-start", Sequence: reference.Sequence}
 			}
-			p.transcript.Replace([]hub.HistoryEntry{
-				{Sequence: 1, SessionID: p.selected, AttemptID: "attempt", Event: start},
-				{Sequence: 2, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.ToolEnd, ID: "tool", Text: "tool cancelled before settlement", IsError: true}},
-			})
+			replaceTranscript(t, p,
+				hub.HistoryEntry{Sequence: 1, SessionID: p.selected, AttemptID: "attempt", Event: start},
+				hub.HistoryEntry{Sequence: 2, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.ToolEnd, ID: "tool", Text: "tool cancelled before settlement", IsError: true}},
+			)
 			p.applyDetail()
 			tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 			connectionClick(t, tester, "Tool activity attempt/tool")
 			connectionClick(t, tester, "Inspect tool result attempt/tool")
 			settlePage(t, tester, p)
-			tool := p.transcript.tools["attempt/tool"]
+			tool := p.transcriptTools["attempt/tool"]
 			if p.detail.Session.ActiveBranchID != branch.ID || branch.ID == originalBranch || p.inspectBranch != originalBranch || p.problem != "" || p.pane != "inspector" || len(p.inspectPage.Entries) != 1 || p.inspectPage.Entries[0].ID != reference.RecordID {
 				t.Fatal("unsettled tool inspection followed the active branch instead of its native owner", p.problem, p.inspectBranch, p.detail.Session.ActiveBranchID, p.inspectPage)
 			}
@@ -271,7 +319,7 @@ func TestWorkspaceTranscriptUnsettledToolInspectsOriginalOwnerAfterBranchSwitch(
 
 func TestWorkspaceTranscriptUnknownToolOwnerNeverGuessesActiveBranch(t *testing.T) {
 	p, inspector, _ := transcriptPageFixture(t, true, true)
-	p.transcript.Replace([]hub.HistoryEntry{{Sequence: 1, SessionID: p.selected, AttemptID: "unknown-attempt", Event: engine.Event{Kind: engine.ToolEnd, ID: "tool", Name: "unavailable", Text: "failure without retained owner", IsError: true}}})
+	replaceTranscript(t, p, hub.HistoryEntry{Sequence: 1, SessionID: p.selected, AttemptID: "unknown-attempt", Event: engine.Event{Kind: engine.ToolEnd, ID: "tool", Name: "unavailable", Text: "failure without retained owner", IsError: true}})
 	p.applyDetail()
 	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	connectionClick(t, tester, "Tool activity unknown-attempt/tool")
@@ -315,7 +363,7 @@ func TestWorkspaceTranscriptMissingReferenceClearsPreviouslyReadToolBody(t *test
 		t.Fatal("first tool did not read its actual original body", p.problem, p.inspectText)
 	}
 	p.setPane("")
-	p.transcript.Append([]hub.HistoryEntry{{Sequence: 4, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.ToolEnd, SessionID: "native-transcript", ID: "without-ref", Name: "unavailable", Text: "Original failure without reference", IsError: true}}})
+	appendTranscript(t, p, hub.HistoryEntry{Sequence: 4, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.ToolEnd, SessionID: "native-transcript", ID: "without-ref", Name: "unavailable", Text: "Original failure without reference", IsError: true}})
 	p.applyDetail()
 	tester.Frame()
 	connectionClick(t, tester, "Tool activity attempt/without-ref")
@@ -438,13 +486,13 @@ func TestWorkspaceTranscriptSavedEngineIdentityNeverUsesComposerTarget(t *testin
 				t.Fatal(err)
 			}
 			p.composer.target = hub.Target{EngineID: "claude", ModelID: "unrelated-next-model"}
-			p.transcript.Replace([]hub.HistoryEntry{
-				{Sequence: 1, SessionID: p.selected, AttemptID: "saved-attempt", Event: engine.Event{Kind: engine.SessionStarted, SessionID: "saved-native"}},
-				{Sequence: 2, SessionID: p.selected, AttemptID: "saved-attempt", Event: engine.Event{Kind: engine.Message, ID: "reply", Text: "Actual saved response"}},
-			})
+			replaceTranscript(t, p,
+				hub.HistoryEntry{Sequence: 1, SessionID: p.selected, AttemptID: "saved-attempt", Event: engine.Event{Kind: engine.SessionStarted, SessionID: "saved-native"}},
+				hub.HistoryEntry{Sequence: 2, SessionID: p.selected, AttemptID: "saved-attempt", Event: engine.Event{Kind: engine.Message, ID: "reply", Text: "Actual saved response"}},
+			)
 			p.applyDetail()
 			tester := ui.NewTester(workspaceStaticView(p), 1440, 960)
-			author, model := p.transcriptAuthor(p.transcript.Rows[0])
+			author, model := p.transcriptAuthor(p.transcriptRows[0])
 			wantAuthor := map[string]string{"codex": "Codex", "pi": "Pi", "alva": "Alva"}[target.EngineID]
 			if wantAuthor == "" {
 				wantAuthor = target.EngineID
@@ -461,7 +509,7 @@ func TestWorkspaceTranscriptSavedEngineIdentityNeverUsesComposerTarget(t *testin
 			if authorBox.X < header.X || authorBox.X+authorBox.W > actions.X || actions.W != 28 || actions.H != 28 || actions.X+actions.W > header.X+header.W+.01 {
 				t.Fatal("long saved identity displaced the content action or left its header", header, authorBox, actions)
 			}
-			p.transcript.Replace([]hub.HistoryEntry{{Sequence: 3, SessionID: p.selected, AttemptID: "unknown-attempt", Event: engine.Event{Kind: engine.Message, ID: "reply", Text: "No retained origin"}}})
+			replaceTranscript(t, p, hub.HistoryEntry{Sequence: 3, SessionID: p.selected, AttemptID: "unknown-attempt", Event: engine.Event{Kind: engine.Message, ID: "reply", Text: "No retained origin"}})
 			p.applyDetail()
 			tester.Frame()
 			if _, ok := tester.Find("Message model unknown-attempt/reply"); ok || inspector.pages.Load() != 0 || inspector.reads.Load() != 0 || p.Service.Runtime.HasActive() {
@@ -473,18 +521,18 @@ func TestWorkspaceTranscriptSavedEngineIdentityNeverUsesComposerTarget(t *testin
 
 func TestWorkspaceTranscriptStreamingCopyAndErrorStayInReplyColumn(t *testing.T) {
 	p, inspector, _ := transcriptPageFixture(t, false, false)
-	p.transcript.Replace([]hub.HistoryEntry{
-		{Sequence: 1, SessionID: p.selected, TurnID: "turn", Input: strings.Repeat("长消息 mixed text ", 90)},
-		{Sequence: 2, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.SessionStarted, SessionID: "native-transcript"}},
-		{Sequence: 3, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.MessageDelta, ID: "reply", Text: "Streaming paragraph"}},
-	})
+	replaceTranscript(t, p,
+		hub.HistoryEntry{Sequence: 1, SessionID: p.selected, TurnID: "turn", Input: strings.Repeat("长消息 mixed text ", 90)},
+		hub.HistoryEntry{Sequence: 2, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.SessionStarted, SessionID: "native-transcript"}},
+		hub.HistoryEntry{Sequence: 3, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.MessageDelta, ID: "reply", Text: "Streaming paragraph"}},
+	)
 	p.applyDetail()
 	tester := ui.NewTester(workspaceStaticView(p), 960, 1200)
 	avatar, avatarOK := tester.Find("Message avatar attempt/reply")
 	if !avatarOK {
 		t.Fatal("streaming reply has no identity column")
 	}
-	p.transcript.Append([]hub.HistoryEntry{{Sequence: 4, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.MessageDelta, ID: "reply", Text: " continued"}}})
+	appendTranscript(t, p, hub.HistoryEntry{Sequence: 4, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.MessageDelta, ID: "reply", Text: " continued"}})
 	p.applyDetail()
 	tester.Frame()
 	updated, ok := tester.Find("Message avatar attempt/reply")
@@ -499,7 +547,7 @@ func TestWorkspaceTranscriptStreamingCopyAndErrorStayInReplyColumn(t *testing.T)
 	if err := tester.ChooseMenuItem("复制消息"); err != nil {
 		t.Fatal(err)
 	}
-	p.transcript.Append([]hub.HistoryEntry{{Sequence: 5, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.Error, Text: "Actual engine error"}}})
+	appendTranscript(t, p, hub.HistoryEntry{Sequence: 5, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.Error, Text: "Actual engine error"}})
 	p.applyDetail()
 	tester.Frame()
 	errorBody, found := tester.Find("Actual engine error")

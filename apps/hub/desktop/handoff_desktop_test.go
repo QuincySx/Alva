@@ -44,11 +44,12 @@ func TestNativeHandoffEvidenceReadsExactSavedTeamIndexOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := service.Store.History(ctx, lead.ID, 0, 128)
+	chunk, err := service.Transcripts.Tail(ctx, lead.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.transcript.Replace(entries)
+	p.transcript.Reset(chunk)
+	p.projectTranscript()
 	p.applyDetail()
 	tester := ui.NewTester(workspaceStaticView(p), 1500, 1600)
 	if err = workspaceTestMenu(tester, "交接记录"); err != nil {

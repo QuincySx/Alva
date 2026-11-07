@@ -1,4 +1,24 @@
 const (
+	BlockKindUser      BlockKind = "user"
+	BlockKindReply     BlockKind = "reply"
+	BlockKindReasoning BlockKind = "reasoning"
+	BlockKindContent   BlockKind = "content"
+	BlockKindTool      BlockKind = "tool"
+	BlockKindActivity  BlockKind = "activity"
+	BlockKindStatus    BlockKind = "status"
+	BlockKindTimeline  BlockKind = "timeline"
+)
+
+const (
+	BlockStatusRunning     BlockStatus = "running"
+	BlockStatusCompleted   BlockStatus = "completed"
+	BlockStatusFailed      BlockStatus = "failed"
+	BlockStatusCancelled   BlockStatus = "cancelled"
+	BlockStatusInterrupted BlockStatus = "interrupted"
+	BlockStatusWaiting     BlockStatus = "waiting"
+)
+
+const (
 	ComposerCommandEntry ComposerEntryKind = "command"
 	ComposerSkillEntry   ComposerEntryKind = "skill"
 	ComposerGoalEntry    ComposerEntryKind = "goal"
@@ -422,6 +442,12 @@ func (s *PreferencesService) Snapshot() hub.Preferences
 
 func (s *PreferencesService) Update(ctx context.Context, update hub.PreferenceUpdate) (hub.Preferences, error)
 
+func (s *TranscriptService) Newer(ctx context.Context, sessionID string, after uint64) (TranscriptChunk, error)
+
+func (s *TranscriptService) Older(ctx context.Context, sessionID string, before uint64) (TranscriptChunk, error)
+
+func (s *TranscriptService) Tail(ctx context.Context, sessionID string) (TranscriptChunk, error)
+
 func (s *WorkspaceViewsService) Close(ctx context.Context) error
 
 func (s *WorkspaceViewsService) Read(ctx context.Context, id string) (hub.WorkspaceView, error)
@@ -443,6 +469,24 @@ func (t *TeamCoordinator) StopExecution(ctx context.Context, lead, team, worker,
 func (t *TeamTool) DescribeEffect(call wire.ToolCall) abi.Effect
 
 func (t *TeamTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
+
+func (w *TranscriptWindow) ApplyNewer(chunk TranscriptChunk)
+
+func (w *TranscriptWindow) ApplyOlder(chunk TranscriptChunk)
+
+func (w *TranscriptWindow) Blocks() []Block
+
+func (w *TranscriptWindow) First() uint64
+
+func (w *TranscriptWindow) Last() uint64
+
+func (w *TranscriptWindow) MoreAfter() bool
+
+func (w *TranscriptWindow) MoreBefore() bool
+
+func (w *TranscriptWindow) Reset(chunk TranscriptChunk)
+
+func (w *TranscriptWindow) Trim(atEnd bool)
 
 func ActiveBranch(detail hub.Detail) (hub.Branch, error)
 
@@ -469,6 +513,8 @@ func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.
 func NewPreferencesService(ctx context.Context, store hub.PreferencesStore) (*PreferencesService, error)
 
 func NewTeamCoordinator(store hub.TeamStore, runtime *hub.Runtime) *TeamCoordinator
+
+func NewTranscriptWindow(limitBytes int) *TranscriptWindow
 
 func NewWorkspaceViewsService(store hub.WorkspaceViewStore) (*WorkspaceViewsService, error)
 
@@ -939,6 +985,15 @@ import (
 import (
 	"context"
 	"errors"
+	"strconv"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
 	"strings"
 	"sync"
 
@@ -1057,9 +1112,35 @@ import (
 	"github.com/QuincySx/Alva/platform/storage"
 )
 
+import (
+	"math"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
 type AutomationCoordinator struct {
 	Store hub.AutomationStore
 }
+
+type Block struct {
+	ID              string
+	Kind            BlockKind
+	SessionID       string
+	TurnID          string
+	AttemptID       string
+	Turn            uint64
+	Status          BlockStatus
+	Name            string
+	Text            string
+	Truncated       bool
+	Ref             *engine.Reference
+	NativeSessionID string
+	HandoffID       string
+}
+
+type BlockKind string
+
+type BlockStatus string
 
 type ChildHop struct {
 	LinkSequence uint64 `json:"link_sequence"`
@@ -1297,6 +1378,8 @@ type HubService struct {
 	Automations         *AutomationCoordinator
 	Worktrees           *worktree.Manager
 	Shells              *shell.Sessions
+
+	Transcripts *TranscriptService
 }
 
 type InspectorExport struct {
@@ -1340,6 +1423,22 @@ type TeamTool struct {
 	Service             *HubService
 	ProductID, NativeID string
 	Guard               *security.Guard
+}
+
+type TranscriptChunk struct {
+	First, Last uint64
+
+	More bool
+}
+
+type TranscriptService struct{ Store TranscriptStore }
+
+type TranscriptStore interface {
+	History(ctx context.Context, id string, after uint64, limit int) ([]hub.HistoryEntry, error)
+	HistoryBefore(ctx context.Context, id string, before uint64, limit int) ([]hub.HistoryEntry, error)
+}
+
+type TranscriptWindow struct {
 }
 
 type WaitResolution struct {

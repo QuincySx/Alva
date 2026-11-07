@@ -1,6 +1,6 @@
-// INPUT: Bounded Hub transcript rows, typed native references and existing owned Inspector reads.
-// OUTPUT: Canonical message identities, reply columns, copy actions and explicitly disclosed tool activity.
-// POS: [L7 Hub UI] Keeps product presentation and tool details separate from shared scrolling and Markdown.
+// INPUT: Product TranscriptWindow content blocks, typed native references and existing owned Inspector reads.
+// OUTPUT: Block-to-row projection, scroll-driven paging, reply columns, copy actions and explicitly disclosed tool activity.
+// POS: [L7 Hub UI] Keeps product presentation and tool details separate from shared scrolling and Markdown; never model context.
 //go:build desktop
 
 package hubdesktop
@@ -12,6 +12,7 @@ import (
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
+	"github.com/QuincySx/Alva/integration/engine"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -22,7 +23,91 @@ type workspaceTranscriptBinding struct {
 	generation      uint64
 }
 
+// Result references and native ownership remain separate from each other and
+// row text. The value is comparable so stale UI actions can be rejected.
+type transcriptTool struct {
+	sessionID string
+	nativeID  string
+	name      string
+	reference engine.Reference
+	hasRef    bool
+}
+
+func transcriptToolOf(block product.Block) transcriptTool {
+	tool := transcriptTool{sessionID: block.SessionID, nativeID: block.NativeSessionID, name: block.Name}
+	if block.Ref != nil {
+		tool.reference, tool.hasRef = *block.Ref, true
+	}
+	return tool
+}
+
+// transcriptRow keeps the established row roles; the shared view and this
+// renderer still branch on them while blocks carry the typed facts.
+func transcriptRow(block product.Block) view.Message {
+	row := view.Message{ID: block.ID, RunID: block.AttemptID, Text: block.Text, Status: view.Status(block.Status)}
+	switch block.Kind {
+	case product.BlockKindUser:
+		row.Role = "You"
+	case product.BlockKindReply:
+		row.Role = "Alva"
+	case product.BlockKindReasoning:
+		row.Role = "Thinking"
+	case product.BlockKindContent:
+		row.Role = "Content · " + block.Name
+	case product.BlockKindTool:
+		row.Role = "Tool · " + block.Name
+	case product.BlockKindActivity:
+		row.Role = "Execution activity · " + block.Name
+	case product.BlockKindTimeline:
+		row.Role, row.RunID = "Product · "+block.Name, ""
+	default:
+		row.Role = "Status"
+		if block.Name == "retry" {
+			row.Role = "Retry warning"
+		}
+	}
+	return row
+}
+
+func (p *NativePage) resetTranscript() {
+	p.transcript = product.NewTranscriptWindow(0)
+	p.transcriptRows, p.transcriptBlocks, p.transcriptTools = nil, nil, nil
+}
+
+// projectTranscript turns the window's blocks into shared message rows.
+func (p *NativePage) projectTranscript() {
+	blocks := p.transcript.Blocks()
+	rows := make([]view.Message, len(blocks))
+	p.transcriptBlocks = make(map[string]product.Block, len(blocks))
+	p.transcriptTools = make(map[string]transcriptTool)
+	for i, block := range blocks {
+		rows[i] = transcriptRow(block)
+		p.transcriptBlocks[block.ID] = block
+		if block.Kind == product.BlockKindTool {
+			p.transcriptTools[block.ID] = transcriptToolOf(block)
+		}
+	}
+	p.transcriptRows = rows
+}
+
+// followTranscriptScroll pages by what the last frame showed: near the top it
+// loads earlier blocks, near the bottom of a trimmed window it reloads the latest.
+func (p *NativePage) followTranscriptScroll() {
+	first, last := p.chat.VisibleRows()
+	if last < first || p.selected == "" || p.polling || p.busy {
+		return
+	}
+	if first < 5 && p.transcript.MoreBefore() {
+		p.older()
+		return
+	}
+	if p.transcript.MoreAfter() && last >= len(p.model.Messages)-5 {
+		p.loadTail()
+	}
+}
+
 func (p *NativePage) buildWorkspaceTranscript(c *ui.Context) {
+	p.followTranscriptScroll()
 	p.chat.MessageGap = 24
 	ui.Column(c).Label("Conversation transcript").Grow(1).MinHeight(0).FillWidth().Padding(16, 0, 0, 0).Children(func() {
 		p.chat.BuildMessages(c)
@@ -43,7 +128,7 @@ func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) fu
 		if current != binding {
 			binding, expanded = current, ""
 		}
-		if _, exists := p.transcript.tools[expanded]; !exists {
+		if _, exists := p.transcriptTools[expanded]; !exists {
 			expanded = ""
 		}
 		if row.Role == "You" {
@@ -55,7 +140,7 @@ func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) fu
 			})
 			return true
 		}
-		tool, exists := p.transcript.tools[row.ID]
+		tool, exists := p.transcriptTools[row.ID]
 		if !exists {
 			p.buildWorkspaceTranscriptMessage(c, row, current, options)
 			return true
@@ -83,7 +168,7 @@ func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) fu
 					AlignItems(ui.Center).Justify(ui.Start).Background(ui.Transparent).
 					TextColor(c.Theme().TextMuted).FontSize(workspaceFontBody).FontWeight(400).LineHeight(1.5)
 				button.OnClick(func() {
-					if p.transcriptBinding() != current || p.transcript.tools[row.ID] != tool {
+					if p.transcriptBinding() != current || p.transcriptTools[row.ID] != tool {
 						return
 					}
 					if expanded == row.ID {
@@ -114,14 +199,15 @@ func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) fu
 }
 
 func (p *NativePage) transcriptAuthor(row view.Message) (string, string) {
-	origin, exists := p.transcript.origins[row.RunID]
-	if !exists || origin.ambiguous || origin.sessionID != p.selected || origin.nativeID == "" {
+	// The block carries only its attempt's unambiguous committed origin.
+	block, exists := p.transcriptBlocks[row.ID]
+	if !exists || block.SessionID != p.selected || block.NativeSessionID == "" {
 		return "Alva", ""
 	}
 	var target hub.Target
 	found := false
 	for _, branch := range p.detail.Branches {
-		if branch.SessionID != origin.sessionID || branch.NativeSessionID != origin.nativeID {
+		if branch.SessionID != block.SessionID || branch.NativeSessionID != block.NativeSessionID {
 			continue
 		}
 		if found && hub.RouteKey(target) != hub.RouteKey(branch.Target) {
@@ -157,12 +243,9 @@ func (p *NativePage) copyTranscriptMessage(c *ui.Context, binding workspaceTrans
 	if binding != p.transcriptBinding() {
 		return
 	}
-	for _, row := range p.transcript.Rows {
-		if row.ID == id && row.Text != "" {
-			c.WriteClipboard(row.Text)
-			c.Announce("已复制消息")
-			return
-		}
+	if block, exists := p.transcriptBlocks[id]; exists && block.Text != "" {
+		c.WriteClipboard(block.Text)
+		c.Announce("已复制消息")
 	}
 }
 
@@ -207,6 +290,10 @@ func (p *NativePage) buildWorkspaceTranscriptMessage(c *ui.Context, row view.Mes
 				}
 			})
 			buildWorkspaceTranscriptMarkdown(c, row, options)
+			if p.transcriptBlocks[row.ID].Truncated {
+				ui.Text(c, "内容较长，这里只显示开头部分；完整内容保存在原始记录中。").Label("Message truncated " + row.ID).
+					FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted)
+			}
 			if row.Text != "" {
 				ui.Row(c).Label("Message content actions " + row.ID).FillWidth().Gap(8).Children(func() {
 					workspaceIconAction(c, "message-copy", "Copy message "+row.ID, "copy").Tooltip("复制消息").OnClick(func() {
@@ -259,7 +346,7 @@ func (p *NativePage) transcriptToolBranch(tool transcriptTool) string {
 }
 
 func (p *NativePage) inspectTranscriptTool(binding workspaceTranscriptBinding, rowID string, tool transcriptTool) {
-	if p.paneBusy || binding != p.transcriptBinding() || tool.sessionID != p.selected || p.transcript.tools[rowID] != tool {
+	if p.paneBusy || binding != p.transcriptBinding() || tool.sessionID != p.selected || p.transcriptTools[rowID] != tool {
 		return
 	}
 	branch := p.transcriptToolBranch(tool)
@@ -288,7 +375,7 @@ func (p *NativePage) inspectTranscriptTool(binding workspaceTranscriptBinding, r
 		page, err := p.Service.Inspector(p.ctx, binding.session, branch, "", tool.reference.Sequence-1, tool.reference.Sequence)
 		p.dispatch(func() {
 			p.paneBusy = false
-			if binding != p.transcriptBinding() || p.pane != "inspector" || p.inspectBranch != branch || p.transcript.tools[rowID] != tool {
+			if binding != p.transcriptBinding() || p.pane != "inspector" || p.inspectBranch != branch || p.transcriptTools[rowID] != tool {
 				return
 			}
 			if err != nil {
@@ -311,6 +398,6 @@ func (p *NativePage) inspectTranscriptTool(binding workspaceTranscriptBinding, r
 func (p *NativePage) readTranscriptTool(binding workspaceTranscriptBinding, rowID string, tool transcriptTool, branch, uri string) {
 	p.inspectURI = uri
 	p.readInspectorBound(uri, 0, func() bool {
-		return binding == p.transcriptBinding() && p.pane == "inspector" && p.inspectBranch == branch && p.inspectURI == uri && p.transcript.tools[rowID] == tool
+		return binding == p.transcriptBinding() && p.pane == "inspector" && p.inspectBranch == branch && p.inspectURI == uri && p.transcriptTools[rowID] == tool
 	})
 }

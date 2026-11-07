@@ -326,9 +326,6 @@ func (p *NativePage) buildWorkspaceMenu(m *ui.Menu) {
 		p.openAutomations()
 	}
 	m.Separator()
-	if m.Item("更早的消息").Disabled(p.busy || p.polling || p.transcript.First == 0).Chosen() {
-		p.older()
-	}
 	if m.Item("最新消息").Disabled(p.busy || p.polling).Chosen() {
 		p.loadTail()
 	}

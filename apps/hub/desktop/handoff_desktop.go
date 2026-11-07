@@ -1,4 +1,4 @@
-// INPUT: Bounded loaded timeline handoff identities and owner-scoped durable product snapshots
+// INPUT: Handoff identities of timeline blocks in the loaded message window and owner-scoped durable product snapshots
 // OUTPUT: Explicit read-only engine/Team handoff detail without native-log or runtime restoration
 // POS: [L7 Hub product] Presentation shows exact saved redacted handoff; it never switches, cancels or replays execution
 //go:build desktop
@@ -8,6 +8,7 @@ package hubdesktop
 import (
 	"encoding/json"
 
+	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -41,13 +42,14 @@ func (p *NativePage) readHandoff(handoffID string) {
 func (p *NativePage) buildHandoffs(c *ui.Context) {
 	ui.Scroll(c).Grow(1).MinHeight(0).Gap(8).Children(func() {
 		ui.Text(c, "Exact saved handoff evidence").Bold()
-		ui.Text(c, "Only handoff IDs in the currently loaded bounded history page are listed. Use Earlier/Latest events in Chat to change that range. Clicking reads the exact durable redacted snapshot; it does not start or resume an engine. Team/task metadata reflects capture time, not current liveness or network receipt.").FontSize(11)
+		ui.Text(c, "Only handoff IDs in the currently loaded message window are listed. Scroll Chat up to load earlier history, or choose Latest to reload the newest. Clicking reads the exact durable redacted snapshot; it does not start or resume an engine. Team/task metadata reflects capture time, not current liveness or network receipt.").FontSize(11)
 		count := 0
-		for _, entry := range p.transcript.Entries {
-			if entry.Timeline == nil || entry.Timeline.HandoffID == "" {
+		for _, row := range p.transcriptRows {
+			block := p.transcriptBlocks[row.ID]
+			if block.Kind != product.BlockKindTimeline || block.HandoffID == "" {
 				continue
 			}
-			id := entry.Timeline.HandoffID
+			id := block.HandoffID
 			count++
 			ui.Button(c.Key(id), "Read handoff "+id).Disabled(p.paneBusy).OnClick(func() { p.readHandoff(id) })
 		}

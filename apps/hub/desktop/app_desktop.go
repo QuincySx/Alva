@@ -72,7 +72,10 @@ type NativePage struct {
 	stopRetry                      map[string]bool
 	model                          *view.Model
 	chat                           *view.NativeView
-	transcript                     Transcript
+	transcript                     *product.TranscriptWindow
+	transcriptRows                 []view.Message
+	transcriptBlocks               map[string]product.Block
+	transcriptTools                map[string]transcriptTool
 	sessions                       []hub.Session
 	sessionQuery                   string
 	sessionLoadedQuery             string
@@ -84,7 +87,7 @@ type NativePage struct {
 	selected                       string
 	drafts                         map[string]string
 	title, workspace, problem      string
-	busy, polling, reviewing       bool
+	busy, polling                  bool
 	generation                     uint64
 	window                         *mygo.Window
 	openWindow                     func(string) error
@@ -174,7 +177,7 @@ func NewNativePage(service *product.HubService) *NativePage {
 	chat.LargePasteHint = "Pasted text exceeds 32 KiB. Use Attach file: raw bytes are stored and only an explicit reference is sent."
 	markdownOptions := modules.NewRegistry().Options()
 	chat.SetMarkdownOptions(markdownOptions)
-	page := &NativePage{Service: service, model: model, chat: chat, title: "New conversation", drafts: make(map[string]string), ctx: context.Background(), targets: service.AvailableTargets(), updates: make(chan func(), 8)}
+	page := &NativePage{Service: service, model: model, chat: chat, title: "New conversation", drafts: make(map[string]string), ctx: context.Background(), targets: service.AvailableTargets(), updates: make(chan func(), 8), transcript: product.NewTranscriptWindow(0)}
 	page.referenceOwner = &workspaceReferenceOwner{service: service}
 	if err := registerWorkspaceAssets(); err != nil {
 		page.problem = err.Error()
@@ -319,8 +322,7 @@ func (p *NativePage) selectSession(id string) {
 	p.model.Draft = p.drafts[id]
 	p.loadWorkspaceDraft()
 	p.generation++
-	p.reviewing = false
-	p.transcript = Transcript{}
+	p.resetTranscript()
 	p.pane = ""
 	p.configDraft = ""
 	p.aepDraft = ""
@@ -377,9 +379,9 @@ func (p *NativePage) loadTail() {
 			planSettings, err = p.Service.Store.Settings(p.ctx, id)
 			optionsErr = err
 		}
-		var entries []hub.HistoryEntry
+		var chunk product.TranscriptChunk
 		if err == nil {
-			entries, err = p.Service.Store.HistoryBefore(p.ctx, id, 0, 128)
+			chunk, err = p.Service.Transcripts.Tail(p.ctx, id)
 		}
 		p.dispatch(func() {
 			p.polling = false
@@ -402,8 +404,9 @@ func (p *NativePage) loadTail() {
 			p.acceptWorkspacePlanSettings(id, detail.Session.ActiveBranchID, planSettings.PlanMode)
 			p.acceptWorkspacePermissionSettings(id, detail.Session.ActiveBranchID, planSettings.PermissionPolicy)
 			p.chat.Busy = false
-			p.transcript.Replace(entries)
-			p.reviewing = false
+			p.transcript.Reset(chunk)
+			p.transcript.Trim(true)
+			p.projectTranscript()
 			p.applyDetail()
 			p.chat.ScrollToEnd()
 			if p.pendingFirstSend == id {
@@ -425,7 +428,7 @@ func (p *NativePage) loadTail() {
 }
 func (p *NativePage) applyDetail() {
 	p.chat.Busy = p.busy || p.detail.Session.Status == engine.Waiting
-	p.model.Messages = p.transcript.Rows
+	p.model.Messages = p.transcriptRows
 	p.model.Error = p.problem
 	wasStopping := p.modelStopping()
 	if p.stopRequests[p.selected] != "" && !wasStopping {
@@ -446,10 +449,10 @@ func (p *NativePage) applyDetail() {
 	}
 	if p.detail.Session.Status == engine.Waiting {
 		p.model.Notice = "Task waiting; execution has exited. Open Waiting tasks to review requests, save results and explicitly continue the same Turn."
-	} else if p.reviewing {
-		p.model.Notice = "Reading earlier committed events. Live text updates are paused; Latest reloads the newest bounded page."
+	} else if p.transcript.MoreAfter() {
+		p.model.Notice = "Newer committed messages are outside this window. Live text updates are paused; scroll to the bottom or choose Latest to reload them."
 	} else {
-		p.model.Notice = "Bounded history window: up to 512 events; its first reply may be partial. Earlier pages remain durable; this UI cache is not model context."
+		p.model.Notice = "Message window: scrolling up loads earlier committed messages. This UI cache is not model context."
 	}
 }
 func (p *NativePage) poll() {
@@ -466,10 +469,11 @@ func (p *NativePage) poll() {
 	if p.selected == "" || p.polling || p.busy {
 		return
 	}
-	id, generation, after := p.selected, p.generation, p.transcript.Last
+	id, generation, after := p.selected, p.generation, p.transcript.Last()
 	optionsEpoch := p.sessionModelOptions.epoch
 	approvalEpoch, questionEpoch := p.approvalEpoch, p.questionEpoch
-	readText := !p.reviewing && p.chat.AtEnd()
+	// A window whose newest end was trimmed stops following until reloaded.
+	readText := !p.transcript.MoreAfter()
 	readWait, waitEpoch := p.pane == "waits" && !p.paneBusy, p.wait.Epoch
 	p.polling = true
 	go func() {
@@ -480,14 +484,14 @@ func (p *NativePage) poll() {
 			planSettings, err = p.Service.Store.Settings(p.ctx, id)
 			optionsErr = err
 		}
-		var entries []hub.HistoryEntry
+		var newer product.TranscriptChunk
 		var approvals []security.ApprovalRequest
 		var questions []interaction.Question
 		var approvalErr, questionErr error
 		var waiting product.WaitView
 		var waitErr error
 		if err == nil && readText {
-			entries, err = p.Service.Store.History(p.ctx, id, after, 128)
+			newer, err = p.Service.Transcripts.Newer(p.ctx, id, after)
 		}
 		if err == nil {
 			approvals, approvalErr = p.Service.PendingApprovals(p.ctx, id)
@@ -545,7 +549,9 @@ func (p *NativePage) poll() {
 				}
 			}
 			if readText {
-				p.transcript.Append(entries)
+				p.transcript.ApplyNewer(newer)
+				p.transcript.Trim(p.chat.AtEnd())
+				p.projectTranscript()
 			}
 			p.applyDetail()
 			if p.pendingFirstSend == id {
@@ -646,7 +652,6 @@ func (p *NativePage) sendPreparedFileSnapshot(prompt string, selections []produc
 			}
 			p.model.ActiveRunID = id
 			p.model.Status = view.Running
-			p.reviewing = false
 			p.chat.ScrollToEnd()
 			p.poll()
 			p.refreshSessions()
@@ -773,14 +778,16 @@ func (p *NativePage) upload() {
 		})
 	}()
 }
+
+// older loads earlier committed blocks above the visible rows, which stay put.
 func (p *NativePage) older() {
-	if p.selected == "" || p.polling || p.transcript.First == 0 {
+	if p.selected == "" || p.polling || p.transcript.First() == 0 || !p.transcript.MoreBefore() {
 		return
 	}
-	id, generation, before := p.selected, p.generation, p.transcript.First
+	id, generation, before := p.selected, p.generation, p.transcript.First()
 	p.polling = true
 	go func() {
-		entries, err := p.Service.Store.HistoryBefore(p.ctx, id, before, 128)
+		chunk, err := p.Service.Transcripts.Older(p.ctx, id, before)
 		p.dispatch(func() {
 			p.polling = false
 			if p.selected != id || p.generation != generation {
@@ -791,8 +798,9 @@ func (p *NativePage) older() {
 				p.problem = err.Error()
 				return
 			}
-			p.reviewing = true
-			p.transcript.Prepend(entries)
+			p.transcript.ApplyOlder(chunk)
+			p.transcript.Trim(p.chat.AtEnd())
+			p.projectTranscript()
 			p.applyDetail()
 		})
 	}()

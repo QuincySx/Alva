@@ -3,7 +3,7 @@
 ## 地位
 位于纯 Hub core 之外的 L7 产品服务层；可消费 harness、platform/host、platform/storage 与显式 integration，不能被 SDK 反向依赖。
 ## 逻辑
-认领HubSession后绑定native owner。上传原件耐久保存，模型仅收小引用和真实处理说明；Inspector和历史按目标归属有界只读。UI的行/Markdown/滚动转换留apps/hub/desktop。
+认领HubSession后绑定native owner。上传原件耐久保存，模型仅收小引用和真实处理说明；Inspector和历史按目标归属有界只读。消息流内容块投影与窗口在本包：TranscriptService只依赖History/HistoryBefore两方法分页（Tail/Older每页128往前读到≥32个用户/回复/工具块或16页，Newer最多8页），TranscriptWindow按块而非事件累积、无I/O，同ID增量追加、最终消息替换、页边界块合并，按64MiB估算字节从离视口远的一端整块裁剪且不裁运行中块及其Turn。UI的行/Markdown/滚动呈现留apps/hub/desktop。
 ## 约束
 无MyGo/WebView/React；不靠build tags隐藏UI传递依赖。读取Inspector不restore、不启动Agent/MCP。History/Team工具验证actual Tool与非空matching call、精确字段/重复键/Unicode；产品归属由已存branch重审，不凭同名Tool或nativeID字符串推断。设置仅下一次装配消费。Skills限定saved cwd与可恢复归档。
 ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费声明的路由插口，不靠具体store附带方法。事实Repository、DTO/错误均来自共享storage契约。可选Team/Automation能力仍显式按既有契约发现；私有目录只依赖system/privatefs，不带SQL。
@@ -39,9 +39,12 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | plan_mode.go / plan_mode_test.go | 下一Turn只读计划配置，空闲native/checkpoint校验与普通配置批准保留 |
 | preferences.go / preferences_test.go | application级偏好共享owner、取消感知的串行存储及非阻塞已提交快照；Close停准入/取消并等待实际I/O、超时保留owner可重试，失败/旧版本不覆盖缓存，不选择后端或启动会话 |
 | wait.go | Alva journal专属的共享UI/HTTP等待DTO、persistent opt-in、陈旧/跨分支拒绝、结果保存/同Turn继续/审阅放弃 |
-| service.go | 产品session/Turn服务、expected-branch原子准入、独立DraftID/版本显式选择与精确消费、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答/会话外Developer及可选DeveloperWorkspaces/ConversationTabs owner |
+| service.go | 产品session/Turn服务、expected-branch原子准入、独立DraftID/版本显式选择与精确消费、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答/会话外Developer及可选DeveloperWorkspaces/ConversationTabs owner；Transcripts为窄消息流读取服务，由bootstrap用实际store装配 |
 | service_test.go | 真实双store/local harness、双观察者捕获/迟到发布/失败重试、上传/权限/历史/Inspector和其他engine等待不借Alva authority回归 |
 | history.go | 产品绑定的有界metadata/字面关键词/正文range Tool与Plugin |
+| transcript.go / transcript_window.go | UI无关Block/BlockKind/BlockStatus、TranscriptStore窄端口、TranscriptService分页（chunk条目不导出）与TranscriptWindow；迁入原desktop投影的用户输入/时间线/执行活动/思考与内容块/增量与最终回复/工具起止与引用/错误与重试/Completed状态传播/按attempt来源歧义，不是模型上下文 |
+| transcript_test.go | 迁移的稳定ID/工具原owner/来源歧义回归，3000增量流式保留用户块且文字完整、最终消息替换、ApplyOlder边界合并、两端整块裁剪与字节上限、旧格式未合并数据、Turn传递与分页上限 |
+| transcript_long_session_test.go | 长会话CI门：真实BeginTurn/Record/FinishTurn写20轮×300增量并插入旧格式行，断言增量删除、Tail≥20条消息、流式用户块不丢、连续Older 50次不超字节上限；ALVA_LONG_SESSION_GIB合成GiB历史并断言Tail<100ms、输出Record p95 |
 | inspector.go | 消费registered EngineInspector；分支/最多8hop真实typed child授权、小索引/搜索/2KiB正文DTO/背压live metadata、默认禁用MCP导入 |
 | export.go | 精确branch/typed child授权的bounded JSONL；HTTP只返回bytes，native显式保存到私有exports，不接受client host/native path |
 | approvals.go / approvals_test.go | 真实running Alva root/typed child权限路由；首次读前冻结实际Runtime四项binding，替换owner与native同名字符串均不借用外部engine权限回调，不接受UI childID或借用父权限 |

@@ -83,6 +83,9 @@ type HubService struct {
 	Automations         *AutomationCoordinator
 	Worktrees           *worktree.Manager
 	Shells              *shell.Sessions
+	// Transcripts is the narrow Message Stream reader; UI reads history only
+	// through it, never through Store.History*.
+	Transcripts *TranscriptService
 	// mu serializes admission and source preparation; draftMu protects only the
 	// small published draft lists so observers never wait for disk/admission I/O.
 	mu                  sync.Mutex

@@ -366,7 +366,7 @@ func TestWorkspaceComposerPressedStopDoesNotFollowReplacement(t *testing.T) {
 				t.Fatal("missing execution Stop")
 			}
 			tester.Press(button.X+button.W/2, button.Y+button.H/2)
-			before := p.transcript.Last
+			before := p.transcript.Last()
 			firstID, _ := s.Runtime.ActiveExecution(id)
 			if err = s.Runtime.CancelExecution(t.Context(), id, firstID); err != nil {
 				t.Fatal(err)
@@ -391,7 +391,7 @@ func TestWorkspaceComposerPressedStopDoesNotFollowReplacement(t *testing.T) {
 				t.Fatal("execution identity was reused")
 			}
 			p.poll()
-			waitWorkspace(t, p, tester, func() bool { return !p.polling && p.transcript.Last > before && p.model.Status == view.Running })
+			waitWorkspace(t, p, tester, func() bool { return !p.polling && p.transcript.Last() > before && p.model.Status == view.Running })
 			tester.Release(button.X+button.W/2, button.Y+button.H/2)
 			if p.stopRequests[id] == nextID {
 				select {
