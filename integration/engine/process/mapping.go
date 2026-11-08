@@ -1,5 +1,5 @@
 // INPUT: encoding/json, errors, strings and engine JSONL events
-// OUTPUT: Stateful vendor frames, tool displays and journal references with separately verified resume provenance
+// OUTPUT: Stateful vendor frames, tool displays, inclusive cache-aware usage and journal references with separately verified resume provenance
 // POS: [integration / native external-engine adapter] Claude/Codex/Pi dialect mapping without hidden reasoning or raw tool bodies in product events
 package process
 
@@ -59,6 +59,38 @@ func number(value map[string]json.RawMessage, key string) uint64 {
 	var result uint64
 	_ = json.Unmarshal(value[key], &result)
 	return result
+}
+
+// optionalNumber is a count the vendor may leave out: nil when the key is
+// absent or not a count, so "not reported" stays distinct from zero.
+func optionalNumber(value map[string]json.RawMessage, key string) *uint64 {
+	raw, exists := value[key]
+	if !exists {
+		return nil
+	}
+	var result uint64
+	if json.Unmarshal(raw, &result) != nil {
+		return nil
+	}
+	return &result
+}
+
+// inclusiveUsage folds vendor counts whose input excludes cache reads and
+// writes (Claude, Pi) into the engine's inclusive usage. An overflowing sum
+// keeps the plain counts and reports the cache as unknown.
+func inclusiveUsage(input, output uint64, read, write *uint64) engine.Usage {
+	usage := engine.Usage{InputTokens: input, OutputTokens: output}
+	total := input
+	for _, count := range []*uint64{read, write} {
+		if count != nil {
+			if ^uint64(0)-total < *count {
+				return usage
+			}
+			total += *count
+		}
+	}
+	usage.InputTokens, usage.CachedInputTokens, usage.CacheWriteInputTokens = total, read, write
+	return usage
 }
 func (m *mapper) start(id string) ([]engine.Event, error) {
 	if !nativeID.MatchString(id) {
@@ -186,9 +218,12 @@ func (m *mapper) codex(kind string, frame map[string]json.RawMessage) ([]engine.
 		return m.start(str(frame, "thread_id"))
 	case "turn.completed":
 		m.done = true
+		// Codex counts cached input inside input_tokens.
 		usage := decode(frame["usage"])
-		m.usage.InputTokens = number(usage, "input_tokens")
-		m.usage.OutputTokens = number(usage, "output_tokens")
+		m.usage = engine.Usage{InputTokens: number(usage, "input_tokens"), OutputTokens: number(usage, "output_tokens"), CachedInputTokens: optionalNumber(usage, "cached_input_tokens")}
+		if m.usage.Validate() != nil {
+			m.usage.CachedInputTokens = nil
+		}
 	case "turn.failed", "error":
 		message := str(frame, "message")
 		if message == "" {
@@ -311,9 +346,9 @@ func (m *mapper) claude(kind string, frame map[string]json.RawMessage) ([]engine
 		if subtype != "success" || boolean(frame, "is_error") {
 			m.failure = "Claude returned a non-success native result"
 		}
+		// Claude's input_tokens leave out cache reads and cache creation.
 		usage := decode(frame["usage"])
-		m.usage.InputTokens = number(usage, "input_tokens")
-		m.usage.OutputTokens = number(usage, "output_tokens")
+		m.usage = inclusiveUsage(number(usage, "input_tokens"), number(usage, "output_tokens"), optionalNumber(usage, "cache_read_input_tokens"), optionalNumber(usage, "cache_creation_input_tokens"))
 		if m.session == "" && str(frame, "session_id") != "" {
 			return m.start(str(frame, "session_id"))
 		}
@@ -384,9 +419,16 @@ func (m *mapper) pi(kind string, frame map[string]json.RawMessage) ([]engine.Eve
 				text.WriteString(part)
 			}
 		}
+		// Pi's input leaves out cacheRead and cacheWrite. pi-ai starts both at
+		// 0 for every provider and only some providers fill them, so 0 and 0
+		// cannot tell "no cache hit" from "not reported"; treat it as not
+		// reported rather than show a 0% hit rate.
 		usage := decode(message["usage"])
-		m.usage.InputTokens += number(usage, "input")
-		m.usage.OutputTokens += number(usage, "output")
+		read, write := optionalNumber(usage, "cacheRead"), optionalNumber(usage, "cacheWrite")
+		if (read == nil || *read == 0) && (write == nil || *write == 0) {
+			read, write = nil, nil
+		}
+		m.usage.Add(inclusiveUsage(number(usage, "input"), number(usage, "output"), read, write))
 		if m.piWholeMessage {
 			if text.Len() == 0 {
 				return nil, nil

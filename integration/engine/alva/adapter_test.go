@@ -1,5 +1,5 @@
 // INPUT: testing, app harness, SDK memory session and deterministic local models
-// OUTPUT: Alva full-harness native identity, multi-turn, cancellation and reference regressions
+// OUTPUT: Alva full-harness native identity, multi-turn, cancellation, reference and usage cache accumulation regressions
 // POS: [L7 Alva product adapter] No-network engine boundary tests that do not bypass BaseAgent assembly
 package alva
 
@@ -207,5 +207,55 @@ func TestTypedReasoningRefusalAndOpaqueContentDoNotBecomeAnswer(t *testing.T) {
 	}
 	if answer != "answer only" || thinking != "thinking only" || refusal != "explicit refusal" {
 		t.Fatal("typed messages merged or disappeared", answer, thinking, refusal)
+	}
+}
+
+// usageRunner reports one kernel usage event per entry, as successive model
+// responses of one run do.
+type usageRunner []wire.Usage
+
+func (r usageRunner) Run(_ context.Context, _ []wire.Message, emit func(abi.Event) error) error {
+	for i := range r {
+		usage := wire.CloneUsage(r[i])
+		if err := emit(abi.Event{Kind: abi.EventUsage, Usage: &usage}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func TestUsageAccumulatesCacheCountsOnlyWhenReported(t *testing.T) {
+	n := func(v uint64) *uint64 { return &v }
+	for _, test := range []struct {
+		name           string
+		reports        []wire.Usage
+		input, output  uint64
+		cached, writes *uint64
+	}{
+		{"never-reported", []wire.Usage{{InputTokens: 10, OutputTokens: 2}, {InputTokens: 20, OutputTokens: 3}}, 30, 5, nil, nil},
+		{"reported-zero", []wire.Usage{{InputTokens: 10, OutputTokens: 2, CachedInputTokens: n(0)}}, 10, 2, n(0), nil},
+		{"every-report", []wire.Usage{{InputTokens: 30, OutputTokens: 4, CachedInputTokens: n(24), CacheWriteInputTokens: n(6)}, {InputTokens: 40, OutputTokens: 5, CachedInputTokens: n(30)}}, 70, 9, n(54), nil},
+		{"some-reports", []wire.Usage{{InputTokens: 10, OutputTokens: 1}, {InputTokens: 30, OutputTokens: 4, CachedInputTokens: n(24), CacheWriteInputTokens: n(6)}, {InputTokens: 40, OutputTokens: 5, CachedInputTokens: n(30)}}, 80, 10, nil, nil},
+		{"inconsistent-provider", []wire.Usage{{InputTokens: 5, OutputTokens: 1, CachedInputTokens: n(9)}}, 5, 1, nil, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := New(func(context.Context, string, engine.Request, bool) (harness.Runner, error) {
+				return usageRunner(test.reports), nil
+			})
+			var completed *engine.Usage
+			err := adapter.Execute(context.Background(), engine.Request{Prompt: "usage"}, func(event engine.Event) error {
+				if event.Kind == engine.Completed {
+					completed = event.Usage
+				}
+				return nil
+			})
+			if err != nil || completed == nil {
+				t.Fatal("run did not complete with usage", err)
+			}
+			same := func(a, b *uint64) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
+			if completed.InputTokens != test.input || completed.OutputTokens != test.output || !same(completed.CachedInputTokens, test.cached) || !same(completed.CacheWriteInputTokens, test.writes) {
+				t.Fatalf("usage %+v", *completed)
+			}
+		})
 	}
 }

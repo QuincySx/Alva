@@ -1,5 +1,5 @@
 // INPUT: Pi RPC bridge dialogs, typed native events and bound Hub responses
-// OUTPUT: Pre-execution permissions, free-text questions and exact pending-response correlation
+// OUTPUT: Pre-execution permissions (with the call's display), free-text questions, exact pending-response correlation and relayed resolutions without answer bodies
 // POS: [integration / native external-engine adapter] A native dialog authorizes one exact tool call and is separate from tool execution facts
 package process
 
@@ -23,7 +23,12 @@ type piPending struct {
 	kind, toolID, nativeID string
 	question               engine.UserInputRequest
 }
-type piResolution struct{ id, kind string }
+
+// piResolution is one settled dialog and what this adapter relayed for it.
+type piResolution struct {
+	id, kind   string
+	resolution *engine.InteractionResolution
+}
 type piAdmission struct{ resolved, allowed bool }
 type piRun struct {
 	connection     *piConnection
@@ -95,6 +100,9 @@ func (r *piRun) event(event engine.Event) error {
 			}
 			event.Question = &copy
 		}
+		// Pi questions are free text only, so a resolution never carries an
+		// answer body, whatever shape the answer had.
+		event.Resolution = publishedResolution(event.Resolution, event.Name, secrets, false)
 	}
 	if event.Kind == engine.Message {
 		defer r.clearPublishedMessage()
@@ -180,6 +188,7 @@ func (r *piRun) dialog(data []byte) error {
 			event.Effect = engine.EffectExecute
 		}
 		event.Text = "Approve this exact Pi native tool call before execution. Alva permission profiles do not auto-approve it."
+		event.Display = piDisplay(bridge.ToolName, bridge.Input)
 	case frame.Method == "input" && bridge.Kind == "question":
 		if r.mapper.tools[bridge.ToolCallID] != "ask_user" {
 			return errors.New("Pi question does not match the active ask_user tool")
@@ -215,7 +224,7 @@ func (r *piRun) dialog(data []byte) error {
 	return r.event(event)
 }
 func (r *piRun) resolve(event piResolution) error {
-	return r.event(engine.Event{Kind: engine.InteractionResolved, ID: event.id, Name: event.kind})
+	return r.event(engine.Event{Kind: engine.InteractionResolved, ID: event.id, Name: event.kind, Resolution: event.resolution})
 }
 func (r *piRun) handle(data []byte) error {
 	frame := decode(data)
@@ -369,8 +378,16 @@ func (r *piRun) respond(parent context.Context, id, kind string, value map[strin
 	if err = r.connection.send(ctx, value, kind == "user_input"); err != nil {
 		return err
 	}
+	// A free-text answer is recorded as answered, never with its body.
+	resolution := &engine.InteractionResolution{}
+	if kind == "permission" {
+		allowed, _ := value["confirmed"].(bool)
+		resolution.Allowed = &allowed
+	} else if len(answers) != 0 {
+		resolution.Answers = map[string][]string{"answer": {}}
+	}
 	select {
-	case r.resolutions <- piResolution{id, kind}:
+	case r.resolutions <- piResolution{id, kind, resolution}:
 		return nil
 	case <-r.context.Done():
 		return r.context.Err()

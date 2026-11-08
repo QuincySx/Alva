@@ -238,9 +238,15 @@ func TestPiRPCApprovalPrecedesActualWriteAndDenialHasNoEffect(t *testing.T) {
 					if event.Name != "write" || event.Effect != engine.EffectWrite || event.Reference == nil || !strings.HasPrefix(event.ID, "pi:engine-") {
 						t.Fatal("approval lost native identity or tool details", event)
 					}
+					if event.Display == nil || event.Display.Kind != engine.ToolEdit || event.Display.Path == "" {
+						t.Fatal("approval lost the display of the call it asks to run", event.Display)
+					}
 					return a.RespondPermission(t.Context(), event.SessionID, event.ID, engine.PermissionDecision{Allow: allow})
 				case engine.InteractionResolved:
 					resolved++
+					if event.Resolution == nil || event.Resolution.Allowed == nil || *event.Resolution.Allowed != allow {
+						t.Fatal("resolved approval did not report the relayed decision", event.Resolution)
+					}
 				case engine.ToolStart:
 					starts++
 				case engine.ToolEnd:
@@ -291,10 +297,21 @@ func TestPiRPCQuestionIsSeparateAndAnswerEchoesAreRedacted(t *testing.T) {
 	if err != nil || questions != 1 || events[len(events)-1].Outcome != engine.Succeeded {
 		t.Fatal("Pi question lifecycle failed", questions, events, err)
 	}
+	resolved := 0
 	for _, event := range events {
 		if strings.Contains(event.Text, "private-") || strings.Contains(event.Text, "answer-value") {
 			t.Fatal("Pi answer echo leaked into product facts", event)
 		}
+		if event.Kind == engine.InteractionResolved && event.Name == "user_input" {
+			// A free-text answer is recorded as answered, never with its body.
+			resolved++
+			if event.Resolution == nil || event.Resolution.Answers["answer"] == nil || len(event.Resolution.Answers["answer"]) != 0 {
+				t.Fatal("relayed Pi answer kept a body", event.Resolution)
+			}
+		}
+	}
+	if serialized, _ := json.Marshal(events); resolved != 1 || strings.Contains(string(serialized), "private-answer-value") {
+		t.Fatal("Pi answer leaked into a resolved fact", resolved)
 	}
 	entries, err := os.ReadDir(filepath.Join(directory, "journals"))
 	if err != nil || len(entries) != 1 {

@@ -399,6 +399,17 @@ func TestCodexAppServerBidirectionalCallbacksAndJournal(t *testing.T) {
 		}
 		if event.Kind == engine.InteractionResolved {
 			resolved++
+			// Each resolved fact reports what this adapter relayed; a secret
+			// answer only as answered, never with its body.
+			switch {
+			case event.Name == "permission" && (event.Resolution == nil || event.Resolution.Allowed == nil || !*event.Resolution.Allowed):
+				t.Fatal("relayed permission decision missing", event.Resolution)
+			case event.Name == "user_input" && (event.Resolution == nil || event.Resolution.Answers["color"] == nil || len(event.Resolution.Answers["color"]) != 0):
+				t.Fatal("a secret answer was not kept as answered without its body", event.Resolution)
+			}
+		}
+		if event.Kind == engine.PermissionRequest && (event.Display == nil || event.Display.Kind != engine.ToolCommand || event.Display.Command != "echo fixture") {
+			t.Fatal("permission request lost the display of the call it asks to run", event.Display)
 		}
 	}
 	serialized, _ := json.Marshal(observed)

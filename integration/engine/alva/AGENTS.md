@@ -13,13 +13,13 @@
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
-| adapter.go | 完整harness执行、事实引用、工具配对和取消；最终消息60KiB/内容块16KiB/工具结果8KiB的UTF-8前缀以Truncated标记，工具参数≤16KiB；option-aware FactoryOptions/独立Descriptor保留普通factory保守拒绝 |
+| adapter.go | 完整harness执行、事实引用、工具配对和取消；kernel用量按wire.Usage指针语义累加缓存读/写计数（每次响应都报告才累加，任一次未报告即为未报告；不一致时只丢缓存数）；最终消息60KiB/内容块16KiB/工具结果8KiB的UTF-8前缀以Truncated标记，工具参数≤16KiB；option-aware FactoryOptions/独立Descriptor保留普通factory保守拒绝 |
 | tool_display.go | Alva内置工具名（execute_shell/read_file/write_file/edit_file/search_files/agent/todo_write）→ 未截断engine.ToolDisplay：参数给命令/路径/diff与增删行/关键词/任务/待办，完整结果给shell回执状态/退出码/OutputInTrace、Output引用、命中数与结果、子会话与outcome；finishDisplay先逐字段脱敏再Bound |
 | redaction_test.go | 真实脱敏原生store：命令Authorization、搜索命中API_KEY=、编辑client_secret=在原生记录与ToolStart/ToolEnd的Input/Text/Display里同为[REDACTED]且普通内容保留；shell回执转状态、非回执不误判 |
 | tool_events_test.go | 实际harness工具波次：参数/结果原样带出、超16KiB参数只留引用、8KiB结果UTF-8前缀+Truncated且引用可读全文、错误结果、引用块定位符与媒体不复制；各内置工具的Display（截断结果下仍按完整结果计数）、未知工具为other |
 | inspector.go / inspector_test.go | 独立RepositoryInspector：声明BackwardPages，冷向前/向后（Before与After/Literal互斥，InspectionEnd取尾页）分页并带出配对字段与工具时间、向前字面搜索、2KiB原文、typed link和causal index双验证、fixed-water JSONL与背压live metadata；观察取消不释放真实run claim |
 | wait_test.go | 真实Close后才读取waiting回执、invalid/未配置/取消/收尾失败不得waiting、继续不重传prompt |
-| adapter_test.go | 实际harness多轮/身份、取消终态与factory Activity落盘失败不启动 |
+| adapter_test.go | 实际harness多轮/身份、取消终态与factory Activity落盘失败不启动；用量缓存未报告/报告0/全部报告累加/部分未报告视为未报告/超过输入时降为未知 |
 | failure.go / failure_test.go | typed provider整树分类、真实local HTTP无重试、factory终态及mixed强失败回归 |
 | options_test.go | 实际SDK单轮model/tool后iteration耗尽为失败、错误边界与ordinary factory前置unsupported/超限拒绝 |
 | message_test.go | effective AfterModel实际commit再发完整消息，不全量重读历史、不把中间preface当Worker结果；超限消息/内容块为带Truncated的UTF-8前缀 |

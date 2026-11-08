@@ -1,5 +1,5 @@
 // INPUT: testing, the test executable as a local JSONL process and private temporary directories
-// OUTPUT: real subprocess protocol, exit, cancellation, budget and provenance regressions
+// OUTPUT: real subprocess protocol, exit, cancellation, budget, provenance and vendor usage cache-count regressions
 // POS: [integration / native external-engine adapter] External engine conformance without executing user CLIs or reading accounts
 package process
 
@@ -608,5 +608,139 @@ func TestPrintTransportsRedactToolInputAndDisplay(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestVendorUsageCarriesInclusiveCacheCounts(t *testing.T) {
+	n := func(v uint64) *uint64 { return &v }
+	same := func(a, b *uint64) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
+	for _, test := range []struct {
+		name, vendor   string
+		lines          []string
+		input, output  uint64
+		cached, writes *uint64
+	}{
+		{"codex-reported", "codex", []string{`{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":80,"output_tokens":7}}`}, 100, 7, n(80), nil},
+		{"codex-zero", "codex", []string{`{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":7}}`}, 100, 7, n(0), nil},
+		{"codex-absent", "codex", []string{`{"type":"turn.completed","usage":{"input_tokens":4,"output_tokens":2}}`}, 4, 2, nil, nil},
+		{"codex-inconsistent", "codex", []string{`{"type":"turn.completed","usage":{"input_tokens":4,"cached_input_tokens":9,"output_tokens":2}}`}, 4, 2, nil, nil},
+		{"claude-exclusive", "claude", []string{`{"type":"system","subtype":"init","session_id":"claude-native"}`, `{"type":"result","subtype":"success","usage":{"input_tokens":10,"cache_read_input_tokens":60,"cache_creation_input_tokens":30,"output_tokens":5}}`}, 100, 5, n(60), n(30)},
+		{"claude-absent", "claude", []string{`{"type":"system","subtype":"init","session_id":"claude-native"}`, `{"type":"result","subtype":"success","usage":{"input_tokens":10,"output_tokens":5}}`}, 10, 5, nil, nil},
+		{"pi-accumulated", "pi", []string{
+			`{"type":"message_start","message":{"role":"assistant"}}`,
+			`{"type":"message_end","message":{"role":"assistant","stopReason":"toolUse","content":[],"usage":{"input":5,"output":1,"cacheRead":15,"cacheWrite":0}}}`,
+			`{"type":"message_start","message":{"role":"assistant"}}`,
+			`{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"done"}],"usage":{"input":2,"output":3,"cacheRead":18,"cacheWrite":0}}}`,
+		}, 40, 4, n(33), n(0)},
+		{"pi-zero-is-unreported", "pi", []string{
+			`{"type":"message_start","message":{"role":"assistant"}}`,
+			`{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"done"}],"usage":{"input":7,"output":3,"cacheRead":0,"cacheWrite":0}}}`,
+		}, 7, 3, nil, nil},
+		{"pi-mixed-is-unreported", "pi", []string{
+			`{"type":"message_start","message":{"role":"assistant"}}`,
+			`{"type":"message_end","message":{"role":"assistant","stopReason":"toolUse","content":[],"usage":{"input":5,"output":1,"cacheRead":15,"cacheWrite":0}}}`,
+			`{"type":"message_start","message":{"role":"assistant"}}`,
+			`{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"done"}],"usage":{"input":2,"output":3,"cacheRead":0,"cacheWrite":0}}}`,
+		}, 22, 4, nil, nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			m := newMapper(test.vendor, "engine-journal://run")
+			for _, line := range test.lines {
+				if _, err := m.mapLine([]byte(line)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if m.usage.InputTokens != test.input || m.usage.OutputTokens != test.output || !same(m.usage.CachedInputTokens, test.cached) || !same(m.usage.CacheWriteInputTokens, test.writes) || m.usage.Validate() != nil {
+				t.Fatalf("usage %+v", m.usage)
+			}
+		})
+	}
+	run := codexRun{session: "bound-thread", turnID: "current-turn"}
+	frame := codexFrame{Method: "thread/tokenUsage/updated", Params: json.RawMessage(`{"threadId":"bound-thread","turnId":"current-turn","tokenUsage":{"last":{"inputTokens":50,"cachedInputTokens":20,"outputTokens":4}}}`)}
+	if err := run.handle(context.Background(), frame); err != nil {
+		t.Fatal(err)
+	}
+	if run.usage.InputTokens != 50 || run.usage.OutputTokens != 4 || run.usage.CachedInputTokens == nil || *run.usage.CachedInputTokens != 20 {
+		t.Fatalf("app-server usage %+v", run.usage)
+	}
+}
+
+func TestResolvedAnswersKeepOnlyOfferedChoices(t *testing.T) {
+	request := engine.UserInputRequest{Questions: []engine.UserInputQuestion{
+		{ID: "pick", Question: "A or B?", Options: []engine.UserInputOption{{Label: "A"}, {Label: "B"}}, IsOther: true},
+		{ID: "password", Question: "Which vault?", Options: []engine.UserInputOption{{Label: "Team vault"}}},
+		{ID: "token", Question: "Token?", IsSecret: true, IsOther: true, Options: []engine.UserInputOption{{Label: "Use saved"}}},
+		{ID: "note", Question: "Anything else?"},
+	}}
+	response := engine.UserInputResponse{Answers: map[string][]string{"pick": {"B"}, "password": {"Team vault"}, "token": {"Use saved"}, "note": {`{"pin":"4821"}`}}}
+	relayed := relayedAnswers(request, response)
+	if strings.Join(relayed["pick"], ",") != "B" || strings.Join(relayed["password"], ",") != "Team vault" {
+		t.Fatal("offered choices were not kept", relayed)
+	}
+	for _, id := range []string{"token", "note"} {
+		if relayed[id] == nil || len(relayed[id]) != 0 {
+			t.Fatal("a secret or free-text answer kept its body", id, relayed[id])
+		}
+	}
+	if typed := relayedAnswers(request, engine.UserInputResponse{Answers: map[string][]string{"pick": {"my own words"}}}); typed["pick"] == nil || len(typed["pick"]) != 0 {
+		t.Fatal("free text beside offered options kept its body", typed)
+	}
+}
+
+func TestCodexResolvedAnswersNeverAbortTheRun(t *testing.T) {
+	for _, id := range []string{"password", "api_key", "db_password", "color"} {
+		for _, test := range []struct {
+			name, label, secret string
+			kept                bool
+		}{
+			{"plain-label", "Team vault", "", true},
+			{"label-holds-secret", "vault hunter2-value", "hunter2-value", false},
+			{"redaction-would-grow", strings.Repeat("ab ", 1300), "ab", false},
+		} {
+			t.Run(id+"/"+test.name, func(t *testing.T) {
+				j := &journal{}
+				if test.secret != "" {
+					if err := j.registerPrivateAnswers([]string{test.secret}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var got []engine.Event
+				r := &codexRun{rpc: &codexRPC{journal: j}, session: "thread", emit: func(e engine.Event) error { got = append(got, e); return nil }}
+				err := r.event(engine.Event{Kind: engine.InteractionResolved, ID: "req", Name: "user_input", Resolution: &engine.InteractionResolution{Answers: map[string][]string{id: {test.label}}}})
+				if err != nil || len(got) != 1 || got[0].Resolution == nil {
+					t.Fatal("a relayed answer ended the run", err, got)
+				}
+				contract := engine.StreamContract{}
+				if err := contract.Accept(got[0]); err != nil {
+					t.Fatal("published resolution broke the stream contract", err)
+				}
+				answers := got[0].Resolution.Answers[id]
+				if test.kept != (len(answers) == 1 && answers[0] == test.label) || !test.kept && (answers == nil || len(answers) != 0) {
+					t.Fatalf("published %q", answers)
+				}
+				if test.secret != "" && strings.Contains(fmt.Sprint(got[0].Resolution.Answers), test.secret) {
+					t.Fatal("secret published")
+				}
+			})
+		}
+	}
+}
+
+func TestPiResolvedAnswersNeverCarryABody(t *testing.T) {
+	for _, answer := range []string{`hunter2`, `"hunter2"`, `["tok-123"]`, `{"pin":"4821"}`, `123456`} {
+		j := &journal{}
+		if err := j.registerPrivateAnswers([]string{answer}); err != nil {
+			t.Fatal(err)
+		}
+		var got []engine.Event
+		r := &piRun{connection: &piConnection{journal: j}, session: "pi-native", emit: func(e engine.Event) error { got = append(got, e); return nil }}
+		err := r.event(engine.Event{Kind: engine.InteractionResolved, ID: "pi:x", Name: "user_input", Resolution: &engine.InteractionResolution{Answers: map[string][]string{"answer": {answer}}}})
+		if err != nil || len(got) != 1 || got[0].Resolution == nil {
+			t.Fatal(answer, err, got)
+		}
+		data, _ := json.Marshal(got[0])
+		if published := got[0].Resolution.Answers["answer"]; published == nil || len(published) != 0 || strings.Contains(string(data), "hunter2") || strings.Contains(string(data), "tok-123") || strings.Contains(string(data), "4821") || strings.Contains(string(data), "123456") {
+			t.Fatalf("answer %q published %s", answer, data)
+		}
 	}
 }

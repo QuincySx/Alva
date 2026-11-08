@@ -24,23 +24,24 @@ Adapter.New不创建engine.sqlite，缺失Bindings在IO前拒绝；上层成功�
 | descriptor.go | 独立保守能力声明；不把CLI安全flag冒充等价权限profile，Claude真实append-system-prompt/max-turns，Codex/Pi明确拒绝，不声明native Inspector/provider headers/fast mode |
 | codex_app_server.go | 显式app-server握手/thread/turn与owner/cwd绑定；启动前有界流式重验原件/派生大小/SHA/文件身份及选中Skill，不把路径或Prompt当授权；配置隔离与interrupt/真实join |
 | codex_rpc.go | 双向JSON-RPC stdio、有界framing/backlog/请求关联、失败清理及禁止自动重放 |
-| codex_events.go | 原生item/tool/result（含item类型Display，与Text/Input同经脱敏）与approval/question独立映射、pending/resolved关联和native policy校验；超60KiB最终消息保留UTF-8前缀、Truncated与journal引用；人类答案正文不入journal |
+| codex_events.go | 原生item/tool/result（含item类型Display，与Text/Input同经脱敏）与approval/question独立映射（审批带所请求item的Display）、pending/resolved关联和native policy校验；本适配器转发的决定/回答在发送前有界记下（回答只保留选中的提供选项，自由文本/秘密只记已回答），resolved时作为Resolution逐值脱敏发出，失败降级为无Resolution而不中止运行；app-server用量读tokenUsage.last.cachedInputTokens；超60KiB最终消息保留UTF-8前缀、Truncated与journal引用；人类答案正文不入journal |
 | codex_environment.go / codex_environment_test.go | app-server专用本机环境合并、终端默认值、代理去重及已知敏感键快照；不读取真实配置/认证/信任文件 |
 | codex_output.go | run-local有界跨片literal脱敏和完整native日志可恢复性；与人类秘密答案的严格省略区分，回归见codex_environment_test.go |
-| codex_app_server_test.go | 仅owned helper process验证双向审批/连续秘密问题/迟到响应、native身份、帧错误、真实interrupt/exit、日志及有界native政策；超限最终消息截断前缀回归 |
-| mapping.go | 各vendor真实JSONL方言、tool配对与Display（结束事件不带结果正文时复用开始Display，子Agent按is_error补状态）、可恢复错误与结果证据；已验证resume引用来源独立于CLI session确认 |
+| codex_app_server_test.go | 仅owned helper process验证双向审批（resolved带转发的允许、秘密答案只记已回答、审批带Display）/连续秘密问题/迟到响应、native身份、帧错误、真实interrupt/exit、日志及有界native政策；超限最终消息截断前缀回归 |
+| mapping.go | 各vendor真实JSONL方言、包含式用量（Codex exec cached_input_tokens已含在input内；Claude result的cache_read/cache_creation_input_tokens与Pi的cacheRead/cacheWrite不含在input内，先加回；缺字段为未报告；pi-ai对所有provider把cacheRead/cacheWrite初始化为0，两者都为0时视为未报告）、tool配对与Display（结束事件不带结果正文时复用开始Display，子Agent按is_error补状态）、可恢复错误与结果证据；已验证resume引用来源独立于CLI session确认 |
 | tool_display.go | 各vendor自己的工具呈现：Codex app-server item类型与exec item、Claude Code工具名、Pi工具名→未截断engine.ToolDisplay，只用事件已有的参数/item字段，不存结果正文；未知为other；finishDisplay对每个字符串字段做字面量+标记替换后才Bound（不走JSON往返、永不报错，秘密集无法准备时只留Kind），redactToolInput按同一秘密集脱敏Input |
 | tool_display_test.go | Codex各item类型、exec/Claude/Pi帧带Display、Claude结果正文不进事件、未知工具为other、配置秘密逐字段脱敏且数字/布尔字面量秘密不破坏数值字段、跨512字节截断点的秘密不留前缀、超量秘密退化为Kind |
+| interaction_resolution.go | relayedAnswers只保留提供选项中被选中的标签（自由文本/秘密问题只记已回答，与原生日志省略回答正文一致，不依赖字面量脱敏）、publishedResolution逐值脱敏（不按问题ID键，凭据样ID不会改变结构）并用契约Validate，失败降级为无Resolution而非返回错误 |
 | selected_files.go | Codex/Pi共用的明确选中文件流式SHA/大小/SameFile重验，不新增文件权限 |
 | pi_events_test.go / pi_files_test.go | Pi1.4 settled/overflow恢复、abort/length及零退出失败、已结束消息缓存零累计/活跃1MiB上限、typed图片argv/原件派生path index与真实工具事实回归；只用自有helper进程 |
 | pi_bridge.go | 固定内容SHA私有Pi extension；tool_call执行前独立批准、自由文本ask_user与run nonce ready，不开启其他extension发现 |
 | pi_connection.go / pi_connection_test.go | 独立Pi RPC命令关联；队列只持media省略后的投影，最多64条/合计8MiB，receive释放准确字节，response同受8MiB约束；显式64MiB framing与失败零重放 |
-| pi_rpc.go / pi_events.go | 精确native文件身份、ready前零prompt、typed输入、逐工具审批与自由问答、run绑定响应、Stop撤销/abort/真实join和安全产品投影 |
-| pi_rpc_test.go | 自有真实子进程验证批准前零写/拒绝零写、问答脱敏、20KiB/80KiB完整安全答复和跨16/64KiB秘密、已发布delta不重复、missing bridge/foreign身份、迟到响应、Stop/重开恢复、大图片及大行读取消 |
+| pi_rpc.go / pi_events.go | 精确native文件身份、ready前零prompt、typed输入、逐工具审批（带该调用的Display）与自由问答、run绑定响应（resolved带转发的决定；自由回答只记已回答、不带正文）、Stop撤销/abort/真实join和安全产品投影 |
+| pi_rpc_test.go | 自有真实子进程验证批准前零写/拒绝零写（审批带Display、resolved带决定）、问答脱敏（resolved的回答只记已回答、无正文）、20KiB/80KiB完整安全答复和跨16/64KiB秘密、已发布delta不重复、missing bridge/foreign身份、迟到响应、Stop/重开恢复、大图片及大行读取消 |
 | pi_native_test.go | 仅显式ALVA_PI_TEST_NODE/SCRIPT启用真实已安装Pi+应用extension+localhost SSE fixture；真实agent-loop验证write拒绝/允许及ask_user回答回到下一模型请求，无真实账户/远程模型 |
 | sessions.go | 经共享BindingStore核对owner/cwd，Pi私有原生header与真实join后关闭所传组件 |
 | private_other.go / private_windows.go | Pi文件的Unix权限/Windows DACL与SameFile检查；Windows USERPROFILE/AppData/TEMP显式绑定私有home，拒绝大小写profile override |
-| adapter_test.go | 三vendor真实本地fake子进程（print/exec传输的工具Input/Display按配置秘密脱敏且不留截断前缀）、配对/错误/取消、日志、header前取消的引用来源、精确resume授权与跨实例Pi恢复/foreign拒绝 |
+| adapter_test.go | 三vendor用量缓存计数（报告/0/缺失/不一致与Claude、Pi的加回，Pi全0与混合为未报告）、回答只留提供选项、凭据样问题ID/脱敏变长不中止且过契约、Pi任意形状回答不带正文，及三vendor真实本地fake子进程（print/exec传输的工具Input/Display按配置秘密脱敏且不留截断前缀）、配对/错误/取消、日志、header前取消的引用来源、精确resume授权与跨实例Pi恢复/foreign拒绝 |
 | profile_test.go | 明确配置目录验证/来源拒绝、真实本地child环境隔离及Codex fresh/resume只读参数回归；不读取账号 |
 | claude_result_test.go | 仅本地fixture子进程验证success+is_error、冲突session与result后输出不能伪报成功；允许尾随纯通知 |
 

@@ -1,5 +1,5 @@
 // INPUT: context, encoding/json, errors, fmt
-// OUTPUT: Runtime, Request, Event (with bounded tool Display), Capabilities, PermissionDecision and stream validation
+// OUTPUT: Runtime, Request, Event (with bounded tool Display and interaction Resolution), Usage with optional cache counts, Capabilities, PermissionDecision and stream validation
 // POS: [L4.5 engine contract] Independent multi-engine execution contract without SDK or Hub product policy
 package engine
 
@@ -123,10 +123,89 @@ type Reference struct {
 	Sequence  uint64 `json:"sequence,omitempty"`
 	URI       string `json:"uri,omitempty"`
 }
+
+// Usage counts are inclusive, as in the kernel's wire usage: cached and
+// cache-write input are part of InputTokens. A nil cache counter means the
+// engine did not report it, which differs from a reported zero.
 type Usage struct {
-	InputTokens  uint64 `json:"input_tokens"`
-	OutputTokens uint64 `json:"output_tokens"`
+	InputTokens           uint64  `json:"input_tokens"`
+	OutputTokens          uint64  `json:"output_tokens"`
+	CachedInputTokens     *uint64 `json:"cached_input_tokens,omitempty"`
+	CacheWriteInputTokens *uint64 `json:"cache_write_input_tokens,omitempty"`
 }
+
+// Validate rejects cache counts that exceed the inclusive input count.
+func (u Usage) Validate() error {
+	var cached uint64
+	for _, count := range []*uint64{u.CachedInputTokens, u.CacheWriteInputTokens} {
+		if count == nil {
+			continue
+		}
+		if *count > u.InputTokens || cached > u.InputTokens-*count {
+			return errors.New("cache usage exceeds inclusive input usage")
+		}
+		cached += *count
+	}
+	return nil
+}
+
+// Add accumulates one more report. Token counts sum. A cache counter is
+// reported only while every report carried it: a part without it would make
+// the hit rate look lower than it was, so one unreported part leaves the
+// aggregate unreported. The first report into a zero Usage sets the counters.
+func (u *Usage) Add(other Usage) {
+	first := u.InputTokens == 0 && u.OutputTokens == 0 && u.CachedInputTokens == nil && u.CacheWriteInputTokens == nil
+	u.InputTokens += other.InputTokens
+	u.OutputTokens += other.OutputTokens
+	for _, pair := range []struct{ total, part **uint64 }{{&u.CachedInputTokens, &other.CachedInputTokens}, {&u.CacheWriteInputTokens, &other.CacheWriteInputTokens}} {
+		switch {
+		case *pair.part == nil:
+			*pair.total = nil
+		case first:
+			value := **pair.part
+			*pair.total = &value
+		case *pair.total != nil:
+			sum := **pair.total + **pair.part
+			*pair.total = &sum
+		}
+	}
+}
+
+// InteractionResolution is an adapter's bounded account of how it settled a
+// pending interaction: the permission decision it relayed, or the answers it
+// delivered, after the adapter's own redaction (a secret answer stays
+// redacted). An empty value is an explicitly skipped question. It belongs only
+// to InteractionResolved and grants nothing.
+type InteractionResolution struct {
+	Allowed *bool               `json:"allowed,omitempty"`
+	Answers map[string][]string `json:"answers,omitempty"`
+}
+
+// Validate checks the resolution against its interaction kind ("permission"
+// or "user_input") and bounds.
+func (r InteractionResolution) Validate(kind string) error {
+	if kind == "permission" && (r.Allowed == nil || len(r.Answers) != 0) || kind == "user_input" && r.Allowed != nil {
+		return errors.New("interaction resolution does not match its kind")
+	}
+	if len(r.Answers) > 16 {
+		return errors.New("interaction resolution exceeds its bound")
+	}
+	for id, answers := range r.Answers {
+		if !boundedQuestionText(id, 128, true) || len(answers) > 16 {
+			return errors.New("interaction resolution exceeds its bound")
+		}
+		for _, answer := range answers {
+			if !boundedQuestionText(answer, 4096, false) {
+				return errors.New("interaction resolution exceeds its bound")
+			}
+		}
+	}
+	if data, err := json.Marshal(r); err != nil || len(data) > 16<<10 {
+		return errors.New("interaction resolution exceeds its bound")
+	}
+	return nil
+}
+
 type Event struct {
 	Kind        Kind              `json:"kind"`
 	SessionID   string            `json:"session_id,omitempty"`
@@ -148,8 +227,12 @@ type Event struct {
 	// complete content is read through it; otherwise the prefix is all there is.
 	Truncated bool `json:"truncated,omitempty"`
 	// Display is the adapter's normalized, bounded presentation of a tool
-	// call; it belongs only to ToolStart and ToolEnd.
+	// call; it belongs only to ToolStart, ToolEnd and the PermissionRequest
+	// that asks to run that call.
 	Display *ToolDisplay `json:"display,omitempty"`
+	// Resolution is how the adapter settled the interaction; it belongs only
+	// to InteractionResolved and is optional (older events have none).
+	Resolution *InteractionResolution `json:"resolution,omitempty"`
 }
 
 // StreamContract is a consumer-side invariant checker, not an execution owner.
@@ -191,10 +274,18 @@ func (s *StreamContract) Accept(event Event) error {
 		return errors.New("only a final message, content block or tool result can be truncated")
 	}
 	if event.Display != nil {
-		if event.Kind != ToolStart && event.Kind != ToolEnd {
-			return errors.New("tool display belongs only to tool events")
+		if event.Kind != ToolStart && event.Kind != ToolEnd && event.Kind != PermissionRequest {
+			return errors.New("tool display belongs only to tool events and their permission requests")
 		}
 		if err := event.Display.Validate(); err != nil {
+			return err
+		}
+	}
+	if event.Resolution != nil && event.Kind != InteractionResolved {
+		return errors.New("interaction resolution belongs only to a resolved interaction")
+	}
+	if event.Usage != nil {
+		if err := event.Usage.Validate(); err != nil {
 			return err
 		}
 	}
@@ -253,6 +344,11 @@ func (s *StreamContract) Accept(event Event) error {
 	case InteractionResolved:
 		if event.ID == "" || (event.Name != "permission" && event.Name != "user_input") {
 			return errors.New("resolved interaction requires its identity and kind")
+		}
+		if event.Resolution != nil {
+			if err := event.Resolution.Validate(event.Name); err != nil {
+				return err
+			}
 		}
 	case Error:
 		if event.Text == "" {

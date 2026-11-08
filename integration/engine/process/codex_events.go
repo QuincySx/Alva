@@ -1,5 +1,5 @@
 // INPUT: Codex app-server item, turn and server-request frames
-// OUTPUT: Bounded engine events, exact native interaction correlation and responses
+// OUTPUT: Bounded engine events, exact native interaction correlation, responses and the relayed resolution (offered choices only) on resolved events
 // POS: [integration / native external-engine adapter] Native facts remain distinct from product ownership and human permission policy
 package process
 
@@ -39,11 +39,16 @@ type codexRun struct {
 	cleared    map[string]bool
 	tools      map[string]string
 	items      map[string]string
-	finished   bool
-	outcome    engine.Outcome
-	usage      engine.Usage
-	nativeErr  bool
-	emit       func(engine.Event) error
+	// displays keeps each open tool's display for the permission request that
+	// asks to run it; resolutions keeps the decision or answers this adapter
+	// relayed until the native resolved notification reports them.
+	displays    map[string]*engine.ToolDisplay
+	resolutions map[string]*engine.InteractionResolution
+	finished    bool
+	outcome     engine.Outcome
+	usage       engine.Usage
+	nativeErr   bool
+	emit        func(engine.Event) error
 	nativeStream
 }
 
@@ -129,6 +134,9 @@ func (r *codexRun) event(event engine.Event) error {
 		}
 		event.Text, event.Input = payload.Text, payload.Input
 		event.Display = finishDisplay(event.Display, secrets)
+		// Relayed answers hold only offered labels (relayedAnswers); each is
+		// redacted on its own and a failure degrades to no resolution.
+		event.Resolution = publishedResolution(event.Resolution, event.Name, secrets, true)
 	}
 	return r.publish(event)
 }
@@ -193,9 +201,12 @@ func (a *Adapter) respondCodexPermission(ctx context.Context, session, id string
 		return fmt.Errorf("%w: native approval does not offer this decision", engine.ErrUnsupported)
 	}
 	delete(run.pending, id)
+	allowed := decision.Allow
+	run.relayed(id, &engine.InteractionResolution{Allowed: &allowed})
 	run.mu.Unlock()
 	defer func() {
 		if dispatchErr != nil {
+			run.forget(id)
 			run.rpc.fail(dispatchErr)
 			run.rpc.proc.BeginClose()
 		}
@@ -232,9 +243,13 @@ func (a *Adapter) RespondUserInput(ctx context.Context, session, id string, resp
 		return err
 	}
 	delete(run.pending, id)
+	// Only offered choices are kept; free-text and secret answers are kept
+	// as answered without their body, as the journal omits them.
+	run.relayed(id, &engine.InteractionResolution{Answers: relayedAnswers(pending.question, response)})
 	run.mu.Unlock()
 	defer func() {
 		if dispatchErr != nil {
+			run.forget(id)
 			run.rpc.fail(dispatchErr)
 			run.rpc.proc.BeginClose()
 		}
@@ -261,6 +276,25 @@ func (a *Adapter) RespondUserInput(ctx context.Context, session, id string, resp
 	}
 	// Answers may be secrets even when the sender did not mark them as such.
 	return run.rpc.send(ctx, map[string]any{"id": pending.id, "result": map[string]any{"answers": answers}}, true)
+}
+
+// relayed records what this adapter sent for a request, before sending it, so
+// the native resolved notification can report it even if it arrives first.
+// Callers hold r.mu; the map is bounded by the pending-request bound.
+func (r *codexRun) relayed(id string, resolution *engine.InteractionResolution) {
+	if r.resolutions == nil {
+		r.resolutions = make(map[string]*engine.InteractionResolution)
+	}
+	if len(r.resolutions) < 64 {
+		r.resolutions[id] = resolution
+	}
+}
+
+// forget drops a relayed record whose dispatch failed.
+func (r *codexRun) forget(id string) {
+	r.mu.Lock()
+	delete(r.resolutions, id)
+	r.mu.Unlock()
 }
 
 func (j *journal) registerPrivateAnswers(values []string) error {
@@ -358,28 +392,35 @@ func (r *codexRun) handle(ctx context.Context, frame codexFrame) error {
 		r.mu.Lock()
 		kind := r.seen[id]
 		already := r.cleared[id]
+		resolution := r.resolutions[id]
 		delete(r.pending, id)
+		delete(r.resolutions, id)
 		if kind != "" {
 			r.cleared[id] = true
 		}
 		r.mu.Unlock()
 		if kind != "" && !already {
-			return r.event(engine.Event{Kind: engine.InteractionResolved, ID: id, Name: kind})
+			return r.event(engine.Event{Kind: engine.InteractionResolved, ID: id, Name: kind, Resolution: resolution})
 		}
 		return nil
 	case "thread/tokenUsage/updated":
 		var usage struct {
 			TokenUsage struct {
 				Last struct {
-					Input  uint64 `json:"inputTokens"`
-					Output uint64 `json:"outputTokens"`
+					Input  uint64  `json:"inputTokens"`
+					Cached *uint64 `json:"cachedInputTokens"`
+					Output uint64  `json:"outputTokens"`
 				} `json:"last"`
 			} `json:"tokenUsage"`
 		}
 		if json.Unmarshal(frame.Params, &usage) != nil {
 			return errors.New("invalid Codex usage")
 		}
-		r.usage = engine.Usage{InputTokens: usage.TokenUsage.Last.Input, OutputTokens: usage.TokenUsage.Last.Output}
+		// Codex counts cached input inside inputTokens.
+		r.usage = engine.Usage{InputTokens: usage.TokenUsage.Last.Input, OutputTokens: usage.TokenUsage.Last.Output, CachedInputTokens: usage.TokenUsage.Last.Cached}
+		if r.usage.Validate() != nil {
+			r.usage.CachedInputTokens = nil
+		}
 		return nil
 	case "turn/started":
 		if r.finished || params.Turn.Status != "inProgress" {
@@ -482,6 +523,11 @@ func (r *codexRun) item(completed bool, raw json.RawMessage) error {
 	case "commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "collabToolCall", "webSearch", "imageView":
 		if !completed {
 			r.tools[item.ID] = item.Type
+			display := codexItemDisplay(item.Type, raw)
+			if r.displays == nil {
+				r.displays = make(map[string]*engine.ToolDisplay)
+			}
+			r.displays[item.ID] = display
 			effect := engine.EffectUnknown
 			switch item.Type {
 			case "commandExecution":
@@ -493,9 +539,10 @@ func (r *codexRun) item(completed bool, raw json.RawMessage) error {
 			case "imageView":
 				effect = engine.EffectRead
 			}
-			return r.event(engine.Event{Kind: engine.ToolStart, ID: item.ID, Name: item.Type, Input: raw, Effect: effect, Display: codexItemDisplay(item.Type, raw)})
+			return r.event(engine.Event{Kind: engine.ToolStart, ID: item.ID, Name: item.Type, Input: raw, Effect: effect, Display: display})
 		}
 		delete(r.tools, item.ID)
+		delete(r.displays, item.ID)
 		failed := item.Status == "failed" || item.Status == "declined" || item.Status == "cancelled" || item.ExitCode != nil && *item.ExitCode != 0 || item.Success != nil && !*item.Success || len(item.Error) > 0 && string(item.Error) != "null"
 		return r.event(engine.Event{Kind: engine.ToolEnd, ID: item.ID, Name: item.Type, Text: item.AggregatedOutput, Input: raw, IsError: failed, Reference: r.reference(item.ID), Display: codexItemDisplay(item.Type, raw)})
 	}
@@ -538,6 +585,8 @@ func (r *codexRun) serverRequest(ctx context.Context, frame codexFrame) error {
 			}
 		}
 		event.Kind, event.Name, event.Text, event.Input = engine.PermissionRequest, r.tools[params.ItemID], params.Reason, frame.Params
+		// The request asks to run the open item, so it shows that item.
+		event.Display = engine.CloneToolDisplay(r.displays[params.ItemID])
 		if event.Name == "commandExecution" {
 			event.Effect = engine.EffectExecute
 		} else {

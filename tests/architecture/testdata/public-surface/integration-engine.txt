@@ -85,6 +85,8 @@ func (d Descriptor) Description(id string) Description
 
 func (d Descriptor) Validate() error
 
+func (r InteractionResolution) Validate(kind string) error
+
 func (r UserInputRequest) Validate() error
 
 func (r UserInputResponse) ValidateFor(request UserInputRequest) error
@@ -92,6 +94,10 @@ func (r UserInputResponse) ValidateFor(request UserInputRequest) error
 func (s *StreamContract) Accept(event Event) error
 
 func (s StreamContract) Clone() StreamContract
+
+func (u *Usage) Add(other Usage)
+
+func (u Usage) Validate() error
 
 func (v GenerationOptions) Clone() GenerationOptions
 
@@ -124,8 +130,6 @@ func UnifiedDiff(diff string) (old, updated string, added, removed int)
 func ValidateInputFiles(files []InputFile) error
 
 func ValidateInputSkills(skills []InputSkill) error
-
-import "errors"
 
 import (
 	"context"
@@ -170,6 +174,12 @@ import (
 import (
 	"errors"
 	"reflect"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"errors"
 	"strings"
 	"unicode/utf8"
 )
@@ -241,6 +251,8 @@ type Event struct {
 	Truncated bool `json:"truncated,omitempty"`
 
 	Display *ToolDisplay `json:"display,omitempty"`
+
+	Resolution *InteractionResolution `json:"resolution,omitempty"`
 }
 
 type FailureKind string
@@ -374,6 +386,11 @@ type InstallMetadata struct {
 	InstallHint    string `json:"install_hint,omitempty"`
 }
 
+type InteractionResolution struct {
+	Allowed *bool               `json:"allowed,omitempty"`
+	Answers map[string][]string `json:"answers,omitempty"`
+}
+
 type Kind string
 
 type Outcome string
@@ -484,8 +501,10 @@ type ToolMatch struct {
 }
 
 type Usage struct {
-	InputTokens  uint64 `json:"input_tokens"`
-	OutputTokens uint64 `json:"output_tokens"`
+	InputTokens           uint64  `json:"input_tokens"`
+	OutputTokens          uint64  `json:"output_tokens"`
+	CachedInputTokens     *uint64 `json:"cached_input_tokens,omitempty"`
+	CacheWriteInputTokens *uint64 `json:"cache_write_input_tokens,omitempty"`
 }
 
 type UserInputOption struct {
@@ -518,6 +537,8 @@ type WaitCheckpoint struct {
 	Revision  uint64 `json:"revision"`
 	Requests  int    `json:"requests"`
 	ExpiresAt int64  `json:"expires_at"`
+
+	Calls []string `json:"calls,omitempty"`
 }
 
 type WaitingRunner interface{ WaitCheckpoint() *WaitCheckpoint }

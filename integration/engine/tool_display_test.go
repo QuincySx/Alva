@@ -1,5 +1,5 @@
 // INPUT: encoding/json, strings, testing and canonical tool displays
-// OUTPUT: Display bounds, Bound output always valid for hostile strings in every field, string mapping, kind/field ownership, event placement and shared line/diff/checklist helpers
+// OUTPUT: Display bounds, Bound output always valid for hostile strings in every field, string mapping, kind/field ownership, event placement (tool events and permission requests) and shared line/diff/checklist helpers
 // POS: [L4.5 engine contract] Portable tool-display conformance independent of concrete engines or tool names
 package engine
 
@@ -16,14 +16,16 @@ func TestToolDisplayAcceptsBoundedDisplaysOnToolEventsOnly(t *testing.T) {
 	var c StreamContract
 	start := Event{Kind: ToolStart, ID: "t", Name: "x", Display: &ToolDisplay{Kind: ToolEdit, Path: "a.go", Files: 1, Added: count(2), Removed: count(1), Diff: &ToolDiff{Old: "a", New: "b\nc", Partial: true}}}
 	end := Event{Kind: ToolEnd, ID: "t", Name: "x", Text: "ok", Display: start.Display}
-	for _, event := range []Event{start, end} {
+	// A permission request asks to run one call, so it may carry that call's display.
+	permission := Event{Kind: PermissionRequest, ID: "p", Name: "x", Display: start.Display}
+	for _, event := range []Event{start, end, permission} {
 		if err := c.Accept(event); err != nil {
 			t.Fatal("bounded display rejected", event.Kind, err)
 		}
 	}
 	for _, event := range []Event{
 		{Kind: Message, ID: "m", Text: "x", Display: &ToolDisplay{Kind: ToolOther}},
-		{Kind: PermissionRequest, ID: "p", Name: "x", Display: &ToolDisplay{Kind: ToolOther}},
+		{Kind: InteractionResolved, ID: "p", Name: "permission", Display: &ToolDisplay{Kind: ToolOther}},
 	} {
 		probe := c.Clone()
 		if probe.Accept(event) == nil {

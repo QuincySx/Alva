@@ -1,6 +1,6 @@
 // INPUT: context, crypto/rand, encoding/json, sync, harness.Runner, engine, shared record redaction, kernel/abi, llm/wire
 // OUTPUT: Adapter, explicit native-session RunnerFactory/FactoryOptions and independent Descriptor
-// POS: [L7 Alva product adapter] Complete Alva harness bridge preserving qualified native facts, bounded tool evidence/display and scoped cancellation
+// POS: [L7 Alva product adapter] Complete Alva harness bridge preserving qualified native facts, bounded tool evidence/display, cache-aware usage and scoped cancellation
 package alva
 
 import (
@@ -332,8 +332,10 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		case abi.EventUsage:
 			if event.Usage != nil {
 				responseStarted = true
-				usage.InputTokens += event.Usage.InputTokens
-				usage.OutputTokens += event.Usage.OutputTokens
+				// Cache counters keep the kernel's pointer meaning, and a
+				// response that did not report them leaves the run's sum
+				// unreported (a mixed sum would understate the hit rate).
+				usage.Add(engine.Usage{InputTokens: event.Usage.InputTokens, OutputTokens: event.Usage.OutputTokens, CachedInputTokens: event.Usage.CachedInputTokens, CacheWriteInputTokens: event.Usage.CacheWriteInputTokens})
 			}
 		}
 		if output != nil {
@@ -370,6 +372,11 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		if sendErr := emit(engine.Event{Kind: engine.Error, Text: boundedError(err.Error()), Failure: failure}); sendErr != nil {
 			return errors.Join(err, sendErr)
 		}
+	}
+	if usage.Validate() != nil {
+		// A provider's cache counts above its own input cannot be shown as a
+		// hit rate; keep the token counts and report the cache as unknown.
+		usage.CachedInputTokens, usage.CacheWriteInputTokens = nil, nil
 	}
 	return emit(engine.Event{Kind: engine.Completed, SessionID: id, Outcome: outcome, Usage: &usage, Wait: checkpoint})
 }
