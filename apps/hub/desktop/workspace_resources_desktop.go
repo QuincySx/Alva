@@ -47,6 +47,8 @@ type workspaceResourcesState struct {
 	find           bool
 	findQuery      string
 	markdown       markdown.Options
+	// pending is a tab a tool jump requested before the view loaded.
+	pending *workspacePendingResource
 }
 
 func (p *NativePage) workspaceResourceSession() *workspaceResourceSession {
@@ -78,6 +80,9 @@ func (p *NativePage) selectWorkspaceResources(id string) {
 			delete(p.resources.sessions, p.resources.session)
 		}
 		p.resources.popout = ""
+	}
+	if p.resources.pending != nil && p.resources.pending.session != id {
+		p.resources.pending = nil
 	}
 	p.resources.session = id
 	p.resources.openRequested = false
@@ -126,6 +131,10 @@ func (p *NativePage) reloadWorkspaceResources() {
 			s.loading = false
 			if err != nil {
 				s.problem = err.Error()
+				// A tab requested before the failed read is not opened later.
+				if p.resources.pending != nil && p.resources.pending.session == id {
+					p.resources.pending = nil
+				}
 				return
 			}
 			s.view, s.loaded = value, true
@@ -138,6 +147,7 @@ func (p *NativePage) reloadWorkspaceResources() {
 			if p.selected == id && p.resources.session == id && p.resources.openRequested {
 				p.resources.openRequested = false
 				p.openWorkspaceResources()
+				p.openPendingWorkspaceResource(id)
 				return
 			}
 			if p.selected == id && p.resources.session == id && !value.Collapsed {

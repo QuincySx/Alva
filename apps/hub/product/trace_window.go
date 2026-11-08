@@ -1,5 +1,5 @@
 // INPUT: TraceChunk native metadata pages and product turn anchors
-// OUTPUT: TraceStep/TraceStepKind/TraceRecord projection and TraceWindow accumulation, pairing, turn labels and byte-bounded trimming that releases only the trimmed side's product evidence
+// OUTPUT: TraceStep/TraceStepKind/TraceRecord projection and TraceWindow accumulation, pairing, agent-call child lookup, turn labels and byte-bounded trimming that releases only the trimmed side's product evidence
 // POS: [L7 Hub product] UI-thread execution-trace window without I/O; steps are rebuilt from metadata only, never record bodies
 package product
 
@@ -350,6 +350,20 @@ func (w *TraceWindow) StepAt(sequence uint64) (TraceStep, bool) {
 		return TraceStep{}, false
 	}
 	return w.Step(w.steps[best].ID)
+}
+
+// ChildStepOf returns the child step whose link record names the tool intent
+// at sequence as its parent: the child session an agent call started.
+func (w *TraceWindow) ChildStepOf(intent uint64) (TraceStep, bool) {
+	if intent == 0 {
+		return TraceStep{}, false
+	}
+	for i := range w.entries {
+		if entry := &w.entries[i]; entry.childLink() && entry.parent == intent {
+			return w.Step("child/" + strconv.FormatUint(entry.sequence, 10))
+		}
+	}
+	return TraceStep{}, false
 }
 
 // Trim drops records at the end away from the viewport while the window is

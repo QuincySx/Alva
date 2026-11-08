@@ -1,5 +1,5 @@
-// INPUT: TranscriptChunk pages and the shared history projection
-// OUTPUT: TranscriptWindow block accumulation, boundary merge and byte-bounded trimming
+// INPUT: TranscriptChunk pages, the shared history projection and tool views
+// OUTPUT: TranscriptWindow block accumulation, boundary merge (tool views included), superseded todo marking and byte-bounded trimming
 // POS: [L7 Hub product] UI-thread Message Stream window without I/O; counts blocks and bytes, never events
 package product
 
@@ -39,6 +39,7 @@ func (w *TranscriptWindow) Reset(chunk TranscriptChunk) {
 	for _, entry := range chunk.entries {
 		w.fold(entry)
 	}
+	w.view.markTodos()
 }
 
 // ApplyNewer appends history after Last. Deltas keep extending their block and
@@ -50,6 +51,7 @@ func (w *TranscriptWindow) ApplyNewer(chunk TranscriptChunk) {
 		}
 	}
 	w.moreAfter = chunk.More
+	w.view.markTodos()
 }
 
 func (w *TranscriptWindow) fold(entry hub.HistoryEntry) {
@@ -107,6 +109,7 @@ func (w *TranscriptWindow) ApplyOlder(chunk TranscriptChunk) {
 		w.view.first = older.first
 	}
 	w.view.last = max(w.view.last, older.last)
+	w.view.markTodos()
 }
 
 // mergeOlder folds an older part of the same block into its current part, as
@@ -131,6 +134,9 @@ func mergeOlder(older, current blockState) blockState {
 	}
 	if merged.Name == "" {
 		merged.Name = older.Name
+	}
+	if merged.Kind == BlockKindTool {
+		merged.Tool = mergeToolView(older.Tool, current.Tool)
 	}
 	if merged.Turn == 0 {
 		merged.Turn = older.Turn
@@ -171,7 +177,7 @@ func (w *TranscriptWindow) MoreBefore() bool { return w.moreBefore }
 func (w *TranscriptWindow) MoreAfter() bool { return w.moreAfter }
 
 func blockBytes(b *Block) int {
-	size := blockOverhead + len(b.ID) + len(b.SessionID) + len(b.TurnID) + len(b.AttemptID) + len(b.Name) + len(b.Text) + len(b.NativeSessionID) + len(b.HandoffID)
+	size := blockOverhead + len(b.ID) + len(b.SessionID) + len(b.TurnID) + len(b.AttemptID) + len(b.Name) + len(b.Text) + len(b.NativeSessionID) + len(b.HandoffID) + toolViewBytes(b.Tool)
 	if b.Ref != nil {
 		size += len(b.Ref.SessionID) + len(b.Ref.RecordID) + len(b.Ref.URI) + 8
 	}

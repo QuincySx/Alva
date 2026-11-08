@@ -25,6 +25,17 @@ const (
 )
 
 const (
+	ToolBodyText      ToolBody = "text"
+	ToolBodyReference ToolBody = "reference"
+)
+
+const (
+	ToolJumpTrace ToolJump = "trace"
+	ToolJumpFile  ToolJump = "file"
+	ToolJumpChild ToolJump = "child"
+)
+
+const (
 	TraceLaneInput TraceLane = iota
 	TraceLaneModel
 	TraceLaneTool
@@ -453,6 +464,8 @@ func (s *HubService) WorkerPatch(ctx context.Context, lead, team, worker, eviden
 
 func (s *HubService) WorkspaceArtifacts(ctx context.Context, id, branchID string, after, high uint64) (storage.ArtifactIndexPage, error)
 
+func (s *HubService) WorkspaceFileTab(ctx context.Context, id, path string) (hub.WorkspaceTab, error)
+
 func (s *HubService) WorkspaceResource(ctx context.Context, id string, tab hub.WorkspaceTab) (WorkspaceResourcePage, error)
 
 func (s *HubService) WorkspaceTask(ctx context.Context, lead, team, worker, task string, sequence uint64, offset int64) (WorkspaceResourceBody, error)
@@ -518,6 +531,8 @@ func (w *TraceWindow) ApplyNewer(chunk TraceChunk)
 func (w *TraceWindow) ApplyOlder(chunk TraceChunk)
 
 func (w *TraceWindow) Bytes() int
+
+func (w *TraceWindow) ChildStepOf(intent uint64) (TraceStep, bool)
 
 func (w *TraceWindow) Cursor() TraceCursor
 
@@ -604,6 +619,10 @@ func NewWorkspaceViewsService(store hub.WorkspaceViewStore) (*WorkspaceViewsServ
 func SelectedComposerFile(f hub.ComposerFile) ComposerFileSelection
 
 func StagePinnedAEP(ctx context.Context, entry hub.AEPBundle, parent string) (*loader.Bundle, error)
+
+func ToolLineSummary(v ToolView) string
+
+func ToolTail(text string, lines, bytes int) string
 
 func ValidateConfiguredTarget(target hub.Target, configured []hub.Target) error
 
@@ -1225,6 +1244,14 @@ import (
 
 import (
 	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"strconv"
 	"time"
 )
 
@@ -1248,6 +1275,8 @@ type Block struct {
 	HandoffID       string
 
 	History uint64
+
+	Tool *ToolView
 }
 
 type BlockKind string
@@ -1539,6 +1568,20 @@ type TeamTool struct {
 	Service             *HubService
 	ProductID, NativeID string
 	Guard               *security.Guard
+}
+
+type ToolBody string
+
+type ToolJump string
+
+type ToolView struct {
+	engine.ToolDisplay
+
+	Name string
+
+	Superseded bool
+	Body       ToolBody
+	Jump       ToolJump
 }
 
 type TraceBar struct {

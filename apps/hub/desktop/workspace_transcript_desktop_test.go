@@ -8,6 +8,7 @@ package hubdesktop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"sync/atomic"
@@ -88,6 +89,7 @@ func (transcriptColdRuntime) Execute(context.Context, engine.Request, func(engin
 type transcriptInspector struct {
 	engine.Inspector
 	pages, reads atomic.Int32
+	failReads    atomic.Int32 // reads that fail before reaching the store
 	entered      chan struct{}
 	release      <-chan struct{}
 	readEntered  chan struct{}
@@ -109,6 +111,10 @@ func (i *transcriptInspector) Page(ctx context.Context, scope engine.InspectionS
 
 func (i *transcriptInspector) Read(ctx context.Context, scope engine.InspectionScope, uri string, offset int64) (engine.InspectionText, error) {
 	i.reads.Add(1)
+	if i.failReads.Load() > 0 {
+		i.failReads.Add(-1)
+		return engine.InspectionText{}, errors.New("fixture read failure")
+	}
 	if i.readEntered != nil {
 		i.readEntered <- struct{}{}
 		select {
@@ -291,10 +297,11 @@ func TestWorkspaceTranscriptNoReferenceAndStaleBindings(t *testing.T) {
 	p.generation++
 	p.inspectTranscriptTool(oldBinding, "attempt/tool", oldTool)
 	tester.Frame()
-	if p.trace.active || inspector.pages.Load() != 0 || inspector.reads.Load() != 0 || tester.HasText("Original result summary") {
-		t.Fatal("stale observation retained disclosure or started a read")
+	// A generation change (Send/Stop) keeps the block's disclosure, but an
+	// action captured under the old generation starts no read.
+	if p.trace.active || inspector.pages.Load() != 0 || inspector.reads.Load() != 0 || !tester.HasText("Original result summary") {
+		t.Fatal("stale observation started a read or a generation change dropped the disclosure")
 	}
-	connectionClick(t, tester, "Tool activity attempt/tool")
 	connectionClick(t, tester, "Inspect tool result attempt/tool")
 	settleTrace(t, tester, p)
 	if !p.trace.active || p.trace.window == nil || p.trace.selected != "" || inspector.pages.Load() == 0 || inspector.reads.Load() != 0 || p.transcriptRows[1].Status != view.Failed {

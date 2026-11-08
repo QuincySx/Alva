@@ -1,5 +1,5 @@
 // INPUT: Saved product branches, pinned workspace search selections and shared native evidence readers.
-// OUTPUT: Bounded actual file/artifact/task reads and cold original indexes for workspace tabs.
+// OUTPUT: Bounded actual file/artifact/task reads, cold original indexes and tool-path file tab pinning for workspace tabs.
 // POS: [L7 Hub product] Revalidates resource ownership on every read without restoring or replaying execution.
 package product
 
@@ -229,6 +229,65 @@ func (s *HubService) ReadWorkspaceFile(ctx context.Context, id string, selection
 		return WorkspaceResourceBody{}, err
 	}
 	return WorkspaceResourceBody{Title: selection.Path, Data: data[:n], Offset: offset, NextOffset: offset + int64(n), TotalBytes: before.Size(), HasMore: offset+int64(n) < before.Size(), Processing: "Explicit 4 KiB source range; saved project and observed source identity revalidated. No model delivery, command or browser replay."}, nil
+}
+
+// WorkspaceFileTab pins the file a tool block names as a resource-panel file
+// tab of the session's active branch. The path may be absolute inside the
+// saved workspace or relative to it; anything outside it, missing or not a
+// regular file is ErrWorkspaceReferenceChanged. Pinning reads metadata only
+// and grants nothing: opening the tab revalidates the source as usual.
+func (s *HubService) WorkspaceFileTab(ctx context.Context, id, path string) (hub.WorkspaceTab, error) {
+	if path == "" || len(path) > 4096 || !utf8.ValidString(path) || strings.ContainsRune(path, 0) {
+		return hub.WorkspaceTab{}, errors.New("tool file path must be bounded UTF-8")
+	}
+	detail, err := s.Store.Detail(ctx, id)
+	if err != nil {
+		return hub.WorkspaceTab{}, err
+	}
+	branch, err := ActiveBranch(detail)
+	if err != nil {
+		return hub.WorkspaceTab{}, err
+	}
+	directory := detail.Session.Workspace
+	relative := filepath.Clean(path)
+	if filepath.IsAbs(relative) {
+		// An engine may report a symlink-resolved path (/private/tmp for
+		// /tmp) or an unresolved one; compare both sides resolved, falling
+		// back to the given spelling when resolution fails.
+		root, target := resolvedPath(directory), resolvedPath(relative)
+		if relative, err = filepath.Rel(root, target); err != nil {
+			return hub.WorkspaceTab{}, ErrWorkspaceReferenceChanged
+		}
+	}
+	relative = filepath.ToSlash(relative)
+	if !workspaceReferencePath(relative) {
+		return hub.WorkspaceTab{}, ErrWorkspaceReferenceChanged
+	}
+	w, guard, root, err := openReferenceWorkspace(directory)
+	if err != nil {
+		return hub.WorkspaceTab{}, err
+	}
+	defer w.Close()
+	defer root.Close()
+	if _, err = guard.CheckPath(ctx, relative, abi.AccessRead); err != nil {
+		return hub.WorkspaceTab{}, err
+	}
+	info, err := root.Lstat(filepath.FromSlash(relative))
+	if err != nil || !info.Mode().IsRegular() {
+		return hub.WorkspaceTab{}, ErrWorkspaceReferenceChanged
+	}
+	selection := referenceSelection(id, branch, directory, relative, info)
+	file := hub.WorkspaceFileSource{ID: selection.ID, BranchID: selection.BranchID, WorkspaceID: selection.WorkspaceID, Path: selection.Path, Name: selection.Name, Kind: selection.Kind, Revision: selection.Revision, Bytes: selection.Bytes}
+	return hub.WorkspaceTab{Kind: "file", Title: workspaceResourceLabel(selection.Name), BranchID: branch.ID, File: &file}, ctx.Err()
+}
+
+// resolvedPath is path with symlinks resolved, or path itself when it
+// cannot be resolved (for example a file that no longer exists).
+func resolvedPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
 }
 
 func (s *HubService) workspaceArtifactBranch(ctx context.Context, id, branchID string) (hub.Branch, error) {

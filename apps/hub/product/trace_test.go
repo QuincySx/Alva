@@ -1,5 +1,5 @@
 // INPUT: Actual private product/native SQLite, the registered RepositoryInspector and committed Turns written through Store.Record
-// OUTPUT: Trace pairing across pages, approximate legacy times, Message Stream Turn numbers, trimming, child enter/return, unsupported engines, empty branches that start later, search jumps, details and layout regressions
+// OUTPUT: Trace pairing across pages, approximate legacy times, Message Stream Turn numbers, trimming, child enter/return and agent-call child lookup, unsupported engines, empty branches that start later, search jumps, details and layout regressions
 // POS: [L7 Hub product] Execution-trace reader tests over real committed facts without a model, process or Agent restore
 package product
 
@@ -403,6 +403,14 @@ func TestTraceChildEnterAndReturn(t *testing.T) {
 	children := stepsOf(w, TraceStepChild)
 	if len(children) != 1 || children[0].ChildLink != child.Link.Sequence || children[0].Name != "read_file" || children[0].Turn != 1 {
 		t.Fatal("child link step", children)
+	}
+	// An agent call's tool block reaches its child step through the intent its
+	// ToolStart references; any other record names no child.
+	if step, ok := w.ChildStepOf(intent.Sequence); !ok || step.ID != children[0].ID || step.ChildLink != child.Link.Sequence {
+		t.Fatal("tool intent did not resolve its child step", step, ok)
+	}
+	if _, ok := w.ChildStepOf(named["input"].Sequence); ok {
+		t.Fatal("a record without a child link resolved a child step")
 	}
 	parentSteps := len(w.Steps())
 	target, err := f.target().Child(children[0])

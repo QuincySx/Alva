@@ -76,6 +76,7 @@ type NativePage struct {
 	transcriptRows                 []view.Message
 	transcriptBlocks               map[string]product.Block
 	transcriptTools                map[string]transcriptTool
+	toolBlocks                     workspaceToolBlocks
 	trace                          workspaceTraceState
 	sessions                       []hub.Session
 	sessionQuery                   string

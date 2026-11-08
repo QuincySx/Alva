@@ -1,5 +1,5 @@
-// INPUT: context, strconv, hub committed history pages and engine events
-// OUTPUT: Block content-block values, TranscriptStore port, TranscriptService paging and the shared history projection
+// INPUT: context, strconv, hub committed history pages, engine events (with tool displays) and the tool view folding
+// OUTPUT: Block content-block values (tool blocks carry a ToolView), TranscriptStore port, TranscriptService paging and the shared history projection
 // POS: [L7 Hub product] UI-independent Message Stream projection from committed product history; never model context or fact authority
 package product
 
@@ -67,6 +67,9 @@ type Block struct {
 	// History is the latest committed product history sequence folded into
 	// the block, the position a trace jump binds its Turn evidence to.
 	History uint64
+	// Tool is a tool block's presentation, derived once from its events
+	// (nil for other kinds). The value is shared and never mutated.
+	Tool *ToolView
 }
 
 // TranscriptStore is the only history capability the Message Stream needs.
@@ -355,6 +358,7 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		b := p.upsert(id, entry, BlockKindTool, BlockStatusRunning)
 		rememberTool(b, entry)
 		b.Text, b.Status, b.final, b.Truncated = event.Text, BlockStatusRunning, false, false
+		b.Tool = foldToolView(b.Tool, b.Name, event)
 	case engine.ToolEnd:
 		b := p.upsert(id, entry, BlockKindTool, BlockStatusRunning)
 		rememberTool(b, entry)
@@ -362,6 +366,7 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		if event.IsError {
 			b.Status = BlockStatusFailed
 		}
+		b.Tool = foldToolView(b.Tool, b.Name, event)
 	case engine.Error:
 		b := p.upsert(entry.AttemptID+"/error/"+sequence, entry, BlockKindStatus, BlockStatusFailed)
 		b.Name, b.Text, b.final = "error", event.Text, true
@@ -384,4 +389,27 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		}
 	}
 	return changed
+}
+
+// markTodos keeps only the latest todo block of each Turn complete: earlier
+// ones are marked superseded. A changed flag replaces the shared view value.
+func (p *projection) markTodos() {
+	latest := map[string]bool{}
+	for i := len(p.blocks) - 1; i >= 0; i-- {
+		b := &p.blocks[i]
+		if b.Tool == nil || b.Tool.Kind != engine.ToolTodo {
+			continue
+		}
+		turn := b.TurnID
+		if turn == "" {
+			turn = "attempt/" + b.AttemptID
+		}
+		superseded := latest[turn]
+		latest[turn] = true
+		if b.Tool.Superseded != superseded {
+			view := cloneToolView(*b.Tool)
+			view.Superseded = superseded
+			b.Tool = &view
+		}
+	}
 }

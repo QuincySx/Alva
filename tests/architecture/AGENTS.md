@@ -40,6 +40,7 @@ platform/storage/blob根契约和adapter仅可标准库与根契约；根不依�
 手工窗口工具在 ../../tools/qa/native_window.py，不由本包、Go测试或CI隐式运行。
 
 长会话全量读取闸用AST扫描 apps/、extension/、harness/、integration/、platform/host/ 的非测试 Go 文件：任何名为`Messages`且只有一个参数的方法调用、或第二个参数为字面量0的`Records(x, 0)`都报错，提示改用`BoundConversationTail`、`Page`或`LatestRecord`。按名字匹配是刻意的：复用旧名的新全量读取必须经审阅。确属有界或只作用于小规模私有会话的调用进带一句理由的显式白名单（键为路径#外层函数#方法名），白名单条目不再命中即判过期；当前白名单为空。
+工具名/引擎名闸用AST扫描 apps/hub/product 与 apps/hub/desktop 的非测试 Go 文件：整串等于工具名表（各adapter分类的Alva内置工具、Codex item类型、Claude/Pi工具名）或引擎ID（alva/codex/claude/pi）的字符串字面量即报错，工具呈现应由adapter的ToolDisplay给出（ADR 0013 §3）。既有非工具用途（Alva专属能力闸、作者/引擎选择显示名、连接错误动词、产品自有hub_history/hub_team工具的action、Agent选择器文案）进带理由白名单，条目不再命中即判过期。
 共享storage根契约仅可依赖SDK/纯blob词汇，普通消费者不能直接/传递进入具体session/memory/bindings/Hub SQLite；SQL错误不作为消费者协议。bootstrap只有storage.go选择stock provider，含同包assembly绕过的负例。存储根与blob公开面一并显式快照。
 
 ## 业务域清单
@@ -54,3 +55,4 @@ platform/storage/blob根契约和adapter仅可标准库与根契约；根不依�
 | `surface_test.go` / `testdata` | SDK、共享存储与Hub根契约公开面AST快照与扫描器反例，须显式审核更新 |
 | storage_test.go | 统一存储插口、具体provider/SQL泄漏与显式配方位置的正反例 |
 | reads_test.go | 禁止新增全量会话读取（单参`Messages`、`Records(x, 0)`）的AST闸、带理由白名单过期检查与扫描器正反例 |
+| tool_names_test.go | apps/hub/product与apps/hub/desktop非测试源码禁止整串等于已知工具名（Alva/Codex/Claude/Pi）或引擎ID的字符串字面量；带一句理由、键为路径#字面量的显式白名单（既有Alva能力闸、引擎显示名、产品自有工具action等），过期条目报错；扫描器正反例 |

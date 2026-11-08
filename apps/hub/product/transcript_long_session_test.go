@@ -26,7 +26,8 @@ const longSessionDelta = "这是一段模拟模型输出的增量文本abc "
 var longSessionTarget = hub.Target{EngineID: "alva", ModelID: "long-session", ProviderID: "local", AccountSource: "test-only", BillingRoute: "no-billing"}
 
 // seedLongSession writes synthetic committed turns directly, as the format now
-// stores them: input, tools, one final message and completion, deltas deleted.
+// stores them: input, tools with bounded arguments and display, one final message and
+// completion, deltas deleted.
 func seedLongSession(t *testing.T, dir, session string, gib float64) {
 	t.Helper()
 	ctx := context.Background()
@@ -73,7 +74,12 @@ func seedLongSession(t *testing.T, dir, session string, gib float64) {
 			events := []hub.HistoryEntry{{Input: "第 " + strconv.FormatUint(turns, 10) + " 轮问题"}, {Event: engine.Event{Kind: engine.SessionStarted, SessionID: "native-seed"}}}
 			for k := 0; k < 3; k++ {
 				id := fmt.Sprintf("call-%d", k)
-				events = append(events, hub.HistoryEntry{Event: engine.Event{Kind: engine.ToolStart, SessionID: "native-seed", ID: id, Name: "read_file", Effect: engine.EffectRead}}, hub.HistoryEntry{Event: engine.Event{Kind: engine.ToolEnd, SessionID: "native-seed", ID: id, Name: "read_file", Text: strings.Repeat("r", 500)}})
+				// Tool events carry bounded arguments and display, as the Alva adapter now stores them.
+				path := fmt.Sprintf("src/seed/file-%d.go", k)
+				input := json.RawMessage(`{"path":"` + path + `"}`)
+				display := &engine.ToolDisplay{Kind: engine.ToolRead, Path: path}
+				ended := &engine.ToolDisplay{Kind: engine.ToolRead, Path: path, Output: "alva-artifact://seed-" + id}
+				events = append(events, hub.HistoryEntry{Event: engine.Event{Kind: engine.ToolStart, SessionID: "native-seed", ID: id, Name: "read_file", Input: input, Effect: engine.EffectRead, Display: display}}, hub.HistoryEntry{Event: engine.Event{Kind: engine.ToolEnd, SessionID: "native-seed", ID: id, Name: "read_file", Text: strings.Repeat("r", 500), Display: ended}})
 			}
 			events = append(events, hub.HistoryEntry{Event: engine.Event{Kind: engine.Message, SessionID: "native-seed", ID: "assistant-0", Text: full}}, hub.HistoryEntry{Event: engine.Event{Kind: engine.Completed, SessionID: "native-seed", Outcome: engine.Succeeded}})
 			for _, entry := range events {

@@ -75,6 +75,9 @@ type workspaceTraceState struct {
 	searchEpoch uint64
 
 	markdown *markdown.Options
+	// childJump is a tool record a pending jump selects and then enters the
+	// child session of (an agent call's card).
+	childJump uint64
 	// windowLimit overrides the TraceWindow byte limit (tests); 0 = default.
 	windowLimit int
 }
@@ -151,11 +154,19 @@ func (p *NativePage) openTrace(target product.TraceTarget, focus uint64, hint pr
 		p.trace.problem = "执行轨迹读取服务不可用。"
 		return
 	}
+	childJump := p.trace.childJump
+	p.trace.childJump = 0
+	if focus == 0 || childJump != focus {
+		childJump = 0
+	}
 	same := p.trace.window != nil && p.trace.generation == p.generation && sameTraceTarget(p.trace.target, target)
 	if same && focus != 0 {
 		if step, ok := p.trace.window.StepAt(focus); ok {
 			p.selectTraceStep(step.ID)
 			p.revealTraceStep(step.ID)
+			if childJump != 0 {
+				p.enterTraceChildOf(step)
+			}
 			return
 		}
 	}
@@ -194,6 +205,9 @@ func (p *NativePage) openTrace(target product.TraceTarget, focus uint64, hint pr
 				if step, ok := window.StepAt(focus); ok {
 					p.selectTraceStep(step.ID)
 					p.revealTraceStep(step.ID)
+					if childJump != 0 {
+						p.enterTraceChildOf(step)
+					}
 				}
 				return
 			}
@@ -492,6 +506,20 @@ func (p *NativePage) enterTraceChild(step product.TraceStep) {
 	p.trace.frames = append(p.trace.frames, workspaceTraceFrame{target: p.trace.target, window: p.trace.window, selected: p.trace.selected})
 	p.trace.window = nil
 	p.openTrace(child, 0, product.TraceHint{})
+}
+
+// enterTraceChildOf enters the child session an agent call's selected tool
+// step started; its link record names the step's intent as parent.
+func (p *NativePage) enterTraceChildOf(step product.TraceStep) {
+	if p.trace.window == nil {
+		return
+	}
+	child, ok := p.trace.window.ChildStepOf(step.First)
+	if !ok {
+		p.trace.problem = "没有找到这次调用的子会话记录。"
+		return
+	}
+	p.enterTraceChild(child)
 }
 
 func (p *NativePage) returnTraceParent() {

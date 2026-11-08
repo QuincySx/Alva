@@ -1,5 +1,5 @@
 // INPUT: Product TranscriptWindow content blocks, typed native references and the trace view's jump entry.
-// OUTPUT: Block-to-row projection, scroll-driven paging, reply columns, copy actions and tool activity that opens its trace step.
+// OUTPUT: Block-to-row projection, scroll-driven paging, reply columns, copy actions and tool blocks that open their trace step or child session record.
 // POS: [L7 Hub UI] Keeps product presentation and tool details separate from shared scrolling and Markdown; never model context.
 //go:build desktop
 
@@ -87,6 +87,7 @@ func (p *NativePage) projectTranscript() {
 		}
 	}
 	p.transcriptRows = rows
+	p.refreshToolBlocks()
 }
 
 // followTranscriptScroll pages by what the last frame showed: near the top it
@@ -117,19 +118,12 @@ func (p *NativePage) transcriptBinding() workspaceTranscriptBinding {
 	return workspaceTranscriptBinding{p.selected, p.detail.Session.ActiveBranchID, p.generation}
 }
 
-// One disclosure is retained only within the currently observed session/branch.
-// All actual rows and reading anchors remain owned by the shared NativeView.
+// Tool blocks keep per-block expansion within the currently observed
+// session/branch/generation (workspaceToolBlocks). All actual rows and reading
+// anchors remain owned by the shared NativeView.
 func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) func(*ui.Context, view.Message) bool {
-	var binding workspaceTranscriptBinding
-	expanded := ""
 	return func(c *ui.Context, row view.Message) bool {
 		current := p.transcriptBinding()
-		if current != binding {
-			binding, expanded = current, ""
-		}
-		if _, exists := p.transcriptTools[expanded]; !exists {
-			expanded = ""
-		}
 		if row.Role == "You" {
 			ui.Row(c).Label("User turn " + row.ID).FillWidth().Justify(ui.End).Children(func() {
 				ui.Column(c).Label("User message " + row.ID).FillWidth().MaxWidth(560).
@@ -144,55 +138,7 @@ func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) fu
 			p.buildWorkspaceTranscriptMessage(c, row, current, options)
 			return true
 		}
-		open := expanded == row.ID
-		label := "工具 · " + tool.name
-		icon := "terminal"
-		switch row.Status {
-		case view.Running, view.Stopping:
-			label += " · 进行中"
-		case view.Failed:
-			label += " · 失败"
-			icon = "triangle-alert"
-		case view.Completed:
-			label += " · 已完成"
-		case view.Cancelled:
-			label += " · 已停止"
-		}
-		ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Start).Children(func() {
-			ui.Box(c).Width(32).Shrink(0)
-			ui.Column(c).Label("Tool content " + row.ID).FillWidth().MinWidth(0).Gap(8).Children(func() {
-				button := ui.ButtonBase(c.Key("tool-disclosure")).Label("Tool activity "+row.ID).
-					Expanded(open).
-					FillWidth().Height(37).Padding(8, 0).Gap(8).Radius(0).
-					AlignItems(ui.Center).Justify(ui.Start).Background(ui.Transparent).
-					TextColor(c.Theme().TextMuted).FontSize(workspaceFontBody).FontWeight(400).LineHeight(1.5)
-				button.OnClick(func() {
-					if p.transcriptBinding() != current || p.transcriptTools[row.ID] != tool {
-						return
-					}
-					if expanded == row.ID {
-						expanded = ""
-					} else {
-						expanded = row.ID
-					}
-				}).Children(func() {
-					ui.Icon(c, workspaceIcon(icon)).Label("Tool activity icon "+row.ID).Size(16, 16).Shrink(0)
-					ui.Text(c, label).MinWidth(0).SingleLine()
-					chevron := "chevron-right"
-					if open {
-						chevron = "chevron-down"
-					}
-					ui.Icon(c, workspaceIcon(chevron)).Label("Tool disclosure icon "+row.ID).Size(16, 16).Shrink(0)
-				})
-				if open {
-					if row.Text != "" {
-						ui.Text(c, row.Text).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().TextMuted)
-					}
-					ui.Button(c, "在轨迹中查看").Label("Inspect tool result " + row.ID).Disabled(p.trace.loading).
-						OnClick(func() { p.inspectTranscriptTool(current, row.ID, tool) })
-				}
-			})
-		})
+		p.buildWorkspaceToolBlock(c, row, tool, current)
 		return true
 	}
 }
@@ -348,6 +294,17 @@ func (p *NativePage) transcriptToolBranch(tool transcriptTool) string {
 // own native branch and selects its step. The block's Turn and history
 // position bind the jump; a tool without a reference opens the branch tail.
 func (p *NativePage) inspectTranscriptTool(binding workspaceTranscriptBinding, rowID string, tool transcriptTool) {
+	p.jumpTranscriptTool(binding, rowID, tool, false)
+}
+
+// enterTranscriptToolChild opens an agent call's step like inspectTranscriptTool
+// and then enters the child session it started, keeping the parent trace for
+// the trace view's existing return.
+func (p *NativePage) enterTranscriptToolChild(binding workspaceTranscriptBinding, rowID string, tool transcriptTool) {
+	p.jumpTranscriptTool(binding, rowID, tool, true)
+}
+
+func (p *NativePage) jumpTranscriptTool(binding workspaceTranscriptBinding, rowID string, tool transcriptTool, child bool) {
 	if binding != p.transcriptBinding() || tool.sessionID != p.selected || p.transcriptTools[rowID] != tool {
 		return
 	}
@@ -365,6 +322,9 @@ func (p *NativePage) inspectTranscriptTool(binding workspaceTranscriptBinding, r
 	if !tool.hasRef || tool.reference.Sequence == 0 {
 		p.openTrace(target, 0, product.TraceHint{})
 		return
+	}
+	if child {
+		p.trace.childJump = tool.reference.Sequence
 	}
 	p.openTrace(target, tool.reference.Sequence, product.TraceHint{Turn: block.Turn, History: block.History})
 }
