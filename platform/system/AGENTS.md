@@ -26,4 +26,5 @@ process 提供自有进程组/真实回收，media 提供显式字节派生与�
 | Secret input | `secretinput/` | 命令stdin有界读与真实管道取消，无后台secret reader |
 | Windows file line input | `lineinput/` | sole-reader文件/pipe逐行可取消、无readahead，不决定REPL/审批或secret政策；console明确unsupported |
 | Terminal text | `terminaltext/` | direct/Hub CLI共用的纯C0/C1显示转义，不更改模型/执行参数或原始历史 |
+| Keychain | `keychain/` | 系统钥匙串小密钥（darwin Security.framework通用密码项，Exists只查属性）；其他平台ErrUnsupported，不回退明文文件 |
 | Private filesystem | `privatefs/` | 独立EnsureDir/OpenFile；Unix UID/mode/link与Windows DACL/handle检查，不带SQL依赖 |

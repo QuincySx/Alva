@@ -1,5 +1,5 @@
 // INPUT: context, encoding/json, crypto/sha256, explicit native process configuration
-// OUTPUT: Config, IOEvent, Observer, Tool, Transport, ToolAlias
+// OUTPUT: Config (process or Streamable HTTP), IOEvent, Observer, Tool, Transport, ToolAlias
 // POS: [integration / external protocol] MCP protocol contracts without persistence policy or automatic model exposure
 package mcp
 
@@ -22,9 +22,11 @@ const SchemaLimit = 64 << 10
 
 var versions = []string{"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
 
+// Config names exactly one transport: HTTP when set, otherwise Process.
 type Config struct {
 	ID             string
 	Process        process.Config
+	HTTP           *HTTPConfig
 	ConnectTimeout time.Duration
 	RequestTimeout time.Duration
 }

@@ -13,7 +13,8 @@ No config/credential discovery, remote schema fan-out, second AI, JSON-path extr
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
-| Recipe/lifecycle | plugin.go | Explicit config, actual run binding, lazy worker ownership and cleanup |
+| Recipe/lifecycle | plugin.go | Explicit stdio or Streamable HTTP config (header values redacted like env), actual run binding, lazy worker ownership and cleanup |
+| Remote regression | remote_test.go | Remote server lazily started through the approved gateway, header secret absent from the journal, no process/cwd binding |
 | Gateway | gateway.go | Bounded discovery/exact invocation, HITL, cancellation and reference receipts |
 | Journal | journal.go | Full redacted memory/durable frames and fail-closed budgets |
 | Boundary regressions | boundary_test.go | Same-ID foreign log/copied Tool rejection, strict bounded JSON, cancellation/joined approval and retained error versus physical cleanup |

@@ -106,7 +106,8 @@ func (g *gateway) Execute(ctx context.Context, execution abi.ToolExecutionContex
 	}
 	if input.Action != "list_servers" {
 		for _, item := range p.servers {
-			if (input.Server == "" || input.Server == item.config.ID) && (!filepath.IsAbs(execution.Workspace) || filepath.Clean(execution.Workspace) != filepath.Clean(item.config.Process.Cwd)) {
+			// A remote server has no process cwd; its approval is bound by the product per workspace.
+			if (input.Server == "" || input.Server == item.config.ID) && item.config.HTTP == nil && (!filepath.IsAbs(execution.Workspace) || filepath.Clean(execution.Workspace) != filepath.Clean(item.config.Process.Cwd)) {
 				return wire.ToolResult{}, errors.New("MCP approved cwd does not match this actual execution workspace")
 			}
 		}

@@ -1,6 +1,6 @@
 // INPUT: context, errors, os, sync, time, agent/core, agent/security, kernel/abi, protocol/mcp, shared storage contracts.
 // OUTPUT: Config, Plugin, New, Close, CleanupComplete, Stats.
-// POS: [L4 extension] Explicit approved stdio snapshot with lazy owned MCP workers and one actual-session gateway.
+// POS: [L4 extension] Explicit approved stdio or Streamable HTTP snapshot with lazy owned MCP workers and one actual-session gateway.
 package managedmcp
 
 import (
@@ -61,21 +61,30 @@ func New(ctx context.Context, config Config) (*Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &Plugin{gate: make(chan struct{}, 1), guard: config.Guard, id: config.NativeID, open: func(ctx context.Context, c protocol.Config, o protocol.Observer) (protocol.Transport, error) {
-		client, err := protocol.Open(ctx, c, o)
-		if err != nil {
-			return nil, err
-		}
-		return client, nil
-	}}
+	p := &Plugin{gate: make(chan struct{}, 1), guard: config.Guard, id: config.NativeID, open: protocol.Connect}
 	p.journal = &journal{repository: config.Repository, log: log, owner: config.Owner, id: config.NativeID, maxBytes: journalBytes, maxRecords: journalRecords, secrets: map[string][]string{}}
 	p.gateway = &gateway{plugin: p}
 	seen := map[string]bool{}
 	for _, item := range config.Servers {
-		if item.ID == "" || len(item.ID) > 128 || !utf8.ValidString(item.ID) || strings.ContainsAny(item.ID, "\x00\r\n") || seen[item.ID] || !filepath.IsAbs(item.Process.Cwd) {
+		if item.ID == "" || len(item.ID) > 128 || !utf8.ValidString(item.ID) || strings.ContainsAny(item.ID, "\x00\r\n") || seen[item.ID] || item.HTTP == nil && !filepath.IsAbs(item.Process.Cwd) {
 			return nil, errors.New("MCP server identity/cwd invalid or duplicated")
 		}
 		seen[item.ID] = true
+		if item.HTTP != nil {
+			// A remote server has no process; its header values are secrets too.
+			if item.Process.Command != "" || protocol.ValidEndpoint(item.HTTP.URL) != nil {
+				return nil, errors.New("remote MCP server requires one valid endpoint and no process")
+			}
+			remote := *item.HTTP
+			remote.Headers = make(map[string]string, len(item.HTTP.Headers))
+			for key, value := range item.HTTP.Headers {
+				remote.Headers[key] = value
+			}
+			item.HTTP = &remote
+			p.journal.secrets[item.ID] = redaction.EnvironmentSecrets(remote.Headers)
+			p.servers = append(p.servers, &server{config: item})
+			continue
+		}
 		item.Process.Args = append([]string(nil), item.Process.Args...)
 		item.Process.ReadFiles = append([]*os.File(nil), item.Process.ReadFiles...)
 		item.Process.DirectoryFiles = append([]*os.File(nil), item.Process.DirectoryFiles...)

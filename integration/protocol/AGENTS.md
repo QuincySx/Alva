@@ -18,7 +18,7 @@ Skill 渐进读取、MCP 受控子进程交互分别保持独立职责，原始�
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | Skill | `skill/` | 元数据、正文和资源三级读取，显式原生/Agent Skills 格式与文件根，可恢复归档；无执行授权 |
-| MCP | `mcp/` | owned stdio、完整 I/O observer、握手/目录/调用；无产品存储或审批政策 |
+| MCP | `mcp/` | owned stdio与Streamable HTTP、完整 I/O observer、握手/目录/调用；`mcp/oauth`授权流程；无产品存储或审批政策 |
 | AEP | `aep/` | 第三方 Plugin 双向 JSON-RPC、Python/JS作者SDK、native/嵌入式owned peer与有界回调；不等同安全bundle loader |
 | ACP | `acp/` | 新标准v1 JSON-RPC客户端/会话/权限/取消，官方schema回归；旧custom退役、无兼容解析 |
 | Browser | `browser/` | 显式owned CDP连接与七类真实操作，不发现/连接用户浏览器或持有产品授权 |
