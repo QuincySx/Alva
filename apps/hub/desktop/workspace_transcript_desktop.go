@@ -1,5 +1,5 @@
 // INPUT: Product TranscriptWindow content blocks, typed native references, the trace view's jump entry and the page's chart block hook.
-// OUTPUT: Block-to-row projection (pending requests bound in), scroll-driven paging, reply columns, copy actions, interaction cards, usage lines and tool blocks that open their trace step or child session record.
+// OUTPUT: Block-to-row projection (pending requests bound in), scroll-driven paging, reply columns, copy actions, interaction cards, usage lines, context compaction lines and tool blocks that open their trace step or child session record.
 // POS: [L7 Hub UI] Keeps product presentation and tool details separate from shared scrolling and Markdown; never model context.
 //go:build desktop
 
@@ -46,6 +46,10 @@ func transcriptRow(block product.Block) view.Message {
 	row := view.Message{ID: block.ID, RunID: block.AttemptID, Text: block.Text, Status: view.Status(block.Status)}
 	if block.Usage != nil {
 		row.Role = "Usage"
+		return row
+	}
+	if block.Context != nil {
+		row.Role, row.Text = "Context", workspaceContextStatusText(block)
 		return row
 	}
 	switch block.Kind {
@@ -150,6 +154,9 @@ func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) fu
 				return true
 			case block.Usage != nil:
 				buildWorkspaceUsageLine(c, row.ID, *block.Usage)
+				return true
+			case block.Context != nil:
+				p.buildWorkspaceContextStatus(c, row.ID, block)
 				return true
 			}
 		}

@@ -1,6 +1,6 @@
 // INPUT: context, crypto/rand, encoding/json, sync, harness.Runner, engine, shared record redaction, kernel/abi, llm/wire
 // OUTPUT: Adapter, explicit native-session RunnerFactory/FactoryOptions and independent Descriptor
-// POS: [L7 Alva product adapter] Complete Alva harness bridge preserving qualified native facts, bounded tool evidence/display, cache-aware usage and scoped cancellation
+// POS: [L7 Alva product adapter] Complete Alva harness bridge preserving qualified native facts, bounded tool evidence/display, cache-aware usage, context reports and scoped cancellation
 package alva
 
 import (
@@ -38,7 +38,12 @@ type PermissionResponder func(context.Context, string, string, engine.Permission
 
 // FactoryOptions declares the exact request fields this trusted factory applies
 // to its actual harness. Ordinary factories conservatively reject optional settings.
-type FactoryOptions struct{ SystemPrompt, MaxTurns, Generation, DurableWaits, FileInputs, SkillInputs bool }
+type FactoryOptions struct {
+	SystemPrompt, MaxTurns, Generation, DurableWaits, FileInputs, SkillInputs bool
+	// ContextCompaction: the factory installs harness compaction, honours
+	// Request.CompactContext and wires Request.ReportContext.
+	ContextCompaction bool
+}
 type Adapter struct {
 	factory RunnerFactory
 	respond PermissionResponder
@@ -70,7 +75,7 @@ func (a *Adapter) Descriptor() engine.Descriptor {
 	return d
 }
 func (a *Adapter) Capabilities() engine.Capabilities {
-	return engine.Capabilities{DurableWaits: a.options.DurableWaits, Streaming: true, Resume: true, Cancel: true, ToolControl: true, PermissionCallback: a.respond != nil, FileInputs: a.options.FileInputs, SkillInputs: a.options.SkillInputs}
+	return engine.Capabilities{DurableWaits: a.options.DurableWaits, Streaming: true, Resume: true, Cancel: true, ToolControl: true, PermissionCallback: a.respond != nil, FileInputs: a.options.FileInputs, SkillInputs: a.options.SkillInputs, ContextCompaction: a.options.ContextCompaction}
 }
 func (a *Adapter) RespondPermission(ctx context.Context, id, requestID string, decision engine.PermissionDecision) error {
 	if a.respond == nil {
@@ -128,6 +133,9 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	if (request.SystemPrompt != "" && !a.options.SystemPrompt) || (request.MaxTurns != 0 && !a.options.MaxTurns) {
 		return fmt.Errorf("%w: configure Alva system/turn limits in the harness factory", engine.ErrUnsupported)
 	}
+	if request.CompactContext && !a.options.ContextCompaction {
+		return fmt.Errorf("%w: configure Alva context compaction in the harness factory", engine.ErrUnsupported)
+	}
 	if request.WaitRevision != 0 && (!a.options.DurableWaits || request.ResumeSession == "" || request.Prompt != "") {
 		return errors.New("durable resume requires a supported existing native session and no prompt")
 	}
@@ -182,6 +190,16 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	}
 	request.ReportActivity = func(activity engine.Activity) error {
 		return emit(engine.Event{Kind: engine.ExecutionActivity, SessionID: id, Activity: &activity})
+	}
+	// A summary request's usage belongs to this attempt's completion Usage.
+	var compactionUsage []engine.Usage
+	request.ReportContext = func(report engine.ContextReport) error {
+		if compaction := report.Compaction; compaction != nil && compaction.Usage != nil {
+			observerMu.Lock()
+			compactionUsage = append(compactionUsage, *compaction.Usage)
+			observerMu.Unlock()
+		}
+		return emit(engine.Event{Kind: engine.ContextUpdated, SessionID: id, Context: &report})
 	}
 	runner, err := a.factory(ctx, id, request, request.ResumeSession != "")
 	settleOwned := func(cause error) error {
@@ -373,6 +391,11 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 			return errors.Join(err, sendErr)
 		}
 	}
+	observerMu.Lock()
+	for _, part := range compactionUsage {
+		usage.Add(part)
+	}
+	observerMu.Unlock()
 	if usage.Validate() != nil {
 		// A provider's cache counts above its own input cannot be shown as a
 		// hit rate; keep the token counts and report the cache as unknown.

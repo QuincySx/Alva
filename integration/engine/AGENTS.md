@@ -15,6 +15,7 @@ DurableWaits能力必须由实际factory声明；Completed(waiting)只在Session
 | 文件/目录 | 职责 |
 |---|---|
 | contract.go | 统一 Request/Event/Runtime/能力与流契约；Truncated 有界前缀标记只属于最终消息、内容块与工具结果；Display 只属于工具事件与其PermissionRequest并经校验；Usage缓存计数（指针区分未报告/0、Add累加、Validate不超输入）；InteractionResolution只属于InteractionResolved并按kind有界校验（Validate导出供适配器降级用） |
+| context.go / context_test.go | M4 上下文：ContextUpdated 事件只携带 ContextReport——ContextUsage 是 provider 实测的最近一次请求（含缓存输入+输出，WindowTokens=0 表示未声明，Parts 只是按估算占比分摊、必须加总等于实测）与 ContextCompaction 结果（compacted 需覆盖范围与摘要记录引用；failed/skipped/summary_corrupt）；Capabilities.ContextCompaction、Request.CompactContext/ReportContext 与之成组；拿不到数据的引擎不报告、不估算 |
 | tool_display.go | stdlib-only ToolDisplay/ToolKind/ToolDiff/ToolMatch/TodoItem、MapToolDisplayStrings 逐字符串字段映射、BoundToolDisplay 裁剪（UTF-8安全、按kind清字段、超预算依次丢结果/待办/diff/plan）、Validate，以及 adapter 共用的 LineCount/LineChanges/UnifiedDiff/Checklist |
 | tool_display_test.go | 只在工具事件与PermissionRequest、越界/错kind/坏状态拒绝、敌对字符串（NUL/非法UTF-8/控制字符/超长）进所有字段时Bound后必过校验与契约、字符串映射覆盖所有字段、行数/diff/清单辅助 |
 | options.go | stdlib-only可选生成参数、数值校验和复制；adapter显式声明支持，不静默忽略 |

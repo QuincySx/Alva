@@ -335,7 +335,8 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if waits != nil {
 			agentLog = waitBackend.Log()
 		}
-		plugins, err := harness.SessionViews(ctx, repository, request.OwnerID, nativeID)
+		compaction, compactionIntent := attemptCompaction(a.Service, request, requestTarget, nativeID)
+		plugins, err := harness.SessionViews(ctx, repository, request.OwnerID, nativeID, harness.WithCompaction(compaction))
 		if err != nil {
 			return nil, err
 		}
@@ -623,13 +624,17 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if waits != nil {
 			owned.Runner = &durableRunner{agent: runner, controller: waits, backend: waitBackend, revision: request.WaitRevision}
 		}
+		if compactionIntent {
+			// Admitted: this request now carries the one-shot manual intent.
+			a.Service.Context.Clear(request.OwnerID)
+		}
 		return owned, nil
 	}, func(ctx context.Context, nativeID, requestID string, decision engine.PermissionDecision) error {
 		if a.Service == nil {
 			return errors.New("product permission service unavailable")
 		}
 		return a.Service.RespondNativeApproval(ctx, "alva", nativeID, requestID, decision.Allow)
-	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true, Generation: true, DurableWaits: true, FileInputs: true, SkillInputs: true})
+	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true, Generation: true, DurableWaits: true, FileInputs: true, SkillInputs: true, ContextCompaction: true})
 	inspector, err := alva.NewRepositoryInspector(repository)
 	if err != nil {
 		return nil, err

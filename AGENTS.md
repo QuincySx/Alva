@@ -53,7 +53,7 @@ go mod verify
 | `cmd/` | 八个可执行程序入口；direct CLI承接选项/Other问答、独立审批、显式插件控制与可选等待恢复，另有桌面、HTTP、MCP 调试桥与 WASIp1 Worker |
 | `sdk/` | L0 wire/bus/沙箱 ABI；L1 kernel 契约；L2 通用循环；L2.3 Agent 语义；L2.5 装配；L3 能力库 |
 | `extension/` | L4 可选 Tool/Plugin/Middleware；planning/interaction/utility 根包是可独立安装的普通能力（引用输出可选），native/ 才绑定原生会话政策 |
-| `harness/` | L5 默认配方、同名替换、引用/历史选择/子会话政策；durable/为可选可插拔等待恢复 |
+| `harness/` | L5 默认配方、同名替换、引用/历史选择/摘要压缩/子会话政策；durable/为可选可插拔等待恢复 |
 | `apps/` | L6 direct/Gateway、共享developer test/eval与L7 Hub；入口在cmd，Hub desktop/server共用bootstrap/product、应用外观及同Turn等待恢复 |
 | `integration/` | 模型/协议/引擎适配及注入模型的契约eval；仅engine根契约为L4.5，具体adapter是产品桥接 |
 | `platform/` | host 执行/审批 owner、独立 workspace 文件能力、system 底层原语、storage共享契约及独立facts/memory/bindings/blob实现、sandbox |

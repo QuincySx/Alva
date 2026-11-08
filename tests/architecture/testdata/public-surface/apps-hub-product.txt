@@ -269,6 +269,8 @@ func (s *ConnectionsService) Close(ctx context.Context) error
 
 func (s *ConnectionsService) Connection(id string) (hub.ModelConnection, bool)
 
+func (s *ConnectionsService) ContextWindow(target hub.Target) int
+
 func (s *ConnectionsService) Create(ctx context.Context, request hub.ConnectionCreate) (hub.ModelConnection, error)
 
 func (s *ConnectionsService) Delete(ctx context.Context, id string, expected uint64) error
@@ -296,6 +298,10 @@ func (s *ConnectionsService) Snapshot() []hub.ModelConnection
 func (s *ConnectionsService) Targets() []hub.Target
 
 func (s *ConnectionsService) TestConnection(ctx context.Context, draft hub.ConnectionUpdate) (ConnectionTest, error)
+
+func (s *ContextService) Clear(sessionID string)
+
+func (s *ContextService) Pending(sessionID string) bool
 
 func (s *ConversationTabsService) Close(ctx context.Context) error
 
@@ -339,6 +345,8 @@ func (s *HubService) BrowseWorkspaceSessions(ctx context.Context, workspace, que
 
 func (s *HubService) BrowseWorkspaces(ctx context.Context, query string, cursor hub.WorkspaceCursor, limit int) (hub.WorkspacePage, error)
 
+func (s *HubService) CancelContextCompaction(sessionID string)
+
 func (s *HubService) CaptureComposerFile(ctx context.Context, scope hub.ComposerDraftScope, path string) (hub.ComposerFile, error)
 
 func (s *HubService) ComposerCatalog(ctx context.Context, id string, query ComposerCatalogQuery) (ComposerCatalogPage, error)
@@ -352,6 +360,10 @@ func (s *HubService) ComposerFileReferences(ctx context.Context, ownerID string,
 func (s *HubService) ComposerHomeCatalog(ctx context.Context, workspace string, query ComposerCatalogQuery) (ComposerCatalogPage, error)
 
 func (s *HubService) ComposerHomeEntry(ctx context.Context, workspace, entryID string) (ComposerEntryDetail, error)
+
+func (s *HubService) ContextCompactionPending(sessionID string) bool
+
+func (s *HubService) ContextCompactionSupported(detail hub.Detail) bool
 
 func (s *HubService) ContinueCompanionGroup(ctx context.Context, owner, id string, expected uint64, target *WaitTarget, approved bool) (hub.CompanionRound, error)
 
@@ -450,6 +462,8 @@ func (s *HubService) RemoveDraftAttachment(id, draftID string)
 func (s *HubService) RemoveDraftWorkspaceReference(id, draftID string)
 
 func (s *HubService) RemoveWorkerWorktree(ctx context.Context, lead, team, worker string, revision uint64, snapshot string, approved bool) (result hub.Worker, err error)
+
+func (s *HubService) RequestContextCompaction(ctx context.Context, sessionID string) error
 
 func (s *HubService) ResetShellOwner(ctx context.Context, id, branchID string) error
 
@@ -695,6 +709,8 @@ func (w *TranscriptWindow) ApplyOlder(chunk TranscriptChunk)
 
 func (w *TranscriptWindow) Blocks() []Block
 
+func (w *TranscriptWindow) Context() *engine.ContextUsage
+
 func (w *TranscriptWindow) First() uint64
 
 func (w *TranscriptWindow) Last() uint64
@@ -730,6 +746,8 @@ func NewCompanionService(store hub.CompanionStore) (*CompanionService, error)
 func NewComposerDraftsService(store hub.ComposerDraftStore) (*ComposerDraftsService, error)
 
 func NewConnectionsService(ctx context.Context, store hub.ConnectionsStore) (*ConnectionsService, error)
+
+func NewContextService() *ContextService
 
 func NewConversationTabsService(store hub.ConversationTabStore, target hub.Target, drafts *ComposerDraftsService, workspaces *DeveloperWorkspacesService) (*ConversationTabsService, error)
 
@@ -1005,6 +1023,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -1338,6 +1357,14 @@ import (
 import (
 	"context"
 	"errors"
+	"sync"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"errors"
 	"time"
 
 	"github.com/QuincySx/Alva/apps/hub"
@@ -1431,6 +1458,7 @@ import (
 	"math"
 
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
 )
 
 import (
@@ -1480,6 +1508,8 @@ type Block struct {
 	Interaction *InteractionView
 
 	Usage *engine.Usage
+
+	Context *engine.ContextCompaction
 }
 
 type BlockKind string
@@ -1661,6 +1691,9 @@ type ConnectionTest struct {
 type ConnectionsService struct {
 }
 
+type ContextService struct {
+}
+
 type ConversationTabsService struct {
 }
 
@@ -1759,6 +1792,8 @@ type HubService struct {
 	Traces *TraceService
 
 	Settings *SettingsService
+
+	Context *ContextService
 }
 
 type InspectorExport struct {
@@ -2148,6 +2183,8 @@ type WorktreePatchPage struct {
 }
 
 var ErrConnectionCatalogUnavailable = errors.New("model catalog unavailable; enter an explicit same-origin catalog URL or add model IDs manually")
+
+var ErrContextCompactionUnsupported = errors.New("the current engine cannot compact its context on request")
 
 var ErrRouteUnavailable = errors.New("route changed or is unavailable; select a current configured route")
 

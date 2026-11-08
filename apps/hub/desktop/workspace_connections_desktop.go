@@ -1,5 +1,5 @@
 // INPUT: Shared connection service, redacted committed DTOs and native MyGo controls.
-// OUTPUT: Request-bound create/recovery, explicit CRUD, masked drafts and cancellable catalog/manual model selection.
+// OUTPUT: Request-bound create/recovery, explicit CRUD, masked drafts, cancellable catalog/manual model selection and per-model context-window declarations.
 // POS: [L7 Hub UI] Owns page-local drafts and navigation; product service owns policy, secrets and routes.
 //go:build desktop
 
@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/QuincySx/Alva/apps/hub"
@@ -51,6 +52,8 @@ type modelConnectionsPane struct {
 	requestID                       uint64
 	requestCancel                   context.CancelFunc
 	requestBusy                     bool
+	// contextWindows holds each draft model's typed context-window text (M4).
+	contextWindows map[string]*string
 }
 
 func (p *NativePage) openConnections() {
@@ -152,6 +155,7 @@ func (p *NativePage) chooseConnectionSource(source string) {
 		v.draft = hub.ConnectionUpdate{Auth: "api_key"}
 		v.headers, v.modelID, v.modelName = nil, "", ""
 		v.details, v.advanced = false, false
+		v.contextWindows = nil
 		v.draftMissing = false
 		v.draftStale, v.creationRequest, v.creationAttempt = false, "", nil
 		switch source {
@@ -189,6 +193,7 @@ func (p *NativePage) editConnection(entry hub.ModelConnection) {
 	}
 	v.headers, v.modelID, v.modelName = nil, "", ""
 	v.details, v.advanced, v.deleteReview, v.problem = true, false, false, ""
+	v.contextWindows = nil
 	v.draftMissing = false
 	v.draftStale, v.creationRequest, v.creationAttempt = false, "", nil
 	v.focus.Focus()
@@ -206,6 +211,7 @@ func (p *NativePage) cancelConnectionDraft() {
 	v.revealAPIKey = false
 	v.draft, v.headers = hub.ConnectionUpdate{}, nil
 	v.modelID, v.modelName = "", ""
+	v.contextWindows = nil
 }
 
 func (p *NativePage) addConnectionModel() {
@@ -809,6 +815,7 @@ func (p *NativePage) buildConnectionForm(c *ui.Context) {
 							ui.Row(c.Key(model.ID)).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 								workspaceControlCheckbox(c, "enabled", &model.Enabled, model.ID).Label("Enable model " + model.ID).Disabled(busy).Grow(1).MinWidth(0)
 								workspaceControlCheckbox(c, "images", &model.ImageCapable, "声明图像输入").Label("Image input declaration " + model.ID).Disabled(busy)
+								p.buildConnectionContextWindow(c, model, busy)
 								workspaceIconAction(c, "remove-model", "Remove model "+model.ID, "trash-2").Disabled(busy).OnClick(func() { v.draft.Models = append(v.draft.Models[:i], v.draft.Models[i+1:]...) })
 							})
 						}
@@ -1065,4 +1072,52 @@ func (p *NativePage) buildConnectionCatalog(c *ui.Context, busy bool) {
 			ui.Text(c, v.catalogProblem).Role(ui.RoleStatus)
 		}
 	}
+}
+
+// buildConnectionContextWindow shows a catalog-stated window, which takes
+// precedence, or a small input for the operator's own declaration. Empty
+// means undeclared; invalid text is kept and rejected by validation on save.
+func (p *NativePage) buildConnectionContextWindow(c *ui.Context, model *hub.ConnectionModel, busy bool) {
+	if model.CatalogContextWindow > 0 {
+		ui.Text(c, "上下文 "+formatTokens(uint64(model.CatalogContextWindow))+" · 目录").FontSize(workspaceFontCaption).LineHeight(1.5).
+			TextColor(c.Theme().TextMuted).SingleLine().Shrink(0).Tooltip("模型目录明确声明的上下文窗口（优先于手填）。")
+		return
+	}
+	v := &p.connections
+	if v.contextWindows == nil {
+		v.contextWindows = map[string]*string{}
+	}
+	value, typed := v.contextWindows[model.ID]
+	if !typed {
+		text := ""
+		if model.ContextWindow != 0 {
+			text = strconv.Itoa(model.ContextWindow)
+		}
+		value = &text
+		v.contextWindows[model.ID] = value
+	}
+	id := model.ID
+	workspaceControlInput(c, "context-window", value).Label("Context window tokens " + id).Placeholder("上下文窗口").Width(112).Shrink(0).Disabled(busy).
+		Tooltip("模型的上下文窗口（tokens），留空表示未声明。用于上下文用量表和压缩预算。").OnChange(func() {
+		for i := range v.draft.Models {
+			if v.draft.Models[i].ID == id {
+				v.draft.Models[i].ContextWindow = parseContextWindow(*value)
+			}
+		}
+	})
+}
+
+// parseContextWindow maps typed text to a declaration: empty is undeclared,
+// a positive integer is taken as is, anything else is -1 so saving fails
+// with the validation message instead of silently dropping the entry.
+func parseContextWindow(text string) int {
+	text = strings.TrimSpace(strings.ReplaceAll(text, ",", ""))
+	if text == "" {
+		return 0
+	}
+	value, err := strconv.Atoi(text)
+	if err != nil || value <= 0 {
+		return -1
+	}
+	return value
 }

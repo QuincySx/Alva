@@ -745,3 +745,22 @@ func TestPiResolvedAnswersNeverCarryABody(t *testing.T) {
 		}
 	}
 }
+
+// Codex reports its own window beside the measured last request; the context
+// meter shows only that, and nothing when the window is absent.
+func TestCodexContextReportNeedsItsDeclaredWindow(t *testing.T) {
+	var events []engine.Event
+	run := codexRun{session: "bound-thread", turnID: "current-turn", rpc: &codexRPC{journal: &journal{}}, emit: func(event engine.Event) error { events = append(events, event); return nil }}
+	without := codexFrame{Method: "thread/tokenUsage/updated", Params: json.RawMessage(`{"threadId":"bound-thread","turnId":"current-turn","tokenUsage":{"last":{"inputTokens":50,"cachedInputTokens":20,"outputTokens":4},"total":{"inputTokens":50,"cachedInputTokens":20,"outputTokens":4},"modelContextWindow":null}}`)}
+	if err := run.handle(context.Background(), without); err != nil || len(events) != 0 {
+		t.Fatal("context reported without a declared window", err, events)
+	}
+	with := codexFrame{Method: "thread/tokenUsage/updated", Params: json.RawMessage(`{"threadId":"bound-thread","turnId":"current-turn","tokenUsage":{"last":{"inputTokens":5000,"cachedInputTokens":2000,"outputTokens":40},"total":{"inputTokens":9000,"cachedInputTokens":2000,"outputTokens":90},"modelContextWindow":258400}}`)}
+	if err := run.handle(context.Background(), with); err != nil || len(events) != 1 {
+		t.Fatal("declared window not reported", err, events)
+	}
+	report := events[0].Context
+	if events[0].Kind != engine.ContextUpdated || report == nil || report.Usage == nil || report.Usage.InputTokens != 5000 || report.Usage.OutputTokens != 40 || report.Usage.WindowTokens != 258400 || report.Usage.Parts != nil || report.Validate() != nil {
+		t.Fatalf("codex context %+v", events[0])
+	}
+}

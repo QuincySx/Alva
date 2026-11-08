@@ -13,6 +13,7 @@ HooksChain逐层保留已设置的priority和原message identity，后续未指�
 MemoryReferences是明确volatile、有界且不静默逐出的backend；宿主持久实现复用同一session artifact authority。
 
 ## 约束
+PlanCompaction 只在用户轮边界切，当前轮单独超限时才在工具组已全部结算处切并固定该轮用户输入；永远保留最新一条。SummaryRequest 禁用工具，只保留路由必需的 ExtraBody；CollectSummary 要求完整结束、拒绝工具调用与空摘要，并把正文截到上限。持久化、触发与预算属于 harness。
 原始内容是否投递模型、媒体转换、跨 branch 归属属于产品政策，不藏入 kernel 或该接口。
 不自动读取文件/媒体或压缩抽帧；外部化必须显式ReferenceBackend或授权Externalizer，说明JSON处理与原事实保留。
 Store显式文件导入走本层host-bound ContextFileLoader，传实际agent/session identity、选定行与硬字节预算；path字符串本身不授权。
@@ -36,3 +37,4 @@ RewriteBatch整批预验证并原子修改工作集；Externalize先存实际art
 | Actions | `apply.go` | 注入、safe window/summary/priority/tool-result/externalize |
 | Scope collaboration | `scope/` | direct-parent生命周期、黑板、只读父视图、spawn通信 |
 | Regressions | `context_test.go`, `compression_test.go` | 实际工作集与耐久事实分离、引用分页、协议组压缩 |
+| Summary compaction pieces | `compaction.go`, `compaction_plan_test.go` | 纯函数：按整轮/已结算工具组选切点（长单轮固定其用户输入）、有界渲染（媒体与引用只给占位）、无工具摘要请求与有界收取；不触存储、不决定触发 |

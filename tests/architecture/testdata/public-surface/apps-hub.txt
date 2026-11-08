@@ -41,6 +41,11 @@ const (
 )
 
 const (
+	MinContextWindow = 1 << 10
+	MaxContextWindow = 100 << 20
+)
+
+const (
 	PermissionAsk  PermissionPolicy = "ask"
 	PermissionAuto PermissionPolicy = "auto"
 	PermissionFull PermissionPolicy = "full"
@@ -126,6 +131,8 @@ func (g Goal) Validate() error
 func (i CapabilityItem) Key() string
 
 func (i DeveloperRepositoryIdentity) Validate() error
+
+func (m ConnectionModel) DeclaredContextWindow() int
 
 func (p CompanionProfile) Validate() error
 
@@ -899,6 +906,9 @@ type ConnectionModel struct {
 	Enabled bool   `json:"enabled"`
 
 	ImageCapable bool `json:"image_capable"`
+
+	CatalogContextWindow int `json:"catalog_context_window,omitempty"`
+	ContextWindow        int `json:"context_window,omitempty"`
 }
 
 type ConnectionSecrets struct {

@@ -1,5 +1,5 @@
 // INPUT: platform/system/strictjson, context, encoding/json, sync, shared storage contracts, agent/core, kernel/abi.
-// OUTPUT: SessionPlugins binding a bounded context source, run claims, references and history.
+// OUTPUT: SessionPlugins/SessionViews (with SessionOption) binding a compacting or plain bounded context source, run claims, references and history.
 // POS: [L5 harness] Uses one supplied session authority throughout, with no backend selection or SDK storage policy.
 package harness
 
@@ -25,6 +25,8 @@ type SessionStorage interface {
 	storage.Records
 	storage.Conversations
 	storage.References
+	// ArtifactReader restores small typed snapshot bodies (context summaries).
+	storage.ArtifactReader
 }
 
 type ChildStorage interface {
@@ -34,26 +36,42 @@ type ChildStorage interface {
 
 // The caller must obtain owner/nativeID from its trusted session binding. These
 // are not independent credentials accepted from UI fields.
-func SessionPlugins(ctx context.Context, repository SessionStorage, owner, nativeID string) ([]core.Plugin, error) {
-	return sessionPlugins(ctx, repository, owner, nativeID, true)
+// Summary compaction is on by default; WithCompaction replaces or disables it.
+func SessionPlugins(ctx context.Context, repository SessionStorage, owner, nativeID string, options ...SessionOption) ([]core.Plugin, error) {
+	return sessionPlugins(ctx, repository, owner, nativeID, true, options)
 }
 
 // SessionViews supplies context/references/history when an explicit outer
 // execution owner (such as durable.Controller) already holds the native claim.
 // It grants no execution claim and must not be used by an unowned runner.
-func SessionViews(ctx context.Context, repository SessionStorage, owner, nativeID string) ([]core.Plugin, error) {
-	return sessionPlugins(ctx, repository, owner, nativeID, false)
+func SessionViews(ctx context.Context, repository SessionStorage, owner, nativeID string, options ...SessionOption) ([]core.Plugin, error) {
+	return sessionPlugins(ctx, repository, owner, nativeID, false, options)
 }
-func sessionPlugins(ctx context.Context, repository SessionStorage, owner, nativeID string, claim bool) ([]core.Plugin, error) {
+func sessionPlugins(ctx context.Context, repository SessionStorage, owner, nativeID string, claim bool, options []SessionOption) ([]core.Plugin, error) {
 	if storage.Missing(repository) {
 		return nil, errors.New("native session repository required")
+	}
+	var settings sessionOptions
+	for _, option := range options {
+		if option != nil {
+			option(&settings)
+		}
 	}
 	backend, err := repository.BoundReferences(ctx, owner, nativeID)
 	if err != nil {
 		return nil, err
 	}
-	source := &nativeContextSource{repository: repository, owner: owner, id: nativeID}
-	return []core.Plugin{&nativeContextPlugin{source: source}, &nativeSessionPlugin{repository: repository, owner: owner, id: nativeID, claim: claim, history: &nativeHistoryTool{repository: repository, owner: owner, id: nativeID}}, NewContextRetrievalPlugin(nativeID, backend)}, nil
+	// The compacting source replaces the plain bounded source; exactly one
+	// contributes the working view.
+	var view core.Plugin = &nativeContextPlugin{source: &nativeContextSource{repository: repository, owner: owner, id: nativeID}}
+	if !settings.compaction.Disabled {
+		compaction, err := newCompactionPlugin(repository, owner, nativeID, settings.compaction)
+		if err != nil {
+			return nil, err
+		}
+		view = compaction
+	}
+	return []core.Plugin{view, &nativeSessionPlugin{repository: repository, owner: owner, id: nativeID, claim: claim, compaction: !settings.compaction.Disabled, history: &nativeHistoryTool{repository: repository, owner: owner, id: nativeID}}, NewContextRetrievalPlugin(nativeID, backend)}, nil
 }
 
 // Source and context lifecycle are separate contributions so child communication
@@ -70,6 +88,7 @@ type nativeSessionPlugin struct {
 	owner, id  string
 	history    *nativeHistoryTool
 	claim      bool
+	compaction bool
 }
 
 func (*nativeSessionPlugin) Name() string { return "native-session" }
@@ -84,7 +103,11 @@ func (p *nativeSessionPlugin) Register(_ context.Context, r *core.Registrar) err
 		return err
 	}
 	retention := p.repository.ArtifactStorage()
-	return r.SystemPrompt("This actual execution session has typed records and session-owned artifacts. Record retention is " + string(p.repository.RecordRetention()) + ". Artifact byte retention is " + string(retention.Retention) + ". native_history lists/searches small record references; context_read/context_search explicitly read those references. Original artifact bytes are retained with hashes within that declared lifetime. The model working view keeps a bounded recent user-turn tail and marks omitted history with explicit retrieval references; it does not summarize the prefix. No compression, frame extraction or media understanding is implied. Interrupted tools are marked execution-unknown and are never automatically replayed.")
+	view := "The model working view keeps a bounded recent user-turn tail and marks omitted history with explicit retrieval references; it does not summarize the prefix. No compression, frame extraction or media understanding is implied."
+	if p.compaction {
+		view = "The model working view keeps recent records verbatim; when it nears the context budget, earlier records are replaced by a compaction summary that names the record range it covers and references its own summary record. Records outside the view or summary are marked with explicit retrieval references. Summaries are lossy; read the original records when exact detail matters. No frame extraction or media understanding is implied."
+	}
+	return r.SystemPrompt("This actual execution session has typed records and session-owned artifacts. Record retention is " + string(p.repository.RecordRetention()) + ". Artifact byte retention is " + string(retention.Retention) + ". native_history lists/searches small record references; context_read/context_search explicitly read those references. Original artifact bytes are retained with hashes within that declared lifetime. " + view + " Interrupted tools are marked execution-unknown and are never automatically replayed.")
 }
 
 type nativeRunClaim struct {

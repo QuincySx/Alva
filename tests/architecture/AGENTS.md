@@ -10,7 +10,7 @@
 解析非测试 Go 源码 imports，含 `desktop` 条件文件，验证直接及传递依赖。
 `sdk` 保留 L0/L1/L2/L2.3/L2.5/L3 细分职责；`extension` 为 L4、`harness` 为 L5、
 `apps` 为 L6/L7；`integration` 与 `platform` 是横向协议/原生支撑，不是绕过边界的容器。
-公开快照扫描 `sdk` 中wire/bus/kernel ABI/kernel core/agent ABI/agent core和纯sandbox ABI；路径迁移只更新其 import 身份，不建立旧路径别名。
+公开快照扫描 `sdk` 中wire/bus/kernel ABI/kernel core/agent ABI/agent core/agent context和纯sandbox ABI，以及 `harness` 默认配方（M4 起，稳定/暂定分档留待内核收窄第二批）；路径迁移只更新其 import 身份，不建立旧路径别名。
 Hub根产品契约亦进入快照，显式审阅独立存储端口/DTO变化；不将产品类型移入SDK。
 Engine根契约/Alva工厂、显式选图media与owned process/document亦有公开快照，防止输入/回调和物理owner能力漂移。
 Hub bootstrap与外部process adapter的显式配置入口亦保留公开快照；CLI配置目录与只读来源事实不能通过新增字段默默改变账号政策。

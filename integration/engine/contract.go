@@ -1,5 +1,5 @@
 // INPUT: context, encoding/json, errors, fmt
-// OUTPUT: Runtime, Request, Event (with bounded tool Display and interaction Resolution), Usage with optional cache counts, Capabilities, PermissionDecision and stream validation
+// OUTPUT: Runtime, Request (with optional context compaction/report), Event (with bounded tool Display, interaction Resolution and ContextReport), Usage with optional cache counts, Capabilities, PermissionDecision and stream validation
 // POS: [L4.5 engine contract] Independent multi-engine execution contract without SDK or Hub product policy
 package engine
 
@@ -23,6 +23,9 @@ type Capabilities struct {
 	FileInputs         bool `json:"file_inputs"`
 	SkillInputs        bool `json:"skill_inputs"`
 	ToolControl        bool `json:"tool_control"`
+	// Context (M4): the engine compacts its own context on request
+	// (Request.CompactContext) and reports it through ContextUpdated.
+	ContextCompaction bool `json:"context_compaction,omitempty"`
 }
 type Request struct {
 	OwnerID       string
@@ -49,6 +52,12 @@ type Request struct {
 	// returns; release only after physical cleanup. It grants no Tool rights,
 	// is never serialized, and is absent for opaque external engines.
 	RetainWorkspace func() (func(), error) `json:"-"`
+	// Context (M4). CompactContext asks for one context compaction before
+	// this execution's first model request; engines without
+	// Capabilities.ContextCompaction reject it. ReportContext is rebound by an
+	// adapter to its actual sink, like ReportActivity, for harness reports.
+	CompactContext bool                      `json:"compact_context,omitempty"`
+	ReportContext  func(ContextReport) error `json:"-"`
 }
 type PermissionDecision struct {
 	Allow        bool
@@ -233,6 +242,8 @@ type Event struct {
 	// Resolution is how the adapter settled the interaction; it belongs only
 	// to InteractionResolved and is optional (older events have none).
 	Resolution *InteractionResolution `json:"resolution,omitempty"`
+	// Context (M4) belongs only to ContextUpdated.
+	Context *ContextReport `json:"context,omitempty"`
 }
 
 // StreamContract is a consumer-side invariant checker, not an execution owner.
@@ -288,6 +299,9 @@ func (s *StreamContract) Accept(event Event) error {
 		if err := event.Usage.Validate(); err != nil {
 			return err
 		}
+	}
+	if event.Context != nil && event.Kind != ContextUpdated {
+		return errors.New("context report belongs only to a context update")
 	}
 	if event.SessionID != "" {
 		if s.NativeSessionID != "" && event.SessionID != s.NativeSessionID {
@@ -349,6 +363,13 @@ func (s *StreamContract) Accept(event Event) error {
 			if err := event.Resolution.Validate(event.Name); err != nil {
 				return err
 			}
+		}
+	case ContextUpdated:
+		if event.Context == nil {
+			return errors.New("context update requires its report")
+		}
+		if err := event.Context.Validate(); err != nil {
+			return err
 		}
 	case Error:
 		if event.Text == "" {

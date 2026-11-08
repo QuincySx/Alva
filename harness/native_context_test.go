@@ -54,7 +54,8 @@ func TestNativeSourceCoexistsWithExplicitContextLifecycle(t *testing.T) {
 	if _, err := log.AppendRecords(t.Context(), batch); err != nil {
 		t.Fatal(err)
 	}
-	plugins, err := SessionPlugins(t.Context(), repo, "owner", log.ID())
+	// The plain bounded source (compaction disabled) is the one under test.
+	plugins, err := SessionPlugins(t.Context(), repo, "owner", log.ID(), WithCompaction(CompactionConfig{Disabled: true}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,5 @@
-// INPUT: context, strconv, hub committed history pages, engine events (with tool displays, interaction resolutions, usage and wait calls) and the tool view folding
-// OUTPUT: Block content-block values (tool blocks carry a ToolView, interaction blocks an InteractionView, usage blocks the attempt's Usage), TranscriptStore port, TranscriptService paging and the shared history projection
+// INPUT: context, strconv, hub committed history pages, engine events (with tool displays, interaction resolutions, usage, context reports and wait calls) and the tool view folding
+// OUTPUT: Block content-block values (tool blocks carry a ToolView, interaction blocks an InteractionView, usage blocks the attempt's Usage, context blocks a compaction outcome), the latest measured context usage, TranscriptStore port, TranscriptService paging and the shared history projection
 // POS: [L7 Hub product] UI-independent Message Stream projection from committed product history; never model context or fact authority
 package product
 
@@ -48,7 +48,7 @@ const (
 // "/question/"+request ID, attemptID+"/usage", or a sequence-qualified
 // status/timeline ID. Name is the tool, content-block kind, activity or
 // timeline kind; status blocks name their source: "error", "retry",
-// "settlement" or "usage". Truncated marks
+// "settlement", "usage" or "context". Truncated marks
 // Text as a bounded prefix that Ref, when set, reaches in full. Ref is the final
 // event's native reference (for a tool, its latest event's). NativeSessionID
 // attributes authorship: a tool keeps its call's native owner, other blocks
@@ -80,6 +80,9 @@ type Block struct {
 	// Usage is the token usage its attempt reported, on the attempt's usage
 	// status block (nil for other blocks).
 	Usage *engine.Usage
+	// Context is the compaction outcome on a "context" status block (nil for
+	// other blocks). The value is shared and never mutated.
+	Context *engine.ContextCompaction
 }
 
 // TranscriptStore is the only history capability the Message Stream needs.
@@ -232,6 +235,17 @@ type projection struct {
 	// continue and wait again, so each call is settled on its own.
 	yielded map[string]yield
 	settled map[string][]settlement
+	// context is the newest measured context usage folded so far; a later
+	// attempt that completed without one makes it stale (decided, nil).
+	context contextFact
+}
+
+// contextFact is the latest context measurement and where it came from.
+type contextFact struct {
+	usage    *engine.ContextUsage
+	sequence uint64
+	attempt  string
+	decided  bool
 }
 
 // yield is one call's durable wait: its Turn and the committed sequence of
@@ -482,6 +496,22 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 			b.resolution = cloneResolution(event.Resolution)
 		}
 		b.Interaction, b.Status, b.final = base.resolve(event.Resolution), BlockStatusCompleted, true
+	case engine.ContextUpdated:
+		report := event.Context
+		if report == nil {
+			break
+		}
+		if report.Usage != nil && entry.Sequence >= p.context.sequence {
+			p.context = contextFact{usage: cloneContextUsage(report.Usage), sequence: entry.Sequence, attempt: entry.AttemptID, decided: true}
+		}
+		if c := report.Compaction; c != nil {
+			status := BlockStatusCompleted
+			if c.Status == engine.ContextCompactionFailed || c.Status == engine.ContextSummaryCorrupt {
+				status = BlockStatusFailed
+			}
+			b := p.upsert(entry.AttemptID+"/context/"+sequence, entry, BlockKindStatus, status)
+			b.Name, b.Text, b.Ref, b.Context, b.final = "context", contextCompactionText(c), cloneReference(c.Reference), cloneContextCompaction(c), true
+		}
 	case engine.Error:
 		b := p.upsert(entry.AttemptID+"/error/"+sequence, entry, BlockKindStatus, BlockStatusFailed)
 		b.Name, b.Text, b.final = "error", event.Text, true
@@ -500,6 +530,10 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		}
 		if entry.AttemptID != "" {
 			p.outcomes[entry.AttemptID] = outcome
+		}
+		if entry.AttemptID != p.context.attempt && entry.Sequence > p.context.sequence {
+			// The newest attempt ended without measuring its context.
+			p.context = contextFact{sequence: entry.Sequence, attempt: entry.AttemptID, decided: true}
 		}
 		for i := range p.blocks {
 			b := &p.blocks[i]
@@ -524,6 +558,42 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		}
 	}
 	return changed
+}
+
+func cloneContextUsage(usage *engine.ContextUsage) *engine.ContextUsage {
+	value := *usage
+	if value.CachedInputTokens != nil {
+		cached := *value.CachedInputTokens
+		value.CachedInputTokens = &cached
+	}
+	if value.Parts != nil {
+		parts := *value.Parts
+		value.Parts = &parts
+	}
+	return &value
+}
+
+func cloneContextCompaction(compaction *engine.ContextCompaction) *engine.ContextCompaction {
+	value := *compaction
+	value.Reference = cloneReference(compaction.Reference)
+	if compaction.Usage != nil {
+		value.Usage = cloneUsage(compaction.Usage)
+	}
+	return &value
+}
+
+// contextCompactionText is the block's plain fallback; interfaces present the
+// typed Context fields in their own language.
+func contextCompactionText(c *engine.ContextCompaction) string {
+	switch c.Status {
+	case engine.ContextCompacted:
+		return "Earlier conversation compacted: records #" + strconv.FormatUint(c.FromSequence, 10) + "–#" + strconv.FormatUint(c.ThroughSequence, 10) + " (" + strconv.FormatUint(c.Messages, 10) + " messages) replaced by a summary."
+	case engine.ContextCompactionSkipped:
+		return "Compaction requested, but no earlier conversation could be summarized."
+	case engine.ContextSummaryCorrupt:
+		return "The stored summary record is unusable; this request used recent conversation only. " + c.Error
+	}
+	return "Compaction failed; this request used recent conversation only. " + c.Error
 }
 
 func cloneUsage(usage *engine.Usage) *engine.Usage {

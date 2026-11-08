@@ -26,11 +26,11 @@ RawTransport.CompleteRaw 返回有界 JSON 对象，StreamRaw 返回完整 SSE E
 | Native model 薄桥 | `openai.go` | NewOpenAIChat、真实 native codec→RawTransport→decoder、SDK唯一Finish |
 | Canonical 工厂 | `protocols.go` | Kind/Build/四协议 constructors，独立 adapter 不降级 |
 | 原始 HTTP 传输 | `transport.go` | Config/BuildTransport、CompleteRaw/StreamRaw、认证、严格有界 SSE/取消 |
-| Typed HTTP 失败 | `errors.go` | status/credential/rate-limit/network 证据、bounded Retry-After，无私有 body/URL |
+| Typed HTTP 失败 | `errors.go` | status/credential/rate-limit/network 证据、bounded Retry-After，无私有 body/URL；HTTP 400 只读至多64KiB错误体判定 OpenAI 两协议文档化的 `error.code=context_length_exceeded` 为 context_length，Anthropic/Gemini 无结构化字段、不解析消息文本，保持 invalid_argument |
 | Chat HTTP 回归 | `openai_test.go` | 真 local POST、错误/redirect/取消、完整碎片工具调用 |
 | 多协议 HTTP 回归 | `protocols_test.go` | 三 native 实际请求/签名 continuation/终态错误 |
 | 原始传输回归 | `transport_test.go` | Gemini 双 operation、complete JSON/限额、done+双错误、精确 CRLF 预算 |
 | Test-only codec 桥 | `codec_fixture_test.go` | 旧测试 fixture 直接消费真实提取后的 adapter/decoder，无生产 shim |
 | 顺序回归 | `ordering_test.go` | 原始 block/call 顺序、unknown 内容明确失败、无成功前执行 |
 | Cache presence 回归 | `usage_presence_test.go` | 四协议 raw absent/null vs explicit0/nonzero、尾0覆盖 |
-| HTTP 错误回归 | `errors_test.go` | 分类/Retry-After/隐私/无自动重试 |
+| HTTP 错误回归 | `errors_test.go` | 分类/Retry-After/隐私/无自动重试；超窗只认结构化 code（其他 code、纯消息、超长体、Anthropic/Gemini 文本均不判定） |

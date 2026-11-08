@@ -1,10 +1,12 @@
-// INPUT: Actual HTTP status, bounded Retry-After header and transport failures
-// OUTPUT: Typed ProviderError classifications with private response bodies/URLs excluded
+// INPUT: Actual HTTP status, bounded Retry-After header, a bounded HTTP 400 error code and transport failures
+// OUTPUT: Typed ProviderError classifications (including structured context-length rejection) with private response bodies/URLs excluded
 // POS: [integration / model transport] Provider transport evidence only; no retry/fallback/account policy or inferred model side effects
 package provider
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,7 +15,7 @@ import (
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
 )
 
-func statusError(response *http.Response) *agentabi.ProviderError {
+func statusError(kind Kind, response *http.Response) *agentabi.ProviderError {
 	status := response.StatusCode
 	value := &agentabi.ProviderError{Kind: agentabi.ProviderAPICall, Message: fmt.Sprintf("model endpoint returned HTTP %d", status), StatusCode: &status}
 	switch status {
@@ -21,6 +23,10 @@ func statusError(response *http.Response) *agentabi.ProviderError {
 		value.Kind = agentabi.ProviderCredential
 	case http.StatusBadRequest:
 		value.Kind = agentabi.ProviderInvalidArgument
+		if contextLengthCode(kind, response.Body) {
+			value.Kind = agentabi.ProviderContextLength
+			value.Message = "model endpoint rejected the request as longer than the model context window (HTTP 400)"
+		}
 	case http.StatusRequestEntityTooLarge:
 		value.Kind = agentabi.ProviderInvalidPrompt
 	case http.StatusTooManyRequests:
@@ -35,6 +41,31 @@ func statusError(response *http.Response) *agentabi.ProviderError {
 		value.RetryAfter = retryAfter(response.Header.Get("Retry-After"), time.Now())
 	}
 	return value
+}
+
+// contextLengthCode reads at most 64 KiB of an HTTP 400 body and reports
+// whether its structured error code is OpenAI's documented
+// "context_length_exceeded". Only the two OpenAI protocols carry such a code;
+// Anthropic and Gemini identify this rejection only in message text, which is
+// never interpreted, so they stay invalid_argument. The body is discarded.
+func contextLengthCode(kind Kind, body io.Reader) bool {
+	if kind != OpenAIChatKind && kind != OpenAIResponsesKind || body == nil {
+		return false
+	}
+	data, err := io.ReadAll(io.LimitReader(body, 64<<10+1))
+	if err != nil || len(data) > 64<<10 {
+		return false
+	}
+	var envelope struct {
+		Error *struct {
+			Code json.RawMessage `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(data, &envelope) != nil || envelope.Error == nil {
+		return false
+	}
+	var code string
+	return json.Unmarshal(envelope.Error.Code, &code) == nil && code == "context_length_exceeded"
 }
 
 func retryAfter(raw string, now time.Time) *time.Duration {

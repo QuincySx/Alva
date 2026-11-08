@@ -76,7 +76,11 @@ import (
 type Adapter struct {
 }
 
-type FactoryOptions struct{ SystemPrompt, MaxTurns, Generation, DurableWaits, FileInputs, SkillInputs bool }
+type FactoryOptions struct {
+	SystemPrompt, MaxTurns, Generation, DurableWaits, FileInputs, SkillInputs bool
+
+	ContextCompaction bool
+}
 
 type OwnedRunner interface {
 	harness.Runner

@@ -24,7 +24,7 @@ Adapter.New不创建engine.sqlite，缺失Bindings在IO前拒绝；上层成功�
 | descriptor.go | 独立保守能力声明；不把CLI安全flag冒充等价权限profile，Claude真实append-system-prompt/max-turns，Codex/Pi明确拒绝，不声明native Inspector/provider headers/fast mode |
 | codex_app_server.go | 显式app-server握手/thread/turn与owner/cwd绑定；不发送developerInstructions（会替换用户config.toml的同名配置）；启动前有界流式重验原件/派生大小/SHA/文件身份及选中Skill，不把路径或Prompt当授权；配置隔离与interrupt/真实join |
 | codex_rpc.go | 双向JSON-RPC stdio、有界framing/backlog/请求关联、失败清理及禁止自动重放 |
-| codex_events.go | 原生item/tool/result（含item类型Display，与Text/Input同经脱敏）与approval/question独立映射（审批带所请求item的Display）、pending/resolved关联和native policy校验；本适配器转发的决定/回答在发送前有界记下（回答只保留选中的提供选项，自由文本/秘密只记已回答），resolved时作为Resolution逐值脱敏发出，失败降级为无Resolution而不中止运行；app-server用量读tokenUsage.last.cachedInputTokens；超60KiB最终消息保留UTF-8前缀、Truncated与journal引用；人类答案正文不入journal |
+| codex_events.go | 原生item/tool/result（含item类型Display，与Text/Input同经脱敏）与approval/question独立映射（审批带所请求item的Display）、pending/resolved关联和native policy校验；本适配器转发的决定/回答在发送前有界记下（回答只保留选中的提供选项，自由文本/秘密只记已回答），resolved时作为Resolution逐值脱敏发出，失败降级为无Resolution而不中止运行；app-server用量读tokenUsage.last.cachedInputTokens；同一帧带 tokenUsage.modelContextWindow（app-server v2 schema，按 codex-cli 0.166.0 核对）时另发 ContextUpdated 实测用量与 Codex 自报窗口，缺窗口不报告、不估算；Claude/Pi 不发上下文报告；超60KiB最终消息保留UTF-8前缀、Truncated与journal引用；人类答案正文不入journal |
 | codex_environment.go / codex_environment_test.go | app-server专用本机环境合并、终端默认值、代理去重及已知敏感键快照；不读取真实配置/认证/信任文件 |
 | codex_output.go | run-local有界跨片literal脱敏和完整native日志可恢复性；与人类秘密答案的严格省略区分，回归见codex_environment_test.go |
 | codex_app_server_test.go | 仅owned helper process验证双向审批（resolved带转发的允许、秘密答案只记已回答、审批带Display）/连续秘密问题/迟到响应、native身份、帧错误、真实interrupt/exit、日志及有界native政策；超限最终消息截断前缀回归 |
@@ -41,7 +41,7 @@ Adapter.New不创建engine.sqlite，缺失Bindings在IO前拒绝；上层成功�
 | pi_native_test.go | 仅显式ALVA_PI_TEST_NODE/SCRIPT启用真实已安装Pi+应用extension+localhost SSE fixture；真实agent-loop验证write拒绝/允许及ask_user回答回到下一模型请求，无真实账户/远程模型 |
 | sessions.go | 经共享BindingStore核对owner/cwd，Pi私有原生header与真实join后关闭所传组件 |
 | private_other.go / private_windows.go | Pi文件的Unix权限/Windows DACL与SameFile检查；Windows USERPROFILE/AppData/TEMP显式绑定私有home，拒绝大小写profile override |
-| adapter_test.go | 三vendor用量缓存计数（报告/0/缺失/不一致与Claude、Pi的加回，Pi全0与混合为未报告）、回答只留提供选项、凭据样问题ID/脱敏变长不中止且过契约、Pi任意形状回答不带正文，及三vendor真实本地fake子进程（print/exec传输的工具Input/Display按配置秘密脱敏且不留截断前缀）、配对/错误/取消、日志、header前取消的引用来源、精确resume授权与跨实例Pi恢复/foreign拒绝 |
+| adapter_test.go | 三vendor用量缓存计数（报告/0/缺失/不一致与Claude、Pi的加回，Pi全0与混合为未报告）、Codex 仅在自报窗口时发上下文报告、回答只留提供选项、凭据样问题ID/脱敏变长不中止且过契约、Pi任意形状回答不带正文，及三vendor真实本地fake子进程（print/exec传输的工具Input/Display按配置秘密脱敏且不留截断前缀）、配对/错误/取消、日志、header前取消的引用来源、精确resume授权与跨实例Pi恢复/foreign拒绝 |
 | profile_test.go | 明确配置目录验证/来源拒绝、真实本地child环境隔离及Codex fresh/resume只读参数回归；不读取账号 |
 | instructions_test.go | 自有helper子进程记录argv/首个thread帧：Claude逐字收到「会话SystemPrompt+空行+说明」；配置了说明的Codex exec/app-server（start与resume）及Pi print/RPC照常成功且没有任何--append-system-prompt、-c、developer_instructions/developerInstructions或说明文字；未配置时argv不变，配置过大/NUL/非UTF-8拒绝 |
 | claude_result_test.go | 仅本地fixture子进程验证success+is_error、冲突session与result后输出不能伪报成功；允许尾随纯通知 |

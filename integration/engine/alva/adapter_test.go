@@ -259,3 +259,60 @@ func TestUsageAccumulatesCacheCountsOnlyWhenReported(t *testing.T) {
 		})
 	}
 }
+
+// contextRunner reports through the factory-bound ReportContext, as the
+// harness compaction plugin does through the Hub assembly.
+type contextRunner struct {
+	report func(engine.ContextReport) error
+}
+
+func (r contextRunner) Run(_ context.Context, _ []wire.Message, emit func(abi.Event) error) error {
+	measured := engine.ContextReport{Usage: &engine.ContextUsage{InputTokens: 900, OutputTokens: 100, WindowTokens: 8000}}
+	compacted := engine.ContextReport{Compaction: &engine.ContextCompaction{Status: engine.ContextCompacted, Trigger: "manual", FromSequence: 1, ThroughSequence: 9, Messages: 8, Reference: &engine.Reference{SessionID: "native", RecordID: "native:10", Sequence: 10}, Usage: &engine.Usage{InputTokens: 40, OutputTokens: 6}}}
+	if err := r.report(compacted); err != nil {
+		return err
+	}
+	if err := r.report(measured); err != nil {
+		return err
+	}
+	usage := wire.Usage{InputTokens: 900, OutputTokens: 100}
+	return emit(abi.Event{Kind: abi.EventUsage, Usage: &usage})
+}
+
+func TestContextReportsReachTheStreamAndSummaryUsageCounts(t *testing.T) {
+	var forced bool
+	adapter := NewConfigured(func(_ context.Context, _ string, request engine.Request, _ bool) (harness.Runner, error) {
+		forced = request.CompactContext
+		if request.ReportContext == nil {
+			return nil, errors.New("factory did not receive the report sink")
+		}
+		return contextRunner{report: request.ReportContext}, nil
+	}, nil, FactoryOptions{ContextCompaction: true})
+	if !adapter.Capabilities().ContextCompaction {
+		t.Fatal("configured compaction not advertised")
+	}
+	var reports []engine.ContextReport
+	var completed *engine.Usage
+	err := adapter.Execute(context.Background(), engine.Request{Prompt: "compact", CompactContext: true}, func(event engine.Event) error {
+		switch event.Kind {
+		case engine.ContextUpdated:
+			reports = append(reports, *event.Context)
+		case engine.Completed:
+			completed = event.Usage
+		}
+		return nil
+	})
+	if err != nil || !forced || len(reports) != 2 || reports[0].Compaction == nil || reports[1].Usage == nil {
+		t.Fatal("context reports not relayed in order", err, forced, reports)
+	}
+	if completed == nil || completed.InputTokens != 940 || completed.OutputTokens != 106 {
+		t.Fatal("summary request usage missing from the attempt usage", completed)
+	}
+	plain := New(func(context.Context, string, engine.Request, bool) (harness.Runner, error) {
+		t.Fatal("unsupported compaction reached the factory")
+		return nil, nil
+	})
+	if err := plain.Execute(context.Background(), engine.Request{Prompt: "compact", CompactContext: true}, func(engine.Event) error { return nil }); !errors.Is(err, engine.ErrUnsupported) {
+		t.Fatal("compaction request accepted without the capability", err)
+	}
+}

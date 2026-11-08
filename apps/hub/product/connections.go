@@ -1,5 +1,5 @@
 // INPUT: Explicit connection storage, shared connection policy and native provider constructors.
-// OUTPUT: Shared committed snapshots, request-bound create/recovery, CRUD, exact route resolution and joined shutdown.
+// OUTPUT: Shared committed snapshots, request-bound create/recovery, CRUD, exact route resolution with its declared context window and joined shutdown.
 // POS: [L7 product service] Owns connection configuration, explicit catalog probes and joined lifecycle without account discovery.
 package product
 
@@ -352,6 +352,22 @@ func (s *ConnectionsService) ResolveTarget(ctx context.Context, target hub.Targe
 		}
 	}
 	return "", provider.Config{}, false, errors.New("saved model connection route changed or was deleted; select a current route")
+}
+
+// ContextWindow is the declared context window of an exact saved route: the
+// catalog's explicit statement, else the operator's entry, else 0 (undeclared).
+func (s *ConnectionsService) ContextWindow(target hub.Target) int {
+	if s == nil {
+		return 0
+	}
+	for _, c := range s.Snapshot() {
+		for _, m := range c.Models {
+			if hub.RouteKey(c.Target(m)) == hub.RouteKey(target) {
+				return m.DeclaredContextWindow()
+			}
+		}
+	}
+	return 0
 }
 
 // AvailableTargets is a cold observation of configured and committed dynamic routes.

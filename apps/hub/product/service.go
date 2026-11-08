@@ -92,6 +92,8 @@ type HubService struct {
 	// Settings is the only settings entry for UI: application intent,
 	// per-workspace approvals and session overrides, never Store directly.
 	Settings *SettingsService
+	// Context holds one-shot manual context compaction requests (M4).
+	Context *ContextService
 	// mu serializes admission and source preparation; draftMu protects only the
 	// small published draft lists so observers never wait for disk/admission I/O.
 	mu                  sync.Mutex
@@ -162,7 +164,7 @@ func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.
 	if err != nil {
 		return nil, err
 	}
-	service := &HubService{Store: store, Runtime: runtime, Repository: repository, DefaultTarget: target, Targets: []hub.Target{target}, DataDirectory: dir, Demo: demo, attachments: make(map[string][]DraftAttachment)}
+	service := &HubService{Store: store, Runtime: runtime, Repository: repository, DefaultTarget: target, Targets: []hub.Target{target}, DataDirectory: dir, Demo: demo, Context: NewContextService(), attachments: make(map[string][]DraftAttachment)}
 	if teams, ok := store.(hub.TeamStore); ok {
 		service.Teams = NewTeamCoordinator(teams, runtime)
 	}

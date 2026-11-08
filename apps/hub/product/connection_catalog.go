@@ -1,5 +1,5 @@
 // INPUT: Explicit current connection drafts, exact saved-secret revisions and operator-triggered read-only catalog requests.
-// OUTPUT: Bounded model candidates and truthful catalog-access tests with sanitized errors and joined cancellation.
+// OUTPUT: Bounded model candidates (with explicitly stated catalog context windows) and truthful catalog-access tests with sanitized errors and joined cancellation.
 // POS: [L7 product service] Reuses the connection owner; no generation, discovery, redirects, retries or ambient proxy.
 package product
 
@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -235,6 +236,14 @@ func decodeConnectionCatalog(protocol string, data []byte) ([]hub.ConnectionMode
 		Name          string `json:"name"`
 		DisplayName   string `json:"displayName"`
 		AnthropicName string `json:"display_name"`
+		// Explicit context lengths in documented catalog shapes: Gemini
+		// inputTokenLimit; gateways' context_length (OpenRouter, Together) or
+		// max_model_len (vLLM). OpenAI's and Anthropic's own catalogs state
+		// none, so their models stay undeclared. Only a JSON integer counts;
+		// any other value leaves the model undeclared without failing the fetch.
+		InputTokenLimit json.RawMessage `json:"inputTokenLimit"`
+		ContextLength   json.RawMessage `json:"context_length"`
+		MaxModelLength  json.RawMessage `json:"max_model_len"`
 	}
 	if json.Unmarshal(raw, &items) != nil {
 		return nil, "", invalid
@@ -256,7 +265,11 @@ func decodeConnectionCatalog(protocol string, data []byte) ([]hub.ConnectionMode
 			_, size := utf8.DecodeLastRuneInString(name)
 			name = name[:len(name)-size]
 		}
-		models = append(models, hub.ConnectionModel{ID: id, Name: name})
+		window := catalogContextWindow(item.ContextLength, item.MaxModelLength)
+		if protocol == "gemini" {
+			window = catalogContextWindow(item.InputTokenLimit)
+		}
+		models = append(models, hub.ConnectionModel{ID: id, Name: name, CatalogContextWindow: window})
 	}
 	next := ""
 	if protocol == "anthropic" && envelope.HasMore {
@@ -269,4 +282,20 @@ func decodeConnectionCatalog(protocol string, data []byte) ([]hub.ConnectionMode
 		next = envelope.NextPageToken
 	}
 	return models, next, nil
+}
+
+// catalogContextWindow returns the first explicit integer token count within
+// the accepted bounds; anything else leaves the window undeclared.
+func catalogContextWindow(values ...json.RawMessage) int {
+	for _, value := range values {
+		if len(value) == 0 || string(value) == "null" {
+			continue
+		}
+		tokens, err := strconv.ParseInt(string(value), 10, 64)
+		if err == nil && tokens >= hub.MinContextWindow && tokens <= hub.MaxContextWindow {
+			return int(tokens)
+		}
+		return 0
+	}
+	return 0
 }

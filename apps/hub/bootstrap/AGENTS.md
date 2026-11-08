@@ -27,6 +27,7 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 | 文件 | 职责 |
 |---|---|
 | connections.go / connections_test.go | 每attempt按已提交连接revision解析实际provider/模型/账户/计费与视觉声明；真实HTTP、重开续轮与过期路由零调用回归 |
+| context.go / context_test.go | 每次Alva装配的压缩配方：窗口取已保存路由的声明值（未声明为0，harness按默认128K只作触发预算），Force=请求的CompactContext或产品一次性手动意图，Report经adapter的ReportContext转成engine报告；runner构造成功（请求被接纳）后才Clear意图。真实factory+本地HTTP回归：意图→摘要请求带首轮→主请求以摘要替换首轮→报告/用量/意图清除且不重复压缩 |
 | permissions.go / permissions_test.go | frozen Ask/Auto/Full真实approval handler；Auto仅原生文件写入，Full不放宽Guard/独立host批准，真实HTTP文件执行和危险效果回归 |
 | wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环；waiting回执列出让出的工具调用（超过256字节/非UTF-8/含NUL的call ID跳过而不让等待失败），回归让出的ask_human/写文件块先显示等待、继续后显示完成 |
 | companion_skills.go / companion_skills_test.go | 实际伙伴Skill repo的name/原文SHA限制、四类读取重验及真实HTTP未共享Skill隔离；受限scope不接受compatibility导入 |

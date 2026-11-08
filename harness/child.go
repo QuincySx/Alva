@@ -156,7 +156,9 @@ func (factory *NativeChildFactory) Prepare(ctx context.Context, request subagent
 	if err != nil {
 		return child, &abi.SessionError{Operation: "bind child references", SessionID: log.ID(), Err: err}
 	}
-	plugins, err := SessionPlugins(ctx, c.Repository, c.Owner, log.ID())
+	// Child sessions do not compact: a summary request would bypass the
+	// child's ModelBudgetMiddleware.
+	plugins, err := SessionPlugins(ctx, c.Repository, c.Owner, log.ID(), WithCompaction(CompactionConfig{Disabled: true}))
 	if err != nil {
 		return child, &abi.SessionError{Operation: "bind child native plugins", SessionID: log.ID(), Err: err}
 	}

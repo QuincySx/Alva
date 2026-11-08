@@ -192,7 +192,7 @@ func (t *RawTransport) request(ctx context.Context, raw json.RawMessage, stream 
 	}
 	if response.StatusCode != http.StatusOK {
 		defer response.Body.Close()
-		return nil, statusError(response)
+		return nil, statusError(t.kind, response)
 	}
 	mediaType, _, mediaErr := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if mediaErr != nil || !strings.EqualFold(mediaType, accept) {

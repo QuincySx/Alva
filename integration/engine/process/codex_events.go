@@ -1,5 +1,5 @@
 // INPUT: Codex app-server item, turn and server-request frames
-// OUTPUT: Bounded engine events, exact native interaction correlation, responses and the relayed resolution (offered choices only) on resolved events
+// OUTPUT: Bounded engine events (including measured context reports when Codex declares its window), exact native interaction correlation, responses and the relayed resolution (offered choices only) on resolved events
 // POS: [integration / native external-engine adapter] Native facts remain distinct from product ownership and human permission policy
 package process
 
@@ -411,6 +411,9 @@ func (r *codexRun) handle(ctx context.Context, frame codexFrame) error {
 					Cached *uint64 `json:"cachedInputTokens"`
 					Output uint64  `json:"outputTokens"`
 				} `json:"last"`
+				// ModelContextWindow is Codex's own declared window (int64|null
+				// in the app-server v2 schema, checked against codex-cli 0.166.0).
+				ModelContextWindow *int64 `json:"modelContextWindow"`
 			} `json:"tokenUsage"`
 		}
 		if json.Unmarshal(frame.Params, &usage) != nil {
@@ -420,6 +423,12 @@ func (r *codexRun) handle(ctx context.Context, frame codexFrame) error {
 		r.usage = engine.Usage{InputTokens: usage.TokenUsage.Last.Input, OutputTokens: usage.TokenUsage.Last.Output, CachedInputTokens: usage.TokenUsage.Last.Cached}
 		if r.usage.Validate() != nil {
 			r.usage.CachedInputTokens = nil
+		}
+		// The context meter needs Codex's measured last request and its own
+		// window; without the window nothing is reported, never estimated.
+		if window := usage.TokenUsage.ModelContextWindow; window != nil && *window > 0 && r.usage.InputTokens > 0 {
+			measured := engine.ContextUsage{InputTokens: r.usage.InputTokens, OutputTokens: r.usage.OutputTokens, CachedInputTokens: r.usage.CachedInputTokens, WindowTokens: uint64(*window)}
+			return r.event(engine.Event{Kind: engine.ContextUpdated, Context: &engine.ContextReport{Usage: &measured}})
 		}
 		return nil
 	case "turn/started":

@@ -47,6 +47,8 @@ const (
 	ProviderUnsupported       ProviderErrorKind = "unsupported"
 	ProviderNetwork           ProviderErrorKind = "network"
 	ProviderRateLimited       ProviderErrorKind = "rate_limited"
+
+	ProviderContextLength ProviderErrorKind = "context_length"
 )
 
 const (

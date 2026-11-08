@@ -1,0 +1,467 @@
+const (
+	CompactionSucceeded CompactionStatus = "compacted"
+	CompactionFailed    CompactionStatus = "failed"
+
+	CompactionSkipped CompactionStatus = "skipped"
+
+	SummaryCorrupt CompactionStatus = "summary_corrupt"
+)
+
+const (
+	PendingUnread     PendingStatus = "unread"
+	PendingCommitting PendingStatus = "committing"
+	PendingCommitted  PendingStatus = "committed"
+	PendingUnknown    PendingStatus = "commit_unknown"
+)
+
+const (
+	TriggerAutomatic CompactionTrigger = "auto"
+	TriggerManual    CompactionTrigger = "manual"
+	TriggerOverflow  CompactionTrigger = "overflow"
+)
+
+const DefaultContextWindow = 128_000
+
+func (*ContextRetrievalPlugin) Name() string
+
+func (*MemoryPlugin) Name() string
+
+func (*PendingPlugin) Name() string
+
+func (*compactionPlugin) Name() string
+
+func (*nativeContextPlugin) Name() string
+
+func (*nativeRunClaim) Name() string
+
+func (*nativeSessionPlugin) Name() string
+
+func (SystemContextPlugin) Name() string
+
+func (SystemContextPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (b *Builder) Build(ctx context.Context) (*core.Agent, error)
+
+func (b *Builder) ContextSystem(system *abi.ContextSystem) *Builder
+
+func (b *Builder) DeclaredTools() []abi.Tool
+
+func (b *Builder) MaxIterations(limit int) *Builder
+
+func (b *Builder) MaxResponseBytes(limit int) *Builder
+
+func (b *Builder) Middleware(middleware abi.Middleware, order ...int) *Builder
+
+func (b *Builder) ModelConfig(config wire.ModelConfig) *Builder
+
+func (b *Builder) Plugin(plugin core.Plugin) *Builder
+
+func (b *Builder) SystemPrompt(prompt string) *Builder
+
+func (b *Builder) Tool(tool abi.Tool) *Builder
+
+func (b *Builder) Workspace(workspace string) *Builder
+
+func (compactionMiddleware) Name() string
+
+func (contextBudgetPlugin) Name() string
+
+func (demoModel) Stream(ctx context.Context, request abi.ModelRequest, emit func(wire.StreamChunk) error) error
+
+func (echoTool) DescribeEffect(wire.ToolCall) abi.Effect
+
+func (echoTool) Description() string
+
+func (echoTool) Execute(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
+
+func (echoTool) IsReadOnly(wire.ToolCall) bool
+
+func (echoTool) Name() string
+
+func (echoTool) ParametersSchema() json.RawMessage
+
+func (echoTool) Scheduling(wire.ToolCall) abi.Scheduling
+
+func (factory *NativeChildFactory) GrantableTools() []abi.Tool
+
+func (factory *NativeChildFactory) Prepare(ctx context.Context, request subagent.ChildRequest) (child subagent.Child, resultErr error)
+
+func (m *nativeRunClaim) OnRunEnd(_ context.Context, runtime abi.RuntimeContext, _ error) error
+
+func (m *nativeRunClaim) OnRunStart(ctx context.Context, runtime abi.RuntimeContext) error
+
+func (m compactionMiddleware) AdmitModel(_ context.Context, _ abi.RuntimeContext, request abi.ModelRequest) error
+
+func (m compactionMiddleware) AfterModel(ctx context.Context, _ abi.RuntimeContext, message *wire.Message) error
+
+func (m compactionMiddleware) BeforeModel(ctx context.Context, runtime abi.RuntimeContext, request *abi.ModelRequest) error
+
+func (m compactionMiddleware) OnRunStart(context.Context, abi.RuntimeContext) error
+
+func (m compactionMiddleware) WrapModel(ctx context.Context, runtime abi.RuntimeContext, request abi.ModelRequest, emit func(wire.StreamChunk) error, next abi.ModelFunc) error
+
+func (nativeHistoryTool) DescribeEffect(wire.ToolCall) abi.Effect
+
+func (nativeHistoryTool) Description() string
+
+func (nativeHistoryTool) IsReadOnly(wire.ToolCall) bool
+
+func (nativeHistoryTool) Name() string
+
+func (nativeHistoryTool) ParametersSchema() json.RawMessage
+
+func (nativeHistoryTool) Scheduling(wire.ToolCall) abi.Scheduling
+
+func (p *ContextRetrievalPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p *MemoryPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p *PendingPlugin) BeforeModel(ctx context.Context, runtime abi.RuntimeContext, request *abi.ModelRequest) error
+
+func (p *PendingPlugin) OnRunEnd(_ context.Context, runtime abi.RuntimeContext, _ error) error
+
+func (p *PendingPlugin) OnRunStart(ctx context.Context, runtime abi.RuntimeContext) error
+
+func (p *PendingPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p *PendingPlugin) Service() *PendingService
+
+func (p *compactionPlugin) Load(ctx context.Context, log abi.ConversationReader) ([]wire.Message, error)
+
+func (p *compactionPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p *nativeContextPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p *nativeSessionPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p contextBudgetPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func (p referenceProjection) BeforeModel(ctx context.Context, runtime abi.RuntimeContext, request *abi.ModelRequest) error
+
+func (r *childResources) CleanupComplete() bool
+
+func (r *childResources) Close(ctx context.Context) error
+
+func (referenceProjection) Name() string
+
+func (runner *nativeChildRunner) Run(ctx context.Context, input []wire.Message, emit func(abi.Event) error) error
+
+func (s *PendingService) Cancel(ctx context.Context, id string) (bool, error)
+
+func (s *PendingService) Enqueue(ctx context.Context, text string) (PendingMessage, error)
+
+func (s *PendingService) Snapshot(unreadOnly bool) []PendingMessage
+
+func (source *nativeContextSource) Load(ctx context.Context, log abi.ConversationReader) ([]wire.Message, error)
+
+func (t *nativeHistoryTool) Execute(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
+
+func MCPChildBinding(plugin *managedmcp.Plugin) ChildToolBinding
+
+func NativeFileBindings(parentTools []abi.Tool, workspace *workspacefs.Workspace) []ChildToolBinding
+
+func NewBuilder(model abi.LanguageModel, session abi.ConversationLog) *Builder
+
+func NewContextRetrievalPlugin(sessionID string, backend agentcontext.ReferenceBackend) *ContextRetrievalPlugin
+
+func NewDemo(ctx context.Context) (Runner, error)
+
+func NewDemoBuilder(session abi.ConversationLog) *Builder
+
+func NewDemoSession(ctx context.Context, session abi.ConversationLog, plugins ...core.Plugin) (Runner, error)
+
+func NewMemoryPlugin() *MemoryPlugin
+
+func NewNativeChildFactory(ctx context.Context, config NativeChildConfig) (*NativeChildFactory, error)
+
+func NewOpenAI(ctx context.Context, config provider.Config) (Runner, error)
+
+func NewOpenAIBuilder(config provider.Config, session abi.ConversationLog) (*Builder, error)
+
+func NewOpenAISession(ctx context.Context, config provider.Config, session abi.ConversationLog, plugins ...core.Plugin) (Runner, error)
+
+func NewPendingPlugin(actualSessionID string) *PendingPlugin
+
+func NewSecurityPlugin(guard *security.Guard, tools []abi.Tool, plugins ...core.Plugin) core.Plugin
+
+func RecoveryEvidence() abi.Middleware
+
+func SessionPlugins(ctx context.Context, repository SessionStorage, owner, nativeID string, options ...SessionOption) ([]core.Plugin, error)
+
+func SessionViews(ctx context.Context, repository SessionStorage, owner, nativeID string, options ...SessionOption) ([]core.Plugin, error)
+
+func WithCompaction(config CompactionConfig) SessionOption
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/platform/storage"
+	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
+	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/kernel/bus"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"reflect"
+	"time"
+
+	filetools "github.com/QuincySx/Alva/extension/files"
+	managedmcp "github.com/QuincySx/Alva/extension/mcp"
+	"github.com/QuincySx/Alva/extension/subagent"
+	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/platform/storage"
+	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	kernel "github.com/QuincySx/Alva/sdk/kernel/core"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"sync"
+
+	"github.com/QuincySx/Alva/platform/storage"
+	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"sync"
+)
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	securityplugin "github.com/QuincySx/Alva/extension/security"
+	"os"
+	"path/filepath"
+	"reflect"
+
+	"github.com/QuincySx/Alva/extension/telemetry"
+	"github.com/QuincySx/Alva/extension/toolvalidation"
+	"github.com/QuincySx/Alva/integration/llm/provider"
+	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/agent/memory"
+	"github.com/QuincySx/Alva/sdk/kernel/bus"
+)
+
+type BoundChildTool struct {
+	Tool abi.Tool
+
+	Plugin          core.Plugin
+	Close           func(context.Context) error
+	CleanupComplete func() bool
+
+	Next ChildToolBinder
+}
+
+type Builder struct {
+}
+
+type ChildBinding struct {
+	ParentID, SessionID, Workspace string
+	References                     agentcontext.ReferenceBackend
+	Guard                          *security.Guard
+}
+
+type ChildStorage interface {
+	SessionStorage
+	storage.Children
+}
+
+type ChildToolBinder func(context.Context, ChildBinding) (BoundChildTool, error)
+
+type ChildToolBinding struct {
+	Parent abi.Tool
+	Bind   ChildToolBinder
+}
+
+type CompactionConfig struct {
+	WindowTokens     int
+	TriggerRatio     float64
+	KeepRecentRatio  float64
+	SummaryMaxTokens int
+
+	Force    bool
+	Disabled bool
+
+	Report func(context.Context, ContextReport) error
+}
+
+type CompactionReport struct {
+	Status                        CompactionStatus
+	Trigger                       CompactionTrigger
+	FromSequence, ThroughSequence uint64
+	Messages                      int
+	Record                        *abi.RecordReference
+	Usage                         *wire.Usage
+	Error                         string
+}
+
+type CompactionStatus string
+
+type CompactionTrigger string
+
+type ContextParts struct{ System, Tools, Summary, Recent uint64 }
+
+type ContextReport struct {
+	Usage      *ContextUsage
+	Compaction *CompactionReport
+}
+
+type ContextRetrievalPlugin struct {
+}
+
+type ContextUsage struct {
+	InputTokens       uint64
+	OutputTokens      uint64
+	CachedInputTokens *uint64
+
+	WindowTokens uint64
+	Parts        *ContextParts
+}
+
+type MemoryPlugin struct{}
+
+type NativeChildConfig struct {
+	Repository           ChildStorage
+	Owner, ParentID, Cwd string
+	Guard                *security.Guard
+	Bindings             []ChildToolBinding
+	Locks                *core.ToolLockRegistry
+	ToolTimeout          time.Duration
+}
+
+type NativeChildFactory struct{}
+
+type PendingMessage struct {
+	ID          string        `json:"id"`
+	Text        string        `json:"text"`
+	RunID       string        `json:"run_id"`
+	CreatedAt   time.Time     `json:"created_at"`
+	CommittedAt *time.Time    `json:"committed_at,omitempty"`
+	Status      PendingStatus `json:"status"`
+	Notice      string        `json:"notice,omitempty"`
+}
+
+type PendingPlugin struct{}
+
+type PendingService struct {
+}
+
+type PendingStatus string
+
+type Runner interface {
+	Run(context.Context, []wire.Message, func(abi.Event) error) error
+}
+
+type SessionOption func(*sessionOptions)
+
+type SessionStorage interface {
+	storage.SessionReader
+	storage.RecordRetention
+	storage.Runs
+	storage.Records
+	storage.Conversations
+	storage.References
+
+	storage.ArtifactReader
+}
+
+type SystemContextPlugin struct{}
+
+var ErrPendingCommitting = errors.New("pending message is being committed; it cannot be retracted")
+
+var ErrPendingFull = errors.New("pending message count or byte budget exceeded")
+
+var ErrPendingInactive = errors.New("pending messages require an active bound run")

@@ -35,6 +35,9 @@ const (
 	ProviderUnsupported       ProviderErrorKind = "unsupported"
 	ProviderNetwork           ProviderErrorKind = "network"
 	ProviderRateLimited       ProviderErrorKind = "rate_limited"
+	// ProviderContextLength is a request rejected for exceeding the model's
+	// context window, classified only from a structured provider field.
+	ProviderContextLength ProviderErrorKind = "context_length"
 )
 
 // Sensitive response bodies are retained only as explicit evidence fields,

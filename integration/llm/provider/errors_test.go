@@ -73,3 +73,46 @@ func TestRetryAfterBoundedSecondsAndHTTPDate(t *testing.T) {
 		t.Fatal("past retry date not clamped")
 	}
 }
+
+// Context-length rejection is classified only from OpenAI's documented
+// structured error code; Anthropic/Gemini message text is never interpreted.
+func TestContextLengthRejectionUsesOnlyTheStructuredCode(t *testing.T) {
+	openAIBody := `{"error":{"message":"This model's maximum context length is 8192 tokens. PRIVATE-PROVIDER-BODY","type":"invalid_request_error","param":"messages","code":"context_length_exceeded"}}`
+	cases := []struct {
+		name string
+		kind Kind
+		body string
+		want agentabi.ProviderErrorKind
+	}{
+		{"chat code", OpenAIChatKind, openAIBody, agentabi.ProviderContextLength},
+		{"responses code", OpenAIResponsesKind, openAIBody, agentabi.ProviderContextLength},
+		{"chat other code", OpenAIChatKind, `{"error":{"message":"context length exceeded","code":"invalid_value"}}`, agentabi.ProviderInvalidArgument},
+		{"chat message only", OpenAIChatKind, `{"error":{"message":"maximum context length exceeded"}}`, agentabi.ProviderInvalidArgument},
+		{"chat numeric code", OpenAIChatKind, `{"error":{"code":400}}`, agentabi.ProviderInvalidArgument},
+		{"chat oversized body", OpenAIChatKind, `{"error":{"code":"context_length_exceeded","pad":"` + strings.Repeat("x", 70<<10) + `"}}`, agentabi.ProviderInvalidArgument},
+		{"anthropic message", AnthropicKind, `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 210000 tokens > 200000 maximum"}}`, agentabi.ProviderInvalidArgument},
+		{"anthropic borrowed code", AnthropicKind, openAIBody, agentabi.ProviderInvalidArgument},
+		{"gemini message", GeminiKind, `{"error":{"code":400,"message":"The input token count exceeds the maximum","status":"INVALID_ARGUMENT"}}`, agentabi.ProviderInvalidArgument},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(c.body))
+			}))
+			defer upstream.Close()
+			model, err := Build(c.kind, Config{Endpoint: upstream.URL, Model: "actual-model"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = model.Stream(context.Background(), abi.ModelRequest{Messages: []wire.Message{wire.TextMessage(wire.RoleUser, "hello")}}, func(wire.StreamChunk) error { return nil })
+			var typed *agentabi.ProviderError
+			if !errors.As(err, &typed) || typed.Kind != c.want || typed.Retryable {
+				t.Fatal("wrong context-length classification", err)
+			}
+			if strings.Contains(err.Error(), "PRIVATE-PROVIDER-BODY") || typed.ResponseBody != "" {
+				t.Fatal("provider body leaked into the error")
+			}
+		})
+	}
+}

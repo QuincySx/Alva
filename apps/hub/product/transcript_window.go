@@ -1,5 +1,5 @@
-// INPUT: TranscriptChunk pages, the shared history projection and tool views
-// OUTPUT: TranscriptWindow block accumulation, boundary merge (tool views, interaction request/settlement and per-call yielded-wait settlements included), superseded todo marking and byte-bounded trimming
+// INPUT: TranscriptChunk pages, the shared history projection, tool views and engine context usage
+// OUTPUT: TranscriptWindow block accumulation, boundary merge (tool views, interaction request/settlement, per-call yielded-wait settlements and the latest context measurement included), superseded todo marking and byte-bounded trimming
 // POS: [L7 Hub product] UI-thread Message Stream window without I/O; counts blocks and bytes, never events
 package product
 
@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
 )
 
 const transcriptDefaultBytes = 64 << 20
@@ -87,6 +88,9 @@ func (w *TranscriptWindow) ApplyOlder(chunk TranscriptChunk) {
 		if _, exists := w.view.outcomes[attempt]; !exists {
 			w.view.outcomes[attempt] = outcome
 		}
+	}
+	if !w.view.context.decided {
+		w.view.context = older.context
 	}
 	for id, wait := range older.yielded {
 		w.view.yielded[id] = wait
@@ -186,6 +190,16 @@ func (w *TranscriptWindow) Blocks() []Block {
 // First is the lowest committed sequence the window covers; 0 when empty.
 func (w *TranscriptWindow) First() uint64 { return w.view.first }
 
+// Context is the newest measured context usage in the window, or nil when the
+// engine did not report one or a later attempt ended without one. The value
+// is a copy.
+func (w *TranscriptWindow) Context() *engine.ContextUsage {
+	if w.view.context.usage == nil {
+		return nil
+	}
+	return cloneContextUsage(w.view.context.usage)
+}
+
 // Last is the highest committed sequence the window covers; 0 when empty.
 func (w *TranscriptWindow) Last() uint64 { return w.view.last }
 
@@ -200,6 +214,9 @@ func blockBytes(b *Block) int {
 	size := blockOverhead + len(b.ID) + len(b.SessionID) + len(b.TurnID) + len(b.AttemptID) + len(b.Name) + len(b.Text) + len(b.NativeSessionID) + len(b.HandoffID) + toolViewBytes(b.Tool) + interactionViewBytes(b.Interaction)
 	if b.Usage != nil {
 		size += 48
+	}
+	if b.Context != nil {
+		size += 128 + len(b.Context.Trigger) + len(b.Context.Error)
 	}
 	if b.Ref != nil {
 		size += len(b.Ref.SessionID) + len(b.Ref.RecordID) + len(b.Ref.URI) + 8

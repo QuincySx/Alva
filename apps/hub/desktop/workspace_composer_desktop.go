@@ -1,5 +1,5 @@
 // INPUT: MyGo native base controls, existing Hub draft/execution state and configured engine targets
-// OUTPUT: Formal workspace composer with explicit send/stop, attachment and actual route/policy popovers
+// OUTPUT: Formal workspace composer with explicit send/stop, attachment, actual route/policy popovers and the context meter slot
 // POS: [L7 Hub UI] Owns presentation drafts and overlays; all durable actions remain with the existing product owner
 //go:build desktop
 
@@ -21,6 +21,7 @@ type workspaceComposerState struct {
 	confirmFull                         bool
 	settingsSaving                      bool
 	modelPicker                         workspaceModelPickerState
+	contextOpen                         bool // context meter popover (M4)
 }
 
 func (s *workspaceComposerState) closePopovers() {
@@ -29,6 +30,7 @@ func (s *workspaceComposerState) closePopovers() {
 	s.confirmFull = false
 	s.targetFocus.CancelFocus()
 	s.modelPicker.open = false
+	s.contextOpen = false
 }
 
 func (p *NativePage) workspaceComposerTarget() hub.Target {
@@ -248,6 +250,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				})
 				p.buildWorkspacePermissionMenu(c, permission, target)
 				ui.Box(c).Grow(1).MinWidth(0)
+				p.buildWorkspaceContextMeter(c)
 				model := workspaceComposerChip(c.Key("target"), "bot", workspaceTargetLabel(target), "Agent and model").
 					MinWidth(0).MaxWidth(240).Shrink(1).Disabled(p.busy || loading).
 					Expanded(p.composer.targetOpen).OnClick(func() {

@@ -1,0 +1,339 @@
+const MaxTextMatches = 20
+
+const MaxTextPageBytes = 4 << 10
+
+const SummaryPromptVersion = "alva.context.summary/v1"
+
+func (BudgetAdmission) Name() string
+
+func (DefaultApply) ApplyInjections(ctx context.Context, injections []abi.Injection, prompt *[]string, messages *[]wire.Message) error
+
+func (DefaultHooks) Name() string
+
+func (HooksChain) Name() string
+
+func (RulesHooks) AfterTurn(_ context.Context, handle abi.ContextHandle, agentID string) error
+
+func (RulesHooks) Assemble(_ context.Context, handle abi.ContextHandle, agentID string, entries []abi.ContextEntry, _ int) ([]abi.ContextEntry, error)
+
+func (RulesHooks) Name() string
+
+func (apply DefaultApply) ApplyCompressions(ctx context.Context, actions []abi.CompressAction, messages *[]wire.Message, handle abi.ContextHandle, agentID string) error
+
+func (backend *MemoryReferences) ReadText(ctx context.Context, uri string, offset int64, limit int) (TextPage, error)
+
+func (backend *MemoryReferences) SearchText(ctx context.Context, uri, query string, limit int) ([]TextMatch, error)
+
+func (backend *MemoryReferences) StoreText(ctx context.Context, text string) (wire.Reference, error)
+
+func (chain HooksChain) AfterTurn(ctx context.Context, handle abi.ContextHandle, id string) error
+
+func (chain HooksChain) Assemble(ctx context.Context, handle abi.ContextHandle, id string, entries []abi.ContextEntry, budget int) ([]abi.ContextEntry, error)
+
+func (chain HooksChain) Bootstrap(ctx context.Context, handle abi.ContextHandle, id string) error
+
+func (chain HooksChain) Dispose(ctx context.Context) error
+
+func (chain HooksChain) Ingest(ctx context.Context, handle abi.ContextHandle, id string, entry abi.ContextEntry) (abi.IngestAction, error)
+
+func (chain HooksChain) OnBudgetExceeded(ctx context.Context, handle abi.ContextHandle, id string, snapshot abi.ContextSnapshot) ([]abi.CompressAction, error)
+
+func (chain HooksChain) OnMessage(ctx context.Context, handle abi.ContextHandle, id string, message wire.Message) ([]abi.Injection, error)
+
+func (fn SummarizerFunc) Summarize(ctx context.Context, entries []abi.ContextEntry, hints []string) (string, error)
+
+func (hooks DefaultHooks) OnBudgetExceeded(ctx context.Context, handle abi.ContextHandle, agentID string, snapshot abi.ContextSnapshot) ([]abi.CompressAction, error)
+
+func (hooks RulesHooks) OnBudgetExceeded(_ context.Context, _ abi.ContextHandle, _ string, snapshot abi.ContextSnapshot) ([]abi.CompressAction, error)
+
+func (policy BudgetAdmission) AdmitModel(ctx context.Context, runtime abi.RuntimeContext, request abi.ModelRequest) error
+
+func (reader ReferenceReader) Read(ctx context.Context, uri string, offset int64, limit int) (TextPage, error)
+
+func (reader ReferenceReader) Search(ctx context.Context, uri, query string, limit int) ([]TextMatch, error)
+
+func (referenceTool) DescribeEffect(wire.ToolCall) abi.Effect
+
+func (referenceTool) IsReadOnly(wire.ToolCall) bool
+
+func (referenceTool) Scheduling(wire.ToolCall) abi.Scheduling
+
+func (store *Store) AdvanceTurn(agentID string)
+
+func (store *Store) Budget(agentID string) abi.BudgetInfo
+
+func (store *Store) ClearAll(agentID string)
+
+func (store *Store) ClearConversation(agentID string)
+
+func (store *Store) ClearLayer(agentID string, layer abi.ContextLayer)
+
+func (store *Store) DeleteMemory(ctx context.Context, id string) error
+
+func (store *Store) Entries(agentID string) []abi.ContextEntry
+
+func (store *Store) Externalize(ctx context.Context, agentID string, selected abi.MessageRange, path string) (wire.Reference, error)
+
+func (store *Store) InjectFromFile(ctx context.Context, agentID, path string, lines *LineRange) error
+
+func (store *Store) InjectMemory(ctx context.Context, agentID, query string, maxTokens int) ([]abi.MemoryFact, error)
+
+func (store *Store) InjectMessage(agentID string, layer abi.ContextLayer, message wire.Message) error
+
+func (store *Store) QueryMemory(ctx context.Context, query string, max int) ([]abi.MemoryFact, error)
+
+func (store *Store) ReadMessage(agentID, messageID string) (abi.ContextEntry, bool)
+
+func (store *Store) RemoveMessage(agentID, messageID string) error
+
+func (store *Store) RemoveRange(agentID string, selected abi.MessageRange) error
+
+func (store *Store) ReplaceToolResult(agentID, messageID, summary string) error
+
+func (store *Store) RewriteBatch(agentID string, rewrites []MessageRewrite) error
+
+func (store *Store) RewriteMessage(agentID, messageID string, message wire.Message) error
+
+func (store *Store) SlidingWindow(agentID string, keep int) error
+
+func (store *Store) Snapshot(agentID string) abi.ContextSnapshot
+
+func (store *Store) StoreMemory(ctx context.Context, fact abi.MemoryFact) error
+
+func (store *Store) Summarize(ctx context.Context, agentID string, selected abi.MessageRange, hints []string) (string, error)
+
+func (store *Store) SummarizeEntries(ctx context.Context, entries []abi.ContextEntry, hints []string) (string, error)
+
+func (store *Store) TagExclude(agentID, messageID string) error
+
+func (store *Store) TagPriority(agentID, messageID string, priority abi.Priority) error
+
+func (store *Store) ToolPatterns(agentID string, last int) []abi.ToolPattern
+
+func (tool referenceTool) Description() string
+
+func (tool referenceTool) Execute(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
+
+func (tool referenceTool) Name() string
+
+func (tool referenceTool) ParametersSchema() json.RawMessage
+
+func CollectSummary(ctx context.Context, model abi.LanguageModel, request abi.ModelRequest, maxBytes int) (string, *wire.Usage, error)
+
+func DefaultSystem(budget, window int) *abi.ContextSystem
+
+func NewMemoryReferences(sessionID string, maxBytes int) (*MemoryReferences, error)
+
+func NewReferenceReadTool(backend ReferenceBackend, sessionID string) abi.Tool
+
+func NewReferenceSearchTool(backend ReferenceBackend, sessionID string) abi.Tool
+
+func NewStore(budget, window int, counter abi.TokenCounter, summarizer Summarizer, services ...StoreServices) *Store
+
+func PlanCompaction(view []wire.Message, keepTokens int, estimator agentabi.TokenEstimator) (CompactionPlan, bool)
+
+func RenderForSummary(message wire.Message, blockLimit int) string
+
+func SafeWindow(messages []wire.Message, keep int) []wire.Message
+
+func SummaryRequest(previous, transcript string, maxOutputTokens uint32, config wire.ModelConfig) abi.ModelRequest
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"io"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"math"
+	"reflect"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"strings"
+	"sync"
+	"unicode/utf8"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"strings"
+	"time"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"reflect"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+import (
+	"context"
+	"errors"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+type BudgetAdmission struct{ System *abi.ContextSystem }
+
+type CompactionPlan struct {
+	Cut    int
+	Pinned int
+}
+
+type ContextFileLoader interface {
+	Load(context.Context, ContextFileRequest) (ContextFileResult, error)
+}
+
+type ContextFileRequest struct {
+	AgentID, Path string
+	Lines         *LineRange
+	MaxBytes      int
+}
+
+type ContextFileResult struct {
+	Path, Text         string
+	Source             wire.Reference
+	StartLine, EndLine int
+	Truncated          bool
+}
+
+type DefaultApply struct {
+	References   ReferenceBackend
+	Externalizer Externalizer
+
+	Summarizer Summarizer
+}
+
+type DefaultHooks struct {
+	RulesHooks
+	DecideBudget func(context.Context, abi.ContextHandle, string, abi.ContextSnapshot) ([]abi.CompressAction, error)
+}
+
+type Externalizer interface {
+	Externalize(context.Context, string, string) (wire.Reference, error)
+}
+
+type HooksChain struct{ Hooks []abi.ContextHooks }
+
+type LineRange struct{ Start, End int }
+
+type MemoryFactsBackend interface {
+	Query(context.Context, string, int) ([]abi.MemoryFact, error)
+	Store(context.Context, abi.MemoryFact) error
+	Delete(context.Context, string) error
+}
+
+type MemoryReferences struct {
+}
+
+type MessageRewrite struct {
+	ID      string
+	Message wire.Message
+}
+
+type ReferenceBackend interface {
+	StoreText(context.Context, string) (wire.Reference, error)
+	ReadText(context.Context, string, int64, int) (TextPage, error)
+	SearchText(context.Context, string, string, int) ([]TextMatch, error)
+}
+
+type ReferenceReader struct{ Backend ReferenceBackend }
+
+type RulesHooks struct{ MaxMessages int }
+
+type Store struct {
+}
+
+type StoreServices struct {
+	Files        ContextFileLoader
+	Memory       MemoryFactsBackend
+	References   ReferenceBackend
+	Externalizer Externalizer
+	MaxFileBytes int
+}
+
+type Summarizer interface {
+	Summarize(context.Context, []abi.ContextEntry, []string) (string, error)
+}
+
+type SummarizerFunc func(context.Context, []abi.ContextEntry, []string) (string, error)
+
+type TextMatch struct {
+	URI    string `json:"uri"`
+	Text   string `json:"text"`
+	Offset int64  `json:"offset"`
+}
+
+type TextPage struct {
+	URI        string `json:"uri"`
+	Text       string `json:"text"`
+	Offset     int64  `json:"offset"`
+	NextOffset int64  `json:"next_offset"`
+	TotalBytes int64  `json:"total_bytes"`
+	Truncated  bool   `json:"truncated"`
+}

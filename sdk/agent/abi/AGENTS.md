@@ -21,7 +21,7 @@ SpawnCommunication是显式opt-in attach/hooks/on-complete；有界Registry按ki
 |---|---|---|
 | Agent vocabulary | `contracts.go` | Scope/Spawn/Phase/Command |
 | Tasks | `task.go` | kinds、随机identity、状态时间、暂停与output cursor |
-| Provider factories | `provider.go` | registry、typed失败与显式credential source |
+| Provider factories | `provider.go` | registry、typed失败（含仅由结构化字段判定的 context_length 超窗拒绝）与显式credential source |
 | Analytics contract | `analytics.go` | typed event union、deep clone、非阻塞sink契约 |
 | Token estimates | `tokens.go` | 文本/CJK和完整显式wire content启发式 |
 | Regression | `contracts_test.go` | 非法跳跃与终态复活拒绝 |

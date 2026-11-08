@@ -1,5 +1,5 @@
 // INPUT: Explicit connection edits, exact model identities and standard value validation.
-// OUTPUT: Redacted connection values, optimistic CRUD, optional request-bound creation receipts, revision-bound routes and the default same-origin catalog derivation.
+// OUTPUT: Redacted connection values (with catalog/operator model context-window declarations), optimistic CRUD, optional request-bound creation receipts, revision-bound routes and the default same-origin catalog derivation.
 // POS: [L7 Hub product] Shared connection policy without provider, credential discovery or execution dependencies.
 package hub
 
@@ -41,6 +41,30 @@ type ConnectionModel struct {
 	Enabled bool   `json:"enabled"`
 	// ImageCapable is an explicit operator declaration, never inferred from a model name.
 	ImageCapable bool `json:"image_capable"`
+	// CatalogContextWindow is the context length the provider's model catalog
+	// explicitly stated for this model; ContextWindow is the operator's entry.
+	// Both count tokens and 0 means undeclared; neither is guessed from a name.
+	CatalogContextWindow int `json:"catalog_context_window,omitempty"`
+	ContextWindow        int `json:"context_window,omitempty"`
+}
+
+// Context windows are accepted from 1 Ki to 100 Mi tokens.
+const (
+	MinContextWindow = 1 << 10
+	MaxContextWindow = 100 << 20
+)
+
+// DeclaredContextWindow prefers the catalog's explicit statement over the
+// operator's entry; 0 means the window is undeclared.
+func (m ConnectionModel) DeclaredContextWindow() int {
+	if m.CatalogContextWindow > 0 {
+		return m.CatalogContextWindow
+	}
+	return m.ContextWindow
+}
+
+func validContextWindow(tokens int) bool {
+	return tokens == 0 || tokens >= MinContextWindow && tokens <= MaxContextWindow
 }
 
 type ConnectionUpdate struct {
@@ -190,6 +214,9 @@ func (c ModelConnection) Validate() error {
 			return errors.New("models require unique exact bounded IDs and bounded display names")
 		}
 		seen[m.ID] = true
+		if !validContextWindow(m.CatalogContextWindow) || !validContextWindow(m.ContextWindow) {
+			return fmt.Errorf("model context window must be empty or %d–%d tokens", MinContextWindow, MaxContextWindow)
+		}
 		if err := c.Target(m).Validate(); err != nil {
 			return errors.New("resolved model route exceeds identity/endpoint limits")
 		}

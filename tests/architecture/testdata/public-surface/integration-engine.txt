@@ -1,4 +1,13 @@
 const (
+	ContextCompacted        ContextCompactionStatus = "compacted"
+	ContextCompactionFailed ContextCompactionStatus = "failed"
+
+	ContextCompactionSkipped ContextCompactionStatus = "skipped"
+
+	ContextSummaryCorrupt ContextCompactionStatus = "summary_corrupt"
+)
+
+const (
 	EffectRead    Effect = "read"
 	EffectWrite   Effect = "write"
 	EffectNone    Effect = "none"
@@ -73,6 +82,8 @@ const (
 	ToolDisplayTodos   = 30
 )
 
+const ContextUpdated Kind = "context_updated"
+
 const InspectionEnd = ^uint64(0)
 
 func (d *ToolDisplay) Validate() error
@@ -85,6 +96,8 @@ func (d Descriptor) Description(id string) Description
 
 func (d Descriptor) Validate() error
 
+func (r ContextReport) Validate() error
+
 func (r InteractionResolution) Validate(kind string) error
 
 func (r UserInputRequest) Validate() error
@@ -96,6 +109,8 @@ func (s *StreamContract) Accept(event Event) error
 func (s StreamContract) Clone() StreamContract
 
 func (u *Usage) Add(other Usage)
+
+func (u ContextUsage) UsedTokens() uint64
 
 func (u Usage) Validate() error
 
@@ -184,6 +199,11 @@ import (
 	"unicode/utf8"
 )
 
+import (
+	"errors"
+	"unicode/utf8"
+)
+
 type Activity struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -200,6 +220,8 @@ type Capabilities struct {
 	FileInputs         bool `json:"file_inputs"`
 	SkillInputs        bool `json:"skill_inputs"`
 	ToolControl        bool `json:"tool_control"`
+
+	ContextCompaction bool `json:"context_compaction,omitempty"`
 }
 
 type ConfigSurface struct {
@@ -209,6 +231,40 @@ type ConfigSurface struct {
 	ProviderProtocol          string `json:"provider_protocol"`
 	SupportsFastMode          bool   `json:"supports_fast_mode"`
 	SupportsCustomHTTPHeaders bool   `json:"supports_custom_http_headers"`
+}
+
+type ContextCompaction struct {
+	Status          ContextCompactionStatus `json:"status"`
+	Trigger         string                  `json:"trigger"`
+	FromSequence    uint64                  `json:"from_sequence,omitempty"`
+	ThroughSequence uint64                  `json:"through_sequence,omitempty"`
+	Messages        uint64                  `json:"messages,omitempty"`
+	Reference       *Reference              `json:"reference,omitempty"`
+	Usage           *Usage                  `json:"usage,omitempty"`
+	Error           string                  `json:"error,omitempty"`
+}
+
+type ContextCompactionStatus string
+
+type ContextParts struct {
+	System  uint64 `json:"system"`
+	Tools   uint64 `json:"tools"`
+	Summary uint64 `json:"summary"`
+	Recent  uint64 `json:"recent"`
+}
+
+type ContextReport struct {
+	Usage      *ContextUsage      `json:"usage,omitempty"`
+	Compaction *ContextCompaction `json:"compaction,omitempty"`
+}
+
+type ContextUsage struct {
+	InputTokens       uint64  `json:"input_tokens"`
+	OutputTokens      uint64  `json:"output_tokens"`
+	CachedInputTokens *uint64 `json:"cached_input_tokens,omitempty"`
+	WindowTokens      uint64  `json:"window_tokens,omitempty"`
+
+	Parts *ContextParts `json:"parts,omitempty"`
 }
 
 type Description struct {
@@ -253,6 +309,8 @@ type Event struct {
 	Display *ToolDisplay `json:"display,omitempty"`
 
 	Resolution *InteractionResolution `json:"resolution,omitempty"`
+
+	Context *ContextReport `json:"context,omitempty"`
 }
 
 type FailureKind string
@@ -436,6 +494,9 @@ type Request struct {
 	ReportActivity func(Activity) error `json:"-"`
 
 	RetainWorkspace func() (func(), error) `json:"-"`
+
+	CompactContext bool                      `json:"compact_context,omitempty"`
+	ReportContext  func(ContextReport) error `json:"-"`
 }
 
 type Runtime interface {
