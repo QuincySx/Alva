@@ -76,7 +76,7 @@ func (p *NativePage) openWorkspaceSessionChooserForSession(destination, id strin
 	p.setPane(workspaceScopePane(destination))
 	go func() {
 		defer cancel()
-		detail, err := p.Service.Store.Detail(ctx, id)
+		detail, err := p.Service.Conversations.Detail(ctx, id)
 		p.dispatch(func() {
 			s := &p.settingsScope
 			if s.epoch != epoch || s.destination != destination {
@@ -116,7 +116,7 @@ func (p *NativePage) loadWorkspaceScopeSessionsTarget(target workspacePageReques
 	s.selected, s.selectedGeneration = "", 0
 	go func() {
 		defer cancel()
-		page, err := p.Service.Store.PageSessions(ctx, query, cursor, 16)
+		page, err := p.Service.Conversations.Page(ctx, query, cursor, 16)
 		p.dispatch(func() {
 			if s.epoch != epoch || s.destination != destination {
 				return

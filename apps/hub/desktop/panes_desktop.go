@@ -150,8 +150,8 @@ func (p *NativePage) buildInspector(c *ui.Context) {
 		ui.Row(c).Gap(6).Wrap().Children(func() {
 			for _, branch := range p.detail.Branches {
 				branch := branch
-				descriptor, registered := p.Service.Runtime.Descriptor(branch.Target.EngineID)
-				available := registered && descriptor.Inspector != nil && descriptor.Inspector.InspectionCapabilities().Historical
+				description, registered := p.Service.Turns.Engine(branch.Target.EngineID)
+				available := registered && description.Inspection.Historical
 				label := branch.Target.EngineID + " · " + branch.ID
 				if !available {
 					label += " · inspection unsupported"

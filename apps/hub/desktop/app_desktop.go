@@ -296,7 +296,7 @@ func (p *NativePage) loadSessions(cursor hub.SessionCursor) {
 	p.sessionLoading = true
 	query := p.sessionQuery
 	go func() {
-		page, err := p.Service.Store.PageSessions(p.ctx, query, cursor, 64)
+		page, err := p.Service.Conversations.Page(p.ctx, query, cursor, 64)
 		p.dispatch(func() {
 			p.sessionLoading = false
 			if p.sessionQuery != query {
@@ -388,7 +388,7 @@ func (p *NativePage) loadTail() {
 	p.chat.Busy = true
 	p.polling = true
 	go func() {
-		detail, err := p.Service.Store.Detail(p.ctx, id)
+		detail, err := p.Service.Conversations.Detail(p.ctx, id)
 		var planSettings hub.Settings
 		optionsErr := err
 		if err == nil {
@@ -494,7 +494,7 @@ func (p *NativePage) poll() {
 	readWait, waitEpoch := p.pane == "waits" && !p.paneBusy, p.wait.Epoch
 	p.polling = true
 	go func() {
-		detail, err := p.Service.Store.Detail(p.ctx, id)
+		detail, err := p.Service.Conversations.Detail(p.ctx, id)
 		var planSettings hub.Settings
 		optionsErr := err
 		if err == nil {
@@ -685,7 +685,7 @@ func (p *NativePage) sendPreparedFileSnapshot(prompt string, selections []produc
 // stop is an immediate command; rendered controls pass the identity they observed.
 func (p *NativePage) stop() {
 	id := p.selected
-	executionID, _ := p.Service.Runtime.ActiveExecution(id)
+	executionID, _ := p.Service.Turns.Active(id)
 	p.stopExecution(id, executionID)
 }
 func (p *NativePage) stopExecution(id, executionID string) {
@@ -693,7 +693,7 @@ func (p *NativePage) stopExecution(id, executionID string) {
 	if id == "" || p.selected != id || executionID == "" || p.busy || p.modelStopping() && !p.stopRetry[id] {
 		return
 	}
-	activeID, active := p.Service.Runtime.ActiveExecution(id)
+	activeID, active := p.Service.Turns.Active(id)
 	if !active || activeID != executionID {
 		p.poll()
 		return
@@ -712,7 +712,7 @@ func (p *NativePage) stopExecution(id, executionID string) {
 		if isWorker {
 			err = p.Service.Teams.StopExecution(p.ctx, lead, team, worker.ID, executionID)
 		} else {
-			err = p.Service.Runtime.CancelExecution(p.ctx, id, executionID)
+			err = p.Service.Turns.Stop(p.ctx, id, executionID)
 		}
 		p.dispatch(func() {
 			if p.stopRequests[id] != executionID {
@@ -736,7 +736,7 @@ func (p *NativePage) stopExecution(id, executionID string) {
 }
 func (p *NativePage) modelStopping() bool {
 	if executionID := p.stopRequests[p.selected]; executionID != "" {
-		activeID, active := p.Service.Runtime.ActiveExecution(p.selected)
+		activeID, active := p.Service.Turns.Active(p.selected)
 		return !active || activeID == executionID
 	}
 	return p.model.Status == view.Stopping

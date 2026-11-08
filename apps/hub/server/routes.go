@@ -47,17 +47,45 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 			fail(w, 400)
 			return
 		}
-		turnID, err := s.service.Submit(r.Context(), id, v.Prompt, v.References)
+		start, err := s.service.Turns.Send(r.Context(), id, v.Prompt, v.References)
 		if err != nil {
 			operationError(w, err)
 			return
 		}
-		respond(w, 202, map[string]string{"turn_id": turnID, "status": "admitted"})
-	case "stop":
-		if !emptyPost(w, r) {
+		respond(w, 202, map[string]string{"turn_id": start.TurnID, "execution_id": start.ExecutionID, "status": "admitted"})
+	case "execution":
+		if r.Method != http.MethodGet {
+			fail(w, 405)
 			return
 		}
-		err := s.service.Runtime.Cancel(r.Context(), id)
+		if _, err := query(r); err != nil {
+			fail(w, 400)
+			return
+		}
+		executionID, active := s.service.Turns.Active(id)
+		respond(w, 200, map[string]any{"execution_id": executionID, "active": active})
+	case "stop":
+		// Stop names the execution the client observed (turns or execution
+		// response), so a late request never cancels a replacement owner.
+		if r.Method != http.MethodPost {
+			fail(w, 405)
+			return
+		}
+		if _, err := query(r); err != nil {
+			fail(w, 400)
+			return
+		}
+		var v struct {
+			ExecutionID string `json:"execution_id"`
+		}
+		if !decode(w, r, &v, 4<<10) {
+			return
+		}
+		if !validID(v.ExecutionID) {
+			fail(w, 400)
+			return
+		}
+		err := s.service.Turns.Stop(r.Context(), id, v.ExecutionID)
 		if err != nil {
 			operationError(w, err)
 			return
@@ -243,7 +271,7 @@ func (s *Server) nested(w http.ResponseWriter, r *http.Request, id string, parts
 			fail(w, 400)
 			return
 		}
-		value, err := s.service.Store.ReadHandoff(r.Context(), id, parts[1])
+		value, err := s.service.Conversations.Handoff(r.Context(), id, parts[1])
 		reply(w, value, err)
 		return
 	}
@@ -637,19 +665,12 @@ func (s *Server) artifactBytes(w http.ResponseWriter, r *http.Request, id string
 		fail(w, 400)
 		return
 	}
-	detail, err := s.service.Store.Detail(r.Context(), id)
-	if err != nil {
-		operationError(w, err)
+	value, err := s.service.Conversations.ReadArtifact(r.Context(), id, q.Get("branch"), q.Get("uri"), offset)
+	if errors.Is(err, hub.ErrNotFound) {
+		fail(w, 404)
 		return
 	}
-	for _, branch := range detail.Branches {
-		if branch.ID == q.Get("branch") && branch.NativeSessionID != "" {
-			value, err := s.service.Repository.ReadArtifact(r.Context(), id, branch.NativeSessionID, q.Get("uri"), offset, 4096)
-			reply(w, value, err)
-			return
-		}
-	}
-	fail(w, 404)
+	reply(w, value, err)
 }
 
 func emptyPost(w http.ResponseWriter, r *http.Request) bool {

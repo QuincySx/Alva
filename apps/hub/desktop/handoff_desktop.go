@@ -20,7 +20,7 @@ func (p *NativePage) readHandoff(handoffID string) {
 	p.paneBusy = true
 	p.handoffText = ""
 	go func() {
-		value, err := p.Service.Store.ReadHandoff(p.ctx, id, handoffID)
+		value, err := p.Service.Conversations.Handoff(p.ctx, id, handoffID)
 		var raw []byte
 		if err == nil {
 			raw, err = json.MarshalIndent(value, "", "  ")

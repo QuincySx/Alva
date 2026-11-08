@@ -30,7 +30,7 @@ func (p *NativePage) openAutomations() {
 	id, generation := p.selected, p.generation
 	p.paneBusy = true
 	go func() {
-		entries, err := p.Service.Automations.Store.ListAutomations(p.ctx, id)
+		entries, err := p.Service.Automations.List(p.ctx, id)
 		p.dispatch(func() {
 			p.paneBusy = false
 			if p.selected != id || p.generation != generation || p.pane != "automations" {
@@ -73,16 +73,16 @@ func (p *NativePage) automationAction(action string, entry hub.Automation) {
 		switch action {
 		case "save":
 			if editID == "" {
-				_, err = p.Service.Automations.Store.CreateAutomation(p.ctx, id, draft)
+				_, err = p.Service.Automations.Create(p.ctx, id, draft)
 			} else {
-				_, err = p.Service.Automations.Store.UpdateAutomation(p.ctx, id, editID, revision, draft)
+				_, err = p.Service.Automations.Update(p.ctx, id, editID, revision, draft)
 			}
 		case "enable":
 			_, err = p.Service.SetAutomationEnabled(p.ctx, id, entry.ID, entry.Revision, true, true)
 		case "pause":
 			_, err = p.Service.SetAutomationEnabled(p.ctx, id, entry.ID, entry.Revision, false, false)
 		case "delete":
-			err = p.Service.Automations.Store.DeleteAutomation(p.ctx, id, entry.ID, entry.Revision)
+			err = p.Service.Automations.Delete(p.ctx, id, entry.ID, entry.Revision)
 		}
 		p.dispatch(func() {
 			p.paneBusy = false

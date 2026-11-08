@@ -275,7 +275,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 						hint = "正在提交，等待真实接收回执后可停止。"
 					}
 					id := p.selected
-					executionID, _ := p.Service.Runtime.ActiveExecution(id)
+					executionID, _ := p.Service.Turns.Active(id)
 					p.workspaceComposerAction(c.Key("stop-"+id+"-"+executionID), "square", "Stop", hint, executionID == "" || p.busy || p.modelStopping() && !p.stopRetry[id], true, p.modelStopping() && !p.stopRetry[id], func() { p.stopExecution(id, executionID) })
 				} else {
 					hint, enabled := p.workspaceComposerSendProblem(), false

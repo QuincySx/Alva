@@ -90,7 +90,7 @@ func (m *nativeWindows) open(sessionID string) error {
 		}
 		// Another window can keep observing the actual runtime. The final
 		// window still requires explicit Stop while execution is active.
-		if p.busy || p.goal.saving || p.composer.modelPicker.saving || p.companions.busy || p.companions.running || p.playerBusy || p.gatewayBusy || p.inspectExportBusy || len(m.pages) == 1 && m.service.Runtime.HasActive() {
+		if p.busy || p.goal.saving || p.composer.modelPicker.saving || p.companions.busy || p.companions.running || p.playerBusy || p.gatewayBusy || p.inspectExportBusy || len(m.pages) == 1 && m.service.Turns.AnyActive() {
 			if p.diagnosticChanged != nil {
 				p.diagnosticChanged()
 			}

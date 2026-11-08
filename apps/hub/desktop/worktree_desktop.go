@@ -50,7 +50,7 @@ func (p *NativePage) worktreeAction(action string, w hub.Worker, offset int) {
 				err = errors.New("saved evidence required")
 			}
 		}
-		updated, refreshErr := p.Service.Teams.Store.Team(p.ctx, lead, team)
+		updated, refreshErr := p.Service.Teams.Team(p.ctx, lead, team)
 		p.dispatch(func() {
 			p.paneBusy = false
 			if p.teamLead != lead || p.team.Team.ID != team || p.pane != "team" {

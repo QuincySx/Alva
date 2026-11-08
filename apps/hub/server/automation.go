@@ -22,14 +22,14 @@ func (s *Server) automations(w http.ResponseWriter, r *http.Request, owner strin
 	if len(parts) == 0 {
 		switch r.Method {
 		case http.MethodGet:
-			value, err := a.Store.ListAutomations(r.Context(), owner)
+			value, err := a.List(r.Context(), owner)
 			reply(w, value, err)
 		case http.MethodPost:
 			var draft hub.AutomationDraft
 			if !decode(w, r, &draft, 24<<10) {
 				return
 			}
-			value, err := a.Store.CreateAutomation(r.Context(), owner, draft)
+			value, err := a.Create(r.Context(), owner, draft)
 			if err != nil {
 				operationError(w, err)
 				return
@@ -68,7 +68,7 @@ func (s *Server) automations(w http.ResponseWriter, r *http.Request, owner strin
 	}
 	switch r.Method {
 	case http.MethodGet:
-		result, err := a.Store.Automation(r.Context(), owner, id)
+		result, err := a.Read(r.Context(), owner, id)
 		reply(w, result, err)
 	case http.MethodPut:
 		var value struct {
@@ -82,7 +82,7 @@ func (s *Server) automations(w http.ResponseWriter, r *http.Request, owner strin
 			fail(w, 400)
 			return
 		}
-		result, err := a.Store.UpdateAutomation(r.Context(), owner, id, *value.Revision, *value.Draft)
+		result, err := a.Update(r.Context(), owner, id, *value.Revision, *value.Draft)
 		reply(w, result, err)
 	case http.MethodDelete:
 		var value struct {
@@ -95,7 +95,7 @@ func (s *Server) automations(w http.ResponseWriter, r *http.Request, owner strin
 			fail(w, 400)
 			return
 		}
-		reply(w, map[string]bool{"configuration_deleted_only": true}, a.Store.DeleteAutomation(r.Context(), owner, id, *value.Revision))
+		reply(w, map[string]bool{"configuration_deleted_only": true}, a.Delete(r.Context(), owner, id, *value.Revision))
 	default:
 		fail(w, 405)
 	}

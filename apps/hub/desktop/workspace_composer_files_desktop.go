@@ -243,15 +243,7 @@ func (p *NativePage) chooseWorkspaceFileCandidate(candidate product.ComposerFile
 		var f hub.ComposerFile
 		var err error
 		if candidate.Captured != nil {
-			store, ok := p.Service.Store.(hub.ComposerFileStore)
-			if !ok {
-				err = fmt.Errorf("文件目录不可用")
-			} else {
-				f, err = store.ComposerFile(ctx, candidate.Captured.ID)
-				if err == nil && (f.Scope != candidate.Captured.Scope || f.SHA256 != candidate.Captured.SHA256) {
-					err = hub.ErrComposerFileChanged
-				}
-			}
+			f, err = p.Service.ComposerFileRecord(ctx, *candidate.Captured)
 		} else {
 			f, err = p.Service.CaptureComposerFile(ctx, logicalScope, candidate.Path)
 		}

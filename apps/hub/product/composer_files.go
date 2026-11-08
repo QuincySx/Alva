@@ -230,6 +230,12 @@ func composerUTF8Chunk(tail, data []byte) ([]byte, bool) {
 	}
 	return nil, true
 }
+
+// ComposerFileRecord re-reads a captured catalog entry and rejects it unless
+// its scope and content hash still match the caller's selection.
+func (s *HubService) ComposerFileRecord(ctx context.Context, selection ComposerFileSelection) (hub.ComposerFile, error) {
+	return s.selectedComposerFile(ctx, selection)
+}
 func (s *HubService) selectedComposerFile(ctx context.Context, selection ComposerFileSelection) (hub.ComposerFile, error) {
 	store, err := s.composerFileStore()
 	if err != nil {

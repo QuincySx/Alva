@@ -94,6 +94,11 @@ type HubService struct {
 	Settings *SettingsService
 	// Context holds one-shot manual context compaction requests (M4).
 	Context *ContextService
+	// Conversations and Turns are the narrow product entries: desktop, HTTP
+	// and CLI list/read/manage sessions and start/stop Turns only through
+	// them, never through Store or Runtime (tests/architecture gate).
+	Conversations *ConversationService
+	Turns         *TurnService
 	// mu serializes admission and source preparation; draftMu protects only the
 	// small published draft lists so observers never wait for disk/admission I/O.
 	mu                  sync.Mutex
@@ -165,6 +170,8 @@ func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.
 		return nil, err
 	}
 	service := &HubService{Store: store, Runtime: runtime, Repository: repository, DefaultTarget: target, Targets: []hub.Target{target}, DataDirectory: dir, Demo: demo, Context: NewContextService(), attachments: make(map[string][]DraftAttachment)}
+	service.Conversations = &ConversationService{service: service}
+	service.Turns = &TurnService{service: service}
 	if teams, ok := store.(hub.TeamStore); ok {
 		service.Teams = NewTeamCoordinator(teams, runtime)
 	}
@@ -205,86 +212,93 @@ func (s *HubService) submitDraft(ctx context.Context, id, prompt string, selecti
 }
 
 func (s *HubService) submitDraftWithFiles(ctx context.Context, id, prompt string, selections []ComposerPreparation, references []DraftReferenceSelection, inputFiles []engine.InputFile, userText string) (string, error) {
+	// Runtime owns the admitted Turn. A UI admission timeout must not become an
+	// accidental execution cancellation after the durable claim has committed.
+	start, err := s.admitDraftWithFiles(ctx, context.Background(), id, prompt, selections, references, inputFiles, userText)
+	return start.TurnID, err
+}
+
+// admitDraftWithFiles is the one admission path for every entry. owner bounds
+// the execution's lifetime; ctx bounds only admission.
+func (s *HubService) admitDraftWithFiles(ctx, owner context.Context, id, prompt string, selections []ComposerPreparation, references []DraftReferenceSelection, inputFiles []engine.InputFile, userText string) (TurnStart, error) {
+	var start TurnStart
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.Companions != nil {
 		binding, err := s.Companions.Session(ctx, id)
 		if err != nil && !errors.Is(err, hub.ErrNotFound) {
-			return "", err
+			return start, err
 		}
 		if err == nil {
 			readOnly, readErr := s.Companions.SessionReadOnly(ctx, id)
 			if readErr != nil {
-				return "", readErr
+				return start, readErr
 			}
 			if readOnly {
-				return "", hub.ErrCompanionDisabled
+				return start, hub.ErrCompanionDisabled
 			}
 		}
 		if err == nil && binding.GroupID != "" {
-			return "", errors.New("send from the companion group; this member session is for execution review, approvals and original-Turn continuation")
+			return start, errors.New("send from the companion group; this member session is for execution review, approvals and original-Turn continuation")
 		}
 	}
 	var err error
 	selections, err = s.rebindComposerGoalsLocked(ctx, id, selections)
 	if err != nil {
-		return "", err
+		return start, err
 	}
 	selections, err = s.rebindComposerSkillsLocked(ctx, id, selections)
 	if err != nil {
-		return "", err
+		return start, err
 	}
 	if err := s.prepareComposerDraftLocked(ctx, id, selections); err != nil {
-		return "", err
+		return start, err
 	}
 	prompt, err = s.composerGoalPrompt(ctx, id, selections, prompt)
 	if err != nil {
-		return "", err
+		return start, err
 	}
 	detail, err := s.Store.Detail(ctx, id)
 	if err != nil {
-		return "", err
+		return start, err
 	}
 	branch, err := ActiveBranch(detail)
 	if err != nil {
-		return "", err
+		return start, err
 	}
 	if err = s.validatePlanTarget(ctx, id, branch); err != nil {
-		return "", err
+		return start, err
 	}
 	if err = s.ValidateTarget(branch.Target); err != nil {
-		return "", err
+		return start, err
 	}
 	inputSkills, err := s.composerSkillInputs(ctx, detail, selections)
 	if err != nil {
-		return "", err
+		return start, err
 	}
 	if len(inputSkills) > 0 {
 		descriptor, ok := s.Runtime.Descriptor(branch.Target.EngineID)
 		if !ok || descriptor.Runtime == nil || !descriptor.Runtime.Capabilities().SkillInputs {
-			return "", engine.ErrUnsupported
+			return start, engine.ErrUnsupported
 		}
 	}
 	prompt, err = s.draftPromptLocked(id, branch, detail.Session.Workspace, prompt, references)
 	if err != nil {
-		return "", err
+		return start, err
 	}
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return start, ctx.Err()
 	}
-	// Runtime owns the admitted Turn. A UI admission timeout must not become an
-	// accidental execution cancellation after the durable claim has committed.
-	var turnID string
 	if len(inputFiles) == 0 && len(inputSkills) == 0 {
-		turnID, _, err = s.Runtime.StartOnBranch(context.Background(), id, branch.ID, prompt)
+		start.TurnID, start.ExecutionID, start.Done, err = s.Runtime.StartOnBranchOwned(owner, id, branch.ID, prompt)
 	} else {
-		turnID, _, err = s.Runtime.StartComposerOnBranch(context.Background(), id, branch.ID, hub.ComposerTurnInput{Prompt: prompt, UserText: userText, Files: inputFiles, Skills: inputSkills})
+		start.TurnID, start.Done, err = s.Runtime.StartComposerOnBranch(owner, id, branch.ID, hub.ComposerTurnInput{Prompt: prompt, UserText: userText, Files: inputFiles, Skills: inputSkills})
 	}
 	if err != nil {
-		return "", err
+		return TurnStart{}, err
 	}
 	s.consumeDraftReferences(id, references)
-	return turnID, nil
+	return start, nil
 }
 func (s *HubService) draftPromptLocked(id string, branch hub.Branch, workspace, prompt string, references []DraftReferenceSelection) (string, error) {
 	s.draftMu.RLock()

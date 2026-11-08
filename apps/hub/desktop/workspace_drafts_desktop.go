@@ -137,7 +137,7 @@ func (p *NativePage) readWorkspaceDraft(scope hub.ComposerDraftScope, replace bo
 			files, records, err = p.Service.RestoreComposerFileSelections(ctx, value)
 		}
 		if err == nil && value.PendingSessionID != "" {
-			_, err = p.Service.Store.Detail(ctx, value.PendingSessionID)
+			_, err = p.Service.Conversations.Detail(ctx, value.PendingSessionID)
 		}
 		p.dispatch(func() {
 			e.loading = false

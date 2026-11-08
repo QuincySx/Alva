@@ -32,7 +32,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request, id string) {
 			fail(w, 400)
 			return
 		}
-		entries, err := s.service.Store.HistoryBefore(r.Context(), id, uint64(before), int(limit))
+		entries, err := s.service.Conversations.HistoryBefore(r.Context(), id, uint64(before), int(limit))
 		reply(w, entries, err)
 		return
 	}
@@ -41,7 +41,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request, id string) {
 		fail(w, 400)
 		return
 	}
-	entries, err := s.service.Store.History(r.Context(), id, uint64(after), int(limit))
+	entries, err := s.service.Conversations.History(r.Context(), id, uint64(after), int(limit))
 	reply(w, entries, err)
 }
 
@@ -103,7 +103,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		default:
 		}
-		entries, readErr := s.service.Store.History(r.Context(), id, uint64(after), 32)
+		entries, readErr := s.service.Conversations.History(r.Context(), id, uint64(after), 32)
 		if readErr != nil {
 			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			_, _ = fmt.Fprint(w, "event: observation_error\ndata: {\"error\":\"history unavailable; reconnect from last committed id\"}\n\n")

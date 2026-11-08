@@ -30,8 +30,8 @@ type workspaceModelDefaultsState struct {
 }
 
 func (p *NativePage) workspaceModelConfig(agent string) engine.ConfigSurface {
-	if descriptor, ok := p.Service.Runtime.Descriptor(agent); ok {
-		return descriptor.Config
+	if description, ok := p.Service.Turns.Engine(agent); ok {
+		return description.Config
 	}
 	return engine.ConfigSurface{}
 }

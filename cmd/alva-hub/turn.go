@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/QuincySx/Alva/platform/system/terminaltext"
@@ -14,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/apps/hub"
-	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
@@ -26,15 +24,8 @@ func (c *cli) turn(parent context.Context, prompt string) error {
 	if strings.TrimSpace(prompt) == "" || len(prompt) > 32<<10 || !utf8.ValidString(prompt) {
 		return errors.New("nonempty UTF-8 prompt must be<=32KiB")
 	}
-	detail, err := c.app.Store.Detail(parent, c.session)
-	if err != nil {
-		return err
-	}
-	branch, err := product.ActiveBranch(detail)
-	if err != nil {
-		return err
-	}
-	tail, err := c.app.Store.HistoryBefore(parent, c.session, 0, 1)
+	conversations, turns := c.app.Service.Conversations, c.app.Service.Turns
+	tail, err := conversations.HistoryBefore(parent, c.session, 0, 1)
 	if err != nil {
 		return err
 	}
@@ -44,15 +35,18 @@ func (c *cli) turn(parent context.Context, prompt string) error {
 	}
 	ctx, cancel := context.WithTimeout(parent, c.timeout)
 	defer cancel()
-	turn, done, err := c.app.Runtime.StartOnBranch(ctx, c.session, branch.ID, prompt)
+	// The CLI process owns this execution: its timeout cancels the run, and
+	// Stop names the identity this admission returned.
+	start, err := turns.Start(ctx, c.session, prompt)
 	if err != nil {
 		return err
 	}
+	turn, done := start.TurnID, start.Done
 	settle := func(cause error) error {
 		cancel()
 		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
 		defer stop()
-		cancelErr := c.app.Runtime.Cancel(cleanup, c.session)
+		cancelErr := turns.Stop(cleanup, c.session, start.ExecutionID)
 		if errors.Is(cancelErr, hub.ErrSessionNotRunning) {
 			cancelErr = nil
 		}
@@ -106,10 +100,8 @@ func (c *cli) turn(parent context.Context, prompt string) error {
 					return settle(err)
 				}
 			}
-			binding, ready := c.app.Runtime.ActivePermission(c.session)
-			if !ready || binding.EngineID == "alva" {
-				continue
-			}
+			// Native engine interactions come only from a ready external owner;
+			// the product returns none for an Alva branch or an idle session.
 			interactions, err := c.app.Service.PendingEngineInteractions(ctx, c.session)
 			if err != nil {
 				return settle(err)
@@ -150,7 +142,7 @@ func (c *cli) finalAnswer(ctx context.Context, turn string, after uint64) (strin
 	var reference *engine.Reference
 	succeeded := false
 	for scanned := 0; scanned < 65536; {
-		entries, err := c.app.Store.History(ctx, c.session, after, 128)
+		entries, err := c.app.Service.Conversations.History(ctx, c.session, after, 128)
 		if err != nil {
 			return "", err
 		}
@@ -206,32 +198,11 @@ func (c *cli) finalAnswer(ctx context.Context, turn string, after uint64) (strin
 	if reference != nil && reference.Sequence > 0 {
 		// The product Message is a small display preview. Read only its exact
 		// qualified committed native record, not all session messages/history.
-		detail, err := c.app.Store.Detail(ctx, c.session)
+		record, err := c.app.Service.Conversations.ReadNativeRecord(ctx, c.session, *reference, maxAnswer)
 		if err != nil {
 			return "", err
 		}
-		owned := false
-		for _, branch := range detail.Branches {
-			if branch.Target.EngineID == "alva" && branch.NativeSessionID == reference.SessionID {
-				owned = true
-			}
-		}
-		if !owned {
-			return "", errors.New("final native answer is not owned by the saved product branch")
-		}
-		page, err := c.app.Repository.Page(ctx, c.session, reference.SessionID, reference.Sequence-1, 1, reference.Sequence)
-		if err != nil {
-			return "", err
-		}
-		if len(page.Entries) != 1 || page.Entries[0].ID != reference.RecordID || page.Entries[0].Value.Bytes > maxAnswer {
-			return "", errors.New("exact final native answer metadata missing or oversized")
-		}
-		_, data, err := c.app.Repository.ReadArtifactFull(ctx, c.session, reference.SessionID, page.Entries[0].Value.URI, maxAnswer)
-		if err != nil {
-			return "", err
-		}
-		var record abi.SessionRecord
-		if json.Unmarshal(data, &record) != nil || record.ID != reference.RecordID || record.Kind != abi.RecordConversation || record.Message == nil || record.Message.Role != wire.RoleAssistant {
+		if record.Kind != abi.RecordConversation || record.Message == nil || record.Message.Role != wire.RoleAssistant {
 			return "", errors.New("qualified final native record is not the committed assistant answer")
 		}
 		for _, block := range record.Message.Content {

@@ -167,11 +167,21 @@ func (TeamPlugin) Name() string
 
 func (a *AutomationCoordinator) Close(ctx context.Context) error
 
+func (a *AutomationCoordinator) Create(ctx context.Context, session string, draft hub.AutomationDraft) (hub.Automation, error)
+
+func (a *AutomationCoordinator) Delete(ctx context.Context, session, id string, revision uint64) error
+
 func (a *AutomationCoordinator) HasError() bool
+
+func (a *AutomationCoordinator) List(ctx context.Context, session string) ([]hub.Automation, error)
+
+func (a *AutomationCoordinator) Read(ctx context.Context, session, id string) (hub.Automation, error)
 
 func (a *AutomationCoordinator) Start() error
 
 func (a *AutomationCoordinator) Tick(ctx context.Context, at int64) error
+
+func (a *AutomationCoordinator) Update(ctx context.Context, session, id string, revision uint64, draft hub.AutomationDraft) (hub.Automation, error)
 
 func (b *composerReferences) ReadText(ctx context.Context, uri string, offset int64, limit int) (agentcontext.TextPage, error)
 
@@ -180,6 +190,20 @@ func (b *composerReferences) SearchText(ctx context.Context, uri, query string, 
 func (b *composerReferences) StoreText(ctx context.Context, text string) (wire.Reference, error)
 
 func (b reviewedWaitBackend) Commit(ctx context.Context, revision uint64, state durable.State, messages []wire.Message) (durable.Snapshot, error)
+
+func (c *ConversationService) Detail(ctx context.Context, id string) (hub.Detail, error)
+
+func (c *ConversationService) Handoff(ctx context.Context, id, handoffID string) (*hub.Handoff, error)
+
+func (c *ConversationService) History(ctx context.Context, id string, after uint64, limit int) ([]hub.HistoryEntry, error)
+
+func (c *ConversationService) HistoryBefore(ctx context.Context, id string, before uint64, limit int) ([]hub.HistoryEntry, error)
+
+func (c *ConversationService) Page(ctx context.Context, query string, cursor hub.SessionCursor, limit int) (hub.SessionPage, error)
+
+func (c *ConversationService) ReadArtifact(ctx context.Context, id, branchID, uri string, offset int64) (storage.ArtifactPage, error)
+
+func (c *ConversationService) ReadNativeRecord(ctx context.Context, id string, reference engine.Reference, maxBytes int64) (abi.SessionRecord, error)
 
 func (d DraftAttachment) DraftSelection() DraftReferenceSelection
 
@@ -354,6 +378,8 @@ func (s *HubService) ComposerCatalog(ctx context.Context, id string, query Compo
 func (s *HubService) ComposerEntry(ctx context.Context, id, entryID string) (ComposerEntryDetail, error)
 
 func (s *HubService) ComposerFilePrivatePath(ctx context.Context, selection ComposerFileSelection, derivative bool) (string, error)
+
+func (s *HubService) ComposerFileRecord(ctx context.Context, selection ComposerFileSelection) (hub.ComposerFile, error)
 
 func (s *HubService) ComposerFileReferences(ctx context.Context, ownerID string, files []engine.InputFile, native agentcontext.ReferenceBackend) (agentcontext.ReferenceBackend, error)
 
@@ -649,9 +675,21 @@ func (s TraceStep) Record(role string) (TraceRecord, bool)
 
 func (t *HistoryTool) Execute(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
 
+func (t *TeamCoordinator) CancelQueuedTask(ctx context.Context, lead, team, worker, task string) error
+
 func (t *TeamCoordinator) Close(ctx context.Context) error
 
+func (t *TeamCoordinator) CreateTeam(ctx context.Context, lead string) (hub.TeamDetail, error)
+
+func (t *TeamCoordinator) EditQueuedTask(ctx context.Context, lead, team, worker, task, scope string, claims []hub.ResourceClaim) error
+
+func (t *TeamCoordinator) EndTeam(ctx context.Context, lead, team string) error
+
+func (t *TeamCoordinator) EnqueueWorker(ctx context.Context, lead, team, worker, scope string, claims []hub.ResourceClaim) (hub.WorkerTask, error)
+
 func (t *TeamCoordinator) Resume(ctx context.Context, lead, team, worker string) error
+
+func (t *TeamCoordinator) SetWorkerLifecycle(ctx context.Context, lead, team, worker string, state hub.WorkerLifecycle) error
 
 func (t *TeamCoordinator) Status(worker string) WorkerPumpStatus
 
@@ -659,9 +697,29 @@ func (t *TeamCoordinator) Stop(ctx context.Context, lead, team, worker string) e
 
 func (t *TeamCoordinator) StopExecution(ctx context.Context, lead, team, worker, executionID string) error
 
+func (t *TeamCoordinator) Team(ctx context.Context, lead, team string) (hub.TeamDetail, error)
+
+func (t *TeamCoordinator) TeamForLead(ctx context.Context, lead string) (hub.TeamDetail, error)
+
+func (t *TeamCoordinator) WorkerTasks(ctx context.Context, lead, team, worker string, after uint64, limit int) (hub.WorkerTaskPage, error)
+
 func (t *TeamTool) DescribeEffect(call wire.ToolCall) abi.Effect
 
 func (t *TeamTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
+
+func (t *TurnService) Active(id string) (executionID string, active bool)
+
+func (t *TurnService) AnyActive() bool
+
+func (t *TurnService) Engine(id string) (engine.Description, bool)
+
+func (t *TurnService) Engines() []engine.Description
+
+func (t *TurnService) Send(ctx context.Context, id, prompt string, references []DraftReferenceSelection) (TurnStart, error)
+
+func (t *TurnService) Start(owner context.Context, id, prompt string) (TurnStart, error)
+
+func (t *TurnService) Stop(ctx context.Context, id, executionID string) error
 
 func (t TraceTarget) Child(step TraceStep) (TraceTarget, error)
 
@@ -1151,6 +1209,17 @@ import (
 	"errors"
 
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/QuincySx/Alva/apps/hub"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -1439,6 +1508,12 @@ import (
 import (
 	"context"
 
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+
 	mediaextension "github.com/QuincySx/Alva/extension/media"
 	"github.com/QuincySx/Alva/platform/storage"
 )
@@ -1694,6 +1769,9 @@ type ConnectionsService struct {
 type ContextService struct {
 }
 
+type ConversationService struct {
+}
+
 type ConversationTabsService struct {
 }
 
@@ -1794,6 +1872,9 @@ type HubService struct {
 	Settings *SettingsService
 
 	Context *ContextService
+
+	Conversations *ConversationService
+	Turns         *TurnService
 }
 
 type InspectorExport struct {
@@ -2101,6 +2182,15 @@ type TranscriptStore interface {
 }
 
 type TranscriptWindow struct {
+}
+
+type TurnService struct {
+}
+
+type TurnStart struct {
+	TurnID      string
+	ExecutionID string
+	Done        <-chan error
 }
 
 type WaitResolution struct {

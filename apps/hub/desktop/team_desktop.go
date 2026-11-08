@@ -52,7 +52,7 @@ func (p *NativePage) loadTeam() {
 	lead := p.teamLead
 	p.paneBusy = true
 	go func() {
-		d, err := p.Service.Teams.Store.TeamForLead(p.ctx, lead)
+		d, err := p.Service.Teams.TeamForLead(p.ctx, lead)
 		p.dispatch(func() {
 			p.paneBusy = false
 			if p.teamLead != lead || p.pane != "team" {
@@ -85,7 +85,7 @@ func (p *NativePage) loadWorkerTasks(worker string, after uint64) {
 	}
 	p.paneBusy = true
 	go func() {
-		page, err := p.Service.Teams.Store.WorkerTasks(p.ctx, lead, team, worker, after, 8)
+		page, err := p.Service.Teams.WorkerTasks(p.ctx, lead, team, worker, after, 8)
 		p.dispatch(func() {
 			p.paneBusy = false
 			if p.teamLead != lead || p.team.Team.ID != team || p.pane != "team" {
@@ -124,14 +124,14 @@ func (p *NativePage) teamAction(action, id string) {
 		var err error
 		switch action {
 		case "create":
-			_, err = p.Service.Teams.Store.CreateTeam(p.ctx, lead)
+			_, err = p.Service.Teams.CreateTeam(p.ctx, lead)
 		case "add":
 			_, err = p.Service.AddWorker(p.ctx, lead, team, name, target, true)
 		case "enqueue":
 			if edit != "" {
-				err = p.Service.Teams.Store.EditQueuedTask(p.ctx, lead, team, worker, edit, draft, claims)
+				err = p.Service.Teams.EditQueuedTask(p.ctx, lead, team, worker, edit, draft, claims)
 			} else {
-				_, err = p.Service.Teams.Store.EnqueueWorker(p.ctx, lead, team, worker, draft, claims)
+				_, err = p.Service.Teams.EnqueueWorker(p.ctx, lead, team, worker, draft, claims)
 			}
 		case "resume":
 			err = p.Service.Teams.Resume(p.ctx, lead, team, worker)
@@ -140,11 +140,11 @@ func (p *NativePage) teamAction(action, id string) {
 			defer cancel()
 			err = p.Service.Teams.Stop(ctx, lead, team, worker)
 		case "cancel":
-			err = p.Service.Teams.Store.CancelQueuedTask(p.ctx, lead, team, worker, id)
+			err = p.Service.Teams.CancelQueuedTask(p.ctx, lead, team, worker, id)
 		case "active", "hibernated", "archived":
-			err = p.Service.Teams.Store.SetWorkerLifecycle(p.ctx, lead, team, worker, hub.WorkerLifecycle(action))
+			err = p.Service.Teams.SetWorkerLifecycle(p.ctx, lead, team, worker, hub.WorkerLifecycle(action))
 		case "end":
-			err = p.Service.Teams.Store.EndTeam(p.ctx, lead, team)
+			err = p.Service.Teams.EndTeam(p.ctx, lead, team)
 		default:
 			err = errors.New("unknown Team action")
 		}

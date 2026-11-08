@@ -232,28 +232,28 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 		}
 	}
 	if *list {
-		page, err := app.Store.PageSessions(ctx, "", hub.SessionCursor{}, 64)
+		page, err := app.Service.Conversations.Page(ctx, "", hub.SessionCursor{}, 64)
 		if err != nil {
 			return err
 		}
 		return writeJSON(ctx, output, page)
 	}
 	if *history {
-		page, err := app.Store.History(ctx, *selected, *after, 128)
+		page, err := app.Service.Conversations.History(ctx, *selected, *after, 128)
 		if err != nil {
 			return err
 		}
 		return writeJSON(ctx, output, page)
 	}
 	if *handoff != "" {
-		value, err := app.Store.ReadHandoff(ctx, *selected, *handoff)
+		value, err := app.Service.Conversations.Handoff(ctx, *selected, *handoff)
 		if err != nil {
 			return err
 		}
 		return writeJSON(ctx, output, value)
 	}
 	if c.session != "" {
-		detail, err := app.Store.Detail(ctx, c.session)
+		detail, err := app.Service.Conversations.Detail(ctx, c.session)
 		if err != nil {
 			return err
 		}
@@ -336,7 +336,7 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 func (c *cli) switchEngine(ctx context.Context, name string) error {
 	for _, target := range c.app.Targets {
 		if target.EngineID == name {
-			_, err := c.app.Store.Switch(ctx, c.session, target, "Explicit Hub CLI engine selection")
+			_, err := c.app.Service.SwitchTarget(ctx, c.session, target, "Explicit Hub CLI engine selection")
 			return err
 		}
 	}
@@ -361,7 +361,7 @@ func (c *cli) command(ctx context.Context, line string) error {
 		if len(parts) != 1 {
 			return errors.New("/sessions takes no arguments")
 		}
-		page, err := c.app.Store.PageSessions(ctx, "", hub.SessionCursor{}, 64)
+		page, err := c.app.Service.Conversations.Page(ctx, "", hub.SessionCursor{}, 64)
 		if err != nil {
 			return err
 		}
@@ -383,7 +383,7 @@ func (c *cli) command(ctx context.Context, line string) error {
 			}
 			after = value
 		}
-		page, err := c.app.Store.History(ctx, c.session, after, 128)
+		page, err := c.app.Service.Conversations.History(ctx, c.session, after, 128)
 		if err != nil {
 			return err
 		}

@@ -151,7 +151,7 @@ func (p *NativePage) loadWorkspaceSearchTarget(target workspacePageRequest[hub.S
 		defer cancel()
 		trace.log("store-start", "cancelled_at_start", ctx.Err() != nil)
 		storeStarted := time.Now()
-		page, err := p.Service.Store.PageSessions(ctx, query, cursor, workspaceSearchPageSize)
+		page, err := p.Service.Conversations.Page(ctx, query, cursor, workspaceSearchPageSize)
 		trace.log("store-done", "store_ms", time.Since(storeStarted).Milliseconds(),
 			"err", err != nil, "result_count", len(page.Sessions))
 		if ctx.Err() != nil {

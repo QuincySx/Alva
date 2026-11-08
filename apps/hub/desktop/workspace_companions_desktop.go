@@ -849,7 +849,7 @@ func (p *NativePage) buildWorkspaceCompanionGroupEditor(c *ui.Context) {
 func (p *NativePage) buildWorkspaceCompanionChat(c *ui.Context) {
 	v := &p.companions
 	id := p.selected
-	executionID, _ := p.Service.Runtime.ActiveExecution(id)
+	executionID, _ := p.Service.Turns.Active(id)
 	if v.profile.Deleted {
 		if v.conversation.SessionID == "" {
 			ui.Text(c, "此伙伴没有已保存的私聊记录")

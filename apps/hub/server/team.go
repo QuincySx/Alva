@@ -21,13 +21,13 @@ func (s *Server) team(w http.ResponseWriter, r *http.Request, lead string) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		value, err := s.service.Teams.Store.TeamForLead(r.Context(), lead)
+		value, err := s.service.Teams.TeamForLead(r.Context(), lead)
 		reply(w, value, err)
 	case http.MethodPost:
 		if !emptyPost(w, r) {
 			return
 		}
-		value, err := s.service.Teams.Store.CreateTeam(r.Context(), lead)
+		value, err := s.service.Teams.CreateTeam(r.Context(), lead)
 		if err != nil {
 			operationError(w, err)
 			return
@@ -46,7 +46,7 @@ func (s *Server) teamResource(w http.ResponseWriter, r *http.Request, lead strin
 	team := parts[0]
 	// Validate ownership even for read-only status and malformed subresources.
 	// A worker ID must never select or start a different Lead's Team.
-	detail, err := s.service.Teams.Store.Team(r.Context(), lead, team)
+	detail, err := s.service.Teams.Team(r.Context(), lead, team)
 	if err != nil {
 		operationError(w, err)
 		return
@@ -67,7 +67,7 @@ func (s *Server) teamResource(w http.ResponseWriter, r *http.Request, lead strin
 		if !emptyPost(w, r) {
 			return
 		}
-		reply(w, map[string]bool{"saved": true}, s.service.Teams.Store.EndTeam(r.Context(), lead, team))
+		reply(w, map[string]bool{"saved": true}, s.service.Teams.EndTeam(r.Context(), lead, team))
 		return
 	}
 	if parts[1] != "workers" {
@@ -162,7 +162,7 @@ func (s *Server) teamResource(w http.ResponseWriter, r *http.Request, lead strin
 			if !decode(w, r, &v, 1024) {
 				return
 			}
-			reply(w, map[string]bool{"saved": true}, s.service.Teams.Store.SetWorkerLifecycle(r.Context(), lead, team, worker, v.State))
+			reply(w, map[string]bool{"saved": true}, s.service.Teams.SetWorkerLifecycle(r.Context(), lead, team, worker, v.State))
 			return
 		case "tasks":
 			s.workerTasks(w, r, lead, team, worker, "")
@@ -193,7 +193,7 @@ func (s *Server) workerTasks(w http.ResponseWriter, r *http.Request, lead, team,
 			fail(w, 400)
 			return
 		}
-		value, err := s.service.Teams.Store.WorkerTasks(r.Context(), lead, team, worker, uint64(after), int(limit))
+		value, err := s.service.Teams.WorkerTasks(r.Context(), lead, team, worker, uint64(after), int(limit))
 		reply(w, value, err)
 		return
 	}
@@ -202,7 +202,7 @@ func (s *Server) workerTasks(w http.ResponseWriter, r *http.Request, lead, team,
 		return
 	}
 	if r.Method == http.MethodDelete && task != "" {
-		reply(w, map[string]bool{"saved": true}, s.service.Teams.Store.CancelQueuedTask(r.Context(), lead, team, worker, task))
+		reply(w, map[string]bool{"saved": true}, s.service.Teams.CancelQueuedTask(r.Context(), lead, team, worker, task))
 		return
 	}
 	if (r.Method != http.MethodPost || task != "") && (r.Method != http.MethodPut || task == "") {
@@ -222,7 +222,7 @@ func (s *Server) workerTasks(w http.ResponseWriter, r *http.Request, lead, team,
 			fail(w, 400)
 			return
 		}
-		reply(w, map[string]bool{"saved": true}, s.service.Teams.Store.EditQueuedTask(r.Context(), lead, team, worker, task, v.Scope, v.Claims))
+		reply(w, map[string]bool{"saved": true}, s.service.Teams.EditQueuedTask(r.Context(), lead, team, worker, task, v.Scope, v.Claims))
 		return
 	}
 	if len(v.References) != 0 {
@@ -234,7 +234,7 @@ func (s *Server) workerTasks(w http.ResponseWriter, r *http.Request, lead, team,
 		respond(w, 201, value)
 		return
 	}
-	value, err := s.service.Teams.Store.EnqueueWorker(r.Context(), lead, team, worker, v.Scope, v.Claims)
+	value, err := s.service.Teams.EnqueueWorker(r.Context(), lead, team, worker, v.Scope, v.Claims)
 	if err != nil {
 		operationError(w, err)
 		return

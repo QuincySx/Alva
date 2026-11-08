@@ -42,7 +42,7 @@ type Server struct {
 }
 
 func New(service *product.HubService, config Config) (*Server, error) {
-	if service == nil || service.Store == nil || service.Runtime == nil || service.Repository == nil {
+	if service == nil || service.Conversations == nil || service.Turns == nil {
 		return nil, errors.New("shared assembled product service required")
 	}
 	if err := config.Validate(); err != nil {
@@ -121,7 +121,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400)
 			return
 		}
-		respond(w, 200, s.service.Runtime.EngineDescriptions())
+		respond(w, 200, s.service.Turns.Engines())
 		return
 	}
 	if r.URL.Path == "/v1/gateway" {
@@ -144,7 +144,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id := parts[2]
 	// Every session subresource first resolves the committed product identity.
 	// Neither an owner nor a native session ID may be chosen by the client.
-	if _, err := s.service.Store.Detail(r.Context(), id); err != nil {
+	if _, err := s.service.Conversations.Detail(r.Context(), id); err != nil {
 		operationError(w, err)
 		return
 	}
@@ -153,7 +153,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400)
 			return
 		}
-		detail, err := s.service.Store.Detail(r.Context(), id)
+		detail, err := s.service.Conversations.Detail(r.Context(), id)
 		reply(w, detail, err)
 		return
 	}
@@ -190,7 +190,7 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400)
 			return
 		}
-		page, err := s.service.Store.PageSessions(r.Context(), q.Get("q"), hub.SessionCursor{Updated: updated, ID: q.Get("cursor")}, int(limit))
+		page, err := s.service.Conversations.Page(r.Context(), q.Get("q"), hub.SessionCursor{Updated: updated, ID: q.Get("cursor")}, int(limit))
 		if err != nil {
 			operationError(w, err)
 			return
