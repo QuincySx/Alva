@@ -78,6 +78,7 @@ type NativePage struct {
 	transcriptTools                map[string]transcriptTool
 	toolBlocks                     workspaceToolBlocks
 	interactionCards               workspaceInteractionCards
+	charts                         *transcriptCharts
 	trace                          workspaceTraceState
 	sessions                       []hub.Session
 	sessionQuery                   string
@@ -190,7 +191,12 @@ func NewNativePage(service *product.HubService) *NativePage {
 	}
 	chat.Send = page.send
 	chat.Stop = page.stop
-	chat.RenderMessage = newWorkspaceTranscriptRenderer(page, markdownOptions)
+	// Only the Message Stream draws chart data blocks; the trace keeps its own
+	// options, so trace details (and exports) show the original text.
+	page.charts = newTranscriptCharts()
+	transcriptOptions := modules.NewRegistry().Options()
+	transcriptOptions.Code["chart"] = page.charts.render
+	chat.RenderMessage = newWorkspaceTranscriptRenderer(page, transcriptOptions)
 	page.observeGateway()
 	return page
 }

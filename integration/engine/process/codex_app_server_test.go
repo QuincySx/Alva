@@ -117,6 +117,9 @@ func TestCodexAppServerFixtureProcess(t *testing.T) {
 			}
 			var params map[string]any
 			json.Unmarshal(frame.Params, &params)
+			if path := os.Getenv("ALVA_CODEX_THREAD_PARAMS_FILE"); path != "" {
+				_ = os.WriteFile(path, frame.Params, 0600)
+			}
 			cwd, _ := os.Getwd()
 			if params["cwd"] != cwd || params["sandbox"] != "workspace-write" || params["approvalPolicy"] != "on-request" {
 				os.Exit(94)

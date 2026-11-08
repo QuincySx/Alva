@@ -1,4 +1,4 @@
-// INPUT: Product TranscriptWindow content blocks, typed native references and the trace view's jump entry.
+// INPUT: Product TranscriptWindow content blocks, typed native references, the trace view's jump entry and the page's chart block hook.
 // OUTPUT: Block-to-row projection (pending requests bound in), scroll-driven paging, reply columns, copy actions, interaction cards, usage lines and tool blocks that open their trace step or child session record.
 // POS: [L7 Hub UI] Keeps product presentation and tool details separate from shared scrolling and Markdown; never model context.
 //go:build desktop
@@ -254,7 +254,9 @@ func (p *NativePage) buildWorkspaceTranscriptMessage(c *ui.Context, row view.Mes
 					})
 				}
 			})
-			buildWorkspaceTranscriptMarkdown(c, row, options)
+			p.charts.scope(binding.session, row.ID, row.Text, row.Status == view.Running || row.Status == view.Stopping, func() {
+				buildWorkspaceTranscriptMarkdown(c, row, options)
+			})
 			if p.transcriptBlocks[row.ID].Truncated {
 				ui.Text(c, "内容较长，这里只显示开头部分；完整内容保存在原始记录中。").Label("Message truncated " + row.ID).
 					FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted)

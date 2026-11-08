@@ -20,9 +20,9 @@ Adapter.New不创建engine.sqlite，缺失Bindings在IO前拒绝；上层成功�
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
-| adapter.go | 显式程序/argv/env、owned I/O生命周期、私有日志与终态；print/exec传输发出工具事件前与app-server/RPC同样脱敏Input与Display |
+| adapter.go | 显式程序/argv/env、owned I/O生命周期、私有日志与终态；print/exec传输发出工具事件前与app-server/RPC同样脱敏Input与Display；可选ProductInstructions（≤4KiB UTF-8，装配方固定的产品呈现说明）只走经源码确认为「追加、不替换用户配置」的通道：仅Claude合并进单个--append-system-prompt并排在请求SystemPrompt之后；Codex/Pi的可用通道会替换用户配置，故完全不注入（照常运行，只是不会画图）；不读取用户配置判断、不重做引擎配置发现，也不放宽Codex/Pi对请求SystemPrompt的unsupported |
 | descriptor.go | 独立保守能力声明；不把CLI安全flag冒充等价权限profile，Claude真实append-system-prompt/max-turns，Codex/Pi明确拒绝，不声明native Inspector/provider headers/fast mode |
-| codex_app_server.go | 显式app-server握手/thread/turn与owner/cwd绑定；启动前有界流式重验原件/派生大小/SHA/文件身份及选中Skill，不把路径或Prompt当授权；配置隔离与interrupt/真实join |
+| codex_app_server.go | 显式app-server握手/thread/turn与owner/cwd绑定；不发送developerInstructions（会替换用户config.toml的同名配置）；启动前有界流式重验原件/派生大小/SHA/文件身份及选中Skill，不把路径或Prompt当授权；配置隔离与interrupt/真实join |
 | codex_rpc.go | 双向JSON-RPC stdio、有界framing/backlog/请求关联、失败清理及禁止自动重放 |
 | codex_events.go | 原生item/tool/result（含item类型Display，与Text/Input同经脱敏）与approval/question独立映射（审批带所请求item的Display）、pending/resolved关联和native policy校验；本适配器转发的决定/回答在发送前有界记下（回答只保留选中的提供选项，自由文本/秘密只记已回答），resolved时作为Resolution逐值脱敏发出，失败降级为无Resolution而不中止运行；app-server用量读tokenUsage.last.cachedInputTokens；超60KiB最终消息保留UTF-8前缀、Truncated与journal引用；人类答案正文不入journal |
 | codex_environment.go / codex_environment_test.go | app-server专用本机环境合并、终端默认值、代理去重及已知敏感键快照；不读取真实配置/认证/信任文件 |
@@ -43,6 +43,7 @@ Adapter.New不创建engine.sqlite，缺失Bindings在IO前拒绝；上层成功�
 | private_other.go / private_windows.go | Pi文件的Unix权限/Windows DACL与SameFile检查；Windows USERPROFILE/AppData/TEMP显式绑定私有home，拒绝大小写profile override |
 | adapter_test.go | 三vendor用量缓存计数（报告/0/缺失/不一致与Claude、Pi的加回，Pi全0与混合为未报告）、回答只留提供选项、凭据样问题ID/脱敏变长不中止且过契约、Pi任意形状回答不带正文，及三vendor真实本地fake子进程（print/exec传输的工具Input/Display按配置秘密脱敏且不留截断前缀）、配对/错误/取消、日志、header前取消的引用来源、精确resume授权与跨实例Pi恢复/foreign拒绝 |
 | profile_test.go | 明确配置目录验证/来源拒绝、真实本地child环境隔离及Codex fresh/resume只读参数回归；不读取账号 |
+| instructions_test.go | 自有helper子进程记录argv/首个thread帧：Claude逐字收到「会话SystemPrompt+空行+说明」；配置了说明的Codex exec/app-server（start与resume）及Pi print/RPC照常成功且没有任何--append-system-prompt、-c、developer_instructions/developerInstructions或说明文字；未配置时argv不变，配置过大/NUL/非UTF-8拒绝 |
 | claude_result_test.go | 仅本地fixture子进程验证success+is_error、冲突session与result后输出不能伪报成功；允许尾随纯通知 |
 
 Pi1.4.0对照[官方固定revision](https://github.com/earendil-works/pi/tree/4a080252f06caf63a525d7873c5d94d3c23887e0/packages/coding-agent)的`src/cli/args.ts`、`src/main.ts`、`src/config.ts`、`src/modes/print-mode.ts`、`docs/json.md`（2026-11-05）；getAgentDir优先显式PI_CODING_AGENT_DIR，否则为homedir/.pi/agent；Alva本身不读其内容。仓库已由badlogic/pi-mono迁至earendil-works/pi。fixture不冒充用户CLI/真实账号验收，后者须单独报告。
@@ -55,3 +56,4 @@ Codex app-server对照[官方协议文档](https://learn.chatgpt.com/docs/app-se
 实际wire枚举与必填字段以[openai/codex固定revision的generated v2 schema](https://github.com/openai/codex/tree/970111f6cb62cc02fe36a82ea7d71b37a2889c97/codex-rs/app-server-protocol/schema/typescript/v2)核对（2026-10-26）：AskForApproval、SandboxMode、SandboxPolicy、ThreadStartParams、ThreadResumeParams、TurnStartParams、UserInput与ToolRequestUserInputQuestion/Response；不把文档示例中的camelCase policy示意直接当wire枚举，不做失败后换拼写重试。
 2026-11-05复核本机codex-cli0.165.0对应[官方固定schema](https://github.com/openai/codex/tree/360319d8dee62d87e2d59fc0c21805d79519cfed/codex-rs/app-server-protocol/schema/typescript/v2)的ThreadStartParams、ThreadResumeParams与TurnStartParams，当前thread/turn请求字段仍适用；版本/源码核对不冒充已完成真实模型调用。
 app-server可能多路复用native child thread；非root通知仅进有界原生日志，不能改root身份/tool配对/终态，非root server request明确拒绝。此处不从native字符串推断产品typed child ancestry或审批授权；真实child交互中介尚未实现。
+ProductInstructions通道语义按源码核对（2026-11-08，未登录或调用模型）：Codex按[openai/codex rust-v0.166.0](https://github.com/openai/codex/tree/6ff1e1ca3b30fc8b914720681fcf5fe62e95f856/codex-rs)——app-server `thread_processor.rs: build_thread_config_overrides`把thread/start/resume的developerInstructions放进ConfigOverrides，`core/src/config/mod.rs: load_from_base_config_with_overrides`以`developer_instructions.or(cfg.developer_instructions)`取代config.toml；`-c`经`config/src/overrides.rs: build_cli_overrides_layer`与`config/src/merge.rs: merge_toml_values_at_path`对字符串整值覆盖——两者均为替换，不注入。Pi按本机1.5.0包：`dist/main.js`把--append-system-prompt传入`DefaultResourceLoader`，`dist/core/resource-loader.js: reload()`仅在未显式传入时才`discoverAppendSystemPromptFile()`（APPEND_SYSTEM.md）——显式即替换，不注入。Claude按本机Claude Code 2.1.319内置bundle：系统提示组装函数为`[...默认或自定义提示, ...append]`，CLAUDE.md经独立userContext加载、与append无关，CLI append与其他来源以换行合并——为追加，保留注入。

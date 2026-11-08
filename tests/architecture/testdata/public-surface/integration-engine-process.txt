@@ -257,4 +257,6 @@ type Config struct {
 	ApprovedHostAccess bool
 	Timeout            time.Duration
 	MaxJournalBytes    int64
+
+	ProductInstructions string
 }

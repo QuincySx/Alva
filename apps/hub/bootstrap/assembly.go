@@ -395,6 +395,9 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		teamTool := &product.TeamTool{Service: a.Service, ProductID: request.OwnerID, NativeID: nativeID, Guard: guard}
 		builder.Plugin(product.TeamPlugin{Tool: teamTool})
 		trustedTools = append(trustedTools, teamTool)
+		// The chart block format is a separate prompt part after the session's
+		// own SystemPrompt; it never uses that field or its 8 KiB budget.
+		builder.Plugin(product.ChartBlocksPlugin{})
 		if waits != nil {
 			plugins = append(plugins, waits)
 			trustedTools = append(trustedTools, waits.Tool())
@@ -724,7 +727,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		if storage.Missing(bindings) {
 			return nil, errors.New("binding factory returned a missing or typed-nil provider")
 		}
-		adapter, err := vendorengine.New(vendorengine.Config{Bindings: bindings, Vendor: entry.Vendor, Command: entry.Command, PrefixArgs: entry.PrefixArgs, Env: entry.Env, StateDirectory: stateDirectory, CLIConfigDirectory: entry.CLIConfigDirectory, ApprovedHostAccess: entry.ApprovedHostAccess, Transport: entry.Transport, CodexSandbox: entry.CodexSandbox, CodexApprovalPolicy: entry.CodexApprovalPolicy})
+		adapter, err := vendorengine.New(vendorengine.Config{Bindings: bindings, Vendor: entry.Vendor, Command: entry.Command, PrefixArgs: entry.PrefixArgs, Env: entry.Env, StateDirectory: stateDirectory, CLIConfigDirectory: entry.CLIConfigDirectory, ApprovedHostAccess: entry.ApprovedHostAccess, Transport: entry.Transport, CodexSandbox: entry.CodexSandbox, CodexApprovalPolicy: entry.CodexApprovalPolicy, ProductInstructions: product.ChartInstructions})
 		if err != nil {
 			return nil, err
 		}

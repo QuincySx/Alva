@@ -25,6 +25,7 @@ func TestVendorFixtureProcess(t *testing.T) {
 	if mode == "" {
 		return
 	}
+	recordFixtureArgv()
 	input, _ := io.ReadAll(os.Stdin)
 	fmt.Fprintln(os.Stderr, "fixture diagnostic marker-secret-12345")
 	if mode == "before-header" {

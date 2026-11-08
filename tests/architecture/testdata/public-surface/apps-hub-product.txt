@@ -21,6 +21,25 @@ const (
 )
 
 const (
+	ChartBar     ChartType = "bar"
+	ChartLine    ChartType = "line"
+	ChartArea    ChartType = "area"
+	ChartPie     ChartType = "pie"
+	ChartScatter ChartType = "scatter"
+)
+
+const (
+	ChartMaxBytes         = 32 << 10
+	ChartMaxSeries        = 8
+	ChartMaxCategories    = 100
+	ChartMaxLinePoints    = 2000
+	ChartMaxScatterPoints = 500
+	ChartMaxLabelBytes    = 80
+
+	ChartMaxMagnitude = 1e300
+)
+
+const (
 	ComposerCommandEntry ComposerEntryKind = "command"
 	ComposerSkillEntry   ComposerEntryKind = "skill"
 	ComposerGoalEntry    ComposerEntryKind = "goal"
@@ -74,6 +93,14 @@ const (
 	TraceStepChild TraceStepKind = "child"
 )
 
+const ChartInstructions = "Charts: when a chart clearly helps, put one JSON object in a fenced code block tagged chart. Example:\n" +
+	"```chart\n" +
+	`{"type":"line","title":"Sales","x":["Jan","Feb","Mar"],"series":[{"name":"A","data":[12,null,9]}],"unit":"k"}` + "\n" +
+	"```\n" +
+	"type: bar, line, area, pie or scatter. x lists labels or ascending numbers; each series data aligns with x, null marks a gap. " +
+	"pie: one series, non-negative values. scatter: no x; data is [[x,y],...]. Optional: title, unit, stacked (bar/area). " +
+	"Limits: 8 series, 100 bar/pie categories, 2000 line/area points, 500 scatter points, 80-byte labels, 32 KiB, |numbers| <= 1e300. Literal numbers only; no other fields."
+
 const ComposerIntentPlan ComposerIntent = "plan"
 
 const ManagedSkillDirectory = ".alva/skills"
@@ -95,6 +122,10 @@ func (*TeamTool) Name() string
 func (*TeamTool) ParametersSchema() json.RawMessage
 
 func (*TeamTool) Scheduling(wire.ToolCall) abi.Scheduling
+
+func (ChartBlocksPlugin) Name() string
+
+func (ChartBlocksPlugin) Register(_ context.Context, r *core.Registrar) error
 
 func (HistoryPlugin) Name() string
 
@@ -652,6 +683,8 @@ func NewTranscriptWindow(limitBytes int) *TranscriptWindow
 
 func NewWorkspaceViewsService(store hub.WorkspaceViewStore) (*WorkspaceViewsService, error)
 
+func ParseChart(source string) (Chart, error)
+
 func SelectedComposerFile(f hub.ComposerFile) ComposerFileSelection
 
 func StagePinnedAEP(ctx context.Context, entry hub.AEPBundle, parent string) (*loader.Bundle, error)
@@ -863,6 +896,20 @@ import (
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	"github.com/QuincySx/Alva/platform/system/strictjson"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/sdk/agent/core"
 )
 
 import (
@@ -1334,6 +1381,30 @@ type Block struct {
 type BlockKind string
 
 type BlockStatus string
+
+type Chart struct {
+	Type    ChartType
+	Title   string
+	Unit    string
+	Stacked bool
+
+	Labels []string
+
+	XValues []float64
+	Series  []ChartSeries
+}
+
+type ChartBlocksPlugin struct{}
+
+type ChartPoint struct{ X, Y float64 }
+
+type ChartSeries struct {
+	Name   string
+	Values []float64
+	Points []ChartPoint
+}
+
+type ChartType string
 
 type ChildHop struct {
 	LinkSequence uint64 `json:"link_sequence"`

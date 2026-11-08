@@ -33,10 +33,11 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 | session_model_wait_test.go | Waiting期间可编辑的下一Turn参数不改变原配方hash，真实重开续轮保持旧参数且新Turn应用新值 |
 | wait_crash_test.go | 杀死真实Hub续跑进程后unknown/no replay、过期拒绝及显式审阅Abandon |
 | plan_mode.go / plan_test.go / composer_checkpoint_test.go | 真实只读Guard配方、移除process/network可选集成而保留已存批准；实际模型拒写/Ask恢复和冻结checkpoint入口一致性回归 |
-| assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；HubService.Transcripts用实际产品store装配为窄消息流读取，HubService.Traces用同一store与该HubService的Inspector路由装配为窄轨迹读取；live仅构造cold Gateway与Developer，后者组合明确主/额外route与保存的Connections目标源；approved Git存在时追加DeveloperWorkspaces，ConversationTabs显式接收该owner（无Git为nil）使首Send能复验live worktree；Close先取消/join真实请求，依赖方ConversationTabs先于DeveloperWorkspaces关闭 |
+| assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；每次Alva装配追加product.ChartBlocksPlugin，外部adapter以ProductInstructions接收同一图表格式说明（装配期注入，不改engine.Request/会话SystemPrompt；adapter只在确认追加的通道送出，目前仅Claude，Codex/Pi不画图但照常运行）；HubService.Transcripts用实际产品store装配为窄消息流读取，HubService.Traces用同一store与该HubService的Inspector路由装配为窄轨迹读取；live仅构造cold Gateway与Developer，后者组合明确主/额外route与保存的Connections目标源；approved Git存在时追加DeveloperWorkspaces，ConversationTabs显式接收该owner（无Git为nil）使首Send能复验live worktree；Close先取消/join真实请求，依赖方ConversationTabs先于DeveloperWorkspaces关闭 |
 | tools.go | 六类可选Plugin真实装配（planning/interaction/utility 显式导入 native 适配，普通 Tool 根包不再绑定原生产品）、same-session问题broker、actual tool信任与Shell跨轮Session owner/attempt Lease与Web物理收尾 |
 | assembly_test.go | no-start、真实demo跨重启native resume、route绑定与未批准零副作用回归 |
 | external_profiles_test.go | 显式CLI配置canonical来源、冷启动/非法目录零存储、跨重开账号目录变化的旧route零进程；Codex/Pi实际resume在header前Stop的cancelled/保留native/同branch继续与产品重开历史回归 |
+| chart_prompt_test.go | 实际Alva factory→本地记录HTTP：请求体首条system消息先原样保留会话SystemPrompt（贴近8KiB上限）再追加ChartInstructions，无会话prompt时同样只出现一次 |
 | options_test.go | actual registered factory→local HTTP system role；opt-in请求轮数/系统prompt实际传给harness，不只改Descriptor |
 | generation_options_test.go | 保存模型默认值→Attempt→Runtime→harness→真实本地HTTP；温度/输出token/推理/system及工具后轮数限制 |
 | session_model_options_test.go | 保存当前会话覆盖→SQLite重开→真实HTTP；请求中修改不影响已发请求、下一Turn换新覆盖与清除恢复默认 |

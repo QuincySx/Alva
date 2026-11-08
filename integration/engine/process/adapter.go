@@ -1,5 +1,5 @@
 // INPUT: context, encoding/json, owned native/process, system/privatefs and engine
-// OUTPUT: Adapter for explicit Claude/Codex/Pi JSONL processes with bounded journals and optional approved CLI configuration
+// OUTPUT: Adapter for explicit Claude/Codex/Pi JSONL processes with bounded journals, optional approved CLI configuration and append-only product instructions
 // POS: [integration / native external-engine adapter] Explicit configuration ownership; only Codex app-server composes an approved native environment
 package process
 
@@ -50,6 +50,15 @@ type Config struct {
 	ApprovedHostAccess bool
 	Timeout            time.Duration
 	MaxJournalBytes    int64
+	// ProductInstructions is fixed assembly-owned presentation guidance (the
+	// chart data block format). It is delivered only through a native channel
+	// verified to append to, never replace, the user's own CLI configuration:
+	// Claude --append-system-prompt, after any request SystemPrompt. Codex
+	// developer instructions (-c or thread params) replace config.toml's
+	// developer_instructions and Pi's --append-system-prompt replaces its
+	// APPEND_SYSTEM.md discovery, so those vendors run without it. It is not a
+	// request option and never counts against the request SystemPrompt budget.
+	ProductInstructions string
 }
 type Adapter struct {
 	config      Config
@@ -113,6 +122,9 @@ func New(config Config) (*Adapter, error) {
 	}
 	if config.MaxJournalBytes < 4096 || config.MaxJournalBytes > 64<<20 {
 		return nil, errors.New("engine journal budget must be 4 KiB..64 MiB")
+	}
+	if len(config.ProductInstructions) > 4<<10 || !utf8.ValidString(config.ProductInstructions) || strings.ContainsRune(config.ProductInstructions, '\x00') {
+		return nil, errors.New("product instructions must be at most 4 KiB of UTF-8 text")
 	}
 	config.PrefixArgs = append([]string(nil), config.PrefixArgs...)
 	env := make(map[string]string)
@@ -193,6 +205,20 @@ func (a *Adapter) Cancel(ctx context.Context, id string) error {
 	cancel()
 	return nil
 }
+
+// appendedSystemPrompt keeps the request's own SystemPrompt first and intact.
+// Only Claude uses it: its append flag adds after the default prompt while
+// CLAUDE.md and settings stay in their own context.
+func (a *Adapter) appendedSystemPrompt(request engine.Request) string {
+	switch {
+	case a.config.ProductInstructions == "":
+		return request.SystemPrompt
+	case request.SystemPrompt == "":
+		return a.config.ProductInstructions
+	}
+	return request.SystemPrompt + "\n\n" + a.config.ProductInstructions
+}
+
 func (a *Adapter) args(request engine.Request, runID string) ([]string, error) {
 	if err := request.Generation.Validate(); err != nil {
 		return nil, err
@@ -226,8 +252,8 @@ func (a *Adapter) args(request engine.Request, runID string) ([]string, error) {
 		args = append(args, "-")
 	case "claude":
 		args = append(args, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--safe-mode", "--include-partial-messages")
-		if request.SystemPrompt != "" {
-			args = append(args, "--append-system-prompt", request.SystemPrompt)
+		if prompt := a.appendedSystemPrompt(request); prompt != "" {
+			args = append(args, "--append-system-prompt", prompt)
 		}
 		if request.MaxTurns != 0 {
 			args = append(args, "--max-turns", strconv.Itoa(request.MaxTurns))

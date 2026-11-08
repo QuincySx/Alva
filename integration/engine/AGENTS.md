@@ -23,7 +23,7 @@ DurableWaits能力必须由实际factory声明；Completed(waiting)只在Session
 | inspector.go | stdlib-only检查契约：bounded向前/向后metadata（Next/HasMore恒为向前含义，Before/HasEarlier只由向后页设置）、RequestID/RunID/CallID/Status与工具起止时间、BackwardPages能力声明（未声明者可能忽略Before，消费者不得向后翻页）、text/typed child/背压观察/显式JSONL，不含执行或删除 |
 | contract_test.go | stream终态/配对、字段身份、typed event与Truncated归属边界回归；工具参数16KiB/文本64KiB事件上限；用量缓存未报告/报告0/累加/混合视为未报告/超过输入被拒；Resolution归属与按kind/上限校验；Wait.Calls边界 |
 | alva | 消费完整 L5 harness/SDK 的 Alva 产品桥接，不是轻契约或 SDK 包 |
-| process | 按 Vendor 分派 Claude/Codex/Pi 的共享原生 JSONL adapter；显式CLI配置与私有HOME分别保留；Claude结果失败/身份/尾随帧仅fixture验证，不调用真实账号；不冒充三个独立 package |
+| process | 按 Vendor 分派 Claude/Codex/Pi 的共享原生 JSONL adapter；装配期ProductInstructions只走经源码确认为追加的原生通道（目前仅Claude），Codex/Pi不注入，不经Request；显式CLI配置与私有HOME分别保留；Claude结果失败/身份/尾随帧仅fixture验证，不调用真实账号；不冒充三个独立 package |
 | input_files.go / input_skills.go | 显式已捕获文件及所选Skill的stdlib DTO/校验/复制；不读文件、不发现配置或授予目录权限 |
 
 Request.RetainWorkspace is an optional nonserialized trusted host capability: native ToolControl adapters may extend the actual admitted workspace lease for explicitly application-owned background resources, releasing only after physical reap. It grants no tool permission; sealed attempts reject late retention. Opaque external engines do not receive it.

@@ -26,6 +26,7 @@ func TestPiRPCFixtureProcess(t *testing.T) {
 	if mode == "" {
 		return
 	}
+	recordFixtureArgv()
 	arg := func(flag string) string {
 		for i, value := range os.Args {
 			if value == flag && i+1 < len(os.Args) {
