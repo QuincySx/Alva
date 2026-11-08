@@ -1,5 +1,5 @@
-// INPUT: Explicit Codex app-server configuration, engine requests and owned processes
-// OUTPUT: Verified captured inputs, initialized thread/turn execution, interrupt-and-join cancellation and native completion
+// INPUT: Explicit Codex app-server configuration, engine requests (optional Fork of a bound source thread) and owned processes
+// OUTPUT: Verified captured inputs, initialized thread start/resume/fork and turn execution, steering window, interrupt-and-join cancellation and native completion
 // POS: [integration / native external-engine adapter] Local CLI configuration stays CLI-owned; no login or token access is performed
 package process
 
@@ -74,6 +74,14 @@ func (a *Adapter) executeCodexAppServer(parent context.Context, request engine.R
 			return err
 		}
 	}
+	if request.Fork != nil {
+		// Only a source thread already bound to this owner/cwd can be copied.
+		source := request
+		source.ResumeSession = request.Fork.Session
+		if err := a.authorizeResume(parent, source); err != nil {
+			return err
+		}
+	}
 	var identity [16]byte
 	if _, err := rand.Read(identity[:]); err != nil {
 		return err
@@ -111,9 +119,10 @@ func (a *Adapter) executeCodexAppServer(parent context.Context, request engine.R
 		}
 		return sink(event)
 	}
-	run := &codexRun{cancel: cancel, done: make(chan struct{}), session: request.ResumeSession, journalURI: "engine-journal://" + runID, pending: make(map[string]codexPending), seen: make(map[string]string), cleared: make(map[string]bool), tools: make(map[string]string), items: make(map[string]string), emit: emit}
+	run := &codexRun{ctx: ctx, cancel: cancel, done: make(chan struct{}), session: request.ResumeSession, journalURI: "engine-journal://" + runID, pending: make(map[string]codexPending), seen: make(map[string]string), cleared: make(map[string]bool), tools: make(map[string]string), items: make(map[string]string), emit: emit}
 	defer close(run.done)
 	defer run.clearStreams()
+	defer run.closeSteering()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -219,6 +228,16 @@ func (a *Adapter) executeCodexAppServer(parent context.Context, request engine.R
 		threadParams["threadId"] = request.ResumeSession
 		threadParams["excludeTurns"] = true
 	}
+	if request.Fork != nil {
+		// thread/fork copies the stored source into a new thread and leaves the
+		// source unchanged; the prompt then runs only on the new thread.
+		method = "thread/fork"
+		threadParams["threadId"] = request.Fork.Session
+		threadParams["excludeTurns"] = true
+		if runErr == nil {
+			runErr = codexForkCut(ctx, rpc, request.Fork, threadParams)
+		}
+	}
 	var thread struct {
 		Thread struct {
 			ID  string `json:"id"`
@@ -230,6 +249,9 @@ func (a *Adapter) executeCodexAppServer(parent context.Context, request engine.R
 	}
 	if runErr == nil && (!nativeID.MatchString(thread.Thread.ID) || !codexThreadCwdMatches(thread.Thread.Cwd, request.Workspace)) {
 		runErr = errors.New("Codex returned an invalid thread identity or changed cwd")
+	}
+	if runErr == nil && request.Fork != nil && thread.Thread.ID == request.Fork.Session {
+		runErr = errors.New("Codex fork did not create a new thread")
 	}
 	if runErr == nil {
 		runErr = a.bindNative(ctx, request, thread.Thread.ID)
@@ -286,6 +308,8 @@ func (a *Adapter) executeCodexAppServer(parent context.Context, request engine.R
 		} else {
 			run.mu.Lock()
 			run.turnID = turn.Turn.ID
+			// turn/steer needs the active turn id; it is known only now.
+			run.steerOpen = true
 			run.mu.Unlock()
 		}
 	}

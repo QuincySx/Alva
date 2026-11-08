@@ -20,11 +20,13 @@ Adapter.New不创建engine.sqlite，缺失Bindings在IO前拒绝；上层成功�
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
-| adapter.go | 显式程序/argv/env、owned I/O生命周期、私有日志与终态；print/exec传输发出工具事件前与app-server/RPC同样脱敏Input与Display；可选ProductInstructions（≤4KiB UTF-8，装配方固定的产品呈现说明）只走经源码确认为「追加、不替换用户配置」的通道：仅Claude合并进单个--append-system-prompt并排在请求SystemPrompt之后；Codex/Pi的可用通道会替换用户配置，故完全不注入（照常运行，只是不会画图）；不读取用户配置判断、不重做引擎配置发现，也不放宽Codex/Pi对请求SystemPrompt的unsupported |
+| adapter.go | 显式程序/argv/env、owned I/O生命周期、私有日志与终态；print/exec传输发出工具事件前与app-server/RPC同样脱敏Input与Display；可选ProductInstructions（≤4KiB UTF-8，装配方固定的产品呈现说明）只走经源码确认为「追加、不替换用户配置」的通道：仅Claude合并进单个--append-system-prompt并排在请求SystemPrompt之后；Codex/Pi的可用通道会替换用户配置，故完全不注入（照常运行，只是不会画图）；不读取用户配置判断、不重做引擎配置发现，也不放宽Codex/Pi对请求SystemPrompt的unsupported；Capabilities只对经fake子进程端到端验证的传输声明Interjection（app-server与rpc）和Fork（仅app-server）；Execute入口先拒Fork+ResumeSession与无已验证分叉的传输（ErrUnsupported），均在日志/绑定/进程之前 |
+| conversation_ops.go | Interject：先校验Interjection，exec/print为ErrUnsupported，无可插话的运行中执行为ErrSessionNotFound；路由到拥有该native会话的run，用其原连接发送（写由run context拥有，调用方context只限定等待），每run最多16条待送/64个身份且拒重复；Codex turn/steer{threadId,expectedTurnId,clientUserMessageId=插话ID,input[text]}，只有带该clientId的userMessage item才发InputDelivered；Pi steer{message}要求disposition=queued并串行发送，prompt自身首条role=user消息不算回执，之后按队列顺序取首个同文本待送项（更早未匹配项视为未入队），agent_settled/turn完成后关闭窗口、未送达不发任何事件；Codex分叉经只读thread/turns/list（desc、notLoaded、分页）取turn id，保留更早turn用稳定lastTurnId，全部丢弃才用实验beforeTurnId，turn不足则失败不分叉；Pi分叉不声明（steer消息与prompt在fork列表中不可区分，且Pi新建会话文件不满足私有文件权限） |
+| conversation_ops_test.go | 自有Codex/Pi helper子进程逐字断言turn/steer、steer、thread/turns/list（含cursor分页）、thread/fork（lastTurnId/beforeTurnId/不裁剪）帧；回执只在送达证据处且位于工具结束后、答复前，未送达/外来clientId/prompt回显不产生回执，Pi多条按FIFO；无运行中执行或执行结束后为ErrSessionNotFound，重复ID拒绝；分叉的SessionStarted为新thread、源绑定不变、新thread绑定owner/cwd、源从不被resume/start/turn；未绑定源/Fork+Resume零副作用拒绝，turn不足失败；exec与Pi分叉ErrUnsupported |
 | descriptor.go | 独立保守能力声明；不把CLI安全flag冒充等价权限profile，Claude真实append-system-prompt/max-turns，Codex/Pi明确拒绝，不声明native Inspector/provider headers/fast mode |
-| codex_app_server.go | 显式app-server握手/thread/turn与owner/cwd绑定；不发送developerInstructions（会替换用户config.toml的同名配置）；启动前有界流式重验原件/派生大小/SHA/文件身份及选中Skill，不把路径或Prompt当授权；配置隔离与interrupt/真实join |
-| codex_rpc.go | 双向JSON-RPC stdio、有界framing/backlog/请求关联、失败清理及禁止自动重放 |
-| codex_events.go | 原生item/tool/result（含item类型Display，与Text/Input同经脱敏）与approval/question独立映射（审批带所请求item的Display）、pending/resolved关联和native policy校验；本适配器转发的决定/回答在发送前有界记下（回答只保留选中的提供选项，自由文本/秘密只记已回答），resolved时作为Resolution逐值脱敏发出，失败降级为无Resolution而不中止运行；app-server用量读tokenUsage.last.cachedInputTokens；同一帧带 tokenUsage.modelContextWindow（app-server v2 schema，按 codex-cli 0.166.0 核对）时另发 ContextUpdated 实测用量与 Codex 自报窗口，缺窗口不报告、不估算；Claude/Pi 不发上下文报告；超60KiB最终消息保留UTF-8前缀、Truncated与journal引用；人类答案正文不入journal |
+| codex_app_server.go | 显式app-server握手/thread/turn与owner/cwd绑定；不发送developerInstructions（会替换用户config.toml的同名配置）；启动前有界流式重验原件/派生大小/SHA/文件身份及选中Skill，不把路径或Prompt当授权；配置隔离与interrupt/真实join；Request.Fork先核对源thread的owner/cwd绑定，再按裁剪点thread/fork（excludeTurns，源不变）并要求新id，新thread绑定后才SessionStarted与turn/start；turn/start返回活跃turn后才开放插话窗口 |
+| codex_rpc.go | 双向JSON-RPC stdio、有界framing/backlog/请求关联、失败清理及禁止自动重放；callUntil把写入context与等待context分开，供run外调用方插话 |
+| codex_events.go | 原生item/tool/result（含item类型Display，与Text/Input同经脱敏）与approval/question独立映射（审批带所请求item的Display）、pending/resolved关联和native policy校验；本适配器转发的决定/回答在发送前有界记下（回答只保留选中的提供选项，自由文本/秘密只记已回答），resolved时作为Resolution逐值脱敏发出，失败降级为无Resolution而不中止运行；app-server用量读tokenUsage.last.cachedInputTokens；同一帧带 tokenUsage.modelContextWindow（app-server v2 schema，按 codex-cli 0.166.0 核对）时另发 ContextUpdated 实测用量与 Codex 自报窗口，缺窗口不报告、不估算；Claude/Pi 不发上下文报告；超60KiB最终消息保留UTF-8前缀、Truncated与journal引用；人类答案正文不入journal；userMessage item的clientId匹配本run待送插话时发InputDelivered（回显产品原文，非native输出），turn/completed关闭插话窗口 |
 | codex_environment.go / codex_environment_test.go | app-server专用本机环境合并、终端默认值、代理去重及已知敏感键快照；不读取真实配置/认证/信任文件 |
 | codex_output.go | run-local有界跨片literal脱敏和完整native日志可恢复性；与人类秘密答案的严格省略区分，回归见codex_environment_test.go |
 | codex_app_server_test.go | 仅owned helper process验证双向审批（resolved带转发的允许、秘密答案只记已回答、审批带Display）/连续秘密问题/迟到响应、native身份、帧错误、真实interrupt/exit、日志及有界native政策；超限最终消息截断前缀回归 |
@@ -35,8 +37,8 @@ Adapter.New不创建engine.sqlite，缺失Bindings在IO前拒绝；上层成功�
 | selected_files.go | Codex/Pi共用的明确选中文件流式SHA/大小/SameFile重验，不新增文件权限 |
 | pi_events_test.go / pi_files_test.go | Pi1.4 settled/overflow恢复、abort/length及零退出失败、已结束消息缓存零累计/活跃1MiB上限、typed图片argv/原件派生path index与真实工具事实回归；只用自有helper进程 |
 | pi_bridge.go | 固定内容SHA私有Pi extension；tool_call执行前独立批准、自由文本ask_user与run nonce ready，不开启其他extension发现 |
-| pi_connection.go / pi_connection_test.go | 独立Pi RPC命令关联；队列只持media省略后的投影，最多64条/合计8MiB，receive释放准确字节，response同受8MiB约束；显式64MiB framing与失败零重放 |
-| pi_rpc.go / pi_events.go | 精确native文件身份、ready前零prompt、typed输入、逐工具审批（带该调用的Display）与自由问答、run绑定响应（resolved带转发的决定；自由回答只记已回答、不带正文）、Stop撤销/abort/真实join和安全产品投影 |
+| pi_connection.go / pi_connection_test.go | 独立Pi RPC命令关联；队列只持media省略后的投影，最多64条/合计8MiB，receive释放准确字节，response同受8MiB约束；显式64MiB framing与失败零重放；callUntil把写入context与等待context分开 |
+| pi_rpc.go / pi_events.go | 精确native文件身份、ready前零prompt、typed输入、逐工具审批（带该调用的Display）与自由问答、run绑定响应（resolved带转发的决定；自由回答只记已回答、不带正文）、Stop撤销/abort/真实join和安全产品投影；prompt被接受为started后开放插话窗口，role=user的message_end交由插话匹配发InputDelivered，agent_settled即关闭 |
 | pi_rpc_test.go | 自有真实子进程验证批准前零写/拒绝零写（审批带Display、resolved带决定）、问答脱敏（resolved的回答只记已回答、无正文）、20KiB/80KiB完整安全答复和跨16/64KiB秘密、已发布delta不重复、missing bridge/foreign身份、迟到响应、Stop/重开恢复、大图片及大行读取消 |
 | pi_native_test.go | 仅显式ALVA_PI_TEST_NODE/SCRIPT启用真实已安装Pi+应用extension+localhost SSE fixture；真实agent-loop验证write拒绝/允许及ask_user回答回到下一模型请求，无真实账户/远程模型 |
 | sessions.go | 经共享BindingStore核对owner/cwd，Pi私有原生header与真实join后关闭所传组件 |

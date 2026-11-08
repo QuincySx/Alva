@@ -1,5 +1,5 @@
 // INPUT: Pi RPC bridge dialogs, typed native events and bound Hub responses
-// OUTPUT: Pre-execution permissions (with the call's display), free-text questions, exact pending-response correlation and relayed resolutions without answer bodies
+// OUTPUT: Pre-execution permissions (with the call's display), free-text questions, exact pending-response correlation, relayed resolutions without answer bodies and InputDelivered for delivered role=user steers
 // POS: [integration / native external-engine adapter] A native dialog authorizes one exact tool call and is separate from tool execution facts
 package process
 
@@ -45,6 +45,13 @@ type piRun struct {
 	seen           map[string]bool
 	resolutions    chan piResolution
 	stopping       bool
+	// steerMu serializes Interject so Pi's queue order is the steers order.
+	// steerOpen, promptEchoed, steers (FIFO) and steerIDs are guarded by mu.
+	steerMu        sync.Mutex
+	steerOpen      bool
+	promptEchoed   bool
+	steers         []engine.Interjection
+	steerIDs       map[string]bool
 	publishedID    string
 	publishedBytes int
 	publishedHash  hash.Hash
@@ -247,11 +254,21 @@ func (r *piRun) handle(data []byte) error {
 	case "session":
 		return errors.New("Pi RPC unexpectedly changed session identity")
 	}
+	if str(frame, "type") == "message_end" && str(message, "role") == "user" && !r.mapper.done {
+		// A delivered steer is a role=user message entering the conversation.
+		if err := r.piUserMessageEnded(message); err != nil {
+			return err
+		}
+	}
 	r.mapper.piWholeMessage = true
 	events, err := r.mapper.mapLine(data)
 	r.mapper.piWholeMessage = false
 	if err != nil {
 		return err
+	}
+	if r.mapper.done {
+		// Steers still queued at agent_settled stay in Pi's idle queue.
+		r.closeSteering()
 	}
 	for _, event := range events {
 		if event.Kind == engine.ToolStart {

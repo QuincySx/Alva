@@ -1,5 +1,5 @@
 // INPUT: Owned Pi RPC stdio and bounded private native journals
-// OUTPUT: Correlated command replies, continuous JSONL events and serialized native input
+// OUTPUT: Correlated command replies (write owned by one context, reply wait bounded by another), continuous JSONL events and serialized native input
 // POS: [integration / native external-engine adapter] Failed or interrupted commands never replay through another transport
 package process
 
@@ -198,6 +198,14 @@ func (c *piConnection) send(ctx context.Context, value any, omit bool) error {
 	return nil
 }
 func (c *piConnection) call(ctx context.Context, command string, value map[string]any, result any, omit bool) error {
+	return c.callUntil(ctx, ctx, command, value, result, omit)
+}
+
+// callUntil writes the command under sendCtx, whose cancellation fails the
+// connection as a torn record would, and waits for the reply only while both
+// contexts live. A caller outside the run owner passes the run context as
+// sendCtx so its own cancellation cannot tear down the execution.
+func (c *piConnection) callUntil(sendCtx, waitCtx context.Context, command string, value map[string]any, result any, omit bool) error {
 	c.mu.Lock()
 	if c.failure != nil {
 		err := c.failure
@@ -218,7 +226,7 @@ func (c *piConnection) call(ctx context.Context, command string, value map[strin
 		value = map[string]any{}
 	}
 	value["type"], value["id"] = command, id
-	if err := c.send(ctx, value, omit); err != nil {
+	if err := c.send(sendCtx, value, omit); err != nil {
 		return err
 	}
 	select {
@@ -233,7 +241,9 @@ func (c *piConnection) call(ctx context.Context, command string, value map[strin
 			return fmt.Errorf("Pi RPC %s returned invalid data", command)
 		}
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-waitCtx.Done():
+		return waitCtx.Err()
+	case <-sendCtx.Done():
+		return sendCtx.Err()
 	}
 }

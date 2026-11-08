@@ -1,5 +1,5 @@
 // INPUT: Explicit Pi RPC configuration, admitted files and application-owned approval bridge
-// OUTPUT: Verified native session execution, gated editing, human questions and abort-and-join cancellation
+// OUTPUT: Verified native session execution, gated editing, human questions, a steering window bounded by the accepted prompt and abort-and-join cancellation
 // POS: [integration / native external-engine adapter] Independent Pi protocol owner; no fallback, prompt replay or account-file access
 package process
 
@@ -165,6 +165,7 @@ func (a *Adapter) executePiRPC(parent context.Context, request engine.Request, s
 	run.mapper.referenceSession = request.ResumeSession
 	defer close(run.done)
 	defer run.clearStreams()
+	defer run.closeSteering()
 	run.connection = newPiConnection(proc, j)
 	joined := false
 	defer func() {
@@ -275,6 +276,13 @@ func (a *Adapter) executePiRPC(parent context.Context, request engine.Request, s
 		runErr = run.connection.call(ctx, "prompt", prompt, &accepted, len(request.InputFiles) != 0)
 		if runErr == nil && accepted.Disposition != "started" {
 			runErr = errors.New("Pi did not accept the prompt as one new native run")
+		}
+		if runErr == nil {
+			// Pi keeps a steer sent while idle silently queued, so steering opens
+			// only once this prompt is a running native run.
+			run.mu.Lock()
+			run.steerOpen = true
+			run.mu.Unlock()
 		}
 	}
 	if runErr == nil {

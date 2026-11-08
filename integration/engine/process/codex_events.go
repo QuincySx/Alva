@@ -1,5 +1,5 @@
 // INPUT: Codex app-server item, turn and server-request frames
-// OUTPUT: Bounded engine events (including measured context reports when Codex declares its window), exact native interaction correlation, responses and the relayed resolution (offered choices only) on resolved events
+// OUTPUT: Bounded engine events (including measured context reports when Codex declares its window), exact native interaction correlation, responses, the relayed resolution (offered choices only) on resolved events and InputDelivered for userMessage items carrying a steered clientId
 // POS: [integration / native external-engine adapter] Native facts remain distinct from product ownership and human permission policy
 package process
 
@@ -26,7 +26,9 @@ type codexPending struct {
 }
 
 type codexRun struct {
-	rpc        *codexRPC
+	rpc *codexRPC
+	// ctx is the execution context; it owns writes made for other callers.
+	ctx        context.Context
 	cancel     context.CancelFunc
 	done       chan struct{}
 	cleanupErr error
@@ -44,11 +46,16 @@ type codexRun struct {
 	// relayed until the native resolved notification reports them.
 	displays    map[string]*engine.ToolDisplay
 	resolutions map[string]*engine.InteractionResolution
-	finished    bool
-	outcome     engine.Outcome
-	usage       engine.Usage
-	nativeErr   bool
-	emit        func(engine.Event) error
+	// steerOpen, steers (pending by clientUserMessageId) and steerIDs (every
+	// identity used by this run) are guarded by mu; Interject runs elsewhere.
+	steerOpen bool
+	steers    map[string]engine.Interjection
+	steerIDs  map[string]bool
+	finished  bool
+	outcome   engine.Outcome
+	usage     engine.Usage
+	nativeErr bool
+	emit      func(engine.Event) error
 	nativeStream
 }
 
@@ -444,6 +451,8 @@ func (r *codexRun) handle(ctx context.Context, frame codexFrame) error {
 			return err
 		}
 		r.finished = true
+		// Steers still queued when the turn ends never entered it.
+		r.closeSteering()
 		switch params.Turn.Status {
 		case "completed":
 			r.outcome = engine.Succeeded
@@ -502,6 +511,7 @@ func (r *codexRun) item(completed bool, raw json.RawMessage) error {
 		ExitCode         *int            `json:"exitCode"`
 		Success          *bool           `json:"success"`
 		Error            json.RawMessage `json:"error"`
+		ClientID         *string         `json:"clientId"`
 	}
 	if json.Unmarshal(raw, &item) != nil || !nativeID.MatchString(item.ID) || item.Type == "" {
 		return errors.New("invalid Codex item")
@@ -525,6 +535,12 @@ func (r *codexRun) item(completed bool, raw json.RawMessage) error {
 		return errors.New("Codex turn exceeds 8192 items")
 	}
 	switch item.Type {
+	case "userMessage":
+		// Codex records a steered message after it entered the turn's history;
+		// only the clientId this run sent identifies it as an interjection.
+		if completed && item.ClientID != nil {
+			return r.codexDelivered(*item.ClientID)
+		}
 	case "agentMessage", "plan":
 		if completed {
 			return r.event(engine.Event{Kind: engine.Message, ID: item.ID, Text: item.Text})

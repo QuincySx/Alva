@@ -1,5 +1,5 @@
 // INPUT: context, encoding/json, owned native/process, system/privatefs and engine
-// OUTPUT: Adapter for explicit Claude/Codex/Pi JSONL processes with bounded journals, optional approved CLI configuration and append-only product instructions
+// OUTPUT: Adapter for explicit Claude/Codex/Pi JSONL processes with bounded journals, optional approved CLI configuration, append-only product instructions and declared Interjection/Fork capabilities
 // POS: [integration / native external-engine adapter] Explicit configuration ownership; only Codex app-server composes an approved native environment
 package process
 
@@ -167,7 +167,9 @@ func (a *Adapter) AccountSource() string {
 
 func (a *Adapter) Capabilities() engine.Capabilities {
 	interactive := a.config.Transport == "app-server" || a.config.Transport == "rpc"
-	return engine.Capabilities{Streaming: true, Resume: true, Cancel: true, PermissionCallback: interactive, UserInputCallback: interactive, FileInputs: a.config.Transport == "app-server" || a.config.Vendor == "pi", SkillInputs: a.config.Transport == "app-server"}
+	// Steering exists on both bidirectional transports; only Codex app-server
+	// has a verified native fork (thread/fork) that leaves the source unchanged.
+	return engine.Capabilities{Streaming: true, Resume: true, Cancel: true, PermissionCallback: interactive, UserInputCallback: interactive, FileInputs: a.config.Transport == "app-server" || a.config.Vendor == "pi", SkillInputs: a.config.Transport == "app-server", Interjection: interactive, Fork: a.config.Transport == "app-server"}
 }
 func (a *Adapter) RespondPermission(ctx context.Context, session, id string, decision engine.PermissionDecision) error {
 	if a.config.Transport == "rpc" {
@@ -364,6 +366,9 @@ func (j *journal) writeBody(direction string, value string, omit bool, complete 
 	return nil
 }
 func (a *Adapter) Execute(parent context.Context, request engine.Request, sink func(engine.Event) error) error {
+	if err := a.validateFork(request); err != nil {
+		return err
+	}
 	if a.config.Transport == "rpc" {
 		return a.executePiRPC(parent, request, sink)
 	}

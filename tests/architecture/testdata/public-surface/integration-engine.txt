@@ -48,8 +48,10 @@ const (
 	PermissionRequest   Kind = "permission_request"
 	UserInputRequested  Kind = "user_input_requested"
 	InteractionResolved Kind = "interaction_resolved"
-	Error               Kind = "error"
-	Completed           Kind = "completed"
+
+	InputDelivered Kind = "input_delivered"
+	Error          Kind = "error"
+	Completed      Kind = "completed"
 )
 
 const (
@@ -86,6 +88,8 @@ const ContextUpdated Kind = "context_updated"
 
 const InspectionEnd = ^uint64(0)
 
+const MaxInterjectionText = 16 << 10
+
 func (d *ToolDisplay) Validate() error
 
 func (d Descriptor) CanSatisfy(profile string) bool
@@ -95,6 +99,10 @@ func (d Descriptor) Clone() Descriptor
 func (d Descriptor) Description(id string) Description
 
 func (d Descriptor) Validate() error
+
+func (f ForkPoint) Validate() error
+
+func (i Interjection) Validate() error
 
 func (r ContextReport) Validate() error
 
@@ -163,6 +171,13 @@ import (
 
 import (
 	"context"
+	"errors"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"context"
 	"time"
 )
 
@@ -222,6 +237,10 @@ type Capabilities struct {
 	ToolControl        bool `json:"tool_control"`
 
 	ContextCompaction bool `json:"context_compaction,omitempty"`
+
+	Interjection bool `json:"interjection"`
+
+	Fork bool `json:"fork"`
 }
 
 type ConfigSurface struct {
@@ -314,6 +333,12 @@ type Event struct {
 }
 
 type FailureKind string
+
+type ForkPoint struct {
+	Session        string `json:"session"`
+	BeforeSequence uint64 `json:"before_sequence,omitempty"`
+	DropTurns      int    `json:"drop_turns"`
+}
 
 type GenerationOptions struct {
 	Temperature     *float64 `json:"temperature,omitempty"`
@@ -449,6 +474,15 @@ type InteractionResolution struct {
 	Answers map[string][]string `json:"answers,omitempty"`
 }
 
+type Interjection struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+type Interjector interface {
+	Interject(ctx context.Context, nativeSessionID string, input Interjection) error
+}
+
 type Kind string
 
 type Outcome string
@@ -490,6 +524,8 @@ type Request struct {
 	Generation    GenerationOptions
 	InputFiles    []InputFile
 	InputSkills   []InputSkill
+
+	Fork *ForkPoint
 
 	ReportActivity func(Activity) error `json:"-"`
 

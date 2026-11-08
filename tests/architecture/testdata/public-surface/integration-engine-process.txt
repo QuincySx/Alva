@@ -10,6 +10,8 @@ func (a *Adapter) Descriptor() engine.Descriptor
 
 func (a *Adapter) Execute(parent context.Context, request engine.Request, sink func(engine.Event) error) error
 
+func (a *Adapter) Interject(ctx context.Context, native string, input engine.Interjection) error
+
 func (a *Adapter) RespondPermission(ctx context.Context, session, id string, decision engine.PermissionDecision) error
 
 func (a *Adapter) RespondUserInput(ctx context.Context, session, id string, response engine.UserInputResponse) (dispatchErr error)
@@ -173,6 +175,15 @@ import (
 
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/platform/storage/redaction"
+)
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/QuincySx/Alva/integration/engine"
 )
 
 import (

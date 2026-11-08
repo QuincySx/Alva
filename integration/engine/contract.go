@@ -1,5 +1,5 @@
 // INPUT: context, encoding/json, errors, fmt
-// OUTPUT: Runtime, Request (with optional context compaction/report), Event (with bounded tool Display, interaction Resolution and ContextReport), Usage with optional cache counts, Capabilities, PermissionDecision and stream validation
+// OUTPUT: Runtime, Request (optional Fork, context compaction/report), Event (with bounded tool Display, interaction Resolution, InputDelivered receipts and ContextReport), Usage with optional cache counts, Capabilities (incl. Interjection/Fork/ContextCompaction), PermissionDecision and stream validation
 // POS: [L4.5 engine contract] Independent multi-engine execution contract without SDK or Hub product policy
 package engine
 
@@ -26,6 +26,10 @@ type Capabilities struct {
 	// Context (M4): the engine compacts its own context on request
 	// (Request.CompactContext) and reports it through ContextUpdated.
 	ContextCompaction bool `json:"context_compaction,omitempty"`
+	// Interjection: the Runtime implements Interjector for a running execution.
+	Interjection bool `json:"interjection"`
+	// Fork: Execute honours Request.Fork, continuing from a cut copy.
+	Fork bool `json:"fork"`
 }
 type Request struct {
 	OwnerID       string
@@ -43,6 +47,9 @@ type Request struct {
 	Generation    GenerationOptions
 	InputFiles    []InputFile
 	InputSkills   []InputSkill
+	// Fork continues from a new native session cut from an earlier one; it
+	// excludes ResumeSession and is set only for an engine declaring Fork.
+	Fork *ForkPoint
 	// ReportActivity is rebound by an adapter to its actual event sink. A
 	// harness factory must await it BEFORE starting native build/prepare work;
 	// ToolIntent.NoSideEffect says nothing about those separate activities.
@@ -84,8 +91,11 @@ const (
 	PermissionRequest   Kind = "permission_request"
 	UserInputRequested  Kind = "user_input_requested"
 	InteractionResolved Kind = "interaction_resolved"
-	Error               Kind = "error"
-	Completed           Kind = "completed"
+	// InputDelivered is the engine's receipt that an interjection (ID, Text)
+	// entered its model context, at that position in the stream.
+	InputDelivered Kind = "input_delivered"
+	Error          Kind = "error"
+	Completed      Kind = "completed"
 )
 
 type Outcome string
@@ -370,6 +380,10 @@ func (s *StreamContract) Accept(event Event) error {
 		}
 		if err := event.Context.Validate(); err != nil {
 			return err
+		}
+	case InputDelivered:
+		if (Interjection{ID: event.ID, Text: event.Text}).Validate() != nil {
+			return errors.New("delivered input requires its bounded interjection identity and text")
 		}
 	case Error:
 		if event.Text == "" {

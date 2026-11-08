@@ -1,5 +1,5 @@
 // INPUT: Owned stdio process, bounded JSON-RPC frames and private redacted journal
-// OUTPUT: Bidirectional Codex request correlation and bounded notification delivery
+// OUTPUT: Bidirectional Codex request correlation (write owned by one context, reply wait bounded by another) and bounded notification delivery
 // POS: [integration / native external-engine adapter] One connection owns pending calls; failures never replay a request
 package process
 
@@ -191,6 +191,14 @@ func (r *codexRPC) send(ctx context.Context, value any, omitBody bool) error {
 }
 
 func (r *codexRPC) call(ctx context.Context, method string, params any, result any) error {
+	return r.callUntil(ctx, ctx, method, params, result)
+}
+
+// callUntil writes the request under sendCtx, whose cancellation fails the
+// connection as a torn frame would, and waits for the reply only while both
+// contexts live. A caller outside the run owner passes the run context as
+// sendCtx so its own cancellation cannot tear down the execution.
+func (r *codexRPC) callUntil(sendCtx, waitCtx context.Context, method string, params any, result any) error {
 	r.mu.Lock()
 	if r.closed {
 		err := r.err
@@ -212,7 +220,7 @@ func (r *codexRPC) call(ctx context.Context, method string, params any, result a
 		delete(r.pending, key)
 		r.mu.Unlock()
 	}()
-	if err := r.send(ctx, map[string]any{"id": id, "method": method, "params": params}, false); err != nil {
+	if err := r.send(sendCtx, map[string]any{"id": id, "method": method, "params": params}, false); err != nil {
 		return err
 	}
 	select {
@@ -224,8 +232,10 @@ func (r *codexRPC) call(ctx context.Context, method string, params any, result a
 			return fmt.Errorf("invalid Codex %s response", method)
 		}
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-waitCtx.Done():
+		return waitCtx.Err()
+	case <-sendCtx.Done():
+		return sendCtx.Err()
 	}
 }
 
