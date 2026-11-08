@@ -13,3 +13,4 @@ architecture 离线检查源码依赖、公开快照、分形文档和固定转�
 | architecture/ | 静态依赖、布局、分形、SDK/共享存储/Hub/共享chat公开面、全量会话读取及来源闸 |
 | extensibility/ | 上下文、多 Agent、双向 transport、独立进程恢复与跨目标普通工具CLI消费者 |
 | storagecontract/ | 只用共享契约的opaque装饰及公开storagetest验收；factory显式选择临时后端 |
+| scenarios/ | 从产品入口端到端跑 v1 主线业务（连接、工作区、会话、一轮对话、工具、权限、问答、子 Agent、外部引擎交接）；真实装配，只替换模型为本地协议回放 |
