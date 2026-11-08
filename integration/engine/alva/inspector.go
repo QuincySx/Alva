@@ -1,5 +1,5 @@
 // INPUT: Explicit native Repository and engine-only observation DTOs
-// OUTPUT: RepositoryInspector cold metadata/search/text, causal child, backpressured observation and bounded JSONL export
+// OUTPUT: RepositoryInspector cold forward/backward metadata with pairing fields, forward literal search/text, causal child, backpressured observation and bounded JSONL export
 // POS: [L7 Alva product adapter] Committed native facts remain authoritative; observation neither creates nor restores execution.
 package alva
 
@@ -29,10 +29,11 @@ func NewRepositoryInspector(repository Storage) (*RepositoryInspector, error) {
 	return &RepositoryInspector{repository: repository}, nil
 }
 func (*RepositoryInspector) InspectionCapabilities() engine.InspectionCapabilities {
-	return engine.InspectionCapabilities{Level: engine.InspectionFull, Historical: true, Live: true, RawRecords: true, RecursiveChildren: true, ExportJSONL: true}
+	return engine.InspectionCapabilities{Level: engine.InspectionFull, Historical: true, Live: true, RawRecords: true, RecursiveChildren: true, ExportJSONL: true, BackwardPages: true}
 }
 func inspectionEntry(entry storage.RecordEntry) engine.InspectionEntry {
-	result := engine.InspectionEntry{ID: entry.ID, Sequence: entry.Sequence, Time: entry.Time, Kind: string(entry.Kind), Namespace: entry.Namespace, Type: entry.Type, SchemaVersion: entry.SchemaVersion, Summary: entry.Summary, Value: engine.InspectionReference{URI: entry.Value.URI, MediaType: entry.Value.MediaType, SHA256: entry.Value.SHA256, Bytes: entry.Value.Bytes, Processing: entry.Value.Processing}}
+	result := engine.InspectionEntry{ID: entry.ID, Sequence: entry.Sequence, Time: entry.Time, Kind: string(entry.Kind), Namespace: entry.Namespace, Type: entry.Type, SchemaVersion: entry.SchemaVersion, Summary: entry.Summary, Value: engine.InspectionReference{URI: entry.Value.URI, MediaType: entry.Value.MediaType, SHA256: entry.Value.SHA256, Bytes: entry.Value.Bytes, Processing: entry.Value.Processing},
+		RequestID: entry.RequestID, RunID: entry.RunID, CallID: entry.CallID, Status: string(entry.Status), StartedAt: entry.StartedAt, EndedAt: entry.EndedAt}
 	if entry.Parent != nil {
 		result.Parent = &engine.InspectionRecordReference{SessionID: entry.Parent.SessionID, RecordID: entry.Parent.RecordID, Sequence: entry.Parent.Sequence}
 	}
@@ -43,6 +44,24 @@ func (i *RepositoryInspector) Page(ctx context.Context, scope engine.InspectionS
 		return engine.InspectionPage{}, errors.New("inspection metadata requires1..20 records")
 	}
 	var result engine.InspectionPage
+	if query.Before != 0 {
+		if query.After != 0 || query.Literal != "" {
+			return result, errors.New("backward inspection excludes After and literal search")
+		}
+		before := query.Before
+		if before == engine.InspectionEnd {
+			before = 0
+		}
+		page, err := i.repository.PageBefore(ctx, scope.OwnerID, scope.NativeID, before, query.Limit, query.HighWater)
+		if err != nil {
+			return result, err
+		}
+		result.Next, result.HighWater, result.HasMore, result.Before, result.HasEarlier = page.Next, page.HighWater, page.HasMore, page.Before, page.HasEarlier
+		for _, entry := range page.Entries {
+			result.Entries = append(result.Entries, inspectionEntry(entry))
+		}
+		return result, nil
+	}
 	if query.Literal == "" {
 		page, err := i.repository.Page(ctx, scope.OwnerID, scope.NativeID, query.After, query.Limit, query.HighWater)
 		if err != nil {

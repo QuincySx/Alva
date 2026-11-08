@@ -111,7 +111,7 @@ func (d Descriptor) Validate() error {
 		if c.Level != InspectionFull && c.Level != InspectionSummary && c.Level != InspectionUnsupported {
 			return errors.New("unknown engine inspection level")
 		}
-		if c.Level == InspectionUnsupported && (c.Historical || c.Live || c.RawRecords || c.RecursiveChildren || c.ExportJSONL) {
+		if c.Level == InspectionUnsupported && (c.Historical || c.Live || c.RawRecords || c.RecursiveChildren || c.ExportJSONL || c.BackwardPages) {
 			return errors.New("unsupported inspection cannot claim capabilities")
 		}
 	}

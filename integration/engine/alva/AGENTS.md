@@ -14,7 +14,7 @@
 | 文件 | 职责 |
 |---|---|
 | adapter.go | 完整harness执行、事实引用、工具配对和取消；最终消息60KiB/内容块16KiB的UTF-8前缀以Truncated标记；option-aware FactoryOptions/独立Descriptor保留普通factory保守拒绝 |
-| inspector.go / inspector_test.go | 独立RepositoryInspector：冷分页/搜索/2KiB原文、typed link和causal index双验证、fixed-water JSONL与背压live metadata；观察取消不释放真实run claim |
+| inspector.go / inspector_test.go | 独立RepositoryInspector：声明BackwardPages，冷向前/向后（Before与After/Literal互斥，InspectionEnd取尾页）分页并带出配对字段与工具时间、向前字面搜索、2KiB原文、typed link和causal index双验证、fixed-water JSONL与背压live metadata；观察取消不释放真实run claim |
 | wait_test.go | 真实Close后才读取waiting回执、invalid/未配置/取消/收尾失败不得waiting、继续不重传prompt |
 | adapter_test.go | 实际harness多轮/身份、取消终态与factory Activity落盘失败不启动 |
 | failure.go / failure_test.go | typed provider整树分类、真实local HTTP无重试、factory终态及mixed强失败回归 |

@@ -1,5 +1,5 @@
 // INPUT: Real isolated SQLite native facts, active run claim and bounded observer sink
-// OUTPUT: Cold fixed snapshots, exact reference/owner isolation, export and observer detach without execution cancellation regressions
+// OUTPUT: Cold fixed snapshots, backward pages with pairing fields, exact reference/owner isolation, export and observer detach without execution cancellation regressions
 // POS: [L7 Alva product adapter] Inspector tests use original committed facts without constructing an Agent or external process.
 package alva
 
@@ -16,6 +16,7 @@ import (
 	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/session"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 func TestNativeInspectorColdSnapshotAndBackpressuredDetachKeepsRunOwner(t *testing.T) {
@@ -115,5 +116,62 @@ func TestNativeInspectorColdSnapshotAndBackpressuredDetachKeepsRunOwner(t *testi
 	latest, err := i.Page(ctx, scope, engine.InspectionQuery{Limit: 10})
 	if err != nil || len(latest.Entries) != 3 {
 		t.Fatal("observer detach changed committed facts", latest, err)
+	}
+}
+
+func TestNativeInspectorBackwardPagesAndPairingFields(t *testing.T) {
+	ctx := t.Context()
+	repo, err := session.Open(ctx, filepath.Join(t.TempDir(), "native"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+	log, err := repo.Create(ctx, "owner", "root", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 11, 7, 3, 0, 0, 0, time.UTC)
+	for _, batch := range [][]abi.SessionRecord{
+		{abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordModelIntent, ModelIntent: &abi.ModelIntent{RequestID: "request"}})},
+		{abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordModelOutcome, ModelOutcome: &abi.ModelOutcome{RequestID: "request", Status: abi.OutcomeSucceeded}}),
+			abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolIntent, ToolIntent: &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "call", Name: "echo", Arguments: json.RawMessage(`{}`)}}})},
+		{abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolOutcome, ToolOutcome: &abi.ToolOutcome{RunID: "run", CallID: "call", Status: abi.OutcomeSucceeded, Result: wire.ToolResult{CallID: "call"}, StartedAt: started, EndedAt: started.Add(time.Second)}})},
+	} {
+		if _, err := log.AppendRecords(ctx, batch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	i, err := NewRepositoryInspector(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !i.InspectionCapabilities().BackwardPages {
+		t.Fatal("RepositoryInspector honours Before but does not declare backward pages")
+	}
+	scope := engine.InspectionScope{OwnerID: "owner", NativeID: "root"}
+	tail, err := i.Page(ctx, scope, engine.InspectionQuery{Before: engine.InspectionEnd, Limit: 2})
+	if err != nil || len(tail.Entries) != 2 || tail.Entries[0].Sequence != 3 || tail.Entries[1].Sequence != 4 || tail.Before != 3 || !tail.HasEarlier || tail.HasMore || tail.Next != 4 {
+		t.Fatal("tail page", tail, err)
+	}
+	outcome := tail.Entries[1]
+	if outcome.RunID != "run" || outcome.CallID != "call" || outcome.Status != "succeeded" || !outcome.StartedAt.Equal(started) || !outcome.EndedAt.Equal(started.Add(time.Second)) {
+		t.Fatal("tool outcome pairing lost through the engine DTO", outcome)
+	}
+	earlier, err := i.Page(ctx, scope, engine.InspectionQuery{Before: tail.Before, HighWater: tail.HighWater, Limit: 20})
+	if err != nil || len(earlier.Entries) != 2 || earlier.HasEarlier || earlier.Entries[0].RequestID != "request" || earlier.Entries[1].Status != "succeeded" || !earlier.HasMore {
+		t.Fatal("earlier page", earlier, err)
+	}
+	forward, err := i.Page(ctx, scope, engine.InspectionQuery{Limit: 20})
+	if err != nil || forward.Before != 0 || forward.HasEarlier || forward.Next != 4 {
+		t.Fatal("forward page changed meaning", forward, err)
+	}
+	for _, bad := range []engine.InspectionQuery{
+		{Before: 3, After: 1, Limit: 2},
+		{Before: engine.InspectionEnd, Literal: "echo", Limit: 2},
+		{Before: engine.InspectionEnd, Limit: 21},
+	} {
+		if _, err := i.Page(ctx, scope, bad); err == nil {
+			t.Fatal("invalid backward query accepted", bad)
+		}
 	}
 }

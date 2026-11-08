@@ -16,7 +16,7 @@ DurableWaits能力必须由实际factory声明；Completed(waiting)只在Session
 | options.go | stdlib-only可选生成参数、数值校验和复制；adapter显式声明支持，不静默忽略 |
 | wait.go | stdlib-only可选WaitingRunner及有界checkpoint收尾回执，不依赖harness/产品存储 |
 | descriptor.go | 独立Runtime/Inspector装配、保守配置/权限关系/安装声明；不探测宿主或账户 |
-| inspector.go | stdlib-only检查契约：bounded metadata/text/typed child/背压观察/显式JSONL，不含执行或删除 |
+| inspector.go | stdlib-only检查契约：bounded向前/向后metadata（Next/HasMore恒为向前含义，Before/HasEarlier只由向后页设置）、RequestID/RunID/CallID/Status与工具起止时间、BackwardPages能力声明（未声明者可能忽略Before，消费者不得向后翻页）、text/typed child/背压观察/显式JSONL，不含执行或删除 |
 | contract_test.go | stream终态/配对、字段身份、typed event与Truncated归属边界回归 |
 | alva | 消费完整 L5 harness/SDK 的 Alva 产品桥接，不是轻契约或 SDK 包 |
 | process | 按 Vendor 分派 Claude/Codex/Pi 的共享原生 JSONL adapter；显式CLI配置与私有HOME分别保留；Claude结果失败/身份/尾随帧仅fixture验证，不调用真实账号；不冒充三个独立 package |

@@ -51,6 +51,8 @@ const (
 	Waiting     Outcome = "waiting"
 )
 
+const InspectionEnd = ^uint64(0)
+
 func (d Descriptor) CanSatisfy(profile string) bool
 
 func (d Descriptor) Clone() Descriptor
@@ -238,6 +240,8 @@ type InspectionCapabilities struct {
 	RawRecords        bool            `json:"raw_records"`
 	RecursiveChildren bool            `json:"recursive_children"`
 	ExportJSONL       bool            `json:"export_jsonl_bundle"`
+
+	BackwardPages bool `json:"backward_pages"`
 }
 
 type InspectionChild struct {
@@ -257,19 +261,29 @@ type InspectionEntry struct {
 	Parent        *InspectionRecordReference `json:"parent,omitempty"`
 	Summary       string                     `json:"summary"`
 	Value         InspectionReference        `json:"value"`
+
+	RequestID string    `json:"request_id,omitempty"`
+	RunID     string    `json:"run_id,omitempty"`
+	CallID    string    `json:"call_id,omitempty"`
+	Status    string    `json:"status,omitempty"`
+	StartedAt time.Time `json:"started_at,omitzero"`
+	EndedAt   time.Time `json:"ended_at,omitzero"`
 }
 
 type InspectionLevel string
 
 type InspectionPage struct {
-	Entries   []InspectionEntry `json:"entries"`
-	Next      uint64            `json:"next"`
-	HighWater uint64            `json:"high_water"`
-	HasMore   bool              `json:"has_more"`
+	Entries    []InspectionEntry `json:"entries"`
+	Next       uint64            `json:"next"`
+	HighWater  uint64            `json:"high_water"`
+	HasMore    bool              `json:"has_more"`
+	Before     uint64            `json:"before,omitempty"`
+	HasEarlier bool              `json:"has_earlier,omitempty"`
 }
 
 type InspectionQuery struct {
 	After, HighWater uint64
+	Before           uint64
 	Limit            int
 	Literal          string
 }
