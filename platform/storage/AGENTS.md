@@ -14,7 +14,7 @@ MemoryStore.Bind返回同一SDK memory.Backend；BindingStore保存外部runtime
 | 插口 | 所有实现必须保持的语义 |
 |---|---|
 | Session | SDK原子AppendRecords/Flush与实际authority；AppendExtensionSnapshot按exact namespace/type最新revision比较，附加records全有或全无 |
-| Records/RecordLookup | Page/Search按记录sequence向前、after exclusive；highWater=0取得当前快照，后续沿返回highWater读取；LatestRecord的false只表示已授权会话内该stream尚无记录 |
+| Records/RecordLookup | Page/Search按记录sequence向前、after exclusive；PageBefore向后取before之前（0=快照末尾）最新limit条并升序返回，Before/HasEarlier为更早游标，Next/HasMore始终是向前含义；highWater=0取得当前快照，后续沿返回highWater读取；条目只读带出RequestID/RunID/CallID/Status配对字段与tool_outcome的StartedAt/EndedAt（旧行/未执行为零值）；LatestRecord的false只表示已授权会话内该stream尚无记录 |
 | ConversationTail | 固定session/highWater；Metadata返回独立副本、从新到旧；Read取最新count条并按对话时序返回，受maxBytes限制；不选择模型窗口或拼省略提示 |
 | Artifacts/References | 全程owner+session绑定；URI/hash不是权限。metadata页不取正文；bounded读/完整读校验对应hash，返回独立buffer；引用继续使用SDK ReferenceBackend |
 | Children | 实际父run/call的已提交intent为先决条件，child与typed因果link原子创建；关系查询不自动授予父/子正文权限 |

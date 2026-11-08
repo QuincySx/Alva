@@ -7,6 +7,7 @@ Native implementation of the shared storage.Repository/Session ports and SDK log
 Typed records are atomically validated and indexed; their complete JSON bytes live in session-owned hashed SQLite chunks. Non-record artifacts use inline bytes or explicit OpenWithBlobs. The same owner/session metadata, chunk/full hashes, paging and search apply to both. Metadata pages do not fetch object bytes or restore runtime. Recovery records interrupted model/tool outcomes without executing tools and marks unknown side effects explicitly.
 Native schema v2 adds a small child→original-link index in the same CreateChild transaction. Existing new-Go v1 databases receive only that empty index; no historical relation is inferred/backfilled or silently made an authorization grant. ParentLink revalidates the original ≤16KiB typed link, causal intent SQL metadata and same-owner direct-parent metadata without reading intent/conversation bodies. Product code still validates its claimed root and bounds ancestry hops.
 Native schema v3 adds optional blob namespace binding and artifact→object identities. Existing new-Go v1/v2 facts/bytes remain unchanged; opening does not move data. Configured ID/retention must match on every reopen; missing/substituted adapters fail without local fallback. Host-supplied ID is a non-secret deployment identity, not proof that an arbitrary provider is trustworthy. External publication precedes the metadata transaction: errors can leave orphan bytes, never partial committed references. No automatic retry/delete or cross-store transaction is claimed. Volatile references and harness prompts state process-lifetime retention; execution facts stay durable.
+Native schema v4 adds nullable started_ns/ended_ns columns written from tool_outcome bodies at append. Existing v3 rows keep NULL and read as zero instants; nothing is backfilled or rewritten. Page/PageBefore/Search/LatestRecord share one metadata projection that also returns request/run/call/status pairing columns. PageBefore walks the (session_id,seq) key in reverse, so a tail page costs the same as a first page.
 Full artifact reads/search amortize remote IO in bounded64KiB per-operation windows while verifying every consumed4KiB catalog hash; page reads keep normal chunk boundaries. No global/shared cache changes ownership or visibility.
 ## 约束
 Committed typed records share a canonical known-credential-field/inline-marker redaction policy; arbitrary prose secrets are not magically detected, and explicitly uploaded raw bytes remain original artifacts.
@@ -16,7 +17,7 @@ Owner/session identifiers are opaque, not paths. Owner is injected by trusted pr
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | Repository | repository.go | Private DB lifecycle, owner-bound session creation/open/list and run claims |
-| Durable facts | records.go | Atomic typed append, runtime reads and bounded metadata/search |
+| Durable facts | records.go | Atomic typed append, runtime reads and bounded forward/backward metadata pages with pairing/tool-time columns and search |
 | Native admission | budget.go / budget_test.go | 后端私有条数/encoded/raw输入预算与原子拒绝；不扩充SDK契约 |
 | Bounded conversation reads | `conversation_tail.go` / `conversation_tail_test.go` | owner/session固定高水位、独立metadata与hash/protocol验证；最多512条/8MiB恢复硬上限；近期turn选择及省略提示在harness |
 | Explicit Inspector export | export.go / export_test.go | 固定各session高水位的versioned redacted JSONL，8MiB/2048 record/32session/8hop，typed link与causal index双验证；超限/坏hash无partial success，不取外部artifact或恢复runtime |
@@ -29,7 +30,7 @@ Owner/session identifiers are opaque, not paths. Owner is injected by trusted pr
 | Child facts | child.go | Atomic actual child creation/parent intent link and metadata-only ancestry lookup |
 | Child inspection | child_read.go | Exact bounded typed-link/hash and intent-index validation without restoring runtime or parent bodies |
 | Child regressions | child_test.go | Causal intent requirements, atomic identity/link, owner isolation and no inherited artifact access |
-| Regressions | repository_test.go | Atomicity, reopen, corruption, isolation, bounded reads and recovery |
+| Regressions | repository_test.go | Atomicity, reopen, corruption, isolation, bounded reads, recovery and v3→v4 upgrade with zero-instant old rows |
 | Backend conformance | contract_test.go | SDK共用原子性、身份、游标与取消验收 |
 | Runtime boundaries | loop_contract_test.go | 85调用prepare失败结算、4097消息reopen/压缩与字节/坏metadata拒绝；原生查询准备内部取消保留SQLITE_INTERRUPT、run取消与owner Cause |
 | Privacy/upload regressions | redaction_test.go | Canonical receipts, framed text/binary/incomplete markers, safe-field/idempotency preservation, immutable originals and upload limits |

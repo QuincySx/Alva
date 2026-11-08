@@ -1,4 +1,4 @@
-// INPUT: context, database/sql, encoding/json, errors/time/utf8, kernel/abi.
+// INPUT: context, database/sql, encoding/json, errors/utf8, kernel/abi and the shared record metadata scanner.
 // OUTPUT: Owner-scoped LatestRecord metadata and atomic compare-and-append snapshots with optional typed record batches.
 // POS: [platform / durable storage] Durable optional-capability state is restored from the same typed fact authority without reading unrelated history.
 package session
@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"time"
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/platform/storage"
@@ -29,26 +28,15 @@ func (r *Repository) LatestRecord(ctx context.Context, owner, id, namespace, kin
 	if err := authorize(ctx, r.db, owner, id); err != nil {
 		return storage.RecordEntry{}, false, err
 	}
-	var entry storage.RecordEntry
-	var parent sql.NullString
-	var created int64
-	var info storage.ArtifactInfo
 	// LEFT JOIN deliberately preserves a corrupt record row: missing/foreign
 	// artifact metadata must fail its scan, not masquerade as no snapshot.
-	err := r.db.QueryRowContext(ctx, `SELECT r.id,r.seq,r.kind,r.namespace,r.type,r.schema_version,r.parent_json,r.summary,r.time_ns,a.id,a.media_type,a.processing,a.sha256,a.bytes FROM records r LEFT JOIN artifacts a ON a.id=r.artifact_id AND a.session_id=r.session_id WHERE r.session_id=? AND r.namespace=? AND r.type=? ORDER BY r.seq DESC LIMIT 1`, id, namespace, kind).Scan(&entry.ID, &entry.Sequence, &entry.Kind, &entry.Namespace, &entry.Type, &entry.SchemaVersion, &parent, &entry.Summary, &created, &info.ID, &info.MediaType, &info.Processing, &info.SHA256, &info.Bytes)
+	entry, err := scanRecordEntry(r.db.QueryRowContext(ctx, `SELECT `+recordColumns+` FROM records r LEFT JOIN artifacts a ON a.id=r.artifact_id AND a.session_id=r.session_id WHERE r.session_id=? AND r.namespace=? AND r.type=? ORDER BY r.seq DESC LIMIT 1`, id, namespace, kind))
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.RecordEntry{}, false, nil
 	}
 	if err != nil {
 		return storage.RecordEntry{}, false, err
 	}
-	if parent.Valid {
-		if err = json.Unmarshal([]byte(parent.String), &entry.Parent); err != nil {
-			return storage.RecordEntry{}, false, err
-		}
-	}
-	entry.Time = time.Unix(0, created).UTC()
-	entry.Value = info.Reference()
 	return entry, true, nil
 }
 

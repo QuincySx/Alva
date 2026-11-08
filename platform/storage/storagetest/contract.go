@@ -1,5 +1,5 @@
 // INPUT: testing, contexts, shared storage ports and public SDK session conformance.
-// OUTPUT: RunRepository and RunBindings reusable backend acceptance suites.
+// OUTPUT: RunRepository and RunBindings reusable backend acceptance suites, including backward pages and pairing/tool-time metadata.
 // POS: [storage contract testing] Verifies the same consumer-facing contracts without a concrete backend or SQL dependency.
 package storagetest
 
@@ -12,6 +12,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -40,6 +41,8 @@ func RunRepository(t *testing.T, open func(*testing.T) storage.Repository) {
 		{"owner_and_authority", ownerAndAuthority},
 		{"snapshot_cas", snapshotCAS},
 		{"fixed_history", fixedHistory},
+		{"backward_pages", backwardPages},
+		{"pairing_metadata", pairingMetadata},
 		{"artifact_scope", artifactScope},
 		{"execution_claim", executionClaim},
 		{"causal_children", causalChildren},
@@ -202,6 +205,129 @@ func fixedHistory(t *testing.T, repo storage.Repository) {
 	}
 	if _, err := repo.Page(t.Context(), "foreign", log.ID(), 0, 1, 0); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatal("foreign record page admitted", err)
+	}
+}
+
+func sequences(entries []storage.RecordEntry) []uint64 {
+	result := make([]uint64, len(entries))
+	for i, entry := range entries {
+		result[i] = entry.Sequence
+	}
+	return result
+}
+
+func equalSequences(entries []storage.RecordEntry, want ...uint64) bool {
+	got := sequences(entries)
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func backwardPages(t *testing.T, repo storage.Repository) {
+	empty := create(t, repo, "empty")
+	page, err := repo.PageBefore(t.Context(), "owner", empty.ID(), 0, 3, 0)
+	if err != nil || len(page.Entries) != 0 || page.HasEarlier || page.HasMore || page.HighWater != 0 {
+		t.Fatal("empty session backward page invented records", page, err)
+	}
+	log := create(t, repo, "backward")
+	for i := range 5 {
+		appendRecords(t, log, conversation(string(rune('a'+i))))
+	}
+	tail, err := repo.PageBefore(t.Context(), "owner", log.ID(), 0, 2, 0)
+	if err != nil || !equalSequences(tail.Entries, 4, 5) || !tail.HasEarlier || tail.Before != 4 || tail.HasMore || tail.Next != 5 || tail.HighWater != 5 {
+		t.Fatal("tail page is not the newest records in ascending order", sequences(tail.Entries), tail, err)
+	}
+	appendRecords(t, log, conversation("after snapshot"))
+	middle, err := repo.PageBefore(t.Context(), "owner", log.ID(), tail.Before, 2, tail.HighWater)
+	if err != nil || !equalSequences(middle.Entries, 2, 3) || !middle.HasEarlier || middle.Before != 2 || middle.HighWater != 5 || !middle.HasMore || middle.Next != 3 {
+		t.Fatal("backward cursor is not exclusive or lost its fixed high-water", sequences(middle.Entries), middle, err)
+	}
+	first, err := repo.PageBefore(t.Context(), "owner", log.ID(), middle.Before, 2, middle.HighWater)
+	if err != nil || !equalSequences(first.Entries, 1) || first.HasEarlier || first.Before != 1 {
+		t.Fatal("first backward page claims earlier records", sequences(first.Entries), first, err)
+	}
+	none, err := repo.PageBefore(t.Context(), "owner", log.ID(), 1, 2, middle.HighWater)
+	if err != nil || len(none.Entries) != 0 || none.HasEarlier || !none.HasMore {
+		t.Fatal("cursor at the first record returned earlier entries", none, err)
+	}
+	// The same fixed snapshot yields the same page, unaffected by later appends.
+	again, err := repo.PageBefore(t.Context(), "owner", log.ID(), 6, 2, tail.HighWater)
+	if err != nil || !equalSequences(again.Entries, 4, 5) {
+		t.Fatal("explicit end cursor differs from the tail page", sequences(again.Entries), err)
+	}
+	current, err := repo.PageBefore(t.Context(), "owner", log.ID(), 0, 100, 0)
+	if err != nil || !equalSequences(current.Entries, 1, 2, 3, 4, 5, 6) || current.HighWater != 6 || current.HasEarlier {
+		t.Fatal("current high-water backward page is incomplete", sequences(current.Entries), err)
+	}
+	for _, bad := range []struct {
+		before, high uint64
+		limit        int
+	}{{8, 5, 2}, {0, 9, 2}, {0, 0, 0}, {0, 0, 101}} {
+		if _, err := repo.PageBefore(t.Context(), "owner", log.ID(), bad.before, bad.limit, bad.high); err == nil {
+			t.Fatal("backward page accepted an out-of-range cursor, snapshot or limit", bad)
+		}
+	}
+	if _, err := repo.PageBefore(t.Context(), "foreign", log.ID(), 0, 1, 0); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatal("foreign backward page admitted", err)
+	}
+}
+
+func pairingMetadata(t *testing.T, repo storage.Repository) {
+	log := create(t, repo, "pairing")
+	started := time.Date(2026, 11, 7, 1, 2, 3, 4000, time.UTC)
+	ended := started.Add(1500 * time.Millisecond)
+	appendRecords(t, log,
+		conversation("question"),
+		abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordModelIntent, ModelIntent: &abi.ModelIntent{RequestID: "request"}}),
+	)
+	appendRecords(t, log,
+		abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordModelOutcome, ModelOutcome: &abi.ModelOutcome{RequestID: "request", Status: abi.OutcomeSucceeded}}),
+		abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolIntent, ToolIntent: &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "timed", Name: "echo", Arguments: json.RawMessage(`{}`)}}}),
+		abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolIntent, ToolIntent: &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "untimed", Name: "echo", Arguments: json.RawMessage(`{}`)}}}),
+	)
+	appendRecords(t, log,
+		abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolOutcome, ToolOutcome: &abi.ToolOutcome{RunID: "run", CallID: "timed", Status: abi.OutcomeFailed, Result: wire.ToolResult{CallID: "timed", IsError: true}, StartedAt: started, EndedAt: ended}}),
+		abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolOutcome, ToolOutcome: &abi.ToolOutcome{RunID: "run", CallID: "untimed", Status: abi.OutcomeCancelled, Result: wire.ToolResult{CallID: "untimed"}}}),
+	)
+	forward, err := repo.Page(t.Context(), "owner", log.ID(), 0, 100, 0)
+	if err != nil || len(forward.Entries) != 7 {
+		t.Fatal("pairing fixture page incomplete", err)
+	}
+	backward, err := repo.PageBefore(t.Context(), "owner", log.ID(), 0, 100, 0)
+	if err != nil || len(backward.Entries) != 7 {
+		t.Fatal("pairing fixture backward page incomplete", err)
+	}
+	for _, entries := range [][]storage.RecordEntry{forward.Entries, backward.Entries} {
+		user, intent, outcome, timed, untimed, timedResult, untimedResult := entries[0], entries[1], entries[2], entries[3], entries[4], entries[5], entries[6]
+		if user.RequestID != "" || user.RunID != "" || user.CallID != "" || user.Status != "" || !user.StartedAt.IsZero() || !user.EndedAt.IsZero() {
+			t.Fatal("conversation record exposed pairing fields", user)
+		}
+		if intent.RequestID != "request" || intent.Status != "" || outcome.RequestID != "request" || outcome.Status != abi.OutcomeSucceeded || !outcome.StartedAt.IsZero() {
+			t.Fatal("model intent/outcome pairing lost", intent, outcome)
+		}
+		if timed.RunID != "run" || timed.CallID != "timed" || timed.Status != "" || untimed.CallID != "untimed" || !timed.StartedAt.IsZero() {
+			t.Fatal("tool intent pairing lost", timed, untimed)
+		}
+		if timedResult.RunID != "run" || timedResult.CallID != "timed" || timedResult.Status != abi.OutcomeFailed || !timedResult.StartedAt.Equal(started) || !timedResult.EndedAt.Equal(ended) {
+			t.Fatal("tool outcome lost its pairing or execution instants", timedResult)
+		}
+		if untimedResult.CallID != "untimed" || untimedResult.Status != abi.OutcomeCancelled || !untimedResult.StartedAt.IsZero() || !untimedResult.EndedAt.IsZero() {
+			t.Fatal("unexecuted tool outcome invented execution instants", untimedResult)
+		}
+	}
+	latest, found, err := repo.LatestRecord(t.Context(), "owner", log.ID(), "alva.kernel", string(abi.RecordToolOutcome))
+	if err != nil || !found || latest.CallID != "untimed" || latest.Status != abi.OutcomeCancelled {
+		t.Fatal("latest lookup lost pairing metadata", latest, found, err)
+	}
+	search, err := repo.Search(t.Context(), "owner", log.ID(), "timed", 0, 20, 0)
+	if err != nil || len(search.Matches) == 0 || search.Matches[0].Entry.CallID == "" {
+		t.Fatal("search metadata lost pairing fields", search, err)
 	}
 }
 

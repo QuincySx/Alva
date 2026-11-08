@@ -58,9 +58,16 @@ type Runs interface {
 type RecordLookup interface {
 	LatestRecord(ctx context.Context, owner, id, namespace, kind string) (RecordEntry, bool, error)
 }
+
+// Records pages committed metadata only. Page reads forward after an exclusive
+// cursor. PageBefore reads backward: the newest limit records with sequence
+// below before (0 = the snapshot's end) and at most highWater (0 = current),
+// returned in ascending order with Before/HasEarlier set. Both accept 1..100
+// records and never load record bodies.
 type Records interface {
 	RecordLookup
 	Page(ctx context.Context, owner, id string, after uint64, limit int, highWater uint64) (RecordPage, error)
+	PageBefore(ctx context.Context, owner, id string, before uint64, limit int, highWater uint64) (RecordPage, error)
 	Search(ctx context.Context, owner, id, query string, after uint64, limit int, highWater uint64) (SearchPage, error)
 }
 type ConversationTail interface {

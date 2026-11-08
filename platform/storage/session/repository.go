@@ -75,11 +75,21 @@ func (r *Repository) initialize(ctx context.Context) error {
 	if err := r.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version != 0 && version != 1 && version != 2 && version != 3 {
+	if version < 0 || version > 4 {
 		return errors.New("unsupported native database schema; no legacy import is performed")
 	}
-	if version == 3 {
+	if version == 4 {
 		return nil
+	}
+	if version == 3 {
+		// Nullable observation columns for tool_outcome execution instants.
+		// Existing rows keep NULL (read as zero); nothing is backfilled.
+		_, err := r.db.ExecContext(ctx, `BEGIN IMMEDIATE;
+ALTER TABLE records ADD COLUMN started_ns INTEGER;
+ALTER TABLE records ADD COLUMN ended_ns INTEGER;
+PRAGMA user_version=4;
+COMMIT;`)
+		return err
 	}
 	if version == 2 {
 		_, err := r.db.ExecContext(ctx, `BEGIN IMMEDIATE;
@@ -87,7 +97,10 @@ CREATE TABLE blob_binding(singleton INTEGER PRIMARY KEY CHECK(singleton=1),id TE
 CREATE TABLE artifact_blobs(artifact_id TEXT PRIMARY KEY REFERENCES artifacts(id),object_key TEXT NOT NULL UNIQUE);
 PRAGMA user_version=3;
 COMMIT;`)
-		return err
+		if err != nil {
+			return err
+		}
+		return r.initialize(ctx)
 	}
 	if version == 1 {
 		// New-Go schema evolution only: this is an auxiliary causal index,

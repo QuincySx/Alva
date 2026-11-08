@@ -1,5 +1,5 @@
 // INPUT: context, database/sql, encoding/json, kernel/abi, llm/wire.
-// OUTPUT: Atomic Session append/runtime reads and bounded Repository Page/Search metadata.
+// OUTPUT: Atomic Session append/runtime reads and bounded Repository Page/PageBefore/Search metadata with pairing and tool-time columns.
 // POS: [platform / durable storage] Typed execution fact authority with Inspector paths independent from runtime restoration.
 package session
 
@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 	"unicode/utf8"
 
@@ -85,7 +86,7 @@ func appendTx(ctx context.Context, tx *sql.Tx, id string, input []abi.SessionRec
 				return nil, errors.New("causal parent identity mismatch")
 			}
 		}
-		var requestID, runID, callID, status any
+		var requestID, runID, callID, status, startedNS, endedNS any
 		switch record.Kind {
 		case abi.RecordModelIntent:
 			requestID = record.ModelIntent.RequestID
@@ -106,6 +107,12 @@ func appendTx(ctx context.Context, tx *sql.Tx, id string, input []abi.SessionRec
 			runID = record.ToolOutcome.RunID
 			callID = record.ToolOutcome.CallID
 			status = record.ToolOutcome.Status
+			if started := record.ToolOutcome.StartedAt; !started.IsZero() {
+				startedNS = started.UnixNano()
+			}
+			if ended := record.ToolOutcome.EndedAt; !ended.IsZero() {
+				endedNS = ended.UnixNano()
+			}
 			var found int
 			if err := tx.QueryRowContext(ctx, "SELECT 1 FROM records WHERE session_id=? AND kind='tool_intent' AND run_id=? AND call_id=?", id, runID, callID).Scan(&found); err != nil {
 				if !errors.Is(err, sql.ErrNoRows) {
@@ -140,7 +147,7 @@ func appendTx(ctx context.Context, tx *sql.Tx, id string, input []abi.SessionRec
 			data, _ := json.Marshal(record.Parent)
 			parent = string(data)
 		}
-		_, err = tx.ExecContext(ctx, "INSERT INTO records(session_id,seq,id,time_ns,kind,namespace,type,schema_version,parent_json,summary,artifact_id,request_id,run_id,call_id,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", id, next, record.ID, record.Time.UnixNano(), record.Kind, record.Namespace, record.Type, record.SchemaVersion, parent, summary(*record), info.ID, requestID, runID, callID, status)
+		_, err = tx.ExecContext(ctx, "INSERT INTO records(session_id,seq,id,time_ns,kind,namespace,type,schema_version,parent_json,summary,artifact_id,request_id,run_id,call_id,status,started_ns,ended_ns) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", id, next, record.ID, record.Time.UnixNano(), record.Kind, record.Namespace, record.Type, record.SchemaVersion, parent, summary(*record), info.ID, requestID, runID, callID, status, startedNS, endedNS)
 		if err != nil {
 			return nil, fmt.Errorf("append typed record: %w", err)
 		}
@@ -269,52 +276,133 @@ func (s *Session) Messages(ctx context.Context) ([]wire.Message, error) {
 	return messages, nil
 }
 
-func (r *Repository) pageLocked(ctx context.Context, owner, id string, after uint64, limit int, highWater uint64) (storage.RecordPage, error) {
+// recordColumns is the metadata projection shared by every bounded page and
+// lookup; scanRecordEntry decodes one row of it. Bodies are never selected.
+const recordColumns = `r.id,r.seq,r.kind,r.namespace,r.type,r.schema_version,r.parent_json,r.summary,a.id,a.media_type,a.processing,a.sha256,a.bytes,r.time_ns,coalesce(r.request_id,''),coalesce(r.run_id,''),coalesce(r.call_id,''),coalesce(r.status,''),r.started_ns,r.ended_ns`
+
+type rowScanner interface{ Scan(...any) error }
+
+func scanRecordEntry(row rowScanner) (storage.RecordEntry, error) {
+	var entry storage.RecordEntry
+	var parent sql.NullString
+	var info storage.ArtifactInfo
+	var created int64
+	var started, ended sql.NullInt64
+	if err := row.Scan(&entry.ID, &entry.Sequence, &entry.Kind, &entry.Namespace, &entry.Type, &entry.SchemaVersion, &parent, &entry.Summary, &info.ID, &info.MediaType, &info.Processing, &info.SHA256, &info.Bytes, &created, &entry.RequestID, &entry.RunID, &entry.CallID, &entry.Status, &started, &ended); err != nil {
+		return storage.RecordEntry{}, err
+	}
+	if parent.Valid {
+		if err := json.Unmarshal([]byte(parent.String), &entry.Parent); err != nil {
+			return storage.RecordEntry{}, errors.New("stored record parent metadata is invalid")
+		}
+	}
+	entry.Time = time.Unix(0, created).UTC()
+	if started.Valid {
+		entry.StartedAt = time.Unix(0, started.Int64).UTC()
+	}
+	if ended.Valid {
+		entry.EndedAt = time.Unix(0, ended.Int64).UTC()
+	}
+	entry.Value = info.Reference()
+	return entry, nil
+}
+
+// snapshotLocked authorizes the session and fixes the requested high-water.
+func (r *Repository) snapshotLocked(ctx context.Context, owner, id string, limit int, highWater uint64) (uint64, error) {
 	if limit < 1 || limit > 100 {
-		return storage.RecordPage{}, errors.New("record page limit must be 1..100")
+		return 0, errors.New("record page limit must be 1..100")
 	}
 	if err := authorize(ctx, r.db, owner, id); err != nil {
-		return storage.RecordPage{}, err
+		return 0, err
 	}
 	var current uint64
 	if err := r.db.QueryRowContext(ctx, "SELECT next_seq-1 FROM sessions WHERE id=?", id).Scan(&current); err != nil {
-		return storage.RecordPage{}, err
+		return 0, err
 	}
 	if highWater == 0 {
 		highWater = current
 	}
-	if highWater > current || after > highWater {
+	if highWater > current {
+		return 0, errors.New("record cursor is ahead of committed high-water")
+	}
+	return highWater, nil
+}
+
+func (r *Repository) pageLocked(ctx context.Context, owner, id string, after uint64, limit int, highWater uint64) (storage.RecordPage, error) {
+	highWater, err := r.snapshotLocked(ctx, owner, id, limit, highWater)
+	if err != nil {
+		return storage.RecordPage{}, err
+	}
+	if after > highWater {
 		return storage.RecordPage{}, errors.New("record cursor is ahead of committed high-water")
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT r.id,r.seq,r.kind,r.namespace,r.type,r.schema_version,r.parent_json,r.summary,a.id,a.media_type,a.processing,a.sha256,a.bytes,r.time_ns FROM records r JOIN artifacts a ON a.id=r.artifact_id WHERE r.session_id=? AND r.seq>? AND r.seq<=? ORDER BY r.seq LIMIT ?`, id, after, highWater, limit+1)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+recordColumns+` FROM records r JOIN artifacts a ON a.id=r.artifact_id WHERE r.session_id=? AND r.seq>? AND r.seq<=? ORDER BY r.seq LIMIT ?`, id, after, highWater, limit+1)
 	if err != nil {
 		return storage.RecordPage{}, err
 	}
 	defer rows.Close()
 	page := storage.RecordPage{Next: after, HighWater: highWater}
 	for rows.Next() {
-		var entry storage.RecordEntry
-		var parent sql.NullString
-		var info storage.ArtifactInfo
-		var created int64
-		if err = rows.Scan(&entry.ID, &entry.Sequence, &entry.Kind, &entry.Namespace, &entry.Type, &entry.SchemaVersion, &parent, &entry.Summary, &info.ID, &info.MediaType, &info.Processing, &info.SHA256, &info.Bytes, &created); err != nil {
+		entry, err := scanRecordEntry(rows)
+		if err != nil {
 			return storage.RecordPage{}, err
 		}
 		if len(page.Entries) == limit {
 			page.HasMore = true
 			break
 		}
-		if parent.Valid {
-			if err = json.Unmarshal([]byte(parent.String), &entry.Parent); err != nil {
-				return storage.RecordPage{}, errors.New("stored record parent metadata is invalid")
-			}
-		}
-		entry.Time = time.Unix(0, created).UTC()
-		entry.Value = info.Reference()
 		page.Entries = append(page.Entries, entry)
 		page.Next = entry.Sequence
 	}
 	return page, rows.Err()
+}
+
+// PageBefore walks the (session_id,seq) primary key in reverse, so a page from
+// the end of a long session costs the same as one from its start.
+func (r *Repository) PageBefore(ctx context.Context, owner, id string, before uint64, limit int, highWater uint64) (storage.RecordPage, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return storage.RecordPage{}, storage.ErrClosed
+	}
+	highWater, err := r.snapshotLocked(ctx, owner, id, limit, highWater)
+	if err != nil {
+		return storage.RecordPage{}, err
+	}
+	if before == 0 {
+		before = highWater + 1
+	}
+	if before > highWater+1 {
+		return storage.RecordPage{}, errors.New("record cursor is ahead of committed high-water")
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT `+recordColumns+` FROM records r JOIN artifacts a ON a.id=r.artifact_id WHERE r.session_id=? AND r.seq<? AND r.seq<=? ORDER BY r.seq DESC LIMIT ?`, id, before, highWater, limit+1)
+	if err != nil {
+		return storage.RecordPage{}, err
+	}
+	defer rows.Close()
+	page := storage.RecordPage{HighWater: highWater, Before: before}
+	for rows.Next() {
+		entry, err := scanRecordEntry(rows)
+		if err != nil {
+			return storage.RecordPage{}, err
+		}
+		if len(page.Entries) == limit {
+			page.HasEarlier = true
+			break
+		}
+		page.Entries = append(page.Entries, entry)
+	}
+	if err = rows.Err(); err != nil {
+		return storage.RecordPage{}, err
+	}
+	slices.Reverse(page.Entries)
+	page.Next = before - 1
+	if len(page.Entries) != 0 {
+		page.Before = page.Entries[0].Sequence
+		page.Next = page.Entries[len(page.Entries)-1].Sequence
+	}
+	page.HasMore = page.Next < highWater
+	return page, nil
 }
 func (r *Repository) Page(ctx context.Context, owner, id string, after uint64, limit int, highWater uint64) (storage.RecordPage, error) {
 	r.mu.Lock()

@@ -176,6 +176,14 @@ type RecordEntry struct {
 	Parent        *abi.RecordReference `json:"parent,omitempty"`
 	Summary       string               `json:"summary"`
 	Value         wire.Reference       `json:"value"`
+
+	RequestID string            `json:"request_id,omitempty"`
+	RunID     string            `json:"run_id,omitempty"`
+	CallID    string            `json:"call_id,omitempty"`
+	Status    abi.OutcomeStatus `json:"status,omitempty"`
+
+	StartedAt time.Time `json:"started_at,omitzero"`
+	EndedAt   time.Time `json:"ended_at,omitzero"`
 }
 
 type RecordLookup interface {
@@ -189,10 +197,12 @@ type RecordMatch struct {
 }
 
 type RecordPage struct {
-	Entries   []RecordEntry `json:"entries"`
-	Next      uint64        `json:"next"`
-	HighWater uint64        `json:"high_water"`
-	HasMore   bool          `json:"has_more"`
+	Entries    []RecordEntry `json:"entries"`
+	Next       uint64        `json:"next"`
+	HighWater  uint64        `json:"high_water"`
+	HasMore    bool          `json:"has_more"`
+	Before     uint64        `json:"before,omitempty"`
+	HasEarlier bool          `json:"has_earlier,omitempty"`
 }
 
 type RecordRetention interface {
@@ -202,6 +212,7 @@ type RecordRetention interface {
 type Records interface {
 	RecordLookup
 	Page(ctx context.Context, owner, id string, after uint64, limit int, highWater uint64) (RecordPage, error)
+	PageBefore(ctx context.Context, owner, id string, before uint64, limit int, highWater uint64) (RecordPage, error)
 	Search(ctx context.Context, owner, id, query string, after uint64, limit int, highWater uint64) (SearchPage, error)
 }
 

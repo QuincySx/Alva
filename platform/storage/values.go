@@ -61,13 +61,32 @@ type RecordEntry struct {
 	Parent        *abi.RecordReference `json:"parent,omitempty"`
 	Summary       string               `json:"summary"`
 	Value         wire.Reference       `json:"value"`
+	// RequestID pairs model intent/outcome; RunID+CallID pair tool
+	// intent/outcome; Status is a model/tool outcome's status. They are
+	// read-only copies of indexed facts, empty for kinds that have none.
+	RequestID string            `json:"request_id,omitempty"`
+	RunID     string            `json:"run_id,omitempty"`
+	CallID    string            `json:"call_id,omitempty"`
+	Status    abi.OutcomeStatus `json:"status,omitempty"`
+	// StartedAt/EndedAt copy a tool_outcome's execution instants. They are zero
+	// for other kinds, for calls that never executed and for rows committed
+	// before the store recorded them; nothing is backfilled.
+	StartedAt time.Time `json:"started_at,omitzero"`
+	EndedAt   time.Time `json:"ended_at,omitzero"`
 }
 
+// RecordPage is one ascending metadata page. Next/HasMore always continue
+// forward: Next is the last returned sequence (or the cursor when empty) and
+// HasMore reports records after it up to HighWater. Before/HasEarlier are set
+// only by backward pages: Before is the first returned sequence, the exclusive
+// cursor for the next earlier page, and HasEarlier reports records below it.
 type RecordPage struct {
-	Entries   []RecordEntry `json:"entries"`
-	Next      uint64        `json:"next"`
-	HighWater uint64        `json:"high_water"`
-	HasMore   bool          `json:"has_more"`
+	Entries    []RecordEntry `json:"entries"`
+	Next       uint64        `json:"next"`
+	HighWater  uint64        `json:"high_water"`
+	HasMore    bool          `json:"has_more"`
+	Before     uint64        `json:"before,omitempty"`
+	HasEarlier bool          `json:"has_earlier,omitempty"`
 }
 
 type RecordMatch struct {

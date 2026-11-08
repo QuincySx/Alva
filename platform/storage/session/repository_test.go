@@ -1,5 +1,5 @@
-// INPUT: context, encoding/json, errors, strings, testing, kernel/abi, llm/wire.
-// OUTPUT: Atomic, durable, bounded, owner-scoped session/artifact/recovery regressions.
+// INPUT: context, encoding/json, errors, strings, testing, time, kernel/abi, llm/wire.
+// OUTPUT: Atomic, durable, bounded, owner-scoped session/artifact/recovery and schema v3→v4 upgrade regressions.
 // POS: [platform / durable storage] Real local SQLite acceptance without models, MCP, user data or replayed side effects.
 package session
 
@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/platform/storage"
@@ -322,5 +323,71 @@ func TestTenThousandMetadataRowsUseStableHighWaterAndBoundedPages(t *testing.T) 
 	}
 	if _, err = s.Records(ctx, 0); err == nil {
 		t.Fatal("full runtime restore silently exceeded hard budget")
+	}
+}
+
+// A schema v3 database (before tool-time columns) is upgraded in place: its
+// rows stay readable with zero instants and nothing is backfilled or rewritten.
+func TestSchemaV3RowsReadZeroToolInstantsAfterUpgrade(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "private")
+	r, err := Open(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := r.Create(ctx, "owner", "native", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 11, 7, 9, 0, 0, 0, time.UTC)
+	intent := abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolIntent, ToolIntent: &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "old", Name: "echo", Arguments: json.RawMessage(`{}`)}}})
+	outcome := abi.BuiltinRecord(abi.SessionRecord{Kind: abi.RecordToolOutcome, ToolOutcome: &abi.ToolOutcome{RunID: "run", CallID: "old", Status: abi.OutcomeSucceeded, Result: wire.ToolResult{CallID: "old"}, StartedAt: started, EndedAt: started.Add(time.Second)}})
+	if _, err = s.AppendRecords(ctx, []abi.SessionRecord{intent}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.AppendRecords(ctx, []abi.SessionRecord{outcome}); err != nil {
+		t.Fatal(err)
+	}
+	// Recreate the v3 layout: the observation columns did not exist yet.
+	if _, err = r.db.ExecContext(ctx, `ALTER TABLE records DROP COLUMN started_ns; ALTER TABLE records DROP COLUMN ended_ns; PRAGMA user_version=3;`); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r, err = Open(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	var version int
+	if err = r.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil || version != 4 {
+		t.Fatal("v3 database was not upgraded to v4", version, err)
+	}
+	page, err := r.PageBefore(ctx, "owner", "native", 0, 10, 0)
+	if err != nil || len(page.Entries) != 2 {
+		t.Fatal("upgraded rows unreadable", page, err)
+	}
+	old := page.Entries[1]
+	if old.CallID != "old" || old.Status != abi.OutcomeSucceeded || !old.StartedAt.IsZero() || !old.EndedAt.IsZero() {
+		t.Fatal("pre-upgrade row lost pairing or gained backfilled instants", old)
+	}
+	s, err = r.OpenSession(ctx, "owner", "native")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := intent
+	fresh.ToolIntent = &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "new", Name: "echo", Arguments: json.RawMessage(`{}`)}}
+	if _, err = s.AppendRecords(ctx, []abi.SessionRecord{fresh}); err != nil {
+		t.Fatal(err)
+	}
+	next := outcome
+	next.ToolOutcome = &abi.ToolOutcome{RunID: "run", CallID: "new", Status: abi.OutcomeSucceeded, Result: wire.ToolResult{CallID: "new"}, StartedAt: started, EndedAt: started.Add(2 * time.Second)}
+	if _, err = s.AppendRecords(ctx, []abi.SessionRecord{next}); err != nil {
+		t.Fatal(err)
+	}
+	page, err = r.Page(ctx, "owner", "native", 2, 10, 0)
+	if err != nil || len(page.Entries) != 2 || !page.Entries[1].StartedAt.Equal(started) || !page.Entries[1].EndedAt.Equal(started.Add(2*time.Second)) {
+		t.Fatal("post-upgrade tool outcome lost its instants", page, err)
 	}
 }
