@@ -23,7 +23,7 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 ## 业务域清单
 | 文件/目录 | 职责 |
 |---|---|
-| connections.go | 独立连接/模型DTO、秘值隔离、CAS编辑与revision路由；可选RequestID创建/恢复端口和不可变脱敏回执，不扩大执行存储；DefaultCatalogURL按请求地址推出同源模型目录，认不出的形状返回空而不猜 |
+| connections.go | 独立连接/模型DTO、秘值隔离、CAS编辑与revision路由；可选RequestID创建/恢复端口和不可变脱敏回执，不扩大执行存储；DefaultCatalogURL按请求地址推出同源模型目录，认不出的形状返回空而不猜；API Key可选：编辑时没有Key（新建未填或明确清除）即无认证，原有Key在存储中缺失仍报错 |
 | connections_catalog_test.go | 各协议请求地址推出同源目录、拒绝带凭据/查询/非HTTP(S)，推出结果必过同源校验 |
 | goals.go / goals_test.go | 不可变目标事实、项目/会话范围、RequestID幂等回执与独立存储/范围cursor分页插口；创建不执行 |
 | model_preferences.go / model_preferences_test.go | 连接/模型稳定收藏键、Agent偏好、参数校验/能力准入及独立revision；Attempt冻结不受后续编辑影响 |

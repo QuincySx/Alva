@@ -331,8 +331,13 @@ func (p *NativePage) connectionDraftSnapshot() (hub.ConnectionUpdate, bool) {
 	v := &p.connections
 	update := v.draft
 	update.Models = append([]hub.ConnectionModel(nil), update.Models...)
-	if update.ID == "" && update.Auth == "none" {
-		update.APIKey = ""
+	// The API key is optional: authentication follows whether a key is
+	// entered or kept, never a separate choice the user has to make.
+	update.Auth = "none"
+	if !update.ClearAPIKey {
+		if entry, ok := p.editingConnection(); update.APIKey != "" || ok && update.ID != "" && entry.HasAPIKey {
+			update.Auth = "api_key"
+		}
 	}
 	if update.ReplaceHeaders {
 		update.Headers = make(map[string]string, len(v.headers))
@@ -712,26 +717,7 @@ func (p *NativePage) buildConnectionForm(c *ui.Context) {
 						connectionButton(c, "connection-details", "连接设置", "chevron-down", busy).Label("Connection details").OnClick(func() { v.details = !v.details })
 					}
 					if custom || v.details {
-						ui.Row(c).FillWidth().Gap(16).Children(func() {
-							ui.Column(c).Grow(1).MinWidth(0).Children(func() {
-								connectionTextField(c, "connection-name", "连接名称", &v.draft.Name, busy).Ref(&v.focus).OnChange(p.resetConnectionProbe)
-							})
-							ui.Column(c).Grow(1).MinWidth(0).Gap(8).Children(func() {
-								ui.Text(c, "认证方式").FontSize(workspaceFontBody).FontWeight(600).LineHeight(1.5)
-								label := "API Key"
-								if v.draft.Auth == "none" {
-									label = "无认证"
-								}
-								workspaceControlSelect(c, "connection-auth", &label, []string{"API Key", "无认证"}).Label("Connection authentication").FillWidth().Disabled(busy).OnChange(func() {
-									v.draft.Auth = "api_key"
-									if label == "无认证" {
-										v.draft.Auth = "none"
-										v.revealAPIKey = false
-									}
-									p.resetConnectionProbe()
-								})
-							})
-						})
+						connectionTextField(c, "connection-name", "连接名称", &v.draft.Name, busy).Ref(&v.focus).OnChange(p.resetConnectionProbe)
 						ui.Column(c).FillWidth().Gap(8).Children(func() {
 							ui.Text(c, "API 协议").FontSize(workspaceFontBody).FontWeight(600).LineHeight(1.5)
 							label := connectionProtocolLabel(v.draft.Protocol)
@@ -753,12 +739,12 @@ func (p *NativePage) buildConnectionForm(c *ui.Context) {
 							p.resetConnectionProbe()
 						})
 					}
-					if v.draft.Auth == "api_key" {
+					{
 						var key ui.Element
 						ui.Column(c).FillWidth().Gap(8).Children(func() {
-							ui.Text(c, "API Key").FontSize(workspaceFontBody).FontWeight(600).LineHeight(1.5)
+							ui.Text(c, "API Key（可选）").FontSize(workspaceFontBody).FontWeight(600).LineHeight(1.5)
 							key = workspaceControlPassword(c, "connection-key", &v.draft.APIKey, &v.revealAPIKey, busy || v.draft.ClearAPIKey).
-								Label("Edit API Key").OnChange(p.resetConnectionProbe)
+								Label("Edit API Key").Placeholder("服务不需要认证时留空").OnChange(p.resetConnectionProbe)
 						})
 						if !custom && !v.details {
 							key.Ref(&v.focus)

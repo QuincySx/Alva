@@ -219,14 +219,12 @@ func TestNativeConnectionsExplicitSaveRoutesAndSecretRedaction(t *testing.T) {
 	}
 	connectionClick(t, tester, "Edit connection")
 	connectionClick(t, tester, "Clear saved API Key")
-	connectionClick(t, tester, "Connection authentication")
-	connectionClick(t, tester, "无认证")
 	connectionClick(t, tester, "Save connection")
 	settleConnections(t, p, tester)
 	entry = s.Connections.Snapshot()[0]
 	secret, err = store.ConnectionSecrets(t.Context(), id, entry.Revision)
 	if err != nil || entry.HasAPIKey || secret.APIKey != "" || entry.Auth != "none" {
-		t.Fatal("explicit clear/no-auth did not remove the saved key")
+		t.Fatal("clearing the saved key did not leave a keyless connection")
 	}
 	connectionClick(t, tester, "Toggle connection enabled")
 	settleConnections(t, p, tester)
@@ -243,6 +241,29 @@ func TestNativeConnectionsExplicitSaveRoutesAndSecretRedaction(t *testing.T) {
 	settleConnections(t, p, tester)
 	if len(s.Connections.Snapshot()) != 0 {
 		t.Fatal("confirmed delete did not remove the connection")
+	}
+}
+
+func TestNativeConnectionsSaveWithoutAPIKey(t *testing.T) {
+	s, store := connectionsFixture(t)
+	p := NewNativePage(s)
+	tester := openConnectionTestPage(t, p, 1240, 850)
+	startOpenAIConnection(t, tester)
+	if !tester.HasText("API Key（可选）") || tester.HasText("认证方式") {
+		t.Fatal("the form still asks for an authentication mode instead of an optional key")
+	}
+	connectionType(t, tester, "Edit 模型 ID", "exact/model-ID")
+	connectionClick(t, tester, "Add model to connection draft")
+	connectionClick(t, tester, "Enable connection draft")
+	connectionClick(t, tester, "Save connection")
+	settleConnections(t, p, tester)
+	entries := s.Connections.Snapshot()
+	if len(entries) != 1 || entries[0].Auth != "none" || entries[0].HasAPIKey || len(s.Connections.Targets()) != 1 {
+		t.Fatalf("a connection without a key was not saved as a usable route: %+v", entries)
+	}
+	secret, err := store.ConnectionSecrets(t.Context(), entries[0].ID, entries[0].Revision)
+	if err != nil || secret.APIKey != "" {
+		t.Fatal("a keyless connection stored a credential", err)
 	}
 }
 
@@ -347,8 +368,8 @@ func TestNativeConnectionsNativeChoicesValidationAndViewport(t *testing.T) {
 		tester := openConnectionTestPage(t, p, size.width, size.height)
 		connectionClick(t, tester, "添加连接")
 		connectionClick(t, tester, "Add Local connection")
-		if tester.HasText("Edit API Key") || p.connections.draft.Auth != "none" || p.connections.draft.Endpoint != "" {
-			t.Fatal("local connection invented an endpoint or required a key")
+		if !tester.HasText("API Key（可选）") || p.connections.draft.Auth != "none" || p.connections.draft.Endpoint != "" {
+			t.Fatal("local connection invented an endpoint or did not offer the key as optional")
 		}
 		connectionClick(t, tester, "Connection protocol")
 		connectionClick(t, tester, "Anthropic Messages")
@@ -775,8 +796,6 @@ func TestNativeConnectionsDeletedEditKeepsItsOwnDraftAndReloadExplainsAbsence(t 
 	removeUI := openConnectionTestPage(t, remover, 960, 680)
 	connectionClick(t, tester, "Connection editing connection")
 	connectionClick(t, tester, "Edit connection")
-	connectionClick(t, tester, "Connection authentication")
-	connectionClick(t, tester, "API Key")
 	connectionType(t, tester, "Edit API Key", "dummy-unsaved-edit")
 	connectionClick(t, tester, "Advanced connection headers")
 	connectionClick(t, removeUI, "Connection editing connection")

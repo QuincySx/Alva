@@ -233,6 +233,7 @@ func (c ModelConnection) Apply(u ConnectionUpdate, secret ConnectionSecrets) (Mo
 	if u.ClearAPIKey && u.APIKey != "" {
 		return ModelConnection{}, ConnectionSecrets{}, errors.New("cannot replace and clear an API key together")
 	}
+	hadKey := c.HasAPIKey
 	if u.ClearAPIKey {
 		secret.APIKey = ""
 	} else if u.APIKey != "" {
@@ -283,6 +284,14 @@ func (c ModelConnection) Apply(u ConnectionUpdate, secret ConnectionSecrets) (Mo
 	c.Endpoint = u.Endpoint
 	c.CatalogURL = u.CatalogURL
 	c.Auth = u.Auth
+	// The API key is optional (product decision 2026-11-08): local and
+	// unauthenticated services need none, so a connection left without a key
+	// sends no credential instead of being refused for the chosen mode. A key
+	// the connection already had but storage no longer returns is not "left
+	// without": that stays an error rather than silently dropping credentials.
+	if c.Auth == "api_key" && secret.APIKey == "" && (!hadKey || u.ClearAPIKey) {
+		c.Auth = "none"
+	}
 	c.Enabled = u.Enabled
 	c.Models = append([]ConnectionModel(nil), u.Models...)
 	c.HasAPIKey = secret.APIKey != ""
