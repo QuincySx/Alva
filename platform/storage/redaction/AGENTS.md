@@ -12,4 +12,5 @@
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
-| redaction.go | RedactRecord/JSON/StreamFrame和显式秘密快照 |
+| redaction.go | RedactRecord/JSON/StreamFrame、与记录同规则的字段级Redactor（Text/JSON，供engine adapter脱敏事件字段）和显式秘密快照 |
+| redactor_test.go | Redactor与RedactRecord对同一字段给出相同结果、标记/键名/字面量替换、数字字面量秘密不报错 |

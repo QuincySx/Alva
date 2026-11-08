@@ -128,6 +128,7 @@ func (r *codexRun) event(event engine.Event) error {
 			event.Question = questionRequest
 		}
 		event.Text, event.Input = payload.Text, payload.Input
+		event.Display = finishDisplay(event.Display, secrets)
 	}
 	return r.publish(event)
 }
@@ -492,11 +493,11 @@ func (r *codexRun) item(completed bool, raw json.RawMessage) error {
 			case "imageView":
 				effect = engine.EffectRead
 			}
-			return r.event(engine.Event{Kind: engine.ToolStart, ID: item.ID, Name: item.Type, Input: raw, Effect: effect})
+			return r.event(engine.Event{Kind: engine.ToolStart, ID: item.ID, Name: item.Type, Input: raw, Effect: effect, Display: codexItemDisplay(item.Type, raw)})
 		}
 		delete(r.tools, item.ID)
 		failed := item.Status == "failed" || item.Status == "declined" || item.Status == "cancelled" || item.ExitCode != nil && *item.ExitCode != 0 || item.Success != nil && !*item.Success || len(item.Error) > 0 && string(item.Error) != "null"
-		return r.event(engine.Event{Kind: engine.ToolEnd, ID: item.ID, Name: item.Type, Text: item.AggregatedOutput, Input: raw, IsError: failed, Reference: r.reference(item.ID)})
+		return r.event(engine.Event{Kind: engine.ToolEnd, ID: item.ID, Name: item.Type, Text: item.AggregatedOutput, Input: raw, IsError: failed, Reference: r.reference(item.ID), Display: codexItemDisplay(item.Type, raw)})
 	}
 	return nil
 }

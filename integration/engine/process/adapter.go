@@ -426,6 +426,12 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	mapper.referenceSession = request.ResumeSession
 	contract := engine.StreamContract{}
 	emit := func(event engine.Event) error {
+		if event.Kind == engine.ToolStart || event.Kind == engine.ToolEnd {
+			// Print/exec transports get the same tool Input/Display redaction
+			// as the app-server and RPC paths, before anything is bounded.
+			event.Input = redactToolInput(event.Input, j.secrets)
+			event.Display = finishDisplay(event.Display, j.secrets)
+		}
 		if err := contract.Accept(event); err != nil {
 			return err
 		}

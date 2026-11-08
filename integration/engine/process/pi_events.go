@@ -83,6 +83,7 @@ func (r *piRun) event(event engine.Event) error {
 				return err
 			}
 		}
+		event.Display = finishDisplay(event.Display, secrets)
 		if event.Question != nil {
 			copy := *event.Question
 			copy.Questions = append([]engine.UserInputQuestion(nil), copy.Questions...)

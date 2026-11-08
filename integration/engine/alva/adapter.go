@@ -1,12 +1,13 @@
-// INPUT: context, crypto/rand, sync, harness.Runner, engine, kernel/abi, llm/wire
+// INPUT: context, crypto/rand, encoding/json, sync, harness.Runner, engine, shared record redaction, kernel/abi, llm/wire
 // OUTPUT: Adapter, explicit native-session RunnerFactory/FactoryOptions and independent Descriptor
-// POS: [L7 Alva product adapter] Complete Alva harness bridge preserving qualified native facts and scoped cancellation
+// POS: [L7 Alva product adapter] Complete Alva harness bridge preserving qualified native facts, bounded tool evidence/display and scoped cancellation
 package alva
 
 import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/QuincySx/Alva/harness"
 	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -215,7 +217,13 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	if err := emit(engine.Event{Kind: engine.SessionStarted, SessionID: id}); err != nil {
 		return settleOwned(err)
 	}
-	open := make(map[string]string)
+	open := make(map[string]openTool)
+	// Product events get the same redaction the native store applies to the
+	// records they reference (credential keys and markers; Alva configures no
+	// literals), so the conversation never shows what the trace hides. With no
+	// literals NewRedactor cannot fail, and a nil Redactor still applies the
+	// record markers, so this never ends the stream early.
+	redactor, _ := redaction.NewRedactor()
 	var text strings.Builder
 	var usage engine.Usage
 	var callbackErr error
@@ -299,16 +307,28 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 				return errors.New("tool start missing payload")
 			}
 			call := event.ToolCall
-			open[call.ID] = call.Name
-			output = &engine.Event{Kind: engine.ToolStart, ID: call.ID, Name: call.Name, Reference: reference, Effect: engine.EffectUnknown}
+			// Arguments are redacted as the native intent record is, before
+			// they are bounded or presented.
+			arguments, redactErr := redactor.JSON(call.Arguments)
+			if redactErr != nil {
+				arguments = nil
+			}
+			display := finishDisplay(startDisplay(call.Name, arguments), redactor)
+			open[call.ID] = openTool{name: call.Name, display: display}
+			// The kernel event carries no effect self-description (that lives
+			// in the tool intent record), so the effect stays unknown here.
+			output = &engine.Event{Kind: engine.ToolStart, ID: call.ID, Name: call.Name, Input: boundedInput(arguments), Reference: reference, Effect: engine.EffectUnknown, Display: display}
 		case abi.EventToolCompleted:
 			if event.ToolResult == nil {
 				return errors.New("tool end missing payload")
 			}
-			result := event.ToolResult
-			name := open[result.CallID]
-			delete(open, result.CallID)
-			output = &engine.Event{Kind: engine.ToolEnd, ID: result.CallID, Name: name, Reference: reference, IsError: result.IsError, Text: "Native tool result retained in session records; open its qualified reference to inspect."}
+			tool := open[event.ToolResult.CallID]
+			delete(open, event.ToolResult.CallID)
+			// Each content block is redacted as in the native outcome record,
+			// then the joined text is bounded.
+			result := redactResult(*event.ToolResult, redactor)
+			text, truncated := bounded(toolResultText(result), toolResultPrefix)
+			output = &engine.Event{Kind: engine.ToolEnd, ID: result.CallID, Name: tool.name, Reference: reference, IsError: result.IsError, Text: text, Truncated: truncated, Display: finishDisplay(endDisplay(tool.display, result), redactor)}
 		case abi.EventUsage:
 			if event.Usage != nil {
 				responseStarted = true
@@ -324,8 +344,8 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	})
 	err = errors.Join(settleOwned(errors.Join(err, callbackErr)), ctx.Err())
 	// Tool cleanup precedes fatal Error, preserving the final-only contract.
-	for callID, name := range open {
-		if sendErr := emit(engine.Event{Kind: engine.ToolEnd, ID: callID, Name: name, IsError: true, Text: "Execution ended before tool settlement was observed; inspect native facts."}); sendErr != nil {
+	for callID, tool := range open {
+		if sendErr := emit(engine.Event{Kind: engine.ToolEnd, ID: callID, Name: tool.name, IsError: true, Text: "Execution ended before tool settlement was observed; inspect native facts.", Display: tool.display}); sendErr != nil {
 			return errors.Join(err, sendErr)
 		}
 	}
@@ -365,6 +385,70 @@ func bounded(value string, limit int) (string, bool) {
 		value = value[:len(value)-1]
 	}
 	return value, true
+}
+
+// openTool is a started call awaiting its result: its name and the display
+// derived from its arguments, which the end display extends.
+type openTool struct {
+	name    string
+	display *engine.ToolDisplay
+}
+
+// Tool events copy only bounded evidence into product history: arguments up
+// to the contract's 16 KiB input bound and an 8 KiB result prefix. The kernel
+// records behind each event's Reference keep the complete call and result.
+const (
+	toolInputLimit   = 16 << 10
+	toolResultPrefix = 8 << 10
+)
+
+// boundedInput returns a copy of a call's JSON arguments when they fit the
+// input bound; larger or malformed arguments are reached only by Reference.
+func boundedInput(arguments json.RawMessage) json.RawMessage {
+	if len(arguments) == 0 || len(arguments) > toolInputLimit || !json.Valid(arguments) {
+		return nil
+	}
+	return append(json.RawMessage(nil), arguments...)
+}
+
+// redactResult returns a copy whose text blocks and reference metadata are
+// redacted with the record rule.
+func redactResult(result wire.ToolResult, redactor *redaction.Redactor) wire.ToolResult {
+	result.Content = append([]wire.ContentBlock(nil), result.Content...)
+	for i, block := range result.Content {
+		switch {
+		case block.Kind == wire.ContentText:
+			result.Content[i].Text = redactor.Text(block.Text)
+		case block.Kind == wire.ContentReference && block.Reference != nil:
+			reference := *block.Reference
+			reference.Processing = redactor.Text(reference.Processing)
+			result.Content[i].Reference = &reference
+		}
+	}
+	return result
+}
+
+// toolResultText renders a tool result as text: text blocks verbatim and a
+// session reference as its small JSON locator. Other content (media, opaque
+// provider state) is named but never decoded or copied.
+func toolResultText(result wire.ToolResult) string {
+	var parts []string
+	for _, block := range result.Content {
+		switch {
+		case block.Kind == wire.ContentText:
+			parts = append(parts, block.Text)
+		case block.Kind == wire.ContentReference && block.Reference != nil:
+			data, err := json.Marshal(struct {
+				Reference wire.Reference `json:"reference"`
+			}{*block.Reference})
+			if err == nil {
+				parts = append(parts, string(data))
+			}
+		default:
+			parts = append(parts, "["+string(block.Kind)+" content retained in the native record]")
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // boundedError keeps the visible marker: Error events cannot carry Truncated.

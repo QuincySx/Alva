@@ -1,5 +1,5 @@
 // INPUT: context, encoding/json, errors, fmt
-// OUTPUT: Runtime, Request, Event, Capabilities, PermissionDecision and stream validation
+// OUTPUT: Runtime, Request, Event (with bounded tool Display), Capabilities, PermissionDecision and stream validation
 // POS: [L4.5 engine contract] Independent multi-engine execution contract without SDK or Hub product policy
 package engine
 
@@ -147,6 +147,9 @@ type Event struct {
 	// Truncated says Text is only a bounded prefix. When Reference is set the
 	// complete content is read through it; otherwise the prefix is all there is.
 	Truncated bool `json:"truncated,omitempty"`
+	// Display is the adapter's normalized, bounded presentation of a tool
+	// call; it belongs only to ToolStart and ToolEnd.
+	Display *ToolDisplay `json:"display,omitempty"`
 }
 
 // StreamContract is a consumer-side invariant checker, not an execution owner.
@@ -186,6 +189,14 @@ func (s *StreamContract) Accept(event Event) error {
 	}
 	if event.Truncated && event.Kind != Message && event.Kind != ContentBlock && event.Kind != ToolEnd {
 		return errors.New("only a final message, content block or tool result can be truncated")
+	}
+	if event.Display != nil {
+		if event.Kind != ToolStart && event.Kind != ToolEnd {
+			return errors.New("tool display belongs only to tool events")
+		}
+		if err := event.Display.Validate(); err != nil {
+			return err
+		}
 	}
 	if event.SessionID != "" {
 		if s.NativeSessionID != "" && event.SessionID != s.NativeSessionID {

@@ -19,4 +19,4 @@ SDK 不直接或传递依赖本目录。Magpie IR 仅封装在 llm/codec/interna
 |---|---|---|
 | `llm/` | 模型协议边界 | 纯codec、明确HTTP/auth的provider及可注入模型契约eval；无产品会话执行器 |
 | `protocol/` | 外部交互协议 | Skill/MCP/ACP/AEP/CDP 的独立语义、传输和有界 I/O |
-| `engine/` | L4.5 契约 + 产品桥接 | 根包只定义EngineRuntime、typed文件/Skill、独立权限/人类提问和可选waiting receipt；alva/process 子包实现完整 harness/外部 Agent 适配 |
+| `engine/` | L4.5 契约 + 产品桥接 | 根包只定义EngineRuntime、typed文件/Skill、独立权限/人类提问、有界工具呈现ToolDisplay和可选waiting receipt；alva/process 子包实现完整 harness/外部 Agent 适配 |

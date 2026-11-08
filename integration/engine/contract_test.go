@@ -1,9 +1,13 @@
-// INPUT: testing and canonical engine events
-// OUTPUT: stream lifecycle, pairing and fatal-edge regressions
+// INPUT: encoding/json, strings, testing and canonical engine events
+// OUTPUT: stream lifecycle, pairing, fatal-edge and bounded tool-evidence regressions
 // POS: [L4.5 engine contract] Portable contract conformance independent of concrete engines
 package engine
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestSingleTerminalAndFatalOnlyCompletion(t *testing.T) {
 	for _, events := range [][]Event{
@@ -115,6 +119,29 @@ func TestTruncatedOnlyMarksBoundedFinalContent(t *testing.T) {
 		probe := StreamContract{}
 		if probe.Accept(Event{Kind: kind, ID: "x", Name: "x", Text: "x", Outcome: Succeeded, Truncated: true}) == nil {
 			t.Fatal("truncation accepted on a non-final event", kind)
+		}
+	}
+}
+
+func TestToolEvidenceStaysWithinEventBounds(t *testing.T) {
+	var c StreamContract
+	input := json.RawMessage(`{"path":"` + strings.Repeat("p", (16<<10)-12) + `"}`)
+	reference := &Reference{SessionID: "native", RecordID: "outcome", Sequence: 9}
+	for _, event := range []Event{
+		{Kind: ToolStart, ID: "t", Name: "read_file", Input: input, Reference: &Reference{SessionID: "native", RecordID: "intent", Sequence: 8}},
+		{Kind: ToolEnd, ID: "t", Name: "read_file", Text: strings.Repeat("r", 8<<10), Truncated: true, IsError: true, Reference: reference},
+	} {
+		if err := c.Accept(event); err != nil {
+			t.Fatal("bounded tool evidence rejected", event.Kind, len(event.Input), err)
+		}
+	}
+	for _, event := range []Event{
+		{Kind: ToolStart, ID: "u", Name: "write_file", Input: json.RawMessage(`{"content":"` + strings.Repeat("c", 16<<10) + `"}`)},
+		{Kind: ToolStart, ID: "v", Name: "execute_shell", Text: strings.Repeat("o", (64<<10)+1)},
+	} {
+		probe := c.Clone()
+		if probe.Accept(event) == nil {
+			t.Fatal("unbounded tool evidence accepted without a reference", event.Name)
 		}
 	}
 }

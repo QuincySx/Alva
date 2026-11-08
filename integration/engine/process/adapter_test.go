@@ -48,6 +48,10 @@ func TestVendorFixtureProcess(t *testing.T) {
 	switch os.Getenv("ALVA_ENGINE_VENDOR") {
 	case "codex":
 		fmt.Println(`{"type":"thread.started","thread_id":"fixture-native"}`)
+		if mode == "tool-secret" {
+			fmt.Println(`{"type":"item.started","item":{"id":"c1","type":"command_execution","command":"echo marker-secret-12345","arguments":{"cmd":"echo marker-secret-12345"}}}`)
+			fmt.Println(`{"type":"item.completed","item":{"id":"c1","type":"command_execution","command":"echo marker-secret-12345","exit_code":0,"status":"completed"}}`)
+		}
 		if mode == "fatal" {
 			fmt.Println(`{"type":"turn.failed","error":{"message":"fixture fatal"}}`)
 		}
@@ -80,6 +84,10 @@ func TestVendorFixtureProcess(t *testing.T) {
 		case "result-foreign":
 			fmt.Println(`{"type":"result","subtype":"success","session_id":"foreign-native"}`)
 			os.Exit(0)
+		}
+		if mode == "tool-secret" {
+			fmt.Println(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"echo marker-secret-12345"}}]}}`)
+			fmt.Println(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}`)
 		}
 		fmt.Println(`{"type":"assistant","message":{"content":[{"type":"text","text":"hello fixture"}]}}`)
 		if mode != "eof" {
@@ -121,6 +129,11 @@ func TestVendorFixtureProcess(t *testing.T) {
 			}
 		}
 		fmt.Println(`{"type":"session","id":"fixture-native"}`)
+		if mode == "tool-secret" {
+			// The configured secret straddles the 512-byte command bound.
+			fmt.Printf("{\"type\":\"tool_execution_start\",\"toolCallId\":\"p1\",\"toolName\":\"bash\",\"args\":{\"command\":\"%s marker-secret-12345\"}}\n", strings.Repeat("a", 505))
+			fmt.Println(`{"type":"tool_execution_end","toolCallId":"p1","toolName":"bash","isError":false,"result":{}}`)
+		}
 		if mode == "pi-files" {
 			fmt.Println(`{"type":"tool_execution_start","toolCallId":"read-selected","toolName":"read","args":{"path":"selected captured derivative"}}`)
 			fmt.Println(`{"type":"tool_execution_end","toolCallId":"read-selected","toolName":"read","isError":false,"result":{"content":[{"type":"text","text":"selected derivative fixture"}]}}`)
@@ -563,6 +576,36 @@ func TestAllExternalEnginesRejectGenerationBeforeFilesystemOrProcess(t *testing.
 			}
 			if err := adapter.Execute(t.Context(), request, func(engine.Event) error { t.Fatal("unsupported request emitted process events"); return nil }); !errors.Is(err, engine.ErrUnsupported) {
 				t.Fatal("generation reached filesystem or process admission", err)
+			}
+		})
+	}
+}
+
+func TestPrintTransportsRedactToolInputAndDisplay(t *testing.T) {
+	for _, vendor := range []string{"codex", "claude", "pi"} {
+		t.Run(vendor, func(t *testing.T) {
+			a, _ := fixtureAdapter(t, vendor, "tool-secret")
+			var tools []engine.Event
+			err := a.Execute(context.Background(), engine.Request{OwnerID: "fixture-owner", Prompt: "fixture prompt", Workspace: t.TempDir()}, func(event engine.Event) error {
+				if event.Kind == engine.ToolStart || event.Kind == engine.ToolEnd {
+					tools = append(tools, event)
+				}
+				return nil
+			})
+			if err != nil || len(tools) != 2 {
+				t.Fatal("tool fixture did not run", err, len(tools))
+			}
+			for _, event := range tools {
+				data, _ := json.Marshal(struct {
+					Input   json.RawMessage
+					Display *engine.ToolDisplay
+				}{event.Input, event.Display})
+				if strings.Contains(string(data), "marker-secret-12345") || strings.Contains(event.Display.Command, "marker") {
+					t.Fatalf("print transport leaked a configured secret or its clipped prefix: %s", data)
+				}
+				if event.Display == nil || event.Display.Kind != engine.ToolCommand || !strings.Contains(event.Display.Command, "[REDAC") {
+					t.Fatalf("redacted display missing: %+v", event.Display)
+				}
 			}
 		})
 	}

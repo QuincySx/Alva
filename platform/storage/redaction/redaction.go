@@ -1,5 +1,5 @@
 // INPUT: bytes, encoding/base64/json, errors, io, sort, strings, unicode/utf8, kernel/abi.
-// OUTPUT: RedactRecord, RedactJSON, RedactStreamFrame and explicit EnvironmentSecrets snapshots.
+// OUTPUT: RedactRecord, RedactJSON, field-level Redactor (Text/JSON), RedactStreamFrame and explicit EnvironmentSecrets snapshots.
 // POS: [platform / durable storage] Shared memory/durable journal policy removes known credential fields without truncating ordinary payloads.
 package redaction
 
@@ -48,6 +48,46 @@ func RedactRecord(record *abi.SessionRecord) error {
 		return err
 	}
 	return json.Unmarshal(data, record)
+}
+
+// Redactor applies the record policy (credential keys, known plaintext
+// markers, configured literals) with one prepared set of configured values,
+// so an adapter can redact individual fields the way RedactRecord redacts the
+// whole record.
+type Redactor struct{ known []string }
+
+// NewRedactor prepares configured literal values. It fails only when they
+// exceed the literal-pattern budget; with no values it cannot fail.
+func NewRedactor(configuredValues ...string) (*Redactor, error) {
+	known, err := prepareSecrets(configuredValues)
+	if err != nil {
+		return nil, err
+	}
+	return &Redactor{known: known}, nil
+}
+
+// Text redacts one string value exactly as a string field of a record: a
+// complete JSON text is redacted structurally, a known credential marker
+// replaces the whole value with [REDACTED], configured literals are replaced.
+// It never returns an error. A nil Redactor applies no configured literals.
+func (r *Redactor) Text(value string) string {
+	var known []string
+	if r != nil {
+		known = r.known
+	}
+	if text, ok := redactValue(value, "", known...).(string); ok {
+		return text
+	}
+	return "[REDACTED]"
+}
+
+// JSON redacts one JSON value as RedactJSON does.
+func (r *Redactor) JSON(data json.RawMessage) (json.RawMessage, error) {
+	var known []string
+	if r != nil {
+		known = r.known
+	}
+	return redactJSONPrepared(data, known)
 }
 
 // RedactStreamFrame applies only to explicit protocol text/base64 I/O

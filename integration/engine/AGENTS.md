@@ -5,6 +5,7 @@
 ## 逻辑
 Execute 的 context 属于执行所有者；Cancel 只是请求，真实 Completed 才收尾。Error fatal 后仅允许 Completed，工具必须配对，大结果用 qualified native reference。
 Event.Truncated 只允许 Message/ContentBlock/ToolEnd：Text 仅是有界前缀，带 Reference 时完整内容经 Reference 读取，否则前缀即全部可得正文；截断事实以该字段为准，不靠文字后缀。
+Event.Display（ToolDisplay）只属于 ToolStart/ToolEnd：按 ADR 0013 §3 由各 adapter 把自己的工具名/item 类型归一成 kind（command/read/edit/search/subagent/todo/other）及命令/退出码/状态/输出只在轨迹（OutputInTrace）、路径/增删行数/有界 diff、关键词/命中数/结果、任务/子会话/状态、待办项、Output 引用；各字段有上限且编码后≤4KiB，越界、kind 不符或格式错误由 StreamContract 拒绝；BoundToolDisplay 的输出对任何字符串（NUL、非法UTF-8、控制字符）都必能通过校验。adapter 须先对未截断的 Display 逐字段脱敏（MapToolDisplayStrings），再 Bound，避免截断点留下秘密前缀。消费者只按 kind 呈现，不认工具名或引擎名。
 ExecutionActivity独立表示native build/prepare启动前事实，必须先await耐久report再启动；ToolIntent.NoSideEffect不覆盖这些工作，Activity不冒充ToolStart/End或完成。
 DurableWaits能力必须由实际factory声明；Completed(waiting)只在SessionStarted后携带合法revision/数量/到期receipt，结束本次执行但不声称任务成功。WaitRevision续跑不含新prompt，具体checkpoint/body仍由产品绑定原生存储读取。
 ## 约束
@@ -12,12 +13,14 @@ DurableWaits能力必须由实际factory声明；Completed(waiting)只在Session
 ## 业务域清单
 | 文件/目录 | 职责 |
 |---|---|
-| contract.go | 统一 Request/Event/Runtime/能力与流契约；Truncated 有界前缀标记只属于最终消息、内容块与工具结果 |
+| contract.go | 统一 Request/Event/Runtime/能力与流契约；Truncated 有界前缀标记只属于最终消息、内容块与工具结果；Display 只属于工具事件并经校验 |
+| tool_display.go | stdlib-only ToolDisplay/ToolKind/ToolDiff/ToolMatch/TodoItem、MapToolDisplayStrings 逐字符串字段映射、BoundToolDisplay 裁剪（UTF-8安全、按kind清字段、超预算依次丢结果/待办/diff/plan）、Validate，以及 adapter 共用的 LineCount/LineChanges/UnifiedDiff/Checklist |
+| tool_display_test.go | 只在工具事件、越界/错kind/坏状态拒绝、敌对字符串（NUL/非法UTF-8/控制字符/超长）进所有字段时Bound后必过校验与契约、字符串映射覆盖所有字段、行数/diff/清单辅助 |
 | options.go | stdlib-only可选生成参数、数值校验和复制；adapter显式声明支持，不静默忽略 |
 | wait.go | stdlib-only可选WaitingRunner及有界checkpoint收尾回执，不依赖harness/产品存储 |
 | descriptor.go | 独立Runtime/Inspector装配、保守配置/权限关系/安装声明；不探测宿主或账户 |
 | inspector.go | stdlib-only检查契约：bounded向前/向后metadata（Next/HasMore恒为向前含义，Before/HasEarlier只由向后页设置）、RequestID/RunID/CallID/Status与工具起止时间、BackwardPages能力声明（未声明者可能忽略Before，消费者不得向后翻页）、text/typed child/背压观察/显式JSONL，不含执行或删除 |
-| contract_test.go | stream终态/配对、字段身份、typed event与Truncated归属边界回归 |
+| contract_test.go | stream终态/配对、字段身份、typed event与Truncated归属边界回归；工具参数16KiB/文本64KiB事件上限 |
 | alva | 消费完整 L5 harness/SDK 的 Alva 产品桥接，不是轻契约或 SDK 包 |
 | process | 按 Vendor 分派 Claude/Codex/Pi 的共享原生 JSONL adapter；显式CLI配置与私有HOME分别保留；Claude结果失败/身份/尾随帧仅fixture验证，不调用真实账号；不冒充三个独立 package |
 | input_files.go / input_skills.go | 显式已捕获文件及所选Skill的stdlib DTO/校验/复制；不读文件、不发现配置或授予目录权限 |

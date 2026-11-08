@@ -1,5 +1,5 @@
 // INPUT: encoding/json, errors, strings and engine JSONL events
-// OUTPUT: Stateful vendor frames and journal references with separately verified resume provenance
+// OUTPUT: Stateful vendor frames, tool displays and journal references with separately verified resume provenance
 // POS: [integration / native external-engine adapter] Claude/Codex/Pi dialect mapping without hidden reasoning or raw tool bodies in product events
 package process
 
@@ -20,6 +20,7 @@ type mapper struct {
 	// derived chunks. Print keeps the shared mapper text contract.
 	piWholeMessage bool
 	tools          map[string]string
+	displays       map[string]*engine.ToolDisplay
 	texts          map[string]string
 	messageNo      int
 	usage          engine.Usage
@@ -30,7 +31,7 @@ type mapper struct {
 }
 
 func newMapper(vendor, journal string) *mapper {
-	return &mapper{vendor: vendor, journal: journal, tools: make(map[string]string), texts: make(map[string]string)}
+	return &mapper{vendor: vendor, journal: journal, tools: make(map[string]string), displays: make(map[string]*engine.ToolDisplay), texts: make(map[string]string)}
 }
 func (m *mapper) reference() *engine.Reference {
 	session := m.session
@@ -121,7 +122,9 @@ func chunkText(kind engine.Kind, id, text string) []engine.Event {
 	}
 	return result
 }
-func (m *mapper) toolStart(id, name string, input json.RawMessage) ([]engine.Event, error) {
+
+// toolStart opens a call with the vendor's display of it (nil: other).
+func (m *mapper) toolStart(id, name string, input json.RawMessage, display *engine.ToolDisplay) ([]engine.Event, error) {
 	if id == "" || len(id) > 256 || name == "" || len(name) > 256 {
 		return nil, errors.New("vendor tool identity missing or oversized")
 	}
@@ -132,20 +135,31 @@ func (m *mapper) toolStart(id, name string, input json.RawMessage) ([]engine.Eve
 	if len(input) > 16<<10 || !json.Valid(input) {
 		input = nil
 	}
-	return []engine.Event{{Kind: engine.ToolStart, ID: id, Name: name, Input: input, Reference: m.reference(), Effect: engine.EffectUnknown}}, nil
+	if display == nil {
+		display = other()
+	}
+	m.displays[id] = display
+	return []engine.Event{{Kind: engine.ToolStart, ID: id, Name: name, Input: input, Reference: m.reference(), Effect: engine.EffectUnknown, Display: engine.CloneToolDisplay(display)}}, nil
 }
-func (m *mapper) toolEnd(id, name string, isError bool) ([]engine.Event, error) {
+
+// toolEnd settles a call. Without a completed-item display it repeats the
+// start display (result bodies are never copied into product history).
+func (m *mapper) toolEnd(id, name string, isError bool, display *engine.ToolDisplay) ([]engine.Event, error) {
 	var result []engine.Event
 	if _, exists := m.tools[id]; !exists {
-		start, err := m.toolStart(id, name, nil)
+		start, err := m.toolStart(id, name, nil, nil)
 		if err != nil {
 			return nil, err
 		}
 		result = append(result, start...)
 	}
 	name = m.tools[id]
+	if display == nil {
+		display = settledDisplay(m.displays[id], isError)
+	}
 	delete(m.tools, id)
-	return append(result, engine.Event{Kind: engine.ToolEnd, ID: id, Name: name, IsError: isError, Reference: m.reference(), Text: "Complete external tool I/O retained in private engine journal; raw body not copied into product history."}), nil
+	delete(m.displays, id)
+	return append(result, engine.Event{Kind: engine.ToolEnd, ID: id, Name: name, IsError: isError, Reference: m.reference(), Text: "Complete external tool I/O retained in private engine journal; raw body not copied into product history.", Display: display}), nil
 }
 func (m *mapper) mapLine(data []byte) ([]engine.Event, error) {
 	if !json.Valid(data) {
@@ -210,10 +224,10 @@ func (m *mapper) codex(kind string, frame map[string]json.RawMessage) ([]engine.
 				if code != nil && *code != 0 {
 					failed = true
 				}
-				return m.toolEnd(id, name, failed)
+				return m.toolEnd(id, name, failed, codexExecDisplay(itemKind, item))
 			}
 			if kind == "item.started" {
-				return m.toolStart(id, name, item["arguments"])
+				return m.toolStart(id, name, item["arguments"], codexExecDisplay(itemKind, item))
 			}
 		}
 	}
@@ -269,14 +283,14 @@ func (m *mapper) claude(kind string, frame map[string]json.RawMessage) ([]engine
 					text.WriteString(str(block, "text"))
 				}
 			case "tool_use":
-				events, err := m.toolStart(str(block, "id"), str(block, "name"), block["input"])
+				events, err := m.toolStart(str(block, "id"), str(block, "name"), block["input"], claudeDisplay(str(block, "name"), block["input"]))
 				if err != nil {
 					return nil, err
 				}
 				result = append(result, events...)
 			case "tool_result":
 				id := str(block, "tool_use_id")
-				events, err := m.toolEnd(id, m.tools[id], boolean(block, "is_error"))
+				events, err := m.toolEnd(id, m.tools[id], boolean(block, "is_error"), nil)
 				if err != nil {
 					return nil, err
 				}
@@ -381,9 +395,9 @@ func (m *mapper) pi(kind string, frame map[string]json.RawMessage) ([]engine.Eve
 		}
 		return m.text(id, text.String(), true)
 	case "tool_execution_start":
-		return m.toolStart(str(frame, "toolCallId"), str(frame, "toolName"), frame["args"])
+		return m.toolStart(str(frame, "toolCallId"), str(frame, "toolName"), frame["args"], piDisplay(str(frame, "toolName"), frame["args"]))
 	case "tool_execution_end":
-		return m.toolEnd(str(frame, "toolCallId"), str(frame, "toolName"), boolean(frame, "isError"))
+		return m.toolEnd(str(frame, "toolCallId"), str(frame, "toolName"), boolean(frame, "isError"), nil)
 	case "auto_retry_start":
 		return []engine.Event{{Kind: engine.Error, Recoverable: true, Text: "Pi is retrying; execution has not ended"}}, nil
 	case "auto_retry_end":

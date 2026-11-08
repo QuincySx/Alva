@@ -51,7 +51,31 @@ const (
 	Waiting     Outcome = "waiting"
 )
 
+const (
+	TodoPending    TodoStatus = "pending"
+	TodoInProgress TodoStatus = "in_progress"
+	TodoCompleted  TodoStatus = "completed"
+)
+
+const (
+	ToolCommand  ToolKind = "command"
+	ToolRead     ToolKind = "read"
+	ToolEdit     ToolKind = "edit"
+	ToolSearch   ToolKind = "search"
+	ToolSubagent ToolKind = "subagent"
+	ToolTodo     ToolKind = "todo"
+	ToolOther    ToolKind = "other"
+)
+
+const (
+	ToolDisplayBytes   = 4 << 10
+	ToolDisplayResults = 10
+	ToolDisplayTodos   = 30
+)
+
 const InspectionEnd = ^uint64(0)
+
+func (d *ToolDisplay) Validate() error
 
 func (d Descriptor) CanSatisfy(profile string) bool
 
@@ -77,11 +101,25 @@ func (v GenerationOptions) Validate() error
 
 func (w WaitCheckpoint) Validate() error
 
+func BoundToolDisplay(display ToolDisplay) *ToolDisplay
+
+func Checklist(content string) []TodoItem
+
 func CloneInputFiles(files []InputFile) []InputFile
 
 func CloneInputSkills(skills []InputSkill) []InputSkill
 
+func CloneToolDisplay(display *ToolDisplay) *ToolDisplay
+
 func DescribeRuntime(runtime Runtime) Descriptor
+
+func LineChanges(old, updated string) (added, removed int)
+
+func LineCount(text string) int
+
+func MapToolDisplayStrings(display ToolDisplay, f func(string) string) ToolDisplay
+
+func UnifiedDiff(diff string) (old, updated string, added, removed int)
 
 func ValidateInputFiles(files []InputFile) error
 
@@ -113,6 +151,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
+)
+
+import (
+	"encoding/json"
+	"errors"
 	"strings"
 	"unicode/utf8"
 )
@@ -194,6 +239,8 @@ type Event struct {
 	Question    *UserInputRequest `json:"question,omitempty"`
 
 	Truncated bool `json:"truncated,omitempty"`
+
+	Display *ToolDisplay `json:"display,omitempty"`
 }
 
 type FailureKind string
@@ -384,6 +431,56 @@ type Runtime interface {
 type StreamContract struct {
 	Started, Terminal, Fatal bool
 	NativeSessionID          string
+}
+
+type TodoItem struct {
+	Text   string     `json:"text"`
+	Status TodoStatus `json:"status"`
+}
+
+type TodoStatus string
+
+type ToolDiff struct {
+	Old     string `json:"old,omitempty"`
+	New     string `json:"new,omitempty"`
+	Partial bool   `json:"partial,omitempty"`
+}
+
+type ToolDisplay struct {
+	Kind ToolKind `json:"kind"`
+
+	Command       string `json:"command,omitempty"`
+	ExitCode      *int   `json:"exit_code,omitempty"`
+	OutputInTrace bool   `json:"output_in_trace,omitempty"`
+
+	Path string `json:"path,omitempty"`
+
+	Files   int       `json:"files,omitempty"`
+	Added   *int      `json:"added,omitempty"`
+	Removed *int      `json:"removed,omitempty"`
+	Diff    *ToolDiff `json:"diff,omitempty"`
+
+	Query       string      `json:"query,omitempty"`
+	Matches     *int        `json:"matches,omitempty"`
+	MoreMatches bool        `json:"more_matches,omitempty"`
+	Results     []ToolMatch `json:"results,omitempty"`
+
+	Task           string `json:"task,omitempty"`
+	ChildSessionID string `json:"child_session_id,omitempty"`
+	Status         string `json:"status,omitempty"`
+
+	Todos []TodoItem `json:"todos,omitempty"`
+	Plan  string     `json:"plan,omitempty"`
+
+	Output string `json:"output,omitempty"`
+}
+
+type ToolKind string
+
+type ToolMatch struct {
+	Path string `json:"path,omitempty"`
+	Line int    `json:"line,omitempty"`
+	Text string `json:"text,omitempty"`
 }
 
 type Usage struct {
