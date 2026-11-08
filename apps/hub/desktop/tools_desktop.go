@@ -6,99 +6,12 @@
 package hubdesktop
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/extension/interaction"
 	"github.com/egoist/mygo/ui"
 )
-
-func (p *NativePage) openTools() {
-	if p.selected == "" || p.paneBusy {
-		return
-	}
-	p.setPane("tools")
-	p.shellJobs = nil
-	id, generation := p.selected, p.generation
-	p.paneBusy = true
-	go func() {
-		value, err := p.Service.Store.Settings(p.ctx, id)
-		jobs, jobsErr := p.Service.ShellJobs(p.ctx, id)
-		err = errors.Join(err, jobsErr)
-		p.dispatch(func() {
-			p.paneBusy = false
-			if p.selected != id || p.generation != generation || p.pane != "tools" {
-				return
-			}
-			if err != nil {
-				p.problem = err.Error()
-				return
-			}
-			p.settings = value
-			p.shellJobs = jobs
-			raw, _ := json.MarshalIndent(value.Tools, "", "  ")
-			p.toolsDraft = string(raw)
-		})
-	}()
-}
-func (p *NativePage) changeTools(kind string, enabled bool) {
-	if p.selected == "" || p.paneBusy || p.inputBlocked() {
-		return
-	}
-	id, draft, generation := p.selected, p.toolsDraft, p.generation
-	p.paneBusy = true
-	go func() {
-		var err error
-		if kind == "" {
-			err = p.Service.SaveToolsDraft(p.ctx, id, draft)
-		} else {
-			err = p.Service.SetToolEnabled(p.ctx, id, kind, enabled, enabled)
-		}
-		p.dispatch(func() {
-			p.paneBusy = false
-			if p.selected != id || p.generation != generation || p.pane != "tools" {
-				return
-			}
-			if err != nil {
-				p.problem = err.Error()
-				return
-			}
-			p.problem = ""
-			p.openTools()
-		})
-	}()
-}
-func (p *NativePage) buildTools(c *ui.Context) {
-	ui.Scroll(c).Grow(1).MinHeight(0).Gap(8).Children(func() {
-		ui.Text(c, "Optional tools · next turn").Bold()
-		ui.Text(c, "Configure the shell executable/environment and web origins here. Saving clears tool enablement. Shell access and web access each need separate consent below; every call still follows permission rules. Nothing runs on save.").FontSize(workspaceFontCaption)
-		ui.TextArea(c.Key("tool-json"), &p.toolsDraft).Label("Optional tool configuration JSON").Height(220).Disabled(p.paneBusy || p.inputBlocked())
-		ui.Button(c, "Save tool configuration disabled").Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.changeTools("", false) })
-		for _, v := range []struct {
-			kind, label string
-			enabled     bool
-		}{
-			{"planning", "Planning tasks and notes", p.settings.Tools.Planning},
-			{"notebook", "Notebook cell editing", p.settings.Tools.Notebook},
-			{"interaction", "Human questions", p.settings.Tools.Interaction},
-			{"utility", "Preferences, tool search and sleep", p.settings.Tools.Utility},
-			{"shell", "Full host shell access", p.settings.Tools.Shell.Enabled},
-			{"web", "Network access to configured web tools", p.settings.Tools.Web.Enabled},
-		} {
-			v := v
-			label := "Enable " + v.label + " next turn"
-			if v.kind == "shell" || v.kind == "web" {
-				label = "Approve " + v.label + " next turn"
-			}
-			if v.enabled {
-				label = "Disable " + v.label + " next turn"
-			}
-			ui.Button(c.Key("tool-"+v.kind), label).Disabled(p.paneBusy || p.inputBlocked()).OnClick(func() { p.changeTools(v.kind, !v.enabled) })
-		}
-		p.buildShellJobs(c)
-	})
-}
 
 func (p *NativePage) shellJobAction(branch, job string, reset bool) {
 	if p.selected == "" || p.paneBusy {

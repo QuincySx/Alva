@@ -118,15 +118,20 @@ func (p *NativePage) workspacePaneDestination(name string) string {
 
 func (p *NativePage) buildWorkspaceSettingsCategory(c *ui.Context) {
 	category := p.workspaceSettingsCategory()
-	ui.Text(c, workspaceScopeLabel(category)).FontSize(workspaceFontHeading).FontWeight(600).LineHeight(1.5)
-	if category == "data" {
-		ui.Text(c, "数据目录").FontSize(workspaceFontBody).LineHeight(1.5)
-		directory := p.Service.DataDirectory
-		if directory == "" {
-			directory = "当前应用未声明数据目录。"
-		}
-		ui.Text(c, directory).Label("Application data directory " + directory).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().TextMuted)
+	switch category {
+	case "plugins":
+		// Plugins and tools are application settings; a selected task is only
+		// the approval context and may keep its own override.
+		p.buildPluginsCategory(c)
+		return
+	case "data":
+		p.buildDataSettings(c)
+		return
+	case "security":
+		p.buildSecuritySettings(c)
+		return
 	}
+	ui.Text(c, workspaceScopeLabel(category)).FontSize(workspaceFontHeading).FontWeight(600).LineHeight(1.5)
 	ready := p.workspaceNavigationDetailReady() && !p.chat.Busy
 	ui.Row(c).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 		label := "尚未选择任务"
@@ -143,38 +148,42 @@ func (p *NativePage) buildWorkspaceSettingsCategory(c *ui.Context) {
 		ui.Text(c, "此分类的操作绑定已保存的任务，请先选择任务。").FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().TextMuted)
 		return
 	}
-	switch category {
-	case "plugins":
-		ui.Text(c, "配置在下一轮生效；启用主机能力仍需单独确认。").FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().TextMuted)
-		for _, item := range []struct {
-			key, title, icon string
-			open             func()
-		}{
-			{"mcp", "MCP 与原生 Agent", "plug", p.openSettings},
-			{"aep", "扩展插件", "plug", p.openAEP},
-			{"tools", "工具", "sliders-horizontal", p.openTools},
-			{"commands", "Hooks 与诊断", "code-xml", p.openCommands},
-			{"browser", "浏览器工具", "globe", p.openBrowserSettings},
-			{"media", "媒体工具", "folder", p.openMediaSettings},
-		} {
-			workspaceAction(c, "settings-open-"+item.key, item.title, item.icon, false).Height(workspaceControlHeight).Padding(0, 12).
-				Disabled(p.paneBusy).OnClick(item.open)
-		}
-	case "rules":
+	if category == "rules" {
 		ui.Text(c, "项目 Skills 与显式项目规则，使用当前任务已保存的工作区。").FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().TextMuted)
 		workspaceControlIconButton(c, "settings-open-skills", "管理规则与 Skills", "book-open", "secondary", p.paneBusy).
 			Label("Manage project rules and Skills").OnClick(p.openSkills)
-	case "data":
-		workspaceControlIconButton(c, "settings-open-records", "查看并导出会话记录", "folder", "secondary", p.paneBusy).
-			Label("View and export session records").OnClick(p.openInspector)
-	case "security":
-		label, description := p.workspacePermissionDescription(p.workspaceComposerTarget().EngineID)
-		ui.Text(c, label).FontSize(workspaceFontSubtitle).LineHeight(1.5)
-		ui.Text(c, description).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().TextMuted)
-		anchor := workspaceControlIconButton(c, "settings-permission", "修改下一轮权限", "shield-check", "secondary", !p.workspacePlanCanChange()).
+	}
+}
+
+func (p *NativePage) buildDataSettings(c *ui.Context) {
+	t := c.Theme()
+	settingsPageTitle(c, "数据与存储", "")
+	settingsGroup(c, "data-directory", "数据目录", "会话、设置和本地记录都保存在这里。令牌等授权凭据保存在系统钥匙串，不在此目录。", func() {
+		directory := p.Service.DataDirectory
+		if directory == "" {
+			directory = "当前应用未声明数据目录。"
+		}
+		ui.Text(c, directory).Label("Application data directory " + directory).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(t.TextMuted).Wrap()
+	})
+	ui.Text(c, "查看或导出会话执行记录在“开发者”页。").FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(t.TextMuted)
+}
+
+func (p *NativePage) buildSecuritySettings(c *ui.Context) {
+	settingsPageTitle(c, "权限与安全", "权限只影响所选任务的下一轮，正在运行的一轮保持原样。")
+	if p.settingsNeedsTask(c, "尚未选择任务：权限按任务保存，请先选择任务。") || p.chat.Busy {
+		return
+	}
+	label, description := p.workspacePermissionDescription(p.workspaceComposerTarget().EngineID)
+	ui.Row(c.Key("security-permission")).FillWidth().AlignItems(ui.Center).Padding(8, 0).Gap(12).Children(func() {
+		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Text(c, "下一轮权限 · "+label).FontSize(workspaceFontBody).LineHeight(1.5)
+			ui.Text(c, description).FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted).Wrap()
+		})
+		anchor := workspaceControlIconButton(c, "settings-permission", "修改", "shield-check", "secondary", !p.workspacePlanCanChange()).
 			Label("Settings permission policy").OnClick(func() { p.composer.permissionOpen = !p.composer.permissionOpen })
 		p.buildNativePermissionMenu(c, anchor)
-	}
+	})
+	ui.Text(c, "插件、MCP 和命令在每个工作区第一次运行前都要单独批准；批准绑定当时的配置，配置改变后需要重新批准。").FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted).Wrap()
 }
 
 // An explicit return reads only its prior metadata page. If a read from before

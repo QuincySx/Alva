@@ -89,6 +89,9 @@ type HubService struct {
 	// Traces is the narrow execution-trace reader; UI reads native trace
 	// metadata only through it, never through Store, Repository or Inspector.
 	Traces *TraceService
+	// Settings is the only settings entry for UI: application intent,
+	// per-workspace approvals and session overrides, never Store directly.
+	Settings *SettingsService
 	// mu serializes admission and source preparation; draftMu protects only the
 	// small published draft lists so observers never wait for disk/admission I/O.
 	mu                  sync.Mutex
@@ -165,6 +168,13 @@ func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.
 	}
 	if schedules, ok := store.(hub.AutomationStore); ok {
 		service.Automations = newAutomationCoordinator(service, schedules)
+	}
+	if app, ok := store.(hub.AppSettingsStore); ok {
+		settings, err := newSettingsService(service, app)
+		if err != nil {
+			return nil, err
+		}
+		service.Settings = settings
 	}
 	return service, nil
 }

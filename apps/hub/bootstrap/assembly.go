@@ -40,6 +40,7 @@ import (
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/system/document"
+	"github.com/QuincySx/Alva/platform/system/keychain"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	ownedprocess "github.com/QuincySx/Alva/platform/system/process"
@@ -81,6 +82,9 @@ type Config struct {
 	External              []ExternalEngine
 	GitExecutable         string
 	GitHostAccessApproved bool
+	// MCPVault stores MCP OAuth authorizations. Nil opens the system
+	// keychain on first OAuth use; there is no plaintext fallback.
+	MCPVault keychain.Vault
 }
 type Application struct {
 	Store      ProductStorage
@@ -104,6 +108,7 @@ type Application struct {
 	openMemory          MemoryFactory
 	pendingMu           sync.Mutex
 	pending             map[*ownedRunner]struct{}
+	mcp                 *mcpConnector
 }
 
 // Open uses only the factories selected by the program. It creates no session,
@@ -167,7 +172,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 	if err != nil {
 		return nil, err
 	}
-	a := &Application{openMemory: config.OpenMemory}
+	a := &Application{openMemory: config.OpenMemory, mcp: newMCPConnector(config.MCPVault)}
 	defer func() {
 		if result != nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -269,7 +274,12 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			return nil, err
 		}
 		owned.release = release
-		settings, err := store.Settings(ctx, request.OwnerID)
+		if a.Service == nil {
+			return nil, errors.New("product settings resolver unavailable")
+		}
+		// Application settings apply unless this session keeps its own
+		// override; host items need an exact approval for this workspace.
+		settings, err := a.Service.EffectiveSettings(ctx, request.OwnerID)
 		if err != nil {
 			return nil, err
 		}
@@ -534,7 +544,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		}
 		for _, server := range settings.MCP {
 			if server.Enabled && server.HostAccessApproved {
-				servers = append(servers, mcpprotocol.Config{ID: server.ID, Process: ownedprocess.Config{Command: server.Command, Args: server.Args, Env: server.Env, Cwd: request.Workspace}})
+				servers = append(servers, a.mcp.protocolConfig(server, request.Workspace))
 			}
 		}
 		if len(servers) > 0 {
@@ -645,6 +655,9 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		return nil, err
 	}
 	a.Service = service
+	if service.Settings != nil {
+		service.Settings.InstallMCPConnector(a.mcp)
+	}
 	service.Transcripts = &product.TranscriptService{Store: store}
 	service.Traces = product.NewTraceService(store, service)
 	service.Documents = document.NewProcessor()

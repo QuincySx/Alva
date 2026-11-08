@@ -1,4 +1,22 @@
 const (
+	CapabilityMCP         = "mcp"
+	CapabilityAEP         = "aep"
+	CapabilityHook        = "hook"
+	CapabilityDiagnostic  = "diagnostic"
+	CapabilityShell       = "shell"
+	CapabilityWeb         = "web"
+	CapabilityBrowser     = "browser"
+	CapabilityDecoder     = "decoder"
+	CapabilityPlanning    = "planning"
+	CapabilityNotebook    = "notebook"
+	CapabilityInteraction = "interaction"
+	CapabilityUtility     = "utility"
+	CapabilityMedia       = "media"
+	CapabilitySubagents   = "subagents"
+	CapabilityMemory      = "memory"
+)
+
+const (
 	DefaultSidebarWidth = 220
 	MinSidebarWidth     = 220
 	MaxSidebarWidth     = 432
@@ -7,6 +25,13 @@ const (
 const (
 	GoalProjectScope GoalScopeKind = "project"
 	GoalSessionScope GoalScopeKind = "session"
+)
+
+const (
+	MCPTransportStdio = "stdio"
+	MCPTransportHTTP  = "http"
+	MCPAuthNone       = "none"
+	MCPAuthOAuth      = "oauth"
 )
 
 const (
@@ -54,7 +79,21 @@ func (ConnectionUpdate) GoString() string
 
 func (ConnectionUpdate) String() string
 
+func (a AppSettings) Validate() error
+
 func (b BrowserSettings) Validate() error
+
+func (c *Capabilities) SetEnabled(kind, item string, enabled, approved bool) error
+
+func (c Capabilities) Clone() Capabilities
+
+func (c Capabilities) Empty() bool
+
+func (c Capabilities) Intent() Capabilities
+
+func (c Capabilities) Items() []CapabilityItem
+
+func (c Capabilities) ValidateIntent() error
 
 func (c CommandSettings) Validate() error
 
@@ -83,6 +122,8 @@ func (g CompanionGroup) Validate() error
 func (g Goal) Creation() GoalCreate
 
 func (g Goal) Validate() error
+
+func (i CapabilityItem) Key() string
 
 func (i DeveloperRepositoryIdentity) Validate() error
 
@@ -170,7 +211,15 @@ func (s ConversationTabSet) Validate() error
 
 func (s GoalScope) Validate() error
 
+func (s MCPServer) Remote() bool
+
+func (s Settings) Capabilities() Capabilities
+
+func (s Settings) OverridesCapabilities() bool
+
 func (s Settings) Validate() error
+
+func (s Settings) WithCapabilities(c Capabilities) Settings
 
 func (s ToolSettings) Validate() error
 
@@ -204,7 +253,11 @@ func (v WorkspaceView) Validate() error
 
 func (w DeveloperWorktree) Validate(repositoryID string) error
 
+func (w WorkspaceApproval) Validate() error
+
 func BlocksInput(status engine.Outcome) bool
+
+func CarryEnablement(current, next Capabilities, revokeChanged bool) Capabilities
 
 func ClaimsConflict(a, b []ResourceClaim) bool
 
@@ -222,6 +275,8 @@ func DefaultPreferences() Preferences
 
 func EncodeHandoff(h *Handoff) (string, error)
 
+func LoopbackHost(host string) bool
+
 func ModelPreferenceKey(target Target) string
 
 func New(store ExecutionStore) *Runtime
@@ -234,6 +289,8 @@ func NewWithWaits(store interface {
 }) *Runtime
 
 func PreferenceChoices() PreferenceOptions
+
+func ResolveSettings(session Settings, app AppSettings, approvals []WorkspaceApproval) Settings
 
 func RouteKey(target Target) string
 
@@ -259,6 +316,17 @@ import (
 	"strings"
 
 	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
 )
 
 import (
@@ -428,6 +496,9 @@ import (
 import (
 	"errors"
 	"io/fs"
+	"net/http"
+	"net/netip"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
@@ -459,6 +530,22 @@ type AEPBundle struct {
 	SHA256             string            `json:"sha256,omitempty"`
 	Enabled            bool              `json:"enabled"`
 	HostAccessApproved bool              `json:"host_access_approved"`
+}
+
+type AppSettings struct {
+	Revision     uint64       `json:"revision"`
+	Capabilities Capabilities `json:"capabilities"`
+}
+
+type AppSettingsStore interface {
+	AppSettings(context.Context) (AppSettings, error)
+	SaveAppSettings(context.Context, uint64, Capabilities) (AppSettings, error)
+	WorkspaceApprovals(context.Context, string) ([]WorkspaceApproval, error)
+	SaveWorkspaceApproval(context.Context, WorkspaceApproval) error
+	DeleteWorkspaceApproval(context.Context, string, string, string) error
+	ReplaceSessionCapabilities(context.Context, string, Capabilities) error
+	SetSessionCapabilityEnabled(context.Context, string, string, string, bool) error
+	SetCapabilityOverride(context.Context, string, bool, Capabilities) error
 }
 
 type Attempt struct {
@@ -540,6 +627,26 @@ type BrowserSettings struct {
 	OperationTimeoutMS int               `json:"operation_timeout_ms,omitempty"`
 	Enabled            bool              `json:"enabled"`
 	HostAccessApproved bool              `json:"host_access_approved"`
+}
+
+type Capabilities struct {
+	MCP              []MCPServer     `json:"mcp"`
+	AEP              []AEPBundle     `json:"aep,omitempty"`
+	SubagentsEnabled bool            `json:"subagents_enabled"`
+	PersistentMemory bool            `json:"persistent_memory"`
+	MediaEnabled     bool            `json:"media_enabled"`
+	MediaDecoder     MediaDecoder    `json:"media_decoder"`
+	Browser          BrowserSettings `json:"browser"`
+	Commands         CommandSettings `json:"commands"`
+	Tools            ToolSettings    `json:"tools"`
+}
+
+type CapabilityItem struct {
+	Kind        string `json:"kind"`
+	Item        string `json:"item"`
+	Host        bool   `json:"host"`
+	Enabled     bool   `json:"enabled"`
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 type Claim struct {
@@ -1011,9 +1118,15 @@ type HookSpec struct {
 
 type MCPServer struct {
 	ID                 string            `json:"id"`
+	Name               string            `json:"name,omitempty"`
+	Transport          string            `json:"transport,omitempty"`
 	Command            string            `json:"command"`
 	Args               []string          `json:"args,omitempty"`
 	Env                map[string]string `json:"env,omitempty"`
+	URL                string            `json:"url,omitempty"`
+	Headers            map[string]string `json:"headers,omitempty"`
+	Auth               string            `json:"auth,omitempty"`
+	OAuthClientID      string            `json:"oauth_client_id,omitempty"`
 	Enabled            bool              `json:"enabled"`
 	HostAccessApproved bool              `json:"host_access_approved"`
 }
@@ -1205,6 +1318,8 @@ type Settings struct {
 	Tools               ToolSettings                `json:"tools"`
 	SkillArchives       []string                    `json:"skill_archives,omitempty"`
 	CompatibilityFile   string                      `json:"compatibility_file,omitempty"`
+
+	CapabilityOverride bool `json:"capability_override,omitempty"`
 }
 
 type SettingsStore interface {
@@ -1431,6 +1546,14 @@ type WorkerWorktree struct {
 	Removal  *WorktreeRemovalReview `json:"removal,omitempty"`
 }
 
+type WorkspaceApproval struct {
+	Workspace   string `json:"workspace"`
+	Kind        string `json:"kind"`
+	Item        string `json:"item"`
+	Fingerprint string `json:"fingerprint"`
+	ApprovedAt  int64  `json:"approved_at"`
+}
+
 type WorkspaceCursor struct {
 	Path string `json:"path"`
 }
@@ -1543,6 +1666,8 @@ type WorktreeStore interface {
 	BeginWorkerRemoval(context.Context, string, string, string, uint64, string) (Worker, error)
 	FinishWorkerRemoval(context.Context, string, string, string, uint64, bool) (Worker, error)
 }
+
+var ErrAppSettingsConflict = errors.New("application settings changed; reload before saving")
 
 var ErrAutomationRouteChanged = errors.New("automation paused because its route or collaboration scope changed")
 

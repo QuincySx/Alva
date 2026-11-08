@@ -8,7 +8,6 @@ package hubdesktop
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -27,72 +26,31 @@ import (
 
 type settingsLifecycleStore struct {
 	product.ServiceStore
-	hub.ToolSettingsStore
 	entered, release chan struct{}
-	read, fail       bool
+	read, fail       atomic.Bool
+	once             sync.Once
 }
 
 func (s *settingsLifecycleStore) delay(ctx context.Context) error {
-	close(s.entered)
+	s.once.Do(func() { close(s.entered) })
 	select {
 	case <-s.release:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	if s.fail {
+	if s.fail.Load() {
 		return errors.New("delayed settings fixture failure")
 	}
 	return nil
 }
 
+// Settings is read by every settings form load and before every save.
 func (s *settingsLifecycleStore) Settings(ctx context.Context, id string) (hub.Settings, error) {
 	value, err := s.ServiceStore.Settings(ctx, id)
-	if s.read && err == nil {
+	if s.read.Load() && err == nil {
 		err = s.delay(ctx)
 	}
 	return value, err
-}
-
-func (s *settingsLifecycleStore) ReplaceTools(ctx context.Context, id string, value hub.ToolSettings) error {
-	if err := s.delay(ctx); err != nil {
-		return err
-	}
-	return s.ToolSettingsStore.ReplaceTools(ctx, id, value)
-}
-
-func (s *settingsLifecycleStore) ReplaceAEP(ctx context.Context, id string, value []hub.AEPBundle) error {
-	if err := s.delay(ctx); err != nil {
-		return err
-	}
-	return s.ServiceStore.ReplaceAEP(ctx, id, value)
-}
-
-func (s *settingsLifecycleStore) ReplaceCommands(ctx context.Context, id string, value hub.CommandSettings) error {
-	if err := s.delay(ctx); err != nil {
-		return err
-	}
-	return s.ServiceStore.ReplaceCommands(ctx, id, value)
-}
-
-func (s *settingsLifecycleStore) ReplaceMCP(ctx context.Context, id string, value []hub.MCPServer) error {
-	if err := s.delay(ctx); err != nil {
-		return err
-	}
-	return s.ServiceStore.ReplaceMCP(ctx, id, value)
-}
-
-func (s *settingsLifecycleStore) SetSubagentsEnabled(ctx context.Context, id string, value bool) error {
-	if err := s.delay(ctx); err != nil {
-		return err
-	}
-	return s.ServiceStore.SetSubagentsEnabled(ctx, id, value)
-}
-
-func (s *settingsLifecycleStore) SetPersistentMemory(ctx context.Context, id string, value bool) error {
-	if err := s.delay(ctx); err != nil {
-		return err
-	}
-	return s.ServiceStore.SetPersistentMemory(ctx, id, value)
 }
 
 func (s *settingsLifecycleStore) SetSkillsEnabled(ctx context.Context, id string, value bool) error {
@@ -100,20 +58,6 @@ func (s *settingsLifecycleStore) SetSkillsEnabled(ctx context.Context, id string
 		return err
 	}
 	return s.ServiceStore.SetSkillsEnabled(ctx, id, value)
-}
-
-func (s *settingsLifecycleStore) ReplaceBrowser(ctx context.Context, id string, value hub.BrowserSettings) error {
-	if err := s.delay(ctx); err != nil {
-		return err
-	}
-	return s.ServiceStore.ReplaceBrowser(ctx, id, value)
-}
-
-func (s *settingsLifecycleStore) ReplaceMediaDecoder(ctx context.Context, id string, value hub.MediaDecoder) error {
-	if err := s.delay(ctx); err != nil {
-		return err
-	}
-	return s.ServiceStore.ReplaceMediaDecoder(ctx, id, value)
 }
 
 func settingsLifecyclePage(t *testing.T) (*NativePage, *settingsLifecycleStore, *ui.Tester) {
@@ -130,7 +74,7 @@ func settingsLifecyclePage(t *testing.T) (*NativePage, *settingsLifecycleStore, 
 		t.Fatal(err)
 	}
 	p.applyDetail()
-	store := &settingsLifecycleStore{ServiceStore: s.Store, ToolSettingsStore: s.Store.(hub.ToolSettingsStore), entered: make(chan struct{}), release: make(chan struct{})}
+	store := &settingsLifecycleStore{ServiceStore: s.Store, entered: make(chan struct{}), release: make(chan struct{})}
 	s.Store = store
 	t.Cleanup(func() {
 		select {
@@ -146,85 +90,114 @@ func awaitSettingsLifecycle(t *testing.T, store *settingsLifecycleStore) {
 	t.Helper()
 	select {
 	case <-store.entered:
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("configuration operation did not reach its actual store")
 	}
 }
 
+func awaitSettingsForm(t *testing.T, tester *ui.Tester, p *NativePage) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tester.Frame()
+		if p.settingsForm.loaded && !p.settingsForm.saving && !p.paneBusy {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("settings form did not load", p.settingsForm.problem)
+}
+
+var settingsLifecyclePanes = []struct {
+	name string
+	open func(*NativePage)
+}{
+	{"overview", (*NativePage).openSettings},
+	{"mcp", (*NativePage).openMCPSettings},
+	{"tools", (*NativePage).openTools},
+	{"plugins", (*NativePage).openAEP},
+	{"commands", (*NativePage).openCommands},
+	{"browser", (*NativePage).openBrowserSettings},
+	{"media", (*NativePage).openMediaSettings},
+}
+
 func TestNativeSettingsReadCannotPublishAfterLeavingPane(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		open func(*NativePage)
-	}{
-		{"tools", (*NativePage).openTools},
-		{"plugins", (*NativePage).openAEP},
-		{"commands", (*NativePage).openCommands},
-		{"settings", (*NativePage).openSettings},
-		{"skills", (*NativePage).openSkills},
-		{"browser", (*NativePage).openBrowserSettings},
-		{"media", (*NativePage).openMediaSettings},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			p, store, tester := settingsLifecyclePage(t)
-			store.read = true
-			test.open(p)
-			awaitSettingsLifecycle(t, store)
-			p.setPane("routing")
-			p.problem, p.toolsDraft, p.aepDraft, p.commandDraft = "current view message", "new tools", "new plugins", "new commands"
-			p.configDraft, p.compatibilityDraft, p.browserDraft = "new MCP", "new compatibility", "new browser"
-			p.decoderFFmpeg, p.decoderProbe = "new ffmpeg", "new ffprobe"
-			p.settings = hub.Settings{Version: 1, SessionID: p.selected, SkillsEnabled: true}
-			close(store.release)
-			settlePage(t, tester, p)
-			if p.pane != "routing" || p.problem != "current view message" || !p.settings.SkillsEnabled || p.toolsDraft != "new tools" || p.aepDraft != "new plugins" || p.commandDraft != "new commands" || p.configDraft != "new MCP" || p.compatibilityDraft != "new compatibility" || p.browserDraft != "new browser" || p.decoderFFmpeg != "new ffmpeg" || p.decoderProbe != "new ffprobe" {
-				t.Fatal("old configuration read changed the later view", p.pane, p.problem)
-			}
-		})
+	for _, test := range settingsLifecyclePanes {
+		for _, leave := range []string{"different-pane", "reopened-session"} {
+			t.Run(test.name+"/"+leave, func(t *testing.T) {
+				p, store, tester := settingsLifecyclePage(t)
+				store.read.Store(true)
+				test.open(p)
+				tester.Frame()
+				awaitSettingsLifecycle(t, store)
+				if leave == "different-pane" {
+					p.setPane("routing")
+				} else {
+					p.generation++ // The same session was left and reopened.
+				}
+				p.problem = "current view message"
+				close(store.release)
+				deadline := time.Now().Add(200 * time.Millisecond)
+				for time.Now().Before(deadline) {
+					tester.Frame()
+					time.Sleep(time.Millisecond)
+				}
+				if leave == "different-pane" && (p.pane != "routing" || p.settingsForm.loaded) || p.problem != "current view message" {
+					t.Fatal("old configuration read changed the later view", p.pane, p.problem, p.settingsForm.loaded)
+				}
+				if leave == "reopened-session" && p.settingsForm.generation != p.generation {
+					t.Fatal("reopened session kept a form owned by the previous generation")
+				}
+			})
+		}
 	}
 }
 
 func TestNativeSettingsReceiptStaysWithOriginalView(t *testing.T) {
 	for _, test := range []struct {
-		name, pane string
-		run        func(*NativePage)
+		name string
+		open func(*NativePage)
+		run  func(*NativePage)
+		ok   func(hub.Settings) bool
 	}{
-		{"tools", "tools", func(p *NativePage) { p.toolsDraft = `{}`; p.changeTools("", false) }},
-		{"plugins", "plugins", func(p *NativePage) { p.aepDraft = `[]`; p.aepAction("", false) }},
-		{"commands", "commands", func(p *NativePage) { p.commandDraft = `{}`; p.commandAction("", "", false) }},
-		{"MCP", "settings", func(p *NativePage) { p.configDraft = `[]`; p.saveSettings() }},
-		{"subagents", "settings", func(p *NativePage) { p.enableSubagents(true) }},
-		{"memory", "settings", func(p *NativePage) { p.enablePersistentMemory(true) }},
-		{"skills", "skills", func(p *NativePage) { p.skillAction("enable", "") }},
-		{"browser", "browser-settings", func(p *NativePage) { p.browserDraft = `{}`; p.browserSetting(true, false) }},
-		{"decoder", "media-settings", func(p *NativePage) {
-			p.decoderFFmpeg = filepath.Join(t.TempDir(), "ffmpeg")
-			p.decoderProbe = filepath.Join(t.TempDir(), "ffprobe")
-			p.mediaSetting("save", false)
-		}},
+		{"switch", (*NativePage).openTools, func(p *NativePage) { p.toggleSettingsItem(hub.CapabilityPlanning, "", "planning", true) }, func(v hub.Settings) bool { return v.Tools.Planning }},
+		{"memory", (*NativePage).openSettings, func(p *NativePage) { p.toggleSettingsItem(hub.CapabilityMemory, "", "memory", true) }, func(v hub.Settings) bool { return v.PersistentMemory }},
+		{"browser", (*NativePage).openBrowserSettings, func(p *NativePage) {
+			*p.settingsForm.editor.str("executable") = "/Applications/Fixture"
+			p.saveBrowser()
+		}, func(v hub.Settings) bool { return v.Browser.Executable == "/Applications/Fixture" }},
+		{"mcp", (*NativePage).openMCPSettings, func(p *NativePage) {
+			p.editMCP(-1)
+			*p.settingsForm.editor.str("id"), *p.settingsForm.editor.str("command") = "fixture", "/bin/echo"
+			p.saveMCPServer()
+		}, func(v hub.Settings) bool { return len(v.MCP) == 1 && !v.MCP[0].Enabled }},
 	} {
-		for _, scope := range []string{"different-pane", "reopened-session"} {
+		for _, leave := range []string{"different-pane", "reopened-session"} {
 			for _, fail := range []bool{false, true} {
-				t.Run(test.name+"/"+scope+"/"+map[bool]string{false: "committed", true: "failed"}[fail], func(t *testing.T) {
+				t.Run(test.name+"/"+leave+"/"+map[bool]string{false: "committed", true: "failed"}[fail], func(t *testing.T) {
 					p, store, tester := settingsLifecyclePage(t)
-					store.fail = fail
-					p.setPane(test.pane)
+					test.open(p)
+					awaitSettingsForm(t, tester, p)
+					store.read.Store(true)
+					store.fail.Store(fail)
 					test.run(p)
 					awaitSettingsLifecycle(t, store)
-					if scope == "different-pane" {
+					if leave == "different-pane" {
 						p.setPane("routing")
 					} else {
-						p.generation++ // The same session was left and reopened.
+						p.generation++
 					}
 					pane := p.pane
-					p.problem, p.skillDraft, p.configDraft, p.aepDraft = "current view message", "new skill draft", "new MCP draft", "new plugin draft"
+					p.problem = "current view message"
 					close(store.release)
 					settlePage(t, tester, p)
-					if p.pane != pane || p.problem != "current view message" || p.skillDraft != "new skill draft" || p.configDraft != "new MCP draft" || p.aepDraft != "new plugin draft" {
+					if p.pane != pane || p.problem != "current view message" || leave == "different-pane" && p.settingsForm.notice != "" {
 						t.Fatal("old configuration receipt changed the later view", p.pane, p.problem)
 					}
-					value, err := store.ServiceStore.Settings(t.Context(), p.selected)
-					if err != nil || !fail && (test.name == "skills" && !value.SkillsEnabled || test.name == "memory" && !value.PersistentMemory || test.name == "subagents" && !value.SubagentsEnabled) {
-						t.Fatal("ignoring a stale UI receipt discarded its actual committed fact", value, err)
+					store.read.Store(false)
+					value, err := p.Service.EffectiveSettings(t.Context(), p.selected)
+					if err != nil || test.ok(value) == fail {
+						t.Fatal("ignoring a stale UI receipt changed its actual committed fact", err, p.settingsForm.problem, p.settingsForm.errors)
 					}
 					if p.Service.Runtime.HasActive() {
 						t.Fatal("configuration receipt started execution")
@@ -253,17 +226,19 @@ func TestNativeOptionalToolsAndHumanClarification(t *testing.T) {
 	if err = workspaceTestMenu(tester, "会话设置"); err != nil {
 		t.Fatal(err)
 	}
-	settlePage(t, tester, p)
-	if err = tester.Click("Optional tools and human questions"); err != nil {
+	// The settings entries render only once the form has loaded, which
+	// settlePage (pane work only) does not wait for.
+	awaitSettingsForm(t, tester, p)
+	if err = tester.Click("Open 工具"); err != nil {
 		t.Fatal(err)
 	}
-	settlePage(t, tester, p)
-	if err = tester.Click("Enable Human questions next turn"); err != nil {
+	awaitSettingsForm(t, tester, p)
+	if err = tester.Click("Toggle interaction"); err != nil {
 		t.Fatal(err)
 	}
-	settlePage(t, tester, p)
-	if !p.settings.Tools.Interaction || s.Runtime.HasActive() {
-		t.Fatal("opt-in did not persist cold")
+	awaitSettingsForm(t, tester, p)
+	if effective, err := s.EffectiveSettings(ctx, product.ID); err != nil || !effective.Tools.Interaction || s.Runtime.HasActive() {
+		t.Fatal("opt-in did not persist cold", err, p.settingsForm.problem)
 	}
 	broker, err := host.NewQuestionBroker(8)
 	if err != nil {

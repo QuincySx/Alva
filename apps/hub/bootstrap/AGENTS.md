@@ -47,6 +47,8 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 | compatibility_test.go | 默认off、native/标准Skill一个目录一个Tool、真实模板child与独立HITL、规则变更拒绝同Turn恢复；Snapshot进attempt owner |
 | subagent_test.go | 真实四次local model/root-child HITL、typed关系、引用隔离与冷Inspector闭环 |
 | mcp_test.go | 明确本地真实MCP子进程、lazy启动、actual attempt资源注册及SDK/应用物理收尾 |
+| mcp_connector.go | 唯一把MCP传输、OAuth与钥匙串接起来的地方：按快照生成stdio/Streamable HTTP配置，测试连接（stderr尾部脱敏），OAuth授权/状态/撤销，运行期Authorizer只从钥匙串读取与刷新、轮换后回写，从不弹浏览器；无钥匙串时拒绝OAuth |
+| mcp_connector_test.go | 未批准不启动、应用级MCP仅在批准工作区进入Attempt、本地假授权服务器全流程、过期刷新轮换、撤销及数据目录无令牌字节回归 |
 | aep_test.go | 实际本地AEP进程下一Turn启动、pin拒绝、握手失败真实日志/终态和snapshot清理 |
 | memory.go / memory_test.go | lazy workspace-bound持久memory配方、真实HITL/跨重启/引用投递/不扫描/不同workspace隔离 |
 | commands_test.go | 实际本地命令/SDK/HITL、pre-input新权限、诊断来源/exit/reap证据和prior Activity |
@@ -55,7 +57,7 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 | composer_images.go / composer_images_test.go | 显式typed捕获图的route/2张/20MiB/原文SHA与path核验、native provenance副本及inputs-only现有media装配；真实local HTTP验证图像实际一次投递、默认Tool off、receipt链、未知route/原件变化零模型调用 |
 | browser_test.go | 显式真实Chrome/local HTTP、actual SDK/HITL、prior risk、文本/截图refs与实际reap/profile removal |
 | worktree_test.go | 显式真实Git+HTTP/SDK write_file/HITL Worker隔离、显式原字节采纳、持久冷证据与重开不重放 |
-| storage.go | 共享产品profile（含独立应用外观及可选repository/tab/admission端口）与显式Stores/Memory/Bindings工厂；仅Local配方选择具体provider |
+| storage.go | 共享产品profile（含独立应用外观、应用级设置与工作区批准及可选repository/tab/admission端口）与显式Stores/Memory/Bindings工厂；仅Local配方选择具体provider |
 | storage_test.go | opaque组件贯穿实际Turn、缺失/失败零fallback、部分资源与failed-close所有权 |
 | preferences_test.go | 选定opaque外观端口贯穿共享owner、无会话冷读写、读取失败零fallback；实际写入忽略取消时Close超时仍保留组件直到完成，重开无重放 |
 | composer_skills_test.go | 首发前选定Skill经过产品/SQLite/Runtime到真实本地HTTP的目录与Tool读取；全局SkillsEnabled保持false、兄弟来源不暴露 |

@@ -47,9 +47,21 @@ func (s *HubService) SaveAEPDraft(ctx context.Context, id, raw string) error {
 	for i := range entries {
 		entries[i].Enabled = false
 		entries[i].HostAccessApproved = false
+	}
+	if err = s.inspectAEP(ctx, entries); err != nil {
+		return err
+	}
+	return s.Store.ReplaceAEP(ctx, id, entries)
+}
+
+// inspectAEP derives each entry's name/version/SHA-256 pin from a bounded
+// staged copy. It never starts an interpreter or WASM module; a changed
+// source yields a new pin, so any approval bound to the old one stops applying.
+func (s *HubService) inspectAEP(ctx context.Context, entries []hub.AEPBundle) error {
+	for i := range entries {
 		entries[i].Name, entries[i].Version, entries[i].SHA256 = "", "", ""
 	}
-	if err = hub.ValidateAEP(entries); err != nil {
+	if err := hub.ValidateAEP(withoutAEPEnablement(entries)); err != nil {
 		return err
 	}
 	if len(entries) > 0 {
@@ -75,10 +87,15 @@ func (s *HubService) SaveAEPDraft(ctx context.Context, id, raw string) error {
 			}
 		}
 	}
-	if err = hub.ValidateAEP(entries); err != nil {
-		return err
+	return hub.ValidateAEP(withoutAEPEnablement(entries))
+}
+
+func withoutAEPEnablement(entries []hub.AEPBundle) []hub.AEPBundle {
+	check := append([]hub.AEPBundle(nil), entries...)
+	for i := range check {
+		check[i].Enabled, check[i].HostAccessApproved = false, false
 	}
-	return s.Store.ReplaceAEP(ctx, id, entries)
+	return check
 }
 
 // StagePinnedAEP returns caller-owned immutable code for an already separately

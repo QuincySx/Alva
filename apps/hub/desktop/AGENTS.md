@@ -84,20 +84,14 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | wait_desktop.go / wait_desktop_test.go | 默认off等待面板、完整请求/已保存结果与可复制Turn ID、跨窗观察/绑定草稿/旧读排除/读失败禁用；只保存结果、同Turn继续和重新审阅后放弃，1240×850无窗口控件回归 |
 | wait_question_desktop.go / wait_question_desktop_test.go | 持久单选/多选/文本与编码限额，拒绝空白保存；重开/明确继续同Turn、过期禁用、独立写审批、多问题草稿隔离及滚动动作可达，不要求手写JSON |
 | app_desktop.go | 正式工作台装配（消息流单独一份带chart钩子的Markdown选项，轨迹沿用不含该钩子的选项）、共享虚拟消息或执行轨迹（trace状态随会话切换重置、轮询时跟随运行中轨迹）、异步会话/观察/发送与明确审批；会话参数已提交观察独立于高级配置编辑态，真实导航/轮询复用已有Settings读取；高级面板由workspace入口分派；打开/轮询/更早内容分别走Transcripts Tail/Newer/Older，MoreAfter取代旧reviewing |
-| panes_desktop.go | MCP/native SubAgent/持久Memory显式冷settings与原视图回执；固定高水位Inspector、typed child钻取/返回父页与2KiB原文（设置「数据与存储」与页头菜单入口保留） |
+| panes_desktop.go | 固定高水位Inspector、typed child钻取/返回父页与2KiB原文（入口在「开发者」调试区与页头菜单） |
 | workspace_trace_desktop.go / workspace_trace_desktop_test.go | 对话/轨迹切换、时间轴与排布切换、虚拟步骤列表与向前/向后分页、详情三标签、搜索跳转、子会话进入/返回（含子Agent卡片的待进入跳转）与不支持说明；页读取被丢弃时（epoch仍匹配）也结束loading，generation变化（Send/Stop/上传）则按当前位置重开轨迹；搜索/详情/原始读取各有独立epoch，丢弃时同样结束busy；选中的未完成步骤配对后重读详情；运行结束后在途读取完成再补一次Newer；分页出错后滚动不再每帧重试，等用户操作或下一次轮询；原始内容按记录序号定位；测试覆盖切换保持两侧滚动、加载更早不跳动、详情与原始分页、子会话、无Inspector引擎、搜索与时间轴点击，以及丢弃读取/搜索不卡住、未完成步骤配对后刷新、结束后补读、同角色原始记录按序号、出错退避，ALVA_UI_BENCH=1时轨迹滚动帧CPU p95≤8ms门 |
 | export_desktop.go | 已选branch/typed子路径的实际JSONL私有导出；可选真实关联child，失败不报成功，Close等待写入；分类只筛当前metadata页 |
-| aep_desktop.go | native-only显式文件夹/JSON检查、disabled pin保存、独立host同意与下一Turn启停 |
-| aep_desktop_test.go | MyGo实际输入JSON检查与独立批准，不启动任何模型/解释器 |
-| commands_desktop.go | 原生Hooks/diagnostics明确argv JSON编辑、独立host批准与下一Turn启停，不自动运行诊断 |
-| commands_desktop_test.go | MyGo实际JSON/批准和持久memory opt-in控件，保存/观察不启动任务 |
 | shell_desktop_test.go | 真实应用内后台job冷列表与native显式Stop等待reap，不启动模型 |
-| tools_desktop.go | 六类工具原生配置/独立enable、对话之外（pane/设置）的置顶真实单选/多选/Other/自由回答、失败保稿和提交中防重；问答不增加权限，同pane后台Shell列表/Stop/idle reset复用应用owner |
-| tools_desktop_test.go | 七类配置冷读与九类mutation的原session/generation/pane回执隔离、真实提交保留与零执行；问答独立读错、防重、实际答案格式/纠错和重开后旧回执回归 |
+| tools_desktop.go | 对话之外（pane/设置）的置顶真实单选/多选/Other/自由回答、失败保稿和提交中防重；问答不增加权限；工具页下方后台Shell列表/Stop/idle reset复用应用owner |
+| tools_desktop_test.go | 七个设置页冷读与开关/保存回执的原pane/task/generation/epoch隔离、真实提交保留与零执行；问答独立读错、防重、实际答案格式/纠错和重开后旧回执回归 |
 | gateway_desktop.go / gateway_desktop_test.go | 显式Gateway Start/绑定generation停止与一次Bearer可见性；跨窗停启/晚回执清过期凭据，冷观察和Closed/Stopping守卫，旧按下控件不能停止替换owner |
-| media_settings_desktop.go | 默认off媒体工具、显式decoder绝对路径、编辑禁用和独立host批准，不自动启动 |
 | media_desktop.go / media_desktop_test.go | cold来源/产物/selection/receipt分页、显式实际JPEG预览/释放及MyGo无窗口回归 |
-| browser_desktop.go / browser_desktop_test.go | explicit browser JSON禁用保存/独立host-network批准/编辑撤销与零启动控件回归 |
 | handoff_desktop.go / handoff_desktop_test.go | 仅当前消息窗口内时间线块的handoff ID→显式读取exact已保存脱敏snapshot，不恢复或执行 |
 | playback_desktop.go / playback_desktop_test.go | actual ffmpeg+MyGo Play/Pause/seek、单Bitmap.Update或audio mixer position、one-closure背压、导航回收；fixture双流排空后回收，失败也清理；真实OS窗口另验 |
 | audio_desktop.go / audio_desktop_test.go | canonical WAV→有界in-memory MyGo voice、显式Play/seek/Close，设备错误不冒充可听成功；冷构造/非发声fake voice测试，不声称真实声学验收 |
@@ -106,7 +100,7 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | observer.go / observer_test.go | 独立时钟的有界UI观察；无重绘仍刷新，慢UI不堆积，关闭不迟到读或Stop |
 | debug_desktop.go / debug_desktop_test.go | 独立默认关闭诊断owner注册实际产品视图与Send/绑定实际执行owner的Stop，select_route调用当前模型菜单handler；草稿仅长度/SHA、路由有界、controls/execution分开；Gateway过期凭据撤销后须新帧才可截图，真实HTTP/MyGo回归不冒充OS窗口验收 |
 | windows_desktop.go / windows_desktop_test.go | 最多8个同app观察窗共享product/runtime；资源收回走真实Close守卫后聚焦来源，来源关闭则原位/现存工作台，清除双向关系不保留旧缓存；关闭不冒充Stop |
-| skills_desktop.go | 受管项目Skills原生编辑/下一轮enable、显式compatibility文件冷读与下一轮启停；无目录时仍可用规则插件，旧原文读取/操作回执不覆盖后来视图 |
+| skills_desktop.go | 「规则与 Skills」中文页：技能列表、名称/说明/正文表单（编辑先归档、失败恢复）、归档恢复、会话级开关与兼容配置路径；旧读取/操作回执不覆盖后来视图 |
 | compatibility_desktop_test.go | MyGo实际配置路径输入/明确启停、未初始化native Skills仍可用、导航/重开隔离旧Skill原文与零执行回归 |
 | workspace_interactions_desktop.go | 审批/问答卡片（等待时卡内操作、处理后一行）、按块ID的可操作请求与草稿/忙/错误、经RespondInteraction回答并同步原路径提交中状态与epoch、会话+分支范围外的迟到回执丢弃、等待请求跳转与其他视图一行入口、用量行；只按块类型与Display kind呈现 |
 | workspace_interactions_desktop_test.go | 各状态卡片文字（含无正文已回答）与用量行（有缓存/无缓存）、对话里的读取错误与重试、读取失败保留卡片草稿（native与Alva问答）、面板在途时卡片忙、pending不变不重投影、Alva审批卡允许/拒绝调用到执行owner且对话里不再出现置顶面板、外部引擎卡片拒绝/选项+秘密输入回答且失败在卡内显示并保留草稿、切分支后迟到回执丢弃、等待请求跳转/轨迹与pane入口、Alva多选问答、Markdown表格渲染；ALVA_INTERACTION_REVIEW_DIR时保存审批/问答卡等待与已处理的无窗口截图 |
@@ -120,3 +114,7 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | approvals_desktop.go / approvals_desktop_test.go | 对话之外（pane/设置/资源专注）的置顶one-call审批，完整正文有界滚动/动作行独立；Allow/Deny共享Loading保焦点尺寸，实际回执防重、问答隔离与旧读排除 |
 | workspace_engine_interactions_desktop.go / workspace_engine_interactions_desktop_test.go | native审批/多问题opaque handle及poll/epoch（读取更新后重投影卡片）；对话之外的置顶面板；完整请求滚动、动作可达/保焦点、Other空白拒绝、秘密掩码、失败保稿、成功隐藏原请求且不伪造resolved事实；Build无I/O |
 | preferences_motion_desktop_test.go | 应用减弱动效的真实Save/CAS/跨窗投影及paint-only Loader停止请求帧；系统减弱要求始终有效 |
+| settings_form_desktop.go | 设置表单唯一owner：作用域条（应用设置/仅本会话/改回应用设置）、冷读与按pane/task/generation/epoch隔离的保存/开关/批准/恢复默认，确认卡、字段错误与路径/列表/只写密钥（遮罩）控件 |
+| settings_pages_desktop.go | 「插件与工具」概览与能力开关，工具、Hooks与诊断、浏览器、媒体、扩展插件中文表单；保存不启动进程，主机项启用先确认并只批准当前任务工作区 |
+| settings_mcp_desktop.go | MCP 服务器列表/编辑（本地命令或远程HTTP、请求头遮罩、认证无/OAuth）、明文传输提示、显式测试连接与工具列表、OAuth授权/取消/撤销 |
+| settings_pages_desktop_test.go | 表单保存不自批、启用先确认、编辑撤销批准、中文字段错误与草稿保留、恢复默认需确认的无界面回归 |

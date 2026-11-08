@@ -35,6 +35,16 @@ func (p *preferencesPane) accept(value hub.Preferences) {
 	p.size = strconv.Itoa(value.FontSize)
 	p.reducedMotion = value.ReducedMotion
 }
+
+// restoreDefaults changes only the draft; Save commits it like any edit.
+// Density keeps its hidden saved value because it has no visible control.
+func (p *preferencesPane) restoreDefaults() {
+	defaults := hub.DefaultPreferences()
+	p.theme = defaults.Theme
+	p.size = strconv.Itoa(defaults.FontSize)
+	p.reducedMotion = defaults.ReducedMotion
+	p.problem = ""
+}
 func (p *NativePage) openPreferences() {
 	p.setPane("preferences")
 	if !p.preferences.dirty() || p.preferences.base.Revision == 0 {
@@ -224,6 +234,8 @@ func (p *NativePage) buildPreferences(c *ui.Context) {
 					ui.Text(c, preferenceProblemText(problem)).Label(problem).Role(ui.RoleStatus).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(t.Danger)
 				}
 				ui.Row(c).FillWidth().Gap(8).Justify(ui.End).Children(func() {
+					workspaceControlButton(c, "preference-defaults", "恢复默认", "ghost", v.base.Revision == 0 || v.loading || v.saving).Label("Restore default preferences").
+						Tooltip("把草稿改回默认外观，点保存后生效").OnClick(v.restoreDefaults)
 					workspaceControlButton(c, "preference-reload", "重新加载", "secondary", v.loading || v.saving).Label("Reload preferences").OnClick(p.reloadPreferences)
 					p.workspaceControlAction(c, "preference-save", "保存偏好", "", "primary", v.saving, p.savePreferences, !v.saving && (v.base.Revision == 0 || v.loading || v.readFailed || !v.dirty())).Label("Save preferences")
 				})

@@ -104,10 +104,11 @@ func TestNativeShellJobStopWaitsForItsActualApplicationOwner(t *testing.T) {
 	if err := workspaceTestMenu(tester, "会话设置"); err != nil {
 		t.Fatal(err)
 	}
-	settlePage(t, tester, p)
-	if err := tester.Click("Optional tools and human questions"); err != nil {
+	awaitSettingsForm(t, tester, p)
+	if err := tester.Click("Open 工具"); err != nil {
 		t.Fatal(err)
 	}
+	awaitSettingsForm(t, tester, p)
 	settlePage(t, tester, p)
 	if len(p.shellJobs) != 1 || p.shellJobs[0].Job.Status.Reaped {
 		t.Fatal("cold native job list lost owner")

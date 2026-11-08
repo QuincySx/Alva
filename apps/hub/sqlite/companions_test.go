@@ -167,7 +167,7 @@ func TestCompanionMigrationPreservesOrdinaryRecordsAndNeverReplaysRound(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, q := range []string{`DROP TABLE hub_conversation_tab_sets`, `DROP TABLE hub_developer_repositories`, `DROP TABLE hub_companion_messages`, `DROP TABLE hub_companion_rounds`, `DROP TABLE hub_companion_conversations`, `DROP TABLE hub_companion_groups`, `DROP TABLE hub_companions`, `DROP TABLE hub_workspace_views`, `DROP TABLE hub_composer_drafts`, `DROP TABLE hub_composer_file_sessions`, `DROP TABLE hub_composer_files`, `DROP TABLE hub_connection_creations`, `PRAGMA user_version=4`} {
+	for _, q := range []string{`DROP TABLE hub_workspace_approvals`, `DROP TABLE hub_app_settings`, `DROP TABLE hub_conversation_tab_sets`, `DROP TABLE hub_developer_repositories`, `DROP TABLE hub_companion_messages`, `DROP TABLE hub_companion_rounds`, `DROP TABLE hub_companion_conversations`, `DROP TABLE hub_companion_groups`, `DROP TABLE hub_companions`, `DROP TABLE hub_workspace_views`, `DROP TABLE hub_composer_drafts`, `DROP TABLE hub_composer_file_sessions`, `DROP TABLE hub_composer_files`, `DROP TABLE hub_connection_creations`, `PRAGMA user_version=4`} {
 		if _, err = s.db.ExecContext(ctx, q); err != nil {
 			t.Fatal(err)
 		}

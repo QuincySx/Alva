@@ -69,29 +69,43 @@ func (p *NativePage) observeGateway() {
 }
 
 func (p *NativePage) buildGateway(c *ui.Context) {
-	ui.Column(c).Grow(1).Gap(8).Children(func() {
-		ui.Text(c, "Local model API").Bold()
+	t := c.Theme()
+	ui.Column(c).Grow(1).FillWidth().Gap(16).Children(func() {
+		settingsPageTitle(c, "Gateway", "在本机开放一个模型 API，供其他程序使用当前配置的模型账户。它只转发模型请求，不运行 Agent 工具，也不读取会话历史。")
 		if p.Service.Gateway == nil {
-			ui.Text(c, "An explicitly configured live model route is required.")
+			ui.Text(c, "需要先配置一个可用的模型连接。").FontSize(workspaceFontBody).TextColor(t.TextMuted)
 			return
 		}
 		status := p.gatewayStatus
-		ui.Text(c, "This API uses the configured live model account. Each caller can incur model charges. It accepts explicit model requests; it does not run Agent tools or use conversation history.").FontSize(workspaceFontCaption)
-		if status.Running {
-			ui.Text(c, status.Address)
-			if status.Stopping {
-				ui.Text(c, "Local API admission is closed. Waiting for active requests to finish; retry Stop to join cleanup.")
+		ui.Text(c, "每个调用方的请求都会计入模型账户的费用。").FontSize(workspaceFontCaption).TextColor(t.Warning).Wrap()
+		ui.Row(c.Key("gateway-status")).FillWidth().AlignItems(ui.Center).Gap(12).Padding(8, 0).Children(func() {
+			ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
+				switch {
+				case status.Running:
+					ui.Text(c, "运行中").FontSize(workspaceFontBody).TextColor(t.Success)
+					ui.Text(c, status.Address).Label("Gateway address").FontSize(workspaceFontCaption).TextColor(t.TextMuted)
+					if status.Stopping {
+						ui.Text(c, "已停止接收新请求，正在等待进行中的请求结束；可以再次点击停止。").FontSize(workspaceFontCaption).TextColor(t.Warning).Wrap()
+					}
+				case status.Closed:
+					ui.Text(c, "本机模型 API 已关闭，需要重启应用才能再次启动。").FontSize(workspaceFontBody).TextColor(t.TextMuted)
+				default:
+					ui.Text(c, "未运行").FontSize(workspaceFontBody).TextColor(t.TextMuted)
+				}
+			})
+			switch {
+			case status.Running:
+				// A press belongs to this listener even if polling replaces the visible controls.
+				workspaceControlButton(c, "gateway-stop-"+strconv.FormatUint(status.Generation, 10), "停止并取消进行中的请求", "danger", p.gatewayBusy).
+					Label("Stop local model API and cancel active requests").OnClick(func() { p.gatewayAction(false, status.Generation) })
+			case !status.Closed:
+				workspaceControlButton(c, "gateway-start", "同意使用模型账户并启动", "primary", p.gatewayBusy).
+					Label("Approve model account usage and start local API").OnClick(func() { p.gatewayAction(true, 0) })
 			}
-			// A press belongs to this listener even if polling replaces the visible controls.
-			ui.Button(c.Key("gateway-stop-"+strconv.FormatUint(status.Generation, 10)), "Stop local model API and cancel active requests").Disabled(p.gatewayBusy).OnClick(func() { p.gatewayAction(false, status.Generation) })
-		} else if status.Closed {
-			ui.Text(c, "The local model API owner is closed.")
-		} else {
-			ui.Button(c, "Approve model account usage and start local API").Disabled(p.gatewayBusy).OnClick(func() { p.gatewayAction(true, 0) })
-		}
+		})
 		if p.gatewayCredentialsCurrent() {
-			ui.Text(c, "Copy these credentials now. They stay in this window only and change after a restart.").FontSize(11)
-			ui.TextArea(c.Key("gateway-credentials"), &p.gatewayCredentials).Label("Local API credentials").ReadOnly(true).Height(80)
+			ui.Text(c, "现在复制这些凭据：它们只在这个窗口显示，重启后会更换。").FontSize(workspaceFontCaption).TextColor(t.Warning).Wrap()
+			workspaceControlTextArea(c, "gateway-credentials", &p.gatewayCredentials).Label("Local API credentials").ReadOnly(true).Height(80).FillWidth()
 		}
 	})
 }

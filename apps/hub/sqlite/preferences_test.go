@@ -58,7 +58,7 @@ func TestPreferencesDefaultsAndDurableAtomicUpdate(t *testing.T) {
 	if err = store.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_preferences`).Scan(&rows); err != nil || version != 8 || rows != 1 {
+	if err = store.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_preferences`).Scan(&rows); err != nil || version != 9 || rows != 1 {
 		t.Fatalf("schema=%d singleton rows=%d: %v", version, rows, err)
 	}
 }
@@ -344,7 +344,7 @@ func TestPreferencesUnknownSchemaIsNotModified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.ExecContext(ctx, `CREATE TABLE future_facts(data TEXT); INSERT INTO future_facts VALUES('retain future'); PRAGMA user_version=9`); err != nil {
+	if _, err = db.ExecContext(ctx, `CREATE TABLE future_facts(data TEXT); INSERT INTO future_facts VALUES('retain future'); PRAGMA user_version=10`); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Close(); err != nil {
@@ -370,7 +370,7 @@ func TestPreferencesUnknownSchemaIsNotModified(t *testing.T) {
 	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE name LIKE 'hub_%'`).Scan(&added); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRowContext(ctx, `SELECT data FROM future_facts`).Scan(&original); err != nil || version != 9 || added != 0 || original != "retain future" {
+	if err = db.QueryRowContext(ctx, `SELECT data FROM future_facts`).Scan(&original); err != nil || added != 0 || original != "retain future" || version != 10 {
 		t.Fatalf("future schema changed: version=%d added=%d original=%q %v", version, added, original, err)
 	}
 }

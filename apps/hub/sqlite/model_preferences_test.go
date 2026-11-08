@@ -297,7 +297,7 @@ func TestModelPreferencesCurrentSchemaMissingTableIsRejectedWithoutRepair(t *tes
 	if err = db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='hub_model_preferences'`).Scan(&tableCount); err != nil || version != 8 || tableCount != 0 {
+	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='hub_model_preferences'`).Scan(&tableCount); err != nil || version != 9 || tableCount != 0 {
 		t.Fatal("failed open changed the current database", version, tableCount, err)
 	}
 }

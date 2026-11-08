@@ -230,7 +230,7 @@ func TestNativeDurableQuestionControlsSurviveReopenAndDoNotGrantPermission(t *te
 				click("1. First choice")
 				click("Save clarification without executing")
 				click("Continue this waiting Turn")
-				if !tester.HasText("Request expired.") || page.paneBusy || page.wait.View.CanResume || page.wait.View.Snapshot.Revision != revision || page.wait.Answers[page.wait.View.Snapshot.State.Requests[0].ID] != draft || calls.Load() != 1 || app.Runtime.SessionActive(session.ID) {
+				if !tester.HasText("请求已过期") || page.paneBusy || page.wait.View.CanResume || page.wait.View.Snapshot.Revision != revision || page.wait.Answers[page.wait.View.Snapshot.State.Requests[0].ID] != draft || calls.Load() != 1 || app.Runtime.SessionActive(session.ID) {
 					t.Fatal("expired question admitted an answer or execution", page.wait, calls.Load())
 				}
 				return

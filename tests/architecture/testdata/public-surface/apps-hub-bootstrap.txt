@@ -1,6 +1,18 @@
 func (a *Application) Close(ctx context.Context) error
 
+func (a *mcpAuthorizer) Header(ctx context.Context) (string, error)
+
+func (a *mcpAuthorizer) Unauthorized(ctx context.Context, status int, _ []string) error
+
 func (b claimedWaitBackend) Claim(ctx context.Context) (func(), error)
+
+func (m *mcpConnector) Authorize(ctx context.Context, server hub.MCPServer, open func(string) error) (product.MCPCredential, error)
+
+func (m *mcpConnector) CredentialStatus(ctx context.Context, server hub.MCPServer) product.MCPCredential
+
+func (m *mcpConnector) Probe(ctx context.Context, workspace string, server hub.MCPServer) product.MCPProbe
+
+func (m *mcpConnector) Revoke(ctx context.Context, server hub.MCPServer) (product.MCPCredential, error)
 
 func (r *companionSkillRepository) List(ctx context.Context) ([]skill.Skill, error)
 
@@ -22,6 +34,8 @@ func (r *ownedRunner) Run(ctx context.Context, messages []wire.Message, emit fun
 
 func (r *ownedRunner) WaitCheckpoint() *engine.WaitCheckpoint
 
+func (s *stderrTail) Record(_ context.Context, event mcpprotocol.IOEvent) (string, error)
+
 func (s connectionDeveloperSource) Resolve(ctx context.Context, selected []eval.Target) ([]developer.Route, error)
 
 func (s connectionDeveloperSource) Targets() []eval.Target
@@ -35,6 +49,29 @@ func LocalStores(ctx context.Context, directory string) (Stores, error)
 func Open(ctx context.Context, config Config) (application *Application, result error)
 
 import "github.com/QuincySx/Alva/apps/hub"
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/apps/hub/product"
+	mcpprotocol "github.com/QuincySx/Alva/integration/protocol/mcp"
+	mcpoauth "github.com/QuincySx/Alva/integration/protocol/mcp/oauth"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
+	"github.com/QuincySx/Alva/platform/system/keychain"
+	ownedprocess "github.com/QuincySx/Alva/platform/system/process"
+)
 
 import (
 	"context"
@@ -148,6 +185,7 @@ import (
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/system/document"
+	"github.com/QuincySx/Alva/platform/system/keychain"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
 	private "github.com/QuincySx/Alva/platform/system/privatefs"
 	ownedprocess "github.com/QuincySx/Alva/platform/system/process"
@@ -249,6 +287,8 @@ type Config struct {
 	External              []ExternalEngine
 	GitExecutable         string
 	GitHostAccessApproved bool
+
+	MCPVault keychain.Vault
 }
 
 type ExternalEngine struct {
@@ -276,6 +316,7 @@ type ProductStorage interface {
 	hub.WorktreeStore
 	hub.NativeOwnerResolver
 	hub.PreferencesStore
+	hub.AppSettingsStore
 	hub.ConnectionsStore
 	hub.GoalStore
 	hub.CompanionStore

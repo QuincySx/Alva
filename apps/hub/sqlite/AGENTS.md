@@ -33,6 +33,7 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | store_test.go | 可逆路由/安全fallback、native事实归属、commit失败/忽略sink错误不能成功/大handoff/恢复回归 |
 | plan_mode.go / plan_mode_test.go | 事务内只改PlanMode且保留批准；统一beginAttempt拒绝Plan借外部引擎，覆盖Worker/自动化/fallback/等待恢复 |
 | settings.go | session-scoped默认禁用编辑、独立host确认启用与idle-only耐久snapshot |
+| app_settings.go / app_settings_test.go | v9显式迁移：hub_app_settings单行意图（revision CAS，落盘前清除主机批准位）与hub_workspace_approvals（工作区/类型/项/指纹）；会话覆盖的开始/改回、配置编辑（变更项关闭）与逐项启用 |
 | settings_test.go | 配置导入不自批、归属/active限制和关闭重开耐久回归 |
 | compatibility_test.go | 项目相对配置路径默认off、导入不启用、idle-only与关闭重开保存；provider不读文件 |
 | tools.go / tools_test.go | 六类可选工具默认off、编辑清授权、Shell/Web独立access批准、idle-only和重开耐久 |

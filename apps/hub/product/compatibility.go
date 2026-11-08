@@ -38,7 +38,7 @@ func (s *HubService) SetCompatibilityFile(ctx context.Context, id, file string) 
 			return err
 		}
 		if len(receipt.Agents) > 0 {
-			settings, err := s.Store.Settings(ctx, id)
+			settings, err := s.EffectiveSettings(ctx, id)
 			if err != nil {
 				return err
 			}

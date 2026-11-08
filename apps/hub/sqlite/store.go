@@ -38,7 +38,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
-	if version < 0 || version > 8 {
+	if version < 0 || version > 9 {
 		s.Close()
 		return nil, errors.New("unsupported Go product database schema; existing data was not modified")
 	}
@@ -246,6 +246,23 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		}
 	}
 	if err = validateDeveloperWorkspacesSchema(ctx, initialization); err != nil {
+		initialization.Rollback()
+		s.Close()
+		return nil, err
+	}
+	if version < 9 {
+		if err = appSettingsSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=9`); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+	}
+	if err = validateAppSettingsSchema(ctx, initialization); err != nil {
 		initialization.Rollback()
 		s.Close()
 		return nil, err

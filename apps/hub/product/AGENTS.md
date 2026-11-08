@@ -65,6 +65,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | tools.go / questions.go | native严格工具JSON编辑与显式下一Turn开关；actual root/typed ancestry过滤的独立真人问题/回答，不借用审批授权 |
 | browser.go | native/operator-only browser严格JSON disabled编辑，不发现exe/启动进程/导入用户profile，不是HTTP任意host-path入口 |
 | skills.go | saved cwd受管技能初始化、精确文档、Install/Archive/Restore |
+| skills_form.go / skills_form_test.go | 技能名称/说明/正文表单：中文字段校验、ComposeSkill经共享解析校验；编辑保留其他frontmatter与资源文件，先归档、安装失败自动恢复，从不覆盖同名技能 |
 | compatibility.go | saved cwd内显式JSON来源冷检查与下一Turn启停；不读取全局目录、不执行模板/脚本 |
 | media.go | 已存branch→native的冷媒体索引/manifest/完整哈希预览/receipt，共用Library且不启动decoder/model |
 | playback.go | 显式本地Play的product/branch/transcode-only归属；视频需独立decoder批准并构造caller-owned Playback，音频返回SHA/canonical验证PCM bytes；不发模型/新receipt |
@@ -79,3 +80,6 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | worker_draft.go / worker_draft_test.go | Worker引用及typed文件/Skill共用冻结器入原FIFO，重验真实Worker会话/branch，不借Lead/sibling/未采纳home原件；手动正文与增强prompt分别保存，失败保留稿、入队不执行 |
 | worktree.go / worktree_test.go | 已认领Lead/Team/Worker隔离、冷SHA/raw diff与双workspace租约采纳；真实Git完成后按原binding/revision收尾，不重做fresh idle gate；Waiting阻止新写动作而保留只读审阅 |
 | composer_references.go / composer_references_test.go | 实际owner校验与执行准备时原件/派生字节重验，context_read/search有界分页/长文检索；排队后损坏在HTTP前失败，不重放图像或扩大主机路径权限 |
+| settings_forms.go / settings_forms_test.go | SettingsService：应用级/会话覆盖两种作用域的脱敏表单模型（秘值只给占位）、分节HMAC指纹CAS保存、开关、按工作区批准、仅本会话/改回、恢复默认；HubService.EffectiveSettings 是唯一生效设置入口（覆盖优先，否则应用意图+精确工作区批准） |
+| settings_validation.go | 各设置分节的中文逐字段校验（标识/路径/地址/请求头/超时/环境变量），hub.Settings.Validate 仍是落盘权威 |
+| settings_mcp.go | MCPConnector 窄端口（bootstrap实现）、内存中的测试结果与授权状态；测试连接只对已批准快照、授权一次一服务器，产品不接触协议/钥匙串/令牌 |

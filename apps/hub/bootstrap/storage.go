@@ -27,6 +27,7 @@ type ProductStorage interface {
 	hub.WorktreeStore
 	hub.NativeOwnerResolver
 	hub.PreferencesStore
+	hub.AppSettingsStore
 	hub.ConnectionsStore
 	hub.GoalStore
 	hub.CompanionStore

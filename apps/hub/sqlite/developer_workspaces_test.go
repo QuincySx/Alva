@@ -397,7 +397,7 @@ func TestDeveloperWorkspacesSchemaEightMigrationAndFailurePreserveVersionSeven(t
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, statement := range []string{`DROP TABLE hub_conversation_tab_sets`, `DROP TABLE hub_developer_repositories`, `PRAGMA user_version=7`} {
+		for _, statement := range []string{`DROP TABLE hub_workspace_approvals`, `DROP TABLE hub_app_settings`, `DROP TABLE hub_conversation_tab_sets`, `DROP TABLE hub_developer_repositories`, `PRAGMA user_version=7`} {
 			if _, err = store.db.ExecContext(ctx, statement); err != nil {
 				t.Fatal(err)
 			}
@@ -455,7 +455,7 @@ func TestDeveloperWorkspacesSchemaEightMigrationAndFailurePreserveVersionSeven(t
 		if err = reopened.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_conversation_tab_sets`).Scan(&tabSets); err != nil {
 			t.Fatal(err)
 		}
-		if version != 8 || sessions != 1 || repositories != 0 || tabSets != 0 {
+		if version != 9 || sessions != 1 || repositories != 0 || tabSets != 0 {
 			t.Fatal("v8 migration lost v7 facts or invented sample metadata", version, sessions, repositories, tabSets)
 		}
 		reopened.Close()

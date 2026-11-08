@@ -62,6 +62,28 @@ const (
 )
 
 const (
+	MCPProbeConnected          = "connected"
+	MCPProbeFailed             = "failed"
+	MCPProbeNeedsAuthorization = "needs_authorization"
+
+	MCPCredentialNone        = "none"
+	MCPCredentialAuthorized  = "authorized"
+	MCPCredentialExpired     = "expired"
+	MCPCredentialUnsupported = "unsupported"
+)
+
+const (
+	SectionMCP      = "mcp"
+	SectionAEP      = "aep"
+	SectionTools    = "tools"
+	SectionCommands = "commands"
+	SectionBrowser  = "browser"
+	SectionMedia    = "media"
+
+	SectionSwitches = "switches"
+)
+
+const (
 	ToolBodyText      ToolBody = "text"
 	ToolBodyReference ToolBody = "reference"
 )
@@ -103,7 +125,11 @@ const ChartInstructions = "Charts: when a chart clearly helps, put one JSON obje
 
 const ComposerIntentPlan ComposerIntent = "plan"
 
+const MCPProbeToolLimit = 256
+
 const ManagedSkillDirectory = ".alva/skills"
+
+const SecretKept = "\x00saved-secret\x00"
 
 const WorkspaceResourcePageBytes = 4096
 
@@ -158,6 +184,10 @@ func (b reviewedWaitBackend) Commit(ctx context.Context, revision uint64, state 
 func (d DraftAttachment) DraftSelection() DraftReferenceSelection
 
 func (d DraftWorkspaceReference) DraftSelection() DraftReferenceSelection
+
+func (e FieldErrors) Error() string
+
+func (e FieldErrors) For(field string) string
 
 func (e companionStorageError) Error() string
 
@@ -333,6 +363,8 @@ func (s *HubService) DraftAttachments(id string) []DraftAttachment
 
 func (s *HubService) DraftWorkspaceReferences(id string) []DraftWorkspaceReference
 
+func (s *HubService) EffectiveSettings(ctx context.Context, id string) (hub.Settings, error)
+
 func (s *HubService) EnableDurableWaits(ctx context.Context, id string, enabled bool) error
 
 func (s *HubService) EnqueueComposerWorkerDraft(ctx context.Context, lead, team, worker, prompt string, claims []hub.ResourceClaim, selections []ComposerPreparation, references []DraftReferenceSelection) (hub.WorkerTask, error)
@@ -465,6 +497,8 @@ func (s *HubService) SaveMCPDraft(ctx context.Context, id, raw string) error
 
 func (s *HubService) SaveSessionModelOptions(ctx context.Context, edit hub.SessionModelOptionsUpdate) (hub.SessionModelOptionsSnapshot, error)
 
+func (s *HubService) SaveSkillForm(ctx context.Context, id, original string, form SkillForm) error
+
 func (s *HubService) SaveToolsDraft(ctx context.Context, id, raw string) error
 
 func (s *HubService) SearchComposerFile(ctx context.Context, selection ComposerFileSelection, derivative bool, query string, offset int64, limit int) (ComposerFileSearchPage, error)
@@ -492,6 +526,8 @@ func (s *HubService) SetToolEnabled(ctx context.Context, id, kind string, enable
 func (s *HubService) ShellJobs(ctx context.Context, id string) ([]ShellJob, error)
 
 func (s *HubService) SkillDocument(ctx context.Context, id, name string) (skill.Document, error)
+
+func (s *HubService) SkillFormFor(ctx context.Context, id, name string) (SkillForm, error)
 
 func (s *HubService) SkillRaw(ctx context.Context, id, name string) (string, error)
 
@@ -541,6 +577,32 @@ func (s *PreferencesService) Snapshot() hub.Preferences
 
 func (s *PreferencesService) Update(ctx context.Context, update hub.PreferenceUpdate) (hub.Preferences, error)
 
+func (s *SettingsService) Approve(ctx context.Context, sessionID, kind, item string, approve bool) (SettingsView, error)
+
+func (s *SettingsService) AuthorizeMCP(ctx context.Context, scope SettingsScope, serverID string, open func(string) error) (MCPCredential, error)
+
+func (s *SettingsService) InstallMCPConnector(connector MCPConnector)
+
+func (s *SettingsService) Load(ctx context.Context, scope SettingsScope) (SettingsView, error)
+
+func (s *SettingsService) MCPCredential(ctx context.Context, scope SettingsScope, serverID string) (MCPCredential, error)
+
+func (s *SettingsService) Probe(scope SettingsScope, serverID string) (MCPProbe, bool)
+
+func (s *SettingsService) ProbeMCP(ctx context.Context, scope SettingsScope, serverID string) (MCPProbe, error)
+
+func (s *SettingsService) Reset(ctx context.Context, scope SettingsScope, section string) (SettingsView, error)
+
+func (s *SettingsService) RevokeMCP(ctx context.Context, scope SettingsScope, serverID string) (MCPCredential, error)
+
+func (s *SettingsService) Save(ctx context.Context, scope SettingsScope, section, expected string, desired hub.Capabilities) (SettingsView, error)
+
+func (s *SettingsService) SetEnabled(ctx context.Context, scope SettingsScope, kind, item string, enabled bool) (SettingsView, error)
+
+func (s *SettingsService) SetOverride(ctx context.Context, sessionID string, override bool) (SettingsView, error)
+
+func (s *SettingsService) SetSessionSwitch(ctx context.Context, sessionID, kind string, enabled bool) error
+
 func (s *TraceService) Around(ctx context.Context, target TraceTarget, sequence uint64, hint TraceHint) (TraceChunk, error)
 
 func (s *TraceService) Detail(ctx context.Context, target TraceTarget, step TraceStep) (TraceDetail, error)
@@ -588,6 +650,10 @@ func (t *TeamTool) DescribeEffect(call wire.ToolCall) abi.Effect
 func (t *TeamTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error)
 
 func (t TraceTarget) Child(step TraceStep) (TraceTarget, error)
+
+func (v SettingsView) Item(kind, item string) (SettingsItem, bool)
+
+func (v SettingsView) PendingApprovals() int
 
 func (w *TraceWindow) ApplyNewer(chunk TraceChunk)
 
@@ -646,6 +712,8 @@ func ActiveBranch(detail hub.Detail) (hub.Branch, error)
 func BindInteractions(blocks []Block, pending []Interaction) ([]Block, map[string]Interaction)
 
 func CombineInteractions(approvals []security.ApprovalRequest, questions []interaction.Question, native []EngineInteraction) []Interaction
+
+func ComposeSkill(meta skill.Meta, body string) (string, error)
 
 func DecodeComposerDraftPreparations(draft hub.ComposerDraft) ([]ComposerPreparation, error)
 
@@ -762,6 +830,21 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+
+	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/QuincySx/Alva/apps/hub"
 )
@@ -1216,6 +1299,16 @@ import (
 import (
 	"context"
 	"errors"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/integration/protocol/skill"
+	"go.yaml.in/yaml/v3"
+)
+
+import (
+	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -1321,6 +1414,17 @@ import (
 
 	mediaextension "github.com/QuincySx/Alva/extension/media"
 	"github.com/QuincySx/Alva/platform/storage"
+)
+
+import (
+	"fmt"
+	"net/http"
+	"net/url"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
 )
 
 import (
@@ -1593,6 +1697,13 @@ type EngineInteraction struct {
 type EngineInteractionHandle struct {
 }
 
+type FieldError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+type FieldErrors []FieldError
+
 type GoalArtifacts interface {
 	Create(context.Context, string, string, string) (storage.Session, error)
 	PutArtifact(context.Context, string, string, storage.ArtifactInput) (storage.ArtifactInfo, error)
@@ -1646,6 +1757,8 @@ type HubService struct {
 	Transcripts *TranscriptService
 
 	Traces *TraceService
+
+	Settings *SettingsService
 }
 
 type InspectorExport struct {
@@ -1711,6 +1824,36 @@ type InteractionView struct {
 	Truncated bool
 }
 
+type MCPConnector interface {
+	Probe(ctx context.Context, workspace string, server hub.MCPServer) MCPProbe
+	CredentialStatus(ctx context.Context, server hub.MCPServer) MCPCredential
+	Authorize(ctx context.Context, server hub.MCPServer, open func(string) error) (MCPCredential, error)
+	Revoke(ctx context.Context, server hub.MCPServer) (MCPCredential, error)
+}
+
+type MCPCredential struct {
+	State     string   `json:"state"`
+	Issuer    string   `json:"issuer,omitempty"`
+	Scopes    []string `json:"scopes,omitempty"`
+	ExpiresAt int64    `json:"expires_at,omitempty"`
+	Problem   string   `json:"problem,omitempty"`
+}
+
+type MCPProbe struct {
+	State         string           `json:"state"`
+	ServerName    string           `json:"server_name,omitempty"`
+	ServerVersion string           `json:"server_version,omitempty"`
+	Tools         []MCPToolSummary `json:"tools,omitempty"`
+	TotalTools    int              `json:"total_tools"`
+	Problem       string           `json:"problem,omitempty"`
+	CheckedAt     int64            `json:"checked_at"`
+}
+
+type MCPToolSummary struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 type PreferencesService struct {
 }
 
@@ -1721,11 +1864,56 @@ type ServiceStore interface {
 	hub.SessionModelOptionsStore
 }
 
+type SessionSettingsView struct {
+	SkillsEnabled     bool                 `json:"skills_enabled"`
+	DurableWaits      bool                 `json:"durable_waits"`
+	PlanMode          bool                 `json:"plan_mode"`
+	PermissionPolicy  hub.PermissionPolicy `json:"permission_policy"`
+	CompatibilityFile string               `json:"compatibility_file,omitempty"`
+	SkillArchives     []string             `json:"skill_archives,omitempty"`
+}
+
+type SettingsItem struct {
+	hub.CapabilityItem
+
+	Approved      bool `json:"approved"`
+	NeedsApproval bool `json:"needs_approval"`
+}
+
+type SettingsScope struct {
+	App       bool
+	SessionID string
+}
+
+type SettingsService struct {
+}
+
+type SettingsView struct {
+	App          bool                 `json:"app"`
+	SessionID    string               `json:"session_id,omitempty"`
+	SessionTitle string               `json:"session_title,omitempty"`
+	Workspace    string               `json:"workspace,omitempty"`
+	Override     bool                 `json:"override"`
+	Idle         bool                 `json:"idle"`
+	Revision     uint64               `json:"revision"`
+	Capabilities hub.Capabilities     `json:"capabilities"`
+	Fingerprints map[string]string    `json:"fingerprints"`
+	Items        []SettingsItem       `json:"items"`
+	Session      *SessionSettingsView `json:"session,omitempty"`
+}
+
 type SharedLocksPlugin struct{ Registry *core.ToolLockRegistry }
 
 type ShellJob struct {
 	BranchID string          `json:"branch_id"`
 	Job      shell.JobStatus `json:"job"`
+}
+
+type SkillForm struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Body        string `json:"body"`
+	Explicit    bool   `json:"explicit"`
 }
 
 type TeamCoordinator struct {
@@ -1962,5 +2150,7 @@ type WorktreePatchPage struct {
 var ErrConnectionCatalogUnavailable = errors.New("model catalog unavailable; enter an explicit same-origin catalog URL or add model IDs manually")
 
 var ErrRouteUnavailable = errors.New("route changed or is unavailable; select a current configured route")
+
+var ErrSettingsConflict = errors.New("设置已在其他地方更改，草稿已保留；请重新载入后再保存。")
 
 var ErrWorkspaceReferenceChanged = errors.New("workspace selection changed; search and select it again")

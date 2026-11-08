@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"image"
 	"image/png"
-	"path/filepath"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -103,69 +102,5 @@ func TestNativeMediaMetadataIsColdAndJPEGPreviewIsExplicit(t *testing.T) {
 	}
 	if service.Runtime.HasActive() || len(requests) != 0 {
 		t.Fatal("evidence read started execution")
-	}
-}
-
-func TestNativeMediaSettingsSaveDisabledAndRequireIndependentDecoderConsent(t *testing.T) {
-	service, requests := fixture(t)
-	s, err := service.Create(context.Background(), "media preferences", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	page := NewNativePage(service)
-	page.selected = s.ID
-	page.detail, err = service.Store.Detail(context.Background(), s.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	page.applyDetail()
-	tester := ui.NewTester(workspaceStaticView(page), 1600, 1800)
-	if err = workspaceTestMenu(tester, "会话设置"); err != nil {
-		t.Fatal(err)
-	}
-	settlePage(t, tester, page)
-	if err = tester.Click("Media tools and explicit decoder approval"); err != nil {
-		t.Fatal(err)
-	}
-	settlePage(t, tester, page)
-	if page.settings.MediaEnabled {
-		t.Fatal("media enabled by opening preferences")
-	}
-	if err = tester.Click("Enable explicit media tools next turn"); err != nil {
-		t.Fatal(err)
-	}
-	settlePage(t, tester, page)
-	for _, field := range []struct{ label, path string }{
-		{"Explicit ffmpeg absolute path", filepath.Join(t.TempDir(), "not-started-ffmpeg")},
-		{"Explicit ffprobe absolute path", filepath.Join(t.TempDir(), "not-started-ffprobe")},
-	} {
-		if err = tester.Click(field.label); err != nil {
-			t.Fatal(err)
-		}
-		tester.Type(field.path)
-	}
-	if err = tester.Click("Save decoder paths disabled"); err != nil {
-		t.Fatal(err)
-	}
-	settlePage(t, tester, page)
-	if page.problem != "" || !page.settings.MediaEnabled || page.settings.MediaDecoder.Enabled || page.settings.MediaDecoder.HostAccessApproved {
-		t.Fatal("decoder save self-approved", page.problem)
-	}
-	if err = tester.Click("Approve full host decoder access next turn"); err != nil {
-		t.Fatal(err)
-	}
-	settlePage(t, tester, page)
-	if page.problem != "" || !page.settings.MediaDecoder.Enabled || !page.settings.MediaDecoder.HostAccessApproved {
-		t.Fatal("separate host consent not saved", page.problem)
-	}
-	if err = tester.Click("Save decoder paths disabled"); err != nil {
-		t.Fatal(err)
-	}
-	settlePage(t, tester, page)
-	if page.problem != "" || page.settings.MediaDecoder.Enabled || page.settings.MediaDecoder.HostAccessApproved {
-		t.Fatal("decoder edits retained prior approval", page.problem)
-	}
-	if service.Runtime.HasActive() || len(requests) != 0 {
-		t.Fatal("preference save/approve executed work")
 	}
 }

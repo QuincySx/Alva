@@ -17,7 +17,7 @@ import (
 // selected verified derivative; Run is the separate caller-owned decode step.
 // No HTTP endpoint accepts host executable/source paths through this method.
 func (s *HubService) MediaPlayback(ctx context.Context, id, branchID, manifestURI string) (mediaextension.Manifest, *nativemedia.Playback, error) {
-	settings, err := s.Store.Settings(ctx, id)
+	settings, err := s.EffectiveSettings(ctx, id)
 	if err != nil {
 		return mediaextension.Manifest{}, nil, err
 	}

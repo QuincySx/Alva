@@ -135,6 +135,8 @@ type NativePage struct {
 	playerPosition, playerDuration int64
 	playerSeek                     string
 	settings                       hub.Settings
+	settingsForm                   settingsFormState
+	skillForm                      skillFormState
 	sessionModelOptions            workspaceSessionModelOptionsState
 	wait                           waitPane
 	paneBusy                       bool

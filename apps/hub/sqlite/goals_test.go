@@ -236,7 +236,7 @@ func TestGoalsVersionThreeMigrationPreservesConnections(t *testing.T) {
 	}
 	defer s.Close()
 	var version int
-	if err = s.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 8 {
+	if err = s.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 9 {
 		t.Fatal("schema", version, err)
 	}
 	connections, err := s.Connections(t.Context())

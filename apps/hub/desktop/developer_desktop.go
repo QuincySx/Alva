@@ -167,87 +167,131 @@ func (p *NativePage) cancelDeveloper() {
 	}()
 }
 func (p *NativePage) buildDeveloper(c *ui.Context) {
-	ui.Text(c, "Developer options").Bold().FontSize(20)
+	t := c.Theme()
+	settingsPageTitle(c, "开发者", "")
 	ui.Row(c).Gap(8).Children(func() {
-		ui.Button(c, "Integration tests").OnClick(func() {
+		kind := func(mode developer.Mode) string {
+			if p.developer.mode == mode {
+				return "primary"
+			}
+			return "secondary"
+		}
+		workspaceControlButton(c, "developer-mode-test", "接入测试", kind(developer.Test)).Label("Integration tests").OnClick(func() {
 			p.developer.mode = developer.Test
 			p.developer.repeats = "1"
 			p.developer.planBinding = ""
 			p.developer.planText = ""
 		})
-		ui.Button(c, "Model evaluation").OnClick(func() {
+		workspaceControlButton(c, "developer-mode-evaluate", "模型评估", kind(developer.Evaluate)).Label("Model evaluation").OnClick(func() {
 			p.developer.mode = developer.Evaluate
 			p.developer.repeats = "3"
 			p.developer.planBinding = ""
 			p.developer.planText = ""
 		})
 	})
+	p.buildDeveloperDebug(c)
 	if p.Service.Developer == nil {
-		ui.Text(c, "Configure a live model route to use developer tests or evaluation. Opening this page does not call a model.")
+		ui.Text(c, "需要先配置可用的模型连接才能使用接入测试或模型评估。打开本页不会调用模型。").FontSize(workspaceFontBody).TextColor(t.TextMuted).Wrap()
 		return
 	}
 	if len(p.Service.Developer.Targets()) == 0 {
-		ui.Text(c, "Configure a live model route to use developer tests or evaluation. Opening this page does not call a model.")
+		ui.Text(c, "需要先配置可用的模型连接才能使用接入测试或模型评估。打开本页不会调用模型。").FontSize(workspaceFontBody).TextColor(t.TextMuted).Wrap()
 		if p.developer.snapshot.ID == 0 {
 			return
 		}
 	}
 	if p.developer.mode == developer.Test {
-		ui.Text(c, "Integration tests verify tool selection and parameters in one response. They do not rank model quality or prove multi-turn permissions.").FontSize(workspaceFontCaption)
+		ui.Text(c, "接入测试检查模型在一次回复里是否选对工具、填对参数；它不评价模型质量，也不验证多轮权限。").FontSize(workspaceFontCaption).TextColor(t.TextMuted).Wrap()
 	} else {
-		ui.Text(c, "Evaluation scores an explicit versioned task set over repeated trials. Scores cover these tasks only. Execution errors and incomplete coverage are reported separately.").FontSize(workspaceFontCaption)
+		ui.Text(c, "模型评估在一组带版本的任务上重复运行并打分。分数只代表这组任务；执行错误和覆盖不全单独报告。").FontSize(workspaceFontCaption).TextColor(t.TextMuted).Wrap()
 	}
-	ui.Text(c, "Run uses the selected model accounts and can incur inference charges. No chat history or host tools are executed.").FontSize(workspaceFontCaption)
+	ui.Text(c, "运行会使用所选模型账户并可能产生费用；不会读取聊天记录，也不会执行本机工具。").FontSize(workspaceFontCaption).TextColor(t.Warning).Wrap()
 	if p.developer.problem != "" {
-		ui.Text(c, p.developer.problem)
+		ui.Text(c, p.developer.problem).Role(ui.RoleStatus).TextColor(t.Danger).Wrap()
 	}
 	running := p.developer.snapshot.State == "running"
 	ui.Row(c).Gap(8).Children(func() {
-		ui.Button(c, "Preview developer plan").Disabled(running).OnClick(p.planDeveloper)
-		label := "Run integration tests"
+		workspaceControlButton(c, "developer-plan", "预览计划", "secondary", running).Label("Preview developer plan").OnClick(p.planDeveloper)
+		label, text := "Run integration tests", "运行接入测试"
 		if p.developer.mode == developer.Evaluate {
-			label = "Run model evaluation"
+			label, text = "Run model evaluation", "运行模型评估"
 		}
-		ui.Button(c, label).Disabled(running || p.developer.planBinding == "").OnClick(p.runDeveloper)
-		ui.Button(c, "Stop developer run").Disabled(!running || p.developer.stopping).OnClick(p.cancelDeveloper)
+		workspaceControlButton(c, "developer-run", text, "primary", running || p.developer.planBinding == "").Label(label).OnClick(p.runDeveloper)
+		workspaceControlButton(c, "developer-stop", "停止", "danger", !running || p.developer.stopping).Label("Stop developer run").OnClick(p.cancelDeveloper)
 	})
 	if p.developer.snapshot.ID > 0 {
-		ui.Text(c, fmt.Sprintf("Developer run %d: %s · started requests %d/%d", p.developer.snapshot.ID, p.developer.snapshot.State, p.developer.snapshot.StartedCalls, p.developer.snapshot.Report.TotalPlannedCalls))
+		ui.Text(c, fmt.Sprintf("第 %d 次运行：%s · 已发出请求 %d/%d", p.developer.snapshot.ID, p.developer.snapshot.State, p.developer.snapshot.StartedCalls, p.developer.snapshot.Report.TotalPlannedCalls)).FontSize(workspaceFontBody)
 		if p.developer.snapshot.State == "failed" {
-			ui.Text(c, "Selected model routes could not be frozen. Refresh the connection settings and preview current targets before running again.")
+			ui.Text(c, "无法固定所选模型路线。请刷新连接设置并重新预览后再运行。").FontSize(workspaceFontBody).TextColor(t.Danger).Wrap()
 		}
 	}
 	ui.Scroll(c.Key("developer-content")).Label("Developer details").Grow(1).MinHeight(0).Children(func() {
-		ui.Column(c).Gap(8).Children(func() {
+		ui.Column(c).FillWidth().Gap(8).Children(func() {
+			ui.Text(c, "模型路线").FontSize(workspaceFontSubtitle).FontWeight(600)
 			for _, target := range p.Service.Developer.Targets() {
-				prefix := "[ ] "
-				if p.developer.targets[target.ID] {
-					prefix = "[x] "
-				}
-				ui.Button(c, prefix+target.ID+" · "+target.Protocol+" · "+target.Model).Disabled(running).OnClick(func() { p.developer.targets[target.ID] = !p.developer.targets[target.ID]; p.developer.planBinding = "" })
+				target := target
+				selected := p.developer.targets[target.ID]
+				workspaceControlCheckbox(c, "developer-target-"+target.ID, &selected, target.ID+" · "+target.Protocol+" · "+target.Model).OnChange(func() {
+					p.developer.targets[target.ID] = selected
+					p.developer.planBinding = ""
+				})
 			}
 			ui.Row(c).Gap(8).Children(func() {
-				ui.TextInput(c.Key("developer-repeats"), &p.developer.repeats).Label("Trials per case").Width(120).Disabled(running)
-				ui.TextInput(c.Key("developer-max-calls"), &p.developer.maxCalls).Label("Total call budget").Width(120).Disabled(running)
-				ui.TextInput(c.Key("developer-timeout"), &p.developer.timeout).Label("Timeout (ms)").Width(120).Disabled(running)
-				ui.TextInput(c.Key("developer-tokens"), &p.developer.tokens).Label("Output tokens").Width(120).Disabled(running)
+				for _, field := range []struct {
+					key, title, label string
+					value             *string
+				}{
+					{"developer-repeats", "每个用例的次数", "Trials per case", &p.developer.repeats},
+					{"developer-max-calls", "总请求上限", "Total call budget", &p.developer.maxCalls},
+					{"developer-timeout", "超时（毫秒）", "Timeout (ms)", &p.developer.timeout},
+					{"developer-tokens", "输出 token 上限", "Output tokens", &p.developer.tokens},
+				} {
+					field := field
+					ui.Column(c).Gap(4).Children(func() {
+						ui.Text(c, field.title).FontSize(workspaceFontCaption)
+						workspaceControlInput(c, field.key, field.value).Label(field.label).Width(140).Disabled(running)
+					})
+				}
 			})
 			if p.developer.mode == developer.Test {
-				ui.TextInput(c.Key("developer-names"), &p.developer.names).Label("Question tool names (comma-separated)").Disabled(running)
+				ui.Text(c, "提问工具名称（逗号分隔）").FontSize(workspaceFontCaption)
+				workspaceControlInput(c, "developer-names", &p.developer.names).Label("Question tool names (comma-separated)").FillWidth().Disabled(running)
 			} else {
-				ui.TextArea(c.Key("developer-dataset"), &p.developer.dataset).Label("Versioned evaluation task set JSON").Height(200).Disabled(running)
+				ui.Text(c, "评估任务集（带版本的 JSON）").FontSize(workspaceFontCaption)
+				workspaceControlTextArea(c, "developer-dataset", &p.developer.dataset).Label("Versioned evaluation task set JSON").Height(200).FillWidth().Disabled(running)
 			}
 			if p.developer.planText != "" {
-				ui.TextArea(c.Key("developer-plan"), &p.developer.planText).Label("Cold plan — no requests sent").ReadOnly(true).Height(140)
+				ui.Text(c, "计划预览（尚未发出请求）").FontSize(workspaceFontCaption)
+				workspaceControlTextArea(c, "developer-plan-text", &p.developer.planText).Label("Cold plan — no requests sent").ReadOnly(true).Height(140).FillWidth()
 			}
 			if p.developer.reportText != "" {
 				for _, score := range p.developer.snapshot.Report.Scores {
 					if score.WeightedScore != nil {
-						ui.Text(c, fmt.Sprintf("%s · %.1f%% task score · consistent passes %d/%d · graded %d · execution errors %d", score.TargetID, *score.WeightedScore, score.ConsistentTaskPasses, score.TotalTasks, score.GradedTrials, score.ExecutionErrors))
+						ui.Text(c, fmt.Sprintf("%s · 任务得分 %.1f%% · 稳定通过 %d/%d · 已评分 %d · 执行错误 %d", score.TargetID, *score.WeightedScore, score.ConsistentTaskPasses, score.TotalTasks, score.GradedTrials, score.ExecutionErrors)).FontSize(workspaceFontBody)
 					}
 				}
-				ui.TextArea(c.Key("developer-report"), &p.developer.reportText).Label("Latest developer report JSON").ReadOnly(true).Height(240)
+				ui.Text(c, "最新报告").FontSize(workspaceFontCaption)
+				workspaceControlTextArea(c, "developer-report", &p.developer.reportText).Label("Latest developer report JSON").ReadOnly(true).Height(240).FillWidth()
 			}
+		})
+	})
+}
+
+// buildDeveloperDebug collects the task debugging views that ordinary settings
+// pages no longer show. Each opens the existing read-only owner.
+func (p *NativePage) buildDeveloperDebug(c *ui.Context) {
+	settingsGroup(c, "developer-debug", "调试", "查看所选任务的执行记录、等待中的检查点、路由与交接。只读，不会启动 Agent。", func() {
+		if p.selected == "" || !p.workspaceNavigationDetailReady() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "先选择一个任务。").FontSize(workspaceFontBody).TextColor(c.Theme().TextMuted)
+			})
+			return
+		}
+		ui.Row(c).Gap(8).Children(func() {
+			workspaceControlIconButton(c, "developer-debug-records", "会话记录与导出", "file-text", "secondary", p.paneBusy).Label("View and export session records").OnClick(p.openInspector)
+			workspaceControlIconButton(c, "developer-debug-waits", "等待中的任务", "clock", "secondary", p.paneBusy).Label("Open waiting tasks").OnClick(p.openWaits)
+			workspaceControlIconButton(c, "developer-debug-routing", "路由与故障切换", "git-branch", "secondary", p.paneBusy).Label("Open routing and fallback").OnClick(func() { p.setPane("routing") })
+			workspaceControlIconButton(c, "developer-debug-handoffs", "交接记录", "list", "secondary", p.paneBusy).Label("Open handoff records").OnClick(func() { p.setPane("handoffs"); p.handoffText = "" })
 		})
 	})
 }

@@ -44,7 +44,7 @@ func TestNativeEmbeddedGatewayStartsOnlyOnExplicitConsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	settlePage(t, tester, p)
-	if err = tester.Click("Local model API settings"); err != nil {
+	if err = tester.Click("Gateway settings"); err != nil {
 		t.Fatal(err)
 	}
 	if local.Snapshot().Running {
@@ -139,7 +139,7 @@ func TestNativeGatewayCredentialsExpireAcrossObserversAndClosedOwnerCannotRestar
 	}
 	other.poll()
 	otherTester.Frame()
-	if other.gatewayCredentials != "" || !otherTester.HasText("The local model API owner is closed.") || otherTester.HasText("Approve model account usage and start local API") {
+	if other.gatewayCredentials != "" || !otherTester.HasText("本机模型 API 已关闭") || otherTester.HasText("Approve model account usage and start local API") {
 		t.Fatal("closed owner retained credentials or advertised a Start it rejects")
 	}
 }

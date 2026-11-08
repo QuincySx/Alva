@@ -43,7 +43,8 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | runtime.go / runtime_identity_test.go | 独立Descriptor/engine registry、串行执行与流式增量合并写入、绑定实际owner身份的取消/审批与授权fallback；权限四项binding原子分派、同run fallback拒绝旧审批及准入/替换/取消收尾身份回归 |
 | runtime_coalesce_test.go / export_test.go | 1000增量合并且逐字节一致、穿插工具保序、停顿期内可见、契约拒绝与持久化错误锁存后零写入；仅测试可调短合并窗口 |
 | descriptor_test.go | 第五engine声明/不可替换、纯冷读与snapshot切片隔离、关闭后拒绝注册 |
-| settings.go / aep.go | next-turn私有MCP/AEP进程snapshot、native SubAgent及项目兼容配置文件的opt-in纯值与预算，不引入protocol/进程依赖 |
+| settings.go / aep.go | next-turn私有MCP（本地进程或远程Streamable HTTP：地址/请求头/认证无或OAuth，OAuth要求https、loopback除外）/AEP snapshot、native SubAgent及项目兼容配置文件的opt-in纯值与预算，不引入protocol/进程依赖 |
+| app_settings.go / app_settings_test.go | 应用级能力意图（MCP/AEP/工具/Hooks/浏览器/媒体/子Agent/记忆）、按工作区+配置指纹的批准事实与唯一ResolveSettings：会话覆盖（含旧会话已有配置）优先，否则应用意图仅在精确批准的工作区运行；应用设置落盘不含批准位 |
 | tools.go | Shell/Web显式配置、独立access批准与Planning/Notebook/Interaction/Utility下一Turn可选开关纯值 |
 | commands.go | lifecycle Hooks/diagnostics明确argv/env/timeout与独立host批准纯值，禁止内核进程政策 |
 | media.go | 默认关闭媒体工具、两条显式decoder路径和独立host批准纯值，不推测模型视觉能力 |

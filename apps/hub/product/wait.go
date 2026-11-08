@@ -181,7 +181,7 @@ func (s *HubService) resumeWaitOwned(ctx context.Context, id string, target Wait
 		}
 		return "", "", nil, errors.New("resolve all live requests before explicit continuation")
 	}
-	settings, err := s.Store.Settings(ctx, id)
+	settings, err := s.EffectiveSettings(ctx, id)
 	if err != nil {
 		return "", "", nil, err
 	}
