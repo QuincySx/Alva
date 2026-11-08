@@ -5,6 +5,7 @@
 仅装配安全中间件，不实现文件系统或默认 harness 配方；同名 security Plugin 替换默认项。
 ## 逻辑
 只有 actual Tool 与显式可信实例相同才采用其 effect；同名替换、无法证明身份或动态不可比较值均按 Unknown 审批。
+没有 actual Tool（模型编造或未开放的工具名）时什么都不会执行：直接返回与内核相同的 unknown tool 可恢复结果，不调用 next、不请求审批。
 ## 约束
 审批失败中止调用；不降为可恢复结果。比较两个实际 reflect.Value 的 Comparable，不能因 interface 字段中的 map/slice 而 panic。不借工具名扩权，不自动信任新注册值。
 ## 业务域清单
@@ -12,4 +13,4 @@
 |---|---|
 | security.go | NewSecurityPlugin、注册与实际调用身份/effect 闸 |
 | identity_test.go | 动态不可比较身份与真实 Agent 审批回归 |
-| security_test.go | 实际文件工具的未知审批与同名替换信任拒绝 |
+| security_test.go | 实际文件工具的未知审批、无实现调用不审批只回 unknown tool、同名替换信任拒绝 |

@@ -6,6 +6,7 @@ package securityplugin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 
 	"github.com/QuincySx/Alva/sdk/agent/core"
@@ -47,6 +48,12 @@ type securityMiddleware struct {
 
 func (securityMiddleware) Name() string { return "security" }
 func (m securityMiddleware) WrapTool(ctx context.Context, execution abi.ToolExecutionContext, call wire.ToolCall, next abi.ToolFunc) (wire.ToolResult, error) {
+	// No resolved implementation means nothing can execute. Answer exactly as
+	// the kernel does for an unknown tool, without calling next: asking a human
+	// to approve it would grant nothing, and a denial would abort the run.
+	if execution.ActualTool == nil {
+		return wire.ToolResult{CallID: call.ID, IsError: true, Content: []wire.ContentBlock{{Kind: wire.ContentText, Text: fmt.Sprintf("unknown tool %q", call.Name)}}}, nil
+	}
 	effect := abi.Effect{Kind: abi.EffectUnknown, Description: "Unknown or externally contributed tool; explicit host approval required"}
 	if tool, known := m.known[call.Name]; known && sameToolInstance(tool, execution.ActualTool) {
 		effect = tool.DescribeEffect(call)
