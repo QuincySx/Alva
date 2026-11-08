@@ -1,5 +1,5 @@
 // INPUT: Product TranscriptWindow content blocks, typed native references and the trace view's jump entry.
-// OUTPUT: Block-to-row projection, scroll-driven paging, reply columns, copy actions and tool blocks that open their trace step or child session record.
+// OUTPUT: Block-to-row projection (pending requests bound in), scroll-driven paging, reply columns, copy actions, interaction cards, usage lines and tool blocks that open their trace step or child session record.
 // POS: [L7 Hub UI] Keeps product presentation and tool details separate from shared scrolling and Markdown; never model context.
 //go:build desktop
 
@@ -44,6 +44,10 @@ func transcriptToolOf(block product.Block) transcriptTool {
 // renderer still branch on them while blocks carry the typed facts.
 func transcriptRow(block product.Block) view.Message {
 	row := view.Message{ID: block.ID, RunID: block.AttemptID, Text: block.Text, Status: view.Status(block.Status)}
+	if block.Usage != nil {
+		row.Role = "Usage"
+		return row
+	}
 	switch block.Kind {
 	case product.BlockKindUser:
 		row.Role = "You"
@@ -55,6 +59,8 @@ func transcriptRow(block product.Block) view.Message {
 		row.Role = "Content · " + block.Name
 	case product.BlockKindTool:
 		row.Role = "Tool · " + block.Name
+	case product.BlockKindInteraction:
+		row.Role = "Interaction"
 	case product.BlockKindActivity:
 		row.Role = "Execution activity · " + block.Name
 	case product.BlockKindTimeline:
@@ -73,9 +79,10 @@ func (p *NativePage) resetTranscript() {
 	p.transcriptRows, p.transcriptBlocks, p.transcriptTools = nil, nil, nil
 }
 
-// projectTranscript turns the window's blocks into shared message rows.
+// projectTranscript turns the window's blocks, with the pending requests
+// placed among them, into shared message rows.
 func (p *NativePage) projectTranscript() {
-	blocks := p.transcript.Blocks()
+	blocks := p.bindInteractionBlocks(p.transcript.Blocks())
 	rows := make([]view.Message, len(blocks))
 	p.transcriptBlocks = make(map[string]product.Block, len(blocks))
 	p.transcriptTools = make(map[string]transcriptTool)
@@ -87,6 +94,9 @@ func (p *NativePage) projectTranscript() {
 		}
 	}
 	p.transcriptRows = rows
+	p.markWaitingCardRow()
+	// Pending requests change rows without a detail refresh.
+	p.model.Messages = rows
 	p.refreshToolBlocks()
 }
 
@@ -132,6 +142,16 @@ func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) fu
 				})
 			})
 			return true
+		}
+		if block, shown := p.transcriptBlocks[row.ID]; shown {
+			switch {
+			case block.Kind == product.BlockKindInteraction:
+				p.buildWorkspaceInteractionCard(c, row, block)
+				return true
+			case block.Usage != nil:
+				buildWorkspaceUsageLine(c, row.ID, *block.Usage)
+				return true
+			}
 		}
 		tool, exists := p.transcriptTools[row.ID]
 		if !exists {

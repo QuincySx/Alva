@@ -1,5 +1,5 @@
 // INPUT: TranscriptChunk pages, the shared history projection and tool views
-// OUTPUT: TranscriptWindow block accumulation, boundary merge (tool views included), superseded todo marking and byte-bounded trimming
+// OUTPUT: TranscriptWindow block accumulation, boundary merge (tool views, interaction request/settlement and per-call yielded-wait settlements included), superseded todo marking and byte-bounded trimming
 // POS: [L7 Hub product] UI-thread Message Stream window without I/O; counts blocks and bytes, never events
 package product
 
@@ -88,6 +88,14 @@ func (w *TranscriptWindow) ApplyOlder(chunk TranscriptChunk) {
 			w.view.outcomes[attempt] = outcome
 		}
 	}
+	for id, wait := range older.yielded {
+		w.view.yielded[id] = wait
+	}
+	for turn, facts := range older.settled {
+		for _, fact := range facts {
+			w.view.addSettlement(turn, fact)
+		}
+	}
 	kept := make([]blockState, 0, len(older.blocks)+len(w.view.blocks))
 	for _, b := range older.blocks {
 		if i, exists := w.view.index[b.ID]; exists {
@@ -95,9 +103,13 @@ func (w *TranscriptWindow) ApplyOlder(chunk TranscriptChunk) {
 			continue
 		}
 		// The attempt's Completed may already be in the window.
-		if outcome, settled := w.view.outcomes[b.AttemptID]; settled && b.Kind != BlockKindUser && b.Status == BlockStatusRunning {
-			b.Status = outcome
+		if outcome, settled := w.view.outcomes[b.AttemptID]; settled {
+			if b.Kind != BlockKindUser && b.Status == BlockStatusRunning {
+				b.Status = outcome
+			}
+			expireInteraction(&b, outcome)
 		}
+		w.view.settleYielded(&b)
 		kept = append(kept, b)
 	}
 	w.view.blocks = append(kept, w.view.blocks...)
@@ -138,6 +150,14 @@ func mergeOlder(older, current blockState) blockState {
 	if merged.Kind == BlockKindTool {
 		merged.Tool = mergeToolView(older.Tool, current.Tool)
 	}
+	if merged.Kind == BlockKindInteraction && older.requested && !current.requested {
+		// The older part holds the request, the current part its settlement.
+		view := older.Interaction
+		if current.final && view != nil {
+			view = view.resolve(current.resolution)
+		}
+		merged.Interaction, merged.requested, merged.resolution = view, true, nil
+	}
 	if merged.Turn == 0 {
 		merged.Turn = older.Turn
 	}
@@ -177,7 +197,10 @@ func (w *TranscriptWindow) MoreBefore() bool { return w.moreBefore }
 func (w *TranscriptWindow) MoreAfter() bool { return w.moreAfter }
 
 func blockBytes(b *Block) int {
-	size := blockOverhead + len(b.ID) + len(b.SessionID) + len(b.TurnID) + len(b.AttemptID) + len(b.Name) + len(b.Text) + len(b.NativeSessionID) + len(b.HandoffID) + toolViewBytes(b.Tool)
+	size := blockOverhead + len(b.ID) + len(b.SessionID) + len(b.TurnID) + len(b.AttemptID) + len(b.Name) + len(b.Text) + len(b.NativeSessionID) + len(b.HandoffID) + toolViewBytes(b.Tool) + interactionViewBytes(b.Interaction)
+	if b.Usage != nil {
+		size += 48
+	}
 	if b.Ref != nil {
 		size += len(b.Ref.SessionID) + len(b.Ref.RecordID) + len(b.Ref.URI) + 8
 	}

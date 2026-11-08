@@ -20,6 +20,7 @@ apps/hub/product.HubService拥有产品认领与原始文件耐久保存；本�
 等待pane复用同一观察时钟冷读已提交checkpoint；其他窗口保存/继续/放弃会更新本窗，只为同branch/Turn、同请求ID与binding的未解决请求保留草稿。revision变化撤销旧放弃确认，明确操作/刷新后的旧读不得回盖；读失败禁用checkpoint操作，成功后恢复，不自动执行。
 持久问答复用同一binding草稿与既有interaction.Answer，提供无默认选项的单选/多选/自由文本；显式保存后仍暂停，不授予文件/进程/网络权限。结果按实际编码后的16KiB限制；到期请求只展示不再接受回答或审批。
 每个问题用请求ID建立独立控件容器，输入标签带问题header；同一检查点的其他问题消失时，剩余问题的草稿/焦点不得串到别的请求。
+审批与问答进入对话（workspace_interactions_desktop.go）：投影时把现有三路pending读取经product.CombineInteractions/BindInteractions放进消息行，等待中的请求是强调色边框卡片（卡内允许/拒绝、选项按钮、自由输入（秘密时掩码）、提交/可跳过时跳过，键盘可达，按钮忙状态保宽保焦点，失败在卡内显示错误并恢复），已处理的折叠成一行「已允许 · 运行命令 `…`」「已回答 · 选择了 B」等；卡片经HubService.RespondInteraction回答，同时把该请求在原路径标为提交中并推进其观察epoch，旧轮询不能恢复它，面板入口对同一请求同样忙；回执只在发出时的会话+分支（卡片epoch）有效，切会话/分支后迟到结果丢弃。按钮忙状态同时读卡片与原路径面板的提交中状态；草稿/错误记住来自哪一路读取，只有该路读取成功且请求确实不在列表时才删除（读取失败不丢秘密输入）；对话视图显示三路pending读取的错误并提供「重新读取请求」；pending集合不变时轮询不重投影。对话视图不再显示置顶审批/问答面板；轨迹视图只留一行「有 N 个请求等待处理」，各pane/设置保留原面板并加这一行，点击回到对话并滚到卡片；有等待卡片不在视口内时显示「有请求等待处理」跳转，从不自动滚动。回复底部一行淡色小字「输入 X · 输出 Y · 缓存命中 Z%」，引擎未报告缓存时不显示命中率。
 即时问答与native审批分别保存提交中状态和观察epoch；请求在途禁重复提交，回执绑定session/generation/branch，成功后移除实际请求，旧轮询不得恢复它。两条冷读独立失败、分别清空失败链旧控件，不能阻断另一链或真实执行终态刷新；校验失败保留问题草稿。
 普通会话Send走既有Submit；选中真实Worker会话时，Send捕获该Worker的文件/Skill及手动正文，经共享冻结器入既有FIFO，再请求原pump继续。入队本身不执行，提交后才消费捕获的匹配回执；dispatch失败保留已提交task并明确不得重发。重开不自动恢复执行，Waiting仍须先显式继续同Turn，再明确Resume队列。
 等待面板顶部固定Refresh/Continue，完整请求、回答与放弃审阅位于独立滚动区；长问题/已保存结果不能把唯一继续按钮挤出视口。
@@ -72,11 +73,11 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | workspace_drafts_desktop.go / workspace_drafts_desktop_test.go | 同逻辑home/会话跨窗同步的耐久手稿、250ms防抖CAS与导航/关窗flush；严格准备/文件回执冷恢复、冲突保稿和版本绑定消费，首次Create原子绑定身份后重开不发送 |
 | workspace_composer_files_desktop.go / workspace_composer_files_desktop_test.go | 首会话前@与原生文件选择立即捕获私有原件、所有引擎共享文件回执/草稿关联；真实失败来源卡片与重试/移除、原scope与SHA保留，不在选择时发送或授予目录权限 |
 | workspace_attachments_desktop.go / workspace_attachments_desktop_test.go | Foundation Attachment与Badge、长路径Wrap/共享126px引用滚动区；首页待导入、明确发送时复用Upload、部分失败只重试剩余、原件/引用与分支准入不变 |
-| workspace_settings_desktop.go / workspace_settings_desktop_test.go | 设置复用B3共享壳：导航Header36在左subtle+16圆角+1px border面外，主表面y52无border；8类SettingsNav使用native-safe行，唯一返回位于主面Header36，应用级与实际会话级配置分开；connection sheet使用8 inset且保留原表单内容；会话类复用原MCP/插件/工具/Skills/权限/导出入口，数据目录只读，不伪造清理功能；同一审批/问答在设置壳及连接表单仍可操作，原会话/视图与媒体冷索引恢复，草稿/运行/播放收尾回归；真实pending与展开连接表单在1240×850/960×680及原生左右safearea下均可滚达动作且不隐式回答/保存 |
+| workspace_settings_desktop.go / workspace_settings_desktop_test.go | 设置复用B3共享壳：导航Header36在左subtle+16圆角+1px border面外，主表面y52无border；8类SettingsNav使用native-safe行，唯一返回位于主面Header36，应用级与实际会话级配置分开；connection sheet使用8 inset且保留原表单内容；会话类复用原MCP/插件/工具/Skills/权限/导出入口，数据目录只读，不伪造清理功能；同一审批/问答在设置壳及连接表单仍可操作，设置主体另有「有 N 个请求等待处理」一行入口回到对话卡片，原会话/视图与媒体冷索引恢复，草稿/运行/播放收尾回归；真实pending与展开连接表单在1240×850/960×680及原生左右safearea下均可滚达动作且不隐式回答/保存 |
 | workspace_settings_scope_desktop.go | 设置/资源/自动化共用有界已存任务选择器及exact owner冷验证；选择统一校验当前结果成员/加载owner，显式select经原导航保存草稿并等匹配Detail回执再Open；隐藏读取按epoch结算和缓存、不抢导航，普通后台poll不撤销已验范围；不Create/Send或扩大权限 |
 | workspace_lifecycle_desktop_test.go | 真实取消收尾期间跨会话保持Stopping与防重Stop、延迟准入期间新输入不被旧回执擦除 |
 | workspace_actions_desktop.go / workspace_actions_desktop_test.go | 明确首发的真实Create/Detail/Submit、部分失败身份保留、草稿导航、同会话重载禁发与持久fallback可取消回归 |
-| workspace_view_desktop.go / workspace_routing_desktop.go / workspace_project_desktop.go | 高级面板分派、保存分支与账户/计费归属的fallback批准/禁用、原生项目目录选择 |
+| workspace_view_desktop.go / workspace_routing_desktop.go / workspace_project_desktop.go | 高级面板分派（workspacePaneBuilder同时回答当前是否显示对话）、保存分支与账户/计费归属的fallback批准/禁用、原生项目目录选择 |
 | workspace_assets_desktop.go / assets/ | 一次注册有平台回退的设计字体、固定Lucide原始SVG与语义表面色；包含来源哈希、完整OFL/ISC/MIT许可 |
 | preferences_desktop.go / preferences_desktop_test.go | 无会话General页、共享选项的实际原生Select与明确Save/Reload、保留冲突/失败草稿；跨窗theme/body size、未定义布局的Density禁选和只读系统reduced motion，SQLite/bootstrap重开、冷Build与保存期间关窗守卫的无窗口回归 |
 | developer_desktop.go / developer_desktop_test.go | 无聊天会话的开发者测试/评估入口、动态Connections目标刷新/旧预览失效、明确模型选择/预算/任务集、冷预览绑定与运行/停止/分开报告；1240×850实际保存连接至推理、跨窗禁用及阻塞解析时Stop可达/实际join的无窗口控件回归 |
@@ -91,7 +92,7 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | commands_desktop.go | 原生Hooks/diagnostics明确argv JSON编辑、独立host批准与下一Turn启停，不自动运行诊断 |
 | commands_desktop_test.go | MyGo实际JSON/批准和持久memory opt-in控件，保存/观察不启动任务 |
 | shell_desktop_test.go | 真实应用内后台job冷列表与native显式Stop等待reap，不启动模型 |
-| tools_desktop.go | 六类工具原生配置/独立enable、跨pane真实单选/多选/Other/自由回答、失败保稿和提交中防重；问答不增加权限，同pane后台Shell列表/Stop/idle reset复用应用owner |
+| tools_desktop.go | 六类工具原生配置/独立enable、对话之外（pane/设置）的置顶真实单选/多选/Other/自由回答、失败保稿和提交中防重；问答不增加权限，同pane后台Shell列表/Stop/idle reset复用应用owner |
 | tools_desktop_test.go | 七类配置冷读与九类mutation的原session/generation/pane回执隔离、真实提交保留与零执行；问答独立读错、防重、实际答案格式/纠错和重开后旧回执回归 |
 | gateway_desktop.go / gateway_desktop_test.go | 显式Gateway Start/绑定generation停止与一次Bearer可见性；跨窗停启/晚回执清过期凭据，冷观察和Closed/Stopping守卫，旧按下控件不能停止替换owner |
 | media_settings_desktop.go | 默认off媒体工具、显式decoder绝对路径、编辑禁用和独立host批准，不自动启动 |
@@ -107,12 +108,14 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | windows_desktop.go / windows_desktop_test.go | 最多8个同app观察窗共享product/runtime；资源收回走真实Close守卫后聚焦来源，来源关闭则原位/现存工作台，清除双向关系不保留旧缓存；关闭不冒充Stop |
 | skills_desktop.go | 受管项目Skills原生编辑/下一轮enable、显式compatibility文件冷读与下一轮启停；无目录时仍可用规则插件，旧原文读取/操作回执不覆盖后来视图 |
 | compatibility_desktop_test.go | MyGo实际配置路径输入/明确启停、未初始化native Skills仍可用、导航/重开隔离旧Skill原文与零执行回归 |
+| workspace_interactions_desktop.go | 审批/问答卡片（等待时卡内操作、处理后一行）、按块ID的可操作请求与草稿/忙/错误、经RespondInteraction回答并同步原路径提交中状态与epoch、会话+分支范围外的迟到回执丢弃、等待请求跳转与其他视图一行入口、用量行；只按块类型与Display kind呈现 |
+| workspace_interactions_desktop_test.go | 各状态卡片文字（含无正文已回答）与用量行（有缓存/无缓存）、对话里的读取错误与重试、读取失败保留卡片草稿（native与Alva问答）、面板在途时卡片忙、pending不变不重投影、Alva审批卡允许/拒绝调用到执行owner且对话里不再出现置顶面板、外部引擎卡片拒绝/选项+秘密输入回答且失败在卡内显示并保留草稿、切分支后迟到回执丢弃、等待请求跳转/轨迹与pane入口、Alva多选问答、Markdown表格渲染；ALVA_INTERACTION_REVIEW_DIR时保存审批/问答卡等待与已处理的无窗口截图 |
 | workspace_tool_blocks_desktop.go / workspace_tool_blocks_desktop_test.go | 按ToolView的engine kind画工具行/子Agent卡片/待办清单，按块ID展开状态、有界异步正文、DiffView、右栏打开文件与进入子会话；测试覆盖各类型折叠文字/展开内容/跳转目标、读文件片段与右栏、迟到读取丢弃、子Agent进入与返回、待办折叠、滚动后展开保持、shell回执显示状态、失败重试、generation不重置而分支重置、待开标签丢弃，ALVA_UI_BENCH=1时21k行含工具块滚动帧CPU p95≤8ms门 |
-| workspace_transcript_desktop.go / workspace_transcript_desktop_test.go | product内容块→稳定ID行与工具/来源投影（类型来自Block而非引擎名，工具块交workspace_tool_blocks）、截断块明示只显示开头、可见行驱动的自动分页；共享有界列表独立top16/行距24、右对齐subtle用户气泡、32头像/12间距回复列、仅已存native/attempt来源匹配的真实身份与当前消息复制；沿同一Markdown注册；工具披露的“在轨迹中查看”切到该工具自身分支的轨迹步骤，拒绝旧会话/分支/行绑定、未知owner不猜当前分支，不用composer目标给历史贴模型 |
+| workspace_transcript_desktop.go / workspace_transcript_desktop_test.go | product内容块（含绑定进来的pending请求）→稳定ID行与工具/来源投影（类型来自Block而非引擎名，工具块交workspace_tool_blocks，交互块与用量行交workspace_interactions）、截断块明示只显示开头、可见行驱动的自动分页；共享有界列表独立top16/行距24、右对齐subtle用户气泡、32头像/12间距回复列、仅已存native/attempt来源匹配的真实身份与当前消息复制；沿同一Markdown注册；工具披露的“在轨迹中查看”切到该工具自身分支的轨迹步骤，拒绝旧会话/分支/行绑定、未知owner不猜当前分支，不用composer目标给历史贴模型 |
 | workspace_transcript_scroll_desktop_test.go | 真实SQLite历史下滚到顶部自动加载且首个可见行不变、往上翻时新内容不拉回底部、裁剪窗口滚到底部重新加载最新、无“更早的消息”菜单；ALVA_UI_BENCH=1时2万行无窗口滚动帧CPU p95≤8ms门 |
 | team_desktop.go | 原生collaboration、真实Worker会话focus；捕获该Worker文件/Skill与手动正文入原branch的typed FIFO，提交才消费匹配回执；队列编辑/取消/分页、显式resume/stop和持久生命周期 |
 | team_desktop_test.go | MyGo建Team/Worker零执行、typed文件/Skill入队重开/防重/显式FIFO与同Turn等待继续、原件/派生损坏在HTTP前失败且保留新稿；跨pane审批及真实Stop等待owner清理并保留后续队列 |
 | worktree_desktop.go / worktree_desktop_test.go | explicit首Turn前隔离、冷SHA/path索引与8KiB raw diff页、二次确认真实采纳及整树删除审阅/独立确认/Worker退休；离开释放正文、未知不重试，无OS窗口验收主张 |
-| approvals_desktop.go / approvals_desktop_test.go | 跨pane one-call审批，完整正文有界滚动/动作行独立；Allow/Deny共享Loading保焦点尺寸，实际回执防重、问答隔离与旧读排除 |
-| workspace_engine_interactions_desktop.go / workspace_engine_interactions_desktop_test.go | native审批/多问题opaque handle及poll/epoch；完整请求滚动、动作可达/保焦点、Other空白拒绝、秘密掩码、失败保稿、成功隐藏原请求且不伪造resolved事实；Build无I/O |
+| approvals_desktop.go / approvals_desktop_test.go | 对话之外（pane/设置/资源专注）的置顶one-call审批，完整正文有界滚动/动作行独立；Allow/Deny共享Loading保焦点尺寸，实际回执防重、问答隔离与旧读排除 |
+| workspace_engine_interactions_desktop.go / workspace_engine_interactions_desktop_test.go | native审批/多问题opaque handle及poll/epoch（读取更新后重投影卡片）；对话之外的置顶面板；完整请求滚动、动作可达/保焦点、Other空白拒绝、秘密掩码、失败保稿、成功隐藏原请求且不伪造resolved事实；Build无I/O |
 | preferences_motion_desktop_test.go | 应用减弱动效的真实Save/CAS/跨窗投影及paint-only Loader停止请求帧；系统减弱要求始终有效 |

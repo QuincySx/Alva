@@ -1,5 +1,5 @@
 // INPUT:  MyGo ui/markdown and the UI-thread-confined presentation model
-// OUTPUT: NativeView, NewNativeView, Build and independently composed BuildMessages with optional row rendering/spacing and visible-row observation
+// OUTPUT: NativeView, NewNativeView, Build and independently composed BuildMessages with optional row rendering/spacing, visible-row observation and a jump to one row
 // POS: [L6 shared UI] Native self-drawn chat surface with virtualized keyed rows and explicit actions
 //go:build desktop
 
@@ -183,6 +183,10 @@ func (v *NativeView) buildMessages(c *ui.Context, conversation bool) {
 
 func (v *NativeView) AtEnd() bool  { return v.list.AtEnd() }
 func (v *NativeView) ScrollToEnd() { v.list.ScrollToEnd() }
+
+// ScrollToRow scrolls as little as shows message row i whole, for a product
+// jump to one row; the list applies it as the next frame lays out.
+func (v *NativeView) ScrollToRow(i int) { v.list.ScrollIntoView(i) }
 
 // VisibleRows reports the first and last message rows shown in the last frame;
 // last is below first when none were shown. Products page history by it.

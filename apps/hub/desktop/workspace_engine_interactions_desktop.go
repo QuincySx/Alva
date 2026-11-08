@@ -86,6 +86,7 @@ func (p *NativePage) pollEngineInteractions() {
 					delete(v.drafts, key)
 				}
 			}
+			p.projectInteractionsIfChanged()
 		})
 	}()
 }
@@ -166,6 +167,7 @@ func (p *NativePage) submitEngineInteraction(item product.EngineInteraction, all
 			}
 			delete(v.drafts, key)
 			v.problem = ""
+			p.projectTranscript()
 			p.pollEngineInteractions()
 		})
 	}()

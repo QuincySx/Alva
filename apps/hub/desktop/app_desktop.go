@@ -1,5 +1,5 @@
 // INPUT: MyGo native UI, shared desktop controls, durable product.HubService and bounded product pages
-// OUTPUT: Run, NativePage and formal native workspace with shared history or execution trace, explicit input and advanced panes
+// OUTPUT: Run, NativePage and formal native workspace with shared history (approval/question cards in the stream) or execution trace, explicit input and advanced panes
 // POS: [L7 Hub product] Separate native Hub product entry; no WebView or direct-harness entry rewrite
 //go:build desktop
 
@@ -77,6 +77,7 @@ type NativePage struct {
 	transcriptBlocks               map[string]product.Block
 	transcriptTools                map[string]transcriptTool
 	toolBlocks                     workspaceToolBlocks
+	interactionCards               workspaceInteractionCards
 	trace                          workspaceTraceState
 	sessions                       []hub.Session
 	sessionQuery                   string
@@ -102,6 +103,7 @@ type NativePage struct {
 	approvalSubmitting             map[string]bool
 	approvalEpoch                  uint64
 	approvalReadProblem            string
+	approvalsCurrent               bool
 	pane, configDraft              string
 	aepDraft                       string
 	commandDraft                   string
@@ -114,6 +116,7 @@ type NativePage struct {
 	questionSubmitting             map[string]bool
 	questionEpoch                  uint64
 	questionReadProblem            string
+	questionsCurrent               bool
 	questionID, questionText       string
 	questionSelected               map[int]bool
 	browserDraft                   string
@@ -337,6 +340,7 @@ func (p *NativePage) selectSession(id string) {
 	p.approvalReadProblem = ""
 	p.questions = nil
 	p.questionReadProblem = ""
+	p.approvalsCurrent, p.questionsCurrent = false, false
 	p.questionID, p.questionText = "", ""
 	p.questionSelected = nil
 	p.browserDraft = ""
@@ -517,6 +521,7 @@ func (p *NativePage) poll() {
 				}
 				p.approvals = nil
 				p.questions = nil
+				p.approvalsCurrent, p.questionsCurrent = false, false
 				if readWait && p.pane == "waits" && p.wait.Epoch == waitEpoch {
 					p.wait.Current = false
 					p.wait.Problem = err.Error()
@@ -532,6 +537,7 @@ func (p *NativePage) poll() {
 			if p.approvalEpoch == approvalEpoch {
 				p.approvals = approvals
 				p.approvalReadProblem = ""
+				p.approvalsCurrent = approvalErr == nil
 				if approvalErr != nil {
 					p.approvals = nil
 					p.approvalReadProblem = "Pending permissions could not be refreshed: " + approvalErr.Error()
@@ -540,6 +546,7 @@ func (p *NativePage) poll() {
 			if p.questionEpoch == questionEpoch {
 				p.questions = questions
 				p.questionReadProblem = ""
+				p.questionsCurrent = questionErr == nil
 				if questionErr != nil {
 					p.questions = nil
 					p.questionReadProblem = "Pending questions could not be refreshed: " + questionErr.Error()
@@ -557,6 +564,9 @@ func (p *NativePage) poll() {
 				p.transcript.ApplyNewer(newer)
 				p.transcript.Trim(p.chat.AtEnd())
 				p.projectTranscript()
+			} else {
+				// Pending requests may change without newer history.
+				p.projectInteractionsIfChanged()
 			}
 			p.applyDetail()
 			if p.pendingFirstSend == id {
@@ -966,7 +976,18 @@ func (p *NativePage) buildWorkspaceMainContent(c *ui.Context, resourceFocus bool
 		if p.problem != "" {
 			ui.Text(c, p.problem).Role(ui.RoleStatus).TextColor(c.Theme().Danger).FontSize(workspaceFontBody)
 		}
-		if p.selected != "" {
+		// In the conversation, requests are cards in the stream. The trace
+		// keeps a one-line entry back to them; panes and resource focus
+		// also keep the existing panels as their entry.
+		pane := p.workspacePaneBuilder()
+		if p.selected != "" && !resourceFocus && (pane != nil || p.trace.active) {
+			p.buildInteractionEntry(c)
+		}
+		if p.selected != "" && !resourceFocus && pane == nil {
+			// The panels that show read failures are hidden here.
+			p.buildInteractionReadProblems(c)
+		}
+		if p.selected != "" && (resourceFocus || pane != nil) {
 			p.buildApprovals(c)
 			p.buildQuestions(c)
 		}
@@ -987,6 +1008,7 @@ func (p *NativePage) buildWorkspaceMainContent(c *ui.Context, resourceFocus bool
 				return
 			}
 			p.buildWorkspaceTranscript(c)
+			p.buildInteractionJump(c)
 			if len(p.model.Messages) > 0 && !p.chat.AtEnd() {
 				ui.Button(c, "Jump to latest").OnClick(p.chat.ScrollToEnd)
 			}

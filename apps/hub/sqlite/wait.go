@@ -92,7 +92,7 @@ func (s *Store) BeginWaitResume(ctx context.Context, id, branchID, turnID string
 			return e
 		}
 		claim = hub.Claim{Session: d.Session, Branch: b, Turn: t, Attempt: a, WaitRevision: revision}
-		return timeline(ctx, tx, id, t.ID, a.ID, hub.TimelineEvent{Kind: "wait_resumed", Text: "Explicit same-Turn continuation from a reviewed native checkpoint; original input/tools are not replayed"})
+		return timeline(ctx, tx, id, t.ID, a.ID, hub.TimelineEvent{Kind: hub.TimelineWaitResumed, Text: "Explicit same-Turn continuation from a reviewed native checkpoint; original input/tools are not replayed"})
 	})
 	return
 }
@@ -111,7 +111,7 @@ func (s *Store) AbandonWaitingTurn(ctx context.Context, id, branchID, turnID str
 			return errors.New("abandonment target is no longer the reviewed idle Turn")
 		}
 		if t.Status != engine.Waiting {
-			return timeline(ctx, tx, id, t.ID, t.ActiveAttemptID, hub.TimelineEvent{Kind: "wait_abandoned", Text: "Reviewed native checkpoint reset after interrupted execution; prior product outcome and effects are retained, external work was not cancelled"})
+			return timeline(ctx, tx, id, t.ID, t.ActiveAttemptID, hub.TimelineEvent{Kind: hub.TimelineWaitAbandoned, Text: "Reviewed native checkpoint reset after interrupted execution; prior product outcome and effects are retained, external work was not cancelled"})
 		} // Reconcile only the product waiting edge after a native reset.
 		t.Status, t.EndedAt = engine.Interrupted, now()
 		d.Session.Status, d.Session.UpdatedAt = engine.Interrupted, now()
@@ -127,7 +127,7 @@ func (s *Store) AbandonWaitingTurn(ctx context.Context, id, branchID, turnID str
 		if e = settleAutomation(ctx, tx, t); e != nil {
 			return e
 		}
-		return timeline(ctx, tx, id, t.ID, t.ActiveAttemptID, hub.TimelineEvent{Kind: "wait_abandoned", Text: "Reviewed native checkpoint reset; effects were not undone and external work was not cancelled"})
+		return timeline(ctx, tx, id, t.ID, t.ActiveAttemptID, hub.TimelineEvent{Kind: hub.TimelineWaitAbandoned, Text: "Reviewed native checkpoint reset; effects were not undone and external work was not cancelled"})
 	})
 }
 

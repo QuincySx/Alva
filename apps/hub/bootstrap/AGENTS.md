@@ -28,7 +28,7 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 |---|---|
 | connections.go / connections_test.go | 每attempt按已提交连接revision解析实际provider/模型/账户/计费与视觉声明；真实HTTP、重开续轮与过期路由零调用回归 |
 | permissions.go / permissions_test.go | frozen Ask/Auto/Full真实approval handler；Auto仅原生文件写入，Full不放宽Guard/独立host批准，真实HTTP文件执行和危险效果回归 |
-| wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环 |
+| wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环；waiting回执列出让出的工具调用（超过256字节/非UTF-8/含NUL的call ID跳过而不让等待失败），回归让出的ask_human/写文件块先显示等待、继续后显示完成 |
 | companion_skills.go / companion_skills_test.go | 实际伙伴Skill repo的name/原文SHA限制、四类读取重验及真实HTTP未共享Skill隔离；受限scope不接受compatibility导入 |
 | session_model_wait_test.go | Waiting期间可编辑的下一Turn参数不改变原配方hash，真实重开续轮保持旧参数且新Turn应用新值 |
 | wait_crash_test.go | 杀死真实Hub续跑进程后unknown/no replay、过期拒绝及显式审阅Abandon |

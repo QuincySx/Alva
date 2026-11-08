@@ -270,6 +270,7 @@ func (p *NativePage) buildWorkspaceSettings(c *ui.Context) {
 					if p.problem != "" {
 						ui.Text(c, p.problem).Role(ui.RoleStatus).TextColor(t.Danger).FontSize(workspaceFontBody)
 					}
+					p.buildInteractionEntry(c)
 					p.buildApprovals(c)
 					p.buildQuestions(c)
 					if p.pane == "developer" {

@@ -4,9 +4,11 @@ const (
 	BlockKindReasoning BlockKind = "reasoning"
 	BlockKindContent   BlockKind = "content"
 	BlockKindTool      BlockKind = "tool"
-	BlockKindActivity  BlockKind = "activity"
-	BlockKindStatus    BlockKind = "status"
-	BlockKindTimeline  BlockKind = "timeline"
+
+	BlockKindInteraction BlockKind = "interaction"
+	BlockKindActivity    BlockKind = "activity"
+	BlockKindStatus      BlockKind = "status"
+	BlockKindTimeline    BlockKind = "timeline"
 )
 
 const (
@@ -22,6 +24,22 @@ const (
 	ComposerCommandEntry ComposerEntryKind = "command"
 	ComposerSkillEntry   ComposerEntryKind = "skill"
 	ComposerGoalEntry    ComposerEntryKind = "goal"
+)
+
+const (
+	InteractionKindPermission InteractionKind = "permission"
+	InteractionKindQuestion   InteractionKind = "question"
+)
+
+const (
+	InteractionWaiting   InteractionState = "waiting"
+	InteractionAllowed   InteractionState = "allowed"
+	InteractionDenied    InteractionState = "denied"
+	InteractionAnswered  InteractionState = "answered"
+	InteractionSkipped   InteractionState = "skipped"
+	InteractionResolved  InteractionState = "resolved"
+	InteractionExpired   InteractionState = "expired"
+	InteractionCancelled InteractionState = "cancelled"
 )
 
 const (
@@ -121,6 +139,16 @@ func (e connectionStorageError) Unwrap() error
 func (f ComposerFileSelection) DraftSelection() hub.ComposerDraftReference
 
 func (h EngineInteractionHandle) ID() string
+
+func (i Interaction) Approval() (string, bool)
+
+func (i Interaction) Engine() (EngineInteractionHandle, bool)
+
+func (i Interaction) Key() string
+
+func (i Interaction) Question() (string, bool)
+
+func (i Interaction) Same(other Interaction) bool
 
 func (p HistoryPlugin) Register(_ context.Context, r *core.Registrar) error
 
@@ -326,6 +354,8 @@ func (s *HubService) PendingApprovals(ctx context.Context, id string) ([]securit
 
 func (s *HubService) PendingEngineInteractions(ctx context.Context, id string) ([]EngineInteraction, error)
 
+func (s *HubService) PendingInteractions(ctx context.Context, id string) ([]Interaction, error)
+
 func (s *HubService) PendingQuestions(ctx context.Context, id string) ([]interaction.Question, error)
 
 func (s *HubService) PinCompanionSkill(ctx context.Context, sourceSession, name string, groupAllowed bool) (hub.CompanionSkill, error)
@@ -367,6 +397,8 @@ func (s *HubService) RespondApproval(ctx context.Context, id, requestID string, 
 func (s *HubService) RespondEnginePermission(ctx context.Context, id string, handle EngineInteractionHandle, allow bool) error
 
 func (s *HubService) RespondEngineUserInput(ctx context.Context, id string, handle EngineInteractionHandle, response engine.UserInputResponse) error
+
+func (s *HubService) RespondInteraction(ctx context.Context, id string, item Interaction, response InteractionResponse) error
 
 func (s *HubService) RespondNativeApproval(ctx context.Context, engineID, root, requestID string, allow bool) error
 
@@ -579,6 +611,10 @@ func (w *TranscriptWindow) Reset(chunk TranscriptChunk)
 func (w *TranscriptWindow) Trim(atEnd bool)
 
 func ActiveBranch(detail hub.Detail) (hub.Branch, error)
+
+func BindInteractions(blocks []Block, pending []Interaction) ([]Block, map[string]Interaction)
+
+func CombineInteractions(approvals []security.ApprovalRequest, questions []interaction.Question, native []EngineInteraction) []Interaction
 
 func DecodeComposerDraftPreparations(draft hub.ComposerDraft) ([]ComposerPreparation, error)
 
@@ -1101,6 +1137,18 @@ import (
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/extension/interaction"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/sdk/agent/security"
+)
+
+import (
+	"context"
+	"errors"
 	"strconv"
 
 	"github.com/QuincySx/Alva/apps/hub"
@@ -1277,6 +1325,10 @@ type Block struct {
 	History uint64
 
 	Tool *ToolView
+
+	Interaction *InteractionView
+
+	Usage *engine.Usage
 }
 
 type BlockKind string
@@ -1539,6 +1591,53 @@ type InspectorPage struct {
 	Before          uint64
 	HasEarlier      bool
 	Processing      string
+}
+
+type Interaction struct {
+	View InteractionView
+
+	BlockID, CallID, NativeSessionID string
+
+	CanSkip bool
+}
+
+type InteractionAnswer struct {
+	QuestionID string
+	Choices    []string
+	Text       string
+
+	Options []int
+}
+
+type InteractionKind string
+
+type InteractionQuestion struct {
+	ID, Header, Text string
+	Options          []string
+
+	Multiple, Other, Secret bool
+}
+
+type InteractionResponse struct {
+	Allow   bool
+	Answers map[string]InteractionAnswer
+}
+
+type InteractionState string
+
+type InteractionView struct {
+	Kind  InteractionKind
+	State InteractionState
+
+	Tool   *engine.ToolDisplay
+	Name   string
+	Effect engine.Effect
+	Detail string
+
+	Questions []InteractionQuestion
+	Answers   []InteractionAnswer
+
+	Truncated bool
 }
 
 type PreferencesService struct {

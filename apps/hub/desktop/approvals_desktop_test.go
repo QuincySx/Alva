@@ -81,6 +81,9 @@ func nativeApprovalPage(t *testing.T) (*NativePage, *nativeApprovalEngine) {
 		t.Fatal(err)
 	}
 	p.applyDetail()
+	// The pinned panel is the entry outside the conversation; inside it the
+	// same request is a card in the stream (workspace_interactions tests).
+	p.pane = "waits"
 	p.approvals, err = s.PendingApprovals(t.Context(), session.ID)
 	if err != nil || len(p.approvals) != 1 {
 		t.Fatal("actual permission never became visible", err)

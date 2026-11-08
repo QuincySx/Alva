@@ -37,6 +37,8 @@ func (v *NativeView) BuildMessages(c *ui.Context)
 
 func (v *NativeView) ScrollToEnd()
 
+func (v *NativeView) ScrollToRow(i int)
+
 func (v *NativeView) SetMarkdownOptions(options *markdown.Options)
 
 func (v *NativeView) VisibleRows() (first, last int)

@@ -1,5 +1,5 @@
-// INPUT: context, strconv, hub committed history pages, engine events (with tool displays) and the tool view folding
-// OUTPUT: Block content-block values (tool blocks carry a ToolView), TranscriptStore port, TranscriptService paging and the shared history projection
+// INPUT: context, strconv, hub committed history pages, engine events (with tool displays, interaction resolutions, usage and wait calls) and the tool view folding
+// OUTPUT: Block content-block values (tool blocks carry a ToolView, interaction blocks an InteractionView, usage blocks the attempt's Usage), TranscriptStore port, TranscriptService paging and the shared history projection
 // POS: [L7 Hub product] UI-independent Message Stream projection from committed product history; never model context or fact authority
 package product
 
@@ -22,9 +22,11 @@ const (
 	BlockKindReasoning BlockKind = "reasoning"
 	BlockKindContent   BlockKind = "content"
 	BlockKindTool      BlockKind = "tool"
-	BlockKindActivity  BlockKind = "activity"
-	BlockKindStatus    BlockKind = "status"
-	BlockKindTimeline  BlockKind = "timeline"
+	// BlockKindInteraction is an approval or question; see InteractionView.
+	BlockKindInteraction BlockKind = "interaction"
+	BlockKindActivity    BlockKind = "activity"
+	BlockKindStatus      BlockKind = "status"
+	BlockKindTimeline    BlockKind = "timeline"
 )
 
 // BlockStatus uses the engine outcome spellings plus running.
@@ -42,9 +44,11 @@ const (
 // Block is one item of the Message Stream projected from committed history.
 //
 // ID is stable across pages: attemptID+"/"+event ID, turnID+"/input",
-// attemptID+"/activity/"+activity ID, or a sequence-qualified status/timeline ID.
-// Name is the tool, content-block kind, activity or timeline kind; status
-// blocks name their source: "error", "retry" or "settlement". Truncated marks
+// attemptID+"/activity/"+activity ID, attemptID+"/permission/" or
+// "/question/"+request ID, attemptID+"/usage", or a sequence-qualified
+// status/timeline ID. Name is the tool, content-block kind, activity or
+// timeline kind; status blocks name their source: "error", "retry",
+// "settlement" or "usage". Truncated marks
 // Text as a bounded prefix that Ref, when set, reaches in full. Ref is the final
 // event's native reference (for a tool, its latest event's). NativeSessionID
 // attributes authorship: a tool keeps its call's native owner, other blocks
@@ -70,6 +74,12 @@ type Block struct {
 	// Tool is a tool block's presentation, derived once from its events
 	// (nil for other kinds). The value is shared and never mutated.
 	Tool *ToolView
+	// Interaction is an approval or question block's presentation (nil for
+	// other kinds). The value is shared and never mutated.
+	Interaction *InteractionView
+	// Usage is the token usage its attempt reported, on the attempt's usage
+	// status block (nil for other blocks).
+	Usage *engine.Usage
 }
 
 // TranscriptStore is the only history capability the Message Stream needs.
@@ -196,6 +206,11 @@ type blockState struct {
 	Block
 	final       bool
 	first, last uint64
+	// requested says an interaction block folded its request event;
+	// resolution keeps a lone resolved event's facts until a page edge merge
+	// brings the request it settles.
+	requested  bool
+	resolution *engine.InteractionResolution
 }
 
 // blockOrigin is an attempt's native identity from committed events only.
@@ -212,10 +227,82 @@ type projection struct {
 	origins     map[string]blockOrigin
 	outcomes    map[string]BlockStatus
 	first, last uint64
+	// yielded maps a tool block that yielded into a durable wait to that
+	// wait; settled lists each Turn's continue/abandon facts. A Turn can wait,
+	// continue and wait again, so each call is settled on its own.
+	yielded map[string]yield
+	settled map[string][]settlement
+}
+
+// yield is one call's durable wait: its Turn and the committed sequence of
+// the waiting completion that named it.
+type yield struct {
+	turn     string
+	sequence uint64
+}
+
+// settlement is a product timeline fact that continued or abandoned a Turn's
+// pending wait, at its committed sequence.
+type settlement struct {
+	sequence uint64
+	status   BlockStatus
 }
 
 func newProjection() *projection {
-	return &projection{index: map[string]int{}, origins: map[string]blockOrigin{}, outcomes: map[string]BlockStatus{}}
+	return &projection{index: map[string]int{}, origins: map[string]blockOrigin{}, outcomes: map[string]BlockStatus{}, yielded: map[string]yield{}, settled: map[string][]settlement{}}
+}
+
+// settleYielded gives a tool block that yielded into a durable wait its wait
+// status: waiting until the first continue/abandon of its Turn committed after
+// its own wait, which completes or cancels it. An earlier settlement belongs
+// to an earlier wait and a later one to a later wait.
+func (p *projection) settleYielded(b *blockState) {
+	wait, yielded := p.yielded[b.ID]
+	if !yielded || b.Kind != BlockKindTool {
+		return
+	}
+	b.Status = BlockStatusWaiting
+	first := uint64(0)
+	for _, s := range p.settled[wait.turn] {
+		if s.sequence > wait.sequence && (first == 0 || s.sequence < first) {
+			first, b.Status = s.sequence, s.status
+		}
+	}
+}
+
+// addSettlement records a Turn's continue/abandon fact once.
+func (p *projection) addSettlement(turn string, fact settlement) {
+	for _, known := range p.settled[turn] {
+		if known.sequence == fact.sequence {
+			return
+		}
+	}
+	p.settled[turn] = append(p.settled[turn], fact)
+}
+
+// waitSettlement is the status a Turn's yielded calls take when a product
+// timeline event continues or abandons its wait.
+func waitSettlement(kind string) (BlockStatus, bool) {
+	switch kind {
+	case hub.TimelineWaitResumed:
+		return BlockStatusCompleted, true
+	case hub.TimelineWaitAbandoned:
+		return BlockStatusCancelled, true
+	}
+	return "", false
+}
+
+// expireInteraction settles a request its attempt ended without answering.
+func expireInteraction(b *blockState, outcome BlockStatus) {
+	if b.Kind != BlockKindInteraction || b.Interaction == nil || b.Interaction.State != InteractionWaiting {
+		return
+	}
+	view := *b.Interaction
+	view.State = InteractionExpired
+	if outcome == BlockStatusCancelled || outcome == BlockStatusInterrupted {
+		view.State = InteractionCancelled
+	}
+	b.Interaction, b.Status = &view, BlockStatusCompleted
 }
 
 // observeOrigin records the attempt's native identity and reports a change.
@@ -319,6 +406,14 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		event := entry.Timeline
 		b := p.upsert("product/"+sequence, entry, BlockKindTimeline, BlockStatusCompleted)
 		b.Name, b.Text, b.HandoffID, b.final = event.Kind, event.Text+"\n"+event.FromBranchID+" → "+event.ToBranchID, event.HandoffID, true
+		if status, settles := waitSettlement(event.Kind); settles && entry.TurnID != "" {
+			p.addSettlement(entry.TurnID, settlement{sequence: entry.Sequence, status: status})
+			for id, wait := range p.yielded {
+				if i, shown := p.index[id]; shown && wait.turn == entry.TurnID {
+					p.settleYielded(&p.blocks[i])
+				}
+			}
+		}
 		return changed
 	}
 	event := entry.Event
@@ -367,6 +462,26 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 			b.Status = BlockStatusFailed
 		}
 		b.Tool = foldToolView(b.Tool, b.Name, event)
+	case engine.PermissionRequest, engine.UserInputRequested:
+		kind, view := InteractionKindPermission, (*InteractionView)(nil)
+		if event.Kind == engine.UserInputRequested {
+			kind, view = InteractionKindQuestion, questionView(event.Question)
+		} else {
+			view = permissionView(event)
+		}
+		b := p.upsert(interactionBlockID(entry.AttemptID, kind, event.ID), entry, BlockKindInteraction, BlockStatusWaiting)
+		b.Interaction, b.requested = view, true
+	case engine.InteractionResolved:
+		kind := resolvedKind(event.Name)
+		b := p.upsert(interactionBlockID(entry.AttemptID, kind, event.ID), entry, BlockKindInteraction, BlockStatusCompleted)
+		base := InteractionView{Kind: kind}
+		if b.requested && b.Interaction != nil {
+			base = *b.Interaction
+		} else {
+			// The request is outside this window; keep the facts for a merge.
+			b.resolution = cloneResolution(event.Resolution)
+		}
+		b.Interaction, b.Status, b.final = base.resolve(event.Resolution), BlockStatusCompleted, true
 	case engine.Error:
 		b := p.upsert(entry.AttemptID+"/error/"+sequence, entry, BlockKindStatus, BlockStatusFailed)
 		b.Name, b.Text, b.final = "error", event.Text, true
@@ -379,16 +494,65 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 			b := p.upsert(entry.AttemptID+"/settlement/"+sequence, entry, BlockKindStatus, outcome)
 			b.Name, b.Text, b.Status, b.final = "settlement", event.Text, outcome, true
 		}
+		if usage := event.Usage; usage != nil && (usage.InputTokens != 0 || usage.OutputTokens != 0 || usage.CachedInputTokens != nil || usage.CacheWriteInputTokens != nil) {
+			b := p.upsert(entry.AttemptID+"/usage", entry, BlockKindStatus, BlockStatusCompleted)
+			b.Name, b.Usage, b.final = "usage", cloneUsage(usage), true
+		}
 		if entry.AttemptID != "" {
 			p.outcomes[entry.AttemptID] = outcome
 		}
 		for i := range p.blocks {
-			if b := &p.blocks[i]; b.AttemptID == entry.AttemptID && b.Kind != BlockKindUser && b.Status == BlockStatusRunning {
+			b := &p.blocks[i]
+			if b.AttemptID != entry.AttemptID {
+				continue
+			}
+			if b.Kind != BlockKindUser && b.Status == BlockStatusRunning {
 				b.Status = outcome
+			}
+			expireInteraction(b, outcome)
+		}
+		if event.Wait != nil && entry.AttemptID != "" {
+			// The calls that yielded into this checkpoint wait; their tool
+			// results only said so.
+			for _, call := range event.Wait.Calls {
+				id := entry.AttemptID + "/" + call
+				p.yielded[id] = yield{turn: entry.TurnID, sequence: entry.Sequence}
+				if i, shown := p.index[id]; shown {
+					p.settleYielded(&p.blocks[i])
+				}
 			}
 		}
 	}
 	return changed
+}
+
+func cloneUsage(usage *engine.Usage) *engine.Usage {
+	value := *usage
+	for _, count := range []**uint64{&value.CachedInputTokens, &value.CacheWriteInputTokens} {
+		if *count != nil {
+			n := **count
+			*count = &n
+		}
+	}
+	return &value
+}
+
+func cloneResolution(resolution *engine.InteractionResolution) *engine.InteractionResolution {
+	if resolution == nil {
+		return nil
+	}
+	value := *resolution
+	if value.Allowed != nil {
+		allowed := *value.Allowed
+		value.Allowed = &allowed
+	}
+	if value.Answers != nil {
+		value.Answers = make(map[string][]string, len(resolution.Answers))
+		for id, answers := range resolution.Answers {
+			value.Answers[id] = append([]string(nil), answers...)
+		}
+	}
+	return &value
 }
 
 // markTodos keeps only the latest todo block of each Turn complete: earlier

@@ -22,6 +22,11 @@ const (
 )
 
 const (
+	TimelineWaitResumed   = "wait_resumed"
+	TimelineWaitAbandoned = "wait_abandoned"
+)
+
+const (
 	WorkerActive     WorkerLifecycle = "active"
 	WorkerHibernated WorkerLifecycle = "hibernated"
 	WorkerArchived   WorkerLifecycle = "archived"

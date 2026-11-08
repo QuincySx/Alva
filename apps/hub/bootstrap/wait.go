@@ -1,5 +1,5 @@
 // INPUT: Actual native log/lease, explicit bootstrap recipe and optional durable Controller.
-// OUTPUT: Durable runner, immutable execution recipe check and post-cleanup waiting receipt.
+// OUTPUT: Durable runner, immutable execution recipe check and post-cleanup waiting receipt naming the yielded calls.
 // POS: [L7 composition] Reuses ordinary Agent/Plugin/Guard; no second execution runtime or kernel business state.
 package bootstrap
 
@@ -19,7 +19,9 @@ import (
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const waitRecipeNamespace = "alva.hub.waits"
@@ -164,10 +166,26 @@ func (r *durableRunner) Run(ctx context.Context, input []wire.Message, emit func
 				expires = request.ExpiresAt
 			}
 		}
-		r.checkpoint = &engine.WaitCheckpoint{Revision: s.Revision, Requests: len(s.State.Requests), ExpiresAt: expires.UnixMilli()}
+		r.checkpoint = &engine.WaitCheckpoint{Revision: s.Revision, Requests: len(s.State.Requests), ExpiresAt: expires.UnixMilli(), Calls: yieldedCalls(s.State.Requests)}
 	}
 	return nil
 }
+
+// yieldedCalls names the calls that yielded, so the product shows their tool
+// results as waiting rather than failed. A call ID the receipt cannot carry
+// (empty, over 256 bytes, not UTF-8 or with NUL) is left out: that call keeps
+// its committed result, and the wait itself still succeeds.
+func yieldedCalls(requests []durable.Request) []string {
+	var calls []string
+	for _, request := range requests {
+		id := request.CallID
+		if id != "" && len(id) <= 256 && utf8.ValidString(id) && !strings.ContainsRune(id, 0) {
+			calls = append(calls, id)
+		}
+	}
+	return calls
+}
+
 func (r *durableRunner) WaitCheckpoint() *engine.WaitCheckpoint {
 	if r.checkpoint == nil {
 		return nil

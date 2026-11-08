@@ -1,5 +1,5 @@
 // INPUT: Actual shared Hub bootstrap, persistent product/native ports and local-only SSE tool fixtures.
-// OUTPUT: Restarted same-Turn waits, once-only resolution/approval/question and immutable recipe acceptance.
+// OUTPUT: Restarted same-Turn waits, once-only resolution/approval/question, yielded calls shown waiting then completed, and immutable recipe acceptance.
 // POS: [L7 integration] Verifies the product owner and native Controller together without paid models or replayed input.
 package bootstrap
 
@@ -245,6 +245,30 @@ func TestHubWaitApprovalAndQuestion(t *testing.T) {
 			if len(view.Snapshot.State.Requests) != 1 || view.Snapshot.State.Requests[0].Kind != kind {
 				t.Fatal(view)
 			}
+			// The call that yielded shows waiting, not failed, until its Turn
+			// continues; then every call of the Turn shows completed.
+			toolStatuses := func(want product.BlockStatus) {
+				t.Helper()
+				chunk, err := a.Service.Transcripts.Tail(t.Context(), s.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				w := product.NewTranscriptWindow(0)
+				w.Reset(chunk)
+				tools := 0
+				for _, b := range w.Blocks() {
+					if b.Kind == product.BlockKindTool {
+						tools++
+						if b.Status != want {
+							t.Fatalf("tool block %s shows %s, want %s", b.ID, b.Status, want)
+						}
+					}
+				}
+				if tools == 0 {
+					t.Fatal("no tool block projected")
+				}
+			}
+			toolStatuses(product.BlockStatusWaiting)
 			if _, err = os.Stat(filepath.Join(workspace, "once.txt")); !os.IsNotExist(err) {
 				t.Fatal("side effect before approval", err)
 			}
@@ -264,6 +288,7 @@ func TestHubWaitApprovalAndQuestion(t *testing.T) {
 			if calls.Load() != 3 {
 				t.Fatal("requests repeated", calls.Load())
 			}
+			toolStatuses(product.BlockStatusCompleted)
 			if kind == "approval" {
 				data, err := os.ReadFile(filepath.Join(workspace, "once.txt"))
 				if err != nil || string(data) != "approved once" {
@@ -271,5 +296,17 @@ func TestHubWaitApprovalAndQuestion(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWaitReceiptSkipsCallIDsItCannotCarry(t *testing.T) {
+	requests := []durable.Request{{CallID: "ask"}, {CallID: strings.Repeat("c", 257)}, {CallID: ""}, {CallID: "bad\x00id"}, {CallID: "edit"}}
+	calls := yieldedCalls(requests)
+	if strings.Join(calls, ",") != "ask,edit" {
+		t.Fatal("receipt calls", calls)
+	}
+	receipt := engine.WaitCheckpoint{Revision: 1, Requests: len(requests), ExpiresAt: 1, Calls: calls}
+	if err := receipt.Validate(); err != nil {
+		t.Fatal("an over-long call ID failed the whole wait", err)
 	}
 }

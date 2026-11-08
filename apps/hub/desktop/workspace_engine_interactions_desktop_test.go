@@ -123,6 +123,8 @@ func workspaceInteractionPage(t *testing.T) (*NativePage, *workspaceInteractionE
 	v := p.prepareEngineInteractionScope()
 	v.items = items
 	v.current = true
+	// The pinned panels are the entry outside the conversation.
+	p.pane = "waits"
 	return p, e
 }
 
@@ -153,7 +155,7 @@ func clickEngineQuestion(t *testing.T, tester *ui.Tester, label string) {
 func TestWorkspaceNativeQuestionsAndPermissionUseSharedActualControls(t *testing.T) {
 	p, e := workspaceInteractionPage(t)
 	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
-	for _, pane := range []string{"tools", "mcp", "inspector"} {
+	for _, pane := range []string{"tools", "waits", "inspector"} {
 		p.pane = pane
 		tester.Frame()
 		if _, found := tester.Find("Allow native once"); !found {

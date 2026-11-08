@@ -122,6 +122,14 @@ type HistoryEntry struct {
 	// It is never written into the stored event; events without a Turn keep 0.
 	TurnSequence uint64 `json:"turn_sequence,omitempty"`
 }
+
+// Timeline kinds the product projection reads: a durable wait continued or
+// abandoned on its own Turn.
+const (
+	TimelineWaitResumed   = "wait_resumed"
+	TimelineWaitAbandoned = "wait_abandoned"
+)
+
 type TimelineEvent struct {
 	Kind         string  `json:"kind"`
 	Text         string  `json:"text"`

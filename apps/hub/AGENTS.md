@@ -37,7 +37,7 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | composer_files.go | 首会话前不可变本地文件catalog、显式来源scope与分块SHA DTO；独立只读ownership插口读取真实home→session grant，原件不重归属，ID/URI/hash不代替会话授权 |
 | runtime_options_test.go | 冻结参数传给真实adapter、配置能力不支持时零Execute |
 | permissions.go | 产品Ask/Auto/Full值与校验；Settings仅保存下一Turn意图，真实宿主执行政策不进入SDK |
-| model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引；HistoryEntry.TurnSequence读取时填充、不写入事件 |
+| model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引；HistoryEntry.TurnSequence读取时填充、不写入事件；等待继续/放弃的时间线kind常量供消息流投影 |
 | preferences.go / preferences_test.go | 应用级外观与左栏折叠/有界宽度DTO、三组选项与唯一纯值政策、稀疏revision CAS端口；消费者修改选项不改变共享校验，布局不覆盖独立外观 |
 | wait.go | 可选WaitStore、分支最近Turn观察、显式同Turn继续与输入冻结政策，不增加SDK状态 |
 | runtime.go / runtime_identity_test.go | 独立Descriptor/engine registry、串行执行与流式增量合并写入、绑定实际owner身份的取消/审批与授权fallback；权限四项binding原子分派、同run fallback拒绝旧审批及准入/替换/取消收尾身份回归 |
@@ -56,9 +56,9 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | team_runtime.go | FIFO任务同事务认领并复用唯一Hub Runtime执行owner |
 | automation.go | 默认暂停、固定branch/route的本地计划事实与独立AutomationStore，同普通Turn原子准入而非第二runtime |
 | sqlite | 私有耐久产品store、事务认领、历史、外观singleton原子迁移/CAS与崩溃修复 |
-| product | UI无关L7共享服务、消息流内容块投影/字节有界窗口与窄TranscriptService、工具事件Display→ToolView折叠（不认工具/引擎名）、执行轨迹窄TraceService/TraceWindow（Inspector元数据分页、配对、产品轮次锚点、时间轴排布）、独立应用外观owner、真实文件/历史/Inspector/Skill与SDK配方；路由准入及显式fallback政策共用一份；附件/项目引用按显式DraftID/版本集合重验及精确消费，伙伴删除索引与完整只读分页 |
+| product | UI无关L7共享服务、消息流内容块投影/字节有界窗口与窄TranscriptService、工具事件Display→ToolView折叠（不认工具/引擎名）、审批与问答块（两条交互路径合成一个视图、统一回答入口）与attempt用量块、执行轨迹窄TraceService/TraceWindow（Inspector元数据分页、配对、产品轮次锚点、时间轴排布）、独立应用外观owner、真实文件/历史/Inspector/Skill与SDK配方；路由准入及显式fallback政策共用一份；附件/项目引用按显式DraftID/版本集合重验及精确消费，伙伴删除索引与完整只读分页 |
 | bootstrap | Hub共用实际装配和安全关闭，Connections以精确revision进入独立Developer目标源，显式CLI配置路径来源与实际adapter一致；MCP/AEP等exact attempt资源重试与facts释放顺序，desktop/server不各造recipe |
-| desktop | 原生窗口按钮与36px共享页头组成的正式工作台/输入区，按真实titlebar安全区布局且侧栏完全隐藏/恢复；消费共享产品服务与虚拟消息（经Transcripts按块窗口、滚到顶部自动加载）；中间窗口「对话/轨迹」切换，轨迹只经Traces读取，工具块按ToolView类型呈现（命令/读/改/搜索/子Agent卡片/待办）并跳到对应步骤、右栏文件或子会话；共享保宽/保焦点Loading、Foundation Switch、ModelRow整行状态与独立操作及ComposerMenu/General布局回归、一小时opt-in稳定性、paint-only减弱动效与平台发送快捷键准入；已提交模型参数观察与表单草稿分别持有；群编辑不污染执行事实，scope切换隔离旧历史；应用外观及左栏折叠/宽度稀疏CAS跨窗同步（Density/语言入口暂隐藏，减弱动效真实消费），首发/设置返回/Stop/等待保留真实上下文；问答/审批独立读错、防重及迟到回执隔离，不拥有执行 |
+| desktop | 原生窗口按钮与36px共享页头组成的正式工作台/输入区，按真实titlebar安全区布局且侧栏完全隐藏/恢复；消费共享产品服务与虚拟消息（经Transcripts按块窗口、滚到顶部自动加载）；中间窗口「对话/轨迹」切换，轨迹只经Traces读取，工具块按ToolView类型呈现（命令/读/改/搜索/子Agent卡片/待办）并跳到对应步骤、右栏文件或子会话；审批与问答在对话里是卡片（卡内操作、处理后折叠一行），回复底部一行淡色用量；共享保宽/保焦点Loading、Foundation Switch、ModelRow整行状态与独立操作及ComposerMenu/General布局回归、一小时opt-in稳定性、paint-only减弱动效与平台发送快捷键准入；已提交模型参数观察与表单草稿分别持有；群编辑不污染执行事实，scope切换隔离旧历史；应用外观及左栏折叠/宽度稀疏CAS跨窗同步（Density/语言入口暂隐藏，减弱动效真实消费），首发/设置返回/Stop/等待保留真实上下文；问答/审批独立读错、防重及迟到回执隔离，不拥有执行 |
 | worktree | 显式approved Git、live repository/worktree只读发现、no-checkout直读blob、pin父目录原字节diff/采纳；不运行filter/checkout hook或自动commit/reset |
 | server | 认证 loopback HTTP/SSE，同源 product 服务与耐久游标，不接客户端 host path |
 | devtools | 独立只读stdio MCP诊断；显式Hub/token fd，真实bounded历史index/typed Inspector/2KiB读取，不启动或修改Agent |

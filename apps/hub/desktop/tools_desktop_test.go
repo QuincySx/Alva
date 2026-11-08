@@ -380,6 +380,8 @@ func nativeQuestionPage(t *testing.T, kind string) (*NativePage, *host.QuestionB
 		t.Fatal(err)
 	}
 	p.applyDetail()
+	// The pinned panel is the entry outside the conversation.
+	p.pane = "waits"
 	p.questions = []interaction.Question{q}
 	return p, broker, q, answered
 }
