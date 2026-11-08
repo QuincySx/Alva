@@ -152,6 +152,7 @@ func (w *TranscriptWindow) Blocks() []Block {
 	for i := range w.view.blocks {
 		blocks[i] = w.view.blocks[i].Block
 		blocks[i].Ref = cloneReference(blocks[i].Ref)
+		blocks[i].History = w.view.blocks[i].last
 	}
 	return blocks
 }

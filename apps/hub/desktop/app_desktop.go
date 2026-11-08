@@ -1,5 +1,5 @@
 // INPUT: MyGo native UI, shared desktop controls, durable product.HubService and bounded product pages
-// OUTPUT: Run, NativePage and formal native workspace with shared history, explicit input and advanced panes
+// OUTPUT: Run, NativePage and formal native workspace with shared history or execution trace, explicit input and advanced panes
 // POS: [L7 Hub product] Separate native Hub product entry; no WebView or direct-harness entry rewrite
 //go:build desktop
 
@@ -76,6 +76,7 @@ type NativePage struct {
 	transcriptRows                 []view.Message
 	transcriptBlocks               map[string]product.Block
 	transcriptTools                map[string]transcriptTool
+	trace                          workspaceTraceState
 	sessions                       []hub.Session
 	sessionQuery                   string
 	sessionLoadedQuery             string
@@ -179,6 +180,7 @@ func NewNativePage(service *product.HubService) *NativePage {
 	chat.SetMarkdownOptions(markdownOptions)
 	page := &NativePage{Service: service, model: model, chat: chat, title: "New conversation", drafts: make(map[string]string), ctx: context.Background(), targets: service.AvailableTargets(), updates: make(chan func(), 8), transcript: product.NewTranscriptWindow(0)}
 	page.referenceOwner = &workspaceReferenceOwner{service: service}
+	page.trace.markdown = markdownOptions
 	if err := registerWorkspaceAssets(); err != nil {
 		page.problem = err.Error()
 	}
@@ -323,6 +325,7 @@ func (p *NativePage) selectSession(id string) {
 	p.loadWorkspaceDraft()
 	p.generation++
 	p.resetTranscript()
+	p.resetTrace()
 	p.pane = ""
 	p.configDraft = ""
 	p.aepDraft = ""
@@ -466,6 +469,7 @@ func (p *NativePage) poll() {
 	p.observeConnections()
 	p.pollDeveloper()
 	p.observeGateway()
+	p.pollTrace()
 	if p.selected == "" || p.polling || p.busy {
 		return
 	}
@@ -977,6 +981,10 @@ func (p *NativePage) buildWorkspaceMainContent(c *ui.Context, resourceFocus bool
 			return
 		}
 		ui.Column(c).Grow(1).MinWidth(0).FillWidth().Gap(16).Children(func() {
+			if p.trace.active {
+				p.buildWorkspaceTrace(c)
+				return
+			}
 			p.buildWorkspaceTranscript(c)
 			if len(p.model.Messages) > 0 && !p.chat.AtEnd() {
 				ui.Button(c, "Jump to latest").OnClick(p.chat.ScrollToEnd)

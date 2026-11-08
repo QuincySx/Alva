@@ -115,6 +115,13 @@ func TestActualDevtoolsMCPReadsOwnedIndexesAndSelectedRecordsWithoutReplay(t *te
 		t.Fatal("actual typed index absent")
 	}
 	uri := page.Entries[0].Value.URI
+	newest := call(map[string]any{"action": "inspector", "session_id": s.ID, "branch_id": branch.ID, "before": 0}, false)
+	var tail product.InspectorPage
+	if json.Unmarshal([]byte(newest), &tail) != nil || len(tail.Entries) == 0 || tail.Entries[len(tail.Entries)-1].Sequence != tail.HighWater || tail.Before != tail.Entries[0].Sequence {
+		t.Fatal("backward index did not return the newest page", newest)
+	}
+	call(map[string]any{"action": "inspector", "session_id": s.ID, "branch_id": branch.ID, "before": 2, "after": 1}, true)
+	call(map[string]any{"action": "history", "session_id": s.ID, "before": 1}, true)
 	call(map[string]any{"action": "record", "session_id": s.ID, "branch_id": branch.ID, "uri": uri, "offset": 0}, false)
 	call(map[string]any{"action": "record", "session_id": other.ID, "branch_id": branch.ID, "uri": uri}, true)
 	call(map[string]any{"action": "stop", "session_id": s.ID}, true)

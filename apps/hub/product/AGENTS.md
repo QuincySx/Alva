@@ -3,7 +3,7 @@
 ## 地位
 位于纯 Hub core 之外的 L7 产品服务层；可消费 harness、platform/host、platform/storage 与显式 integration，不能被 SDK 反向依赖。
 ## 逻辑
-认领HubSession后绑定native owner。上传原件耐久保存，模型仅收小引用和真实处理说明；Inspector和历史按目标归属有界只读。消息流内容块投影与窗口在本包：TranscriptService只依赖History/HistoryBefore两方法分页（Tail/Older每页128往前读到≥32个用户/回复/工具块或16页，Newer最多8页），TranscriptWindow按块而非事件累积、无I/O，同ID增量追加、最终消息替换、页边界块合并，按64MiB估算字节从离视口远的一端整块裁剪且不裁运行中块及其Turn。UI的行/Markdown/滚动呈现留apps/hub/desktop。
+认领HubSession后绑定native owner。上传原件耐久保存，模型仅收小引用和真实处理说明；Inspector和历史按目标归属有界只读。消息流内容块投影与窗口在本包：TranscriptService只依赖History/HistoryBefore两方法分页（Tail/Older每页128往前读到≥32个用户/回复/工具块或16页，Newer最多8页），TranscriptWindow按块而非事件累积、无I/O，同ID增量追加、最终消息替换、页边界块合并，按64MiB估算字节从离视口远的一端整块裁剪且不裁运行中块及其Turn。UI的行/Markdown/滚动呈现留apps/hub/desktop。执行轨迹在本包：TraceService只经HubService既有inspectionTarget路由（≤8跳typed child、引擎无Inspector或未声明BackwardPages时返回Unsupported结果而非错误，避免把忽略Before的Inspector误读成会话开头）读Inspector元数据页（Tail/Older向后、Newer/Around向前，每页20条），正文只在Detail/Raw按2KiB页读取；TraceWindow无I/O，按元数据重建步骤（model按RequestID、tool按RunID+CallID配对，工具时间优先StartedAt/EndedAt否则用提交时间并标近似，intent缺失的outcome等它进窗再出现），4MiB估算字节从远端裁剪，只释放被裁一侧的产品证据：该侧扫描边界移到最近的保留锚点、超出的锚点/起点丢弃，另一侧锚点与边界保留，下一页在该侧重扫所需范围。轮次号来自产品History中引用native序号的事件（TurnSequence锚点）：native run以用户输入记录分段，段内任一锚点给整段定轮次；无锚点段只在两侧同轮或候选Attempt数恰好相等时推断，否则留0。产品History只在窗口附近有界扫描（越过首个窗外锚点所在整轮即停，≤16页），不扫描整个会话。
 ## 约束
 无MyGo/WebView/React；不靠build tags隐藏UI传递依赖。读取Inspector不restore、不启动Agent/MCP。History/Team工具验证actual Tool与非空matching call、精确字段/重复键/Unicode；产品归属由已存branch重审，不凭同名Tool或nativeID字符串推断。设置仅下一次装配消费。Skills限定saved cwd与可恢复归档。
 ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费声明的路由插口，不靠具体store附带方法。事实Repository、DTO/错误均来自共享storage契约。可选Team/Automation能力仍显式按既有契约发现；私有目录只依赖system/privatefs，不带SQL。
@@ -39,13 +39,18 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | plan_mode.go / plan_mode_test.go | 下一Turn只读计划配置，空闲native/checkpoint校验与普通配置批准保留 |
 | preferences.go / preferences_test.go | application级偏好共享owner、取消感知的串行存储及非阻塞已提交快照；Close停准入/取消并等待实际I/O、超时保留owner可重试，失败/旧版本不覆盖缓存，不选择后端或启动会话 |
 | wait.go | Alva journal专属的共享UI/HTTP等待DTO、persistent opt-in、陈旧/跨分支拒绝、结果保存/同Turn继续/审阅放弃 |
-| service.go | 产品session/Turn服务、expected-branch原子准入、独立DraftID/版本显式选择与精确消费、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答/会话外Developer及可选DeveloperWorkspaces/ConversationTabs owner；Transcripts为窄消息流读取服务，由bootstrap用实际store装配 |
+| service.go | 产品session/Turn服务（Transcripts/Traces两个窄读取服务由bootstrap装配）、expected-branch原子准入、独立DraftID/版本显式选择与精确消费、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答/会话外Developer及可选DeveloperWorkspaces/ConversationTabs owner；Transcripts为窄消息流读取服务，由bootstrap用实际store装配 |
 | service_test.go | 真实双store/local harness、双观察者捕获/迟到发布/失败重试、上传/权限/历史/Inspector和其他engine等待不借Alva authority回归 |
 | history.go | 产品绑定的有界metadata/字面关键词/正文range Tool与Plugin |
-| transcript.go / transcript_window.go | UI无关Block/BlockKind/BlockStatus、TranscriptStore窄端口、TranscriptService分页（chunk条目不导出）与TranscriptWindow；迁入原desktop投影的用户输入/时间线/执行活动/思考与内容块/增量与最终回复/工具起止与引用/错误与重试/Completed状态传播/按attempt来源歧义，不是模型上下文 |
+| transcript.go / transcript_window.go | UI无关Block/BlockKind/BlockStatus（Block.History为折入的最新产品History序号，供轨迹跳转绑定轮次）、TranscriptStore窄端口、TranscriptService分页（chunk条目不导出）与TranscriptWindow；迁入原desktop投影的用户输入/时间线/执行活动/思考与内容块/增量与最终回复/工具起止与引用/错误与重试/Completed状态传播/按attempt来源歧义，不是模型上下文 |
 | transcript_test.go | 迁移的稳定ID/工具原owner/来源歧义回归，3000增量流式保留用户块且文字完整、最终消息替换、ApplyOlder边界合并、两端整块裁剪与字节上限、旧格式未合并数据、Turn传递与分页上限 |
 | transcript_long_session_test.go | 长会话CI门：真实BeginTurn/Record/FinishTurn写20轮×300增量并插入旧格式行，断言增量删除、Tail≥20条消息、流式用户块不丢、连续Older 50次不超字节上限；ALVA_LONG_SESSION_GIB合成GiB历史并断言Tail<100ms、输出Record p95 |
-| inspector.go | 消费registered EngineInspector；分支/最多8hop真实typed child授权、小索引/搜索/2KiB正文DTO/背压live metadata、默认禁用MCP导入 |
+| inspector.go | 消费registered EngineInspector；分支/最多8hop真实typed child授权、向前/向后（InspectorBeforeAt，0=末尾）小索引/搜索/2KiB正文DTO/背压live metadata、默认禁用MCP导入 |
+| trace.go | TraceService（Tail/Older/Newer/Around、Detail正文64KiB预算、Raw 2KiB页、向前字面Search）、TraceTarget/Child、TraceHint、TraceChunk；HubService.traceTarget区分无native记录的空分支与不支持的引擎 |
+| trace_window.go | TraceStep/TraceRecord投影与TraceWindow：按元数据配对、产品锚点轮次标注与无锚点段推断、轮内序号（窗口未含轮起点时标非精确）、远端字节裁剪且只收窄被裁一侧的产品扫描范围 |
+| trace_layout.go | LayoutTrace：时长按真实时间，轮次/调用/子调用按组压缩（组宽按步数、组间留隙、组内保留真实相对时间，无时长时按序等分），输出与界面无关的0..1坐标与泳道 |
+| trace_test.go | 真实双SQLite：跨页配对（向后/向前）、两端裁剪保留另一侧锚点、未声明BackwardPages的Inspector视为不支持、旧记录近似时间、轮次号与消息流Block.Turn一致、失败无锚点run推断、窗口裁剪后翻回不改标、子会话进入/返回与非link拒绝、无Inspector引擎与空分支、搜索跳转与详情/原始页、排布 |
+| trace_long_session_test.go | 长会话轨迹门：从尾部打开固定10次元数据页、零正文读取、窗口字节与历史大小无关；ALVA_LONG_SESSION_GIB合成GiB native历史并断言首屏<100ms |
 | export.go | 精确branch/typed child授权的bounded JSONL；HTTP只返回bytes，native显式保存到私有exports，不接受client host/native path |
 | approvals.go / approvals_test.go | 真实running Alva root/typed child权限路由；首次读前冻结实际Runtime四项binding，替换owner与native同名字符串均不借用外部engine权限回调，不接受UI childID或借用父权限 |
 | engine_interactions.go / engine_interactions_test.go | 非Alva的已提交native审批/问题冷快照、session/branch与完整physical binding的opaque handle；响应重审原handle、种类隔离，迟到点击不重新发现替换owner；不借用Alva broker |

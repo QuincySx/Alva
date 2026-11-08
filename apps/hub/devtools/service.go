@@ -35,11 +35,14 @@ type childHop struct {
 	LinkSequence uint64 `json:"link_sequence"`
 }
 type Arguments struct {
-	Action    string     `json:"action"`
-	Session   string     `json:"session_id,omitempty"`
-	Branch    string     `json:"branch_id,omitempty"`
-	Query     string     `json:"query,omitempty"`
-	After     uint64     `json:"after,omitempty"`
+	Action  string `json:"action"`
+	Session string `json:"session_id,omitempty"`
+	Branch  string `json:"branch_id,omitempty"`
+	Query   string `json:"query,omitempty"`
+	After   uint64 `json:"after,omitempty"`
+	// Before, when present, pages the Inspector index backward from this
+	// exclusive cursor; 0 starts at the snapshot's end.
+	Before    *uint64    `json:"before,omitempty"`
 	HighWater uint64     `json:"high_water,omitempty"`
 	URI       string     `json:"uri,omitempty"`
 	Offset    int64      `json:"offset,omitempty"`
@@ -69,8 +72,11 @@ func validID(id string) bool {
 	return true
 }
 func (a Arguments) route() (string, error) {
-	if len(a.Query) > 256 || !utf8.ValidString(a.Query) || len(a.URI) > 2048 || a.After > 1<<63-1 || a.HighWater > 1<<63-1 || a.Offset < 0 || len(a.ChildPath) > 8 {
+	if len(a.Query) > 256 || !utf8.ValidString(a.Query) || len(a.URI) > 2048 || a.After > 1<<63-1 || a.HighWater > 1<<63-1 || a.Offset < 0 || len(a.ChildPath) > 8 || a.Before != nil && *a.Before > 1<<63-1 {
 		return "", errors.New("diagnostic query exceeds bounds")
+	}
+	if a.Before != nil && (a.Action != "inspector" || a.After != 0 || a.Query != "") {
+		return "", errors.New("before pages only the Inspector index, without after or literal query")
 	}
 	q := url.Values{}
 	if a.Action == "sessions" {
@@ -122,8 +128,12 @@ func (a Arguments) route() (string, error) {
 	if a.URI != "" || a.Offset != 0 {
 		return "", errors.New("Inspector index cannot import a record body")
 	}
-	q.Set("q", a.Query)
-	q.Set("after", strconv.FormatUint(a.After, 10))
+	if a.Before != nil {
+		q.Set("before", strconv.FormatUint(*a.Before, 10))
+	} else {
+		q.Set("q", a.Query)
+		q.Set("after", strconv.FormatUint(a.After, 10))
+	}
 	q.Set("high_water", strconv.FormatUint(a.HighWater, 10))
 	return base + "/inspector?" + q.Encode(), nil
 }
@@ -205,9 +215,9 @@ func (c *Client) Serve(ctx context.Context, input io.ReadCloser, output io.Write
 		return errors.New("owned diagnostic stdio streams required")
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "alva-devtools", Version: "1"}, &mcp.ServerOptions{Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Instructions: "Read-only actual Hub evidence. Begin with bounded sessions/history/Inspector indexes and read selected record ranges. No model, tool, approval or filesystem mutation is exposed."})
-	schema := json.RawMessage(`{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["sessions","history","inspector","record"]},"session_id":{"type":"string"},"branch_id":{"type":"string"},"query":{"type":"string","maxLength":256},"after":{"type":"integer","minimum":0},"high_water":{"type":"integer","minimum":0},"uri":{"type":"string","maxLength":2048},"offset":{"type":"integer","minimum":0},"child_path":{"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["link_sequence"],"properties":{"link_sequence":{"type":"integer","minimum":1}}}}}}`)
+	schema := json.RawMessage(`{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["sessions","history","inspector","record"]},"session_id":{"type":"string"},"branch_id":{"type":"string"},"query":{"type":"string","maxLength":256},"after":{"type":"integer","minimum":0},"before":{"type":"integer","minimum":0},"high_water":{"type":"integer","minimum":0},"uri":{"type":"string","maxLength":2048},"offset":{"type":"integer","minimum":0},"child_path":{"type":"array","maxItems":8,"items":{"type":"object","additionalProperties":false,"required":["link_sequence"],"properties":{"link_sequence":{"type":"integer","minimum":1}}}}}}`)
 	closedWorld := false
-	server.AddTool(&mcp.Tool{Name: "hub_inspect", Description: "Read bounded existing Hub product/native evidence. sessions discovers product IDs; history returns 8 metadata/previews; inspector requires saved branch and optional typed child-link sequence path; record reads explicit 2 KiB text. Never restores or executes an Agent.", InputSchema: schema, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld}}, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	server.AddTool(&mcp.Tool{Name: "hub_inspect", Description: "Read bounded existing Hub product/native evidence. sessions discovers product IDs; history returns 8 metadata/previews; inspector requires saved branch and optional typed child-link sequence path, pages forward by after or backward by before (0 = newest); record reads explicit 2 KiB text. Never restores or executes an Agent.", InputSchema: schema, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld}}, func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		result, err := c.Inspect(ctx, request.Params.Arguments)
 		if err != nil {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil

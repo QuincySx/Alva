@@ -86,6 +86,9 @@ type HubService struct {
 	// Transcripts is the narrow Message Stream reader; UI reads history only
 	// through it, never through Store.History*.
 	Transcripts *TranscriptService
+	// Traces is the narrow execution-trace reader; UI reads native trace
+	// metadata only through it, never through Store, Repository or Inspector.
+	Traces *TraceService
 	// mu serializes admission and source preparation; draftMu protects only the
 	// small published draft lists so observers never wait for disk/admission I/O.
 	mu                  sync.Mutex

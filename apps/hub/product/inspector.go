@@ -1,5 +1,5 @@
 // INPUT: Product branch routing and registered owner-scoped EngineInspector
-// OUTPUT: Typed-child Inspector pages/live observation, explicit bounded record text and disabled MCP config import
+// OUTPUT: Typed-child Inspector forward/backward pages/live observation, explicit bounded record text and disabled MCP config import
 // POS: [L7 Hub product] Read-only product Inspector never resumes an Agent, reconstructs a runtime or starts MCP
 package product
 
@@ -31,12 +31,16 @@ func (s *HubService) boundBranch(ctx context.Context, id, branchID string) (hub.
 	return hub.Branch{}, errors.New("branch has no owned native execution records")
 }
 
+// InspectorPage carries the engine page cursors unchanged: Next/HasMore
+// continue forward; Before/HasEarlier are set only by backward pages.
 type InspectorPage struct {
 	NativeID        string                        `json:"native_id"`
 	Capabilities    engine.InspectionCapabilities `json:"capabilities"`
 	Entries         []storage.RecordEntry
 	Next, HighWater uint64
 	HasMore         bool
+	Before          uint64
+	HasEarlier      bool
 	Processing      string
 }
 
@@ -77,14 +81,15 @@ func (s *HubService) inspectionTarget(ctx context.Context, id, branchID string, 
 	return inspector, scope, nil
 }
 func productEntry(entry engine.InspectionEntry) storage.RecordEntry {
-	result := storage.RecordEntry{ID: entry.ID, Sequence: entry.Sequence, Time: entry.Time, Kind: abi.RecordKind(entry.Kind), Namespace: entry.Namespace, Type: entry.Type, SchemaVersion: entry.SchemaVersion, Summary: entry.Summary, Value: wire.Reference{URI: entry.Value.URI, MediaType: entry.Value.MediaType, SHA256: entry.Value.SHA256, Bytes: entry.Value.Bytes, Processing: entry.Value.Processing}}
+	result := storage.RecordEntry{ID: entry.ID, Sequence: entry.Sequence, Time: entry.Time, Kind: abi.RecordKind(entry.Kind), Namespace: entry.Namespace, Type: entry.Type, SchemaVersion: entry.SchemaVersion, Summary: entry.Summary, Value: wire.Reference{URI: entry.Value.URI, MediaType: entry.Value.MediaType, SHA256: entry.Value.SHA256, Bytes: entry.Value.Bytes, Processing: entry.Value.Processing},
+		RequestID: entry.RequestID, RunID: entry.RunID, CallID: entry.CallID, Status: abi.OutcomeStatus(entry.Status), StartedAt: entry.StartedAt, EndedAt: entry.EndedAt}
 	if entry.Parent != nil {
 		result.Parent = &abi.RecordReference{SessionID: entry.Parent.SessionID, RecordID: entry.Parent.RecordID, Sequence: entry.Parent.Sequence}
 	}
 	return result
 }
 func inspectorPage(nativeID, query string, page engine.InspectionPage) InspectorPage {
-	result := InspectorPage{NativeID: nativeID, Next: page.Next, HighWater: page.HighWater, HasMore: page.HasMore, Processing: "Committed metadata only; bodies remain native references. Typed child chain is explicitly bound to this claimed product branch; no runtime or MCP worker was started."}
+	result := InspectorPage{NativeID: nativeID, Next: page.Next, HighWater: page.HighWater, HasMore: page.HasMore, Before: page.Before, HasEarlier: page.HasEarlier, Processing: "Committed metadata only; bodies remain native references. Typed child chain is explicitly bound to this claimed product branch; no runtime or MCP worker was started."}
 	if query != "" {
 		result.Processing = "Literal text search in a bounded native-record page. Continue at the returned cursor; this is not a global history scan."
 	}
@@ -100,6 +105,25 @@ func (s *HubService) InspectorAt(ctx context.Context, id, branchID string, path 
 	}
 	page, err := inspector.Page(ctx, scope, engine.InspectionQuery{After: after, HighWater: highWater, Limit: 10, Literal: query})
 	result := inspectorPage(scope.NativeID, query, page)
+	result.Capabilities = inspector.InspectionCapabilities()
+	return result, err
+}
+
+// InspectorBeforeAt reads the newest metadata strictly before the cursor
+// (0 = the snapshot's end) in ascending order; literal search stays forward.
+func (s *HubService) InspectorBeforeAt(ctx context.Context, id, branchID string, path []ChildHop, before, highWater uint64) (InspectorPage, error) {
+	inspector, scope, err := s.inspectionTarget(ctx, id, branchID, path)
+	if err != nil {
+		return InspectorPage{}, err
+	}
+	if !inspector.InspectionCapabilities().BackwardPages {
+		return InspectorPage{}, engine.ErrUnsupported
+	}
+	if before == 0 {
+		before = engine.InspectionEnd
+	}
+	page, err := inspector.Page(ctx, scope, engine.InspectionQuery{Before: before, HighWater: highWater, Limit: 10})
+	result := inspectorPage(scope.NativeID, "", page)
 	result.Capabilities = inspector.InspectionCapabilities()
 	return result, err
 }

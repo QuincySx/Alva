@@ -33,7 +33,7 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 | session_model_wait_test.go | Waiting期间可编辑的下一Turn参数不改变原配方hash，真实重开续轮保持旧参数且新Turn应用新值 |
 | wait_crash_test.go | 杀死真实Hub续跑进程后unknown/no replay、过期拒绝及显式审阅Abandon |
 | plan_mode.go / plan_test.go / composer_checkpoint_test.go | 真实只读Guard配方、移除process/network可选集成而保留已存批准；实际模型拒写/Ask恢复和冻结checkpoint入口一致性回归 |
-| assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；HubService.Transcripts用实际产品store装配为窄消息流读取；live仅构造cold Gateway与Developer，后者组合明确主/额外route与保存的Connections目标源；approved Git存在时追加DeveloperWorkspaces，ConversationTabs显式接收该owner（无Git为nil）使首Send能复验live worktree；Close先取消/join真实请求，依赖方ConversationTabs先于DeveloperWorkspaces关闭 |
+| assembly.go | 显式Config、Open/Application和真实执行资源owned shutdown；HubService.Transcripts用实际产品store装配为窄消息流读取，HubService.Traces用同一store与该HubService的Inspector路由装配为窄轨迹读取；live仅构造cold Gateway与Developer，后者组合明确主/额外route与保存的Connections目标源；approved Git存在时追加DeveloperWorkspaces，ConversationTabs显式接收该owner（无Git为nil）使首Send能复验live worktree；Close先取消/join真实请求，依赖方ConversationTabs先于DeveloperWorkspaces关闭 |
 | tools.go | 六类可选Plugin真实装配（planning/interaction/utility 显式导入 native 适配，普通 Tool 根包不再绑定原生产品）、same-session问题broker、actual tool信任与Shell跨轮Session owner/attempt Lease与Web物理收尾 |
 | assembly_test.go | no-start、真实demo跨重启native resume、route绑定与未批准零副作用回归 |
 | external_profiles_test.go | 显式CLI配置canonical来源、冷启动/非法目录零存储、跨重开账号目录变化的旧route零进程；Codex/Pi实际resume在header前Stop的cancelled/保留native/同branch继续与产品重开历史回归 |

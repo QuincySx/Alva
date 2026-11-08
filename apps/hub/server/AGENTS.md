@@ -14,7 +14,7 @@ Turn 由产品 runtime 认领，SSE 从耐久 Sequence 续读，观察断线不�
 JSON 严格字段/Unicode/大小；无 token query/CORS/隐式别名。上传 2 并发、20MiB 原字节、
 仅 plain 文件名，经共享 UploadReader 限每会话暂存40MiB/8件且引用优先。turns与Worker新任务必须按回执显式提交references集合（kind/id/sha256），空或省略无附件；未知/重复/跨branch拒绝且不执行，成功只消费同集合。删除以draft_id标识，仅移除引用，保留原件。
 SSE 16 路、每页32条、写 deadline；Inspector 2KiB 文本/4KiB 字节且不启动 Agent/MCP。
-子Inspector仅接受≤8层typed link Sequence路径，不能客户端给native/child ID。
+子Inspector仅接受≤8层typed link Sequence路径，不能客户端给native/child ID。/inspector的before参数向后翻页（0=快照末尾），与after/q同时给出即400。
 SubAgent下一轮开关与真实子审批复用同产品服务，不借父identity/父授权。
 Team仅Lead+Team+Worker已存归属；创建Worker须明确账户/计费同意，入队不执行，Resume才认领。
 AEP仅操作native/operator已检查的pin开关，不提供HTTP主机source导入或文件staging。

@@ -42,6 +42,7 @@ func fixture(t *testing.T) (*product.HubService, chan engine.Request) {
 		t.Fatal(err)
 	}
 	service.Transcripts = &product.TranscriptService{Store: store}
+	service.Traces = product.NewTraceService(store, service)
 	// No adapter is needed: these tests must never execute a model.
 	return service, make(chan engine.Request, 1)
 }

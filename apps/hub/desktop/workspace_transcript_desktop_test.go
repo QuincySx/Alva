@@ -1,5 +1,5 @@
-// INPUT: Actual private native record storage, product TranscriptService pages, cold Inspector adapter and headless MyGo transcript controls.
-// OUTPUT: Canonical light/dark message geometry, explicit tool record reads, stale binding rejection and scroll-driven paging.
+// INPUT: Actual private native record storage, product TranscriptService/TraceService pages, cold Inspector adapter and headless MyGo transcript controls.
+// OUTPUT: Canonical light/dark message geometry, tool blocks opening their trace step, stale binding rejection and scroll-driven paging.
 // POS: [L7 Hub UI tests] Exercises retained original evidence without launching a model, process or OS window.
 //go:build desktop
 
@@ -21,6 +21,7 @@ import (
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/engine/alva"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 )
@@ -131,11 +132,29 @@ func transcriptPageFixture(t *testing.T, failed, noReference bool) (*NativePage,
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := json.Marshal(map[string]string{"text": "exact retained original tool result"})
-	records, err := log.AppendRecords(t.Context(), []abi.SessionRecord{{Kind: abi.RecordExtension, Namespace: "fixture", Type: "tool_result", SchemaVersion: 1, Payload: raw}})
-	if err != nil {
-		t.Fatal(err)
+	user := wire.TextMessage(wire.RoleUser, "User paragraph")
+	plan := wire.TextMessage(wire.RoleAssistant, "Calling the echo tool")
+	status := abi.OutcomeSucceeded
+	if failed {
+		status = abi.OutcomeFailed
 	}
+	var records []abi.SessionRecord
+	for _, batch := range [][]abi.SessionRecord{
+		{{Kind: abi.RecordConversation, Message: &user}, {Kind: abi.RecordModelIntent, ModelIntent: &abi.ModelIntent{RequestID: "request"}}},
+		{{Kind: abi.RecordConversation, Message: &plan}, {Kind: abi.RecordModelOutcome, ModelOutcome: &abi.ModelOutcome{RequestID: "request", Status: abi.OutcomeSucceeded}},
+			{Kind: abi.RecordToolIntent, ToolIntent: &abi.ToolIntent{RunID: "run", Call: wire.ToolCall{ID: "tool", Name: "demo_echo", Arguments: json.RawMessage(`{"text":"echo"}`)}}}},
+		{{Kind: abi.RecordToolOutcome, ToolOutcome: &abi.ToolOutcome{RunID: "run", CallID: "tool", Status: status, Result: wire.ToolResult{CallID: "tool", IsError: failed, Content: []wire.ContentBlock{{Kind: wire.ContentText, Text: "exact retained original tool result"}}}}}},
+	} {
+		for i := range batch {
+			batch[i] = abi.BuiltinRecord(batch[i])
+		}
+		committed, err := log.AppendRecords(t.Context(), batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		records = append(records, committed...)
+	}
+	records = records[len(records)-1:]
 	if err = s.Store.BindNative(t.Context(), session.ID, session.ActiveBranchID, native); err != nil {
 		t.Fatal(err)
 	}
@@ -201,10 +220,25 @@ func seedWorkspaceResourceConversation(t *testing.T, app *bootstrap.Application,
 	}
 }
 
-func TestWorkspaceTranscriptToolDisclosureReadsActualQualifiedRecord(t *testing.T) {
+// settleTrace waits for the trace page and the selected step's detail.
+func settleTrace(t *testing.T, tester *ui.Tester, p *NativePage) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		tester.Frame()
+		if !p.trace.loading && !p.trace.detailBusy && !p.trace.rawBusy && !p.trace.searchBusy {
+			tester.Frame()
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("trace view did not settle")
+}
+
+func TestWorkspaceTranscriptToolOpensItsTraceStep(t *testing.T) {
 	for _, failed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "completed", true: "failed"}[failed], func(t *testing.T) {
-			p, inspector, _ := transcriptPageFixture(t, failed, false)
+			p, inspector, reference := transcriptPageFixture(t, failed, false)
 			tester := ui.NewTester(workspaceStaticView(p), 1440, 960)
 			if inspector.pages.Load() != 0 || inspector.reads.Load() != 0 || tester.HasText("Original result summary") || strings.Contains(strings.Join(tester.Texts(), "\n"), "Reference:") {
 				t.Fatal("collapsed tool read or dumped original evidence", tester.Texts())
@@ -224,9 +258,20 @@ func TestWorkspaceTranscriptToolDisclosureReadsActualQualifiedRecord(t *testing.
 				t.Fatal("disclosure lost original summary or read without the record action")
 			}
 			connectionClick(t, tester, "Inspect tool result attempt/tool")
-			settlePage(t, tester, p)
-			if p.problem != "" || p.inspectURI == "" || p.inspectText.URI != p.inspectURI || !strings.Contains(p.inspectText.Text, "exact retained original tool result") || inspector.pages.Load() != 1 || inspector.reads.Load() != 1 {
-				t.Fatal("tool details did not resolve and read the actual qualified reference", p.problem, p.inspectURI, p.inspectText, inspector.pages.Load(), inspector.reads.Load())
+			settleTrace(t, tester, p)
+			step, selected := p.traceSelectedStep()
+			want := "succeeded"
+			if failed {
+				want = "failed"
+			}
+			if !p.trace.active || p.problem != "" || p.trace.problem != "" || !selected || step.ID != "tool/run/tool" || step.Last != reference.Sequence || step.Status != want {
+				t.Fatal("tool block did not switch to the trace and select its step", p.trace.active, p.problem, p.trace.problem, step)
+			}
+			if p.trace.target.BranchID != p.detail.Session.ActiveBranchID || p.trace.detail.Result != "exact retained original tool result" || inspector.pages.Load() == 0 || inspector.reads.Load() == 0 {
+				t.Fatal("trace step detail did not read the tool's own records", p.trace.target, p.trace.detail, inspector.pages.Load(), inspector.reads.Load())
+			}
+			if !tester.HasText("第 ? 轮 · 窗口内第 3 步") && !tester.HasText("第 ? 轮") || !tester.HasText("工具") {
+				t.Fatal("trace view did not render the selected step", tester.Texts())
 			}
 			if p.Service.Runtime.HasActive() || p.transcriptRows[1].Text != "Original result summary" {
 				t.Fatal("inspection executed or replaced retained evidence")
@@ -246,15 +291,17 @@ func TestWorkspaceTranscriptNoReferenceAndStaleBindings(t *testing.T) {
 	p.generation++
 	p.inspectTranscriptTool(oldBinding, "attempt/tool", oldTool)
 	tester.Frame()
-	if inspector.pages.Load() != 0 || inspector.reads.Load() != 0 || tester.HasText("Original result summary") {
+	if p.trace.active || inspector.pages.Load() != 0 || inspector.reads.Load() != 0 || tester.HasText("Original result summary") {
 		t.Fatal("stale observation retained disclosure or started a read")
 	}
 	connectionClick(t, tester, "Tool activity attempt/tool")
 	connectionClick(t, tester, "Inspect tool result attempt/tool")
-	settlePage(t, tester, p)
-	if p.pane != "inspector" || inspector.pages.Load() != 1 || inspector.reads.Load() != 0 || p.transcriptRows[1].Status != view.Failed {
-		t.Fatal("missing-reference fallback fabricated a body or hid failure", p.pane, inspector.pages.Load(), inspector.reads.Load())
+	settleTrace(t, tester, p)
+	if !p.trace.active || p.trace.window == nil || p.trace.selected != "" || inspector.pages.Load() == 0 || inspector.reads.Load() != 0 || p.transcriptRows[1].Status != view.Failed {
+		t.Fatal("missing-reference fallback fabricated a selection or body, or hid failure", p.trace.active, p.trace.selected, inspector.pages.Load(), inspector.reads.Load())
 	}
+	pages := inspector.pages.Load()
+	p.showConversation()
 	entries := transcriptFixtureHistory(oldBinding.session, "native-transcript", nil, true)
 	for _, change := range []func(){
 		func() { p.generation++ },
@@ -268,12 +315,12 @@ func TestWorkspaceTranscriptNoReferenceAndStaleBindings(t *testing.T) {
 		change()
 		p.inspectTranscriptTool(binding, "attempt/tool", oldTool)
 	}
-	if inspector.pages.Load() != 1 || inspector.reads.Load() != 0 {
+	if p.trace.active || inspector.pages.Load() != pages || inspector.reads.Load() != 0 {
 		t.Fatal("stale session, branch or removed row targeted a later view")
 	}
 }
 
-func TestWorkspaceTranscriptUnsettledToolInspectsOriginalOwnerAfterBranchSwitch(t *testing.T) {
+func TestWorkspaceTranscriptUnsettledToolTracesOriginalOwnerAfterBranchSwitch(t *testing.T) {
 	for _, source := range []string{"event", "start-reference"} {
 		t.Run(source, func(t *testing.T) {
 			p, inspector, reference := transcriptPageFixture(t, true, true)
@@ -305,13 +352,13 @@ func TestWorkspaceTranscriptUnsettledToolInspectsOriginalOwnerAfterBranchSwitch(
 			tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 			connectionClick(t, tester, "Tool activity attempt/tool")
 			connectionClick(t, tester, "Inspect tool result attempt/tool")
-			settlePage(t, tester, p)
+			settleTrace(t, tester, p)
 			tool := p.transcriptTools["attempt/tool"]
-			if p.detail.Session.ActiveBranchID != branch.ID || branch.ID == originalBranch || p.inspectBranch != originalBranch || p.problem != "" || p.pane != "inspector" || len(p.inspectPage.Entries) != 1 || p.inspectPage.Entries[0].ID != reference.RecordID {
-				t.Fatal("unsettled tool inspection followed the active branch instead of its native owner", p.problem, p.inspectBranch, p.detail.Session.ActiveBranchID, p.inspectPage)
+			if p.detail.Session.ActiveBranchID != branch.ID || branch.ID == originalBranch || p.trace.target.BranchID != originalBranch || p.problem != "" || p.trace.problem != "" || p.trace.window == nil || p.trace.window.NativeID() != reference.SessionID {
+				t.Fatal("unsettled tool trace followed the active branch instead of its native owner", p.problem, p.trace.problem, p.trace.target, p.detail.Session.ActiveBranchID)
 			}
-			if tool.hasRef || tool.reference != (engine.Reference{}) || p.inspectURI != "" || p.inspectText.Text != "" || inspector.pages.Load() != 1 || inspector.reads.Load() != 0 || p.Service.Runtime.HasActive() {
-				t.Fatal("missing result reference fabricated a body read or execution instead of a cold original index", tool, p.inspectURI, p.inspectText, inspector.pages.Load(), inspector.reads.Load())
+			if tool.hasRef || tool.reference != (engine.Reference{}) || p.trace.selected != "" || inspector.reads.Load() != 0 || p.Service.Runtime.HasActive() {
+				t.Fatal("missing result reference fabricated a selection, body read or execution instead of the original branch tail", tool, p.trace.selected, inspector.reads.Load())
 			}
 		})
 	}
@@ -324,13 +371,13 @@ func TestWorkspaceTranscriptUnknownToolOwnerNeverGuessesActiveBranch(t *testing.
 	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	connectionClick(t, tester, "Tool activity unknown-attempt/tool")
 	connectionClick(t, tester, "Inspect tool result unknown-attempt/tool")
-	settlePage(t, tester, p)
-	if p.pane == "inspector" || p.problem == "" || p.inspectBranch != "" || inspector.pages.Load() != 0 || inspector.reads.Load() != 0 {
-		t.Fatal("unknown tool owner guessed the currently active branch", p.pane, p.problem, p.inspectBranch, inspector.pages.Load(), inspector.reads.Load())
+	tester.Frame()
+	if p.trace.active || p.problem == "" || p.trace.target.BranchID != "" || inspector.pages.Load() != 0 || inspector.reads.Load() != 0 {
+		t.Fatal("unknown tool owner guessed the currently active branch", p.trace.active, p.problem, p.trace.target, inspector.pages.Load(), inspector.reads.Load())
 	}
 }
 
-func TestWorkspaceTranscriptLateReferenceResolutionCannotReadReplacementView(t *testing.T) {
+func TestWorkspaceTranscriptLateTraceJumpIsDroppedAndReloaded(t *testing.T) {
 	p, inspector, _ := transcriptPageFixture(t, false, false)
 	inspector.entered = make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -341,40 +388,43 @@ func TestWorkspaceTranscriptLateReferenceResolutionCannotReadReplacementView(t *
 	select {
 	case <-inspector.entered:
 	case <-time.After(time.Second):
-		t.Fatal("explicit detail action did not start metadata resolution")
+		t.Fatal("explicit trace action did not start its metadata read")
 	}
 	p.generation++
-	p.inspectURI, p.inspectText.Text = "replacement URI", "replacement reading"
 	p.problem = "replacement problem"
+	inspector.entered = nil
 	close(release)
-	settlePage(t, tester, p)
-	if inspector.reads.Load() != 0 || p.inspectURI != "replacement URI" || p.inspectText.Text != "replacement reading" || p.problem != "replacement problem" {
-		t.Fatal("late metadata resolution read or replaced a later observation", inspector.reads.Load(), p.inspectURI, p.inspectText, p.problem)
+	// The stale jump result is dropped, never applied: the trace reloads its
+	// tail under the new generation and selects nothing.
+	settleTrace(t, tester, p)
+	if inspector.reads.Load() != 0 || p.trace.window == nil || p.trace.generation != p.generation || p.trace.selected != "" || p.trace.loading || p.problem != "replacement problem" {
+		t.Fatal("late trace jump read, selected or filled a later observation", inspector.reads.Load(), p.trace.window != nil, p.trace.selected, p.problem)
 	}
 }
 
-func TestWorkspaceTranscriptMissingReferenceClearsPreviouslyReadToolBody(t *testing.T) {
+func TestWorkspaceTranscriptMissingReferenceClearsPreviouslySelectedStep(t *testing.T) {
 	p, inspector, _ := transcriptPageFixture(t, false, false)
 	tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 	connectionClick(t, tester, "Tool activity attempt/tool")
 	connectionClick(t, tester, "Inspect tool result attempt/tool")
-	settlePage(t, tester, p)
-	if !strings.Contains(p.inspectText.Text, "exact retained original tool result") {
-		t.Fatal("first tool did not read its actual original body", p.problem, p.inspectText)
+	settleTrace(t, tester, p)
+	if p.trace.selected != "tool/run/tool" || p.trace.detail.Result != "exact retained original tool result" {
+		t.Fatal("first tool did not select and read its actual step", p.trace.problem, p.trace.selected, p.trace.detail)
 	}
-	p.setPane("")
+	reads := inspector.reads.Load()
+	connectionClick(t, tester, "Show conversation")
 	appendTranscript(t, p, hub.HistoryEntry{Sequence: 4, SessionID: p.selected, AttemptID: "attempt", Event: engine.Event{Kind: engine.ToolEnd, SessionID: "native-transcript", ID: "without-ref", Name: "unavailable", Text: "Original failure without reference", IsError: true}})
 	p.applyDetail()
 	tester.Frame()
 	connectionClick(t, tester, "Tool activity attempt/without-ref")
 	connectionClick(t, tester, "Inspect tool result attempt/without-ref")
-	settlePage(t, tester, p)
-	if p.inspectURI != "" || p.inspectText.Text != "" || inspector.reads.Load() != 1 || tester.HasText("exact retained original tool result") {
-		t.Fatal("missing-reference tool inherited the previous tool's selected body", p.inspectURI, p.inspectText, inspector.reads.Load())
+	settleTrace(t, tester, p)
+	if !p.trace.active || p.trace.selected != "" || p.trace.detail.StepID != "" || inspector.reads.Load() != reads || tester.HasText("exact retained original tool result") {
+		t.Fatal("missing-reference tool inherited the previous tool's selected step", p.trace.selected, p.trace.detail, inspector.reads.Load())
 	}
 }
 
-func TestWorkspaceTranscriptLateBodyReadCannotRefillClearedSelection(t *testing.T) {
+func TestWorkspaceTranscriptLateDetailReadCannotRefillClearedSelection(t *testing.T) {
 	p, inspector, _ := transcriptPageFixture(t, false, false)
 	inspector.readEntered = make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -395,14 +445,15 @@ func TestWorkspaceTranscriptLateBodyReadCannotRefillClearedSelection(t *testing.
 	}
 	if !entered {
 		close(release)
-		t.Fatal("explicit action never reached the owned body read")
+		t.Fatal("explicit action never reached the owned detail read")
 	}
-	p.inspectURI, p.inspectText.Text = "", "replacement detail"
-	p.problem = "replacement problem"
+	inspector.readEntered = nil
+	p.clearTraceSelection()
+	p.trace.problem = "replacement problem"
 	close(release)
-	settlePage(t, tester, p)
-	if p.inspectURI != "" || p.inspectText.Text != "replacement detail" || p.problem != "replacement problem" {
-		t.Fatal("late body read refilled a cleared or replaced tool selection", p.inspectURI, p.inspectText, p.problem)
+	settleTrace(t, tester, p)
+	if p.trace.selected != "" || p.trace.detail.StepID != "" || p.trace.problem != "replacement problem" {
+		t.Fatal("late detail read refilled a cleared or replaced step selection", p.trace.selected, p.trace.detail, p.trace.problem)
 	}
 }
 

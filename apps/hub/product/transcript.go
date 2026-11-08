@@ -64,6 +64,9 @@ type Block struct {
 	Ref             *engine.Reference
 	NativeSessionID string
 	HandoffID       string
+	// History is the latest committed product history sequence folded into
+	// the block, the position a trace jump binds its Turn evidence to.
+	History uint64
 }
 
 // TranscriptStore is the only history capability the Message Stream needs.

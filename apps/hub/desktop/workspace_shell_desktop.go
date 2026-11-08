@@ -1,5 +1,5 @@
 // INPUT: Current Hub page projections, formal SmallPen workspace regions and native MyGo controls.
-// OUTPUT: Collapsible/resizable task navigation, session header, centered welcome and explicit advanced action menus.
+// OUTPUT: Collapsible/resizable task navigation, session header with the conversation/trace switch, centered welcome and explicit advanced action menus.
 // POS: [L7 Hub UI] Presentation only; opening a region never creates sessions or starts execution.
 //go:build desktop
 
@@ -225,6 +225,7 @@ func (p *NativePage) buildWorkspaceHeader(c *ui.Context) {
 		if p.workspaceComposerIsDemo() {
 			ui.Text(c, "演示模式").FontSize(workspaceFontCaption).TextColor(t.TextMuted).SingleLine()
 		}
+		p.buildWorkspaceViewSwitch(c)
 		if reserveRight {
 			ui.Box(c).Size(workspaceIconControlSize, workspaceIconControlSize).Shrink(0)
 		}

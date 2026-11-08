@@ -143,8 +143,8 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 			fail(w, 405)
 			return
 		}
-		q, err := query(r, "branch", "q", "after", "high_water", "child_path")
-		if err != nil || !validID(q.Get("branch")) || len(q.Get("q")) > 256 {
+		q, err := query(r, "branch", "q", "after", "before", "high_water", "child_path")
+		if err != nil || !validID(q.Get("branch")) || len(q.Get("q")) > 256 || q.Has("before") && (q.Has("after") || q.Get("q") != "") {
 			fail(w, 400)
 			return
 		}
@@ -161,6 +161,17 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 		path, err := childPath(q)
 		if err != nil {
 			fail(w, 400)
+			return
+		}
+		if q.Has("before") {
+			// before=0 reads backward from the snapshot's end.
+			before, err := integer(q, "before", 0, 0, 1<<63-1)
+			if err != nil {
+				fail(w, 400)
+				return
+			}
+			value, err := s.service.InspectorBeforeAt(r.Context(), id, q.Get("branch"), path, uint64(before), uint64(high))
+			reply(w, value, err)
 			return
 		}
 		value, err := s.service.InspectorAt(r.Context(), id, q.Get("branch"), path, q.Get("q"), uint64(after), uint64(high))

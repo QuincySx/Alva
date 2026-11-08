@@ -216,6 +216,18 @@ func TestOriginalUploadReferenceColdInspectorAndForeignRead(t *testing.T) {
 		t.Fatal("admitted attachment draft not consumed")
 	}
 	body(t, f.request(t, "GET", "/v1/sessions/"+a.ID+"/history?limit=65", nil, nil), 400)
+	inspector := "/v1/sessions/" + a.ID + "/inspector?branch=" + upload.BranchID
+	var tail product.InspectorPage
+	if json.Unmarshal(body(t, f.request(t, "GET", inspector+"&before=0", nil, nil), 200), &tail) != nil || len(tail.Entries) == 0 || tail.HasMore || tail.Next != tail.HighWater || tail.Before != tail.Entries[0].Sequence {
+		t.Fatal("backward Inspector page is not the snapshot tail", tail)
+	}
+	for i := 1; i < len(tail.Entries); i++ {
+		if tail.Entries[i].Sequence != tail.Entries[i-1].Sequence+1 {
+			t.Fatal("backward Inspector page is not ascending", tail.Entries)
+		}
+	}
+	body(t, f.request(t, "GET", inspector+"&before=1&after=1", nil, nil), 400)
+	body(t, f.request(t, "GET", inspector+"&before=0&q=needle", nil, nil), 400)
 }
 
 func TestHTTPTurnsOnlyConsumeExplicitCapturedReferenceSets(t *testing.T) {

@@ -643,6 +643,7 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 	}
 	a.Service = service
 	service.Transcripts = &product.TranscriptService{Store: store}
+	service.Traces = product.NewTraceService(store, service)
 	service.Documents = document.NewProcessor()
 	service.Goals, err = product.NewGoalsService(store, store, repository)
 	if err != nil {

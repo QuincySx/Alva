@@ -1,5 +1,5 @@
-// INPUT: Product TranscriptWindow content blocks, typed native references and existing owned Inspector reads.
-// OUTPUT: Block-to-row projection, scroll-driven paging, reply columns, copy actions and explicitly disclosed tool activity.
+// INPUT: Product TranscriptWindow content blocks, typed native references and the trace view's jump entry.
+// OUTPUT: Block-to-row projection, scroll-driven paging, reply columns, copy actions and tool activity that opens its trace step.
 // POS: [L7 Hub UI] Keeps product presentation and tool details separate from shared scrolling and Markdown; never model context.
 //go:build desktop
 
@@ -13,7 +13,6 @@ import (
 	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
 	"github.com/QuincySx/Alva/integration/engine"
-	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 )
@@ -189,7 +188,7 @@ func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) fu
 					if row.Text != "" {
 						ui.Text(c, row.Text).FontSize(workspaceFontBody).LineHeight(1.5).TextColor(c.Theme().TextMuted)
 					}
-					ui.Button(c, "查看完整记录").Label("Inspect tool result " + row.ID).Disabled(p.paneBusy).
+					ui.Button(c, "在轨迹中查看").Label("Inspect tool result " + row.ID).Disabled(p.trace.loading).
 						OnClick(func() { p.inspectTranscriptTool(current, row.ID, tool) })
 				}
 			})
@@ -345,8 +344,11 @@ func (p *NativePage) transcriptToolBranch(tool transcriptTool) string {
 	return ""
 }
 
+// inspectTranscriptTool switches the middle window to the trace of the tool's
+// own native branch and selects its step. The block's Turn and history
+// position bind the jump; a tool without a reference opens the branch tail.
 func (p *NativePage) inspectTranscriptTool(binding workspaceTranscriptBinding, rowID string, tool transcriptTool) {
-	if p.paneBusy || binding != p.transcriptBinding() || tool.sessionID != p.selected || p.transcriptTools[rowID] != tool {
+	if binding != p.transcriptBinding() || tool.sessionID != p.selected || p.transcriptTools[rowID] != tool {
 		return
 	}
 	branch := p.transcriptToolBranch(tool)
@@ -354,50 +356,15 @@ func (p *NativePage) inspectTranscriptTool(binding workspaceTranscriptBinding, r
 		p.problem = "这条工具记录没有可用的原始分支。"
 		return
 	}
-	p.inspectBranch = branch
-	p.inspectPath, p.inspectFrames, p.inspectAfter = nil, nil, nil
-	p.inspectPage = product.InspectorPage{}
-	p.inspectURI, p.inspectQuery, p.inspectLoadedQuery, p.inspectGroup = "", "", "", ""
-	p.inspectText = agentcontext.TextPage{}
-	if !tool.hasRef || tool.reference.URI == "" && tool.reference.Sequence == 0 {
-		p.openInspector()
+	block := p.transcriptBlocks[rowID]
+	target := product.TraceTarget{SessionID: binding.session, BranchID: branch}
+	p.trace.active = true
+	if !sameTraceTarget(p.trace.target, target) || len(p.trace.frames) > 0 {
+		p.trace.frames = nil
+	}
+	if !tool.hasRef || tool.reference.Sequence == 0 {
+		p.openTrace(target, 0, product.TraceHint{})
 		return
 	}
-	p.setPane("inspector")
-	if tool.reference.URI != "" {
-		p.readTranscriptTool(binding, rowID, tool, branch, tool.reference.URI)
-		return
-	}
-	// Native event references carry record identity, not a readable URI. Resolve
-	// the exact committed metadata through the product's existing conversion.
-	p.paneBusy = true
-	go func() {
-		page, err := p.Service.Inspector(p.ctx, binding.session, branch, "", tool.reference.Sequence-1, tool.reference.Sequence)
-		p.dispatch(func() {
-			p.paneBusy = false
-			if binding != p.transcriptBinding() || p.pane != "inspector" || p.inspectBranch != branch || p.transcriptTools[rowID] != tool {
-				return
-			}
-			if err != nil {
-				p.problem = err.Error()
-				return
-			}
-			p.inspectPage = page
-			p.inspectCursor = tool.reference.Sequence - 1
-			for _, entry := range page.Entries {
-				if entry.ID == tool.reference.RecordID && entry.Sequence == tool.reference.Sequence && entry.Value.URI != "" {
-					p.readTranscriptTool(binding, rowID, tool, branch, entry.Value.URI)
-					return
-				}
-			}
-			p.problem = "原始工具记录当前不可用，请在检查器中刷新。"
-		})
-	}()
-}
-
-func (p *NativePage) readTranscriptTool(binding workspaceTranscriptBinding, rowID string, tool transcriptTool, branch, uri string) {
-	p.inspectURI = uri
-	p.readInspectorBound(uri, 0, func() bool {
-		return binding == p.transcriptBinding() && p.pane == "inspector" && p.inspectBranch == branch && p.inspectURI == uri && p.transcriptTools[rowID] == tool
-	})
+	p.openTrace(target, tool.reference.Sequence, product.TraceHint{Turn: block.Turn, History: block.History})
 }
