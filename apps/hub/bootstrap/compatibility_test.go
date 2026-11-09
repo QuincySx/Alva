@@ -97,7 +97,7 @@ func TestHubCompatibilityIsOptionalMergesNativeSkillsAndDispatchesTemplate(t *te
 		t.Fatal(err)
 	}
 	defer closeApp(t, a)
-	s, err := a.Service.Create(t.Context(), "compatibility", "")
+	s, err := createLive(a.Service, t.Context(), "compatibility", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestHubCompatibilityWaitRejectsChangedRulesBeforeExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeApp(t, a)
-	s, err := a.Service.Create(t.Context(), "frozen compatibility", "")
+	s, err := createLive(a.Service, t.Context(), "frozen compatibility", "")
 	if err != nil {
 		t.Fatal(err)
 	}

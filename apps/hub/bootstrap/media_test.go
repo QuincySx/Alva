@@ -80,7 +80,7 @@ func TestNativeMediaActualRecipeIsExplicitAndSelectedForOneRequest(t *testing.T)
 				t.Fatal(err)
 			}
 			defer func() { closeApp(t, a) }()
-			s, err := a.Service.Create(ctx, "media", "")
+			s, err := createLive(a.Service, ctx, "media", "")
 			if err != nil {
 				t.Fatal(err)
 			}

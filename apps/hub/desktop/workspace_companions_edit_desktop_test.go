@@ -125,6 +125,16 @@ func TestWorkspaceCompanionGroupScopeSaveDropsPreviousFactsAndReadsNewScope(t *t
 	}
 }
 
+// companionGroupQuiet reports that the group page has finished every
+// asynchronous read: nothing in flight, no read queued, the expected messages
+// loaded and no round still running.
+func companionGroupQuiet(p *NativePage, messages int) func() bool {
+	return func() bool {
+		v := &p.companions
+		return !v.busy && !v.groupReloadPending && len(v.messages) == messages && !p.workspaceCompanionGroupRunning()
+	}
+}
+
 func companionGroupReadBarrier(t *testing.T, p *NativePage) (*companionWorkspaceReadBarrierStore, func()) {
 	t.Helper()
 	if err := p.Service.Companions.Close(t.Context()); err != nil {
@@ -174,7 +184,7 @@ func TestWorkspaceCompanionGroupMetadataSavePreservesHistoryAndNavigationDiscard
 		t.Fatal(err)
 	}
 	p.loadWorkspaceCompanionGroup()
-	waitWorkspace(t, p, tester, func() bool { return !p.companions.busy && len(p.companions.messages) == 2 })
+	waitWorkspace(t, p, tester, companionGroupQuiet(p, 2))
 	messages := append([]hub.CompanionMessage(nil), p.companions.messages...)
 	rounds := append([]hub.CompanionRound(nil), p.companions.rounds...)
 	p.companions.prompt = "Preserve the unsent same-scope message"
@@ -182,9 +192,11 @@ func TestWorkspaceCompanionGroupMetadataSavePreservesHistoryAndNavigationDiscard
 	companionReplace(t, tester, "Companion group name", "Renamed group")
 	companionSelect(t, tester, "Group reply policy", "所有成员")
 	companionClick(t, tester, "Save companion group")
-	waitWorkspace(t, p, tester, func() bool { return !p.companions.busy && p.companions.editor == "" })
+	// The save refreshes the roster and may queue one more history read. Compare
+	// only once every such asynchronous read has landed, never a stale snapshot.
+	waitWorkspace(t, p, tester, func() bool { return p.companions.editor == "" && companionGroupQuiet(p, 2)() })
 	if p.companions.scope != g.ScopeRevision || p.companions.group.ScopeRevision != g.ScopeRevision || !reflect.DeepEqual(p.companions.messages, messages) || !reflect.DeepEqual(p.companions.rounds, rounds) || p.companions.prompt != "Preserve the unsent same-scope message" {
-		t.Fatal("metadata save cleared unrelated same-scope history or composer", p.companions)
+		t.Fatalf("metadata save cleared unrelated same-scope history or composer: scope %d/%d group %d messages-equal=%v rounds-equal=%v prompt=%q\nmessages before %+v\nmessages after %+v\nrounds before %+v\nrounds after %+v", p.companions.scope, g.ScopeRevision, p.companions.group.ScopeRevision, reflect.DeepEqual(p.companions.messages, messages), reflect.DeepEqual(p.companions.rounds, rounds), p.companions.prompt, messages, p.companions.messages, rounds, p.companions.rounds)
 	}
 	g = p.companions.group
 	companionClick(t, tester, "Edit companion or group")

@@ -102,6 +102,15 @@ func TestNativeWaitWidgetsSaveWithoutExecutingAndExplicitlyContinue(t *testing.T
 		t.Fatal(err)
 	}
 	settlePage(t, tester, page)
+	// Durable waits are on by default for a new session; the toggle turns them off and on again.
+	if page.problem != "" || !page.wait.View.Enabled || calls.Load() != 0 {
+		t.Fatal(page.problem, page.wait.View, calls.Load())
+	}
+	click("Disable durable waits next Turn")
+	settlePage(t, tester, page)
+	if page.problem != "" || page.wait.View.Enabled {
+		t.Fatal(page.problem, page.wait.View)
+	}
 	click("Enable durable waits next Turn")
 	settlePage(t, tester, page)
 	if page.problem != "" || !page.wait.View.Enabled || calls.Load() != 0 {

@@ -331,6 +331,8 @@ type Effect struct {
 	Kind        EffectKind
 	Description string
 	Resources   []ResourceClaim
+
+	Billable bool `json:",omitempty"`
 }
 
 type EffectKind string

@@ -73,7 +73,7 @@ func TestNativeBrowserRecipeIsExplicitRunOwnedAndReferenceOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeApp(t, a)
-	s, err := a.Service.Create(ctx, "actual browser", "")
+	s, err := createLive(a.Service, ctx, "actual browser", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -461,3 +461,26 @@ func TestDeveloperWorkspacesSchemaEightMigrationAndFailurePreserveVersionSeven(t
 		reopened.Close()
 	}
 }
+
+// Closing tabs releases their slot: a worktree whose 1024 tabs were all
+// archived can open a new one (formerly the budget was a lifetime cap).
+func TestArchivedConversationTabsDoNotExhaustTheOpenTabBudget(t *testing.T) {
+	store := newStore(t)
+	repository := developerRepositoryFixture(t, store)
+	scope := hub.WorktreeScope{RepositoryID: repository.ID, Path: repository.Path}
+	tabs := make([]hub.ConversationTab, hub.MaxConversationTabs)
+	for index := range tabs {
+		tabs[index] = draftConversationTab(fmt.Sprintf("old-%04d", index), fmt.Sprintf("Closed %d", index), 0)
+		tabs[index].Archived = true
+	}
+	fresh := draftConversationTab("fresh", "Fresh", developerTime)
+	tabs = append(tabs, fresh)
+	saved, err := store.SaveConversationTabs(t.Context(), hub.ConversationTabSet{Scope: scope, Tabs: tabs, ActiveTabID: fresh.ID}, 0)
+	if err != nil || len(saved.Tabs) != hub.MaxConversationTabs+1 {
+		t.Fatal("1024 archived tabs plus one open tab must fit", err)
+	}
+	next := append(append([]hub.ConversationTab(nil), saved.Tabs...), draftConversationTab("another", "Another", 0))
+	if _, err = store.SaveConversationTabs(t.Context(), hub.ConversationTabSet{Scope: scope, Tabs: next, ActiveTabID: fresh.ID}, saved.Revision); err != nil {
+		t.Fatal("opening a tab was blocked by archived tabs", err)
+	}
+}

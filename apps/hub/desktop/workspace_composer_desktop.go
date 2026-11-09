@@ -168,6 +168,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 	}
 	ui.Column(c.Key("workspace-composer")).FillWidth().Gap(8).Children(func() {
 		p.buildWorkspaceDraftNotice(c)
+		p.buildMCPApprovalNotice(c)
 		if status := p.workspaceComposerStatus(); status != "" {
 			ui.Row(c.Key("status")).AlignItems(ui.Center).Gap(8).Children(func() {
 				icon := "loader-circle"

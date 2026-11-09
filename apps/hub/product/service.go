@@ -151,9 +151,28 @@ func (s *HubService) RespondApproval(ctx context.Context, id, requestID string, 
 	if branch.Target.EngineID != binding.EngineID || branch.NativeSessionID != binding.NativeSessionID {
 		return host.ErrApprovalExpired
 	}
+	// The pending request is gone once answered, so keep its call and effect
+	// for the settled line.
+	var asked security.ApprovalRequest
+	for _, request := range s.Approvals.PendingSnapshot() {
+		if request.ID == requestID {
+			asked = request
+			break
+		}
+	}
+	// A child session's call ID may repeat the root's, so only the root's own
+	// calls take their display from the root attempt; others show the effect.
+	settledCall := settledCallID(asked, binding.NativeSessionID)
 	err = s.Runtime.RespondPermissionBound(ctx, id, binding, requestID, engine.PermissionDecision{Allow: allowed})
 	if errors.Is(err, hub.ErrSessionNotRunning) {
 		return host.ErrApprovalExpired
+	}
+	if err == nil && asked.ID != "" {
+		// Best effort: the decision already took effect, and a line that cannot
+		// be stored must not turn a delivered consent into a failure.
+		if recorder, ok := s.Store.(hub.ApprovalSettledStore); ok {
+			_ = recorder.RecordApprovalSettled(context.WithoutCancel(ctx), id, binding.AttemptID, hub.ApprovalSettled{CallID: settledCall, Allowed: allowed, Effect: knownEffect(engine.Effect(asked.Effect.Kind))})
+		}
 	}
 	return err
 }
@@ -512,4 +531,13 @@ func (s *HubService) RemoveDraftAttachment(id, draftID string) {
 			return
 		}
 	}
+}
+
+// settledCallID is the call whose display a settled line may borrow: only one
+// asked by the root native session itself.
+func settledCallID(asked security.ApprovalRequest, rootNative string) string {
+	if asked.SessionID != rootNative {
+		return ""
+	}
+	return asked.CallID
 }

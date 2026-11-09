@@ -61,7 +61,7 @@ func TestExplicitPersistentMemorySurvivesRestartWithoutScanningOrCrossWorkspaceR
 		t.Fatal(err)
 	}
 	defer closeApp(t, a)
-	session, err := a.Service.Create(ctx, "persistent memory", "")
+	session, err := createLive(a.Service, ctx, "persistent memory", "")
 	if err != nil {
 		t.Fatal(err)
 	}

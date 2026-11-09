@@ -382,6 +382,9 @@ func TestNativeQuestionAndApprovalReadFailuresStayIndependent(t *testing.T) {
 			p.detail.Session.Status = engine.Interrupted // A stale view must still refresh.
 			wrapped := &nativeQuestionReadStore{ServiceStore: p.Service.Store, failAt: failAt}
 			p.Service.Store = wrapped
+			// The pending-workspace-approval line also reads Detail; mark it read
+			// so this test counts only the two interaction chains' reads.
+			p.mcpNotice = mcpApprovalNotice{session: p.selected, loaded: true, epoch: p.settingsForm.epoch}
 			tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
 			p.poll()
 			for p.polling && time.Now().Before(deadline) {

@@ -13,9 +13,13 @@ import (
 )
 
 const (
-	// MaxConversationTabs is a metadata abuse budget, not a product total limit.
-	// Archived tabs remain in the same bounded set and are never rendered eagerly.
+	// MaxConversationTabs is the budget of open (unarchived) tabs in one
+	// worktree. Closing a tab archives it and releases its slot.
 	MaxConversationTabs = 1024
+	// MaxArchivedConversationTabs bounds the closed tabs kept for history. Tabs
+	// are never deleted, so this is metadata storage protection rather than a
+	// product limit; archived tabs are never rendered eagerly.
+	MaxArchivedConversationTabs = 4096
 	// ConversationMaxTabID keeps ConversationTabDraftID within the existing
 	// ComposerDraftScope.ID budget.
 	ConversationMaxTabID = 251
@@ -162,12 +166,13 @@ func (s ConversationTabSet) Validate() error {
 	if err := s.Scope.Validate(); err != nil {
 		return err
 	}
-	if s.Revision >= 1<<63 || len(s.Tabs) > MaxConversationTabs ||
+	if s.Revision >= 1<<63 || len(s.Tabs) > MaxConversationTabs+MaxArchivedConversationTabs ||
 		!boundedDeveloperText(s.ActiveTabID, ConversationMaxTabID, true) {
 		return errors.New("conversation tab set exceeds its revision, count or active-tab budget")
 	}
 	ids, sessions, drafts := make(map[string]bool, len(s.Tabs)), make(map[string]bool, len(s.Tabs)), make(map[string]bool, len(s.Tabs))
 	active, unarchived := false, false
+	open := 0
 	for _, tab := range s.Tabs {
 		if err := tab.Validate(); err != nil || ids[tab.ID] {
 			return errors.New("conversation tab set contains an invalid or duplicate tab")
@@ -187,8 +192,12 @@ func (s ConversationTabSet) Validate() error {
 		}
 		if !tab.Archived {
 			unarchived = true
+			open++
 			active = active || tab.ID == s.ActiveTabID
 		}
+	}
+	if open > MaxConversationTabs || len(s.Tabs)-open > MaxArchivedConversationTabs {
+		return errors.New("conversation tab set exceeds its open or archived tab budget")
 	}
 	if s.ActiveTabID != "" && !active || s.ActiveTabID == "" && unarchived {
 		return errors.New("active conversation tab must be one unarchived tab")

@@ -136,6 +136,7 @@ type NativePage struct {
 	playerSeek                     string
 	settings                       hub.Settings
 	settingsForm                   settingsFormState
+	mcpNotice                      mcpApprovalNotice
 	skillForm                      skillFormState
 	sessionModelOptions            workspaceSessionModelOptionsState
 	wait                           waitPane
@@ -474,6 +475,7 @@ func (p *NativePage) applyDetail() {
 func (p *NativePage) poll() {
 	p.pollEngineInteractions()
 	p.observeWorkspaceDraft()
+	p.observeMCPApprovalNotice()
 	p.observeWorkspaceVoice()
 	p.observeWorkspaceResources()
 	p.pollWorkspaceCompanions()

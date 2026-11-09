@@ -124,7 +124,7 @@ func (t *TeamTool) DescribeEffect(call wire.ToolCall) abi.Effect {
 		r := t.configuredTargets()[a.TargetIndex]
 		description = fmt.Sprintf("Create a durable Worker: engine=%s model=%s provider=%s account=%s billing=%s; separate permissions, no implicit autonomy", r.EngineID, r.ModelID, r.ProviderID, r.AccountSource, r.BillingRoute)
 	}
-	return abi.Effect{Kind: abi.EffectUnknown, Description: description}
+	return abi.Effect{Kind: abi.EffectUnknown, Description: description, Billable: true}
 }
 func (*TeamTool) Scheduling(wire.ToolCall) abi.Scheduling {
 	return abi.Scheduling{ConcurrentSafe: false, ExecutionMode: abi.Coordinator}

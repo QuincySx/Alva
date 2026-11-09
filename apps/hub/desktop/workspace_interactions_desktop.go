@@ -270,8 +270,17 @@ func interactionActivity(v product.InteractionView) string {
 			return "子 Agent"
 		}
 	}
-	if v.Name != "" {
-		return "使用 " + v.Name
+	// Without a display the declared effect says what is asked; the engine's
+	// own tool name is never shown.
+	switch v.Effect {
+	case engine.EffectWrite:
+		return "修改文件"
+	case engine.EffectExecute:
+		return "运行命令"
+	case engine.EffectRead:
+		return "读取文件"
+	case engine.EffectNetwork:
+		return "访问网络"
 	}
 	return "执行操作"
 }

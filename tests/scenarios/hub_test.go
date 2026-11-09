@@ -76,11 +76,25 @@ func (h *hubFixture) reopen() {
 
 func (h *hubFixture) service() *product.HubService { return h.app.Service }
 
-func (h *hubFixture) create(title, workspace string) hub.Session {
+// createDefault creates a session exactly as the product does, so durable
+// waits keep their default (on).
+func (h *hubFixture) createDefault(title, workspace string) hub.Session {
 	h.t.Helper()
 	s, err := h.service().Create(context.Background(), title, workspace)
 	if err != nil {
 		h.t.Fatal("create session:", err)
+	}
+	return s
+}
+
+// create makes a session whose durable waits are turned off, so scenarios
+// about live approvals and failures run the in-process path. Scenarios about
+// waiting across a restart use createDefault or enable waits explicitly.
+func (h *hubFixture) create(title, workspace string) hub.Session {
+	h.t.Helper()
+	s := h.createDefault(title, workspace)
+	if err := h.service().EnableDurableWaits(context.Background(), s.ID, false); err != nil {
+		h.t.Fatal("turn durable waits off:", err)
 	}
 	return s
 }

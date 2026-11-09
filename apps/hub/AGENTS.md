@@ -32,12 +32,12 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | companion_skill_scope.go | 实际伙伴Skill装配的有界固定来源/SHA允许列表；nil普通会话与明确空限制区分，普通配置导入不得扩大 |
 | workspace_views.go | 逐会话资源标签/顺序、来源身份、查询/分页/滚动/专注及有界宽度偏好CAS；纯观察位置不授予执行权 |
 | navigation.go | 独立可选只读workspace目录/精确子会话分页与全库有界自动化索引；已存路径位置过滤不冒充项目来源事实，不扩大ExecutionStore或创建会话 |
-| developer_workspaces.go / developer_workspaces_test.go | 显式Repository、approved Git实时Worktree与conversation-tab纯值DTO/端口；tab/derived home draft身份跨worktree全局归属且归档不释放，scope/revision/active/archive/1024 metadata预算，首Send只原子绑定一个真实Session，不接管ExecutionStore或资源Tabs |
+| developer_workspaces.go / developer_workspaces_test.go | 显式Repository、approved Git实时Worktree与conversation-tab纯值DTO/端口；tab/derived home draft身份跨worktree全局归属且归档不释放，scope/revision/active/archive；开着(未归档)的tab最多1024、已归档另有4096存储保护上限，关闭即归档并释放名额，首Send只原子绑定一个真实Session，不接管ExecutionStore或资源Tabs |
 | composer_drafts.go / composer_drafts_test.go | home/会话逻辑范围的共享手动输入、显式引用回执与单调revision CAS；首次创建身份独立原子插口，清空保留版本，不执行、过期或删除原件 |
 | composer_files.go | 首会话前不可变本地文件catalog、显式来源scope与分块SHA DTO；独立只读ownership插口读取真实home→session grant，原件不重归属，ID/URI/hash不代替会话授权 |
 | runtime_options_test.go | 冻结参数传给真实adapter、配置能力不支持时零Execute |
 | permissions.go | 产品Ask/Auto/Full值与校验；Settings仅保存下一Turn意图，真实宿主执行政策不进入SDK |
-| model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引；HistoryEntry.TurnSequence读取时填充、不写入事件；等待继续/放弃的时间线kind常量供消息流投影；RouteKey对连接路由归一化（旧值 connection:<id>@<n> 照常命中），RouteResolver/RouteFacts与可选RouteRecorder/FallbackNotifier/TurnRecoverer端口；分支身份=（会话，引擎），同引擎换模型复用分支与原生会话 |
+| model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引；HistoryEntry.TurnSequence读取时填充、不写入事件；等待继续/放弃与Alva审批已决定(approval_settled，每attempt最多256条，带工具展示)的时间线kind/ApprovalSettled值及可选ApprovalSettledStore端口供消息流投影；RouteKey对连接路由归一化（旧值 connection:<id>@<n> 照常命中），RouteResolver/RouteFacts与可选RouteRecorder/FallbackNotifier/TurnRecoverer端口；分支身份=（会话，引擎），同引擎换模型复用分支与原生会话 |
 | preferences.go / preferences_test.go | 应用级外观与左栏折叠/有界宽度DTO、三组选项与唯一纯值政策、稀疏revision CAS端口；消费者修改选项不改变共享校验，布局不覆盖独立外观 |
 | wait.go | 可选WaitStore、分支最近Turn观察、显式同Turn继续与输入冻结政策，不增加SDK状态 |
 | runtime.go / runtime_identity_test.go | 独立Descriptor/engine registry、串行执行与流式增量合并写入、绑定实际owner身份的取消/审批与授权fallback；fallback只服务当轮（不改活动分支）、执行前经RouteResolver复验、跳过/切换失败写fallback_unavailable、过长错误先经注入的SetErrorRedactor脱敏（bootstrap接platform/storage/redaction，hub不直接依赖）再保留4096字节前缀并带截断标记；ModelPreferenceKey对连接路由按（连接ID，模型ID）取键，与RouteKey一致、FinishTurn失败后重试interrupted或下一条消息先RecoverSession；权限四项binding原子分派、同run fallback拒绝旧审批及准入/替换/取消收尾身份回归 |

@@ -185,6 +185,11 @@ func createSessionTx(ctx context.Context, tx *sql.Tx, title, workspace string, t
 	if err = insertBranch(ctx, tx, hub.Branch{ID: branchID, SessionID: id, Target: target}); err != nil {
 		return hub.Session{}, err
 	}
+	// Durable waits default on for every new session so a Turn waiting for a
+	// human survives an app restart. Stored sessions keep their saved value.
+	if err = saveSettings(ctx, tx, hub.Settings{Version: 1, SessionID: id, MCP: []hub.MCPServer{}, DurableWaits: true}); err != nil {
+		return hub.Session{}, err
+	}
 	return value, nil
 }
 

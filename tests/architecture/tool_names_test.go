@@ -46,47 +46,50 @@ const (
 	productAction   = "action argument of the product-owned hub_history/hub_team tool it implements, not another tool's name"
 )
 
-// toolNameAllowlist holds reviewed literals, keyed path#literal, each with a
-// one-line reason. Entries that no longer occur fail as stale.
+// toolNameAllowlist holds reviewed literals, keyed path#literal#count, each
+// with a one-line reason. The count is the exact number of occurrences of that
+// literal in the file, so a further comparison in an already listed file is a
+// violation. When occurrences drop, lower the count (or delete the entry at
+// zero): a count above the actual number fails as stale. Counts only decrease.
 var toolNameAllowlist = map[string]string{
-	"apps/hub/desktop/media_desktop.go#alva":                         alvaOnlyGate,
-	"apps/hub/desktop/tools_desktop.go#alva":                         alvaOnlyGate,
-	"apps/hub/desktop/workspace_actions_desktop.go#alva":             alvaOnlyGate,
-	"apps/hub/desktop/workspace_attachments_desktop.go#alva":         alvaOnlyGate,
-	"apps/hub/desktop/workspace_composer_desktop.go#alva":            engineLabel,
-	"apps/hub/desktop/workspace_composer_desktop.go#codex":           engineLabel,
-	"apps/hub/desktop/workspace_composer_desktop.go#claude":          engineLabel,
-	"apps/hub/desktop/workspace_composer_desktop.go#pi":              engineLabel,
-	"apps/hub/desktop/workspace_engine_interactions_desktop.go#alva": alvaOnlyGate,
-	"apps/hub/desktop/workspace_goals_desktop.go#alva":               alvaOnlyGate,
-	"apps/hub/desktop/workspace_model_options_desktop.go#Agent":      agentWord,
-	"apps/hub/desktop/workspace_models_desktop.go#agent":             agentWord,
-	"apps/hub/desktop/workspace_permissions_desktop.go#alva":         alvaOnlyGate,
-	"apps/hub/desktop/workspace_plan_desktop.go#alva":                alvaOnlyGate,
-	"apps/hub/desktop/workspace_prepared_desktop.go#alva":            alvaOnlyGate,
-	"apps/hub/desktop/workspace_shell_desktop.go#alva":               alvaOnlyGate,
-	"apps/hub/desktop/workspace_transcript_desktop.go#alva":          engineLabel,
-	"apps/hub/desktop/workspace_transcript_desktop.go#codex":         engineLabel,
-	"apps/hub/desktop/workspace_transcript_desktop.go#claude":        engineLabel,
-	"apps/hub/desktop/workspace_transcript_desktop.go#pi":            engineLabel,
-	"apps/hub/product/approvals.go#alva":                             alvaOnlyGate,
-	"apps/hub/product/companions.go#alva":                            alvaOnlyGate,
-	"apps/hub/product/composer_commands.go#alva":                     alvaOnlyGate,
-	"apps/hub/product/connection_catalog.go#read":                    connectionError,
-	"apps/hub/product/connections.go#read":                           connectionError,
-	"apps/hub/product/connections.go#alva":                           alvaOnlyGate,
-	"apps/hub/product/engine_interactions.go#alva":                   alvaOnlyGate,
-	"apps/hub/product/goals.go#alva":                                 alvaOnlyGate,
-	"apps/hub/product/history.go#read":                               productAction,
-	"apps/hub/product/plan_mode.go#alva":                             alvaOnlyGate,
-	"apps/hub/product/questions.go#alva":                             alvaOnlyGate,
-	"apps/hub/product/service.go#alva":                               alvaOnlyGate,
-	"apps/hub/product/shell.go#alva":                                 alvaOnlyGate,
-	"apps/hub/product/team_tool.go#read":                             productAction,
-	"apps/hub/product/team_tool.go#edit":                             productAction,
-	"apps/hub/product/wait.go#alva":                                  alvaOnlyGate,
-	"apps/hub/product/workspace_references.go#alva":                  alvaOnlyGate,
-	"apps/hub/product/workspace_views_resources.go#alva":             alvaOnlyGate,
+	"apps/hub/desktop/media_desktop.go#alva#1":                         alvaOnlyGate,
+	"apps/hub/desktop/tools_desktop.go#alva#1":                         alvaOnlyGate,
+	"apps/hub/desktop/workspace_actions_desktop.go#alva#3":             alvaOnlyGate,
+	"apps/hub/desktop/workspace_attachments_desktop.go#alva#2":         alvaOnlyGate,
+	"apps/hub/desktop/workspace_composer_desktop.go#alva#5":            engineLabel,
+	"apps/hub/desktop/workspace_composer_desktop.go#codex#1":           engineLabel,
+	"apps/hub/desktop/workspace_composer_desktop.go#claude#1":          engineLabel,
+	"apps/hub/desktop/workspace_composer_desktop.go#pi#1":              engineLabel,
+	"apps/hub/desktop/workspace_engine_interactions_desktop.go#alva#1": alvaOnlyGate,
+	"apps/hub/desktop/workspace_goals_desktop.go#alva#1":               alvaOnlyGate,
+	"apps/hub/desktop/workspace_model_options_desktop.go#Agent#1":      agentWord,
+	"apps/hub/desktop/workspace_models_desktop.go#agent#1":             agentWord,
+	"apps/hub/desktop/workspace_permissions_desktop.go#alva#1":         alvaOnlyGate,
+	"apps/hub/desktop/workspace_plan_desktop.go#alva#2":                alvaOnlyGate,
+	"apps/hub/desktop/workspace_prepared_desktop.go#alva#1":            alvaOnlyGate,
+	"apps/hub/desktop/workspace_shell_desktop.go#alva#1":               alvaOnlyGate,
+	"apps/hub/desktop/workspace_transcript_desktop.go#alva#1":          engineLabel,
+	"apps/hub/desktop/workspace_transcript_desktop.go#codex#1":         engineLabel,
+	"apps/hub/desktop/workspace_transcript_desktop.go#claude#1":        engineLabel,
+	"apps/hub/desktop/workspace_transcript_desktop.go#pi#1":            engineLabel,
+	"apps/hub/product/approvals.go#alva#1":                             alvaOnlyGate,
+	"apps/hub/product/companions.go#alva#2":                            alvaOnlyGate,
+	"apps/hub/product/composer_commands.go#alva#3":                     alvaOnlyGate,
+	"apps/hub/product/connection_catalog.go#read#1":                    connectionError,
+	"apps/hub/product/connections.go#read#3":                           connectionError,
+	"apps/hub/product/connections.go#alva#1":                           alvaOnlyGate,
+	"apps/hub/product/engine_interactions.go#alva#2":                   alvaOnlyGate,
+	"apps/hub/product/goals.go#alva#1":                                 alvaOnlyGate,
+	"apps/hub/product/history.go#read#1":                               productAction,
+	"apps/hub/product/plan_mode.go#alva#1":                             alvaOnlyGate,
+	"apps/hub/product/questions.go#alva#1":                             alvaOnlyGate,
+	"apps/hub/product/service.go#alva#4":                               alvaOnlyGate,
+	"apps/hub/product/shell.go#alva#3":                                 alvaOnlyGate,
+	"apps/hub/product/team_tool.go#read#2":                             productAction,
+	"apps/hub/product/team_tool.go#edit#1":                             productAction,
+	"apps/hub/product/wait.go#alva#1":                                  alvaOnlyGate,
+	"apps/hub/product/workspace_references.go#alva#1":                  alvaOnlyGate,
+	"apps/hub/product/workspace_views_resources.go#alva#1":             alvaOnlyGate,
 }
 
 type toolNameHit struct{ key, position string }
@@ -111,7 +114,8 @@ func findToolNameLiterals(set *token.FileSet, file *ast.File, rel string) []tool
 
 func TestHubProductAndDesktopNameNoToolsOrEngines(t *testing.T) {
 	root := goRoot()
-	seen := map[string]bool{}
+	counts := map[string]int{}
+	positions := map[string][]string{}
 	var violations []string
 	for _, base := range toolNameRoots {
 		err := filepath.WalkDir(filepath.Join(root, base), func(path string, entry fs.DirEntry, err error) error {
@@ -138,10 +142,8 @@ func TestHubProductAndDesktopNameNoToolsOrEngines(t *testing.T) {
 				return err
 			}
 			for _, hit := range findToolNameLiterals(set, file, rel) {
-				seen[hit.key] = true
-				if toolNameAllowlist[hit.key] == "" {
-					violations = append(violations, fmt.Sprintf("%s (%s)", hit.position, hit.key))
-				}
+				counts[hit.key]++
+				positions[hit.key] = append(positions[hit.key], hit.position)
 			}
 			return nil
 		})
@@ -149,15 +151,40 @@ func TestHubProductAndDesktopNameNoToolsOrEngines(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	allowed := parseToolNameAllowlist(t, toolNameAllowlist)
+	for key, count := range counts {
+		if count > allowed[key] {
+			violations = append(violations, fmt.Sprintf("%s occurs %d times, allowlist permits %d (%s)", key, count, allowed[key], strings.Join(positions[key], ", ")))
+		}
+	}
 	sort.Strings(violations)
 	for _, violation := range violations {
 		t.Errorf("tool or engine name literal %s: classify tools in the engine adapter's ToolDisplay and query engine capabilities, or add a reviewed allowlist reason", violation)
 	}
-	for key := range toolNameAllowlist {
-		if !seen[key] {
-			t.Errorf("stale tool-name allowlist entry %s: remove it now that the literal is gone", key)
+	for key, permitted := range allowed {
+		if counts[key] < permitted {
+			t.Errorf("stale tool-name allowlist entry %s#%d: only %d occurrence(s) remain, lower the count or remove the entry", key, permitted, counts[key])
 		}
 	}
+}
+
+// parseToolNameAllowlist turns path#literal#count keys into path#literal ->
+// count and rejects malformed or zero counts.
+func parseToolNameAllowlist(t *testing.T, list map[string]string) map[string]int {
+	t.Helper()
+	result := make(map[string]int, len(list))
+	for key, reason := range list {
+		cut := strings.LastIndex(key, "#")
+		count, err := strconv.Atoi(key[cut+1:])
+		if cut < 0 || err != nil || count < 1 || reason == "" {
+			t.Fatalf("allowlist key %q must be path#literal#count with count >= 1 and a reason", key)
+		}
+		if _, dup := result[key[:cut]]; dup {
+			t.Fatalf("allowlist lists %q more than once", key[:cut])
+		}
+		result[key[:cut]] = count
+	}
+	return result
 }
 
 func TestToolNameScannerRegressions(t *testing.T) {
@@ -180,5 +207,26 @@ func TestToolNameScannerRegressions(t *testing.T) {
 	want := []string{"fixture.go#read_file", "fixture.go#Bash", "fixture.go#codex", "fixture.go#edit"}
 	if strings.Join(keys, ",") != strings.Join(want, ",") {
 		t.Fatalf("scanner keys %v, want %v", keys, want)
+	}
+}
+
+func TestToolNameAllowlistIsCountedAndMonotonic(t *testing.T) {
+	good := map[string]string{"apps/hub/product/a.go#alva#2": "reason"}
+	if parseToolNameAllowlist(t, good)["apps/hub/product/a.go#alva"] != 2 {
+		t.Fatal("count not parsed")
+	}
+	source := "package fixture\nfunc f(a, b, c string) bool { return a == \"alva\" || b == \"alva\" || c == \"alva\" }\n"
+	set := token.NewFileSet()
+	file, err := parser.ParseFile(set, "a.go", source, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, hit := range findToolNameLiterals(set, file, "apps/hub/product/a.go") {
+		counts[hit.key]++
+	}
+	allowed := parseToolNameAllowlist(t, good)
+	if counts["apps/hub/product/a.go#alva"] <= allowed["apps/hub/product/a.go#alva"] {
+		t.Fatal("a third comparison in an already allowlisted file must exceed its registered count of two")
 	}
 }

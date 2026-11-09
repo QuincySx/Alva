@@ -549,7 +549,7 @@ func (s *SettingsService) SetEnabled(ctx context.Context, scope SettingsScope, k
 		return SettingsView{}, err
 	}
 	if enabled && source.detail.Session.Workspace != "" && hostSwitch(next, kind, item) {
-		if err = s.approveLocked(ctx, source.detail.Session.Workspace, next, kind, item, true); err != nil {
+		if err = s.approveLocked(ctx, source.detail.Session.Workspace, next, kind, item, true, ""); err != nil {
 			return SettingsView{}, err
 		}
 	}
@@ -582,7 +582,7 @@ func enableError(err error) error {
 	return err
 }
 
-func (s *SettingsService) approveLocked(ctx context.Context, workspace string, c hub.Capabilities, kind, item string, approve bool) error {
+func (s *SettingsService) approveLocked(ctx context.Context, workspace string, c hub.Capabilities, kind, item string, approve bool, fingerprint string) error {
 	if !approve {
 		return s.store.DeleteWorkspaceApproval(ctx, workspace, kind, item)
 	}
@@ -590,6 +590,9 @@ func (s *SettingsService) approveLocked(ctx context.Context, workspace string, c
 		if candidate.Kind == kind && candidate.Item == item {
 			if !candidate.Host {
 				return errors.New("这个开关不需要工作区批准。")
+			}
+			if fingerprint != "" && candidate.Fingerprint != fingerprint {
+				return ErrSettingsChanged
 			}
 			return s.store.SaveWorkspaceApproval(ctx, hub.WorkspaceApproval{Workspace: workspace, Kind: kind, Item: item, Fingerprint: candidate.Fingerprint})
 		}
@@ -600,6 +603,22 @@ func (s *SettingsService) approveLocked(ctx context.Context, workspace string, c
 // Approve records or withdraws consent for an application-level host item in
 // the selected task's workspace. Consent is bound to the current fingerprint.
 func (s *SettingsService) Approve(ctx context.Context, sessionID, kind, item string, approve bool) (SettingsView, error) {
+	return s.approve(ctx, sessionID, kind, item, approve, "")
+}
+
+// ErrSettingsChanged means the configuration differs from what the user confirmed.
+var ErrSettingsChanged = errors.New("配置已变化，请重新确认。")
+
+// ApproveExact approves only if the item's current fingerprint is the one the
+// user confirmed; the comparison and the write happen under one lock.
+func (s *SettingsService) ApproveExact(ctx context.Context, sessionID, kind, item, fingerprint string) (SettingsView, error) {
+	if fingerprint == "" {
+		return SettingsView{}, ErrSettingsChanged
+	}
+	return s.approve(ctx, sessionID, kind, item, true, fingerprint)
+}
+
+func (s *SettingsService) approve(ctx context.Context, sessionID, kind, item string, approve bool, fingerprint string) (SettingsView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	scope := SettingsScope{App: true, SessionID: sessionID}
@@ -610,7 +629,7 @@ func (s *SettingsService) Approve(ctx context.Context, sessionID, kind, item str
 	if source.detail.Session.Workspace == "" {
 		return SettingsView{}, errors.New("这个任务没有保存的工作区，无法批准。")
 	}
-	if err = s.approveLocked(ctx, source.detail.Session.Workspace, source.app.Capabilities, kind, item, approve); err != nil {
+	if err = s.approveLocked(ctx, source.detail.Session.Workspace, source.app.Capabilities, kind, item, approve, fingerprint); err != nil {
 		return SettingsView{}, err
 	}
 	return s.reload(ctx, scope)

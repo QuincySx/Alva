@@ -81,7 +81,7 @@ func TestOptInNativeChildHITLAndTypedColdInspector(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeApp(t, a)
-	p, err := a.Service.Create(ctx, "actual native child", "")
+	p, err := createLive(a.Service, ctx, "actual native child", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestOptInNativeChildHITLAndTypedColdInspector(t *testing.T) {
 	if calls.Load() != 0 {
 		t.Fatal("enabling capability contacted provider")
 	}
-	foreign, err := a.Service.Create(ctx, "foreign", "")
+	foreign, err := createLive(a.Service, ctx, "foreign", "")
 	if err != nil {
 		t.Fatal(err)
 	}

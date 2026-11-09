@@ -68,6 +68,9 @@ type Effect struct {
 	Kind        EffectKind
 	Description string
 	Resources   []ResourceClaim
+	// Billable is declared by the tool itself when a call may create metered
+	// cost or account usage. Host policy must ask for it at every permission tier.
+	Billable bool `json:",omitempty"`
 }
 
 // A registered Tool's identity, schema and semantics must remain stable for its

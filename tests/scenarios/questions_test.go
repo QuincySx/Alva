@@ -95,6 +95,28 @@ func TestAskHumanWaitSurvivesRestartAndTheAnswerStillCounts(t *testing.T) {
 	}
 }
 
+// A new session needs no setting: the question waits, survives the app
+// closing and still reaches the model once answered.
+func TestDurableWaitsAreOnByDefaultAndSurviveRestart(t *testing.T) {
+	model := newFakeModel(t, provider.OpenAIChatKind, call("c-ask", "ask_human", askArgs), text("green by default"))
+	h := openHub(t, liveConfig(t, model))
+	fresh := h.createDefault("untouched", "")
+	view, err := h.service().Waits(context.Background(), fresh.ID)
+	if err != nil || !view.Enabled {
+		t.Fatalf("a new session did not start with waits on: %+v %v", view, err)
+	}
+	if err := h.service().SetToolEnabled(context.Background(), fresh.ID, "interaction", true, false); err != nil {
+		t.Fatal(err)
+	}
+	turn := h.send(fresh.ID, "ask me and wait")
+	h.expect(fresh.ID, engine.Waiting)
+	h.reopen()
+	view, err = h.service().Waits(context.Background(), fresh.ID)
+	if err != nil || view.Status != engine.Waiting || view.TurnID != turn || len(view.Snapshot.State.Requests) != 1 {
+		t.Fatalf("the default wait did not survive the restart: %+v %v", view, err)
+	}
+}
+
 func TestAbandoningAWaitingQuestionLetsTheUserMoveOn(t *testing.T) {
 	model := newFakeModel(t, provider.OpenAIChatKind, call("c-ask", "ask_human", askArgs), text("new topic"))
 	h := openHub(t, liveConfig(t, model))
@@ -128,7 +150,7 @@ func TestAbandoningAWaitingQuestionLetsTheUserMoveOn(t *testing.T) {
 // contains is strings.Contains for scenario assertions.
 func contains(haystack, needle string) bool { return strings.Contains(haystack, needle) }
 
-// Durable waits are off by default. Then closing the application while a
+// With durable waits turned off, closing the application while a
 // question waits stops that Turn; the question is gone after reopening and the
 // user simply continues.
 func TestQuestionWithoutDurableWaitsEndsWhenTheAppCloses(t *testing.T) {

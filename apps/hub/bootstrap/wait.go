@@ -212,6 +212,17 @@ func openHubWaits(ctx context.Context, repo storage.Repository, owner string, lo
 	if err != nil {
 		return nil, nil, err
 	}
+	if request.WaitRevision == 0 && (snapshot.State.Status == durable.Running || snapshot.State.Status == durable.Interrupted) {
+		// The product only admits new input after the previous Turn reached a
+		// terminal outcome (failed, cancelled or interrupted by an app exit); a
+		// Waiting Turn blocks input. Durable waits are default-on, so that stale
+		// native Running/Interrupted marker must not brick the session: reset it
+		// to Idle, exactly the state a session without durable waits is in. The
+		// terminal outcome and its effects stay recorded and nothing is replayed.
+		if snapshot, err = backend.Commit(ctx, snapshot.Revision, durable.State{Version: 1, Status: durable.Idle}, nil); err != nil {
+			return nil, nil, err
+		}
+	}
 	if snapshot.State.Status == durable.Running || snapshot.State.Status == durable.Interrupted {
 		return nil, nil, durable.ErrInterrupted
 	}

@@ -31,7 +31,7 @@ ToolFunc每层零或一次；ModelFunc保留无公开输出的顺序多次尝试
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
-| Loop contracts | `contracts.go` | Model/tool/log/store/event/middleware、prepare union 与 typed records |
+| Loop contracts | `contracts.go` | Model/tool/log/store/event/middleware、prepare union 与 typed records；Effect.Billable由工具自己声明，宿主政策在任何档位都要询问；判断标准：会创建或切换计费身份、新开付费Worker才算，subagent/MCP/web走当前账户的普通模型或网络用量，不算；零值不入JSON，旧审批指纹不变 |
 | Record integrity | `records.go` / `records_test.go` | 当前 envelope 构造、union 校验（含工具执行时间先后）与完整 deep clone |
 | Error semantics | `errors.go` | 类型化会话操作失败与无损取消分类 |
 | Event ownership | `events.go` | 队列/订阅者的 event 深拷贝 |

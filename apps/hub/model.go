@@ -159,20 +159,22 @@ type Turn struct {
 	EndedAt         int64               `json:"ended_at"`
 }
 type Attempt struct {
-	ModelOptions        ModelOptions           `json:"model_options,omitempty"`
-	Wait                *engine.WaitCheckpoint `json:"wait,omitempty"`
-	ID                  string                 `json:"id"`
-	TurnID              string                 `json:"turn_id"`
-	SessionID           string                 `json:"session_id"`
-	BranchID            string                 `json:"branch_id"`
-	Target              Target                 `json:"target"`
-	NativeSessionID     string                 `json:"native_session_id"`
-	Status              engine.Outcome         `json:"status"`
-	SideEffectsPossible bool                   `json:"side_effects_possible"`
-	Failure             engine.FailureKind     `json:"failure"`
-	Error               string                 `json:"error"`
-	CreatedAt           int64                  `json:"created_at"`
-	EndedAt             int64                  `json:"ended_at"`
+	ModelOptions ModelOptions           `json:"model_options,omitempty"`
+	Wait         *engine.WaitCheckpoint `json:"wait,omitempty"`
+	// ApprovalLines counts the settled-approval timeline entries stored for this attempt.
+	ApprovalLines       int                `json:"approval_lines,omitempty"`
+	ID                  string             `json:"id"`
+	TurnID              string             `json:"turn_id"`
+	SessionID           string             `json:"session_id"`
+	BranchID            string             `json:"branch_id"`
+	Target              Target             `json:"target"`
+	NativeSessionID     string             `json:"native_session_id"`
+	Status              engine.Outcome     `json:"status"`
+	SideEffectsPossible bool               `json:"side_effects_possible"`
+	Failure             engine.FailureKind `json:"failure"`
+	Error               string             `json:"error"`
+	CreatedAt           int64              `json:"created_at"`
+	EndedAt             int64              `json:"ended_at"`
 }
 
 const Running engine.Outcome = "running"
@@ -203,7 +205,30 @@ type HistoryEntry struct {
 const (
 	TimelineWaitResumed   = "wait_resumed"
 	TimelineWaitAbandoned = "wait_abandoned"
+	// TimelineApprovalSettled is the one-line record of an Alva approval the
+	// user decided, so the conversation keeps "allowed/denied" like it does for
+	// an external engine's resolved permission.
+	TimelineApprovalSettled = "approval_settled"
 )
+
+// MaxApprovalSettledPerAttempt bounds the settled-approval lines one attempt
+// may store; further decisions still take effect but leave no line.
+const MaxApprovalSettledPerAttempt = 256
+
+// ApprovalSettled is a decided Alva approval: the call, the user's decision,
+// the declared effect and the call's own bounded, redacted ToolDisplay.
+type ApprovalSettled struct {
+	CallID  string              `json:"call_id,omitempty"`
+	Allowed bool                `json:"allowed"`
+	Effect  engine.Effect       `json:"effect,omitempty"`
+	Tool    *engine.ToolDisplay `json:"tool,omitempty"`
+}
+
+// ApprovalSettledStore is an optional port beside Store: it appends one
+// settled-approval timeline entry to the attempt, bounded per attempt.
+type ApprovalSettledStore interface {
+	RecordApprovalSettled(ctx context.Context, sessionID, attemptID string, settled ApprovalSettled) error
+}
 
 type TimelineEvent struct {
 	Kind         string  `json:"kind"`
@@ -215,6 +240,8 @@ type TimelineEvent struct {
 	// Revision and Endpoint audit the connection facts a route resolved to.
 	Revision uint64 `json:"revision,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
+	// Approval is set only on TimelineApprovalSettled entries.
+	Approval *ApprovalSettled `json:"approval,omitempty"`
 }
 type Handoff struct {
 	ID             string         `json:"id"`

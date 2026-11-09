@@ -41,7 +41,8 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | workspace_references.go / workspace_references_test.go | saved项目有界分页搜索、文件原件/目录metadata artifact、共享附件预算和分支准入 |
 | plan_mode.go / plan_mode_test.go | 下一Turn只读计划配置，空闲native/checkpoint校验与普通配置批准保留 |
 | preferences.go / preferences_test.go | application级偏好共享owner、取消感知的串行存储及非阻塞已提交快照；Close停准入/取消并等待实际I/O、超时保留owner可重试，失败/旧版本不覆盖缓存，不选择后端或启动会话 |
-| wait.go | Alva journal专属的共享UI/HTTP等待DTO、persistent opt-in、陈旧/跨分支拒绝、结果保存/同Turn继续/审阅放弃 |
+| settings_forms.go | ApproveExact：按用户确认时的配置指纹批准，比较与写入同锁，配置已变则拒绝（ErrSettingsChanged）；MCP待批准行使用它 |
+| wait.go | Alva journal专属的共享UI/HTTP等待DTO、persistent（新会话默认开启）、陈旧/跨分支拒绝、结果保存/同Turn继续/审阅放弃 |
 | service.go | 产品session/Turn服务（Transcripts/Traces两个窄读取服务由bootstrap装配）、expected-branch原子准入、独立DraftID/版本显式选择与精确消费、20MiB UploadReader原文件引用与显式审批，持有独立Gateway/问答/会话外Developer及可选DeveloperWorkspaces/ConversationTabs owner；Transcripts为窄消息流读取服务，由bootstrap用实际store装配 |
 | service_test.go | 真实双store/local harness、双观察者捕获/迟到发布/失败重试、上传/权限/历史/Inspector和其他engine等待不借Alva authority回归 |
 | history.go | 产品绑定的有界metadata/字面关键词/正文range Tool与Plugin |
@@ -75,7 +76,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | locks.go | 同一实际SDK ToolLockRegistry装配Plugin，非第二执行runtime |
 | team.go | 有界owned Worker队列pumps、显式resume/stop、drain边界kick与账户路由准入；Stop先冻结pump，再由Runtime join实际owner，涵盖独立同Turn等待续轮；StopExecution保留UI身份，旧ID不取消replacement或pump |
 | team_test.go | 实际完整Alva Worker FIFO/同native续轮、observer detach与byte-only上传预算；等待续轮Stop超时保留真实清理与后续队列，Stop成功发布前禁下一claim、迟到旧ID拒绝后FIFO继续 |
-| team_tool.go | 绑定实际Lead/native的hub_team Tool/Plugin，mutation HITL、roster与独立8KiB路由分页/绝对索引、selected task 2KiB读取 |
+| team_tool.go | 绑定实际Lead/native的hub_team Tool/Plugin，mutation HITL（非只读效果声明Billable，任何权限档都问）、roster与独立8KiB路由分页/绝对索引、selected task 2KiB读取 |
 | team_tool_test.go | foreign native拒绝、mutation拒批零变更与显式批准真实Team回归 |
 | automation.go / automation_test.go | 显式owned本地timer与真实SDK普通Turn；构造不执行、下一完整间隔、无补跑/OS daemon，连接被删除/停用/协议变更时零Turn暂停并经显式重审恢复（改名等外观编辑不影响），按计划自己批准的模型与连接运行、不随会话手动换模型而变，关闭先阻止准入再交既有Runtime收尾 |
 | shell.go | 已存分支授权的应用内后台job冷状态/真实Stop/idle reset，无PID或nativeID客户端输入 |

@@ -110,10 +110,10 @@ func TestApprovalIsOnceOnlyAndDuplicateOrLateClicksFail(t *testing.T) {
 			t.Fatalf("%s = %q %v", name, data, err)
 		}
 	}
-	// Alva broker approvals are not history events (apps/hub/product AGENTS.md):
-	// once answered, no card stays in the Message Stream, unlike external engines.
-	if cards := blocksOf(h.blocks(s.ID), product.BlockKindInteraction); len(cards) != 0 {
-		t.Fatalf("answered Alva approvals left %d history cards", len(cards))
+	// Each answered approval stays in the Message Stream as one settled line
+	// (approval_lines_test.go checks its content).
+	if cards := blocksOf(h.blocks(s.ID), product.BlockKindInteraction); len(cards) != 2 {
+		t.Fatalf("answered Alva approvals left %d history cards, want 2", len(cards))
 	}
 }
 

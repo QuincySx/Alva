@@ -425,6 +425,15 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 	sequence := strconv.FormatUint(entry.Sequence, 10)
 	if entry.Timeline != nil {
 		event := entry.Timeline
+		if settled := event.Approval; event.Kind == hub.TimelineApprovalSettled && settled != nil {
+			view := &InteractionView{Kind: InteractionKindPermission, State: InteractionDenied, Effect: knownEffect(settled.Effect), Tool: engine.CloneToolDisplay(settled.Tool)}
+			if settled.Allowed {
+				view.State = InteractionAllowed
+			}
+			b := p.upsert(interactionBlockID(entry.AttemptID, InteractionKindPermission, "settled/"+sequence), entry, BlockKindInteraction, BlockStatusCompleted)
+			b.Interaction, b.Status, b.final = view, BlockStatusCompleted, true
+			return changed
+		}
 		switch event.Kind {
 		case "route_resolved":
 			return changed // audit fact only; never a message

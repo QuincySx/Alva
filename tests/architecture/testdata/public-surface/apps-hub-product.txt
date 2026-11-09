@@ -621,6 +621,8 @@ func (s *PreferencesService) Update(ctx context.Context, update hub.PreferenceUp
 
 func (s *SettingsService) Approve(ctx context.Context, sessionID, kind, item string, approve bool) (SettingsView, error)
 
+func (s *SettingsService) ApproveExact(ctx context.Context, sessionID, kind, item, fingerprint string) (SettingsView, error)
+
 func (s *SettingsService) AuthorizeMCP(ctx context.Context, scope SettingsScope, serverID string, open func(string) error) (MCPCredential, error)
 
 func (s *SettingsService) InstallMCPConnector(connector MCPConnector)
@@ -2281,6 +2283,8 @@ var ErrConnectionCatalogUnavailable = errors.New("model catalog unavailable; ent
 var ErrContextCompactionUnsupported = errors.New("the current engine cannot compact its context on request")
 
 var ErrRouteUnavailable = errors.New("route changed or is unavailable; select a current configured route")
+
+var ErrSettingsChanged = errors.New("配置已变化，请重新确认。")
 
 var ErrSettingsConflict = errors.New("设置已在其他地方更改，草稿已保留；请重新载入后再保存。")
 

@@ -23,16 +23,16 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | composer_files.go / composer_files_test.go | 原件/派生文件只保存不可变metadata、分块SHA与home/session来源；显式pre-session捕获catalog、幂等保存/冲突、最大文件metadata预算、重开与有界recent索引；home→session grant只由真实Pending事务认领，普通session稿不能铸造归属，不复制文件正文 |
 | workspace_views.go / workspace_views_test.go | 会话资源标签/顺序/宽度偏好CAS、branch归属、深拷贝和失败原子性，旧view不冒充保存成功 |
 | developer_workspaces.go / developer_workspaces_test.go | 显式repository与worktree-scoped tab set的v8事务/CAS/归档/重开；tab/derived home draft身份跨scope事务内全局唯一且归档不释放、既有tab不可删除；SessionID只保留首Send绑定，原子复用createSessionTx+draft认领/文件grant，失败全rollback且不建Turn/样例；跨scope身份扫描只在next引入本scope未持有的tab/DraftID时执行，选择/归档/排序复用既有身份即跳过，启动仍全库校验唯一性 |
-| composer_drafts.go / composer_drafts_test.go | 逻辑home/会话手稿、引用回执与保留空版本的CAS；首发共用创建政策原子绑定/复用Session，真实v5→v6升级/故障回滚、跨窗竞争/重开及旧回执隔离，不恢复执行 |
+| composer_drafts.go / composer_drafts_test.go | 逻辑home/会话手稿、引用回执与保留空版本的CAS；新建会话同事务写入默认开启持久等待的设置（旧会话已存值不改）；首发共用创建政策原子绑定/复用Session，真实v5→v6升级/故障回滚、跨窗竞争/重开及旧回执隔离，不恢复执行 |
 | workflow_migration_test.go | 冻结v4事实的v5原子升级/故障回滚、连接/目标/模型偏好保留与schema失败前禁止执行恢复 |
-| permissions.go / permissions_test.go | 空闲native下一Turn权限事务、Full显式确认、普通导入不升权与Plan清除潜在Full |
+| permissions.go / permissions_test.go | 空闲native下一Turn权限事务、Full显式确认、普通导入不升权；开关Plan不改权限档 |
 | routing_test.go | 引擎键分支、同引擎换模型保留原生会话（含旧整路由键行）、fallback仅当轮、过期fallback可见跳过、端点迁移审计与通知、FinishTurn失败不卡会话、长错误保留前缀 |
 | wait.go / wait_test.go | 独立WaitStore、branch归属审阅、同Turn新Attempt事务（续接用进入waiting那次attempt自己的路由，只比较引擎）、waiting冻结与Worker/计划crash edge/no fallback回归 |
 | store.go | schema与v1至v8事务升级，分支按引擎一条（route列写engine:<id>，旧行按data里的引擎命中，无schema改动），Switch同引擎换模型复用分支（旧数据里若该模型曾有自己的同引擎旧分支，选择规则不变：优先活动分支，旧分支的上下文留在原处不合并，不另行提示——查找成本与误报风险高于收益，此为已知取舍），RecoverSession依赖单进程独占（Open持有数据库独占锁，TestRecoveryAndExclusiveDatabaseOwnership；desktop与server不会同时打开同一产品库，进程内由Runtime保证无存活owner），RoutesSeen按RouteKey分别记录各路由上次revision/端点（旧分支以分支当前路由的BillingRoute为基线），fallback用attemptBranch不改活动分支，RecordRoute/RecordFallbackSkip/RecoverSession；创建ledger/约束失败先回滚再禁止恢复；v7→v8追加repository/tab set且校验后再恢复，产品分支/handoff/分页历史与中断修复，所有Attempt准入拒绝已删除伙伴/群，不重置或换库；最终Message/reasoning内容块同事务删除同turn/attempt/ID的已合并增量（截断且无Reference时保留），History/HistoryBefore经LEFT JOIN hub_turns填TurnSequence |
 | history_compaction_test.go | json_extract可用且走hub_events_turn索引、只删本attempt已合并增量、截断保留、TurnSequence与旧格式未合并行照常读取 |
 | preferences.go / preferences_test.go | 应用级偏好 singleton、共享政策/乐观 revision 原子保存；左栏宽度/折叠与外观稀疏CAS、显式默认恢复及重开，新库、真实 v1 升级、并发、取消及损坏不重置回归 |
 | store_test.go | 可逆路由/安全fallback、native事实归属、commit失败/忽略sink错误不能成功/大handoff/恢复回归 |
-| plan_mode.go / plan_mode_test.go | 事务内只改PlanMode且保留批准；统一beginAttempt拒绝Plan借外部引擎，覆盖Worker/自动化/fallback/等待恢复 |
+| plan_mode.go / plan_mode_test.go | 事务内只改PlanMode且保留批准与权限档；统一beginAttempt拒绝Plan借外部引擎，覆盖Worker/自动化/fallback/等待恢复 |
 | settings.go | session-scoped默认禁用编辑、独立host确认启用与idle-only耐久snapshot |
 | app_settings.go / app_settings_test.go | v9显式迁移：hub_app_settings单行意图（revision CAS，落盘前清除主机批准位）与hub_workspace_approvals（工作区/类型/项/指纹）；会话覆盖的开始/改回、配置编辑（变更项关闭）与逐项启用 |
 | settings_test.go | 配置导入不自批、归属/active限制和关闭重开耐久回归 |
@@ -45,7 +45,7 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | native_owner.go | native root到唯一product owner的metadata-only反查，不读native正文 |
 | sessions.go / sessions_test.go | 首页全历史keyset/字面检索，仅主会话、不把Worker当无关会话 |
 | navigation.go / navigation_test.go | 同一主会话过滤下的全库workspace聚合/稳定路径cursor、精确项目子会话keyset和100计划全局只读索引；保留空owner原义、location过滤不推创建来源，无新schema或执行策略 |
-| timeline.go | shared product clock下分支/fallback/handoff typed时间线 |
+| timeline.go / approval_settled_test.go | shared product clock下分支/fallback/handoff typed时间线；RecordApprovalSettled追加Alva已决定审批一行（工具展示取自该调用已脱敏的tool_start，每attempt最多256条，计数存在attempt记录里不扫事件；只有根会话自己的调用取其展示） |
 | team_snapshot.go / team_snapshot_test.go | 同事务Lead完整roster/Worker仅self的handoff metadata，队列不消费、16worker/16KiB与重启冻结证据 |
 | handoff_policy.go | 保存和engine编码前复用shared known-credential redactor，不复制regex或称任意秘密检测 |
 | team.go | 独立Worker会话/FIFO事务、typed正文/文件/Skill可选入队与真实catalog/grant/branch重验；claim复用beginComposerTurn，排队Edit保留冻结输入与手动正文，公平资源预约/真实终态不变 |

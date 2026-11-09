@@ -6,10 +6,52 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
 )
+
+// RecordApprovalSettled appends one settled-approval line to the attempt. The
+// call's ToolDisplay is taken from that call's own committed tool_start entry,
+// which is already redacted and bounded; a missing call (a child session's)
+// simply leaves the line to show the declared effect. More than
+// hub.MaxApprovalSettledPerAttempt lines per attempt are not stored.
+func (s *Store) RecordApprovalSettled(ctx context.Context, id, attemptID string, settled hub.ApprovalSettled) (err error) {
+	defer func() { err = normalizeStoreError(err) }()
+	return s.transaction(ctx, func(tx *sql.Tx) error {
+		attempt, e := read[hub.Attempt](ctx, tx, `SELECT data FROM hub_attempts WHERE id=? AND session=?`, attemptID, id)
+		if e != nil {
+			return e
+		}
+		// The count lives in the attempt record, so no event scan is needed.
+		if attempt.ApprovalLines >= hub.MaxApprovalSettledPerAttempt {
+			return nil
+		}
+		settled.Tool = nil
+		if settled.CallID != "" {
+			var data []byte
+			e = tx.QueryRowContext(ctx, `SELECT data FROM hub_events WHERE attempt=? AND json_extract(data,'$.event.kind')=? AND json_extract(data,'$.event.id')=? ORDER BY seq DESC LIMIT 1`, attempt.ID, string(engine.ToolStart), settled.CallID).Scan(&data)
+			if e != nil && !errors.Is(e, sql.ErrNoRows) {
+				return e
+			}
+			if e == nil {
+				var entry hub.HistoryEntry
+				if len(data) <= 128<<10 && json.Unmarshal(data, &entry) == nil && entry.Event.Display != nil {
+					settled.Tool = engine.BoundToolDisplay(*entry.Event.Display)
+				}
+			}
+		}
+		if e = timeline(ctx, tx, id, attempt.TurnID, attempt.ID, hub.TimelineEvent{Kind: hub.TimelineApprovalSettled, Text: "Approval settled by the user", Approval: &settled}); e != nil {
+			return e
+		}
+		attempt.ApprovalLines++
+		return writeAttempt(ctx, tx, attempt)
+	})
+}
+
+var _ hub.ApprovalSettledStore = (*Store)(nil)
 
 func (s *Store) ReadHandoff(ctx context.Context, id, handoffID string) (providerResult0 *hub.Handoff, providerResult1 error) {
 	defer func() {

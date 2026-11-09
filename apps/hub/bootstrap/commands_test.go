@@ -71,7 +71,7 @@ func TestNativeHookAndDiagnosticSettingsRunOnlyAtApprovedBoundaries(t *testing.T
 				t.Fatal(err)
 			}
 			defer closeApp(t, a)
-			session, err := a.Service.Create(ctx, kind, "")
+			session, err := createLive(a.Service, ctx, kind, "")
 			if err != nil {
 				t.Fatal(err)
 			}

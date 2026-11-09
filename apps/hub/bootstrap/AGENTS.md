@@ -28,8 +28,9 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 |---|---|
 | connections.go / connections_test.go | 每attempt按已提交连接revision解析实际provider/模型/账户/计费与视觉声明；真实HTTP、重开续轮与过期路由零调用回归 |
 | context.go / context_test.go | 每次Alva装配的压缩配方：窗口取已保存路由的声明值（未声明为0，harness按默认128K只作触发预算），Force=请求的CompactContext或产品一次性手动意图，Report经adapter的ReportContext转成engine报告；runner构造成功（请求被接纳）后才Clear意图。真实factory+本地HTTP回归：意图→摘要请求带首轮→主请求以摘要替换首轮→报告/用量/意图清除且不重复压缩 |
-| permissions.go / permissions_test.go | frozen Ask/Auto/Full真实approval handler；Auto仅原生文件写入，Full不放宽Guard/独立host批准，真实HTTP文件执行和危险效果回归 |
-| wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环；waiting回执列出让出的工具调用（超过256字节/非UTF-8/含NUL的call ID跳过而不让等待失败），回归让出的ask_human/写文件块先显示等待、继续后显示完成 |
+| permissions.go / permissions_test.go | frozen Ask/Auto/Full真实approval handler；Auto按效果判断(有资源声明的Write，路径已由Guard限在工作区，不看工具名)，Exec/网络仍问；Full不放宽Guard/独立host批准；工具自己声明的Billable效果(如Worker创建)在任何档位都问，真实HTTP文件执行和危险效果回归 |
+| live_session_test.go | createLive助手（在线审批/提问测试显式关闭默认开启的持久等待）与新会话默认开启持久等待回归 |
+| wait.go / wait_test.go | 同日志Controller、不可变配方hash、实际lease借用和跨重开同Turn/审批/问题闭环；新Turn遇到上一个已终止Turn遗留的Running/Interrupted原生标记时自动复位为Idle（默认开启持久等待后失败/取消/崩溃的轮次不再卡死会话）；waiting回执列出让出的工具调用（超过256字节/非UTF-8/含NUL的call ID跳过而不让等待失败），回归让出的ask_human/写文件块先显示等待、继续后显示完成 |
 | companion_skills.go / companion_skills_test.go | 实际伙伴Skill repo的name/原文SHA限制、四类读取重验及真实HTTP未共享Skill隔离；受限scope不接受compatibility导入 |
 | session_model_wait_test.go | Waiting期间可编辑的下一Turn参数不改变原配方hash，真实重开续轮保持旧参数且新Turn应用新值 |
 | wait_crash_test.go | 杀死真实Hub续跑进程后unknown/no replay、过期拒绝及显式审阅Abandon |

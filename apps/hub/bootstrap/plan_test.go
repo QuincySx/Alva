@@ -72,7 +72,7 @@ func TestPlanModeRealGuardReadWriteAndExplicitAskRestoration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { closeApp(t, a) }()
-	p, err := a.Service.Create(t.Context(), "real plan", "")
+	p, err := createLive(a.Service, t.Context(), "real plan", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestPlanModeProducesAPlanThroughTheActualModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeApp(t, a)
-	p, err := a.Service.Create(t.Context(), "normal plan", "")
+	p, err := createLive(a.Service, t.Context(), "normal plan", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestPlanModeCannotChangeFrozenDurableWaitRecipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeApp(t, a)
-	p, err := a.Service.Create(t.Context(), "frozen mode", "")
+	p, err := createLive(a.Service, t.Context(), "frozen mode", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -53,3 +53,29 @@ func TestConversationTabDraftActiveArchiveAndSessionBindingsAreUnambiguous(t *te
 		t.Fatal("one HubSession was accepted in multiple tabs")
 	}
 }
+
+func TestConversationTabBudgetCountsOnlyOpenTabs(t *testing.T) {
+	scope := WorktreeScope{RepositoryID: "repository-test", Path: filepath.Join(t.TempDir(), "worktree")}
+	make1 := func(count int, archived bool, prefix string) []ConversationTab {
+		tabs := make([]ConversationTab, count)
+		for index := range tabs {
+			id := fmt.Sprintf("%s-%04d", prefix, index)
+			tabs[index] = ConversationTab{ID: id, DraftID: ConversationTabDraftID(id), Title: id, CreatedAt: 1, Archived: archived}
+		}
+		return tabs
+	}
+	open := make1(MaxConversationTabs, false, "open")
+	open[0].SelectedAt = 1
+	value := ConversationTabSet{Scope: scope, Tabs: append(open, make1(MaxArchivedConversationTabs, true, "closed")...), ActiveTabID: open[0].ID}
+	if err := value.Validate(); err != nil {
+		t.Fatal("archived tabs consumed the open-tab budget", err)
+	}
+	value.Tabs = append(value.Tabs, make1(1, true, "closed-over")...)
+	if value.Validate() == nil {
+		t.Fatal("archived storage ceiling was not enforced")
+	}
+	value.Tabs = append(open[:MaxConversationTabs:MaxConversationTabs], make1(1, false, "open-over")...)
+	if value.Validate() == nil {
+		t.Fatal("open tabs above 1024 were accepted")
+	}
+}

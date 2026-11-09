@@ -108,6 +108,10 @@ func create(t *testing.T, f *fixture, title string) hub.Session {
 	if json.Unmarshal(raw, &value) != nil || value.ID == "" {
 		t.Fatalf("invalid session: %s", raw)
 	}
+	// Tests of the live approval path opt out of the default-on durable waits.
+	if err := f.app.Service.EnableDurableWaits(context.Background(), value.ID, false); err != nil {
+		t.Fatal(err)
+	}
 	return value
 }
 func waitIdle(t *testing.T, f *fixture, id string) {

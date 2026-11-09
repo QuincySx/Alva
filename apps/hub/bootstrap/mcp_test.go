@@ -90,7 +90,7 @@ func TestMCPActualAssemblyOwnsLazyWorkerUntilPhysicalCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeApp(t, app)
-	product, err := app.Service.Create(ctx, "owned MCP", "")
+	product, err := createLive(app.Service, ctx, "owned MCP", "")
 	if err != nil {
 		t.Fatal(err)
 	}

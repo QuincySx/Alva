@@ -37,6 +37,8 @@ const (
 const (
 	MaxConversationTabs = 1024
 
+	MaxArchivedConversationTabs = 4096
+
 	ConversationMaxTabID = 251
 )
 
@@ -54,6 +56,8 @@ const (
 const (
 	TimelineWaitResumed   = "wait_resumed"
 	TimelineWaitAbandoned = "wait_abandoned"
+
+	TimelineApprovalSettled = "approval_settled"
 )
 
 const (
@@ -67,6 +71,8 @@ const ComposerFileChunkBytes = 256 << 10
 const ComposerFileReadBytes = 64 << 10
 
 const LocalCompanionOwner = "local"
+
+const MaxApprovalSettledPerAttempt = 256
 
 const MaxComposerExtractedBytes int64 = 2 << 20
 
@@ -564,21 +570,34 @@ type AppSettingsStore interface {
 	SetCapabilityOverride(context.Context, string, bool, Capabilities) error
 }
 
+type ApprovalSettled struct {
+	CallID  string              `json:"call_id,omitempty"`
+	Allowed bool                `json:"allowed"`
+	Effect  engine.Effect       `json:"effect,omitempty"`
+	Tool    *engine.ToolDisplay `json:"tool,omitempty"`
+}
+
+type ApprovalSettledStore interface {
+	RecordApprovalSettled(ctx context.Context, sessionID, attemptID string, settled ApprovalSettled) error
+}
+
 type Attempt struct {
-	ModelOptions        ModelOptions           `json:"model_options,omitempty"`
-	Wait                *engine.WaitCheckpoint `json:"wait,omitempty"`
-	ID                  string                 `json:"id"`
-	TurnID              string                 `json:"turn_id"`
-	SessionID           string                 `json:"session_id"`
-	BranchID            string                 `json:"branch_id"`
-	Target              Target                 `json:"target"`
-	NativeSessionID     string                 `json:"native_session_id"`
-	Status              engine.Outcome         `json:"status"`
-	SideEffectsPossible bool                   `json:"side_effects_possible"`
-	Failure             engine.FailureKind     `json:"failure"`
-	Error               string                 `json:"error"`
-	CreatedAt           int64                  `json:"created_at"`
-	EndedAt             int64                  `json:"ended_at"`
+	ModelOptions ModelOptions           `json:"model_options,omitempty"`
+	Wait         *engine.WaitCheckpoint `json:"wait,omitempty"`
+
+	ApprovalLines       int                `json:"approval_lines,omitempty"`
+	ID                  string             `json:"id"`
+	TurnID              string             `json:"turn_id"`
+	SessionID           string             `json:"session_id"`
+	BranchID            string             `json:"branch_id"`
+	Target              Target             `json:"target"`
+	NativeSessionID     string             `json:"native_session_id"`
+	Status              engine.Outcome     `json:"status"`
+	SideEffectsPossible bool               `json:"side_effects_possible"`
+	Failure             engine.FailureKind `json:"failure"`
+	Error               string             `json:"error"`
+	CreatedAt           int64              `json:"created_at"`
+	EndedAt             int64              `json:"ended_at"`
 }
 
 type Automation struct {
@@ -1481,6 +1500,8 @@ type TimelineEvent struct {
 
 	Revision uint64 `json:"revision,omitempty"`
 	Endpoint string `json:"endpoint,omitempty"`
+
+	Approval *ApprovalSettled `json:"approval,omitempty"`
 }
 
 type ToolSettings struct {

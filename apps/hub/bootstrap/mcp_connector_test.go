@@ -124,11 +124,11 @@ func TestApplicationMCPReachesTheAttemptOnlyWithWorkspaceApproval(t *testing.T) 
 		t.Fatal(err)
 	}
 	marker := filepath.Join(t.TempDir(), "started")
-	approved, err := app.Service.Create(ctx, "approved workspace", t.TempDir())
+	approved, err := createLive(app.Service, ctx, "approved workspace", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := app.Service.Create(ctx, "other workspace", t.TempDir())
+	other, err := createLive(app.Service, ctx, "other workspace", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

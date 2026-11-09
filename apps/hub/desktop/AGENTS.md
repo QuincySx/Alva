@@ -69,7 +69,8 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | workspace_picker_layout_desktop_test.go | Foundation Commands等宽双栏/References单栏、28px图标行与搜索页脚、窄窗纵排及General800px左对齐扁平布局的无窗口几何回归 |
 | workspace_composer_geometry_desktop_test.go | 首页/对话短长输入的浮层上方锚点、工具栏不被覆盖、28px圆形操作与8px对称内边距、紧凑菜单触发点回归 |
 | composer_stability_desktop_test.go | 默认跳过的本地墙钟 soak：实际 bootstrap/SQLite/MyGo 无窗口 Send/Stop、文件读取搜索、跨窗 CAS 草稿与 Close/reopen；独立记录内存/RSS、PDF worker 与真实清理，不以短测冒充一小时或 OS 窗口验收 |
-| workspace_composer_desktop.go / workspace_composer_desktop_test.go | 多行输入、真实附件/路由/权限说明及发送/停止；内部描边保持四边8、28工具栏与8标签间距、16麦克风；IME、32KiB、浮层、草稿和双轴对齐；控制行在模型芯片前留上下文用量表插口 |
+| workspace_composer_desktop.go / workspace_composer_desktop_test.go | 多行输入、真实附件/路由/权限说明及发送/停止；内部描边保持四边8、28工具栏与8标签间距、16麦克风；IME、32KiB、浮层、草稿和双轴对齐；控制行在模型芯片前留上下文用量表插口；草稿提示后留MCP待批准一行插口 |
+| workspace_mcp_approval_desktop.go / workspace_mcp_approval_desktop_test.go | 输入框上方一行「N 个 MCP 服务器在此工作区待批准 · 批准」（含Hook；覆盖会话设置的任务不显示）；点批准先二次确认，再复验配置未变并走SettingsService.Approve；Alva已决定审批留「已允许/已拒绝 · 工具展示」一行与等待卡不显示原始工具名的回归及截图 |
 | workspace_context_meter_desktop.go / workspace_context_meter_desktop_test.go | M4 上下文用量表：芯片只显示引擎实测值（声明窗口时百分比，未声明只显示 token 数，无报告不显示），≥80% 警示；弹层列系统/工具定义/摘要/最近消息（标明按实测总数等比估算）、最近一次请求的输入/缓存/输出，引擎声明 ContextCompaction 时给「压缩」/「取消压缩」（经产品服务设一次性意图，芯片显示「下次发送前压缩」）；消息流压缩状态行（已压缩/无需压缩/压缩失败/摘要记录损坏）及「查看记录」跳到所属原生分支轨迹；无界面截图由 ALVA_CONTEXT_SCREENSHOT_DIR 输出 |
 | workspace_drafts_desktop.go / workspace_drafts_desktop_test.go | 同逻辑home/会话跨窗同步的耐久手稿、250ms防抖CAS与导航/关窗flush；严格准备/文件回执冷恢复、冲突保稿和版本绑定消费，首次Create原子绑定身份后重开不发送 |
 | workspace_composer_files_desktop.go / workspace_composer_files_desktop_test.go | 首会话前@与原生文件选择立即捕获私有原件、所有引擎共享文件回执/草稿关联；真实失败来源卡片与重试/移除、原scope与SHA保留，不在选择时发送或授予目录权限 |

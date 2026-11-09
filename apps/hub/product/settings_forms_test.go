@@ -317,3 +317,36 @@ func TestSettingsResetSwitchesListsOffAndClearsScalars(t *testing.T) {
 		t.Fatal("browser reset did not restore defaults", err)
 	}
 }
+
+func TestApproveExactRefusesAConfigurationChangedAfterConfirmation(t *testing.T) {
+	s, _ := fixture(t)
+	ctx := context.Background()
+	first := settingsSession(t, s, "exact")
+	server := hub.MCPServer{ID: "files", Name: "文件", Command: "/bin/echo"}
+	saveAppMCP(t, s, appScope(""), server)
+	if _, err := s.Settings.SetEnabled(ctx, appScope(""), hub.CapabilityMCP, "files", true); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.Settings.Load(ctx, appScope(first.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown, _ := view.Item(hub.CapabilityMCP, "files")
+	// Another entry edits the configuration after the user confirmed.
+	server.Args = []string{"--changed"}
+	saveAppMCP(t, s, appScope(""), server)
+	if _, err = s.Settings.ApproveExact(ctx, first.ID, hub.CapabilityMCP, "files", shown.Fingerprint); !errors.Is(err, ErrSettingsChanged) {
+		t.Fatal("approval landed on a changed configuration", err)
+	}
+	if got := effectiveMCP(t, s, first.ID); got[0].Enabled || got[0].HostAccessApproved {
+		t.Fatal("rejected approval was stored")
+	}
+	view, _ = s.Settings.Load(ctx, appScope(first.ID))
+	now, _ := view.Item(hub.CapabilityMCP, "files")
+	if _, err = s.Settings.ApproveExact(ctx, first.ID, hub.CapabilityMCP, "files", now.Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	if got := effectiveMCP(t, s, first.ID); !got[0].Enabled || !got[0].HostAccessApproved {
+		t.Fatal("exact approval did not apply")
+	}
+}

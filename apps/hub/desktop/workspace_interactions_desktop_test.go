@@ -72,7 +72,7 @@ func TestWorkspaceInteractionCardTextsAndUsageLines(t *testing.T) {
 	replaceTranscript(t, p, interactionHistory(session.ID)...)
 	p.applyDetail()
 	tester := ui.NewTester(workspaceStaticView(p), 1240, 2400)
-	for _, text := range []string{"已允许 · 运行命令 `go test ./...`", "已拒绝 · 修改 a.go", "已回答 · 选择了 B", "已回答 · 回答：[REDACTED]", "已跳过 · A or B?", "已回答 · Token?", "已处理 · 使用 exec", "已过期 · 运行命令 `go test ./...`", "输入 1,000 · 输出 50 · 缓存命中 80%", "输入 200 · 输出 10"} {
+	for _, text := range []string{"已允许 · 运行命令 `go test ./...`", "已拒绝 · 修改 a.go", "已回答 · 选择了 B", "已回答 · 回答：[REDACTED]", "已跳过 · A or B?", "已回答 · Token?", "已处理 · 执行操作", "已过期 · 运行命令 `go test ./...`", "输入 1,000 · 输出 50 · 缓存命中 80%", "输入 200 · 输出 10"} {
 		if !tester.HasText(text) {
 			t.Fatal("card or usage text missing", text, tester.Texts())
 		}
@@ -95,7 +95,7 @@ func TestWorkspaceAlvaApprovalCardDecidesThroughTheProduct(t *testing.T) {
 			p.pane = ""
 			p.projectTranscript()
 			tester := ui.NewTester(workspaceStaticView(p), 1240, 850)
-			if !tester.HasText("需要你的允许") || !tester.HasText("使用 write_file") {
+			if !tester.HasText("需要你的允许") || !tester.HasText("执行操作") || tester.HasText("write_file") {
 				t.Fatal("waiting Alva approval is not a card in the stream", tester.Texts())
 			}
 			if _, pinned := tester.Find("Allow once"); pinned {
@@ -181,7 +181,7 @@ func TestWorkspaceNativeEngineCardsAnswerThroughTheProduct(t *testing.T) {
 	p.transcript.Reset(tail)
 	p.projectTranscript()
 	tester.Frame()
-	if tester.HasText("需要你的回答") || !tester.HasText("已处理 · 使用 fileChange") {
+	if tester.HasText("需要你的回答") || !tester.HasText("已处理 · 执行操作") {
 		t.Fatal("settled native requests did not collapse", tester.Texts())
 	}
 }

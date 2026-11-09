@@ -55,4 +55,4 @@ platform/storage/blob根契约和adapter仅可标准库与根契约；根不依�
 | `surface_test.go` / `testdata` | SDK、共享存储与Hub根契约公开面AST快照与扫描器反例，须显式审核更新 |
 | storage_test.go | 统一存储插口、具体provider/SQL泄漏与显式配方位置的正反例 |
 | reads_test.go | 禁止新增全量会话读取（单参`Messages`、`Records(x, 0)`）的AST闸、带理由白名单过期检查与扫描器正反例 |
-| tool_names_test.go | apps/hub/product与apps/hub/desktop非测试源码禁止整串等于已知工具名（Alva/Codex/Claude/Pi）或引擎ID的字符串字面量；带一句理由、键为路径#字面量的显式白名单（既有Alva能力闸、引擎显示名、产品自有工具action等），过期条目报错；扫描器正反例 |
+| tool_names_test.go | apps/hub/product与apps/hub/desktop非测试源码禁止整串等于已知工具名（Alva/Codex/Claude/Pi）或引擎ID的字符串字面量；带一句理由、键为路径#字面量#次数的显式白名单（次数为该文件内此字面量的精确出现数，只能减少，多于或少于登记值都报错）（既有Alva能力闸、引擎显示名、产品自有工具action等），过期条目报错；扫描器正反例 |

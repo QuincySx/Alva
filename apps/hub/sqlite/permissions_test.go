@@ -64,12 +64,16 @@ func TestPermissionPolicyPersistsAndImportCannotGrant(t *testing.T) {
 	if err = s.SetPlanMode(t.Context(), p.ID, true); err != nil {
 		t.Fatal(err)
 	}
+	value, _ = s.Settings(t.Context(), p.ID)
+	if !value.PlanMode || value.PermissionPolicy != hub.PermissionFull {
+		t.Fatal("entering Plan changed the permission tier")
+	}
 	if err = s.SetPlanMode(t.Context(), p.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	value, _ = s.Settings(t.Context(), p.ID)
-	if value.PlanMode || value.PermissionPolicy != hub.PermissionAsk {
-		t.Fatal("leaving Plan restored latent Full authority")
+	if value.PlanMode || value.PermissionPolicy != hub.PermissionFull {
+		t.Fatal("leaving Plan changed the permission tier")
 	}
 	if _, err = s.BeginTurn(t.Context(), p.ID, "freeze"); err != nil {
 		t.Fatal(err)
