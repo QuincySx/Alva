@@ -41,7 +41,7 @@ func (p *NativePage) acceptWorkspacePermissionSettings(id, branchID string, poli
 
 func (p *NativePage) workspacePermissionDescription(engineID string) (string, string) {
 	if engineID != "alva" {
-		return workspacePermissionPolicy(engineID)
+		return p.workspaceEnginePermission(engineID)
 	}
 	switch p.workspacePermissionPolicy() {
 	case hub.PermissionAuto:

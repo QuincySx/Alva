@@ -31,3 +31,4 @@
 | questions_test.go | ask_human 直接回答、持久等待跨重启回答仍有效、新会话默认开启持久等待并跨重启保留、放弃等待后可继续、关闭持久等待时关闭应用结束该轮 |
 | subagent_test.go | 子 Agent 结果以引用回到父模型、子 Agent 工具块与轨迹子会话跳转 |
 | external_test.go | 同一会话 Alva→Codex→Claude→Pi→Alva 交接、外部工具块、重开后各引擎历史都在 |
+| external_approval_test.go | Codex(app-server)/Claude(stream-json)/Pi(rpc)各自的假双向CLI：各请求一次工具审批，批准/拒绝都以引擎实际看到的决定为准，已完成后的迟到点击失败 |

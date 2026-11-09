@@ -237,7 +237,7 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 			fail(w, 400)
 			return
 		}
-		value, err := s.service.Store.Settings(r.Context(), id)
+		value, err := s.service.SessionSettings(r.Context(), id)
 		reply(w, value, err)
 	case "skills":
 		if r.Method != http.MethodGet {
@@ -372,106 +372,35 @@ func (s *Server) nested(w http.ResponseWriter, r *http.Request, id string, parts
 			reply(w, map[string]bool{"saved_disabled": true}, s.service.SaveMCPDraft(r.Context(), id, string(data)))
 			return
 		case "skills":
-			if r.Method != http.MethodPut {
-				fail(w, 405)
-				return
-			}
-			if _, err := query(r); err != nil {
-				fail(w, 400)
-				return
-			}
-			var v struct {
-				Enabled *bool `json:"enabled"`
-			}
-			if !decode(w, r, &v, 1024) {
-				return
-			}
-			if v.Enabled == nil {
-				fail(w, 400)
-				return
-			}
-			reply(w, map[string]bool{"saved": true}, s.service.Store.SetSkillsEnabled(r.Context(), id, *v.Enabled))
+			// Skills are session-scoped and never inherited from application settings.
+			s.settingSwitch(w, r, id, "skills", "")
 			return
 		case "subagents":
-			if r.Method != http.MethodPut {
-				fail(w, 405)
-				return
-			}
-			if _, err := query(r); err != nil {
-				fail(w, 400)
-				return
-			}
-			var v struct {
-				Enabled *bool `json:"enabled"`
-			}
-			if !decode(w, r, &v, 1024) {
-				return
-			}
-			if v.Enabled == nil {
-				fail(w, 400)
-				return
-			}
-			reply(w, map[string]bool{"saved": true}, s.service.Store.SetSubagentsEnabled(r.Context(), id, *v.Enabled))
+			s.settingSwitch(w, r, id, hub.CapabilitySubagents, "")
 			return
-		case "memory", "media":
-			if r.Method != http.MethodPut {
-				fail(w, 405)
-				return
-			}
-			if _, err := query(r); err != nil {
-				fail(w, 400)
-				return
-			}
-			var v struct {
-				Enabled *bool `json:"enabled"`
-			}
-			if !decode(w, r, &v, 1024) {
-				return
-			}
-			if v.Enabled == nil {
-				fail(w, 400)
-				return
-			}
-			var err error
-			if parts[1] == "media" {
-				err = s.service.Store.SetMediaEnabled(r.Context(), id, *v.Enabled)
-			} else {
-				err = s.service.Store.SetPersistentMemory(r.Context(), id, *v.Enabled)
-			}
-			reply(w, map[string]bool{"saved": true}, err)
+		case "memory":
+			s.settingSwitch(w, r, id, hub.CapabilityMemory, "")
 			return
-		case "media-decoder", "browser":
-			if r.Method != http.MethodPut {
-				fail(w, 405)
-				return
-			}
-			if _, err := query(r); err != nil {
-				fail(w, 400)
-				return
-			}
-			var v struct {
-				Enabled            *bool `json:"enabled"`
-				HostAccessApproved bool  `json:"host_access_approved"`
-			}
-			if !decode(w, r, &v, 1024) {
-				return
-			}
-			if v.Enabled == nil {
-				fail(w, 400)
-				return
-			}
-			var err error
-			if parts[1] == "browser" {
-				err = s.service.Store.SetBrowserEnabled(r.Context(), id, *v.Enabled, v.HostAccessApproved)
-			} else {
-				err = s.service.Store.SetMediaDecoderEnabled(r.Context(), id, *v.Enabled, v.HostAccessApproved)
-			}
-			reply(w, map[string]bool{"saved": true}, err)
+		case "media":
+			s.settingSwitch(w, r, id, hub.CapabilityMedia, "")
+			return
+		case "media-decoder":
+			s.settingSwitch(w, r, id, hub.CapabilityDecoder, "")
+			return
+		case "browser":
+			s.settingSwitch(w, r, id, hub.CapabilityBrowser, "")
 			return
 		}
 	}
 	if len(parts) == 4 && parts[0] == "settings" && parts[1] == "commands" && (parts[2] == "hook" || parts[2] == "diagnostic") && validID(parts[3]) {
-		if r.Method != http.MethodPut {
+		s.settingSwitch(w, r, id, parts[2], parts[3])
+		return
+	}
+	if len(parts) == 2 && parts[0] == "settings" && parts[1] == "app" {
+		// Read-only application-level settings as the redacted form model: saved
+		// secrets are placeholders, each item carries the fingerprint an approval
+		// must quote.
+		if r.Method != http.MethodGet {
 			fail(w, 405)
 			return
 		}
@@ -479,49 +408,18 @@ func (s *Server) nested(w http.ResponseWriter, r *http.Request, id string, parts
 			fail(w, 400)
 			return
 		}
-		var v struct {
-			Enabled            *bool `json:"enabled"`
-			HostAccessApproved bool  `json:"host_access_approved"`
-		}
-		if !decode(w, r, &v, 1024) {
+		if s.service.Settings == nil {
+			fail(w, 404)
 			return
 		}
-		if v.Enabled == nil {
-			fail(w, 400)
-			return
-		}
-		reply(w, map[string]bool{"saved": true}, s.service.Store.SetCommandEnabled(r.Context(), id, parts[2], parts[3], *v.Enabled, v.HostAccessApproved))
+		view, err := s.service.Settings.Load(r.Context(), product.SettingsScope{App: true, SessionID: id})
+		reply(w, view, err)
 		return
 	}
 	if len(parts) == 3 && parts[0] == "settings" && (parts[1] == "mcp" || parts[1] == "aep") && validID(parts[2]) {
-		if r.Method != http.MethodPut {
-			fail(w, 405)
-			return
-		}
-		if _, err := query(r); err != nil {
-			fail(w, 400)
-			return
-		}
-		var v struct {
-			Enabled            *bool `json:"enabled"`
-			HostAccessApproved bool  `json:"host_access_approved"`
-		}
-		if !decode(w, r, &v, 1024) {
-			return
-		}
-		if v.Enabled == nil {
-			fail(w, 400)
-			return
-		}
-		var err error
-		if parts[1] == "aep" {
-			// Only toggle an operator/native-inspected immutable pin. HTTP has no
-			// source-directory import or arbitrary host file staging endpoint.
-			err = s.service.Store.SetAEPEnabled(r.Context(), id, parts[2], *v.Enabled, v.HostAccessApproved)
-		} else {
-			err = s.service.Store.SetMCPEnabled(r.Context(), id, parts[2], *v.Enabled, v.HostAccessApproved)
-		}
-		reply(w, map[string]bool{"saved": true}, err)
+		// AEP toggles only an operator/native-inspected immutable pin. HTTP has no
+		// source-directory import or arbitrary host file staging endpoint.
+		s.settingSwitch(w, r, id, parts[1], parts[2])
 		return
 	}
 	if len(parts) == 2 && parts[0] == "skills" {
@@ -708,4 +606,58 @@ func childPath(q url.Values) ([]product.ChildHop, error) {
 		path = append(path, product.ChildHop{LinkSequence: sequence})
 	}
 	return path, nil
+}
+
+// settingSwitch changes one capability switch through the product
+// SettingsService, the same owner and scope rules as the desktop: application
+// scope by default, or {"scope":"session"} for a task that keeps its own
+// settings. Enabling a host item also needs host_access_approved in the same
+// request. Skills are always session scoped.
+func (s *Server) settingSwitch(w http.ResponseWriter, r *http.Request, id, kind, item string) {
+	if r.Method != http.MethodPut {
+		fail(w, 405)
+		return
+	}
+	if _, err := query(r); err != nil {
+		fail(w, 400)
+		return
+	}
+	var v struct {
+		Enabled            *bool  `json:"enabled"`
+		HostAccessApproved bool   `json:"host_access_approved"`
+		Fingerprint        string `json:"fingerprint"`
+		Scope              string `json:"scope"`
+	}
+	if !decode(w, r, &v, 1024) {
+		return
+	}
+	if v.Enabled == nil || v.Scope != "" && v.Scope != "app" && v.Scope != "session" {
+		fail(w, 400)
+		return
+	}
+	if kind == "skills" {
+		// Session-scoped and never inherited: needs no SettingsService scope.
+		reply(w, map[string]bool{"saved": true}, s.service.SetSkillsSwitch(r.Context(), id, *v.Enabled))
+		return
+	}
+	if s.service.Settings == nil {
+		fail(w, 404)
+		return
+	}
+	settingsReply(w, map[string]bool{"saved": true}, s.service.Settings.SetCapability(r.Context(), product.SettingsScope{App: v.Scope != "session", SessionID: id}, kind, item, *v.Enabled, v.HostAccessApproved, v.Fingerprint))
+}
+
+// settingsReply states why a settings write was refused, in Chinese, for the
+// refusals the product itself owns; other failures stay generic.
+func settingsReply(w http.ResponseWriter, value any, err error) {
+	var fields product.FieldErrors
+	switch {
+	case err == nil:
+		respond(w, 200, value)
+	case errors.Is(err, product.ErrUsesApplicationSettings), errors.Is(err, product.ErrHostApprovalRequired), errors.Is(err, product.ErrNoWorkspaceToApprove),
+		errors.Is(err, product.ErrUnknownCapability), errors.Is(err, product.ErrFingerprintRequired), errors.Is(err, product.ErrSettingsConflict), errors.Is(err, product.ErrSettingsChanged), errors.As(err, &fields):
+		failWith(w, 409, err.Error())
+	default:
+		operationError(w, err)
+	}
 }

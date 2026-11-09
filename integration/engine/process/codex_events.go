@@ -657,8 +657,11 @@ func (r *codexRun) serverRequest(ctx context.Context, frame codexFrame) error {
 }
 
 func validateCodexTransport(config *Config) error {
-	if config.Transport != "" && config.Transport != "exec" && config.Transport != "app-server" && config.Transport != "rpc" {
+	if config.Transport != "" && config.Transport != "exec" && config.Transport != "app-server" && config.Transport != "rpc" && config.Transport != "stream-json" {
 		return errors.New("unknown external engine transport")
+	}
+	if config.Transport == "stream-json" && config.Vendor != "claude" {
+		return errors.New("stream-json transport requires Claude")
 	}
 	if config.Transport == "rpc" && config.Vendor != "pi" {
 		return errors.New("RPC transport requires Pi")

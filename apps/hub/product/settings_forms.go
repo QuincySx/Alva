@@ -38,6 +38,25 @@ var settingsSections = []string{SectionMCP, SectionAEP, SectionTools, SectionCom
 
 var ErrSettingsConflict = errors.New("设置已在其他地方更改，草稿已保留；请重新载入后再保存。")
 
+// ErrUsesApplicationSettings is the refusal to write session-only settings
+// for a task that still follows the application settings.
+var ErrUsesApplicationSettings = errors.New("这个任务使用应用设置；要单独设置，请先选择“仅本会话”。")
+
+// ErrHostApprovalRequired refuses to enable a host item without an explicit
+// approval in the same request (HTTP callers have no separate approval click).
+var ErrHostApprovalRequired = errors.New("启用需要宿主访问的开关时，请在同一请求里明确批准宿主访问（host_access_approved）。")
+
+// ErrUnknownCapability: no such switch in the chosen scope (a server saved in
+// a session draft is only found with session scope).
+var ErrUnknownCapability = errors.New("找不到这个开关：应用设置里没有它；保存在会话草稿里的项目请指定 scope 为 session。")
+
+// ErrFingerprintRequired: approval is bound to the exact configuration the
+// caller read; without its fingerprint nothing is approved.
+var ErrFingerprintRequired = errors.New("启用需要宿主访问的开关时，请带上刚读取到的该项指纹（fingerprint），批准只对这份配置有效。")
+
+// ErrNoWorkspaceToApprove: application-level approvals are per workspace.
+var ErrNoWorkspaceToApprove = errors.New("这个任务没有保存的工作区，无法批准宿主访问。")
+
 // SettingsScope selects application settings (App) or one session's own
 // override. SessionID also names the context task whose workspace approvals
 // are shown while editing application settings.
@@ -142,6 +161,21 @@ func newSettingsService(service *HubService, store hub.AppSettingsStore) (*Setti
 		return nil, err
 	}
 	return s, nil
+}
+
+// SessionSettings is the session-scoped snapshot: plan mode, permission
+// policy, model options and the session's own switches. It is not the
+// effective capability set (EffectiveSettings, or SettingsService.Load). It
+// lives on HubService so entries stay usable where no SettingsService is
+// installed.
+func (s *HubService) SessionSettings(ctx context.Context, sessionID string) (hub.Settings, error) {
+	return s.Store.Settings(ctx, sessionID)
+}
+
+// SetSkillsSwitch is the session-scoped skills switch (never inherited from
+// application settings), usable where no SettingsService is installed.
+func (s *HubService) SetSkillsSwitch(ctx context.Context, sessionID string, enabled bool) error {
+	return s.Store.SetSkillsEnabled(ctx, sessionID, enabled)
 }
 
 // EffectiveSettings is the next-turn snapshot for one session: its own
@@ -375,7 +409,7 @@ func (s *SettingsService) source(ctx context.Context, scope SettingsScope) (sett
 		}
 	}
 	if !scope.App && !source.session.OverridesCapabilities() {
-		return source, errors.New("这个任务使用应用设置；要单独设置，请先选择“仅本会话”。")
+		return source, ErrUsesApplicationSettings
 	}
 	return source, nil
 }
@@ -529,6 +563,49 @@ func (s *SettingsService) SetEnabled(ctx context.Context, scope SettingsScope, k
 	if err != nil {
 		return SettingsView{}, err
 	}
+	return s.setEnabledLocked(ctx, scope, source, kind, item, enabled, true, false)
+}
+
+// SetCapability is the explicit form of SetEnabled for callers that have no
+// separate approval click (the HTTP API). Enabling a host item requires
+// hostApproved and the item's current fingerprint (as read from Load) in the
+// same call; a changed configuration is refused with ErrSettingsChanged, and in application scope that approval is
+// recorded for the task's workspace; without it nothing is changed. Scope
+// rules match SetEnabled: application scope by default, session scope only
+// for a task that keeps its own settings.
+func (s *SettingsService) SetCapability(ctx context.Context, scope SettingsScope, kind, item string, enabled, hostApproved bool, fingerprint string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	source, err := s.source(ctx, scope)
+	if err != nil {
+		return err
+	}
+	if enabled {
+		for _, candidate := range source.capabilities(scope).Items() {
+			if candidate.Kind != kind || candidate.Item != item || !candidate.Host {
+				continue
+			}
+			if !hostApproved {
+				return ErrHostApprovalRequired
+			}
+			if fingerprint == "" {
+				return ErrFingerprintRequired
+			}
+			// Compared under the service lock, before anything is written.
+			if candidate.Fingerprint != fingerprint {
+				return ErrSettingsChanged
+			}
+		}
+	}
+	_, err = s.setEnabledLocked(ctx, scope, source, kind, item, enabled, hostApproved, true)
+	if err != nil && err.Error() == "unknown capability switch" {
+		return ErrUnknownCapability
+	}
+	return err
+}
+
+func (s *SettingsService) setEnabledLocked(ctx context.Context, scope SettingsScope, source settingsSource, kind, item string, enabled, approve, requireWorkspace bool) (SettingsView, error) {
+	var err error
 	if !scope.App {
 		if err = s.store.SetSessionCapabilityEnabled(ctx, scope.SessionID, kind, item, enabled); err != nil {
 			return SettingsView{}, enableError(err)
@@ -542,13 +619,16 @@ func (s *SettingsService) SetEnabled(ctx context.Context, scope SettingsScope, k
 	if err = next.ValidateIntent(); err != nil {
 		return SettingsView{}, enableError(err)
 	}
+	if enabled && approve && requireWorkspace && source.detail.Session.Workspace == "" && hostSwitch(next, kind, item) {
+		return SettingsView{}, ErrNoWorkspaceToApprove
+	}
 	if _, err = s.store.SaveAppSettings(ctx, source.app.Revision, next); err != nil {
 		if errors.Is(err, hub.ErrAppSettingsConflict) {
 			return SettingsView{}, ErrSettingsConflict
 		}
 		return SettingsView{}, err
 	}
-	if enabled && source.detail.Session.Workspace != "" && hostSwitch(next, kind, item) {
+	if enabled && approve && source.detail.Session.Workspace != "" && hostSwitch(next, kind, item) {
 		if err = s.approveLocked(ctx, source.detail.Session.Workspace, next, kind, item, true, ""); err != nil {
 			return SettingsView{}, err
 		}
@@ -729,7 +809,7 @@ func (s *SettingsService) Reset(ctx context.Context, scope SettingsScope, sectio
 func (s *SettingsService) SetSessionSwitch(ctx context.Context, sessionID, kind string, enabled bool) error {
 	switch kind {
 	case "skills":
-		return s.service.Store.SetSkillsEnabled(ctx, sessionID, enabled)
+		return s.service.SetSkillsSwitch(ctx, sessionID, enabled)
 	case "durable_waits":
 		return s.service.EnableDurableWaits(ctx, sessionID, enabled)
 	}

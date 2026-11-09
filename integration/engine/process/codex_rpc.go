@@ -120,6 +120,13 @@ func (r *codexRPC) read() {
 				result := codexReply{result: frame.Result}
 				if len(frame.Error) != 0 {
 					result.err = errors.New("Codex app-server rejected a protocol request; inspect the private journal")
+					// JSON-RPC -32601 "Method not found": the server does not know the request.
+					var rpcError struct {
+						Code int `json:"code"`
+					}
+					if json.Unmarshal(frame.Error, &rpcError) == nil && rpcError.Code == -32601 {
+						result.err = errors.Join(result.err, errMethodNotFound)
+					}
 				}
 				reply <- result
 			}

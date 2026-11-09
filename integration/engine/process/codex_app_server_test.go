@@ -105,6 +105,14 @@ func TestCodexAppServerFixtureProcess(t *testing.T) {
 				os.Exit(104)
 			}
 			started = true
+			if mode == "old-engine" || mode == "auth-failure" {
+				code, message := -32601, "Method not found"
+				if mode == "auth-failure" {
+					code, message = -32000, "not logged in"
+				}
+				write(map[string]any{"id": frame.ID, "error": map[string]any{"code": code, "message": message}})
+				os.Exit(0)
+			}
 			if mode == "pending-eof" {
 				os.Exit(0)
 			}

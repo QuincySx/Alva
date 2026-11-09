@@ -4,6 +4,10 @@ Go 是当前唯一受维护实现；Rust 与旧前端已按用户授权存入 Gi
 技术栈决策见 [ADR 0012](./docs/adr/0012-go-native-stack.md)，当前结构见 [ARCHITECTURE](./docs/ARCHITECTURE.md)，运行说明见 [USAGE](./docs/USAGE.md)。
 目录与源码验收不等于全部功能对等、全部平台或外部账户验收。
 
+## 2026-11-09 外部引擎审批与 HTTP 设置 API 变更
+
+Claude 经 `--permission-prompt-tool stdio` 接审批卡，Codex/Pi 默认 app-server/rpc；不支持审批的引擎在权限芯片上标「此引擎不会询问」。**HTTP 破坏性变更**：server 的设置开关（PUT `.../settings/{subagents|memory|media|media-decoder|browser|mcp/ID|aep/ID|commands/...}`）现在默认写应用级（对所有任务生效），`"scope":"session"` 才写会话级；启用宿主项须同请求带 `host_access_approved:true` 与 `fingerprint`（从新增的 `GET .../settings/app` 读取），拒绝为 409 + 中文 message。
+
 ## 2026-11-09 第一波业务规则修复（路由、权限、等待）
 
 提交范围 `0c91ccd9..69d25244`（`feat/m1-message-stream`）。

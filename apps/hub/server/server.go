@@ -308,6 +308,16 @@ func fail(w http.ResponseWriter, status int) {
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, `{"error":"`+http.StatusText(status)+`"}`+"\n")
 }
+
+// failWith adds a product-owned, human-readable reason to a refusal. Only
+// messages the product itself wrote may be passed: never errors from storage,
+// providers or children.
+func failWith(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	data, _ := json.Marshal(map[string]string{"error": http.StatusText(status), "message": message})
+	_, _ = w.Write(append(data, '\n'))
+}
 func reply(w http.ResponseWriter, value any, err error) {
 	if err != nil {
 		operationError(w, err)

@@ -16,6 +16,7 @@ JSON 严格字段/Unicode/大小；无 token query/CORS/隐式别名。上传 2 
 SSE 16 路、每页32条、写 deadline；发送turn的prompt上限32KiB（routes.go，请求体64KiB，存储另有64KiB上限）；Inspector 2KiB 文本/4KiB 字节且不启动 Agent/MCP。
 子Inspector仅接受≤8层typed link Sequence路径，不能客户端给native/child ID。/inspector的before参数向后翻页（0=快照末尾），与after/q同时给出即400。
 SubAgent下一轮开关与真实子审批复用同产品服务，不借父identity/父授权。
+设置开关（PUT .../settings/{subagents|memory|media|media-decoder|browser|mcp/ID|aep/ID|commands/hook|diagnostic/ID}）走product.SettingsService，与桌面同一语义：默认写**应用级**（对所有任务生效，不会把本任务变成“仅本会话”）；正文可带`"scope":"session"`才写会话级，且该任务须已选“仅本会话”，否则409。启用宿主项须同一请求带`host_access_approved:true`和`fingerprint`（来自`GET .../settings/app`返回的SettingsView里该项的指纹；在服务锁内与当前配置比对，缺失或不符409且不写任何状态；应用级同时登记该工作区批准，任务无工作区则拒绝）。`GET .../settings/app`是只读的应用级脱敏视图（已存秘值只是占位）。skills恒为会话级。拒绝一律409，正文`{"error","message"}`的message为产品自有中文原因（不含存储/Provider/子进程文本）。`scope`取值非app/session为400。GET .../settings仍返回会话快照（HubService.SessionSettings），不是生效能力集。会话草稿里的MCP项只有scope为session才找得到。
 Team仅Lead+Team+Worker已存归属；创建Worker须明确账户/计费同意，入队不执行，Resume才认领。
 AEP仅操作native/operator已检查的pin开关，不提供HTTP主机source导入或文件staging。
 transport error 不泄露 host path/数据库/provider stderr；真实执行错误仍在已提交事实中。
@@ -30,7 +31,8 @@ transport error 不泄露 host path/数据库/provider stderr；真实执行错�
 | gateway.go / gateway_test.go | authenticated /v1/gateway冷status/独立model计费同意start/Stop，一次token仅start返回、不接受Provider/key导入 |
 | platform/system/strictjson（共享） | DTO object/null/重复键/精确大小写/深度验证，Hub不再保留第二份解析器 |
 | wait.go / wait_test.go | 认证冷等待/opt-in、严格branch/Turn/revision结果提交、显式202继续与审阅放弃；真实HTTP→Agent同Turn回归 |
-| routes.go | turns/stop/routes/approvals/files/settings/Skills/Inspector 共用服务；compatibility仅项目相对配置下一Turn启停，无任意绝对主机路径 |
+| settings_scope_test.go | 设置开关默认应用级、显式session级、每请求宿主批准与中文拒绝原因，被拒不改任何状态 |
+| routes.go | turns/stop/routes/approvals/files/settings/Skills/Inspector 共用服务（设置开关经SettingsService，见上）；compatibility仅项目相对配置下一Turn启停，无任意绝对主机路径 |
 | compatibility_test.go | 认证HTTP冷配置启停、严格body/项目根内路径、错误无主机路径与零执行回归 |
 | export.go / export_test.go | /inspector-bundle认证只读JSONL下载，固定高水位/typed路径与显式child scope；两路导出上限、不接受host/native path、不写宿主文件或restore |
 | inspection.go / inspection_test.go | /inspector-events绑定实际branch/typed path，通过独立EngineInspector背压SSE；durable Last-Event-ID续读，transport Close/断线仅detach，不restore或Stop |

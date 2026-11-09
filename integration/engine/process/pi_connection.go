@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -98,6 +99,10 @@ func (c *piConnection) read() {
 				result := piReply{command: str(frame, "command"), data: frame["data"]}
 				if !boolean(frame, "success") {
 					result.err = errors.New("Pi RPC command failed; inspect its native journal")
+					// pi rpc-mode answers an unrecognised command with "Unknown command: <type>".
+					if strings.HasPrefix(str(frame, "error"), "Unknown command:") {
+						result.err = errors.Join(result.err, errMethodNotFound)
+					}
 				}
 				reply <- result
 			}

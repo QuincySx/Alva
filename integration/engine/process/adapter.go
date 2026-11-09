@@ -37,7 +37,9 @@ type Config struct {
 	Env            map[string]string
 	StateDirectory string
 	// Transport selects Codex app-server or Pi's gated bidirectional RPC protocol.
-	// Empty or "exec" preserves the bounded print/exec transport.
+	// Empty or "exec" preserves the bounded print/exec transport. For Claude,
+	// "stream-json" is the bidirectional channel that carries permission prompts
+	// (--permission-prompt-tool stdio); empty/"exec" keeps the non-asking print mode.
 	Transport string
 	// Explicit Codex policy selections, mapped to native wire enums by the
 	// app-server transport. These are not Alva permission profiles.
@@ -66,6 +68,7 @@ type Adapter struct {
 	active      map[string]context.CancelFunc
 	codexRuns   map[string]*codexRun
 	piRuns      map[string]*piRun
+	claudeRuns  map[string]*claudeRun
 	cleanup     map[*owned.Process]error
 	closeMu     sync.Mutex
 	storeClosed bool
@@ -141,7 +144,7 @@ func New(config Config) (*Adapter, error) {
 	}
 	config.StateDirectory = dir
 	lifetime, stop := context.WithCancel(context.Background())
-	return &Adapter{config: config, active: make(map[string]context.CancelFunc), codexRuns: make(map[string]*codexRun), piRuns: make(map[string]*piRun), cleanup: make(map[*owned.Process]error), lifetime: lifetime, stop: stop, closedDone: make(chan struct{}), nativeEnvironment: os.Environ}, nil
+	return &Adapter{config: config, active: make(map[string]context.CancelFunc), codexRuns: make(map[string]*codexRun), piRuns: make(map[string]*piRun), claudeRuns: make(map[string]*claudeRun), cleanup: make(map[*owned.Process]error), lifetime: lifetime, stop: stop, closedDone: make(chan struct{}), nativeEnvironment: os.Environ}, nil
 }
 
 func reservedProfileEnvironment(key string) bool {
@@ -167,6 +170,10 @@ func (a *Adapter) AccountSource() string {
 
 func (a *Adapter) Capabilities() engine.Capabilities {
 	interactive := a.config.Transport == "app-server" || a.config.Transport == "rpc"
+	if a.claudeStream() {
+		// Permission prompts only: no human-question card, steering or fork.
+		return engine.Capabilities{Streaming: true, Resume: true, Cancel: true, PermissionCallback: true}
+	}
 	// Steering exists on both bidirectional transports; only Codex app-server
 	// has a verified native fork (thread/fork) that leaves the source unchanged.
 	return engine.Capabilities{Streaming: true, Resume: true, Cancel: true, PermissionCallback: interactive, UserInputCallback: interactive, FileInputs: a.config.Transport == "app-server" || a.config.Vendor == "pi", SkillInputs: a.config.Transport == "app-server", Interjection: interactive, Fork: a.config.Transport == "app-server"}
@@ -174,6 +181,9 @@ func (a *Adapter) Capabilities() engine.Capabilities {
 func (a *Adapter) RespondPermission(ctx context.Context, session, id string, decision engine.PermissionDecision) error {
 	if a.config.Transport == "rpc" {
 		return a.respondPiPermission(ctx, session, id, decision)
+	}
+	if a.claudeStream() {
+		return a.respondClaudePermission(ctx, session, id, decision)
 	}
 	return a.respondCodexPermission(ctx, session, id, decision)
 }
@@ -253,7 +263,15 @@ func (a *Adapter) args(request engine.Request, runID string) ([]string, error) {
 		}
 		args = append(args, "-")
 	case "claude":
-		args = append(args, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--safe-mode", "--include-partial-messages")
+		if a.claudeStream() {
+			// "manual" is explicit so a user defaultMode such as bypassPermissions
+			// cannot silently skip the prompts this transport exists to carry. User
+			// allow/deny rules still decide first; only the remaining "ask" outcomes
+			// reach the host. --safe-mode stays: it keeps hooks, plugins and MCP off.
+			args = append(args, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--permission-prompt-tool", "stdio", "--safe-mode", "--include-partial-messages")
+		} else {
+			args = append(args, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--safe-mode", "--include-partial-messages")
+		}
 		if prompt := a.appendedSystemPrompt(request); prompt != "" {
 			args = append(args, "--append-system-prompt", prompt)
 		}
@@ -456,7 +474,10 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	// reference provenance without claiming the CLI confirmed SessionStarted.
 	mapper.referenceSession = request.ResumeSession
 	contract := engine.StreamContract{}
-	emit := func(event engine.Event) error {
+	// emitMu orders the event stream: the stdout loop and a permission
+	// decision (Claude stream-json) both publish through it.
+	var emitMu sync.Mutex
+	emitRaw := func(event engine.Event) error {
 		if event.Kind == engine.ToolStart || event.Kind == engine.ToolEnd {
 			// Print/exec transports get the same tool Input/Display redaction
 			// as the app-server and RPC paths, before anything is bounded.
@@ -467,6 +488,11 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 			return err
 		}
 		return sink(event)
+	}
+	emit := func(event engine.Event) error {
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		return emitRaw(event)
 	}
 	env := make(map[string]string)
 	for key, value := range a.config.Env {
@@ -527,6 +553,12 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 			a.mu.Unlock()
 		}
 	}()
+	var claude *claudeRun
+	if a.claudeStream() {
+		claude = &claudeRun{ctx: ctx, runID: runID, stdin: proc.Stdin, secrets: j.secrets, emitMu: &emitMu, emit: emitRaw,
+			journal: func(text string) { _ = j.write("stdin", text) }, fail: proc.BeginClose,
+			pending: make(map[string]*claudePending), seen: make(map[string]bool)}
+	}
 	closeDone := make(chan struct{})
 	go func() {
 		select {
@@ -543,12 +575,27 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 			proc.BeginClose()
 			return
 		}
+		if claude != nil {
+			// stdin stays open for permission decisions; closeInput ends it.
+			ioErrors <- claude.sendPrompt(input)
+			return
+		}
 		_, err := io.WriteString(proc.Stdin, input+"\n")
 		proc.Stdin.Close()
 		ioErrors <- err
 	}()
+	var stderrMu sync.Mutex
+	var stderrHead strings.Builder
 	go func() {
 		readErr := owned.ReadLines(proc.Stderr, 1<<20, func(line owned.StreamLine) error {
+			if !line.Truncated {
+				stderrMu.Lock()
+				if stderrHead.Len() < 4<<10 {
+					stderrHead.Write(line.Data)
+					stderrHead.WriteByte('\n')
+				}
+				stderrMu.Unlock()
+			}
 			if line.Truncated {
 				// A partial credential at the limit cannot be safely retained.
 				return j.write("stderr", "[stderr line exceeded 1 MiB; body omitted]")
@@ -568,6 +615,7 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		a.mu.Lock()
 		for id := range aliases {
 			delete(a.active, id)
+			delete(a.claudeRuns, id)
 		}
 		a.mu.Unlock()
 	}()
@@ -576,6 +624,16 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		if err = j.write("stdout", line); err != nil {
 			runErr = err
 			break
+		}
+		if claude != nil {
+			handled, controlErr := claude.handleLine(line)
+			if controlErr != nil {
+				runErr = controlErr
+				break
+			}
+			if handled {
+				continue
+			}
 		}
 		events, mapErr := mapper.mapLine([]byte(line))
 		if mapErr != nil {
@@ -595,6 +653,9 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 					break
 				}
 				a.active[event.SessionID] = cancel
+				if claude != nil {
+					a.claudeRuns[event.SessionID] = claude
+				}
 				aliases[event.SessionID] = true
 				a.mu.Unlock()
 			}
@@ -605,6 +666,9 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		}
 		if runErr != nil {
 			break
+		}
+		if claude != nil && mapper.done {
+			claude.closeInput()
 		}
 	}
 	if scanner.Err() != nil && ctx.Err() == nil {
@@ -662,6 +726,11 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	if mapper.pending != "" {
 		runErr = errors.Join(runErr, errors.New(mapper.pending))
 	}
+	if claude != nil {
+		if err = claude.abandon(); err != nil {
+			runErr = errors.Join(runErr, err)
+		}
+	}
 	for id, name := range mapper.tools {
 		if err = emit(engine.Event{Kind: engine.ToolEnd, ID: id, Name: name, IsError: true, Text: "External process ended before tool result", Reference: mapper.reference()}); err != nil {
 			return errors.Join(runErr, err)
@@ -675,7 +744,16 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 			outcome = engine.Cancelled
 			kind = engine.FailureCancelled
 		}
-		if err = emit(engine.Event{Kind: engine.Error, Text: "External engine failed or was stopped; inspect its private journal reference", Failure: kind, Reference: mapper.reference()}); err != nil {
+		text := "External engine failed or was stopped; inspect its private journal reference"
+		stderrMu.Lock()
+		unsupported := claudeUnknownOption.MatchString(stderrHead.String())
+		stderrMu.Unlock()
+		if claude != nil && mapper.session == "" && ctx.Err() == nil && unsupported {
+			// Never reached its init frame: a Claude Code too old for stream-json
+			// input or --permission-prompt-tool rejects the flags and exits.
+			kind, text = engine.FailureStartup, "Claude Code 版本过旧或不支持带审批的 stream-json 协议，未能启动。请升级 Claude Code。Alva 不会自动降级到不会询问的模式。"
+		}
+		if err = emit(engine.Event{Kind: engine.Error, Text: text, Failure: kind, Reference: mapper.reference()}); err != nil {
 			return errors.Join(runErr, err)
 		}
 	}

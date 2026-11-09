@@ -84,6 +84,6 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | worker_draft.go / worker_draft_test.go | Worker引用及typed文件/Skill共用冻结器入原FIFO，重验真实Worker会话/branch，不借Lead/sibling/未采纳home原件；手动正文与增强prompt分别保存，失败保留稿、入队不执行 |
 | worktree.go / worktree_test.go | 已认领Lead/Team/Worker隔离、冷SHA/raw diff与双workspace租约采纳；真实Git完成后按原binding/revision收尾，不重做fresh idle gate；Waiting阻止新写动作而保留只读审阅 |
 | composer_references.go / composer_references_test.go | 实际owner校验与执行准备时原件/派生字节重验，context_read/search有界分页/长文检索；排队后损坏在HTTP前失败，不重放图像或扩大主机路径权限 |
-| settings_forms.go / settings_forms_test.go | SettingsService：应用级/会话覆盖两种作用域的脱敏表单模型（秘值只给占位）、分节HMAC指纹CAS保存、开关、按工作区批准、仅本会话/改回、恢复默认；HubService.EffectiveSettings 是唯一生效设置入口（覆盖优先，否则应用意图+精确工作区批准） |
+| settings_forms.go / settings_forms_test.go | SettingsService：应用级/会话覆盖两种作用域的脱敏表单模型（秘值只给占位）、分节HMAC指纹CAS保存、开关、按工作区批准、仅本会话/改回、恢复默认；HubService.EffectiveSettings 是唯一生效设置入口（覆盖优先，否则应用意图+精确工作区批准）；SetCapability 是无单独批准点的调用方（HTTP）用的显式形式：启用宿主项须同调用带hostApproved，应用级同时登记工作区批准，被拒返回产品自有中文原因（ErrHostApprovalRequired/ErrUsesApplicationSettings/ErrUnknownCapability/ErrNoWorkspaceToApprove）；HubService.SessionSettings 只读会话快照（计划/权限/模型选项），入口不再直接碰Store |
 | settings_validation.go | 各设置分节的中文逐字段校验（标识/路径/地址/请求头/超时/环境变量），hub.Settings.Validate 仍是落盘权威 |
 | settings_mcp.go | MCPConnector 窄端口（bootstrap实现）、内存中的测试结果与授权状态；测试连接只对已批准快照、授权一次一服务器，产品不接触协议/钥匙串/令牌 |

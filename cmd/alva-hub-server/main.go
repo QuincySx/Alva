@@ -134,7 +134,14 @@ func run(ctx context.Context, args []string, input io.Reader, output, diagnostic
 	for _, entry := range []struct{ vendor, command string }{{"claude", *claude}, {"codex", *codex}, {"pi", *pi}} {
 		if entry.command != "" {
 			external := bootstrap.ExternalEngine{Vendor: entry.vendor, Command: entry.command, ApprovedHostAccess: *approved}
-			if entry.vendor == "pi" {
+			switch entry.vendor {
+			case "claude":
+				// Permission prompts reach the approval card over stream-json.
+				external.Transport = "stream-json"
+			case "codex":
+				// app-server carries approvals; exec would never ask.
+				external.Transport = "app-server"
+			case "pi":
 				external.CLIConfigDirectory, external.Transport = *piConfig, *piTransport
 			}
 			config.External = append(config.External, external)

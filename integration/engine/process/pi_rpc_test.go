@@ -91,6 +91,14 @@ func TestPiRPCFixtureProcess(t *testing.T) {
 		}
 		switch kind {
 		case "get_state":
+			if mode == "old-engine" || mode == "auth-failure" {
+				message := "Unknown command: get_state"
+				if mode == "auth-failure" {
+					message = "No API key configured; run pi login"
+				}
+				output(map[string]any{"type": "response", "id": str(frame, "id"), "command": kind, "success": false, "error": message})
+				os.Exit(0)
+			}
 			native, file := "pi-rpc-native", path
 			if mode == "foreign-id" {
 				native = "foreign-native"

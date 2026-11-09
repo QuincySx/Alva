@@ -553,6 +553,8 @@ func (s *HubService) SelectBranch(ctx context.Context, id, branchID string, reas
 
 func (s *HubService) SessionModelOptions(ctx context.Context, id string) (hub.SessionModelOptionsSnapshot, error)
 
+func (s *HubService) SessionSettings(ctx context.Context, sessionID string) (hub.Settings, error)
+
 func (s *HubService) SetAutomationEnabled(ctx context.Context, owner, id string, revision uint64, enabled, approved bool) (hub.Automation, error)
 
 func (s *HubService) SetCompatibilityFile(ctx context.Context, id, file string) error
@@ -562,6 +564,8 @@ func (s *HubService) SetFallback(ctx context.Context, id string, targets []hub.T
 func (s *HubService) SetPermissionPolicy(ctx context.Context, id string, policy hub.PermissionPolicy, confirmed bool) error
 
 func (s *HubService) SetPlanMode(ctx context.Context, id string, enabled bool) error
+
+func (s *HubService) SetSkillsSwitch(ctx context.Context, sessionID string, enabled bool) error
 
 func (s *HubService) SetToolEnabled(ctx context.Context, id, kind string, enabled, approved bool) error
 
@@ -640,6 +644,8 @@ func (s *SettingsService) Reset(ctx context.Context, scope SettingsScope, sectio
 func (s *SettingsService) RevokeMCP(ctx context.Context, scope SettingsScope, serverID string) (MCPCredential, error)
 
 func (s *SettingsService) Save(ctx context.Context, scope SettingsScope, section, expected string, desired hub.Capabilities) (SettingsView, error)
+
+func (s *SettingsService) SetCapability(ctx context.Context, scope SettingsScope, kind, item string, enabled, hostApproved bool, fingerprint string) error
 
 func (s *SettingsService) SetEnabled(ctx context.Context, scope SettingsScope, kind, item string, enabled bool) (SettingsView, error)
 
@@ -2282,10 +2288,20 @@ var ErrConnectionCatalogUnavailable = errors.New("model catalog unavailable; ent
 
 var ErrContextCompactionUnsupported = errors.New("the current engine cannot compact its context on request")
 
+var ErrFingerprintRequired = errors.New("启用需要宿主访问的开关时，请带上刚读取到的该项指纹（fingerprint），批准只对这份配置有效。")
+
+var ErrHostApprovalRequired = errors.New("启用需要宿主访问的开关时，请在同一请求里明确批准宿主访问（host_access_approved）。")
+
+var ErrNoWorkspaceToApprove = errors.New("这个任务没有保存的工作区，无法批准宿主访问。")
+
 var ErrRouteUnavailable = errors.New("route changed or is unavailable; select a current configured route")
 
 var ErrSettingsChanged = errors.New("配置已变化，请重新确认。")
 
 var ErrSettingsConflict = errors.New("设置已在其他地方更改，草稿已保留；请重新载入后再保存。")
+
+var ErrUnknownCapability = errors.New("找不到这个开关：应用设置里没有它；保存在会话草稿里的项目请指定 scope 为 session。")
+
+var ErrUsesApplicationSettings = errors.New("这个任务使用应用设置；要单独设置，请先选择“仅本会话”。")
 
 var ErrWorkspaceReferenceChanged = errors.New("workspace selection changed; search and select it again")

@@ -211,6 +211,10 @@ func externalSnapshots(claude, codex, pi, claudeConfig, codexConfig, piConfig, c
 	for _, entry := range []struct{ vendor, command, configuration string }{{"claude", claude, claudeConfig}, {"codex", codex, codexConfig}, {"pi", pi, piConfig}} {
 		if entry.command != "" {
 			external := bootstrap.ExternalEngine{Vendor: entry.vendor, Command: entry.command, CLIConfigDirectory: entry.configuration, ApprovedHostAccess: approved}
+			if entry.vendor == "claude" {
+				// Permission prompts reach the approval card over stream-json.
+				external.Transport = "stream-json"
+			}
 			if entry.vendor == "pi" {
 				external.Transport = piTransport
 			}

@@ -440,13 +440,25 @@ func workspacePermissionPolicy(engineID string) (string, string) {
 	switch engineID {
 	case "alva":
 		return "每次询问", "读取无需确认；写入、命令、网络及未知效果逐次询问。选择仅影响下一轮，不会立即执行。"
-	case "codex", "pi":
-		return "只读模式", "此引擎使用固定的只读限制，当前界面不提供提升权限。"
-	case "claude":
-		return "安全模式", "此引擎使用固定的安全模式，当前界面不提供提升权限。"
 	default:
 		return "引擎权限", "权限由此引擎的实际配置决定。当前界面不提供权限切换。"
 	}
+}
+
+// workspaceEnginePermission describes a non-native engine's approval behaviour
+// from its declared capability, never from its name: an engine whose runtime
+// forwards permission requests asks through the approval card; any other runs
+// under its own fixed limits and never asks.
+func (p *NativePage) workspaceEnginePermission(engineID string) (string, string) {
+	if p.Service != nil && p.Service.Turns != nil {
+		if description, ok := p.Service.Turns.Engine(engineID); ok {
+			if description.Execution.PermissionCallback {
+				return "逐次审批", "此引擎的写入、命令和网络操作会在这里弹出审批卡，由你逐次批准。当前界面不提供提升权限。"
+			}
+			return "此引擎不会询问", "此引擎没有接入逐次审批：它按自带的固定限制自行运行，Alva 无法在执行前拦截或询问。当前界面不提供提升权限。"
+		}
+	}
+	return workspacePermissionPolicy(engineID)
 }
 
 func (p *NativePage) buildWorkspacePermissionMenu(c *ui.Context, anchor ui.Element, target hub.Target) {
@@ -455,7 +467,7 @@ func (p *NativePage) buildWorkspacePermissionMenu(c *ui.Context, anchor ui.Eleme
 		return
 	}
 	workspaceComposerPopover(c, anchor, &p.composer.permissionOpen, 320, func() {
-		label, description := workspacePermissionPolicy(target.EngineID)
+		label, description := p.workspaceEnginePermission(target.EngineID)
 		if p.workspacePlanEnabled() {
 			label, description = "只读计划", p.workspacePlanDescription()
 		}

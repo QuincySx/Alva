@@ -58,7 +58,8 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | workspace_resources_desktop.go / workspace_resources_desktop_test.go | 与Main同级的subtle+16圆角+1px border资源面（工具块在视图载入前请求的标签载入后再打开），ResourceTabs/动作在面外、36px Tabbar与原生右侧避让、28px关闭及More内弹出/收回；首页空态、无服务明确提示、零标签显式开合和高级导航暂时隐藏观察；32px路径/当前载入内容查找、文档阅读内距；实际4KiB Markdown/原始内容/校验入口、有界页与实际空错态，真实bootstrap/SQLite组合回归；来源身份消歧、排序/改宽CAS、关闭/选中/拖放及ABA隔离，不Stop |
 | workspace_voice_desktop.go / workspace_voice_desktop_test.go | 显式系统本地录音、独立Stop/Cancel和真实Done收尾；结果绑定原草稿/会话，晚到或已改保留待采纳，32KiB预算，不自动发送 |
 | workspace_goals_desktop.go / workspace_goals_desktop_test.go / workspace_goal_submission_desktop_test.go | 共用目标Dialog、幂等回执与项目/当前会话的冷cursor分页浏览重选；旧范围回调隔离，重开后显式首发引用真实原件 |
-| workspace_permissions_desktop.go / workspace_permissions_desktop_test.go | 原生Ask/Auto/Full、Full范围确认、首页仅意图/保存会话真实持久、Plan互斥及失败不伪报成功 |
+| workspace_permissions_desktop.go / workspace_permissions_desktop_test.go | 原生Ask/Auto/Full、Full范围确认、首页仅意图/保存会话真实持久、Plan互斥及失败不伪报成功；非原生引擎的权限芯片按其声明的PermissionCallback能力显示（有则“逐次审批”，无则“此引擎不会询问”），不按引擎名 |
+| workspace_engine_permission_desktop_test.go | 两个仅PermissionCallback不同的已注册引擎：标记随能力出现/消失，芯片说明与之一致 |
 | workspace_picker_desktop.go / workspace_picker_desktop_test.go | 原生输入/显式菜单触发的命令、Skills及项目/最近/绝对路径文件候选和目录导航；取消/迟到结果隔离、Enter选取仅准备草稿；平台Cmd+Enter复用Send准入，菜单/IME/运行等待不误发，旧回执保留新草稿 |
 | workspace_plan_desktop.go / workspace_plan_desktop_test.go | 首页本窗计划意图与已存会话真实下一Turn策略，成功保存才更新branch缓存 |
 | workspace_prepared_desktop.go / workspace_prepared_desktop_test.go | 捕获typed/DraftID版本选择、首发Create前复用目标范围/Plan校验；本窗引用owner在真实在途操作返回后释放关闭或未采纳claim，失败保留与匹配消费，不覆盖新草稿 |

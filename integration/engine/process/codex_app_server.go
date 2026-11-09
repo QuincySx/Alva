@@ -209,6 +209,9 @@ func (a *Adapter) executeCodexAppServer(parent context.Context, request engine.R
 	}
 	if err := rpc.call(ctx, "initialize", initialize, &initialized); err != nil {
 		runErr = err
+		if errors.Is(err, errMethodNotFound) {
+			runErr = errors.Join(err, errTransportUnsupported)
+		}
 	}
 	if runErr == nil && strings.TrimSpace(initialized.UserAgent) == "" {
 		runErr = errors.New("Codex did not confirm initialization")
@@ -424,7 +427,11 @@ func (a *Adapter) executeCodexAppServer(parent context.Context, request engine.R
 		if ctx.Err() != nil && pureCancellation(runErr) {
 			outcome, failure = engine.Cancelled, engine.FailureCancelled
 		}
-		if err := emit(engine.Event{Kind: engine.Error, SessionID: run.session, Text: "Codex app-server failed or was stopped; inspect its private journal reference", Failure: failure, Reference: run.reference("")}); err != nil {
+		text := "Codex app-server failed or was stopped; inspect its private journal reference"
+		if errors.Is(runErr, errTransportUnsupported) {
+			failure, text = engine.FailureStartup, unsupportedTransportText("Codex app-server", "--codex-transport exec")
+		}
+		if err := emit(engine.Event{Kind: engine.Error, SessionID: run.session, Text: text, Failure: failure, Reference: run.reference("")}); err != nil {
 			return errors.Join(runErr, err)
 		}
 		return emit(engine.Event{Kind: engine.Completed, SessionID: run.session, Outcome: outcome, Usage: &run.usage, Reference: run.reference("")})

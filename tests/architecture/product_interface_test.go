@@ -28,27 +28,10 @@ var productInterfaceRoots = []string{"apps/hub/desktop", "apps/hub/server", "cmd
 // native record repository.
 var productInterfaceFields = map[string]bool{"Store": true, "Runtime": true, "Repository": true}
 
-// Settings reads and writes move to a product SettingsService in milestone M5,
-// developed in parallel; these entries are removed when it merges.
-const settingsByM5 = "收口由 M5：设置读写由 M5 的 SettingsService 收口，合并时删除"
-
 // productInterfaceAllowlist holds reviewed selections, keyed
 // path#enclosing function#Field.Method, each with a one-line reason. It may
 // only shrink; entries that no longer occur fail as stale.
-var productInterfaceAllowlist = map[string]string{
-	"apps/hub/desktop/app_desktop.go#NativePage.loadTail#Store.Settings":   settingsByM5,
-	"apps/hub/desktop/app_desktop.go#NativePage.poll#Store.Settings":       settingsByM5,
-	"apps/hub/server/routes.go#Server.nested#Store.SetAEPEnabled":          settingsByM5,
-	"apps/hub/server/routes.go#Server.nested#Store.SetBrowserEnabled":      settingsByM5,
-	"apps/hub/server/routes.go#Server.nested#Store.SetCommandEnabled":      settingsByM5,
-	"apps/hub/server/routes.go#Server.nested#Store.SetMCPEnabled":          settingsByM5,
-	"apps/hub/server/routes.go#Server.nested#Store.SetMediaDecoderEnabled": settingsByM5,
-	"apps/hub/server/routes.go#Server.nested#Store.SetMediaEnabled":        settingsByM5,
-	"apps/hub/server/routes.go#Server.nested#Store.SetPersistentMemory":    settingsByM5,
-	"apps/hub/server/routes.go#Server.nested#Store.SetSkillsEnabled":       settingsByM5,
-	"apps/hub/server/routes.go#Server.nested#Store.SetSubagentsEnabled":    settingsByM5,
-	"apps/hub/server/routes.go#Server.sessionRoute#Store.Settings":         settingsByM5,
-}
+var productInterfaceAllowlist = map[string]string{}
 
 type productInterfaceHit struct{ key, position string }
 

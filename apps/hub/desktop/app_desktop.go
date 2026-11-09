@@ -393,7 +393,7 @@ func (p *NativePage) loadTail() {
 		var planSettings hub.Settings
 		optionsErr := err
 		if err == nil {
-			planSettings, err = p.Service.Store.Settings(p.ctx, id)
+			planSettings, err = p.Service.SessionSettings(p.ctx, id)
 			optionsErr = err
 		}
 		var chunk product.TranscriptChunk
@@ -500,7 +500,7 @@ func (p *NativePage) poll() {
 		var planSettings hub.Settings
 		optionsErr := err
 		if err == nil {
-			planSettings, err = p.Service.Store.Settings(p.ctx, id)
+			planSettings, err = p.Service.SessionSettings(p.ctx, id)
 			optionsErr = err
 		}
 		var newer product.TranscriptChunk

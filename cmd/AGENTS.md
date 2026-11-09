@@ -22,6 +22,6 @@ cmd 表示可执行程序入口集合，CLI 是其中的终端交互形态。每
 | Desktop | `alva-desktop/` | `desktop` build tag 的 MyGo 自绘入口 |
 | Hub Desktop | `alva-hub-desktop/` | 独立多engine native产品入口；无参已安装bundle读取固定显式Resources profile；Codex/Claude/Pi配置来源与Pi RPC审批，desktop&&e2e使用上游automation，不发现或复制认证 |
 | Hub CLI | `alva-hub/` | 共用bootstrap/product的one-shot/REPL，冷读sessions/history/handoff、耐久resume/手动切换、显式CLI配置目录，实际成功后才输出最终答复 |
-| Hub Server | `alva-hub-server/` | 同源product/native的认证loopback HTTP/SSE、显式Pi配置来源与RPC/只读exec选择 |
+| Hub Server | `alva-hub-server/` | 同源product/native的认证loopback HTTP/SSE、显式Pi配置来源与RPC/只读exec选择；Claude固定stream-json、Codex固定app-server（带审批的传输，不提供不询问的开关） |
 | Model Gateway | `alva-gateway/` | 独立显式route/stdio key、真实Magpie跨协议HTTP/SSE，非Hub或Agent loop |
 | Devtools MCP | `alva-devtools-mcp/` | 显式numeric-loopback Hub/UI+独立token fd或私有文件，默认只读stdio；UI controls另需operator双端授权 |

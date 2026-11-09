@@ -213,6 +213,9 @@ func (a *Adapter) executePiRPC(parent context.Context, request engine.Request, s
 	}
 	startup, endStartup := context.WithTimeout(ctx, 10*time.Second)
 	runErr = run.connection.call(startup, "get_state", nil, &state, false)
+	if errors.Is(runErr, errMethodNotFound) {
+		runErr = errors.Join(runErr, errTransportUnsupported)
+	}
 	if runErr == nil {
 		ready := false
 		for !ready && runErr == nil {
@@ -419,7 +422,11 @@ drained:
 		if ctx.Err() != nil && pureCancellation(runErr) {
 			outcome, failure = engine.Cancelled, engine.FailureCancelled
 		}
-		if err := run.event(engine.Event{Kind: engine.Error, Text: "Pi RPC failed or was stopped: " + boundedText(runErr.Error(), 4096) + "; inspect the owned native journal", Failure: failure, Reference: run.reference()}); err != nil {
+		text := "Pi RPC failed or was stopped: " + boundedText(runErr.Error(), 4096) + "; inspect the owned native journal"
+		if errors.Is(runErr, errTransportUnsupported) {
+			failure, text = engine.FailureStartup, unsupportedTransportText("Pi rpc", "--pi-transport exec")
+		}
+		if err := run.event(engine.Event{Kind: engine.Error, Text: text, Failure: failure, Reference: run.reference()}); err != nil {
 			return errors.Join(runErr, err)
 		}
 	}
