@@ -20,12 +20,12 @@ func TestGuardRejectsTypedNilResolverButKeepsOptionalNil(t *testing.T) {
 		resolver PathResolver
 	}{{"function", PathResolverFunc(nil)}, {"pointer", (*absentResolver)(nil)}} {
 		t.Run(tc.name, func(t *testing.T) {
-			if guard, err := NewGuard("/work", nil, tc.resolver, nil); err == nil || guard != nil {
+			if guard, err := NewGuard(abs("/work"), nil, tc.resolver, nil); err == nil || guard != nil {
 				t.Fatal("missing host resolver admitted", guard, err)
 			}
 		})
 	}
-	guard, err := NewGuard("/work", nil, nil, nil)
+	guard, err := NewGuard(abs("/work"), nil, nil, nil)
 	if err != nil {
 		t.Fatal("optional absent resolver rejected at construction", err)
 	}
@@ -65,7 +65,7 @@ func TestNilSecurityFunctionAdaptersReturnErrors(t *testing.T) {
 				t.Errorf("nil resolver adapter panicked: %v", value)
 			}
 		}()
-		if resolved, err := PathResolverFunc(nil).Resolve(t.Context(), "/work/file", abi.AccessRead); err == nil || resolved != "" {
+		if resolved, err := PathResolverFunc(nil).Resolve(t.Context(), abs("/work/file"), abi.AccessRead); err == nil || resolved != "" {
 			t.Fatal("nil resolver adapter returned a path", resolved, err)
 		}
 	})
@@ -87,9 +87,9 @@ func TestGuardRejectsPathReturnedAfterResolverCancellation(t *testing.T) {
 		t.Run(map[bool]string{false: "success", true: "failure"}[failure != nil], func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			guard, err := NewGuard("/work", nil, PathResolverFunc(func(context.Context, string, abi.Access) (string, error) {
+			guard, err := NewGuard(abs("/work"), nil, PathResolverFunc(func(context.Context, string, abi.Access) (string, error) {
 				cancel()
-				return "/work/file", failure
+				return abs("/work/file"), failure
 			}), nil)
 			if err != nil {
 				t.Fatal(err)

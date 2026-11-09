@@ -1,0 +1,3 @@
+# Absorbed Magpie source is pinned by byte-exact SHA-256 in provenance.json;
+# a Windows checkout must not rewrite its line endings.
+integration/llm/codec/internal/magpie/** text eol=lf

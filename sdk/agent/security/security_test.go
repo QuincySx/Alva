@@ -8,6 +8,7 @@ import (
 	"errors"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
+	"path/filepath"
 	"testing"
 )
 
@@ -17,11 +18,11 @@ func TestGuardChecksSensitiveAndRootsBeforeResolutionOrApproval(t *testing.T) {
 		approved++
 		return ApprovalDecision{true, Once}, nil
 	}))
-	guard, err := NewGuard("/work", nil, PathResolverFunc(func(_ context.Context, path string, _ abi.Access) (string, error) { resolved++; return path, nil }), manager)
+	guard, err := NewGuard(abs("/work"), nil, PathResolverFunc(func(_ context.Context, path string, _ abi.Access) (string, error) { resolved++; return path, nil }), manager)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{".env", "../outside", "/work-other/file", ".ssh/id_rsa"} {
+	for _, path := range []string{".env", "../outside", abs("/work-other/file"), ".ssh/id_rsa"} {
 		if _, err := guard.CheckPath(context.Background(), path, abi.AccessRead); err == nil {
 			t.Fatal("unsafe path allowed", path)
 		}
@@ -29,18 +30,24 @@ func TestGuardChecksSensitiveAndRootsBeforeResolutionOrApproval(t *testing.T) {
 	if resolved != 0 || approved != 0 {
 		t.Fatal("unsafe path reached later authority")
 	}
-	if path, err := guard.CheckPath(context.Background(), "notes.txt", abi.AccessRead); err != nil || path != "/work/notes.txt" {
+	if path, err := guard.CheckPath(context.Background(), "notes.txt", abi.AccessRead); err != nil || path != filepath.Join(abs("/work"), "notes.txt") {
 		t.Fatal(path, err)
 	}
 }
 func TestGuardRejectsResolvedEscapeAndNoResolver(t *testing.T) {
-	for _, resolved := range []string{"/outside/file", "/work/.env.local", "relative"} {
-		guard, _ := NewGuard("/work", nil, PathResolverFunc(func(context.Context, string, abi.Access) (string, error) { return resolved, nil }), nil)
+	for _, resolved := range []string{abs("/outside/file"), abs("/work/.env.local"), "relative"} {
+		guard, err := NewGuard(abs("/work"), nil, PathResolverFunc(func(context.Context, string, abi.Access) (string, error) { return resolved, nil }), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if _, err := guard.CheckPath(context.Background(), "safe", abi.AccessRead); err == nil {
 			t.Fatal("resolver escape allowed", resolved)
 		}
 	}
-	guard, _ := NewGuard("/work", nil, nil, nil)
+	guard, err := NewGuard(abs("/work"), nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := guard.CheckPath(context.Background(), "safe", abi.AccessRead); err == nil {
 		t.Fatal("lexical check pretended to be sandbox")
 	}
@@ -91,8 +98,11 @@ func TestLateApprovalAfterCancellationCannotCache(t *testing.T) {
 }
 func TestGuardAuthorizePlanAndReadOnlyExtraRoot(t *testing.T) {
 	manager := NewPermissionManager(Plan, nil)
-	guard, _ := NewGuard("/work", []AuthorizedRoot{{"/readonly", abi.AccessRead}}, PathResolverFunc(func(_ context.Context, path string, _ abi.Access) (string, error) { return path, nil }), manager)
-	if _, err := guard.CheckPath(context.Background(), "/readonly/a", abi.AccessWrite); err == nil {
+	guard, err := NewGuard(abs("/work"), []AuthorizedRoot{{abs("/readonly"), abi.AccessRead}}, PathResolverFunc(func(_ context.Context, path string, _ abi.Access) (string, error) { return path, nil }), manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := guard.CheckPath(context.Background(), abs("/readonly/a"), abi.AccessWrite); err == nil {
 		t.Fatal("read-only root writable")
 	}
 	execution := abi.ToolExecutionContext{SessionID: "s", RunID: "r", CallID: "c"}

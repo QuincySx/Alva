@@ -31,3 +31,4 @@ PermissionManager.ModeForSession/SetSessionMode仅供可信host显式控制单�
 | Invocation regression | `coalesce_test.go` | Once层间去重、16并发single-flight、执行/效果隔离与失效 |
 | Session modes | `session_mode_test.go` | mode/cache/flight仅目标会话失效，父/兄弟不受影响及显式全局重置 |
 | Callback boundaries | `boundary_test.go` | typed-nil pointer/func拒绝、optional nil保留、nil adapter报错与resolver取消/错误保留 |
+| Path fixtures | `paths_test.go` | `abs` 把斜杠式夹具路径变成当前平台的绝对路径（Windows 为 C:\…），Guard 构造不再静默失败 |
