@@ -112,3 +112,14 @@ func (l *Lock) Close() error {
 	l.once.Do(func() { l.err = errors.Join(unlockFile(l.file), l.file.Close()) })
 	return l.err
 }
+
+// CancelEffect reports whether err is what database/sql and the driver return
+// when the context of an in-flight statement or transaction ends: SQLite's bare
+// INTERRUPT result, or sql.ErrTxDone after database/sql rolled the transaction
+// back on that context. Neither carries the context's own error. It is only
+// meaningful to a caller that also observes its context done; such a caller
+// treats the failure as its own cancellation or deadline, not a storage fault.
+func CancelEffect(err error) bool {
+	var code sqlite3.ErrorCode
+	return errors.Is(err, sql.ErrTxDone) || errors.As(err, &code) && code == sqlite3.INTERRUPT
+}

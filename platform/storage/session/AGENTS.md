@@ -17,7 +17,7 @@ Owner/session identifiers are opaque, not paths. Owner is injected by trusted pr
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
 | Repository | repository.go | Private DB lifecycle, owner-bound session creation/open/list and run claims |
-| Durable facts | records.go | Atomic typed append, runtime reads and bounded forward/backward metadata pages with pairing/tool-time columns and search |
+| Durable facts | records.go | Atomic typed append, caller-context cancellation kept as the context error (ownCancellation, cancellation_test.go), runtime reads and bounded forward/backward metadata pages with pairing/tool-time columns and search |
 | Native admission | budget.go / budget_test.go | 后端私有条数/encoded/raw输入预算与原子拒绝；不扩充SDK契约 |
 | Bounded conversation reads | `conversation_tail.go` / `conversation_tail_test.go` | owner/session固定高水位、独立metadata与hash/protocol验证；最多512条/8MiB恢复硬上限；近期turn选择及省略提示在harness |
 | Explicit Inspector export | export.go / export_test.go | 固定各session高水位的versioned redacted JSONL，8MiB/2048 record/32session/8hop，typed link与causal index双验证；超限/坏hash无partial success，不取外部artifact或恢复runtime |

@@ -371,3 +371,25 @@ func TestForegroundInternalTimeoutIsNotRootUserCancellation(t *testing.T) {
 		t.Fatalf("internal command timeout mislabeled user cancellation: %v", err)
 	}
 }
+
+// A Stop that lands while a shell fact is being written is a cancelled Turn,
+// not a storage fault: the error must stay a bare cancellation so the engine
+// does not classify it as failed. A real storage error under a live context
+// keeps its typed SessionError meaning.
+func TestCancelledShellWriteIsCancellationNotSessionFailure(t *testing.T) {
+	f := newFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := f.p.append(ctx, "stdin_intent", map[string]any{"job_id": "x"})
+	if err == nil || !abi.OnlyCancellation(err) {
+		t.Fatalf("cancelled append = %v, want a bare cancellation", err)
+	}
+	storage := errors.New("disk full")
+	var se *abi.SessionError
+	if got := f.p.sessionFailure(context.Background(), "append shell x", storage); !errors.As(got, &se) {
+		t.Fatalf("live-context storage error lost its SessionError type: %v", got)
+	}
+	if got := f.p.sessionFailure(ctx, "append shell x", errors.Join(context.Canceled, storage)); !errors.As(got, &se) {
+		t.Fatalf("cancellation mixed with a storage fault must stay a SessionError: %v", got)
+	}
+}

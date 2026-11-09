@@ -15,6 +15,7 @@ import (
 
 	"github.com/QuincySx/Alva/platform/storage"
 	"github.com/QuincySx/Alva/platform/storage/redaction"
+	"github.com/QuincySx/Alva/platform/storage/sqlite"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -27,6 +28,23 @@ const maxRuntimeBytes = 64 << 20
 const runtimeRecordOverhead = 512
 
 func (s *Session) AppendRecords(ctx context.Context, input []abi.SessionRecord) ([]abi.SessionRecord, error) {
+	committed, err := s.appendRecords(ctx, input)
+	return committed, ownCancellation(ctx, err)
+}
+
+// ownCancellation restores the caller's own context error when that context
+// ended mid-operation. The driver reports its interrupt bare and database/sql
+// reports ErrTxDone after rolling back on the context, neither carrying the
+// context's error, so without this a user Stop or deadline landing inside a
+// storage call would look like a storage fault to every layer above.
+func ownCancellation(ctx context.Context, err error) error {
+	if err != nil && ctx.Err() != nil && sqlite.CancelEffect(err) {
+		return ctx.Err()
+	}
+	return err
+}
+
+func (s *Session) appendRecords(ctx context.Context, input []abi.SessionRecord) ([]abi.SessionRecord, error) {
 	r := s.repository
 	r.mu.Lock()
 	defer r.mu.Unlock()

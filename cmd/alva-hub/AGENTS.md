@@ -18,7 +18,7 @@ API key only via separate explicit regular/pipe Unix fd3..10 or portable --api-k
 |---|---|
 | main.go | Explicit grammar/configuration, private application owner, cold commands, resume/engine selection and REPL; preserve owner cancellation identity when bootstrap returns its own backend error, without backend-error matching |
 | turn_test.go | Actual committed Hub history and the existing finalAnswer reader reconstruct a large safe Pi reply from honest deltas without a process Inspector |
-| turn.go | Actual Runtime turn admission, scoped Alva/native permission deny/ask, explicit unsupported native-question cancel/join, timeout, bounded final-answer reconstruction and stdout errors |
+| turn.go | Actual Runtime turn admission, scoped Alva/native permission deny/ask, explicit unsupported native-question cancel/join, timeout, SQLite interrupt under the Turn deadline kept as DeadlineExceeded, bounded final-answer reconstruction and stdout errors |
 | input_windows.go / input_other.go | Windows文件/pipe不readahead的真正取消分发，其他平台保留既有owned scanner，不靠借用handle Close伪造中止 |
 | input.go | Owned bounded command lines and terminal-safe output using the shared OS text primitive, no unjoined reader goroutine |
 | main_test.go | Real local SDK/provider resume, cold reads/REPL/switch, invalid configuration, permissions, cancellation and output ownership; owned Codex app-server argv/wire fixture and explicit exec compatibility without running installed user CLIs |

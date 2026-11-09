@@ -14,13 +14,14 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/platform/storage/sqlite"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
 
 const maxAnswer = 8 << 20
 
-func (c *cli) turn(parent context.Context, prompt string) error {
+func (c *cli) turn(parent context.Context, prompt string) (result error) {
 	if strings.TrimSpace(prompt) == "" || len(prompt) > 32<<10 || !utf8.ValidString(prompt) {
 		return errors.New("nonempty UTF-8 prompt must be<=32KiB")
 	}
@@ -35,6 +36,10 @@ func (c *cli) turn(parent context.Context, prompt string) error {
 	}
 	ctx, cancel := context.WithTimeout(parent, c.timeout)
 	defer cancel()
+	// SQLite reports an interrupt caused by this Turn's own deadline or Stop as a
+	// bare driver error; keep the owner's cancellation identity so a timeout is
+	// never mistaken for (or printed as) another failure.
+	defer func() { result = ownTurnCancellation(ctx, result) }()
 	// The CLI process owns this execution: its timeout cancels the run, and
 	// Stop names the identity this admission returned.
 	start, err := turns.Start(ctx, c.session, prompt)
@@ -134,6 +139,15 @@ func (c *cli) turn(parent context.Context, prompt string) error {
 			}
 		}
 	}
+}
+
+// ownTurnCancellation joins the Turn context's error onto a bare SQLite
+// cancellation side effect so exit handling sees DeadlineExceeded/Canceled.
+func ownTurnCancellation(ctx context.Context, err error) error {
+	if err != nil && ctx.Err() != nil && sqlite.CancelEffect(err) && !errors.Is(err, ctx.Err()) {
+		return errors.Join(err, ctx.Err())
+	}
+	return err
 }
 
 func (c *cli) finalAnswer(ctx context.Context, turn string, after uint64) (string, error) {

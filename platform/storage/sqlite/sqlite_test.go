@@ -6,11 +6,14 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
+	"github.com/ncruces/go-sqlite3"
 	"github.com/ncruces/go-sqlite3/driver"
 	"github.com/ncruces/go-sqlite3/vfs"
 
@@ -185,4 +188,33 @@ func TestRejectsWideOrLinkedFilesWithoutChangingThem(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestCancelEffectRecognisesInterruptAndDoneTransactionOnly(t *testing.T) {
+	db, err := Open(t.Context(), privateTestDir(t), "cancel.sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	// database/sql rolls the transaction back asynchronously on cancel.
+	var last error
+	for i := 0; i < 200 && !CancelEffect(last); i++ {
+		_, last = tx.ExecContext(context.Background(), "SELECT 1")
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !CancelEffect(last) {
+		t.Fatalf("a transaction rolled back by its context is not recognised: %v", last)
+	}
+	if CancelEffect(errors.New("disk full")) || CancelEffect(nil) || CancelEffect(context.Canceled) {
+		t.Fatal("unrelated errors recognised as a cancellation side effect")
+	}
+	if !CancelEffect(fmt.Errorf("wrapped: %w", sqlite3.INTERRUPT)) {
+		t.Fatal("wrapped SQLite INTERRUPT not recognised")
+	}
 }

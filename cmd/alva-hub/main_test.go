@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,7 @@ import (
 	productstore "github.com/QuincySx/Alva/apps/hub/sqlite"
 	"github.com/QuincySx/Alva/integration/engine"
 	privatefs "github.com/QuincySx/Alva/platform/system/privatefs"
+	"github.com/ncruces/go-sqlite3"
 )
 
 func TestMain(m *testing.M) {
@@ -622,5 +624,23 @@ func TestPiConfigurationAndTransportColdCLIAdmission(t *testing.T) {
 		if _, err := os.Stat(directory); !os.IsNotExist(err) {
 			t.Fatal("invalid Pi source/transport created storage", err)
 		}
+	}
+}
+
+func TestTurnDeadlineKeepsIdentityOverBareSQLiteInterrupt(t *testing.T) {
+	expired, cancel := context.WithTimeout(t.Context(), time.Nanosecond)
+	defer cancel()
+	<-expired.Done()
+	for _, effect := range []error{sqlite3.INTERRUPT, sql.ErrTxDone} {
+		if err := ownTurnCancellation(expired, fmt.Errorf("pending approvals: %w", effect)); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%v lost the deadline identity: %v", effect, err)
+		}
+	}
+	disk := errors.New("disk full")
+	if err := ownTurnCancellation(expired, disk); errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("an unrelated failure was relabelled as a timeout", err)
+	}
+	if err := ownTurnCancellation(t.Context(), sqlite3.INTERRUPT); errors.Is(err, context.Canceled) || err == nil {
+		t.Fatal("a live context must not rewrite the error", err)
 	}
 }

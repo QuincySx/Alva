@@ -102,6 +102,11 @@ func putArtifactTx(ctx context.Context, tx *sql.Tx, id string, input storage.Art
 }
 
 func (r *Repository) PutArtifact(ctx context.Context, owner, id string, input storage.ArtifactInput) (storage.ArtifactInfo, error) {
+	info, err := r.putArtifact(ctx, owner, id, input)
+	return info, ownCancellation(ctx, err)
+}
+
+func (r *Repository) putArtifact(ctx context.Context, owner, id string, input storage.ArtifactInput) (storage.ArtifactInfo, error) {
 	if input.Kind == "typed-record-json" {
 		return storage.ArtifactInfo{}, errors.New("typed record artifacts are owned by AppendRecords")
 	}

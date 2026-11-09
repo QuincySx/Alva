@@ -30,4 +30,4 @@ Sessions.List与私有job snapshot均在锁内复制Task开始/结束时间和Ex
 | 任务 | `job.go` | 实际 Task/进程、完整脱敏帧/输入、真实收尾 |
 | 工具 | `tools.go` | 启动/输出分页/写 stdin/终止的真实消费者 |
 | 调用收尾回归 | `cleanup_test.go` | 审批/后台stdin管理的取消、超时保留及真实join，歧义参数拒绝 |
-| 回归 | `plugin_test.go` | 实际前后台输入输出/终止/超时、跨Agent全局lease、晚清理与装配顺序/身份门禁 |
+| 回归 | `plugin_test.go` | 实际前后台输入输出/终止/超时、跨Agent全局lease、晚清理与装配顺序/身份门禁、用户Stop落在写事实途中保持取消而非SessionError |

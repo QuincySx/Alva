@@ -74,7 +74,7 @@ func (p *Plugin) retain(ctx context.Context, kind, name string, raw []byte, fram
 	}
 	info, err := p.config.Repository.PutArtifact(ctx, p.config.Owner, p.config.SessionID, storage.ArtifactInput{Kind: kind, Name: name, MediaType: "application/json", Processing: "Captured frame envelope describes exact framing/redaction/omission; known fields and explicitly configured environment values redacted; binary explicitly base64; no automatic model delivery", Data: clean, Text: true})
 	if err != nil {
-		return wire.Reference{}, &abi.SessionError{Operation: "retain shell " + kind, SessionID: p.config.SessionID, Err: err}
+		return wire.Reference{}, p.sessionFailure(ctx, "retain shell "+kind, err)
 	}
 	return info.Reference(), nil
 }

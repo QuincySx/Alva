@@ -11,7 +11,7 @@ Existing final symlinks, non-regular/hardlinked files, foreign ownership or broa
 ## 业务域清单
 | 名称 | 文件/子目录 | 职责 |
 |---|---|---|
-| Database | sqlite.go | Safe path setup and configured native SQLite connection |
+| Database | sqlite.go | Safe path setup and configured native SQLite connection; `CancelEffect` recognises the bare INTERRUPT / `sql.ErrTxDone` a done context leaves behind so owners can keep their cancellation identity |
 | Unix ownership | private_unix.go | Exclusive advisory process lock; UID/link checks are system/privatefs primitives |
 | Windows ownership | private_windows.go | Actual LockFileEx/UnlockFileEx; private path/file checks are system/privatefs |
 | Windows regressions | private_windows_test.go | 真实跨进程排他/释放、SQLite持久重开、底层文件DACL检查 |

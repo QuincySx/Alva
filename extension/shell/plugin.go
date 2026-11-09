@@ -363,10 +363,21 @@ func (p *Plugin) append(ctx context.Context, kind string, value any) error {
 		_, err = p.log.AppendRecords(ctx, []abi.SessionRecord{record})
 	}
 	if err != nil {
-		return &abi.SessionError{Operation: "append shell " + kind, SessionID: p.config.SessionID, Err: err}
+		return p.sessionFailure(ctx, "append shell "+kind, err)
 	}
 	if err = p.log.Flush(ctx); err != nil {
-		return &abi.SessionError{Operation: "flush shell " + kind, SessionID: p.config.SessionID, Err: err}
+		return p.sessionFailure(ctx, "flush shell "+kind, err)
 	}
 	return nil
+}
+
+// sessionFailure wraps a storage error as a typed SessionError, except when the
+// caller's own context ended and the error is nothing but that cancellation:
+// a user Stop that lands mid-write is a cancelled Turn, not a storage fault,
+// and a typed SessionError would make the engine classify it as failed.
+func (p *Plugin) sessionFailure(ctx context.Context, operation string, err error) error {
+	if ctx.Err() != nil && abi.OnlyCancellation(err) {
+		return err
+	}
+	return &abi.SessionError{Operation: operation, SessionID: p.config.SessionID, Err: err}
 }
