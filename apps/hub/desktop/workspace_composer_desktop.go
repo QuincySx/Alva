@@ -6,6 +6,8 @@
 package hubdesktop
 
 import (
+	"strings"
+
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
@@ -53,19 +55,30 @@ func (p *NativePage) workspaceComposerLoading() bool {
 	return p.selected != "" && (p.detail.Session.ID != p.selected || p.chat.Busy && !p.busy && !p.workspaceComposerRunning() && p.detail.Session.Status != engine.Waiting)
 }
 
+// workspaceComposerKey is the composer's text-key owner. Enter sends and
+// Shift+Enter breaks the line; the platform Cmd/Ctrl+Enter still sends. Three
+// guards keep Enter from sending: an input method composing (Enter picks a
+// candidate there), an open completion menu (Enter picks an entry), and a
+// composer that cannot send right now (the draft is kept and Enter keeps its
+// old line-break meaning; a blank draft takes no stray newline).
 func (p *NativePage) workspaceComposerKey(k ui.TextKey) bool {
-	if k.Key == ui.KeyEnter && k.Mods == ui.Cmd {
+	if k.Key == ui.KeyEnter && (k.Mods == ui.Cmd || k.Mods == 0 && !p.picker.open) {
 		if p.picker.open || p.picker.composing {
 			return true
 		}
 		// TextKey includes input queued before this key. Do not send the
 		// previous frame's draft or clear text before the real receipt.
-		p.model.Draft = k.Text()
+		draft := k.Text()
+		if k.Mods == 0 && strings.TrimSpace(draft) == "" {
+			return true // Enter on a blank draft neither sends nor adds a line
+		}
+		p.model.Draft = draft
 		p.markWorkspaceDraftEdited()
 		if p.workspaceComposerSendProblem() == "" {
 			p.sendWorkspaceDraft()
+			return true
 		}
-		return true
+		return k.Mods == ui.Cmd // a blocked Enter stays a line break; a blocked Cmd+Enter is taken
 	}
 	return p.workspacePickerKey(k)
 }
@@ -106,7 +119,7 @@ func (p *NativePage) workspaceComposerSendProblem() string {
 		return "消息超过 32 KiB，请缩短内容或添加文件。"
 	}
 	if !p.model.CanSend() {
-		return "请输入消息后发送；Enter 换行。"
+		return "请输入消息后发送；Shift+Enter 换行。"
 	}
 	return ""
 }
@@ -281,11 +294,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 				} else {
 					hint, enabled := p.workspaceComposerSendProblem(), false
 					if hint == "" {
-						shortcut := "Ctrl+Enter"
-						if ui.Cmd == ui.Super {
-							shortcut = "⌘+Enter"
-						}
-						hint, enabled = "发送消息；"+shortcut+" 发送，Enter 换行。", true
+						hint, enabled = "发送消息；Enter 发送，Shift+Enter 换行。", true
 					}
 					p.workspaceComposerAction(c.Key("send"), "arrow-up", "Send", hint, !enabled, enabled || p.busy, p.busy, p.sendWorkspaceDraft)
 				}

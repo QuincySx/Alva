@@ -46,6 +46,14 @@ const (
 )
 
 const (
+	DefaultSessionTitle = "新任务"
+
+	generatedTitleRunes = 32
+
+	maxRenameRunes = 64
+)
+
+const (
 	InteractionKindPermission InteractionKind = "permission"
 	InteractionKindQuestion   InteractionKind = "question"
 )
@@ -125,6 +133,8 @@ const ChartInstructions = "Charts: when a chart clearly helps, put one JSON obje
 
 const ComposerIntentPlan ComposerIntent = "plan"
 
+const ContinuePrompt = "请从上次被中断的位置继续完成刚才的回复，不要重复已经给出的内容。"
+
 const MCPProbeToolLimit = 256
 
 const ManagedSkillDirectory = ".alva/skills"
@@ -191,6 +201,8 @@ func (b *composerReferences) StoreText(ctx context.Context, text string) (wire.R
 
 func (b reviewedWaitBackend) Commit(ctx context.Context, revision uint64, state durable.State, messages []wire.Message) (durable.Snapshot, error)
 
+func (c *ConversationService) Delete(ctx context.Context, id string) error
+
 func (c *ConversationService) Detail(ctx context.Context, id string) (hub.Detail, error)
 
 func (c *ConversationService) Handoff(ctx context.Context, id, handoffID string) (*hub.Handoff, error)
@@ -201,9 +213,15 @@ func (c *ConversationService) HistoryBefore(ctx context.Context, id string, befo
 
 func (c *ConversationService) Page(ctx context.Context, query string, cursor hub.SessionCursor, limit int) (hub.SessionPage, error)
 
+func (c *ConversationService) Pinned(ctx context.Context) ([]hub.Session, error)
+
 func (c *ConversationService) ReadArtifact(ctx context.Context, id, branchID, uri string, offset int64) (storage.ArtifactPage, error)
 
 func (c *ConversationService) ReadNativeRecord(ctx context.Context, id string, reference engine.Reference, maxBytes int64) (abi.SessionRecord, error)
+
+func (c *ConversationService) Rename(ctx context.Context, id, title string) error
+
+func (c *ConversationService) SetPinned(ctx context.Context, id string, pinned bool) error
 
 func (d DraftAttachment) DraftSelection() DraftReferenceSelection
 
@@ -721,6 +739,8 @@ func (t *TurnService) Active(id string) (executionID string, active bool)
 
 func (t *TurnService) AnyActive() bool
 
+func (t *TurnService) Continue(ctx context.Context, id string) (TurnStart, error)
+
 func (t *TurnService) Engine(id string) (engine.Description, bool)
 
 func (t *TurnService) Engines() []engine.Description
@@ -839,7 +859,11 @@ func NewWorkspaceViewsService(store hub.WorkspaceViewStore) (*WorkspaceViewsServ
 
 func ParseChart(source string) (Chart, error)
 
+func RenameTitle(text string) (string, error)
+
 func SelectedComposerFile(f hub.ComposerFile) ComposerFileSelection
+
+func SessionTitle(explicit, prompt string) string
 
 func StagePinnedAEP(ctx context.Context, entry hub.AEPBundle, parent string) (*loader.Bundle, error)
 
@@ -1526,6 +1550,15 @@ import (
 
 	mediaextension "github.com/QuincySx/Alva/extension/media"
 	"github.com/QuincySx/Alva/platform/storage"
+)
+
+import (
+	"errors"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/QuincySx/Alva/apps/hub"
 )
 
 import (
@@ -2293,6 +2326,8 @@ var ErrFingerprintRequired = errors.New("启用需要宿主访问的开关时，
 var ErrHostApprovalRequired = errors.New("启用需要宿主访问的开关时，请在同一请求里明确批准宿主访问（host_access_approved）。")
 
 var ErrNoWorkspaceToApprove = errors.New("这个任务没有保存的工作区，无法批准宿主访问。")
+
+var ErrNothingToContinue = hub.ErrNothingToContinue
 
 var ErrRouteUnavailable = errors.New("route changed or is unavailable; select a current configured route")
 

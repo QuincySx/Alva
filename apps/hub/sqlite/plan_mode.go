@@ -32,7 +32,7 @@ func checkPlanTarget(ctx context.Context, tx *sql.Tx, sessionID string, target h
 func (s *Store) SetPlanMode(ctx context.Context, id string, enabled bool) (result error) {
 	defer func() { result = normalizeStoreError(result) }()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}

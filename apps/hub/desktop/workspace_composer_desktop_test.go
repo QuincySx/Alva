@@ -44,7 +44,7 @@ func TestWorkspaceComposerRequiresExplicitBoundedInput(t *testing.T) {
 	}
 	tester.Type("中文草稿")
 	tester.Compose("", 0)
-	tester.Key(0, ui.KeyEnter)
+	tester.Key(ui.Shift, ui.KeyEnter) // Shift+Enter breaks the line; plain Enter sends
 	tester.Type("第二行🙂")
 	want := "中文草稿\n第二行🙂"
 	if p.model.Draft != want || service.Runtime.HasActive() || len(requests) != 0 {
@@ -347,7 +347,7 @@ func TestWorkspaceComposerTooltipsExplainDisabledActionsAndActualPolicy(t *testi
 	}
 	tester.Move(send.X+send.W/2, send.Y+send.H/2)
 	tester.Advance(time.Second)
-	if !tester.HasText("请输入消息后发送；Enter 换行。") {
+	if !tester.HasText("请输入消息后发送；Shift+Enter 换行。") {
 		t.Fatal("disabled Send does not explain its actual empty-draft reason on hover")
 	}
 	if err := tester.Click("Message"); err != nil {
@@ -356,7 +356,7 @@ func TestWorkspaceComposerTooltipsExplainDisabledActionsAndActualPolicy(t *testi
 	for i := 0; i < 8 && !tester.Focused("Send unavailable"); i++ {
 		tester.Key(0, ui.KeyTab)
 	}
-	if !tester.Focused("Send unavailable") || !tester.HasText("请输入消息后发送；Enter 换行。") {
+	if !tester.Focused("Send unavailable") || !tester.HasText("请输入消息后发送；Shift+Enter 换行。") {
 		t.Fatal("keyboard users cannot focus the disabled Send explanation")
 	}
 	p.busy = true

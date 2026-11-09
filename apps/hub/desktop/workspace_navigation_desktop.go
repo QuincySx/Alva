@@ -231,7 +231,16 @@ type workspaceNavigationRow struct {
 }
 
 func (p *NativePage) workspaceNavigationRows() []workspaceNavigationRow {
-	rows := []workspaceNavigationRow{{kind: "heading", key: "projects-heading", label: "项目"}}
+	rows := []workspaceNavigationRow{}
+	pinnedIDs := make(map[string]bool, len(p.sessionOps.pinned))
+	if len(p.sessionOps.pinned) > 0 {
+		rows = append(rows, workspaceNavigationRow{kind: "heading", key: "pinned-heading", label: "置顶"})
+		for _, session := range p.sessionOps.pinned {
+			pinnedIDs[session.ID] = true
+			rows = append(rows, workspaceNavigationRow{kind: "pinned", key: "pinned:" + session.ID, label: p.sessionLabel(session), session: session})
+		}
+	}
+	rows = append(rows, workspaceNavigationRow{kind: "heading", key: "projects-heading", label: "项目"})
 	v := &p.navigation
 	if v.loading {
 		rows = append(rows, workspaceNavigationRow{kind: "status", key: "projects-loading", label: "正在加载项目…"})
@@ -287,6 +296,9 @@ func (p *NativePage) workspaceNavigationRows() []workspaceNavigationRow {
 		rows = append(rows, workspaceNavigationRow{kind: "status", key: "recent-empty", label: label})
 	}
 	for _, session := range p.sessions {
+		if pinnedIDs[session.ID] {
+			continue // already shown in the pinned group
+		}
 		rows = append(rows, workspaceNavigationRow{kind: "recent", key: "recent:" + session.ID, label: p.sessionLabel(session), session: session})
 	}
 	if len(p.sessionBack) > 0 || p.sessionPage.HasMore {
@@ -329,8 +341,8 @@ func (p *NativePage) buildWorkspaceNavigation(c *ui.Context) {
 		case "project":
 			p.workspaceNavigationAction(c, r.key, r.label, "folder", false).Tooltip(r.project.Path).
 				Disabled(p.navigation.loading || p.navigation.query != p.sessionQuery).OnClick(func() { p.toggleWorkspaceProject(r.path) })
-		case "session", "recent":
-			p.buildWorkspaceNavigationSession(c, r.session, r.kind == "recent")
+		case "session", "recent", "pinned":
+			p.buildWorkspaceNavigationSession(c, r.session, r.kind == "recent", r.key)
 		case "files":
 			p.workspaceNavigationAction(c, r.key, r.label, "folder", false).
 				Disabled(p.busy || p.Service.WorkspaceViews == nil).OnClick(func() { p.openWorkspaceSessionChooserForSession("resources", r.session.ID) })

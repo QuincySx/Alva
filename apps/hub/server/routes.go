@@ -53,6 +53,21 @@ func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route 
 			return
 		}
 		respond(w, 202, map[string]string{"turn_id": start.TurnID, "execution_id": start.ExecutionID, "status": "admitted"})
+	case "continue":
+		if r.Method != http.MethodPost {
+			fail(w, 405)
+			return
+		}
+		if _, err := query(r); err != nil {
+			fail(w, 400)
+			return
+		}
+		start, err := s.service.Turns.Continue(r.Context(), id)
+		if err != nil {
+			operationError(w, err)
+			return
+		}
+		respond(w, 202, map[string]string{"turn_id": start.TurnID, "execution_id": start.ExecutionID, "status": "admitted"})
 	case "execution":
 		if r.Method != http.MethodGet {
 			fail(w, 405)

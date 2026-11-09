@@ -6,9 +6,6 @@
 package hubdesktop
 
 import (
-	"strings"
-	"unicode/utf8"
-
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
@@ -68,10 +65,7 @@ func (p *NativePage) sendWorkspaceDraftReady(firstDraft workspaceDraftSubmission
 		return
 	}
 	target := p.workspaceComposerTarget()
-	title := strings.SplitN(strings.TrimSpace(prompt), "\n", 2)[0]
-	if utf8.RuneCountInString(title) > 32 {
-		title = string([]rune(title)[:32]) + "…"
-	}
+	title := product.SessionTitle("", prompt)
 	selections := p.captureWorkspaceSelections()
 	references := p.captureWorkspaceReferences()
 	homePlan := p.workspacePlanEnabled()

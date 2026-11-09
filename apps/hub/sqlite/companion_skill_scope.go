@@ -19,7 +19,7 @@ func (s *Store) SetCompanionSkills(ctx context.Context, id string, scope *hub.Co
 		return err
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}

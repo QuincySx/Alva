@@ -65,4 +65,5 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | server | 认证 loopback HTTP/SSE，同源 product 服务与耐久游标，不接客户端 host path |
 | devtools | 独立只读stdio MCP诊断；显式Hub/token fd，真实bounded历史index/typed Inspector/2KiB读取，不启动或修改Agent |
 | composer_execution.go / composer_execution_test.go | 可选原子Composer准入端口、原始正文与模型输入分开、同Runtime typed文件/Skill冻结与能力安全fallback，不扩大六方法执行存储 |
+| model.go（M2会话管理） | Session增Pinned/DeletedAt（软删除：列表、搜索、导航、通知都不再见，产品与原生数据保留）、MaxPinnedSessions=32、ErrSessionRunning/ErrPinnedBudget；SessionStore增PinnedSessions/LatestTurn/RenameSession/PinSession/DeleteSession；Turn与HistoryEntry增Origin（空或continue），ComposerTurnInput.Origin与Runtime.StartComposerOnBranchOwned（返回Stop需要的执行身份） |
 | engine_interactions.go | 只观察已提交pending与实际owner四项binding；成功回调仅隐藏原请求到真实resolved事实，失败可重试，旧回执不能重新发现替代owner |

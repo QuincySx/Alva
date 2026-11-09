@@ -157,6 +157,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(w, detail, err)
 		return
 	}
+	if len(parts) == 3 && (r.Method == http.MethodPatch || r.Method == http.MethodDelete) {
+		s.manageSession(w, r, id)
+		return
+	}
 	if len(parts) < 4 {
 		fail(w, 405)
 		return
@@ -207,12 +211,13 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		}
 		var value struct {
 			Title     string `json:"title"`
+			Prompt    string `json:"prompt"`
 			Workspace string `json:"workspace"`
 		}
 		if !decode(w, r, &value, 64<<10) {
 			return
 		}
-		result, err := s.service.Create(r.Context(), value.Title, value.Workspace)
+		result, err := s.service.Create(r.Context(), product.SessionTitle(value.Title, value.Prompt), value.Workspace)
 		if err != nil {
 			operationError(w, err)
 			return
@@ -338,4 +343,53 @@ func operationError(w http.ResponseWriter, err error) {
 
 func (s *Server) targetAllowed(target hub.Target) bool {
 	return product.ValidateConfiguredTarget(target, s.availableTargets()) == nil
+}
+
+// manageSession renames, pins or soft-deletes one session. The product
+// service owns every rule (title bounds, pinned budget, refusing a running
+// session); this only decodes.
+func (s *Server) manageSession(w http.ResponseWriter, r *http.Request, id string) {
+	if _, err := query(r); err != nil {
+		fail(w, 400)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		if err := s.service.Conversations.Delete(r.Context(), id); err != nil {
+			operationError(w, err)
+			return
+		}
+		respond(w, 200, map[string]string{"status": "deleted"})
+		return
+	}
+	var v struct {
+		Title  *string `json:"title"`
+		Pinned *bool   `json:"pinned"`
+	}
+	if !decode(w, r, &v, 4<<10) {
+		return
+	}
+	if v.Title == nil && v.Pinned == nil {
+		fail(w, 400)
+		return
+	}
+	if v.Title != nil {
+		if _, err := product.RenameTitle(*v.Title); err != nil {
+			fail(w, 400)
+			return
+		}
+	}
+	if v.Title != nil {
+		if err := s.service.Conversations.Rename(r.Context(), id, *v.Title); err != nil {
+			operationError(w, err)
+			return
+		}
+	}
+	if v.Pinned != nil {
+		if err := s.service.Conversations.SetPinned(r.Context(), id, *v.Pinned); err != nil {
+			operationError(w, err)
+			return
+		}
+	}
+	detail, err := s.service.Conversations.Detail(r.Context(), id)
+	reply(w, detail.Session, err)
 }

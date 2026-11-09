@@ -11,6 +11,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/QuincySx/Alva/integration/engine"
 )
@@ -123,7 +124,48 @@ type Session struct {
 	Status         engine.Outcome `json:"status"`
 	CreatedAt      int64          `json:"created_at"`
 	UpdatedAt      int64          `json:"updated_at"`
+	// Pinned keeps the session in the sidebar's pinned group. It never changes
+	// UpdatedAt, so pinning does not reorder recent history.
+	Pinned bool `json:"pinned,omitempty"`
+	// DeletedAt marks a soft delete: every list, search and navigation read
+	// skips the session while its product and native data stay on disk.
+	DeletedAt int64 `json:"deleted_at,omitempty"`
 }
+
+// TitleHasControl reports whether a title holds a control or format rune: C0/C1
+// controls (including a lone CR and NUL), line and paragraph separators, and
+// bidi/zero-width format characters that can disguise or reorder text.
+func TitleHasControl(title string) bool {
+	for _, r := range title {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
+			return true
+		}
+	}
+	return false
+}
+
+// MaxPinnedSessions bounds the pinned group; pinning past it is refused.
+const MaxPinnedSessions = 32
+
+// ErrSessionRunning refuses a management change (delete) while the session
+// still owns an execution or is waiting on a human decision.
+var ErrSessionRunning = errors.New("session is running; stop it before deleting")
+
+// ErrSessionHasWorkers refuses a delete while a Team Worker led by the session
+// still runs or waits; stop the Workers first.
+var ErrSessionHasWorkers = errors.New("session still has running Team Workers; stop them before deleting")
+
+// AutomationDeletedReason is stored as the paused automation's LastError when
+// its owning session is deleted, so the automation list can say why.
+const AutomationDeletedReason = "所属会话已删除"
+
+// ErrNothingToContinue refuses a continue Turn unless the session's newest
+// Turn was stopped; the store checks it in the admission transaction.
+var ErrNothingToContinue = errors.New("only a stopped reply can be continued")
+
+// ErrPinnedBudget reports a full pinned group.
+var ErrPinnedBudget = errors.New("pinned session budget exhausted")
+
 type SessionCursor struct {
 	Updated int64
 	ID      string
@@ -146,6 +188,9 @@ type Branch struct {
 	RoutesSeen map[string]RouteSeen `json:"routes_seen,omitempty"`
 }
 type Turn struct {
+	// Origin is empty for an ordinary prompt and "continue" for a turn the
+	// product started to continue a stopped reply.
+	Origin          string              `json:"origin,omitempty"`
 	ID              string              `json:"id"`
 	AutomationID    string              `json:"automation_id,omitempty"`
 	SessionID       string              `json:"session_id"`
@@ -185,6 +230,8 @@ type Detail struct {
 	Fallback []Target `json:"fallback"`
 }
 type HistoryEntry struct {
+	// Origin mirrors Turn.Origin on the turn's input entry.
+	Origin      string              `json:"origin,omitempty"`
 	Input       string              `json:"input,omitempty"`
 	InputFiles  []engine.InputFile  `json:"input_files,omitempty"`
 	InputSkills []engine.InputSkill `json:"input_skills,omitempty"`
@@ -293,6 +340,19 @@ type SessionStore interface {
 	CreateSession(context.Context, string, string, Target) (Session, error)
 	ListSessions(context.Context, int) ([]Session, error)
 	PageSessions(context.Context, string, SessionCursor, int) (SessionPage, error)
+	// PinnedSessions lists the pinned, not-deleted ordinary sessions
+	// (at most MaxPinnedSessions).
+	PinnedSessions(context.Context) ([]Session, error)
+	// LatestTurn is the session's newest Turn, or ErrNotFound when it has none.
+	LatestTurn(ctx context.Context, id string) (Turn, error)
+	// DetailIncludingDeleted is the internal read that still sees a soft-deleted
+	// session; every other read answers ErrNotFound for it.
+	DetailIncludingDeleted(ctx context.Context, id string) (Detail, error)
+	RenameSession(ctx context.Context, id, title string) error
+	PinSession(ctx context.Context, id string, pinned bool) error
+	// DeleteSession soft-deletes one idle session. It refuses a running or
+	// waiting one with ErrSessionRunning and keeps every stored fact.
+	DeleteSession(ctx context.Context, id string) error
 	Switch(context.Context, string, Target, string) (Branch, error)
 	SetFallback(context.Context, string, []Target) error
 	History(context.Context, string, uint64, int) ([]HistoryEntry, error)

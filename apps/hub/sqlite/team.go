@@ -76,7 +76,7 @@ func (s *Store) CreateTeam(ctx context.Context, lead string) (providerResult0 hu
 	}()
 	var d hub.TeamDetail
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		if _, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, lead); err != nil {
+		if _, err := read[hub.Session](ctx, tx, liveSessionQuery, lead); err != nil {
 			return err
 		}
 		var worker int
@@ -150,7 +150,7 @@ func (s *Store) AddWorker(ctx context.Context, lead, team, name string, target h
 		if count >= 16 {
 			return errors.New("team has reached 16 durable workers")
 		}
-		parent, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, lead)
+		parent, err := read[hub.Session](ctx, tx, liveSessionQuery, lead)
 		if err != nil {
 			return err
 		}
@@ -206,7 +206,7 @@ func (s *Store) SetWorkerLifecycle(ctx context.Context, lead, team, id string, s
 		if err != nil {
 			return err
 		}
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, w.SessionID)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, w.SessionID)
 		if err != nil {
 			return err
 		}
@@ -233,7 +233,7 @@ func (s *Store) EndTeam(ctx context.Context, lead, id string) (providerResult0 e
 			return errors.New("team already ended")
 		}
 		for _, w := range d.Workers {
-			child, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, w.SessionID)
+			child, err := read[hub.Session](ctx, tx, liveSessionQuery, w.SessionID)
 			if err != nil {
 				return err
 			}
@@ -352,7 +352,7 @@ func (s *Store) enqueueWorker(ctx context.Context, lead, team, id, requiredBranc
 			return errors.New("archived Worker requires explicit restore")
 		}
 		if requiredBranch != "" {
-			current, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, w.SessionID)
+			current, err := read[hub.Session](ctx, tx, liveSessionQuery, w.SessionID)
 			if err != nil {
 				return err
 			}
@@ -556,7 +556,7 @@ func (s *Store) ClaimWorkerTask(ctx context.Context, lead, team, worker string) 
 			return err
 		}
 		result.Task = task
-		current, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, w.SessionID)
+		current, err := read[hub.Session](ctx, tx, liveSessionQuery, w.SessionID)
 		if err != nil {
 			return err
 		}

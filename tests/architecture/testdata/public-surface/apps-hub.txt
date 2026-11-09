@@ -66,6 +66,8 @@ const (
 	WorkerArchived   WorkerLifecycle = "archived"
 )
 
+const AutomationDeletedReason = "所属会话已删除"
+
 const ComposerFileChunkBytes = 256 << 10
 
 const ComposerFileReadBytes = 64 << 10
@@ -78,9 +80,13 @@ const MaxComposerExtractedBytes int64 = 2 << 20
 
 const MaxComposerFileBytes int64 = 256 << 20
 
+const MaxPinnedSessions = 32
+
 const Running engine.Outcome = "running"
 
 const TaskQueued engine.Outcome = "queued"
+
+const TurnOriginContinue = "continue"
 
 func (ConnectionSecrets) GoString() string
 
@@ -200,6 +206,8 @@ func (r *Runtime) StartAutomation(owner, admission context.Context, tick Automat
 
 func (r *Runtime) StartComposerOnBranch(owner context.Context, id, branch string, input ComposerTurnInput) (string, <-chan error, error)
 
+func (r *Runtime) StartComposerOnBranchOwned(owner context.Context, id, branch string, input ComposerTurnInput) (string, string, <-chan error, error)
+
 func (r *Runtime) StartOnBranch(owner context.Context, sessionID, branchID, prompt string) (string, <-chan error, error)
 
 func (r *Runtime) StartOnBranchOwned(owner context.Context, sessionID, branchID, prompt string) (string, string, <-chan error, error)
@@ -315,6 +323,8 @@ func ResolveSettings(session Settings, app AppSettings, approvals []WorkspaceApp
 
 func RouteKey(target Target) string
 
+func TitleHasControl(title string) bool
+
 func ValidateAEP(entries []AEPBundle) error
 
 func ValidateTask(scope string, claims []ResourceClaim) error
@@ -335,6 +345,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/QuincySx/Alva/integration/engine"
 )
@@ -904,6 +915,7 @@ type ComposerFileStore interface {
 }
 
 type ComposerTurnInput struct {
+	Origin   string
 	Prompt   string
 	UserText string
 	Files    []engine.InputFile
@@ -1139,6 +1151,7 @@ type HandoffEntry struct {
 }
 
 type HistoryEntry struct {
+	Origin      string              `json:"origin,omitempty"`
 	Input       string              `json:"input,omitempty"`
 	InputFiles  []engine.InputFile  `json:"input_files,omitempty"`
 	InputSkills []engine.InputSkill `json:"input_skills,omitempty"`
@@ -1310,6 +1323,10 @@ type Session struct {
 	Status         engine.Outcome `json:"status"`
 	CreatedAt      int64          `json:"created_at"`
 	UpdatedAt      int64          `json:"updated_at"`
+
+	Pinned bool `json:"pinned,omitempty"`
+
+	DeletedAt int64 `json:"deleted_at,omitempty"`
 }
 
 type SessionCursor struct {
@@ -1351,6 +1368,16 @@ type SessionStore interface {
 	CreateSession(context.Context, string, string, Target) (Session, error)
 	ListSessions(context.Context, int) ([]Session, error)
 	PageSessions(context.Context, string, SessionCursor, int) (SessionPage, error)
+
+	PinnedSessions(context.Context) ([]Session, error)
+
+	LatestTurn(ctx context.Context, id string) (Turn, error)
+
+	DetailIncludingDeleted(ctx context.Context, id string) (Detail, error)
+	RenameSession(ctx context.Context, id, title string) error
+	PinSession(ctx context.Context, id string, pinned bool) error
+
+	DeleteSession(ctx context.Context, id string) error
 	Switch(context.Context, string, Target, string) (Branch, error)
 	SetFallback(context.Context, string, []Target) error
 	History(context.Context, string, uint64, int) ([]HistoryEntry, error)
@@ -1519,6 +1546,7 @@ type ToolSettingsStore interface {
 }
 
 type Turn struct {
+	Origin          string              `json:"origin,omitempty"`
 	ID              string              `json:"id"`
 	AutomationID    string              `json:"automation_id,omitempty"`
 	SessionID       string              `json:"session_id"`
@@ -1775,13 +1803,21 @@ var ErrModelPreferenceConflict = errors.New("model preference changed; reload be
 
 var ErrNotFound = errors.New("product object is unavailable in this scope")
 
+var ErrNothingToContinue = errors.New("only a stopped reply can be continued")
+
+var ErrPinnedBudget = errors.New("pinned session budget exhausted")
+
 var ErrPreferenceConflict = errors.New("preferences changed; reload before saving")
 
 var ErrSessionBusy = errors.New("Hub session already running")
 
+var ErrSessionHasWorkers = errors.New("session still has running Team Workers; stop them before deleting")
+
 var ErrSessionModelOptionsConflict = errors.New("session model options changed; reload before saving")
 
 var ErrSessionNotRunning = errors.New("Hub session is not running")
+
+var ErrSessionRunning = errors.New("session is running; stop it before deleting")
 
 var ErrWorkerDormant = errors.New("Worker is dormant or Team has ended")
 

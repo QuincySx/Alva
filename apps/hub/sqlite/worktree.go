@@ -25,11 +25,11 @@ func worktreeWorker(ctx context.Context, tx *sql.Tx, lead, team, worker string) 
 	if err != nil {
 		return w, hub.Session{}, hub.Session{}, err
 	}
-	parent, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, lead)
+	parent, err := read[hub.Session](ctx, tx, liveSessionQuery, lead)
 	if err != nil {
 		return w, parent, hub.Session{}, err
 	}
-	child, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, w.SessionID)
+	child, err := read[hub.Session](ctx, tx, liveSessionQuery, w.SessionID)
 	if err != nil {
 		return w, parent, child, err
 	}
@@ -96,11 +96,11 @@ func (s *Store) FinishWorkerWorktree(ctx context.Context, lead, team, worker str
 		if err != nil {
 			return err
 		}
-		parent, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, lead)
+		parent, err := read[hub.Session](ctx, tx, liveSessionQuery, lead)
 		if err != nil {
 			return err
 		}
-		child, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, w.SessionID)
+		child, err := read[hub.Session](ctx, tx, liveSessionQuery, w.SessionID)
 		if err != nil {
 			return err
 		}

@@ -128,6 +128,7 @@ func (p *NativePage) buildWorkspaceTranscript(c *ui.Context) {
 	p.chat.MessageGap = 24
 	ui.Column(c).Label("Conversation transcript").Grow(1).MinHeight(0).FillWidth().Padding(16, 0, 0, 0).Children(func() {
 		p.chat.BuildMessages(c)
+		p.buildWorkspaceContinue(c)
 	})
 }
 

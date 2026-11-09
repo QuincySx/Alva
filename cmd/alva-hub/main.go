@@ -21,6 +21,7 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/bootstrap"
+	"github.com/QuincySx/Alva/apps/hub/product"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/system/secretinput"
@@ -61,7 +62,7 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 	directory := flags.String("data-dir", "", "required explicit private Go product/native directory; no Rust import")
 	selected := flags.String("session", "", "resume this actual durable product session; never a native ID")
 	workspace := flags.String("workspace", "", "explicit workspace for a new session; resume may not retarget cwd")
-	title := flags.String("title", "CLI session", "title for an explicitly created session")
+	title := flags.String("title", "", "title for an explicitly created session (default: first line of the first prompt)")
 	prompt := flags.String("prompt", "", "new prompt; one-shot or initial REPL turn")
 	repl := flags.Bool("repl", false, "explicit multi-turn REPL; commands /session /sessions /engine /history /quit")
 	engineID := flags.String("engine", "", "explicit configured alva/claude/codex/pi route; resume keeps its branch unless provided")
@@ -269,7 +270,7 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 			}
 		}
 	} else if strings.TrimSpace(*prompt) != "" {
-		created, err := createCLISession(ctx, app, *title, *workspace)
+		created, err := createCLISession(ctx, app, product.SessionTitle(*title, *prompt), *workspace)
 		if err != nil {
 			return err
 		}
@@ -318,7 +319,7 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 			continue
 		}
 		if c.session == "" {
-			created, err := createCLISession(ctx, app, *title, *workspace)
+			created, err := createCLISession(ctx, app, product.SessionTitle(*title, line), *workspace)
 			if err != nil {
 				return err
 			}
@@ -354,7 +355,7 @@ func (c *cli) command(ctx context.Context, line string) error {
 		if len(parts) != 1 {
 			return errors.New("/help takes no arguments")
 		}
-		_, err := fmt.Fprintln(c.diagnostic, "/session /sessions /engine alva|claude|codex|pi /history [after] /quit; prompts execute only on explicit input")
+		_, err := fmt.Fprintln(c.diagnostic, "/session /sessions /engine alva|claude|codex|pi /history [after] /rename <title> /pin /unpin /delete <session-id> /quit; prompts execute only on explicit input")
 		return err
 	case "/session":
 		if len(parts) != 1 {
@@ -371,6 +372,31 @@ func (c *cli) command(ctx context.Context, line string) error {
 			return err
 		}
 		return writeJSON(ctx, c.diagnostic, page)
+	case "/rename":
+		title := strings.TrimSpace(strings.TrimPrefix(line, "/rename"))
+		if title == "" || c.session == "" {
+			return errors.New("/rename requires a title and an existing session")
+		}
+		return c.app.Service.Conversations.Rename(ctx, c.session, title)
+	case "/pin", "/unpin":
+		if len(parts) != 1 || c.session == "" {
+			return errors.New(parts[0] + " takes no arguments and needs an existing session")
+		}
+		return c.app.Service.Conversations.SetPinned(ctx, c.session, parts[0] == "/pin")
+	case "/delete":
+		// Soft delete names the session explicitly so a typo cannot hide the
+		// current one; a running session is refused by the product.
+		if len(parts) != 2 {
+			return errors.New("/delete requires exactly one explicit session id")
+		}
+		if err := c.app.Service.Conversations.Delete(ctx, parts[1]); err != nil {
+			return err
+		}
+		if parts[1] == c.session {
+			c.session = ""
+		}
+		_, err := fmt.Fprintln(c.diagnostic, "Deleted (hidden; data kept):", parts[1])
+		return err
 	case "/engine":
 		if len(parts) != 2 || c.session == "" {
 			return errors.New("/engine requires one configured engine and an existing session")

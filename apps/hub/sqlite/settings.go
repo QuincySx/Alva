@@ -13,7 +13,7 @@ import (
 )
 
 func settings(ctx context.Context, tx *sql.Tx, id string) (hub.Settings, error) {
-	if _, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id); err != nil {
+	if _, err := read[hub.Session](ctx, tx, liveSessionQuery, id); err != nil {
 		return hub.Settings{}, err
 	}
 	var data []byte
@@ -77,7 +77,7 @@ func (s *Store) SaveSettings(ctx context.Context, value hub.Settings) (providerR
 	value.Browser.Enabled, value.Browser.HostAccessApproved = false, false
 	value.CompatibilityFile = "" // Project instructions are enabled through their explicit control.
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, value.SessionID)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, value.SessionID)
 		if err != nil {
 			return err
 		}
@@ -101,7 +101,7 @@ func (s *Store) SetMCPEnabled(ctx context.Context, id, serverID string, enabled,
 		providerResult0 = normalizeStoreError(providerResult0)
 	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
@@ -139,7 +139,7 @@ func (s *Store) ReplaceMCP(ctx context.Context, id string, servers []hub.MCPServ
 		servers[i].HostAccessApproved = false
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
@@ -159,7 +159,7 @@ func (s *Store) SetSkillsEnabled(ctx context.Context, id string, enabled bool) (
 		providerResult0 = normalizeStoreError(providerResult0)
 	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
@@ -178,7 +178,7 @@ func (s *Store) SetSkillsEnabled(ctx context.Context, id string, enabled bool) (
 func (s *Store) SetCompatibilityFile(ctx context.Context, id, file string) (result error) {
 	defer func() { result = normalizeStoreError(result) }()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
@@ -217,7 +217,7 @@ func (s *Store) SetSubagentsEnabled(ctx context.Context, id string, enabled bool
 		providerResult0 = normalizeStoreError(providerResult0)
 	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
@@ -238,7 +238,7 @@ func (s *Store) SetPersistentMemory(ctx context.Context, id string, enabled bool
 		providerResult0 = normalizeStoreError(providerResult0)
 	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}

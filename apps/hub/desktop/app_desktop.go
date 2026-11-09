@@ -43,6 +43,7 @@ type NativePage struct {
 	connections                    modelConnectionsPane
 	goal                           workspaceGoalState
 	search                         workspaceSearchState
+	sessionOps                     sessionOpsState
 	companions                     workspaceCompanionState
 	resources                      workspaceResourcesState
 	voice                          workspaceVoiceState
@@ -225,7 +226,14 @@ func runNative(service *product.HubService, diagnostics *debug.Server, output io
 		fmt.Fprintln(output, "native_qa: register WhenReady; no task/session auto-start")
 		time.AfterFunc(3*time.Second, func() { fmt.Fprintf(output, "native_qa: ready watchdog App.IsReady=%v\n", mygo.App.IsReady()) })
 	}
+	// Notifications belong to the application, not to a window: one observer
+	// announces finished replies and pending approvals/questions while no
+	// window is in the foreground, and a click selects that session.
+	observerCtx, stopObserver := context.WithCancel(context.Background())
+	defer stopObserver()
+	mygo.App.OnNotificationClick(windows.openAttention)
 	mygo.App.WhenReady(func() {
+		go newAttentionObserver(service).run(observerCtx, 2*time.Second)
 		if output != nil {
 			fmt.Fprintln(output, "native_qa: App ready; creating actual self-drawn window")
 		}
@@ -289,6 +297,7 @@ func (p *NativePage) setPane(name string) {
 func (p *NativePage) refreshSessions() {
 	p.sessionBack = nil
 	p.loadSessions(hub.SessionCursor{})
+	p.loadPinnedSessions()
 }
 func (p *NativePage) loadSessions(cursor hub.SessionCursor) {
 	if p.sessionLoading {
@@ -907,6 +916,8 @@ func (p *NativePage) Build(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.KeyK, p.openWorkspaceSearch)
 	defer p.buildWorkspaceModelDefaults(c)
 	defer p.buildWorkspaceSearch(c)
+	defer p.buildSessionRenameDialog(c)
+	defer p.buildSessionDeleteDialog(c)
 	defer p.buildWorkspaceGoal(c)
 	if p.diagnosticFrame != nil {
 		defer p.diagnosticFrame()

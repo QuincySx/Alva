@@ -240,6 +240,12 @@ func (s *HubService) submitDraftWithFiles(ctx context.Context, id, prompt string
 // admitDraftWithFiles is the one admission path for every entry. owner bounds
 // the execution's lifetime; ctx bounds only admission.
 func (s *HubService) admitDraftWithFiles(ctx, owner context.Context, id, prompt string, selections []ComposerPreparation, references []DraftReferenceSelection, inputFiles []engine.InputFile, userText string) (TurnStart, error) {
+	return s.admitTurn(ctx, owner, id, prompt, selections, references, inputFiles, userText, "")
+}
+
+// admitTurn is admitDraftWithFiles plus the Turn origin: "" for an ordinary
+// prompt, hub.TurnOriginContinue for the product's Continue action.
+func (s *HubService) admitTurn(ctx, owner context.Context, id, prompt string, selections []ComposerPreparation, references []DraftReferenceSelection, inputFiles []engine.InputFile, userText, origin string) (TurnStart, error) {
 	var start TurnStart
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -308,10 +314,10 @@ func (s *HubService) admitDraftWithFiles(ctx, owner context.Context, id, prompt 
 	if ctx.Err() != nil {
 		return start, ctx.Err()
 	}
-	if len(inputFiles) == 0 && len(inputSkills) == 0 {
+	if len(inputFiles) == 0 && len(inputSkills) == 0 && origin == "" {
 		start.TurnID, start.ExecutionID, start.Done, err = s.Runtime.StartOnBranchOwned(owner, id, branch.ID, prompt)
 	} else {
-		start.TurnID, start.Done, err = s.Runtime.StartComposerOnBranch(owner, id, branch.ID, hub.ComposerTurnInput{Prompt: prompt, UserText: userText, Files: inputFiles, Skills: inputSkills})
+		start.TurnID, start.ExecutionID, start.Done, err = s.Runtime.StartComposerOnBranchOwned(owner, id, branch.ID, hub.ComposerTurnInput{Origin: origin, Prompt: prompt, UserText: userText, Files: inputFiles, Skills: inputSkills})
 	}
 	if err != nil {
 		return TurnStart{}, err

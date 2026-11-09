@@ -74,7 +74,7 @@ func composerDraft(ctx context.Context, q querier, scope hub.ComposerDraftScope)
 		return hub.ComposerDraft{}, err
 	}
 	if scope.Kind == "session" {
-		if _, err := read[hub.Session](ctx, q, `SELECT data FROM hub_sessions WHERE id=?`, scope.ID); err != nil {
+		if _, err := read[hub.Session](ctx, q, liveSessionQuery, scope.ID); err != nil {
 			return hub.ComposerDraft{}, err
 		}
 	}
@@ -217,7 +217,7 @@ func (s *Store) CreateComposerSession(ctx context.Context, captured hub.Composer
 			if !reflect.DeepEqual(check, captured) || current.Revision != revision {
 				return hub.ErrComposerDraftConflict
 			}
-			session, e = read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, current.PendingSessionID)
+			session, e = read[hub.Session](ctx, tx, liveSessionQuery, current.PendingSessionID)
 			if e != nil {
 				return e
 			}

@@ -27,12 +27,12 @@ transport error 不泄露 host path/数据库/provider stderr；真实执行错�
 | preferences.go / preferences_test.go | authenticated /v1/preferences GET/PATCH复用共享owner及应用级SQLite，严格JSON/乐观revision/错误脱敏，不创建session或执行模型 |
 | routing_test.go | HTTP branch/fallback复用产品route政策，完整账户批准与动态连接失效均零执行；程序路由仍保留装配快照 |
 | security.go | 实际 listener authority 与随机 token 校验、Host/Origin/认证 |
-| server.go | 冷/v1/engines能力声明、bounded handler、严格 JSON/query、session 发现与创建 |
+| server.go | 冷/v1/engines能力声明、bounded handler、严格 JSON/query、session 发现与创建（标题走product.SessionTitle，可传prompt由统一规则取首行）；PATCH /v1/sessions/{id}重命名/置顶、DELETE软删除（运行中409，已删除404），规则全在Conversations服务；conversations_test.go |
 | gateway.go / gateway_test.go | authenticated /v1/gateway冷status/独立model计费同意start/Stop，一次token仅start返回、不接受Provider/key导入 |
 | platform/system/strictjson（共享） | DTO object/null/重复键/精确大小写/深度验证，Hub不再保留第二份解析器 |
 | wait.go / wait_test.go | 认证冷等待/opt-in、严格branch/Turn/revision结果提交、显式202继续与审阅放弃；真实HTTP→Agent同Turn回归 |
 | settings_scope_test.go | 设置开关默认应用级、显式session级、每请求宿主批准与中文拒绝原因，被拒不改任何状态 |
-| routes.go | turns/stop/routes/approvals/files/settings/Skills/Inspector 共用服务（设置开关经SettingsService，见上）；compatibility仅项目相对配置下一Turn启停，无任意绝对主机路径 |
+| routes.go | turns/stop/continue（停止后继续，返回turn_id与execution_id）/routes/approvals/files/settings/Skills/Inspector 共用服务（设置开关经SettingsService，见上）；compatibility仅项目相对配置下一Turn启停，无任意绝对主机路径 |
 | compatibility_test.go | 认证HTTP冷配置启停、严格body/项目根内路径、错误无主机路径与零执行回归 |
 | export.go / export_test.go | /inspector-bundle认证只读JSONL下载，固定高水位/typed路径与显式child scope；两路导出上限、不接受host/native path、不写宿主文件或restore |
 | inspection.go / inspection_test.go | /inspector-events绑定实际branch/typed path，通过独立EngineInspector背压SSE；durable Last-Event-ID续读，transport Close/断线仅detach，不restore或Stop |

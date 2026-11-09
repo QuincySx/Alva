@@ -40,7 +40,7 @@ func validateGoalScope(ctx context.Context, q querier, scope hub.GoalScope) erro
 		return err
 	}
 	if scope.Kind == hub.GoalSessionScope {
-		session, err := read[hub.Session](ctx, q, `SELECT data FROM hub_sessions WHERE id=?`, scope.SessionID)
+		session, err := read[hub.Session](ctx, q, liveSessionQuery, scope.SessionID)
 		if err != nil {
 			return err
 		}

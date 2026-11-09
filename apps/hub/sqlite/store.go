@@ -14,13 +14,23 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ncruces/go-sqlite3"
+
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/integration/engine"
 	private "github.com/QuincySx/Alva/platform/storage/sqlite"
 )
 
 type Store struct {
-	db   *sql.DB
+	db *sql.DB
+	// list is a second, read-only connection to the same database for the
+	// bounded session-list, search and navigation reads. The write connection
+	// is single (SetMaxOpenConns(1)) so every transaction serializes; a list
+	// read queued behind a long write or read there used to leave the sidebar
+	// and search on "loading". The read connection never writes, so write
+	// serialization is unchanged; SQLite's own lock only makes a commit wait
+	// for an in-flight millisecond-scale read (busy_timeout bounds it).
+	list *sql.DB
 	lock *private.Lock
 }
 
@@ -285,13 +295,21 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
+	if s.list, err = private.Open(ctx, dir, "product.sqlite", func(connection *sqlite3.Conn) error { return connection.Exec("PRAGMA query_only=ON") }); err != nil {
+		s.Close()
+		return nil, err
+	}
 	return s, nil
 }
 func (s *Store) Close() (providerResult0 error) {
 	defer func() {
 		providerResult0 = normalizeStoreError(providerResult0)
 	}()
-	return errors.Join(s.db.Close(), s.lock.Close())
+	var listErr error
+	if s.list != nil {
+		listErr = s.list.Close()
+	}
+	return errors.Join(listErr, s.db.Close(), s.lock.Close())
 }
 func now() int64 { return time.Now().UTC().UnixMilli() }
 
@@ -391,7 +409,7 @@ func (s *Store) ListSessions(ctx context.Context, limit int) (providerResult0 []
 	if limit < 1 || limit > 256 {
 		return nil, errors.New("session page must be 1..256")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT data FROM hub_sessions ORDER BY updated DESC,id LIMIT ?`, limit)
+	rows, err := s.list.QueryContext(ctx, `SELECT data FROM hub_sessions WHERE `+notDeletedFilter+` ORDER BY updated DESC,id LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -411,8 +429,11 @@ func (s *Store) ListSessions(ctx context.Context, limit int) (providerResult0 []
 	return result, rows.Err()
 }
 func detail(ctx context.Context, tx *sql.Tx, id string) (hub.Detail, error) {
+	return detailOf(ctx, tx, id, liveSessionQuery)
+}
+func detailOf(ctx context.Context, tx *sql.Tx, id, sessionQuery string) (hub.Detail, error) {
 	var result hub.Detail
-	session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+	session, err := read[hub.Session](ctx, tx, sessionQuery, id)
 	if err != nil {
 		return result, err
 	}
@@ -455,6 +476,14 @@ func (s *Store) Detail(ctx context.Context, id string) (providerResult0 hub.Deta
 	}()
 	var result hub.Detail
 	err := s.transaction(ctx, func(tx *sql.Tx) error { var err error; result, err = detail(ctx, tx, id); return err })
+	return result, err
+}
+
+// DetailIncludingDeleted is the internal/admin read that still sees a
+// soft-deleted session. Product entries use Detail, which answers NotFound.
+func (s *Store) DetailIncludingDeleted(ctx context.Context, id string) (result hub.Detail, err error) {
+	defer func() { err = normalizeStoreError(err) }()
+	err = s.transaction(ctx, func(tx *sql.Tx) error { var e error; result, e = detailOf(ctx, tx, id, rawSessionQuery); return e })
 	return result, err
 }
 
@@ -542,7 +571,7 @@ func (s *Store) Switch(ctx context.Context, id string, target hub.Target, reason
 		return result, errors.New("switch requires a bounded reason")
 	}
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
@@ -586,7 +615,7 @@ func (s *Store) SetFallback(ctx context.Context, id string, targets []hub.Target
 		seen[key] = true
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
@@ -742,6 +771,9 @@ func beginComposerTurnAs(ctx context.Context, tx *sql.Tx, id string, input hub.C
 	if err := engine.ValidateInputSkills(input.Skills); err != nil {
 		return hub.Claim{}, err
 	}
+	if input.Origin != "" && input.Origin != hub.TurnOriginContinue {
+		return hub.Claim{}, errors.New("unknown Turn origin")
+	}
 	if len(input.UserText) > 64<<10 || !utf8.ValidString(input.UserText) {
 		return hub.Claim{}, errors.New("user composer text exceeds its UTF-8 budget")
 	}
@@ -751,12 +783,26 @@ func beginComposerTurnAs(ctx context.Context, tx *sql.Tx, id string, input hub.C
 		return claim, errors.New("prompt must be valid text of 1..64 KiB")
 	}
 	err := func() error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
+		if session.DeletedAt != 0 {
+			return hub.ErrNotFound
+		}
 		if hub.BlocksInput(session.Status) {
 			return errors.New("Hub session already claimed")
+		}
+		if input.Origin == hub.TurnOriginContinue {
+			// Decided in the admission transaction, so a Stop landing or a new
+			// Turn starting between the caller's read and now cannot slip by.
+			latest, latestErr := currentTurn(ctx, tx, id)
+			if errors.Is(latestErr, sql.ErrNoRows) || latestErr == nil && latest.Status != engine.Cancelled {
+				return hub.ErrNothingToContinue
+			}
+			if latestErr != nil {
+				return latestErr
+			}
 		}
 		if err = checkWorkerWorkspaceAdmission(ctx, tx, id); err != nil {
 			return err
@@ -780,7 +826,7 @@ func beginComposerTurnAs(ctx context.Context, tx *sql.Tx, id string, input hub.C
 		if err = tx.QueryRowContext(ctx, `SELECT COALESCE(max(seq),0)+1 FROM hub_turns WHERE session=?`, id).Scan(&sequence); err != nil {
 			return err
 		}
-		turn := hub.Turn{ID: turnID, SessionID: id, Sequence: sequence, Prompt: prompt, InputFiles: engine.CloneInputFiles(input.Files), InputSkills: engine.CloneInputSkills(input.Skills), Status: hub.Running, CreatedAt: now()}
+		turn := hub.Turn{Origin: input.Origin, ID: turnID, SessionID: id, Sequence: sequence, Prompt: prompt, InputFiles: engine.CloneInputFiles(input.Files), InputSkills: engine.CloneInputSkills(input.Skills), Status: hub.Running, CreatedAt: now()}
 		data, err := body(turn)
 		if err != nil {
 			return err
@@ -798,7 +844,7 @@ func beginComposerTurnAs(ctx context.Context, tx *sql.Tx, id string, input hub.C
 			return err
 		}
 		claim = hub.Claim{Session: session, Branch: branch, Turn: turn, Attempt: attempt, Handoff: h}
-		input, err := body(hub.HistoryEntry{Input: input.UserText, InputFiles: engine.CloneInputFiles(input.Files), InputSkills: engine.CloneInputSkills(input.Skills), SessionID: id, TurnID: turn.ID, AttemptID: attempt.ID, Time: now()})
+		input, err := body(hub.HistoryEntry{Origin: input.Origin, Input: input.UserText, InputFiles: engine.CloneInputFiles(input.Files), InputSkills: engine.CloneInputSkills(input.Skills), SessionID: id, TurnID: turn.ID, AttemptID: attempt.ID, Time: now()})
 		if err != nil {
 			return err
 		}
@@ -826,7 +872,7 @@ func (s *Store) BeginComposerTurn(ctx context.Context, id, expectedBranch string
 	var claim hub.Claim
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
 		if expectedBranch != "" {
-			current, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+			current, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 			if err != nil {
 				return err
 			}
@@ -1012,7 +1058,7 @@ func (s *Store) FinishTurn(ctx context.Context, id string, status engine.Outcome
 		if turn.Status != hub.Running {
 			return errors.New("Turn already terminal")
 		}
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, turn.SessionID)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, turn.SessionID)
 		if err != nil {
 			return err
 		}
@@ -1073,7 +1119,7 @@ func (s *Store) History(ctx context.Context, id string, after uint64, limit int)
 	if limit < 1 || limit > 128 {
 		return nil, errors.New("history page must be 1..128")
 	}
-	if _, err := read[hub.Session](ctx, s.db, `SELECT data FROM hub_sessions WHERE id=?`, id); err != nil {
+	if _, err := read[hub.Session](ctx, s.db, liveSessionQuery, id); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT e.seq,e.data,COALESCE(t.seq,0) FROM hub_events e LEFT JOIN hub_turns t ON t.id=e.turn WHERE e.session=? AND e.seq>? ORDER BY e.seq LIMIT ?`, id, after, limit)
@@ -1111,7 +1157,7 @@ func (s *Store) HistoryBefore(ctx context.Context, id string, before uint64, lim
 	if limit < 1 || limit > 128 {
 		return nil, errors.New("history page must be 1..128")
 	}
-	if _, err := read[hub.Session](ctx, s.db, `SELECT data FROM hub_sessions WHERE id=?`, id); err != nil {
+	if _, err := read[hub.Session](ctx, s.db, liveSessionQuery, id); err != nil {
 		return nil, err
 	}
 	query := `SELECT e.seq,e.data,COALESCE(t.seq,0) FROM hub_events e LEFT JOIN hub_turns t ON t.id=e.turn WHERE e.session=?`
@@ -1147,7 +1193,7 @@ func (s *Store) BindNative(ctx context.Context, sessionID, branchID, nativeID st
 		return errors.New("bounded native identity required")
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, sessionID)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, sessionID)
 		if err != nil {
 			return err
 		}
@@ -1242,7 +1288,7 @@ func (s *Store) recover(ctx context.Context, only string) (providerResult0 error
 			if err = writeTurn(ctx, tx, turn); err != nil {
 				return err
 			}
-			session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, turn.SessionID)
+			session, err := read[hub.Session](ctx, tx, liveSessionQuery, turn.SessionID)
 			if err != nil {
 				return err
 			}

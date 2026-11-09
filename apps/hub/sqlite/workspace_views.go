@@ -28,7 +28,7 @@ func validateWorkspaceViewsSchema(ctx context.Context, q querier) error {
 }
 
 func workspaceView(ctx context.Context, q querier, id string) (hub.WorkspaceView, error) {
-	if _, err := read[hub.Session](ctx, q, `SELECT data FROM hub_sessions WHERE id=?`, id); err != nil {
+	if _, err := read[hub.Session](ctx, q, liveSessionQuery, id); err != nil {
 		return hub.WorkspaceView{}, err
 	}
 	v, err := read[hub.WorkspaceView](ctx, q, `SELECT data FROM hub_workspace_views WHERE session=?`, id)

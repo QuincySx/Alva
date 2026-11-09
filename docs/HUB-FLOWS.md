@@ -104,7 +104,7 @@
 
 | 流程 | 操作与预期结果 | 事实与测试入口 |
 |---|---|---|
-| 输入发送快捷键 | 编辑器 ⌘/Ctrl+Enter 与按钮共用准入，使用同批按键的最新正文；菜单开启时只消费快捷键，普通 Enter 仅选择。忙碌/运行/等待/录音/IME 时不发送，迟到接收回执不清除新草稿 | desktop `TestWorkspaceComposerSendShortcutSharesAdmissionAndKeepsDraft`、`TestWorkspaceSendShortcutCannotBypassBlockedComposerStates`、`TestWorkspacePickerCommandsEnterOnlyPreparesTypedDraft` |
+| 输入发送快捷键 | 编辑器 Enter 与 ⌘/Ctrl+Enter 与按钮共用准入，使用同批按键的最新正文，Shift+Enter 换行；菜单开启时只消费快捷键，Enter 仅选择，输入法组字中的 Enter 只选候选（`TestWorkspaceEnterDuringIMECompositionNeverSends`）。忙碌/运行/等待/录音/IME 时不发送，迟到接收回执不清除新草稿 | desktop `TestWorkspaceComposerSendShortcutSharesAdmissionAndKeepsDraft`、`TestWorkspaceSendShortcutCannotBypassBlockedComposerStates`、`TestWorkspacePickerCommandsEnterOnlyPreparesTypedDraft` |
 | 控件加载与真实回执 | Text Loading 保留文字测量并居中 Loader，Leading Loading 保留原图标槽、名称与焦点，重复点击/Enter 零新增操作；General 保存与连接重试使用实际 gated 存储/本地 HTTP | desktop `TestWorkspaceControlLoadingRetainsWidthNameFocusAndAdmission`、`TestNativeGeneralPreferencesBuildIsColdAndCloseWaitsForActualSave`、`TestNativeConnectionCatalogRetryKeepsItsActionWhileRequestIsInFlight` |
 | 减弱动效与设置保存状态 | Loader 仅重绘、不重建页面；系统减弱动效时静止并停止请求帧。保存权限/Plan 独立显示保存设置，收到真实存储回执前不更新已提交策略、不发送 | desktop `TestWorkspaceLoaderHonorsReducedMotionAndStopsRequestingFrames`、`TestWorkspaceSavedPermissionWaitsForActualStore`；不代表 31GB 内存事故已定位或解决 |
 | 会话模型参数观察 | 从真实导航打开会话，重开/跨窗保存后菜单和发送预检使用已提交会话覆盖；空覆盖与缺省不同，旧poll不盖新Save，未读取/失败明确禁用并可重试，保留dirty草稿 | desktop `TestWorkspaceSessionModelOptionsNavigationObservesCommittedOverride`、`TestWorkspaceSessionModelOptionsLatePollCannotReplaceNewSave`、`TestWorkspaceSessionModelOptionsEmptyExternalOverrideCanSelectAndSend` |

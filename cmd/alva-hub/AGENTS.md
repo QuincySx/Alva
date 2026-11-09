@@ -16,7 +16,7 @@ API key only via separate explicit regular/pipe Unix fd3..10 or portable --api-k
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|
-| main.go | Explicit grammar/configuration, private application owner, cold commands, resume/engine selection and REPL; preserve owner cancellation identity when bootstrap returns its own backend error, without backend-error matching |
+| main.go | REPL /rename /pin /unpin /delete <session-id> go through Conversations (soft delete names the id explicitly); the session title comes from product.SessionTitle (--title or the first prompt line); explicit grammar/configuration, private application owner, cold commands, resume/engine selection and REPL; preserve owner cancellation identity when bootstrap returns its own backend error, without backend-error matching |
 | turn_test.go | Actual committed Hub history and the existing finalAnswer reader reconstruct a large safe Pi reply from honest deltas without a process Inspector |
 | turn.go | Actual Runtime turn admission, scoped Alva/native permission deny/ask, explicit unsupported native-question cancel/join, timeout, SQLite interrupt under the Turn deadline kept as DeadlineExceeded, bounded final-answer reconstruction and stdout errors |
 | input_windows.go / input_other.go | Windows文件/pipe不readahead的真正取消分发，其他平台保留既有owned scanner，不靠借用handle Close伪造中止 |

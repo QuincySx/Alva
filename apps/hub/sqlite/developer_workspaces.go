@@ -301,7 +301,7 @@ func (s *Store) SaveConversationTabs(ctx context.Context, next hub.ConversationT
 			if tab.SessionID == "" {
 				continue
 			}
-			session, e := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, tab.SessionID)
+			session, e := read[hub.Session](ctx, tx, liveSessionQuery, tab.SessionID)
 			if e != nil {
 				return e
 			}
@@ -383,7 +383,7 @@ func (s *Store) AdmitConversationTab(ctx context.Context, captured hub.ComposerD
 			return e
 		}
 		if current.PendingSessionID != "" {
-			session, e := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, current.PendingSessionID)
+			session, e := read[hub.Session](ctx, tx, liveSessionQuery, current.PendingSessionID)
 			if e != nil {
 				return e
 			}

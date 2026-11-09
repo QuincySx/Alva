@@ -249,3 +249,37 @@ func (m *nativeWindows) forgetPage(page *NativePage) *NativePage {
 	}
 	return target
 }
+
+// openAttention handles a clicked notification: it selects that session in
+// the focused window (or any window; or opens one) and brings it forward. A
+// session that no longer exists or was deleted is ignored: the product read
+// answers NotFound, so the click never opens an error page.
+func (m *nativeWindows) openAttention(id string) {
+	session, ok := attentionSession(id)
+	if !ok {
+		return
+	}
+	var target *NativePage
+	for p := range m.pages {
+		if target == nil || p.window != nil && p.window.IsFocused() {
+			target = p
+		}
+	}
+	if target == nil {
+		if err := m.open(session); err != nil && m.output != nil {
+			fmt.Fprintln(m.output, "native_qa: notification could not open a window")
+		}
+		return
+	}
+	go func() {
+		if _, err := m.service.Conversations.Detail(context.Background(), session); err != nil {
+			return // deleted or gone: ignore the click
+		}
+		target.window.Update(func() {
+			target.selectSession(session)
+			target.window.Show()
+			target.window.Focus()
+			mygo.App.Focus()
+		})
+	}()
+}

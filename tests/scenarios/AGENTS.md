@@ -30,5 +30,6 @@
 | approval_lines_test.go | Alva审批决定后对话留「已允许/已拒绝」一行（工具展示、重开仍在）与等待卡带ToolDisplay |
 | questions_test.go | ask_human 直接回答、持久等待跨重启回答仍有效、新会话默认开启持久等待并跨重启保留、放弃等待后可继续、关闭持久等待时关闭应用结束该轮 |
 | subagent_test.go | 子 Agent 结果以引用回到父模型、子 Agent 工具块与轨迹子会话跳转 |
+| session_management_test.go | 重命名/置顶重启后仍在且搜索找得到、软删除后列表/搜索/置顶/Detail/新一轮都不可见而产品与原生数据还在（重启后同样，运行中的会话拒绝删除）、停止后继续（空闲前拒绝，固定续写指令送达模型，消息流显示「继续生成」而不是用户消息，重启后仍在，完成后不再提供继续） |
 | external_test.go | 同一会话 Alva→Codex→Claude→Pi→Alva 交接、外部工具块、重开后各引擎历史都在 |
 | external_approval_test.go | Codex(app-server)/Claude(stream-json)/Pi(rpc)各自的假双向CLI：各请求一次工具审批，批准/拒绝都以引擎实际看到的决定为准，已完成后的迟到点击失败 |

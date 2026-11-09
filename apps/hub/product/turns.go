@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/integration/engine"
 )
 
@@ -29,6 +30,33 @@ type TurnStart struct {
 // outlives the caller's context: a UI timeout never cancels an admitted Turn.
 func (t *TurnService) Send(ctx context.Context, id, prompt string, references []DraftReferenceSelection) (TurnStart, error) {
 	return t.service.admitDraftWithFiles(ctx, context.Background(), id, prompt, nil, references, nil, prompt)
+}
+
+// ContinuePrompt is the fixed instruction a continue Turn sends. The message
+// stream shows a "继续生成" status block, never this text as a user message.
+const ContinuePrompt = "请从上次被中断的位置继续完成刚才的回复，不要重复已经给出的内容。"
+
+// ErrNothingToContinue refuses Continue unless the newest Turn was stopped.
+var ErrNothingToContinue = hub.ErrNothingToContinue
+
+// Continue starts a new Turn with Origin=continue on the same branch after the
+// newest Turn was stopped. It relies on the engine's Resume only; admission
+// (busy, plan target, route) is the ordinary one, so a late click is refused.
+func (t *TurnService) Continue(ctx context.Context, id string) (TurnStart, error) {
+	if _, active := t.service.Runtime.ActiveExecution(id); active {
+		return TurnStart{}, hub.ErrSessionBusy
+	}
+	latest, err := t.service.Store.LatestTurn(ctx, id)
+	if errors.Is(err, hub.ErrNotFound) {
+		return TurnStart{}, ErrNothingToContinue
+	}
+	if err != nil {
+		return TurnStart{}, err
+	}
+	if latest.Status != engine.Cancelled {
+		return TurnStart{}, ErrNothingToContinue
+	}
+	return t.service.admitTurn(ctx, context.Background(), id, ContinuePrompt, nil, nil, nil, "", hub.TurnOriginContinue)
 }
 
 // Start admits a plain prompt whose execution is owned by owner: cancelling

@@ -13,7 +13,7 @@ import (
 
 func (s *Store) editBrowser(ctx context.Context, id string, edit func(*hub.Settings) error) error {
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}

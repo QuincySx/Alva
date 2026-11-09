@@ -19,7 +19,7 @@ func (s *Store) PageWorkspaces(ctx context.Context, query hub.WorkspaceNavigatio
 		return page, err
 	}
 	prefix := strings.TrimRight(query.ExcludeRoot, string(filepath.Separator)) + string(filepath.Separator)
-	rows, err := s.db.QueryContext(ctx, `SELECT json_extract(data,'$.workspace') AS workspace, count(*), max(updated) FROM hub_sessions WHERE `+ordinarySessionFilter+` AND json_extract(data,'$.workspace')>? AND (?='' OR instr(lower(json_extract(data,'$.workspace')),lower(?))>0) AND (?='' OR (json_extract(data,'$.workspace')<>? AND substr(json_extract(data,'$.workspace'),1,length(?))<>?)) GROUP BY json_extract(data,'$.workspace') ORDER BY workspace COLLATE BINARY LIMIT ?`, cursor.Path, query.Query, query.Query, query.ExcludeRoot, query.ExcludeRoot, prefix, prefix, limit+1)
+	rows, err := s.list.QueryContext(ctx, `SELECT json_extract(data,'$.workspace') AS workspace, count(*), max(updated) FROM hub_sessions WHERE `+ordinarySessionFilter+` AND json_extract(data,'$.workspace')>? AND (?='' OR instr(lower(json_extract(data,'$.workspace')),lower(?))>0) AND (?='' OR (json_extract(data,'$.workspace')<>? AND substr(json_extract(data,'$.workspace'),1,length(?))<>?)) GROUP BY json_extract(data,'$.workspace') ORDER BY workspace COLLATE BINARY LIMIT ?`, cursor.Path, query.Query, query.Query, query.ExcludeRoot, query.ExcludeRoot, prefix, prefix, limit+1)
 	if err != nil {
 		return page, err
 	}
@@ -48,7 +48,7 @@ func (s *Store) PageWorkspaceSessions(ctx context.Context, workspace, query stri
 	if workspace == "" || hub.ValidateWorkspaceNavigation(hub.WorkspaceNavigationQuery{Query: query}, hub.WorkspaceCursor{Path: workspace}, limit) != nil || cursor.Updated < 0 || len(cursor.ID) > 128 || !utf8.ValidString(cursor.ID) {
 		return page, errors.New("bounded exact-workspace session query required")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT data FROM hub_sessions WHERE `+ordinarySessionFilter+` AND json_extract(data,'$.workspace')=? AND (?='' OR instr(lower(json_extract(data,'$.title')),lower(?))>0) AND (?=0 OR updated<? OR (updated=? AND id<?)) ORDER BY updated DESC,id DESC LIMIT ?`, workspace, query, query, cursor.Updated, cursor.Updated, cursor.Updated, cursor.ID, limit+1)
+	rows, err := s.list.QueryContext(ctx, `SELECT data FROM hub_sessions WHERE `+ordinarySessionFilter+` AND json_extract(data,'$.workspace')=? AND (?='' OR instr(lower(json_extract(data,'$.title')),lower(?))>0) AND (?=0 OR updated<? OR (updated=? AND id<?)) ORDER BY updated DESC,id DESC LIMIT ?`, workspace, query, query, cursor.Updated, cursor.Updated, cursor.Updated, cursor.ID, limit+1)
 	if err != nil {
 		return page, err
 	}

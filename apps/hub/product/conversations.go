@@ -25,8 +25,43 @@ func (c *ConversationService) Page(ctx context.Context, query string, cursor hub
 	return c.service.Store.PageSessions(ctx, query, cursor, limit)
 }
 
+// Detail reads one session. A soft-deleted session is unavailable here: its
+// data stays on disk but no entry can address it any more.
 func (c *ConversationService) Detail(ctx context.Context, id string) (hub.Detail, error) {
-	return c.service.Store.Detail(ctx, id)
+	detail, err := c.service.Store.Detail(ctx, id)
+	if err == nil && detail.Session.DeletedAt != 0 {
+		return hub.Detail{}, hub.ErrNotFound
+	}
+	return detail, err
+}
+
+// Pinned lists the pinned sessions (at most hub.MaxPinnedSessions).
+func (c *ConversationService) Pinned(ctx context.Context) ([]hub.Session, error) {
+	return c.service.Store.PinnedSessions(ctx)
+}
+
+// Rename validates and stores a new title. It never changes ordering.
+func (c *ConversationService) Rename(ctx context.Context, id, title string) error {
+	title, err := RenameTitle(title)
+	if err != nil {
+		return err
+	}
+	return c.service.Store.RenameSession(ctx, id, title)
+}
+
+// SetPinned pins or unpins a session in the sidebar's pinned group.
+func (c *ConversationService) SetPinned(ctx context.Context, id string, pinned bool) error {
+	return c.service.Store.PinSession(ctx, id, pinned)
+}
+
+// Delete soft-deletes an idle session. A running or waiting session, or one
+// whose execution owner has not finished cleanup, is refused with
+// hub.ErrSessionRunning. Data stays on disk.
+func (c *ConversationService) Delete(ctx context.Context, id string) error {
+	if _, active := c.service.Runtime.ActiveExecution(id); active {
+		return hub.ErrSessionRunning
+	}
+	return c.service.Store.DeleteSession(ctx, id)
 }
 
 func (c *ConversationService) Handoff(ctx context.Context, id, handoffID string) (*hub.Handoff, error) {

@@ -139,7 +139,7 @@ func (s *Store) SaveSessionModelOptions(ctx context.Context, edit hub.SessionMod
 		edit.Options = &copy
 	}
 	result = s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, edit.SessionID)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, edit.SessionID)
 		if err != nil {
 			return err
 		}

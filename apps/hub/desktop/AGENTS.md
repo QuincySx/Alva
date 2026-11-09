@@ -70,7 +70,7 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | workspace_picker_layout_desktop_test.go | Foundation Commands等宽双栏/References单栏、28px图标行与搜索页脚、窄窗纵排及General800px左对齐扁平布局的无窗口几何回归 |
 | workspace_composer_geometry_desktop_test.go | 首页/对话短长输入的浮层上方锚点、工具栏不被覆盖、28px圆形操作与8px对称内边距、紧凑菜单触发点回归 |
 | composer_stability_desktop_test.go | 默认跳过的本地墙钟 soak：实际 bootstrap/SQLite/MyGo 无窗口 Send/Stop、文件读取搜索、跨窗 CAS 草稿与 Close/reopen；独立记录内存/RSS、PDF worker 与真实清理，不以短测冒充一小时或 OS 窗口验收 |
-| workspace_composer_desktop.go / workspace_composer_desktop_test.go | 多行输入、真实附件/路由/权限说明及发送/停止；内部描边保持四边8、28工具栏与8标签间距、16麦克风；IME、32KiB、浮层、草稿和双轴对齐；控制行在模型芯片前留上下文用量表插口；草稿提示后留MCP待批准一行插口 |
+| workspace_composer_desktop.go / workspace_composer_desktop_test.go / workspace_enter_desktop_test.go | Enter发送、Shift+Enter换行（Cmd/Ctrl+Enter仍发送）；输入法组字时Enter只选候选、候选菜单打开时只选条目、空白草稿Enter不发送也不加行、被准入挡住（运行/等待/忙碌等）时Enter仍是换行且草稿保留；多行输入、真实附件/路由/权限说明及发送/停止；内部描边保持四边8、28工具栏与8标签间距、16麦克风；IME、32KiB、浮层、草稿和双轴对齐；控制行在模型芯片前留上下文用量表插口；草稿提示后留MCP待批准一行插口 |
 | workspace_mcp_approval_desktop.go / workspace_mcp_approval_desktop_test.go | 输入框上方一行「N 个 MCP 服务器在此工作区待批准 · 批准」（含Hook；覆盖会话设置的任务不显示）；点批准先二次确认，再复验配置未变并走SettingsService.Approve；Alva已决定审批留「已允许/已拒绝 · 工具展示」一行与等待卡不显示原始工具名的回归及截图 |
 | workspace_context_meter_desktop.go / workspace_context_meter_desktop_test.go | M4 上下文用量表：芯片只显示引擎实测值（声明窗口时百分比，未声明只显示 token 数，无报告不显示），≥80% 警示；弹层列系统/工具定义/摘要/最近消息（标明按实测总数等比估算）、最近一次请求的输入/缓存/输出，引擎声明 ContextCompaction 时给「压缩」/「取消压缩」（经产品服务设一次性意图，芯片显示「下次发送前压缩」）；消息流压缩状态行（已压缩/无需压缩/压缩失败/摘要记录损坏）及「查看记录」跳到所属原生分支轨迹；无界面截图由 ALVA_CONTEXT_SCREENSHOT_DIR 输出 |
 | workspace_drafts_desktop.go / workspace_drafts_desktop_test.go | 同逻辑home/会话跨窗同步的耐久手稿、250ms防抖CAS与导航/关窗flush；严格准备/文件回执冷恢复、冲突保稿和版本绑定消费，首次Create原子绑定身份后重开不发送 |
@@ -103,6 +103,8 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | observer.go / observer_test.go | 独立时钟的有界UI观察；无重绘仍刷新，慢UI不堆积，关闭不迟到读或Stop |
 | debug_desktop.go / debug_desktop_test.go | 独立默认关闭诊断owner注册实际产品视图与Send/绑定实际执行owner的Stop，select_route调用当前模型菜单handler；草稿仅长度/SHA、路由有界、controls/execution分开；Gateway过期凭据撤销后须新帧才可截图，真实HTTP/MyGo回归不冒充OS窗口验收 |
 | windows_desktop.go / windows_desktop_test.go | 最多8个同app观察窗共享product/runtime；资源收回走真实Close守卫后聚焦来源，来源关闭则原位/现存工作台，清除双向关系不保留旧缓存；关闭不冒充Stop |
+| workspace_session_ops_desktop.go / workspace_session_ops_desktop_test.go | 左栏会话行「任务操作」菜单（也可右键）：重命名/删除确认使用apps/ui/kit的Dialog/DialogHeader/DialogFooter/Button，同会话在置顶组与项目组同时出现时行key带区域前缀；重命名对话框、置顶（「置顶」组，用星标图标，最近列表不重复）、删除二次确认（软删除，说明数据仍保留在本机；运行中的会话菜单项禁用并提示先停止）；已停止的回复在对话下方出现「继续」条，点击走TurnService.Continue，消息流显示「继续生成」状态块；管理与继续只经Conversations/Turns服务，UI不碰产品行。系统菜单不进无界面截图，对话框/侧栏/继续条的截图见ALVA_SESSION_SCREENSHOT_DIR |
+| attention_desktop.go / attention_desktop_test.go | 应用级（非每窗）系统通知：窗口都不在前台时，回复完成/失败、等待处理、需要审批、需要回答各发一条（通知ID session:<id>，同会话新通知替换旧的，标题固定为「Alva」、正文是固定短语，不含会话标题、审批或提问内容；状态表随会话离开观察页而清理；点击已删除会话的通知被忽略）；首次观察只建立基线不回放历史，用户自己停止不通知；点击通知选中该会话并把窗口前置（无窗口则新开）；只读Conversations/PendingApprovals/PendingQuestions，不替用户作答 |
 | skills_desktop.go | 「规则与 Skills」中文页：技能列表、名称/说明/正文表单（编辑先归档、失败恢复）、归档恢复、会话级开关与兼容配置路径；旧读取/操作回执不覆盖后来视图 |
 | compatibility_desktop_test.go | MyGo实际配置路径输入/明确启停、未初始化native Skills仍可用、导航/重开隔离旧Skill原文与零执行回归 |
 | workspace_interactions_desktop.go | 审批/问答卡片（等待时卡内操作、处理后一行）、按块ID的可操作请求与草稿/忙/错误、经RespondInteraction回答并同步原路径提交中状态与epoch、会话+分支范围外的迟到回执丢弃、等待请求跳转与其他视图一行入口、用量行；只按块类型与Display kind呈现 |

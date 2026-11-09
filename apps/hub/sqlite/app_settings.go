@@ -159,7 +159,7 @@ func (s *Store) DeleteWorkspaceApproval(ctx context.Context, workspace, kind, it
 }
 
 func (s *Store) idleSettings(ctx context.Context, tx *sql.Tx, id string) (hub.Settings, error) {
-	session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+	session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 	if err != nil {
 		return hub.Settings{}, err
 	}

@@ -43,7 +43,7 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | media.go / media_test.go | 默认off媒体能力、decoder编辑清批准、独立host同意、idle-only和重开耐久回归 |
 | browser.go / browser_test.go | 显式fresh-browser snapshot编辑禁用、独立批准、重开与active不变回归 |
 | native_owner.go | native root到唯一product owner的metadata-only反查，不读native正文 |
-| sessions.go / sessions_test.go | 首页全历史keyset/字面检索，仅主会话、不把Worker当无关会话 |
+| sessions.go / sessions_test.go / sessions_manage_test.go | 首页全历史keyset/字面检索，仅主会话、不把Worker当无关会话；重命名/置顶/软删除在同一事务里读后写（不改UpdatedAt与Status；删除拒绝运行/等待中的会话，置顶上限32，Worker与伙伴会话不可管理），软删除由notDeletedFilter统一从列表/搜索/项目导航/置顶中隐藏，数据与原生记录全部保留，已删除会话拒绝新一轮；所有产品对会话的读写统一经liveSessionQuery，已删除会话在Detail/Settings/SetPlanMode/SetFallback/History/Switch/准入等处一律NotFound，仅DetailIncludingDeleted（内部管理读）能见；删除在同事务内拒绝仍有运行/等待Worker或运行中Worker任务的Lead（ErrSessionHasWorkers），并把该会话所有启用的自动化暂停（LastError=所属会话已删除，自动化列表可见原因，不再到点）；continue准入在同事务内要求最新一轮为cancelled（ErrNothingToContinue）；标题拒绝控制/格式字符（含孤立CR、NUL、bidi控制）；列表读（PageSessions/PageWorkspaces/PageWorkspaceSessions/PinnedSessions/LatestTurn）走独立只读连接（Store.list，query_only），写连接保持单连接串行，所以排在长事务后的列表读不再让左栏和搜索一直「加载中」；回归TestListReadsDoNotQueueBehindTheWriteConnection |
 | navigation.go / navigation_test.go | 同一主会话过滤下的全库workspace聚合/稳定路径cursor、精确项目子会话keyset和100计划全局只读索引；保留空owner原义、location过滤不推创建来源，无新schema或执行策略 |
 | timeline.go / approval_settled_test.go | shared product clock下分支/fallback/handoff typed时间线；RecordApprovalSettled追加Alva已决定审批一行（工具展示取自该调用已脱敏的tool_start，每attempt最多256条，计数存在attempt记录里不扫事件；只有根会话自己的调用取其展示） |
 | team_snapshot.go / team_snapshot_test.go | 同事务Lead完整roster/Worker仅self的handoff metadata，队列不消费、16worker/16KiB与重启冻结证据 |

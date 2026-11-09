@@ -102,43 +102,57 @@ func (p *NativePage) buildWorkspaceLocalIdentity(c *ui.Context) {
 }
 
 func (p *NativePage) buildWorkspaceSession(c *ui.Context, session hub.Session) {
-	p.buildWorkspaceNavigationSession(c, session, false)
+	p.buildWorkspaceNavigationSession(c, session, false, "session:"+session.ID)
 }
 
-func (p *NativePage) buildWorkspaceNavigationSession(c *ui.Context, session hub.Session, recent bool) {
+// region is the row's unique place in the list (pinned group, project, recent):
+// one session can appear in two regions, and widget keys must not collide.
+func (p *NativePage) buildWorkspaceNavigationSession(c *ui.Context, session hub.Session, recent bool, region string) {
 	t := c.Theme()
 	selected := p.selected == session.ID
-	button := ui.ButtonBase(c.Key(session.ID)).Label(p.sessionLabel(session)).Tooltip(p.sessionLabel(session)).
-		FillWidth().MinWidth(0).MinHeight(workspaceNavigationRowHeight).Padding(4, 8).Gap(8).AlignItems(ui.Center).Radius(8).
-		Selected(selected).Disabled(p.busy)
-	if selected {
-		button.Background(t.Surface)
-	} else if button.Hovered() {
-		button.Background(t.SurfaceHover)
-	}
-	button.OnClick(func() { p.selectSession(session.ID) }).Children(func() {
-		color := t.TextMuted
+	// The row is the button plus its "更多" action; the same menu opens on
+	// right-click. Collapsed sidebars keep only the icon and the context menu.
+	ui.Row(c.Key("row:" + region)).FillWidth().MinWidth(0).Gap(2).AlignItems(ui.Center).Children(func() {
+		button := ui.ButtonBase(c.Key(region)).Label(p.sessionLabel(session)).Tooltip(p.sessionLabel(session)).
+			Grow(1).MinWidth(0).MinHeight(workspaceNavigationRowHeight).Padding(4, 8).Gap(8).AlignItems(ui.Center).Radius(8).
+			Selected(selected).Disabled(p.busy)
 		if selected {
-			color = t.Text
+			button.Background(t.Surface)
+		} else if button.Hovered() {
+			button.Background(t.SurfaceHover)
 		}
-		status := engine.Outcome(strings.TrimPrefix(p.sessionLabel(session), session.Title+" · "))
-		icon := "message-square"
-		if recent {
-			icon = "clock"
-		}
-		ui.Icon(c, workspaceIcon(icon)).Size(workspaceIconSize, workspaceIconSize).TextColor(color).Shrink(0)
-		labelColor := t.Text
-		if recent && !selected {
-			labelColor = t.TextMuted
-		}
-		ui.Text(c, session.Title).TextColor(labelColor).FontSize(workspaceFontBody).LineHeight(1.5).SingleLine().Grow(1).MinWidth(0)
-		switch status {
-		case hub.Running:
-			ui.Icon(c, workspaceIcon("loader-circle")).Size(12, 12).TextColor(t.Accent)
-		case engine.Waiting:
-			ui.Box(c).Size(6, 6).Radius(3).Background(t.Warning)
-		case engine.Failed, engine.Interrupted:
-			ui.Icon(c, workspaceIcon("triangle-alert")).Size(12, 12).TextColor(t.Danger)
+		button.ContextMenu(func(m *ui.Menu) { p.buildSessionMenu(m, session) })
+		button.OnClick(func() { p.selectSession(session.ID) }).Children(func() {
+			color := t.TextMuted
+			if selected {
+				color = t.Text
+			}
+			status := engine.Outcome(strings.TrimPrefix(p.sessionLabel(session), session.Title+" · "))
+			icon := "message-square"
+			switch {
+			case session.Pinned:
+				icon = "star"
+			case recent:
+				icon = "clock"
+			}
+			ui.Icon(c, workspaceIcon(icon)).Size(workspaceIconSize, workspaceIconSize).TextColor(color).Shrink(0)
+			labelColor := t.Text
+			if recent && !selected {
+				labelColor = t.TextMuted
+			}
+			ui.Text(c, session.Title).TextColor(labelColor).FontSize(workspaceFontBody).LineHeight(1.5).SingleLine().Grow(1).MinWidth(0)
+			switch status {
+			case hub.Running:
+				ui.Icon(c, workspaceIcon("loader-circle")).Size(12, 12).TextColor(t.Accent)
+			case engine.Waiting:
+				ui.Box(c).Size(6, 6).Radius(3).Background(t.Warning)
+			case engine.Failed, engine.Interrupted:
+				ui.Icon(c, workspaceIcon("triangle-alert")).Size(12, 12).TextColor(t.Danger)
+			}
+		})
+		if !p.layout.sidebarCollapsed {
+			workspaceIconAction(c, "session-more:"+region, "Session actions "+session.ID, "ellipsis").Shrink(0).Tooltip("任务操作").
+				Menu(func(m *ui.Menu) { p.buildSessionMenu(m, session) })
 		}
 	})
 }

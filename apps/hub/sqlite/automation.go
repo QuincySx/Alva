@@ -37,7 +37,7 @@ func writeAutomation(ctx context.Context, tx *sql.Tx, a hub.Automation) error {
 }
 
 func ordinaryAutomationSession(ctx context.Context, tx *sql.Tx, id string) (hub.Session, hub.Branch, error) {
-	s, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+	s, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 	if err != nil {
 		return s, hub.Branch{}, err
 	}
@@ -71,7 +71,7 @@ func (s *Store) ListAutomations(ctx context.Context, owner string) (providerResu
 	defer func() {
 		providerResult1 = normalizeStoreError(providerResult1)
 	}()
-	if _, err := read[hub.Session](ctx, s.db, `SELECT data FROM hub_sessions WHERE id=?`, owner); err != nil {
+	if _, err := read[hub.Session](ctx, s.db, liveSessionQuery, owner); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM hub_automations WHERE session=? ORDER BY rowid DESC LIMIT 101`, owner)

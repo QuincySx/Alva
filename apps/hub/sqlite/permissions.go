@@ -22,7 +22,7 @@ func (s *Store) SetPermissionPolicy(ctx context.Context, id string, policy hub.P
 		return errors.New("explicit Full scope confirmation required")
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}

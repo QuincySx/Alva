@@ -218,7 +218,7 @@ func bindPendingComposerFiles(ctx context.Context, tx *sql.Tx, home hub.Composer
 	if !reflect.DeepEqual(saved, home) {
 		return hub.ErrComposerDraftConflict
 	}
-	if _, err = read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, home.PendingSessionID); err != nil {
+	if _, err = read[hub.Session](ctx, tx, liveSessionQuery, home.PendingSessionID); err != nil {
 		return err
 	}
 	for _, ref := range saved.References {

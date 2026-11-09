@@ -663,3 +663,45 @@ func TestCLICreatedSessionDisablesDurableWaits(t *testing.T) {
 		}
 	})
 }
+
+func TestREPLRenamePinDeleteManageSessions(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "manage")
+	var id string
+	out, _, err := invoke(t, []string{"--data-dir", dir, "--repl"}, "  first line of the first prompt \nsecond\n/rename 重命名后\n/pin\n/session\n/quit\n")
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	inspect(t, dir, func(s *productstore.Store) {
+		all, err := s.ListSessions(t.Context(), 10)
+		if err != nil || len(all) != 1 || all[0].Title != "重命名后" || !all[0].Pinned {
+			t.Fatal("rename/pin not stored", all, err)
+		}
+		id = all[0].ID
+	})
+	if _, _, err = invoke(t, []string{"--data-dir", dir, "--repl"}, "/delete "+id+"\n/quit\n"); err != nil {
+		t.Fatal(err)
+	}
+	inspect(t, dir, func(s *productstore.Store) {
+		all, err := s.ListSessions(t.Context(), 10)
+		if err != nil || len(all) != 0 {
+			t.Fatal("deleted session still listed", all, err)
+		}
+		detail, err := s.DetailIncludingDeleted(t.Context(), id)
+		if err != nil || detail.Session.DeletedAt == 0 {
+			t.Fatal("soft delete must keep the record", err)
+		}
+	})
+}
+
+func TestCLITitleComesFromTheSharedRule(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "title")
+	if _, _, err := invoke(t, []string{"--data-dir", dir, "--prompt", "  标题来自首行  \n后面的行不进标题"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	inspect(t, dir, func(s *productstore.Store) {
+		all, err := s.ListSessions(t.Context(), 10)
+		if err != nil || len(all) != 1 || all[0].Title != "标题来自首行" {
+			t.Fatal("CLI did not use the product title rule", all, err)
+		}
+	})
+}

@@ -415,6 +415,13 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 	if entry.AttemptID != "" && entry.Event.SessionID != "" && p.observeOrigin(entry.AttemptID, entry.SessionID, entry.Event.SessionID) {
 		changed = entry.AttemptID
 	}
+	if entry.Origin == hub.TurnOriginContinue && entry.Input == "" {
+		// The fixed continue instruction is not a user message: the stream
+		// shows a status block at the point the reply resumed.
+		b := p.upsert(entry.TurnID+"/continue", entry, BlockKindStatus, BlockStatusCompleted)
+		b.Name, b.Text, b.final = "continue", "继续生成", true
+		return changed
+	}
 	if entry.Input != "" {
 		b := p.upsert(entry.TurnID+"/input", entry, BlockKindUser, BlockStatusCompleted)
 		if !b.final {

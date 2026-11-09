@@ -51,7 +51,7 @@ func teamSnapshot(ctx context.Context, tx *sql.Tx, id string) (*hub.TeamSnapshot
 		if onlyWorker != "" && worker.ID != onlyWorker {
 			continue
 		}
-		product, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, worker.SessionID)
+		product, err := read[hub.Session](ctx, tx, liveSessionQuery, worker.SessionID)
 		if err != nil {
 			return nil, err
 		}

@@ -24,7 +24,7 @@ func (s *Store) ReplaceAEP(ctx context.Context, id string, entries []hub.AEPBund
 		return err
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
@@ -45,7 +45,7 @@ func (s *Store) SetAEPEnabled(ctx context.Context, id, bundleID string, enabled,
 		providerResult0 = normalizeStoreError(providerResult0)
 	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		session, err := read[hub.Session](ctx, tx, `SELECT data FROM hub_sessions WHERE id=?`, id)
+		session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
 		if err != nil {
 			return err
 		}
