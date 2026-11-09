@@ -6,40 +6,11 @@
 package kit
 
 import (
-	"strings"
-	"sync"
-
 	"github.com/egoist/mygo/ui"
 )
 
 // sampleWidth is the gallery width of input samples; it is not a design token.
 const sampleWidth = 220
-
-var cellSlots sync.Map // string -> any (*T)
-
-// cellSlot returns the persistent value of one named slot of one gallery cell, created from init on first use, so a
-// sample keeps what the user types or toggles across frames. The key is page, axis values and slot name.
-func cellSlot[T any](page string, sel []string, slot string, init T) *T {
-	key := page + "|" + strings.Join(sel, "|") + "|" + slot
-	if v, ok := cellSlots.Load(key); ok {
-		return v.(*T)
-	}
-	v, _ := cellSlots.LoadOrStore(key, &init)
-	return v.(*T)
-}
-
-// CellText reads a string slot of a gallery cell, for tests that must see what the user typed.
-func CellText(page string, sel []string, slot string) (string, bool) {
-	if v, ok := cellSlots.Load(page + "|" + strings.Join(sel, "|") + "|" + slot); ok {
-		if s, ok := v.(*string); ok {
-			return *s, true
-		}
-	}
-	return "", false
-}
-
-// ResetCells forgets every cell's state (tests and the gallery's reset).
-func ResetCells() { cellSlots.Clear() }
 
 // Axis is one design axis with its values in design order.
 type Axis struct {

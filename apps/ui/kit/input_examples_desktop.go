@@ -7,6 +7,7 @@ package kit
 
 import (
 	"github.com/QuincySx/Alva/apps/ui/kit/icon"
+	"github.com/QuincySx/Alva/apps/ui/kit/internal/cells"
 	"github.com/QuincySx/Alva/apps/ui/kit/internal/force"
 	"github.com/egoist/mygo/ui"
 )
@@ -46,21 +47,21 @@ func inputPage() Page {
 			force.With(st.forced, func() {
 				switch sel[0] {
 				case "Select":
-					value := cellSlot("Input", sel, "select", "fast")
+					value := cells.Slot("Input", sel, "select", "fast")
 					Select(c, value, []Option[string]{{Value: "fast", Label: "快速"}, {Value: "deep", Label: "深入"}},
 						SelectProps{Label: "模型", Invalid: st.invalid, Disabled: st.disabled, Busy: st.busy, ReadOnly: st.readOnly, Key: "s"})
 				default:
-					text := cellSlot("Input", sel, "text", "")
+					text := cells.Slot("Input", sel, "text", "")
 					p := InputProps{Label: "名称", Placeholder: "输入内容", Invalid: st.invalid, Disabled: st.disabled, Busy: st.busy, ReadOnly: st.readOnly, Width: sampleWidth, Key: "i"}
 					if sel[0] == "Search" {
 						p.Label, p.Placeholder, p.Leading = "搜索", "搜索", icon.Search
 					}
 					if st.readOnly {
-						text = cellSlot("Input", sel, "readonly", "只读内容")
+						text = cells.Slot("Input", sel, "readonly", "只读内容")
 					}
 					if sel[0] == "Password" {
-						reveal := cellSlot("Input", sel, "reveal", false)
-						secret := cellSlot("Input", sel, "secret", "sample-not-a-real-key")
+						reveal := cells.Slot("Input", sel, "reveal", false)
+						secret := cells.Slot("Input", sel, "secret", "sample-not-a-real-key")
 						p.Label, p.Placeholder = "API Key", "粘贴 Key"
 						Password(c, secret, reveal, p)
 						return
@@ -78,9 +79,9 @@ func textAreaPage() Page {
 		Axes: []Axis{axis("State", "Default", "Focus", "Error", "Disabled", "ErrorFocus", "ReadOnly")},
 		Cell: func(c *ui.Context, sel []string) {
 			st := inputState(sel[0])
-			value := cellSlot("TextArea", sel, "text", "")
+			value := cells.Slot("TextArea", sel, "text", "")
 			if st.readOnly {
-				value = cellSlot("TextArea", sel, "readonly", "只读的多行内容")
+				value = cells.Slot("TextArea", sel, "readonly", "只读的多行内容")
 			}
 			force.With(st.forced, func() {
 				TextArea(c, value, TextAreaProps{Label: "说明", Placeholder: "写点什么", Invalid: st.invalid, Disabled: st.disabled, ReadOnly: st.readOnly, MinLines: 2, Key: "t"}).Width(sampleWidth)
@@ -95,9 +96,9 @@ func fieldPage() Page {
 		Axes: []Axis{axis("State", inputStates...)},
 		Cell: func(c *ui.Context, sel []string) {
 			st := inputState(sel[0])
-			value := cellSlot("Field", sel, "text", "")
+			value := cells.Slot("Field", sel, "text", "")
 			if st.readOnly {
-				value = cellSlot("Field", sel, "readonly", "只读内容")
+				value = cells.Slot("Field", sel, "readonly", "只读内容")
 			}
 			p := FieldProps{Title: "名称", Hint: "显示在列表里", Disabled: st.disabled, ReadOnly: st.readOnly, Busy: st.busy, Key: "f"}
 			if st.invalid {
@@ -127,7 +128,7 @@ func selectPage() Page {
 			selectOptionStatic(c, o, len(state) >= 8 && state[:8] == "Selected", forced)
 		},
 		Live: func(c *ui.Context) {
-			value := cellSlot("Select", nil, "live", "project")
+			value := cells.Slot("Select", nil, "live", "project")
 			Select(c, value, []Option[string]{
 				{Value: "project", Label: "当前项目", Description: "仅此项目"},
 				{Value: "all", Label: "全部项目", Description: "所有工作区"},

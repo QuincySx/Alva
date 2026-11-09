@@ -8,6 +8,7 @@ package kit
 import (
 	"strings"
 
+	"github.com/QuincySx/Alva/apps/ui/kit/internal/cells"
 	"github.com/QuincySx/Alva/apps/ui/kit/internal/force"
 	"github.com/egoist/mygo/ui"
 )
@@ -22,7 +23,7 @@ func checkboxPage() Page {
 		Axes: []Axis{axis("State", "Off", "On", "Mixed", "Focus", "Disabled", "OnFocus", "OnDisabled", "MixedFocus", "MixedDisabled")},
 		Cell: func(c *ui.Context, sel []string) {
 			on0, mixed0, focus, disabled := toggleState(sel[0])
-			on, mixed := cellSlot("Checkbox", sel, "on", on0), cellSlot("Checkbox", sel, "mixed", mixed0)
+			on, mixed := cells.Slot("Checkbox", sel, "on", on0), cells.Slot("Checkbox", sel, "mixed", mixed0)
 			forced := force.None
 			if focus || sel[0] == "Focus" {
 				forced = force.Focus
@@ -45,7 +46,7 @@ func switchPage() Page {
 		Axes: []Axis{axis("State", "Off", "On", "Focus", "Disabled", "OnFocus", "OnDisabled")},
 		Cell: func(c *ui.Context, sel []string) {
 			on0, _, focus, disabled := toggleState(sel[0])
-			on := cellSlot("Switch", sel, "on", on0)
+			on := cells.Slot("Switch", sel, "on", on0)
 			forced := force.None
 			if focus || sel[0] == "Focus" {
 				forced = force.Focus

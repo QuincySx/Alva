@@ -7,6 +7,7 @@ package kit
 
 import (
 	"github.com/QuincySx/Alva/apps/ui/kit/icon"
+	"github.com/QuincySx/Alva/apps/ui/kit/internal/cells"
 	"github.com/QuincySx/Alva/apps/ui/kit/internal/force"
 	"github.com/egoist/mygo/ui"
 )
@@ -62,7 +63,7 @@ func menuPage() Page {
 			menuItemStatic(c, it, forced)
 		},
 		Live: func(c *ui.Context) {
-			open, chosen := cellSlot("Menu", nil, "open", false), cellSlot("Menu", nil, "chosen", "尚未选择")
+			open, chosen := cells.Slot("Menu", nil, "open", false), cells.Slot("Menu", nil, "chosen", "尚未选择")
 			trigger := Button(c, "打开菜单", ButtonProps{Icon: icon.More, Key: "menu-trigger", OnClick: func() { *open = !*open }})
 			if key := Menu(c, trigger, open, []MenuItem{
 				{Key: "copy", Label: "复制", Icon: icon.Copy, Shortcut: "⌘ C"},

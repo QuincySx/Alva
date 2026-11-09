@@ -21,6 +21,8 @@ K2 说明：MyGo 的 `TooltipBase` 在提示显示时会吞掉 Esc，所以 Dial
 | inline_desktop.go | InlineAction：输入框内的 14px 轻量动作（无底色、hover 只变色、同高命中区、框内焦点描边），Password 的显隐与以后的清除按钮共用 |
 | input / field _desktop.go | Input、Password（掩码、尾部显隐切换自带名称）、TextArea（Invalid、ReadOnly、Busy、Disabled）与 Field（标题、提示、错误、状态注入） |
 | display / choice / rows / dialog / shell _desktop.go | K2：Badge、Avatar、Notice、EmptyState、Skeleton、Progress、Step、Pagination、DetailRow、Toast（ToastView 与 ShowToast）、Divider、Card；Radio、Segmented、Tabs、ToggleButton；ListRow 及 NavItem、TreeRow、SkillRow、ResourceRow、CompanionRow、SettingRow；Popover、Dialog/Sheet、DialogHeader/Footer；PageHeader、PanelHeader、Sidebar、SettingsNav。浮层统一经 `popupShadow` 取 shadow.popup |
+| export_desktop.go | 给 blocks 与画廊页用的薄导出：Loader、LoaderColor、InlineFocus、PanelSurface、Slot |
+| blocks/ | K3 业务组合块（见其 AGENTS.md） |
 | select / toggle / tooltip / menu _desktop.go | 泛型 Select、Checkbox（含 Mixed）与 Switch、Tooltip、Menu（roving focus） |
 | examples_desktop.go 与 *_examples_desktop.go | `Page`/`Axis` 与各组件按设计轴展开的示例页，画廊与覆盖闸共用 |
 | *_desktop_test.go | 交互、几何/像素、强制态与名称审计测试 |

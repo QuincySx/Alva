@@ -1,4 +1,4 @@
-// INPUT: The gallery App, kit.Pages(), testdata/design-components.json and ui.Tester.
+// INPUT: The gallery App, Pages(), testdata/design-components.json and ui.Tester.
 // OUTPUT: Coverage gate against the design catalog, render-everything sweeps in light/dark/Narrow, accessible-name audit, toolbar and navigation interaction, and optional screenshots.
 // POS: [L7 Kit tests] ALVA_KIT_SHOTS=<dir> saves one PNG per page and appearance for human review; no PNG baseline is committed.
 //go:build desktop
@@ -16,22 +16,15 @@ import (
 	"time"
 
 	"github.com/QuincySx/Alva/apps/ui/kit"
+	"github.com/QuincySx/Alva/apps/ui/kit/internal/cells"
 	"github.com/QuincySx/Alva/apps/ui/kit/kittest"
 	"github.com/QuincySx/Alva/apps/ui/kit/theme"
 	"github.com/egoist/mygo/ui"
 )
 
-const (
-	k3 = "K3 business compositions (kit/blocks)"
-)
-
 // deferred lists design components the kit does not build yet. The list only shrinks: an entry for a
 // component that now has a page fails as stale, and a design component in neither place fails.
-var deferred = map[string]string{
-	"ConnectionRow": k3, "ModelRow": k3, "TaskRow": k3, "ToolActivity": k3, "Composer": k3, "QuestionOption": k3, "Approval": k3,
-	"MessageHeader": k3, "Question": k3, "Attachment": k3, "CodeBlock": k3, "Citation": k3, "VoiceInput": k3, "RunStatus": k3,
-	"PermissionMenu": k3, "ComposerMenu": k3, "ProviderForm": k3, "ModelForm": k3, "ProviderModels": k3,
-}
+var deferred = map[string]string{}
 
 // skippedAllowance caps the cells a page may decline; it only decreases.
 var skippedAllowance = map[string]int{}
@@ -60,7 +53,7 @@ func catalog(t *testing.T) []designComponent {
 
 func TestGalleryCoversDesignCatalog(t *testing.T) {
 	pages := map[string]kit.Page{}
-	for _, p := range kit.Pages() {
+	for _, p := range Pages() {
 		if p.Design != "" {
 			pages[p.Design] = p
 		}
@@ -114,7 +107,7 @@ func TestGalleryCoversDesignCatalog(t *testing.T) {
 }
 
 func TestSkippedCellsAreOnlyDeclaredForTheMaskedKind(t *testing.T) {
-	for _, p := range kit.Pages() {
+	for _, p := range Pages() {
 		if p.Skip == nil {
 			continue
 		}
@@ -140,7 +133,7 @@ func render(t *testing.T, page kit.Page, dark, narrow bool, width, height int) *
 func TestEveryExampleRenders(t *testing.T) {
 	assertNamed, seen := kittest.Names(t)
 	cells := 0
-	for _, page := range kit.Pages() {
+	for _, page := range Pages() {
 		for _, dark := range []bool{false, true} {
 			tester := render(t, page, dark, false, 1440, 2200)
 			if !tester.HasText(fmt.Sprint(page.Variants()) + " 个变体") {
@@ -166,7 +159,7 @@ func darkLabel(dark bool) string {
 func TestMatrixCellsAreAllReachableInTheLayout(t *testing.T) {
 	// Each Button variant caption appears once: the Cartesian product has no duplicates or holes.
 	var button kit.Page
-	for _, p := range kit.Pages() {
+	for _, p := range Pages() {
 		if p.Name == "Button" {
 			button = p
 		}
@@ -217,7 +210,7 @@ func pageApp(t *testing.T, name string) (*App, *ui.Tester) {
 	if err := theme.RegisterFonts(); err != nil {
 		t.Fatal(err)
 	}
-	kit.ResetCells()
+	cells.Reset()
 	a := New()
 	if !a.Select(name) {
 		t.Fatal("no page", name)
@@ -230,7 +223,7 @@ func TestGalleryCellsKeepTheirOwnState(t *testing.T) {
 	_, tester := pageApp(t, "Input")
 	tester.Key(0, ui.KeyTab) // first focusable: Text / Default
 	tester.Type("你好")
-	if got, _ := kit.CellText("Input", []string{"Text", "Default"}, "text"); got != "你好" {
+	if got, _ := cells.Text("Input", []string{"Text", "Default"}, "text"); got != "你好" {
 		t.Fatal("typing in a gallery cell did not stick: the sample resets every frame")
 	}
 	if tester.HasText("隐藏内容") {

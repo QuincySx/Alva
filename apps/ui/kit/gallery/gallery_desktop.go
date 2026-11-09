@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/QuincySx/Alva/apps/ui/kit"
+	"github.com/QuincySx/Alva/apps/ui/kit/blocks"
 	"github.com/QuincySx/Alva/apps/ui/kit/icon"
 	"github.com/QuincySx/Alva/apps/ui/kit/theme"
 	"github.com/egoist/mygo/ui"
@@ -29,8 +30,11 @@ type App struct {
 	Flat bool
 }
 
+// Pages is every kit and blocks page in gallery order.
+func Pages() []kit.Page { return append(kit.Pages(), blocks.Pages()...) }
+
 // New shows the first component.
-func New() *App { return &App{Pages: kit.Pages()} }
+func New() *App { return &App{Pages: Pages()} }
 
 // Select shows the page of the named component and reports whether it exists.
 func (a *App) Select(name string) bool {

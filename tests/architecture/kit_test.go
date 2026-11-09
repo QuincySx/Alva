@@ -171,8 +171,9 @@ func f(e ui.Element) {
 
 // kitVocabularyExempt names kit files whose string literals may equal a tool or engine name, with the reason.
 var kitVocabularyExempt = map[string]string{
-	sharedKitRoot + "/icon/names_gen.go":        "design glyph names (Edit, Task, Agent) are icon identifiers, not tool or engine names",
-	sharedKitRoot + "/display_desktop.go#Agent": "AvatarKind.String returns the design's Kind axis value; Agent names an avatar shape, not an engine",
+	sharedKitRoot + "/icon/names_gen.go":            "design glyph names (Edit, Task, Agent) are icon identifiers, not tool or engine names",
+	sharedKitRoot + "/blocks/pages_desktop.go#Edit": "the design's ModelForm.Mode axis value Edit names the form mode, not a tool",
+	sharedKitRoot + "/display_desktop.go#Agent":     "AvatarKind.String returns the design's Kind axis value; Agent names an avatar shape, not an engine",
 }
 
 func TestKitHasNoProductVocabulary(t *testing.T) {
@@ -285,3 +286,22 @@ func TestKitShadowScannerCatchesBypasses(t *testing.T) {
 }
 
 func token2() *token.FileSet { return token.NewFileSet() }
+
+// TestGalleryCellStateIsReachedOnlyFromExamplePages keeps the global cell map out of production components: only
+// example pages (kit/*examples_desktop.go, blocks/pages_desktop.go) and the gallery may import internal/cells.
+func TestGalleryCellStateIsReachedOnlyFromExamplePages(t *testing.T) {
+	const cellsPath = "github.com/QuincySx/Alva/apps/ui/kit/internal/cells"
+	for name, file := range kitSources(t) {
+		for _, spec := range file.Imports {
+			path, _ := strconv.Unquote(spec.Path.Value)
+			if path != cellsPath {
+				continue
+			}
+			base := name[strings.LastIndex(name, "/")+1:]
+			ok := strings.HasSuffix(base, "examples_desktop.go") || name == sharedKitRoot+"/blocks/pages_desktop.go" || under(name, sharedKitRoot+"/gallery")
+			if !ok {
+				t.Errorf("%s imports internal/cells: gallery state belongs to example pages only", name)
+			}
+		}
+	}
+}

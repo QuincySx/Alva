@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/QuincySx/Alva/apps/ui/kit/icon"
+	"github.com/QuincySx/Alva/apps/ui/kit/internal/cells"
 	"github.com/QuincySx/Alva/apps/ui/kit/internal/force"
 	"github.com/QuincySx/Alva/apps/ui/kit/theme"
 	"github.com/egoist/mygo/ui"
@@ -165,7 +166,7 @@ func radioPage() Page {
 			if on {
 				initial = 1
 			}
-			value := cellSlot("Radio", sel, "value", initial)
+			value := cells.Slot("Radio", sel, "value", initial)
 			force.With(stateForce(sel[0]), func() {
 				RadioGroup(c, "示例选项", false, func() {
 					Radio(c, value, 1, "选择此项", RadioProps{Disabled: strings.HasSuffix(sel[0], "Disabled"), Key: "r"})
@@ -180,7 +181,7 @@ func segmentPage() Page {
 			segmentStatic(c, "按周", isSelected(sel[0]), strings.HasSuffix(sel[0], "Disabled"), stateForce(sel[0]))
 		},
 		Live: func(c *ui.Context) {
-			value := cellSlot("Segmented", nil, "live", 1)
+			value := cells.Slot("Segmented", nil, "live", 1)
 			Segmented(c, value, []string{"按日", "按周", "按月", "按年"}, SegmentedProps{Label: "统计周期", Disabled: []bool{3: true}, Key: "live"})
 		}}
 }
@@ -192,7 +193,7 @@ func tabPage() Page {
 			tabStatic(c, TabItem{Label: "概览", Busy: state == "Busy", Disabled: strings.HasSuffix(state, "Disabled")}, isSelected(state), stateForce(state))
 		},
 		Live: func(c *ui.Context) {
-			value := cellSlot("Tabs", nil, "live", 0)
+			value := cells.Slot("Tabs", nil, "live", 0)
 			Tabs(c, value, []TabItem{{Label: "概览"}, {Label: "活动", Icon: icon.Activity}, {Label: "同步中", Busy: true}, {Label: "归档", Disabled: true}}, TabsProps{Label: "示例标签", Key: "live"})
 		}}
 }
@@ -201,7 +202,7 @@ func toggleButtonPage() Page {
 	return Page{Name: "ToggleButton", Design: "ToggleButton", Category: "动作", Axes: []Axis{
 		axis("State", "Default", "Hover", "Pressed", "Focus", "Disabled", "Selected", "SelectedHover", "SelectedPressed", "SelectedFocus", "SelectedDisabled"), axis("Content", "Text", "Leading")},
 		Cell: func(c *ui.Context, sel []string) {
-			on := cellSlot("ToggleButton", sel, "on", isSelected(sel[0]))
+			on := cells.Slot("ToggleButton", sel, "on", isSelected(sel[0]))
 			p := ToggleButtonProps{Disabled: strings.HasSuffix(sel[0], "Disabled"), Key: "t"}
 			if sel[1] == "Leading" {
 				p.Icon = icon.Star
@@ -265,12 +266,12 @@ func settingRowPage() Page {
 			SettingRow(c, SettingRowProps{Title: "自动同步", Description: "启动时刷新模型目录", Key: "s"}, func() {
 				switch sel[0] {
 				case "Switch":
-					on := cellSlot("SettingRow", sel, "on", true)
+					on := cells.Slot("SettingRow", sel, "on", true)
 					Switch(c, on, "自动同步", SwitchProps{Key: "sw"})
 				case "Action":
 					Button(c, "管理", ButtonProps{Kind: Ghost, TrailingIcon: icon.ChevronRight, Key: "act"})
 				default:
-					value := cellSlot("SettingRow", sel, "v", "weekly")
+					value := cells.Slot("SettingRow", sel, "v", "weekly")
 					Select(c, value, []Option[string]{{Value: "weekly", Label: "每周"}, {Value: "daily", Label: "每天"}}, SelectProps{Label: "频率", Plain: true, Key: "sel"})
 				}
 			}).Width(sampleWide)
@@ -296,7 +297,7 @@ func dialogPage() Page {
 	return Page{Name: "Dialog", Category: "反馈", Cell: func(c *ui.Context, _ []string) {
 		Text(c, "对话框与侧边栏在下方演示中打开。", TextProps{Tone: ToneSecondary, Key: "hint"})
 	}, Live: func(c *ui.Context) {
-		dialog, sheet := cellSlot("Dialog", nil, "dialog", false), cellSlot("Dialog", nil, "sheet", false)
+		dialog, sheet := cells.Slot("Dialog", nil, "dialog", false), cells.Slot("Dialog", nil, "sheet", false)
 		ui.Row(c.Key("row")).Gap(theme.Space2).Children(func() {
 			Button(c, "打开对话框", ButtonProps{Key: "open-dialog", OnClick: func() { *dialog = true }})
 			Button(c, "打开侧边栏", ButtonProps{Key: "open-sheet", OnClick: func() { *sheet = true }})
@@ -319,11 +320,11 @@ func popoverPage() Page {
 	return Page{Name: "Popover", Category: "反馈", Cell: func(c *ui.Context, _ []string) {
 		Text(c, "弹层在下方演示中打开。", TextProps{Tone: ToneSecondary, Key: "hint"})
 	}, Live: func(c *ui.Context) {
-		open := cellSlot("Popover", nil, "open", false)
+		open := cells.Slot("Popover", nil, "open", false)
 		trigger := Button(c, "打开弹层", ButtonProps{Key: "trigger", OnClick: func() { *open = !*open }})
 		Popover(c, trigger, open, PopoverProps{Label: "筛选", Width: sampleHalf}, func() {
 			Text(c, "筛选条件", TextProps{Strong: true, Key: "t"})
-			on := cellSlot("Popover", nil, "check", true)
+			on := cells.Slot("Popover", nil, "check", true)
 			Checkbox(c, on, "只看进行中", CheckboxProps{Key: "c"})
 		})
 	}}
@@ -346,7 +347,7 @@ func panelHeaderPage() Page {
 func sidebarPage() Page {
 	return Page{Name: "Sidebar", Design: "Sidebar", Category: "壳", Axes: []Axis{axis("Area", "Work", "Partners", "Settings", "New")},
 		Cell: func(c *ui.Context, sel []string) {
-			area := cellSlot("Sidebar", sel, "area", map[string]SidebarArea{"Work": AreaWork, "Partners": AreaPartners, "Settings": AreaSettings, "New": AreaNew}[sel[0]])
+			area := cells.Slot("Sidebar", sel, "area", map[string]SidebarArea{"Work": AreaWork, "Partners": AreaPartners, "Settings": AreaSettings, "New": AreaNew}[sel[0]])
 			ui.Box(c).Height(sampleSidebarH).Children(func() {
 				Sidebar(c, SidebarProps{Area: *area, OnSelect: func(a SidebarArea) { *area = a }, OnCollapse: func() {}, Key: "s"})
 			})
@@ -365,7 +366,7 @@ func settingsNavPage() Page {
 					index = i
 				}
 			}
-			selected := cellSlot("SettingsNav", sel, "i", index)
+			selected := cells.Slot("SettingsNav", sel, "i", index)
 			list := make([]SettingsCategory, len(cats))
 			for i := range cats {
 				list[i] = SettingsCategory{Label: labels[i], Icon: glyphs[i]}
