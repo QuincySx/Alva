@@ -24,4 +24,5 @@ cmd 表示可执行程序入口集合，CLI 是其中的终端交互形态。每
 | Hub CLI | `alva-hub/` | 共用bootstrap/product的one-shot/REPL，冷读sessions/history/handoff、耐久resume/手动切换、显式CLI配置目录，实际成功后才输出最终答复 |
 | Hub Server | `alva-hub-server/` | 同源product/native的认证loopback HTTP/SSE、显式Pi配置来源与RPC/只读exec选择；Claude固定stream-json、Codex固定app-server（带审批的传输，不提供不询问的开关） |
 | Model Gateway | `alva-gateway/` | 独立显式route/stdio key、真实Magpie跨协议HTTP/SSE，非Hub或Agent loop |
+| Kit Gallery | `alva-kit-gallery/` | `desktop` tag 的原生画廊窗口，浏览 Alva Kit 全部设计变体；不碰存储、网络或模型 |
 | Devtools MCP | `alva-devtools-mcp/` | 显式numeric-loopback Hub/UI+独立token fd或私有文件，默认只读stdio；UI controls另需operator双端授权 |

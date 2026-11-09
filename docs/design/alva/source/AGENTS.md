@@ -12,6 +12,7 @@ Read [the CLI usage and pitfalls guide](../CLI-GUIDE.md) before running authorin
 | 路径 | 职责 |
 |---|---|
 | native_shell_refresh.py | One-time exact-revision guarded public CLI migration of native-inset Header36/SidebarTopRow, real hidden navigation, existing Settings/Sheet return actions and necessary Expanded/Collapsed/PanelLeft semantics; no direct canonical JSON writes or Go implementation |
+| export_tokens.py | Offline, read-only export of token_definitions() and the saved package's component axes to apps/ui/kit (tokens.json, design-components.json); optional output-root argument for tests; never writes the design package |
 | author.py | Composition helpers and shared/basic page authoring through named CLI intents |
 | workbench.py | Four workspace screens, shared composer and right workspace shell with file/empty/background bodies, closable tabs and panel catalog; reviewed revision required before redraw; setup is one-time |
 | model_picker.py | One model-first picker with favorites and Provider filters; left settings panel chooses compatible Agent and model options; direct row selection, four entry/exit/settings links; no state-board copies |

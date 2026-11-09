@@ -173,6 +173,21 @@ func forbidden(root, dependency string, local bool) string {
 	if under(root, "apps/ui") && (under(dependency, "apps/direct") || under(dependency, "apps/hub") || under(dependency, "harness") || under(dependency, "platform/host") || under(dependency, "integration/engine")) {
 		return "shared presentation cannot acquire product or execution ownership"
 	}
+	if under(root, sharedKitRoot) {
+		// Alva Kit (ADR 0014) is a skin over MyGo: standard library, MyGo and itself only. chat, modules,
+		// the products and everything below them depend on the kit, never the reverse.
+		if local && !under(dependency, sharedKitRoot) {
+			return "Alva Kit depends only on the standard library, MyGo and itself; chat, modules, products, SDK and harness depend on the kit, not the reverse"
+		}
+		if !local && strings.Contains(dependency, ".") && !under(dependency, "github.com/egoist/mygo") {
+			return "Alva Kit has no third-party dependency besides MyGo"
+		}
+		for _, pure := range []string{"apps/ui/kit/icon", "apps/ui/kit/internal", "apps/ui/kit/theme/internal"} {
+			if under(root, pure) && under(dependency, "github.com/egoist/mygo") {
+				return "kit data, generator and state-scope packages stay framework-free so token and icon tests run without MyGo"
+			}
+		}
+	}
 	if under(root, "extension/utility/timer") {
 		if (local && !under(dependency, "sdk") && !under(dependency, "extension/utility/timer")) || (!local && strings.Contains(dependency, ".")) {
 			return "portable timer Tool may depend only on standard library and SDK, never native Plugin/storage/host"
@@ -262,7 +277,7 @@ func forbidden(root, dependency string, local bool) string {
 }
 
 func testSupport(name string) bool {
-	return under(name, "sdk/kernel/abi/sessiontest") || under(name, "platform/storage/storagetest") || under(name, "platform/storage/blob/blobtest")
+	return under(name, "sdk/kernel/abi/sessiontest") || under(name, "platform/storage/storagetest") || under(name, "platform/storage/blob/blobtest") || under(name, "apps/ui/kit/kittest")
 }
 
 func concreteStorage(name string) bool {
@@ -413,6 +428,18 @@ func TestFirewallRejectsContainerAndTransitiveBypasses(t *testing.T) {
 		"shared UI cannot own engines":           {"apps/ui/chat": {"integration/engine"}},
 		"UI container is not an allowlist":       {"apps/ui/other": {"github.com/egoist/mygo/ui"}},
 		"chat prefix is exact":                   {"apps/ui/chat-extra": {"github.com/egoist/mygo/ui"}},
+		"kit cannot own Hub":                     {"apps/ui/kit": {"apps/hub/product"}},
+		"kit cannot depend on chat":              {"apps/ui/kit": {"apps/ui/chat"}},
+		"kit cannot depend on modules":           {"apps/ui/kit/gallery": {"apps/ui/modules"}},
+		"kit cannot depend on the SDK":           {"apps/ui/kit": {"sdk/llm/wire"}},
+		"kit cannot depend on direct":            {"apps/ui/kit": {"apps/direct/desktop"}},
+		"kit has no third party":                 {"apps/ui/kit": {"example.com/runtime"}},
+		"kit inherits no product":                {"apps/ui/kit": {"platform/system/process"}},
+		"kit icon data is pure":                  {"apps/ui/kit/icon": {"github.com/egoist/mygo/ui"}},
+		"kit scopes are framework-free":          {"apps/ui/kit/internal/force": {"github.com/egoist/mygo/ui"}},
+		"kit generator is pure":                  {"apps/ui/kit/theme/internal/gen": {"github.com/egoist/mygo/ui"}},
+		"kit prefix is exact":                    {"apps/ui/kit-extra": {"github.com/egoist/mygo/ui"}},
+		"kittest cannot own products":            {"apps/ui/kit/kittest": {"apps/hub/product"}},
 		"command prefix is exact":                {"cmd-extra": {"github.com/egoist/mygo/ui"}},
 		"SDK cannot import an unscanned entry":   {"sdk/agent/core": {"cmd/future"}},
 		"platform cannot import an entry":        {"platform/system/process": {"cmd/alva"}},

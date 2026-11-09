@@ -14,6 +14,7 @@ const (
 	hubDesktopRoot    = "apps/hub/desktop"
 	sharedChatRoot    = "apps/ui/chat"
 	sharedModulesRoot = "apps/ui/modules"
+	sharedKitRoot     = "apps/ui/kit"
 	validationRoot    = "tests/architecture"
 	extensibilityRoot = "tests/extensibility"
 )
@@ -24,5 +25,5 @@ func goRoot() string {
 }
 
 func desktopPackage(name string) bool {
-	return under(name, directDesktopRoot) || under(name, hubDesktopRoot) || under(name, sharedChatRoot) || under(name, sharedModulesRoot)
+	return under(name, directDesktopRoot) || under(name, hubDesktopRoot) || under(name, sharedChatRoot) || under(name, sharedModulesRoot) || under(name, sharedKitRoot)
 }

@@ -1,0 +1,963 @@
+{
+  "version": 1,
+  "components": [
+    {
+      "name": "Icon",
+      "variants": 69,
+      "axes": [
+        {
+          "name": "Name",
+          "values": [
+            "Plus",
+            "Close",
+            "Search",
+            "Check",
+            "ChevronDown",
+            "ChevronRight",
+            "ChevronLeft",
+            "ChevronUp",
+            "ArrowUp",
+            "ArrowRight",
+            "Stop",
+            "Pause",
+            "Play",
+            "More",
+            "Menu",
+            "Panel",
+            "Window",
+            "Expand",
+            "External",
+            "Chat",
+            "Folder",
+            "File",
+            "Code",
+            "Terminal",
+            "Globe",
+            "Shield",
+            "Lock",
+            "Key",
+            "Settings",
+            "Sliders",
+            "User",
+            "Users",
+            "Agent",
+            "Brain",
+            "Chip",
+            "Sparkles",
+            "Star",
+            "Book",
+            "Plugin",
+            "Database",
+            "Cloud",
+            "Download",
+            "Upload",
+            "Refresh",
+            "Clock",
+            "Calendar",
+            "Activity",
+            "Chart",
+            "List",
+            "Task",
+            "Branch",
+            "Link",
+            "Copy",
+            "Edit",
+            "Trash",
+            "Image",
+            "Paperclip",
+            "Microphone",
+            "Volume",
+            "Eye",
+            "Info",
+            "Warning",
+            "Help",
+            "Sun",
+            "Moon",
+            "Filter",
+            "Target",
+            "Loader",
+            "PanelLeft"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Button",
+      "variants": 112,
+      "axes": [
+        {
+          "name": "Kind",
+          "values": [
+            "Primary",
+            "Secondary",
+            "Ghost",
+            "Danger"
+          ]
+        },
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Hover",
+            "Pressed",
+            "Focus",
+            "Disabled",
+            "Loading",
+            "LoadingFocus"
+          ]
+        },
+        {
+          "name": "Content",
+          "values": [
+            "Text",
+            "Leading",
+            "Trailing",
+            "Icon"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Input",
+      "variants": 28,
+      "axes": [
+        {
+          "name": "Kind",
+          "values": [
+            "Text",
+            "Search",
+            "Select",
+            "Password"
+          ]
+        },
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Focus",
+            "Error",
+            "Disabled",
+            "Loading",
+            "ErrorFocus",
+            "ReadOnly"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "IconButton",
+      "variants": 12,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Hover",
+            "Pressed",
+            "Focus",
+            "Disabled",
+            "Loading",
+            "LoadingFocus",
+            "Selected",
+            "SelectedHover",
+            "SelectedPressed",
+            "SelectedFocus",
+            "SelectedDisabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Field",
+      "variants": 7,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Focus",
+            "Error",
+            "Disabled",
+            "Loading",
+            "ErrorFocus",
+            "ReadOnly"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "TextArea",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Focus",
+            "Error",
+            "Disabled",
+            "ErrorFocus",
+            "ReadOnly"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Checkbox",
+      "variants": 9,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Off",
+            "On",
+            "Mixed",
+            "Focus",
+            "Disabled",
+            "OnFocus",
+            "OnDisabled",
+            "MixedFocus",
+            "MixedDisabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Radio",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Off",
+            "On",
+            "Focus",
+            "Disabled",
+            "OnFocus",
+            "OnDisabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Switch",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Off",
+            "On",
+            "Focus",
+            "Disabled",
+            "OnFocus",
+            "OnDisabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Badge",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "Tone",
+          "values": [
+            "Neutral",
+            "Accent",
+            "Success",
+            "Warning",
+            "Danger",
+            "Info"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Avatar",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "Kind",
+          "values": [
+            "Person",
+            "Agent",
+            "Provider"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "NavItem",
+      "variants": 7,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Hover",
+            "Selected",
+            "Focus",
+            "Disabled",
+            "SelectedFocus",
+            "SelectedDisabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tab",
+      "variants": 7,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Selected",
+            "Focus",
+            "Busy",
+            "SelectedFocus",
+            "SelectedDisabled",
+            "Disabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "MenuItem",
+      "variants": 8,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Hover",
+            "Selected",
+            "Disabled",
+            "Danger",
+            "Focus",
+            "SelectedFocus",
+            "SelectedDisabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tooltip",
+      "variants": 1,
+      "axes": []
+    },
+    {
+      "name": "Notice",
+      "variants": 4,
+      "axes": [
+        {
+          "name": "Tone",
+          "values": [
+            "Info",
+            "Success",
+            "Warning",
+            "Danger"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "EmptyState",
+      "variants": 4,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Empty",
+            "Loading",
+            "Error",
+            "Unavailable"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SettingRow",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "Control",
+          "values": [
+            "Switch",
+            "Action",
+            "Select"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ConnectionRow",
+      "variants": 4,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Selected",
+            "Disconnected",
+            "Error"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ModelRow",
+      "variants": 8,
+      "axes": [
+        {
+          "name": "Mode",
+          "values": [
+            "Picker",
+            "Manage"
+          ]
+        },
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Hover",
+            "Selected",
+            "Unavailable"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SkillRow",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Shared",
+            "Owned",
+            "Unavailable"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ResourceRow",
+      "variants": 4,
+      "axes": [
+        {
+          "name": "Kind",
+          "values": [
+            "File",
+            "Directory",
+            "Link",
+            "Media"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "TaskRow",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Running",
+            "Waiting",
+            "Done",
+            "Failed",
+            "Cancelled",
+            "Queued"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ToolActivity",
+      "variants": 7,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Collapsed",
+            "Running",
+            "Error",
+            "Expanded",
+            "Focus",
+            "ExpandedFocus",
+            "ErrorExpanded"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Composer",
+      "variants": 14,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Idle",
+            "Focus",
+            "Ready",
+            "Attaching",
+            "Submitting",
+            "Running",
+            "Waiting",
+            "Stopping",
+            "Stopped",
+            "Complete",
+            "Failed",
+            "Recording",
+            "Transcribing",
+            "Disabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "QuestionOption",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Selected",
+            "Disabled",
+            "Focus",
+            "SelectedFocus",
+            "SelectedDisabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Approval",
+      "variants": 4,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Pending",
+            "Allowed",
+            "Denied",
+            "Expired"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Step",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Current",
+            "Done",
+            "Next"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DialogHeader",
+      "variants": 1,
+      "axes": []
+    },
+    {
+      "name": "DialogFooter",
+      "variants": 1,
+      "axes": []
+    },
+    {
+      "name": "Progress",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Running",
+            "Done",
+            "Error"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Skeleton",
+      "variants": 1,
+      "axes": []
+    },
+    {
+      "name": "Sidebar",
+      "variants": 4,
+      "axes": [
+        {
+          "name": "Area",
+          "values": [
+            "Work",
+            "Partners",
+            "Settings",
+            "New"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SettingsNav",
+      "variants": 8,
+      "axes": [
+        {
+          "name": "Category",
+          "values": [
+            "General",
+            "Models",
+            "Plugins",
+            "Skills",
+            "Storage",
+            "Security",
+            "Gateway",
+            "Developer"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "PageHeader",
+      "variants": 2,
+      "axes": [
+        {
+          "name": "Navigation",
+          "values": [
+            "Expanded",
+            "Collapsed"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "PanelHeader",
+      "variants": 1,
+      "axes": []
+    },
+    {
+      "name": "CompanionRow",
+      "variants": 4,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Selected",
+            "Paused",
+            "Error"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "MessageHeader",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "Author",
+          "values": [
+            "Assistant",
+            "User",
+            "Partner"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Question",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Pending",
+            "Submitted",
+            "Expired"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Segment",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Selected",
+            "Disabled",
+            "SelectedFocus",
+            "SelectedDisabled",
+            "Focus"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Pagination",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Ready",
+            "Loading",
+            "End"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Toast",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "Tone",
+          "values": [
+            "Success",
+            "Error",
+            "Info"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "TreeRow",
+      "variants": 10,
+      "axes": [
+        {
+          "name": "Kind",
+          "values": [
+            "Folder",
+            "File"
+          ]
+        },
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Selected",
+            "Focus",
+            "SelectedFocus",
+            "Unavailable"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ModelForm",
+      "variants": 2,
+      "axes": [
+        {
+          "name": "Mode",
+          "values": [
+            "Add",
+            "Edit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ToggleButton",
+      "variants": 20,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Hover",
+            "Pressed",
+            "Focus",
+            "Disabled",
+            "Selected",
+            "SelectedHover",
+            "SelectedPressed",
+            "SelectedFocus",
+            "SelectedDisabled"
+          ]
+        },
+        {
+          "name": "Content",
+          "values": [
+            "Text",
+            "Leading"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SelectOption",
+      "variants": 7,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Hover",
+            "Selected",
+            "Focus",
+            "SelectedFocus",
+            "Disabled",
+            "SelectedDisabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Attachment",
+      "variants": 4,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Ready",
+            "Uploading",
+            "Error",
+            "Unavailable"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "CodeBlock",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Copied",
+            "CopyError"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Citation",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Default",
+            "Focus",
+            "Unavailable"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DetailRow",
+      "variants": 1,
+      "axes": []
+    },
+    {
+      "name": "VoiceInput",
+      "variants": 8,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Idle",
+            "Hover",
+            "Focus",
+            "Recording",
+            "RecordingHover",
+            "Transcribing",
+            "Error",
+            "Disabled"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RunStatus",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Working",
+            "Waiting",
+            "Stopping",
+            "Stopped",
+            "Done",
+            "Error"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "PermissionMenu",
+      "variants": 3,
+      "axes": [
+        {
+          "name": "Mode",
+          "values": [
+            "Ask",
+            "Auto",
+            "Full"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ComposerMenu",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "View",
+          "values": [
+            "Add",
+            "References",
+            "Commands",
+            "Empty",
+            "Loading",
+            "Error"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ProviderForm",
+      "variants": 2,
+      "axes": [
+        {
+          "name": "Source",
+          "values": [
+            "Preset",
+            "Custom"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ProviderModels",
+      "variants": 6,
+      "axes": [
+        {
+          "name": "State",
+          "values": [
+            "Idle",
+            "Loading",
+            "Ready",
+            "Empty",
+            "Unavailable",
+            "Error"
+          ]
+        }
+      ]
+    }
+  ]
+}
