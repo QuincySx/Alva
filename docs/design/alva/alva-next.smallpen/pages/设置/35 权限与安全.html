@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>设置 / 35 权限与安全</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-row items-start justify-start gap-3 pt-2 pb-3 px-3 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_navigation_native_shell、req_alva_navigation_settings -->
+  <sp-use component="SettingsNav" data-name="SettingsNav" props="Category: Security" class="w-navigation h-full">
+    <sp-use data-name="Developer" data-click="设置/37 开发者测试"></sp-use>
+    <sp-use data-name="Gateway" data-click="设置/36 Gateway"></sp-use>
+    <sp-use data-name="General" data-click="设置/31 通用"></sp-use>
+    <sp-use data-name="Models" data-click="设置/23 模型与连接"></sp-use>
+    <sp-use data-name="Plugins" data-click="设置/32 插件与工具"></sp-use>
+    <sp-use data-name="Security" data-click="设置/35 权限与安全"></sp-use>
+    <sp-use data-name="Skills" data-click="设置/33 规则与 Skills"></sp-use>
+    <sp-use data-name="Storage" data-click="设置/34 数据与存储"></sp-use>
+  </sp-use>
+  <div data-name="SettingsRegion" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+    <div data-name="ReturnRow" class="flex flex-row w-full h-control-height items-center justify-start px-6">
+      <sp-use component="Button" data-name="HeaderReturn" props="Content: Leading; Kind: Ghost; State: Default" data-click="工作台/22 对话与面板" class="w-fit h-control-height">
+        <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
+        <p data-name="Label">返回工作台</p>
+      </sp-use>
+    </div>
+    <div data-name="SettingsMain" class="flex flex-col w-full h-full items-start justify-start gap-4 p-6 max-w-[800px]">
+      <div data-name="PageTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+        <div data-name="PageTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+          <p data-name="PageTitleTitle" class="w-full h-fit type-heading-strong text-text">权限与安全</p>
+          <p data-name="PageTitleDescription" class="w-full h-fit type-caption text-secondary hidden">权限以真实操作和执行范围为准。</p>
+        </div>
+      </div>
+      <div data-name="PermissionModes" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent">
+        <div data-name="PermissionTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+          <div data-name="PermissionTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+            <p data-name="PermissionTitleTitle" class="w-full h-fit type-subtitle-strong text-text">默认审批方式</p>
+          </div>
+        </div>
+        <sp-use component="QuestionOption" data-name="Ask" props="State: Selected" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">需要权限时暂停，等待你明确决定。</p>
+            <p data-name="Title">每次询问</p>
+          </div>
+        </sp-use>
+        <sp-use component="QuestionOption" data-name="Edits" props="State: Default" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">高风险操作仍需单独确认。</p>
+            <p data-name="Title">允许常规编辑</p>
+          </div>
+        </sp-use>
+        <sp-use component="QuestionOption" data-name="Plan" props="State: Default" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">先调查与规划，执行变更前再切换。</p>
+            <p data-name="Title">计划模式</p>
+          </div>
+        </sp-use>
+      </div>
+      <div data-name="Authorizations" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent">
+        <div data-name="AuthorizationTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+          <div data-name="AuthorizationTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+            <p data-name="AuthorizationTitleTitle" class="w-full h-fit type-subtitle-strong text-text">已授予的范围</p>
+          </div>
+        </div>
+        <sp-use component="ResourceRow" data-name="WorkspaceGrant" props="Kind: Directory" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">当前项目 · 文件访问</p>
+            <p data-name="Title">alva-agent</p>
+          </div>
+        </sp-use>
+        <sp-use component="SettingRow" data-name="RememberedRules" props="Control: Action" class="w-full h-fit">
+          <sp-use data-name="Action">
+            <p data-name="Label">管理规则</p>
+          </sp-use>
+          <div data-name="Copy">
+            <p data-name="Description">可查看与撤销；不扩大其他会话权限。</p>
+            <p data-name="Title">已记住的审批规则</p>
+          </div>
+        </sp-use>
+      </div>
+      <sp-use component="Notice" data-name="QuestionVsApproval" props="Tone: Info" class="w-full h-fit hidden">
+        <div data-name="Copy">
+          <p data-name="Description">选项回答不会自动批准命令、文件访问或外部操作。</p>
+          <p data-name="Title">提问与审批是两种交互</p>
+        </div>
+      </sp-use>
+    </div>
+  </div>
+</body>
+</html>

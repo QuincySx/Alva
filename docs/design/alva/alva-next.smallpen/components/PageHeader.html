@@ -1,5 +1,7 @@
 <sp-component name="PageHeader" props="Navigation: Expanded | Collapsed">
-  <div data-name="PageHeader" class="flex flex-row w-[900px] h-header items-center justify-start gap-2 px-6 bg-surface">
+  <div data-name="PageHeader" class="flex flex-row w-[900px] h-header items-center justify-start gap-2 pl-6 pr-2 bg-surface">
+    <div data-name="NativeSafeArea" class="flex flex-col w-[50px] h-[32px] items-start justify-start hidden">
+    </div>
     <sp-use component="IconButton" data-name="SidebarToggle" props="State: Default" class="w-control-icon h-control-icon hidden">
       <sp-use data-name="Icon" props="Name: PanelLeft"></sp-use>
     </sp-use>
@@ -10,11 +12,13 @@
     <sp-use component="IconButton" data-name="Panel" props="State: Default" class="w-control-icon h-control-icon">
       <sp-use data-name="Icon" props="Name: Panel"></sp-use>
     </sp-use>
-    <sp-use component="IconButton" data-name="More" props="State: Default" class="w-control-icon h-control-icon">
+    <sp-use component="IconButton" data-name="More" props="State: Default" class="w-control-icon h-control-icon hidden">
       <sp-use data-name="Icon" props="Name: More"></sp-use>
     </sp-use>
   </div>
   <sp-variant when="Navigation: Collapsed">
+    <div data-name="NativeSafeArea" class="shown">
+    </div>
     <sp-use data-name="SidebarToggle" props="State: Default" class="shown">
       <sp-use data-name="Icon" props="Name: PanelLeft"></sp-use>
     </sp-use>

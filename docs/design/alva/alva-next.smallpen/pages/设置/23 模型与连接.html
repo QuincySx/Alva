@@ -1,0 +1,163 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>设置 / 23 模型与连接</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-row items-start justify-start gap-3 pt-2 pb-3 px-3 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_navigation_native_shell、req_alva_navigation_settings、req_alva_provider_save -->
+  <sp-use component="SettingsNav" data-name="SettingsNav" props="Category: Models" class="w-navigation h-full">
+    <sp-use data-name="Developer" data-click="设置/37 开发者测试"></sp-use>
+    <sp-use data-name="Gateway" data-click="设置/36 Gateway"></sp-use>
+    <sp-use data-name="General" data-click="设置/31 通用"></sp-use>
+    <sp-use data-name="Models" data-click="设置/23 模型与连接"></sp-use>
+    <sp-use data-name="Plugins" data-click="设置/32 插件与工具"></sp-use>
+    <sp-use data-name="Security" data-click="设置/35 权限与安全"></sp-use>
+    <sp-use data-name="Skills" data-click="设置/33 规则与 Skills"></sp-use>
+    <sp-use data-name="Storage" data-click="设置/34 数据与存储"></sp-use>
+  </sp-use>
+  <div data-name="SettingsRegion" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+    <div data-name="ReturnRow" class="flex flex-row w-full h-control-height items-center justify-start px-6">
+      <sp-use component="Button" data-name="HeaderReturn" props="Content: Leading; Kind: Ghost; State: Default" data-click="工作台/22 对话与面板" class="w-fit h-control-height">
+        <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
+        <p data-name="Label">返回工作台</p>
+      </sp-use>
+    </div>
+    <div data-name="SettingsMain" class="flex flex-col w-full h-full items-start justify-start gap-4 p-6 max-w-[1120px]">
+      <div data-name="PageTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+        <div data-name="PageTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+          <p data-name="PageTitleTitle" class="w-full h-fit type-heading-strong text-text">模型与连接</p>
+          <p data-name="PageTitleDescription" class="w-full h-fit type-caption text-secondary hidden">管理模型来源、可用目录与默认路由。</p>
+        </div>
+        <sp-use component="Button" data-name="AddConnection" props="Content: Leading; Kind: Primary; State: Default" data-click="连接/24 选择供应商" class="w-fit h-control-height">
+          <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+          <p data-name="Label">添加连接</p>
+        </sp-use>
+      </div>
+      <div data-name="Manager" class="flex flex-row w-full h-fit items-center justify-start gap-6 rounded-card">
+        <div data-name="Connections" class="flex flex-col w-[240px] h-fit items-start justify-start gap-2 p-3 rounded-card bg-subtle">
+          <p data-name="ConnectionsLabel" class="w-full h-fit type-caption text-secondary">我的连接</p>
+          <sp-use component="ConnectionRow" data-name="OpenAI" props="State: Selected" class="w-full h-fit">
+            <sp-use data-name="Avatar">
+              <p data-name="Label">O</p>
+            </sp-use>
+            <div data-name="Copy">
+              <p data-name="Description">API Key</p>
+              <p data-name="Title">OpenAI · 主连接</p>
+            </div>
+          </sp-use>
+          <sp-use component="ConnectionRow" data-name="Anthropic" props="State: Default" class="w-full h-fit">
+            <sp-use data-name="Avatar">
+              <p data-name="Label">A</p>
+            </sp-use>
+            <div data-name="Copy">
+              <p data-name="Description">API Key</p>
+              <p data-name="Title">Anthropic · 工作</p>
+            </div>
+          </sp-use>
+          <sp-use component="ConnectionRow" data-name="Gemini" props="State: Disconnected" class="w-full h-fit">
+            <sp-use data-name="Avatar">
+              <p data-name="Label">G</p>
+            </sp-use>
+            <div data-name="Copy">
+              <p data-name="Description">未配置</p>
+              <p data-name="Title">Google Gemini</p>
+            </div>
+          </sp-use>
+          <sp-use component="ConnectionRow" data-name="Local" props="State: Disconnected" class="w-full h-fit">
+            <sp-use data-name="Avatar">
+              <p data-name="Label">L</p>
+            </sp-use>
+            <div data-name="Copy">
+              <p data-name="Description">未配置</p>
+              <p data-name="Title">本地服务</p>
+            </div>
+          </sp-use>
+          <div data-name="ConnectionSpace" class="flex flex-col w-full h-fit items-start justify-start hidden">
+          </div>
+          <sp-use component="Button" data-name="LocalAccount" props="Content: Leading; Kind: Secondary; State: Default" class="w-full h-control-height">
+            <sp-use data-name="Icon" props="Name: Key"></sp-use>
+            <p data-name="Label">连接本机账户</p>
+          </sp-use>
+          <sp-use component="Button" data-name="AddProvider" props="Content: Leading; Kind: Secondary; State: Default" data-click="连接/24 选择供应商" class="w-full h-control-height hidden">
+            <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+            <p data-name="Label">添加连接</p>
+          </sp-use>
+        </div>
+        <div data-name="Models" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-4 bg-transparent">
+          <div data-name="ConnectionTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+            <div data-name="ConnectionTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+              <p data-name="ConnectionTitleTitle" class="w-full h-fit type-subtitle-strong text-text">OpenAI · 主连接</p>
+              <p data-name="ConnectionTitleDescription" class="w-full h-fit type-caption text-secondary">API Key · ALVA</p>
+            </div>
+            <sp-use component="Button" data-name="EditConnection" props="Content: Text; Kind: Ghost; State: Default" data-click="连接/25 配置连接" class="w-fit h-control-height">
+              <p data-name="Label">连接设置</p>
+            </sp-use>
+          </div>
+          <div data-name="CatalogHeading" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+            <sp-use component="Badge" data-name="Connected" props="Tone: Neutral" class="w-fit h-fit">
+              <p data-name="Label" class="w-[50px]">已保存</p>
+            </sp-use>
+            <p data-name="EnabledCount" class="w-full h-fit type-caption text-secondary">2 个模型已启用</p>
+          </div>
+          <div data-name="CatalogToolbar" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+            <sp-use component="Input" data-name="SearchModels" props="Kind: Search; State: Default" class="w-full h-control-height">
+              <p data-name="Value">搜索模型…</p>
+            </sp-use>
+            <sp-use component="IconButton" data-name="Refresh" props="State: Default" class="w-control-icon h-control-icon">
+              <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+            </sp-use>
+            <sp-use component="Button" data-name="AddModel" props="Content: Leading; Kind: Secondary; State: Default" data-click="连接/43 手动添加模型" class="w-fit h-control-height">
+              <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+              <p data-name="Label">添加模型</p>
+            </sp-use>
+          </div>
+          <div data-name="ModelKinds" class="flex flex-row w-fit h-fit items-center justify-start gap-1 p-1 rounded-ctrl bg-subtle">
+            <sp-use component="Segment" data-name="ModelKinds0" props="State: Selected" class="w-fit h-[32px]">
+              <p data-name="Label">对话</p>
+            </sp-use>
+            <sp-use component="Segment" data-name="ModelKinds1" props="State: Default" class="w-fit h-[32px]">
+              <p data-name="Label" class="w-[57px]">图像生成</p>
+            </sp-use>
+          </div>
+          <sp-use component="ModelRow" data-name="GPT" props="Mode: Manage; State: Selected" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description">目录模型 · 视觉输入 · 工具调用</p>
+              <p data-name="Title">GPT</p>
+            </div>
+          </sp-use>
+          <sp-use component="ModelRow" data-name="GPTMini" props="Mode: Manage; State: Default" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description">目录模型 · 文本 · 工具调用</p>
+              <p data-name="Title">GPT Mini</p>
+            </div>
+          </sp-use>
+          <sp-use component="ModelRow" data-name="Custom" props="Mode: Manage; State: Unavailable" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description">手动添加 · 能力待确认</p>
+              <p data-name="Title">我的自定义模型</p>
+            </div>
+          </sp-use>
+          <sp-use component="Notice" data-name="Availability" props="Tone: Info" class="w-full h-fit hidden">
+            <div data-name="Copy">
+              <p data-name="Description">是否可调用仍取决于账户、连接和当前 Agent。</p>
+              <p data-name="Title">启用模型后即可选择</p>
+            </div>
+          </sp-use>
+          <div data-name="ModelSpace" class="flex flex-col w-full h-fit items-start justify-start hidden">
+          </div>
+          <p data-name="CatalogHint" class="w-full h-fit type-caption text-secondary hidden">刷新保留你的选择与手动模型。没有目录时，也能按准确 ID 添加。</p>
+        </div>
+      </div>
+      <div data-name="DefaultSelection" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+        <p data-name="DefaultLabel" class="w-full h-fit type-body text-text">应用默认模型与 Agent</p>
+        <sp-use component="Button" data-name="DefaultModel" props="Content: Leading; Kind: Secondary; State: Default" class="w-fit h-control-height">
+          <sp-use data-name="Icon" props="Name: Chip"></sp-use>
+          <p data-name="Label">GPT · ALVA</p>
+        </sp-use>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

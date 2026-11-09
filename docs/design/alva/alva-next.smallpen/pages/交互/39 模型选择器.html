@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>交互 / 39 模型选择器</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-[760px] flex flex-col items-center justify-center p-8 bg-canvas">
+  <div data-name="ModelSelectionSurface" class="flex flex-row w-full h-fit items-start justify-start gap-3 max-w-[960px]">
+    <div data-name="ModelOptions" class="flex flex-col w-[300px] h-fit items-start justify-start gap-4 p-4 rounded-card bg-surface">
+      <div data-name="ModelOptionsHeader" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+        <p data-name="OptionsName" class="w-full h-fit type-subtitle-strong text-text">GPT</p>
+        <sp-use component="IconButton" data-name="FavoriteModel" props="State: Default" class="w-control-icon h-control-icon">
+          <sp-use data-name="Icon" props="Name: Star"></sp-use>
+        </sp-use>
+      </div>
+      <p data-name="OptionsSource" class="w-full h-fit type-caption text-secondary">OpenAI · 主连接 · 对话</p>
+      <sp-use component="Field" data-name="OptionsAgent" props="State: Default" class="w-full h-fit">
+        <sp-use data-name="Control" props="Kind: Select; State: Default">
+          <p data-name="Value">ALVA</p>
+        </sp-use>
+        <p data-name="Hint" class="hidden"></p>
+        <p data-name="Title">Agent</p>
+      </sp-use>
+      <p data-name="EffortTitle" class="w-full h-fit type-body-strong text-text">思考程度</p>
+      <div data-name="Effort" class="flex flex-row w-fit h-fit items-center justify-start gap-1 p-1 rounded-ctrl bg-subtle">
+        <sp-use component="Segment" data-name="Effort0" props="State: Selected" class="w-fit h-[32px]">
+          <p data-name="Label">默认</p>
+        </sp-use>
+        <sp-use component="Segment" data-name="Effort1" props="State: Default" class="w-fit h-[32px]">
+          <p data-name="Label">低</p>
+        </sp-use>
+        <sp-use component="Segment" data-name="Effort2" props="State: Default" class="w-fit h-[32px]">
+          <p data-name="Label">中</p>
+        </sp-use>
+        <sp-use component="Segment" data-name="Effort3" props="State: Default" class="w-fit h-[32px]">
+          <p data-name="Label">高</p>
+        </sp-use>
+      </div>
+      <sp-use component="Field" data-name="Context" props="State: Default" class="w-full h-fit">
+        <sp-use data-name="Control" props="Kind: Text; State: Default">
+          <p data-name="Value">128000</p>
+        </sp-use>
+        <p data-name="Hint" class="hidden"></p>
+        <p data-name="Title">Context 上限 · token</p>
+      </sp-use>
+      <sp-use component="SettingRow" data-name="Vision" props="Control: Switch" class="w-full h-fit">
+        <sp-use data-name="Control" props="State: On"></sp-use>
+        <div data-name="Copy">
+          <p data-name="Description" class="hidden"></p>
+          <p data-name="Title">视觉输入</p>
+        </div>
+      </sp-use>
+      <sp-use component="Button" data-name="OpenModelSettings" props="Content: Leading; Kind: Ghost; State: Default" data-click="连接/42 模型设置" class="w-full h-control-height">
+        <sp-use data-name="Icon" props="Name: Sliders"></sp-use>
+        <p data-name="Label">模型设置</p>
+      </sp-use>
+      <p data-name="OptionScope" class="w-full h-fit type-caption text-secondary">当前会话 · 下一轮生效</p>
+    </div>
+    <div data-name="ModelPicker" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-4 rounded-card bg-surface max-w-[640px]">
+      <div data-name="SearchRow" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+        <sp-use component="Input" data-name="ModelSearch" props="Kind: Search; State: Focus" class="w-full h-control-height">
+          <p data-name="Value">搜索模型…</p>
+        </sp-use>
+        <sp-use component="IconButton" data-name="ClosePicker" props="State: Default" data-click="工作台/21 新任务" class="w-control-icon h-control-icon">
+          <sp-use data-name="Icon" props="Name: Close"></sp-use>
+        </sp-use>
+      </div>
+      <div data-name="PickerBody" class="flex flex-row w-full h-fit items-start justify-start gap-3">
+        <div data-name="ProviderFilters" class="flex flex-col w-[40px] h-fit items-start justify-start gap-3">
+          <sp-use component="IconButton" data-name="Favorites" props="State: Default" class="w-control-icon h-control-icon">
+            <sp-use data-name="Icon" props="Name: Star"></sp-use>
+          </sp-use>
+          <sp-use component="IconButton" data-name="AllProviders" props="State: Default" class="w-control-icon h-control-icon">
+            <sp-use data-name="Icon" props="Name: Chip"></sp-use>
+          </sp-use>
+          <sp-use component="IconButton" data-name="OpenAIProvider" props="State: Default" class="w-control-icon h-control-icon">
+            <sp-use data-name="Icon" props="Name: Globe"></sp-use>
+          </sp-use>
+          <sp-use component="IconButton" data-name="AnthropicProvider" props="State: Default" class="w-control-icon h-control-icon">
+            <sp-use data-name="Icon" props="Name: Brain"></sp-use>
+          </sp-use>
+          <sp-use component="IconButton" data-name="LocalProvider" props="State: Default" class="w-control-icon h-control-icon">
+            <sp-use data-name="Icon" props="Name: Terminal"></sp-use>
+          </sp-use>
+        </div>
+        <div data-name="Models" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+          <sp-use component="ModelRow" data-name="Model0" props="Mode: Picker; State: Hover" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description">OpenAI · 主连接 · 视觉输入</p>
+              <p data-name="Title">GPT</p>
+            </div>
+          </sp-use>
+          <sp-use component="ModelRow" data-name="Model1" props="Mode: Picker; State: Default" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description">OpenAI · 主连接 · 文本</p>
+              <p data-name="Title">GPT Mini</p>
+            </div>
+          </sp-use>
+          <sp-use component="ModelRow" data-name="Model2" props="Mode: Picker; State: Selected" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description">Anthropic · 工作连接</p>
+              <p data-name="Title">Sonnet</p>
+            </div>
+          </sp-use>
+          <sp-use component="ModelRow" data-name="Model3" props="Mode: Picker; State: Default" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description">Anthropic · 工作连接</p>
+              <p data-name="Title">Opus</p>
+            </div>
+          </sp-use>
+          <sp-use component="ModelRow" data-name="Model4" props="Mode: Picker; State: Default" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description">Google · 主连接</p>
+              <p data-name="Title">Gemini Pro</p>
+            </div>
+          </sp-use>
+        </div>
+      </div>
+      <div data-name="PickerFooter" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+        <sp-use component="Button" data-name="ManageModels" props="Content: Leading; Kind: Ghost; State: Default" data-click="设置/23 模型与连接" class="w-fit h-control-height">
+          <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+          <p data-name="Label">配置模型</p>
+        </sp-use>
+        <p data-name="PickerHint" class="w-full h-fit type-caption text-secondary hidden">点击模型行直接选用</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

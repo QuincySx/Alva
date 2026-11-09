@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>伙伴 / 30 新建群聊</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-col items-center justify-center p-6 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_companion_group_settings -->
+  <div data-name="Dialog" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-card bg-surface shadow-popup max-w-[720px]">
+    <sp-use component="DialogHeader" data-name="DialogHeader" class="w-full h-fit">
+      <sp-use data-name="Close" data-click="伙伴/27 伙伴私聊"></sp-use>
+      <div data-name="Copy">
+        <p data-name="Description" class="hidden"></p>
+        <p data-name="Title">新建群聊</p>
+      </div>
+    </sp-use>
+    <sp-use component="Field" data-name="Name" props="State: Default" class="w-full h-fit">
+      <sp-use data-name="Control" props="Kind: Text; State: Default">
+        <p data-name="Value">产品讨论组</p>
+      </sp-use>
+      <p data-name="Hint" class="hidden"></p>
+      <p data-name="Title">群名称</p>
+    </sp-use>
+    <p data-name="MembersTitle" class="w-full h-fit type-body-strong text-text">选择伙伴</p>
+    <div data-name="ResearchMember" class="flex flex-row w-full h-fit items-center justify-start gap-2 p-3 rounded-ctrl bg-accent-soft border border-accent border-inside">
+      <sp-use component="Checkbox" data-name="ResearchMemberCheck" props="State: On" class="w-[18px] h-[20px]">
+        <p data-name="Label" class="hidden"></p>
+      </sp-use>
+      <div data-name="ResearchMemberCopy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+        <p data-name="ResearchMemberTitle" class="w-full h-fit type-body-strong text-text">研究伙伴</p>
+        <p data-name="ResearchMemberDescription" class="w-full h-fit type-caption text-secondary">资料研究 · 文档整理</p>
+      </div>
+    </div>
+    <div data-name="ReviewMember" class="flex flex-row w-full h-fit items-center justify-start gap-2 p-3 rounded-ctrl bg-accent-soft border border-accent border-inside">
+      <sp-use component="Checkbox" data-name="ReviewMemberCheck" props="State: On" class="w-[18px] h-[20px]">
+        <p data-name="Label" class="hidden"></p>
+      </sp-use>
+      <div data-name="ReviewMemberCopy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+        <p data-name="ReviewMemberTitle" class="w-full h-fit type-body-strong text-text">审查伙伴</p>
+        <p data-name="ReviewMemberDescription" class="w-full h-fit type-caption text-secondary">代码审查</p>
+      </div>
+    </div>
+    <div data-name="Rules" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <sp-use component="Field" data-name="ReplyMode" props="State: Default" class="w-full h-fit">
+        <sp-use data-name="Control" props="Kind: Select; State: Default">
+          <p data-name="Value">仅 @ 的伙伴</p>
+        </sp-use>
+        <p data-name="Hint" class="hidden"></p>
+        <p data-name="Title">谁回应</p>
+      </sp-use>
+      <sp-use component="Field" data-name="Order" props="State: Default" class="w-full h-fit">
+        <sp-use data-name="Control" props="Kind: Select; State: Default">
+          <p data-name="Value">按成员顺序</p>
+        </sp-use>
+        <p data-name="Hint" class="hidden"></p>
+        <p data-name="Title">发言顺序</p>
+      </sp-use>
+    </div>
+    <div data-name="Limits" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <sp-use component="Field" data-name="Budget" props="State: Default" class="w-full h-fit">
+        <sp-use data-name="Control" props="Kind: Text; State: Default">
+          <p data-name="Value">3 次</p>
+        </sp-use>
+        <p data-name="Hint" class="hidden"></p>
+        <p data-name="Title">每轮回复上限</p>
+      </sp-use>
+      <sp-use component="Field" data-name="Workspace" props="State: Default" class="w-full h-fit">
+        <sp-use data-name="Control" props="Kind: Select; State: Default">
+          <p data-name="Value">未选择</p>
+        </sp-use>
+        <p data-name="Hint" class="hidden"></p>
+        <p data-name="Title">共享工作区</p>
+      </sp-use>
+    </div>
+    <sp-use component="Notice" data-name="Privacy" props="Tone: Info" class="w-full h-fit">
+      <div data-name="Copy">
+        <p data-name="Description">伙伴私聊和私人记忆不会自动带入群聊。</p>
+        <p data-name="Title">只共享本群已授权内容</p>
+      </div>
+    </sp-use>
+    <div data-name="DialogSpace" class="flex flex-col w-full h-[0px] items-start justify-start hidden">
+    </div>
+    <sp-use component="DialogFooter" data-name="DialogFooter" class="w-full h-fit">
+      <sp-use data-name="Cancel" data-click="伙伴/27 伙伴私聊"></sp-use>
+      <sp-use data-name="Save" data-click="伙伴/29 伙伴群聊">
+        <p data-name="Label">创建群聊</p>
+      </sp-use>
+      <p data-name="Scope" class="hidden"></p>
+    </sp-use>
+  </div>
+</body>
+</html>

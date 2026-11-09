@@ -1,0 +1,15 @@
+# workers
+
+> 来源：旧包 `alva.smallpen/requirements/workers.json`。本文件是这些需求的正本；页面位置按新包路径和元素 `data-name` 链给出。
+
+## req_alva_worker_typed_fifo — Worker typed 输入、FIFO 与明确恢复
+
+状态：2026-10-27 已确认的独立产品Worker typed FIFO契约；不等同SDK原生subagent。当前没有绑定的正式Teamboard节点，保留纯文本SPEC，不新增页面、组件或变体。
+准入：明确选择实际Lead/Team/Worker与用户正文、文件、Skill和引用；共享HubService在同一Worker会话重审路由、Plan、能力、来源和精确已保存branch后原子入队。逻辑文件所有权必须属于实际Worker会话；Lead、兄弟Worker或未被该Worker明确采纳的home原件不得借用。失败保留完整草稿，不创建Turn或执行。
+冻结：原始用户正文与供模型使用的索引/引用分别保存；typed文件清单、原件及派生的SHA/字节数/URI，以及固定来源的Skill引用冻结到队列任务，再沿同一Turn/Attempt进入实际引擎。引用不授予工具、目录、网络、账户或Full权限，Skill不自动启用。入队与FIFO领取核对来源所有权与branch；交给实际引擎前重新验证原件/派生字节及Skill来源，变化或不支持明确失败，不用旧副本或另一scope替代。
+编辑/取消：仅尚未消费的queued项可编辑/取消；任务scope字段是原始用户正文，修改它仅替换UserText及模型prompt的对应前缀，不修改冻结文件/Skill/引用后缀。资源claims另按原校验保存，不被正文冒充。已准入Turn不能由队列编辑重写；分页读取为真实有界FIFO页。
+执行：入队本身不执行；用户明确Send可在入队成功后发起一次显式FIFO Resume，后续按同一owner顺序领取。打开、刷新、重启或冷观察不自动Resume。保存的任务排队持久，入队成功但启动/草稿消费回执失败时保留实际task ID，先查事实，不重新发送重复任务。
+等待/恢复：Waiting保留当前task与原Turn，阻止领取后续项。保存问题/审批结果仍暂停；先明确继续原Turn，完成后还须明确FIFO Resume才领取后续队列，两种Resume不可合并为观察副作用。未知结果不自动重放已发生的工具副作用。
+Stop/owner：TeamCoordinator仅取消捕获的实际Worker物理owner并等待进程/回调与pump真实收尾；旧Stop不得作用于替换owner。Stop冻结下一次领取，保留后续queued项；超时仍由原owner持有，不能假报终态。关闭/退订观察者不等于Stop。
+来源：apps/hub/product/worker_draft.go、apps/hub/product/team.go、apps/hub/sqlite/team.go、apps/hub/desktop/team_desktop.go、integration/engine/process/codex_app_server.go及其typed输入/FIFO/等待回归。核心只消费engine根契约，具体输入核验由选用adapter/装配履行。
+验收：跨Worker/branch文件拒绝且保稿；文件/派生/Skill变更在执行前失败；queued正文编辑仍保留同一typed清单；重开与保存回答零执行；显式同Turn恢复后后续项仍待明确FIFO Resume；Stop真实join且不启动下一项。本地SQLite、fixture/local HTTP和无窗口控件证据不代替真实OS或外部账户验收。

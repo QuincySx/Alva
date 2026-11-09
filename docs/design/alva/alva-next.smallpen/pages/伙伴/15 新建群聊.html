@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>伙伴 / 15 新建群聊</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[760px] h-[760px] flex flex-col items-start justify-start p-6 bg-[#ECECEC]">
+  <div data-name="CreateGroupDialog" class="flex flex-col w-full h-full items-start justify-start gap-[18px] p-6 rounded-[10px] bg-[#FFFFFF] border border-[#CBCBCB] border-inside">
+    <div data-name="CreateGroupHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <p data-name="CreateGroupTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[22px] font-[400] leading-[1.2] text-[#252525]">新建群聊</p>
+      <div data-name="CreateGroupClose" data-click="伙伴/12 伙伴与群聊" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="CreateGroupCloseText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">x</p>
+      </div>
+    </div>
+    <div data-name="GroupName" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+      <p data-name="GroupNameLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">群名称</p>
+      <div data-name="GroupNameInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+        <p data-name="GroupNameValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">产品讨论组</p>
+      </div>
+    </div>
+    <p data-name="GroupMembersTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#252525]">选择伙伴</p>
+    <div data-name="ChooseResearch" class="flex flex-row w-full h-[60px] items-center justify-start gap-3 p-3 rounded-[6px] bg-[#F4F4F4]">
+      <p data-name="ChooseResearchCheck" class="w-[28px] h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">[x]</p>
+      <div data-name="ChooseResearchLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ChooseResearchName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">研究伙伴</p>
+        <p data-name="ChooseResearchSkills" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">资料研究 · 文档整理</p>
+      </div>
+    </div>
+    <div data-name="ChooseReviewer" class="flex flex-row w-full h-[60px] items-center justify-start gap-3 p-3 rounded-[6px] bg-[#F4F4F4]">
+      <p data-name="ChooseReviewerCheck" class="w-[28px] h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">[x]</p>
+      <div data-name="ChooseReviewerLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ChooseReviewerName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">审查伙伴</p>
+        <p data-name="ChooseReviewerSkills" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">代码审查</p>
+      </div>
+    </div>
+    <div data-name="GroupReplyRules" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="GroupReplyMode" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="GroupReplyModeLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">谁回应</p>
+        <div data-name="GroupReplyModeInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="GroupReplyModeValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">仅 @ 的伙伴  v</p>
+        </div>
+      </div>
+      <div data-name="GroupOrder" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="GroupOrderLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">发言顺序</p>
+        <div data-name="GroupOrderInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="GroupOrderValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">按成员顺序  v</p>
+        </div>
+      </div>
+    </div>
+    <div data-name="GroupBudgetRules" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="GroupRoundBudget" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="GroupRoundBudgetLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">每轮回复上限</p>
+        <div data-name="GroupRoundBudgetInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="GroupRoundBudgetValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">3 次</p>
+        </div>
+      </div>
+      <div data-name="GroupWorkspace" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="GroupWorkspaceLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">共享工作区</p>
+        <div data-name="GroupWorkspaceInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="GroupWorkspaceValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">未选择  v</p>
+        </div>
+      </div>
+    </div>
+    <div data-name="GroupPrivacy" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+      <p data-name="GroupPrivacyLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">向伙伴共享</p>
+      <div data-name="GroupPrivacyInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+        <p data-name="GroupPrivacyValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">本群消息与已授权文件 · 不带入私聊与私人记忆</p>
+      </div>
+    </div>
+    <p data-name="GroupPermissionsHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">每位伙伴保留自己的 Skills 和权限；成员消息不会自动开启下一轮。</p>
+    <div data-name="CreateGroupSpace" class="flex flex-col w-full h-full items-start justify-start">
+    </div>
+    <div data-name="CreateGroupFooter" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="CreateGroupCancel" data-click="伙伴/12 伙伴与群聊" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="CreateGroupCancelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">取消</p>
+      </div>
+      <div data-name="CreateGroupFooterSpace" class="flex flex-col w-full h-[1px] items-start justify-start">
+      </div>
+      <div data-name="CreateGroupConfirm" data-click="伙伴/14 伙伴群聊" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#252525]">
+        <p data-name="CreateGroupConfirmText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#FFFFFF]">创建群聊</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -19,7 +19,7 @@ alva-next.smallpen/
   index.html       包名、包 ID、主题默认值（<html data-appearance="light" data-viewport="desktop">）
   tokens.css       Token、主题、@font-face
   components/*.html  每个文件一个 <sp-component>：共享元素 + <sp-variant when="Kind: A; State: B">
-  pages/<模块>/<页面>[.mobile|.tablet].html   页面（SP2 迁入）
+  pages/<模块>/<页面>[.mobile|.tablet].html   页面：72 张，是包自己的正本，直接编辑（22 号的 .tablet 是 960 窄窗，不是平板设备）
   assets/fonts/    TTF 字体（Alva UI Sans SC、JetBrains Mono、Alva Interface Icons）
 ```
 
@@ -35,7 +35,7 @@ python3 -I docs/design/alva/source/next/build_next.py --check   # 只比对：�
 smallpen check docs/design/alva/alva-next.smallpen --render
 ```
 
-页面（SP2）不由生成器产生，直接编辑 `pages/` 下的 HTML。
+页面不由生成器产生，直接编辑 `pages/` 下的 HTML，改完 `smallpen check PKG --render --page "工作台/21 新任务" --all-themes`（明暗 × 宽窄）。
 
 ## 编辑后必须 `check`
 
@@ -60,6 +60,15 @@ smallpen export PKG --component Button --format png --evidence --output DIR/Butt
 - PNG 看外观；wireframe 看结构。三者用 `layout.hash` 对齐。
 - 结果超过 8 KiB 会落到临时 `resultFile`，30 分钟后清理；要保留就用 `--output`，或加 `--stdout`。
 - `export` 只写你指定的 `--output`，不会改包。
+
+## 页面、原型与需求
+
+- **canvas**：页面 `<body data-canvas="01 产品界面">` 分组；三个 canvas 是 `01 产品界面`（23）、`00 工作台线稿`（15）、`旧视觉草稿（暂不评审）`（34）。
+- **原型**：起点是 `<body data-flow="名称">`（每个 canvas 一个），跳转是元素上的 `data-click="模块/页面"`，返回是 `data-click="back"`。连线只在同一个 canvas 内有效，`TestDesignPagesKeepTheirInventoryLinksAndRequirements` 守着：601 条连线都落在存在的同 canvas 页面上。组件实例内部的部件要链接时，写在 `<sp-use>` 里对应的覆盖元素上。
+- **窄窗**：`--theme viewport/narrow` 只换 Token 值（宽 1024）；整页布局不同的才另写文件。22 号的 960 窄窗是 `22 对话与面板.tablet.html`，body 写死 960。
+- **需求与标注**：新格式没有这两个对象。7 份需求在 `docs/design/alva/requirements/*.md`（正本），每条列出绑定的页面文件和 `data-name` 链；绑定过的页面顶部有一行 `<!-- 需求与标注见 … -->`，App 保存时可能丢掉这行，不影响正本。
+- **与旧稿对照**：`source/next/compare_legacy.py OLD_CLI 旧包副本 输出目录 [--png]` 逐页比较旧包与新包的可见文字（spec）和图层清单（wireframe），可附带亮色桌面 PNG；转换完成时 72 页图层清单完全一致，可见文字只差空格折叠和旧草稿里 8 个文字图标字符（已换成 Alva Icon）。
+- **一次性转换**：`source/next/pages_from_legacy.py` 从旧包生成了这些页面（重跑需 `--force`，会覆盖之后的所有手改），旧包删除时连同旧 `source/*.py` 一起移除。
 
 ## 给应用代码导出 Token
 

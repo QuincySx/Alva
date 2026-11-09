@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>设置 / 36 Gateway</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-row items-start justify-start gap-3 pt-2 pb-3 px-3 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_navigation_native_shell、req_alva_navigation_settings -->
+  <sp-use component="SettingsNav" data-name="SettingsNav" props="Category: Gateway" class="w-navigation h-full">
+    <sp-use data-name="Developer" data-click="设置/37 开发者测试"></sp-use>
+    <sp-use data-name="Gateway" data-click="设置/36 Gateway"></sp-use>
+    <sp-use data-name="General" data-click="设置/31 通用"></sp-use>
+    <sp-use data-name="Models" data-click="设置/23 模型与连接"></sp-use>
+    <sp-use data-name="Plugins" data-click="设置/32 插件与工具"></sp-use>
+    <sp-use data-name="Security" data-click="设置/35 权限与安全"></sp-use>
+    <sp-use data-name="Skills" data-click="设置/33 规则与 Skills"></sp-use>
+    <sp-use data-name="Storage" data-click="设置/34 数据与存储"></sp-use>
+  </sp-use>
+  <div data-name="SettingsRegion" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+    <div data-name="ReturnRow" class="flex flex-row w-full h-control-height items-center justify-start px-6">
+      <sp-use component="Button" data-name="HeaderReturn" props="Content: Leading; Kind: Ghost; State: Default" data-click="工作台/22 对话与面板" class="w-fit h-control-height">
+        <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
+        <p data-name="Label">返回工作台</p>
+      </sp-use>
+    </div>
+    <div data-name="SettingsMain" class="flex flex-col w-full h-full items-start justify-start gap-4 p-6 max-w-[800px]">
+      <div data-name="PageTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+        <div data-name="PageTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+          <p data-name="PageTitleTitle" class="w-full h-fit type-heading-strong text-text">Gateway</p>
+          <p data-name="PageTitleDescription" class="w-full h-fit type-caption text-secondary hidden">管理显式启动的模型协议入口。</p>
+        </div>
+      </div>
+      <div data-name="GatewayState" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent">
+        <div data-name="GatewayTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+          <div data-name="GatewayTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+            <p data-name="GatewayTitleTitle" class="w-full h-fit type-subtitle-strong text-text">本地网关</p>
+            <p data-name="GatewayTitleDescription" class="w-full h-fit type-caption text-secondary hidden">服务尚未启动。</p>
+          </div>
+          <sp-use component="Badge" data-name="GatewayStatus" props="Tone: Neutral" class="w-fit h-fit">
+            <p data-name="Label" class="w-[38px]">已停止</p>
+          </sp-use>
+        </div>
+        <div data-name="GatewayAddress" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+          <sp-use component="Field" data-name="Host" props="State: Default" class="w-full h-fit">
+            <sp-use data-name="Control" props="Kind: Text; State: Default">
+              <p data-name="Value">127.0.0.1</p>
+            </sp-use>
+            <p data-name="Hint" class="hidden"></p>
+            <p data-name="Title">监听地址</p>
+          </sp-use>
+          <sp-use component="Field" data-name="Port" props="State: Default" class="w-full h-fit">
+            <sp-use data-name="Control" props="Kind: Text; State: Default">
+              <p data-name="Value">8080</p>
+            </sp-use>
+            <p data-name="Hint" class="hidden"></p>
+            <p data-name="Title">端口</p>
+          </sp-use>
+        </div>
+        <div data-name="GatewayAuth" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+          <sp-use component="Field" data-name="GatewayKey" props="State: Default" class="w-full h-fit">
+            <sp-use data-name="Control" props="Kind: Password; State: Default">
+              <p data-name="Value">尚未设置</p>
+            </sp-use>
+            <p data-name="Hint" class="hidden"></p>
+            <p data-name="Title">访问密钥</p>
+          </sp-use>
+          <sp-use component="Field" data-name="GatewayRoute" props="State: Default" class="w-full h-fit">
+            <sp-use data-name="Control" props="Kind: Select; State: Default">
+              <p data-name="Value">未选择</p>
+            </sp-use>
+            <p data-name="Hint" class="hidden"></p>
+            <p data-name="Title">默认路由</p>
+          </sp-use>
+        </div>
+        <div data-name="GatewayActions" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+          <sp-use component="Button" data-name="StartGateway" props="Content: Leading; Kind: Primary; State: Disabled" class="w-fit h-control-height">
+            <sp-use data-name="Icon" props="Name: Play"></sp-use>
+            <p data-name="Label">启动服务</p>
+          </sp-use>
+          <sp-use component="Button" data-name="GatewayLogs" props="Content: Leading; Kind: Secondary; State: Default" class="w-fit h-control-height">
+            <sp-use data-name="Icon" props="Name: Activity"></sp-use>
+            <p data-name="Label">查看日志</p>
+          </sp-use>
+        </div>
+        <sp-use component="Notice" data-name="GatewayScope" props="Tone: Info" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Title">设置访问密钥和默认路由后可启动。</p>
+          </div>
+        </sp-use>
+      </div>
+      <div data-name="GatewayRoutes" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent">
+        <div data-name="GatewayRoutesTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+          <div data-name="GatewayRoutesTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+            <p data-name="GatewayRoutesTitleTitle" class="w-full h-fit type-subtitle-strong text-text">协议与路由</p>
+          </div>
+        </div>
+        <sp-use component="ResourceRow" data-name="ChatRoute" props="Kind: Link" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">按已配置路由转发</p>
+            <p data-name="Title">Chat Completions / Responses</p>
+          </div>
+        </sp-use>
+        <sp-use component="ResourceRow" data-name="NativeRoute" props="Kind: Link" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">能力与格式以当前转换实现为准</p>
+            <p data-name="Title">Anthropic / Gemini</p>
+          </div>
+        </sp-use>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,176 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Settings / Gateway</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="旧视觉草稿（暂不评审）" class="w-[1440px] h-[960px] flex flex-col items-start justify-start bg-[#F7F8FB]">
+  <div data-name="WindowChrome" class="flex flex-row w-full h-[36px] items-center justify-start gap-4 px-4 bg-[#F0F3F8]">
+    <p data-name="WindowControls" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">● ● ●</p>
+    <p data-name="WindowCaption" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">Alva</p>
+    <p data-name="WindowMode" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">设计原型</p>
+  </div>
+  <div data-name="Application" class="flex flex-row w-full h-full items-start justify-start">
+    <div data-name="Sidebar" class="flex flex-col w-[248px] h-full items-start justify-start gap-[6px] pt-2 pb-3 px-3 bg-[#F0F3F8]">
+      <div data-name="Brand" class="flex flex-row w-full h-[48px] items-center justify-start gap-3">
+        <p data-name="Mark" class="w-[24px] h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#285EEA]">A</p>
+        <p data-name="BrandLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">ALVA</p>
+      </div>
+      <sp-use component="Button" data-name="NewConversation" props="Kind: Primary; State: Default; Content: Text" data-click="Overlay/NewSession" class="w-full h-[36px]">
+        <p data-name="Label">新建对话</p>
+      </sp-use>
+      <sp-use component="Button" data-name="NewConversationIcon" props="Kind: Primary; State: Default; Content: Text" data-click="Overlay/NewSession" class="w-full h-[36px] hidden">
+        <p data-name="Label">＋</p>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavConversation" props="State: Default" data-click="Chat/Conversation" class="w-full h-[44px]">
+        <p data-name="Label">对话</p>
+        <sp-use data-name="Icon" props="Name: Chat"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavPlugins" props="State: Default" data-click="Capabilities/Plugins" class="w-full h-[44px]">
+        <p data-name="Label">插件与能力</p>
+        <sp-use data-name="Icon" props="Name: Plugin"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavLibrary" props="State: Default" data-click="Knowledge/Library" class="w-full h-[44px]">
+        <p data-name="Label">资料与记忆</p>
+        <sp-use data-name="Icon" props="Name: List"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavTeam" props="State: Default" data-click="Operations/Team" class="w-full h-[44px]">
+        <p data-name="Label">协作</p>
+        <sp-use data-name="Icon" props="Name: Target"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavAutomations" props="State: Default" data-click="Operations/Automations" class="w-full h-[44px]">
+        <p data-name="Label">自动化</p>
+        <sp-use data-name="Icon" props="Name: Clock"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavWaits" props="State: Default" data-click="Operations/Waits" class="w-full h-[44px]">
+        <p data-name="Label">等待任务</p>
+        <sp-use data-name="Icon" props="Name: Folder"></sp-use>
+      </sp-use>
+      <div data-name="Recent" class="flex flex-col w-full h-fit items-start justify-start gap-[14px] py-[20px] px-2">
+        <p data-name="RecentTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">最近对话</p>
+        <p data-name="RecentOne" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#182230]">整理 Agent 架构</p>
+        <p data-name="RecentTwo" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#536276]">模型协议接入检查</p>
+        <p data-name="RecentThree" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#536276]">设计动态内容界面</p>
+      </div>
+      <div data-name="SidebarSpacer" class="flex flex-col w-full h-full items-start justify-start">
+      </div>
+      <sp-use component="NavItem" data-name="NavDeveloper" props="State: Default" data-click="Developer/IntegrationTests" class="w-full h-[44px]">
+        <p data-name="Label">开发者选项</p>
+        <sp-use data-name="Icon" props="Name: Terminal"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavSettings" props="State: Selected" data-click="Settings/General" class="w-full h-[44px]">
+        <p data-name="Label">设置</p>
+        <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+      </sp-use>
+      <div data-name="WorkspaceContext" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] p-3 rounded-[10px] bg-[#FFFFFF]">
+        <p data-name="ProjectLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">当前项目</p>
+        <p data-name="ProjectName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[600] leading-[1.2] text-[#182230]">alva-agent</p>
+      </div>
+    </div>
+    <div data-name="Main" class="flex flex-col w-full h-full items-start justify-start">
+      <div data-name="PageBar" class="flex flex-row w-full h-[64px] items-center justify-start gap-3 px-6 bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+        <sp-use component="Button" data-name="ToggleSidebar" props="Kind: Ghost; State: Default; Content: Text" class="w-[96px] h-[36px]">
+          <p data-name="Label">收起导航</p>
+        </sp-use>
+        <div data-name="PageIdentity" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+          <p data-name="PageTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">设置</p>
+          <p data-name="PageScope" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">项目 · alva-agent</p>
+        </div>
+      </div>
+      <div data-name="SettingsLayout" class="flex flex-row w-full h-full items-start justify-start">
+        <div data-name="SettingsNavigation" class="flex flex-col w-[192px] h-full items-start justify-start gap-2 py-6 px-3 bg-[#FFFFFF]">
+          <p data-name="SettingsScope" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">设置范围</p>
+          <sp-use component="Badge" data-name="ScopeBadge" props="Tone: Neutral" class="w-fit h-[28px]">
+            <p data-name="Label">应用 / 当前项目</p>
+          </sp-use>
+          <sp-use component="NavItem" data-name="SettingsGeneral" props="State: Default" data-click="Settings/General" class="w-full h-[44px]">
+            <p data-name="Label">外观与布局</p>
+            <sp-use data-name="Icon" class="hidden"></sp-use>
+          </sp-use>
+          <sp-use component="NavItem" data-name="SettingsRoutes" props="State: Default" data-click="Settings/Routes" class="w-full h-[44px]">
+            <p data-name="Label">模型与路由</p>
+            <sp-use data-name="Icon" class="hidden"></sp-use>
+          </sp-use>
+          <sp-use component="NavItem" data-name="SettingsCapabilities" props="State: Default" data-click="Settings/Capabilities" class="w-full h-[44px]">
+            <p data-name="Label">工具与连接</p>
+            <sp-use data-name="Icon" class="hidden"></sp-use>
+          </sp-use>
+          <sp-use component="NavItem" data-name="SettingsRules" props="State: Default" data-click="Settings/Rules" class="w-full h-[44px]">
+            <p data-name="Label">规则与 Skills</p>
+            <sp-use data-name="Icon" class="hidden"></sp-use>
+          </sp-use>
+          <sp-use component="NavItem" data-name="SettingsStorage" props="State: Default" data-click="Settings/Storage" class="w-full h-[44px]">
+            <p data-name="Label">资料与存储</p>
+            <sp-use data-name="Icon" class="hidden"></sp-use>
+          </sp-use>
+          <sp-use component="NavItem" data-name="SettingsSecurity" props="State: Default" data-click="Settings/Security" class="w-full h-[44px]">
+            <p data-name="Label">权限与安全</p>
+            <sp-use data-name="Icon" class="hidden"></sp-use>
+          </sp-use>
+          <sp-use component="NavItem" data-name="SettingsGateway" props="State: Selected" data-click="Settings/Gateway" class="w-full h-[44px]">
+            <p data-name="Label">Gateway 服务</p>
+            <sp-use data-name="Icon" class="hidden"></sp-use>
+          </sp-use>
+          <sp-use component="NavItem" data-name="SettingsAdvanced" props="State: Default" data-click="Settings/Advanced" class="w-full h-[44px]">
+            <p data-name="Label">高级与诊断</p>
+            <sp-use data-name="Icon" class="hidden"></sp-use>
+          </sp-use>
+        </div>
+        <div data-name="SettingsContent" class="flex flex-col w-full h-full items-start justify-start gap-[20px] p-[28px]">
+          <div data-name="GatewayHeading" class="flex flex-row w-full h-fit items-center justify-start gap-4">
+            <div data-name="GatewayHeadingText" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+              <p data-name="GatewayHeadingTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">Gateway 服务</p>
+              <p data-name="GatewayHeadingSubtitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">本机对外 API 服务；与当前会话使用的模型连接分开管理。</p>
+            </div>
+          </div>
+          <div data-name="GatewayService" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+            <div data-name="GatewayStatusRow" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+              <p data-name="GatewayServiceName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">本机 Gateway</p>
+              <sp-use component="Badge" data-name="GatewayStatus" props="Tone: Neutral" class="w-fit h-[28px]">
+                <p data-name="Label">未启动</p>
+              </sp-use>
+            </div>
+            <div data-name="GatewayBindings" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+              <div data-name="GatewayAddress" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+                <p data-name="GatewayAddressLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">监听地址</p>
+                <sp-use component="Input" data-name="GatewayAddressInput" props="Kind: Text; State: Default" class="w-full h-[36px]">
+                  <p data-name="Value">127.0.0.1</p>
+                </sp-use>
+              </div>
+              <div data-name="GatewayPort" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+                <p data-name="GatewayPortLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">端口</p>
+                <sp-use component="Input" data-name="GatewayPortInput" props="Kind: Text; State: Default" class="w-full h-[36px]">
+                  <p data-name="Value">8080</p>
+                </sp-use>
+              </div>
+            </div>
+            <div data-name="GatewayRoute" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+              <p data-name="GatewayRouteLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">上游路由</p>
+              <sp-use component="Input" data-name="GatewayRouteInput" props="Kind: Text; State: Default" class="w-full h-[36px]">
+                <p data-name="Value">项目默认连接</p>
+              </sp-use>
+            </div>
+            <p data-name="GatewayProtocols" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">协议：OpenAI Chat / Responses、Anthropic、Gemini</p>
+            <div data-name="GatewayActions" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+              <sp-use component="Button" data-name="SaveGateway" props="Kind: Secondary; State: Default; Content: Text" class="w-[112px] h-[36px]">
+                <p data-name="Label">保存配置</p>
+              </sp-use>
+              <sp-use component="Button" data-name="StartGateway" props="Kind: Primary; State: Default; Content: Text" class="w-[128px] h-[36px]">
+                <p data-name="Label">审阅并启动</p>
+              </sp-use>
+            </div>
+          </div>
+          <div data-name="GatewayAccess" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+            <p data-name="GatewayCredentials" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">访问凭据</p>
+            <p data-name="GatewaySecret" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">仅展示凭据引用和状态。新建时一次性提供密钥，已有密钥不显示原文。</p>
+            <sp-use component="Button" data-name="GatewayLogs" props="Kind: Secondary; State: Default; Content: Text" class="w-[128px] h-[36px]">
+              <p data-name="Label">查看请求记录</p>
+            </sp-use>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

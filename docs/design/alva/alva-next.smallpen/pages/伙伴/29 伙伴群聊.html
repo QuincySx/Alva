@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>伙伴 / 29 伙伴群聊</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-row items-start justify-start gap-3 pt-2 pb-3 px-3 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_companion_group_round -->
+  <sp-use component="Sidebar" data-name="Sidebar" props="Area: Partners" class="w-sidebar h-full">
+    <sp-use data-name="CurrentThread" data-click="工作台/22 对话与面板"></sp-use>
+    <div data-name="Footer">
+      <sp-use data-name="OpenSettings" data-click="设置/31 通用"></sp-use>
+    </div>
+    <sp-use data-name="NewTask" data-click="工作台/21 新任务"></sp-use>
+    <sp-use data-name="Partners" data-click="伙伴/27 伙伴私聊"></sp-use>
+  </sp-use>
+  <div data-name="Roster" class="flex flex-col w-navigation h-full items-start justify-start gap-2 p-3 bg-canvas">
+    <div data-name="RosterTitle" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <p data-name="RosterHeading" class="w-full h-fit type-subtitle-strong text-text">伙伴</p>
+      <sp-use component="IconButton" data-name="NewCompanion" props="State: Default" class="w-control-icon h-control-icon">
+        <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+      </sp-use>
+    </div>
+    <sp-use component="Input" data-name="SearchPartners" props="Kind: Search; State: Default" class="w-full h-control-height">
+      <p data-name="Value">搜索伙伴和群聊…</p>
+    </sp-use>
+    <sp-use component="CompanionRow" data-name="Research" props="State: Default" data-click="伙伴/27 伙伴私聊" class="w-full h-fit"></sp-use>
+    <sp-use component="CompanionRow" data-name="Reviewer" props="State: Default" class="w-full h-fit">
+      <sp-use data-name="Avatar">
+        <p data-name="Label">审</p>
+      </sp-use>
+      <div data-name="Copy">
+        <p data-name="Description">代码审查 · 1 项 Skill</p>
+        <p data-name="Title">审查伙伴</p>
+      </div>
+    </sp-use>
+    <sp-use component="CompanionRow" data-name="Group" props="State: Selected" class="w-full h-fit">
+      <sp-use data-name="Avatar">
+        <p data-name="Label">群</p>
+      </sp-use>
+      <div data-name="Copy">
+        <p data-name="Description">你 + 2 位伙伴</p>
+        <p data-name="Title">产品讨论组</p>
+      </div>
+    </sp-use>
+    <sp-use component="Button" data-name="NewGroup" props="Content: Leading; Kind: Secondary; State: Default" class="w-full h-control-height">
+      <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+      <p data-name="Label">新建群聊</p>
+    </sp-use>
+    <div data-name="RosterSpace" class="flex flex-col w-full h-full items-start justify-start">
+    </div>
+    <p data-name="RosterHint" class="w-full h-fit type-caption text-secondary hidden">长期伙伴，持续积累。</p>
+  </div>
+  <div data-name="Main" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+    <div data-name="PartnerHeader" class="flex flex-row w-full h-header items-center justify-start gap-2 px-6 bg-surface">
+      <div data-name="HeaderCopy" class="flex w-full h-fit justify-start flex-row items-center gap-2">
+        <p data-name="PartnerTitle" class="w-fit h-fit type-subtitle-strong text-text">产品讨论组</p>
+        <p data-name="PartnerDescription" class="w-fit h-fit type-caption text-secondary">你 · 研究伙伴 · 审查伙伴</p>
+      </div>
+      <sp-use component="Button" data-name="AddToGroup" props="Content: Leading; Kind: Ghost; State: Default" class="w-fit h-control-height">
+        <sp-use data-name="Icon" props="Name: Users"></sp-use>
+        <p data-name="Label">继续讨论</p>
+      </sp-use>
+      <sp-use component="Button" data-name="Settings" props="Content: Leading; Kind: Secondary; State: Default" class="w-fit h-control-height">
+        <sp-use data-name="Icon" props="Name: Sliders"></sp-use>
+        <p data-name="Label">群设置</p>
+      </sp-use>
+    </div>
+    <div data-name="GroupPolicy" class="flex flex-row w-full h-fit items-center justify-start gap-2 py-2 px-6">
+      <sp-use component="Badge" data-name="GroupMode" props="Tone: Accent" class="w-fit h-fit hidden">
+        <p data-name="Label" class="w-[54px]">仅 @ 回应</p>
+      </sp-use>
+      <p data-name="GroupLimit" class="w-full h-fit type-caption text-secondary">依成员顺序 · 每位 1 次 · 最多 3 次回复</p>
+    </div>
+    <div data-name="Chat" class="flex flex-col w-full h-full items-center justify-start gap-4 p-6">
+      <div data-name="Transcript" class="flex flex-col w-full h-full items-center justify-start gap-6">
+        <div data-name="UserTurn" class="flex flex-row w-full h-fit items-start justify-end max-w-[760px]">
+          <div data-name="UserMessage" class="flex flex-col w-full h-fit items-start justify-start p-3 rounded-card bg-subtle max-w-[560px]">
+            <p data-name="UserText" class="w-full h-fit type-subtitle-reading text-text">@研究伙伴 @审查伙伴 一起看看模型连接流程，先说各自的建议。</p>
+          </div>
+        </div>
+        <div data-name="ResearchMessage" class="flex flex-row w-full h-fit items-start justify-start gap-3 max-w-[760px]">
+          <sp-use component="Avatar" data-name="ResearchMessageAvatar" props="Kind: Agent" class="w-[32px] h-[32px]">
+            <p data-name="Label">研</p>
+          </sp-use>
+          <div data-name="ResearchMessageContent" class="flex flex-col w-full h-fit items-start justify-start gap-3">
+            <sp-use component="MessageHeader" data-name="ResearchMessageHeader" props="Author: Partner" class="w-full h-fit">
+              <p data-name="Author">研究伙伴</p>
+              <sp-use data-name="Avatar" class="hidden">
+                <p data-name="Label">研</p>
+              </sp-use>
+              <p data-name="Model">GPT · ALVA</p>
+            </sp-use>
+            <p data-name="ResearchMessageBody" class="w-full h-fit type-subtitle-reading text-text">我先核对模型来源与接入方式，再按资料研究的格式整理依据。</p>
+            <sp-use component="Badge" data-name="UsedSkills" props="Tone: Accent" class="w-fit h-fit">
+              <p data-name="Label" class="w-[178px]">资料研究 · 文档整理</p>
+            </sp-use>
+          </div>
+        </div>
+        <div data-name="ReviewMessage" class="flex flex-row w-full h-fit items-start justify-start gap-3 max-w-[760px]">
+          <sp-use component="Avatar" data-name="ReviewMessageAvatar" props="Kind: Agent" class="w-[32px] h-[32px]">
+            <p data-name="Label">审</p>
+          </sp-use>
+          <div data-name="ReviewMessageContent" class="flex flex-col w-full h-fit items-start justify-start gap-3">
+            <sp-use component="MessageHeader" data-name="ReviewMessageHeader" props="Author: Partner" class="w-full h-fit">
+              <p data-name="Author">审查伙伴</p>
+              <sp-use data-name="Avatar" class="hidden">
+                <p data-name="Label">审</p>
+              </sp-use>
+              <p data-name="Model">Sonnet · Claude</p>
+            </sp-use>
+            <p data-name="ReviewMessageBody" class="w-full h-fit type-subtitle-reading text-text">我会检查错误与保存边界。连接失败时保留草稿，凭据不会进入群消息。</p>
+            <sp-use component="Notice" data-name="RoundDone" props="Tone: Success" class="w-full h-fit max-w-[760px]">
+              <div data-name="Copy">
+                <p data-name="Description" class="hidden"></p>
+                <p data-name="Title">本轮结束，等待下一条消息</p>
+              </div>
+            </sp-use>
+          </div>
+        </div>
+        <div data-name="ChatSpace" class="flex flex-col w-full h-full items-start justify-start max-w-[760px]">
+        </div>
+      </div>
+      <sp-use component="Composer" data-name="Composer" props="State: Idle" class="w-full h-fit max-w-[760px]">
+        <div data-name="Editor">
+          <div data-name="Controls">
+            <sp-use data-name="Model">
+              <p data-name="Label">仅 @ 回应</p>
+            </sp-use>
+          </div>
+          <p data-name="Prompt">@ 选择伙伴，或发一条消息…</p>
+        </div>
+      </sp-use>
+      <p data-name="MemoryScope" class="w-full h-fit type-caption text-secondary max-w-[760px] hidden">群聊独立记录，不自动带入私聊与私人记忆。</p>
+    </div>
+  </div>
+</body>
+</html>

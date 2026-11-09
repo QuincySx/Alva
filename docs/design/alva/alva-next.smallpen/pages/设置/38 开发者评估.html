@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>设置 / 38 开发者评估</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-row items-start justify-start gap-3 pt-2 pb-3 px-3 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_navigation_native_shell、req_alva_navigation_settings -->
+  <sp-use component="SettingsNav" data-name="SettingsNav" props="Category: Developer" class="w-navigation h-full">
+    <sp-use data-name="Developer" data-click="设置/37 开发者测试"></sp-use>
+    <sp-use data-name="Gateway" data-click="设置/36 Gateway"></sp-use>
+    <sp-use data-name="General" data-click="设置/31 通用"></sp-use>
+    <sp-use data-name="Models" data-click="设置/23 模型与连接"></sp-use>
+    <sp-use data-name="Plugins" data-click="设置/32 插件与工具"></sp-use>
+    <sp-use data-name="Security" data-click="设置/35 权限与安全"></sp-use>
+    <sp-use data-name="Skills" data-click="设置/33 规则与 Skills"></sp-use>
+    <sp-use data-name="Storage" data-click="设置/34 数据与存储"></sp-use>
+  </sp-use>
+  <div data-name="SettingsRegion" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+    <div data-name="ReturnRow" class="flex flex-row w-full h-control-height items-center justify-start px-6">
+      <sp-use component="Button" data-name="HeaderReturn" props="Content: Leading; Kind: Ghost; State: Default" data-click="工作台/22 对话与面板" class="w-fit h-control-height">
+        <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
+        <p data-name="Label">返回工作台</p>
+      </sp-use>
+    </div>
+    <div data-name="SettingsMain" class="flex flex-col w-full h-full items-start justify-start gap-4 p-6 max-w-[960px]">
+      <div data-name="PageTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+        <div data-name="PageTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+          <p data-name="PageTitleTitle" class="w-full h-fit type-heading-strong text-text">模型评估</p>
+          <p data-name="PageTitleDescription" class="w-full h-fit type-caption text-secondary hidden">按任务集比较表现、成本与稳定性。</p>
+        </div>
+      </div>
+      <div data-name="DeveloperMode" class="flex flex-row w-fit h-fit items-center justify-start gap-3 bg-transparent">
+        <sp-use component="Segment" data-name="DeveloperMode0" props="State: Default" data-click="设置/37 开发者测试" class="w-fit h-[32px]">
+          <p data-name="Label" class="w-[57px]">集成测试</p>
+        </sp-use>
+        <sp-use component="Segment" data-name="DeveloperMode1" props="State: Selected" class="w-fit h-[32px]">
+          <p data-name="Label" class="w-[57px]">模型评估</p>
+        </sp-use>
+      </div>
+      <div data-name="DeveloperRun" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent">
+        <div data-name="RunTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+          <div data-name="RunTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+            <p data-name="RunTitleTitle" class="w-full h-fit type-subtitle-strong text-text">新建评估</p>
+          </div>
+        </div>
+        <div data-name="TargetFields" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+          <sp-use component="Field" data-name="Route" props="State: Default" class="w-full h-fit">
+            <sp-use data-name="Control" props="Kind: Select; State: Default">
+              <p data-name="Value">选择测试专用路由</p>
+            </sp-use>
+            <p data-name="Hint" class="hidden"></p>
+            <p data-name="Title">模型路由</p>
+          </sp-use>
+          <sp-use component="Field" data-name="Suite" props="State: Default" class="w-full h-fit">
+            <sp-use data-name="Control" props="Kind: Select; State: Default">
+              <p data-name="Value">工具使用与提问</p>
+            </sp-use>
+            <p data-name="Hint" class="hidden"></p>
+            <p data-name="Title">任务集</p>
+          </sp-use>
+        </div>
+        <div data-name="RunFields" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+          <sp-use component="Field" data-name="Budget" props="State: Default" class="w-full h-fit">
+            <sp-use data-name="Control" props="Kind: Text; State: Default">
+              <p data-name="Value">未设置</p>
+            </sp-use>
+            <p data-name="Hint" class="hidden"></p>
+            <p data-name="Title">费用预算</p>
+          </sp-use>
+          <sp-use component="Field" data-name="Trials" props="State: Default" class="w-full h-fit">
+            <sp-use data-name="Control" props="Kind: Text; State: Default">
+              <p data-name="Value">3</p>
+            </sp-use>
+            <p data-name="Hint" class="hidden"></p>
+            <p data-name="Title">重复次数</p>
+          </sp-use>
+        </div>
+        <div data-name="RunActions" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+          <sp-use component="Button" data-name="Run" props="Content: Leading; Kind: Primary; State: Disabled" class="w-fit h-control-height">
+            <sp-use data-name="Icon" props="Name: Play"></sp-use>
+            <p data-name="Label">开始评估</p>
+          </sp-use>
+          <p data-name="RunHint" class="w-full h-fit type-caption text-secondary">选择路由并确认预算后运行。</p>
+        </div>
+      </div>
+      <div data-name="DeveloperResults" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent">
+        <div data-name="ResultsTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+          <div data-name="ResultsTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+            <p data-name="ResultsTitleTitle" class="w-full h-fit type-subtitle-strong text-text">评估记录</p>
+          </div>
+        </div>
+        <sp-use component="EmptyState" data-name="NoResults" props="State: Empty" class="w-full h-fit">
+          <sp-use data-name="Action" class="hidden"></sp-use>
+          <p data-name="Description" class="hidden"></p>
+          <sp-use data-name="Icon" props="Name: Chart"></sp-use>
+          <p data-name="Title">还没有评估记录</p>
+        </sp-use>
+      </div>
+      <sp-use component="Notice" data-name="DeveloperBoundary" props="Tone: Info" class="w-full h-fit hidden">
+        <div data-name="Copy">
+          <p data-name="Description">开发者操作不暗中使用订阅登录态，也不改变日常对话路由。</p>
+          <p data-name="Title">评估与测试分别记录</p>
+        </div>
+      </sp-use>
+    </div>
+  </div>
+</body>
+</html>

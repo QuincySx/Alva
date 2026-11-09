@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Overlay / Artifact</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="旧视觉草稿（暂不评审）" class="w-[920px] h-[560px] flex flex-col items-start justify-start gap-[20px] p-6 bg-[#FFFFFF]">
+  <div data-name="OverlayHeading" class="flex flex-row w-full h-fit items-center justify-start gap-4">
+    <div data-name="OverlayHeadingText" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="OverlayHeadingTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">界面区域分工</p>
+      <p data-name="OverlayHeadingSubtitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">来自当前回复 · 交互内容</p>
+    </div>
+    <sp-use component="Button" data-name="CloseOverlay" props="Kind: Ghost; State: Default; Content: Text" data-click="back" class="w-[72px] h-[36px]">
+      <p data-name="Label">关闭</p>
+    </sp-use>
+  </div>
+  <div data-name="ArtifactPreview" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+    <p data-name="ArtifactTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">导航 → 对话 → 详情</p>
+    <p data-name="ArtifactDescription" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">同一份内容可在消息内预览，也可在这里展开。</p>
+    <div data-name="ArtifactRegions" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="ArtifactA" class="flex flex-col w-full h-fit items-start justify-start gap-3 p-6 rounded-[10px] bg-[#F4F6FA]">
+        <p data-name="ArtifactATitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">导航</p>
+        <p data-name="ArtifactAText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">可折叠</p>
+      </div>
+      <div data-name="ArtifactB" class="flex flex-col w-full h-fit items-start justify-start gap-3 p-6 rounded-[10px] bg-[#E8EFFF]">
+        <p data-name="ArtifactBTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">对话</p>
+        <p data-name="ArtifactBText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">独立滚动</p>
+      </div>
+      <div data-name="ArtifactC" class="flex flex-col w-full h-fit items-start justify-start gap-3 p-6 rounded-[10px] bg-[#F4F6FA]">
+        <p data-name="ArtifactCTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">详情</p>
+        <p data-name="ArtifactCText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">按需展开</p>
+      </div>
+    </div>
+  </div>
+  <div data-name="ArtifactActions" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+    <sp-use component="Button" data-name="ArtifactFullscreen" props="Kind: Secondary; State: Default; Content: Text" class="w-[112px] h-[36px]">
+      <p data-name="Label">全屏查看</p>
+    </sp-use>
+    <sp-use component="Button" data-name="ArtifactDetach" props="Kind: Secondary; State: Default; Content: Text" class="w-[112px] h-[36px]">
+      <p data-name="Label">独立窗口</p>
+    </sp-use>
+    <sp-use component="Button" data-name="ArtifactBack" props="Kind: Primary; State: Default; Content: Text" data-click="back" class="w-[112px] h-[36px]">
+      <p data-name="Label">返回对话</p>
+    </sp-use>
+  </div>
+</body>
+</html>

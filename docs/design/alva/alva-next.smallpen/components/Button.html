@@ -1,5 +1,5 @@
 <sp-component name="Button" props="Kind: Primary | Secondary | Ghost | Danger; State: Default | Hover | Pressed | Focus | Disabled | Loading | LoadingFocus; Content: Text | Leading | Trailing | Icon">
-  <div data-name="Button" class="flex flex-row w-fit h-control-height items-center justify-center gap-2 px-3 bg-text border border-text border-inside rounded-ctrl">
+  <div data-name="Button" class="flex flex-row w-fit h-control-height items-center justify-center gap-2 px-2 bg-text border border-text border-inside rounded-ctrl">
     <sp-use component="Icon" data-name="Spinner" props="Name: Loader" class="w-icon-small h-icon-small hidden">
       <p data-name="Glyph" class="type-icon-small text-surface"></p>
     </sp-use>
@@ -79,46 +79,100 @@
     <p data-name="Label" class="hidden"></p>
   </sp-variant>
   <sp-variant when="State: Disabled; Content: Text" class="bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="State: Hover; Content: Text" class="bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="State: Disabled; Content: Leading" class="bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="State: Hover; Content: Leading" class="bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="State: Disabled; Content: Trailing" class="bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="State: Hover; Content: Trailing" class="bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="State: Disabled; Content: Icon" class="w-control-height p-[0px] bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="State: Hover; Content: Icon" class="w-control-height p-[0px] bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Primary; State: Loading; Content: Text">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
@@ -165,289 +219,628 @@
     <p data-name="Label" class="hidden"></p>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Default; Content: Text" class="bg-surface border border-border border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Default; Content: Leading" class="bg-surface border border-border border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Default; Content: Trailing" class="bg-surface border border-border border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Default; Content: Icon" class="w-control-height p-[0px] bg-surface border border-border border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Hover; Content: Text" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Pressed; Content: Text" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Pressed; Content: Text" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Hover; Content: Leading" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Pressed; Content: Leading" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Pressed; Content: Leading" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Hover; Content: Trailing" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Pressed; Content: Trailing" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Pressed; Content: Trailing" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Hover; Content: Icon" class="w-control-height p-[0px] bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Pressed; Content: Icon" class="w-control-height p-[0px] bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Pressed; Content: Icon" class="w-control-height p-[0px] bg-hover border border-hover border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Focus; Content: Text" class="bg-surface border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Focus; Content: Leading" class="bg-surface border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Focus; Content: Trailing" class="bg-surface border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Focus; Content: Icon" class="w-control-height p-[0px] bg-surface border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Loading; Content: Text" class="bg-subtle border border-subtle border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="opacity-none text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Loading; Content: Leading" class="bg-subtle border border-subtle border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Loading; Content: Trailing" class="bg-subtle border border-subtle border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: Loading; Content: Icon" class="w-control-height p-[0px] bg-subtle border border-subtle border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: LoadingFocus; Content: Text" class="bg-subtle border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="opacity-none text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: LoadingFocus; Content: Leading" class="bg-subtle border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: LoadingFocus; Content: Trailing" class="bg-subtle border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="text-text">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Secondary; State: LoadingFocus; Content: Icon" class="w-control-height p-[0px] bg-subtle border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-text"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Default; Content: Text" class="bg-transparent border border-transparent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Default; Content: Leading" class="bg-transparent border border-transparent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Default; Content: Trailing" class="bg-transparent border border-transparent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Default; Content: Icon" class="w-control-height p-[0px] bg-transparent border border-transparent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Focus; Content: Text" class="bg-transparent border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Focus; Content: Leading" class="bg-transparent border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Focus; Content: Trailing" class="bg-transparent border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Focus; Content: Icon" class="w-control-height p-[0px] bg-transparent border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Loading; Content: Text" class="bg-transparent border border-transparent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="opacity-none text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Loading; Content: Leading" class="bg-transparent border border-transparent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Loading; Content: Trailing" class="bg-transparent border border-transparent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: Loading; Content: Icon" class="w-control-height p-[0px] bg-transparent border border-transparent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: LoadingFocus; Content: Text" class="bg-transparent border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="opacity-none text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: LoadingFocus; Content: Leading" class="bg-transparent border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: LoadingFocus; Content: Trailing" class="bg-transparent border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="text-secondary">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Ghost; State: LoadingFocus; Content: Icon" class="w-control-height p-[0px] bg-transparent border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-secondary"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Default; Content: Text" class="bg-transparent border border-transparent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Default; Content: Leading" class="bg-transparent border border-transparent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Default; Content: Trailing" class="bg-transparent border border-transparent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Default; Content: Icon" class="w-control-height p-[0px] bg-transparent border border-transparent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Hover; Content: Text" class="bg-danger-bg border border-danger-bg border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Hover; Content: Leading" class="bg-danger-bg border border-danger-bg border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Hover; Content: Trailing" class="bg-danger-bg border border-danger-bg border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Hover; Content: Icon" class="w-control-height p-[0px] bg-danger-bg border border-danger-bg border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Pressed; Content: Text" class="bg-danger border border-danger border-inside"></sp-variant>
   <sp-variant when="Kind: Danger; State: Pressed; Content: Leading" class="bg-danger border border-danger border-inside">
@@ -467,72 +860,147 @@
     <p data-name="Label" class="hidden"></p>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Focus; Content: Text" class="bg-transparent border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Focus; Content: Leading" class="bg-transparent border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Focus; Content: Trailing" class="bg-transparent border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
     <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Focus; Content: Icon" class="w-control-height p-[0px] bg-transparent border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <sp-use data-name="Icon" props="Name: Plus" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Loading; Content: Text" class="bg-transparent border border-transparent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="opacity-none text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Loading; Content: Leading" class="bg-transparent border border-transparent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Loading; Content: Trailing" class="bg-transparent border border-transparent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: Loading; Content: Icon" class="w-control-height p-[0px] bg-transparent border border-transparent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: LoadingFocus; Content: Text" class="bg-transparent border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="opacity-none text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: LoadingFocus; Content: Leading" class="bg-transparent border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: LoadingFocus; Content: Trailing" class="bg-transparent border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="text-danger">创建任务</p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
   <sp-variant when="Kind: Danger; State: LoadingFocus; Content: Icon" class="w-control-height p-[0px] bg-transparent border-focus border-accent border-inside">
     <sp-use data-name="Spinner" props="Name: Loader" class="shown">
       <p data-name="Glyph" class="type-icon-small text-danger"></p>
     </sp-use>
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
     <p data-name="Label" class="hidden"></p>
+    <sp-use data-name="Trailing" props="Name: ChevronDown">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
   </sp-variant>
 </sp-component>

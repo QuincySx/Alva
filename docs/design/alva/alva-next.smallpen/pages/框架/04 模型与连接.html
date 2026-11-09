@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>框架 / 04 模型与连接</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[1440px] h-[960px] flex flex-row items-start justify-start bg-[#FFFFFF]">
+  <div data-name="SettingsSidebar" class="flex flex-col w-[244px] h-full items-start justify-start gap-[5px] py-6 px-4 bg-[#F2F2F2]">
+    <div data-name="BackToWorkspace" data-click="框架/02 对话进行中" class="flex flex-row w-full h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+      <p data-name="BackToWorkspaceText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">&lt;  返回工作台</p>
+    </div>
+    <div data-name="SettingsHeading" class="flex flex-col w-full h-fit items-start justify-start pt-2 pb-[18px] px-[10px]">
+      <p data-name="SettingsTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[23px] font-[400] leading-[1.2] text-[#252525]">设置</p>
+    </div>
+    <div data-name="SettingsCategory0" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="SettingsCategory0Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">通用</p>
+    </div>
+    <div data-name="SettingsCategory1" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px] bg-[#E5E5E5]">
+      <p data-name="SettingsCategory1Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">模型与连接</p>
+    </div>
+    <div data-name="SettingsCategory2" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="SettingsCategory2Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">插件与工具</p>
+    </div>
+    <div data-name="SettingsCategory3" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="SettingsCategory3Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">规则与 Skills</p>
+    </div>
+    <div data-name="SettingsCategory4" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="SettingsCategory4Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">数据与存储</p>
+    </div>
+    <div data-name="SettingsCategory5" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="SettingsCategory5Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">权限与安全</p>
+    </div>
+    <div data-name="SettingsCategory6" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="SettingsCategory6Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">Gateway</p>
+    </div>
+    <div data-name="SettingsCategory7" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="SettingsCategory7Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">开发者</p>
+    </div>
+    <div data-name="SettingsNavSpace" class="flex flex-col w-full h-full items-start justify-start">
+    </div>
+    <div data-name="ActiveTask" data-click="框架/02 对话进行中" class="flex flex-row w-full h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+      <p data-name="ActiveTaskText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">1 个任务运行中 · 查看</p>
+    </div>
+    <p data-name="SettingsOwner" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#666666]">Smallraw</p>
+  </div>
+  <div data-name="SettingsMain" class="flex flex-col w-full h-full items-start justify-start gap-4 p-8">
+    <div data-name="SettingsPageHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <p data-name="SettingsPageTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[25px] font-[400] leading-[1.2] text-[#252525]">模型与连接</p>
+      <div data-name="AddConnection" data-click="选择器/08 选择供应商" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+        <p data-name="AddConnectionText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+  添加供应商</p>
+      </div>
+    </div>
+    <p data-name="SettingsPageDescription" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#666666]">管理模型来源和可用模型。示例数据 · 应用设置</p>
+    <div data-name="ProviderManager" class="flex flex-row w-full h-full items-center justify-start rounded-ctrl border border-[#D5D5D5] border-inside">
+      <div data-name="ConnectionSidebar" class="flex flex-col w-[220px] h-full items-start justify-start gap-[10px] p-4 bg-[#F6F6F6]">
+        <p data-name="ConnectionsTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">我的连接</p>
+        <div data-name="OpenAIConnection" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] py-3 px-[10px] rounded-[6px] bg-[#E7E7E7] border border-[#D2D2D2] border-inside">
+          <p data-name="OpenAIConnectionTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">OpenAI · 主连接</p>
+          <p data-name="OpenAIConnectionHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">API Key · 就绪 · 2 个模型启用</p>
+        </div>
+        <div data-name="AnthropicConnection" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] py-3 px-[10px] rounded-[6px]">
+          <p data-name="AnthropicConnectionTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">Anthropic · 工作连接</p>
+          <p data-name="AnthropicConnectionHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">API Key · 就绪 · 2 个模型启用</p>
+        </div>
+        <div data-name="GeminiConnection" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] py-3 px-[10px] rounded-[6px]">
+          <p data-name="GeminiConnectionTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">Google Gemini</p>
+          <p data-name="GeminiConnectionHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">尚未连接</p>
+        </div>
+        <div data-name="LocalConnection" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] py-3 px-[10px] rounded-[6px]">
+          <p data-name="LocalConnectionTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">本地模型服务</p>
+          <p data-name="LocalConnectionHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">尚未连接</p>
+        </div>
+        <p data-name="LocalAccountsTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">本机 Agent 账户</p>
+        <div data-name="ConnectLocalAccount" class="flex flex-row w-full h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+          <p data-name="ConnectLocalAccountText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+  连接本机账户</p>
+        </div>
+        <p data-name="LocalAccountHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">主动检查登录后选择账户与 Agent</p>
+        <div data-name="ConnectionListSpace" class="flex flex-col w-full h-full items-start justify-start">
+        </div>
+        <div data-name="AddProviderBottom" data-click="选择器/08 选择供应商" class="flex flex-row w-full h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+          <p data-name="AddProviderBottomText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+  添加供应商</p>
+        </div>
+      </div>
+      <div data-name="ProviderDetail" class="flex flex-col w-full h-full items-start justify-start gap-4 p-[22px]">
+        <div data-name="ProviderDetailHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+          <div data-name="SelectedProvider" class="flex flex-col w-full h-fit items-start justify-start gap-[7px]">
+            <p data-name="SelectedProviderName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[19px] font-[400] leading-[1.2] text-[#252525]">OpenAI · 主连接</p>
+            <p data-name="SelectedProviderStatus" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">API Key · 就绪 · ALVA</p>
+          </div>
+          <div data-name="EditConnection" data-click="选择器/09 配置连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+            <p data-name="EditConnectionText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">连接设置</p>
+          </div>
+        </div>
+        <p data-name="ProviderEndpointSummary" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">Responses · 请求端点已配置 · 密钥由宿主管理</p>
+        <div data-name="ModelsToolbar" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+          <p data-name="ModelsTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#252525]">模型 · 已启用 2 个</p>
+          <div data-name="RefreshModels" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+            <p data-name="RefreshModelsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">刷新目录</p>
+          </div>
+          <div data-name="AddModel" data-click="选择器/11 模型配置" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+            <p data-name="AddModelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+  添加模型</p>
+          </div>
+        </div>
+        <div data-name="ModelsFilters" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+          <div data-name="FilterConversation" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+            <p data-name="FilterConversationText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">对话</p>
+          </div>
+          <div data-name="FilterImageGeneration" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+            <p data-name="FilterImageGenerationText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">图像生成</p>
+          </div>
+          <div data-name="SearchModels" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-3 rounded-[6px] border border-[#D5D5D5] border-inside">
+            <p data-name="SearchModelsText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">搜索模型…</p>
+          </div>
+        </div>
+        <div data-name="ProviderModels" class="flex flex-col w-full h-fit items-start justify-start">
+          <div data-name="ManagedGPT" class="flex flex-row w-full h-[65px] items-center justify-start gap-2 py-2 px-3 border border-[#E3E3E3] border-inside">
+            <div data-name="ManagedGPTLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+              <p data-name="ManagedGPTName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">GPT</p>
+              <p data-name="ManagedGPTDetail" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">目录模型 · 视觉输入 · 工具调用 · 示例</p>
+            </div>
+            <p data-name="ManagedGPTPurpose" class="w-[56px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">对话</p>
+            <div data-name="ManagedGPTSettings" data-click="选择器/11 模型配置" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+              <p data-name="ManagedGPTSettingsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">设置</p>
+            </div>
+            <div data-name="ManagedGPTEnabled" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+              <p data-name="ManagedGPTEnabledText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">已启用</p>
+            </div>
+          </div>
+          <div data-name="ManagedGPTMini" class="flex flex-row w-full h-[65px] items-center justify-start gap-2 py-2 px-3 border border-[#E3E3E3] border-inside">
+            <div data-name="ManagedGPTMiniLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+              <p data-name="ManagedGPTMiniName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">GPT Mini</p>
+              <p data-name="ManagedGPTMiniDetail" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">目录模型 · 文本 · 工具调用 · 示例</p>
+            </div>
+            <p data-name="ManagedGPTMiniPurpose" class="w-[56px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">对话</p>
+            <div data-name="ManagedGPTMiniSettings" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+              <p data-name="ManagedGPTMiniSettingsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">设置</p>
+            </div>
+            <div data-name="ManagedGPTMiniEnabled" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+              <p data-name="ManagedGPTMiniEnabledText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">已启用</p>
+            </div>
+          </div>
+          <div data-name="ManagedCustom" class="flex flex-row w-full h-[65px] items-center justify-start gap-2 py-2 px-3 border border-[#E3E3E3] border-inside">
+            <div data-name="ManagedCustomLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+              <p data-name="ManagedCustomName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">我的自定义模型</p>
+              <p data-name="ManagedCustomDetail" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">手动添加 · 能力待确认</p>
+            </div>
+            <p data-name="ManagedCustomPurpose" class="w-[56px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">对话</p>
+            <div data-name="ManagedCustomSettings" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+              <p data-name="ManagedCustomSettingsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">设置</p>
+            </div>
+            <div data-name="ManagedCustomEnabled" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+              <p data-name="ManagedCustomEnabledText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">未启用</p>
+            </div>
+          </div>
+        </div>
+        <p data-name="ModelAvailabilityHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">启用后出现在对话选择器；是否可调用取决于账户、Agent 与连接状态。</p>
+        <p data-name="ImagePurposeHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">图像生成单独管理；支持视觉输入的对话模型仍列在对话中。</p>
+        <div data-name="ProviderDetailSpace" class="flex flex-col w-full h-full items-start justify-start">
+        </div>
+        <p data-name="CatalogRefreshHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">目录刷新保留启用选择与手动模型；无法获取目录时可手动添加。</p>
+      </div>
+    </div>
+    <div data-name="DefaultAgentModel" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <p data-name="DefaultAgentModelLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">应用默认模型与 Agent</p>
+      <div data-name="DefaultAgentModelValue" data-click="选择器/05 Agent 与模型" class="flex flex-row w-[240px] h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+        <p data-name="DefaultAgentModelValueText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">GPT · ALVA v</p>
+      </div>
+    </div>
+    <p data-name="DefaultsHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">项目和会话可覆盖默认值；当前正在执行的轮次保持原配置。</p>
+  </div>
+</body>
+</html>

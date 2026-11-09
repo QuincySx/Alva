@@ -2,9 +2,9 @@
 
 状态：**基础规范与组件复用、功能 SPEC、按需组合预览**，2026-10-26。保留已确认线稿和正式页面；页面维护与可点击原型按具体请求交付。这里定义目标界面及其规范入口，实际产品进度见根 MIGRATION。
 
-**2026-11-09 格式迁移**：SmallPen 已废弃旧 JSON 包格式，本文里 `page draw`、`project show`、`component-define` 等命令和对旧包 revision 的引用都属历史记录。现行设计包是 `alva-next.smallpen`（新 HTML 格式，Token 与 56 个组件已迁入，页面见后续迁移），工作方式见 [CLI-GUIDE](./CLI-GUIDE.md)。
+**2026-11-09 格式迁移**：72 张页面已在 `alva-next.smallpen` 的 `pages/` 重建（01 产品界面 23、00 工作台线稿 15、旧视觉草稿（暂不评审）34，另有 22 号的 960 窄窗版本 `22 对话与面板.tablet.html`，它是窄窗版本、不是平板设备）；原型 3 个起点和 601 条连线（586 页面跳转、15 返回）都迁过来，需求和标注在 `docs/design/alva/requirements/*.md`。SmallPen 已废弃旧 JSON 包格式，本文里 `page draw`、`project show`、`component-define` 等命令和对旧包 revision 的引用都属历史记录。现行设计包是 `alva-next.smallpen`（新 HTML 格式，Token 与 56 个组件已迁入，页面见后续迁移），工作方式见 [CLI-GUIDE](./CLI-GUIDE.md)。
 
-**对比度取舍（用户决定，2026-11-09）**：美观优先。只靠描边区分的控件（Checkbox／Radio／Switch 关闭态等）在亮色下与背景对比度低于 WCAG 1.4.11 的 3:1，`check --render` 的约 29 条 `low_ui_contrast` 提醒视为已知、接受；不为满足它去改 `controlBorder`、`border` 等颜色 Token 或组件描边。参照的 Lobe UI 同类描边更淡。
+**对比度取舍（用户决定，2026-11-09）**：美观优先。只靠描边区分的控件（Checkbox／Radio／Switch 关闭态、头像、禁用态等）在亮色下与背景对比度低于 WCAG 1.4.11 的 3:1，`check --render` 的约 29 条 `low_ui_contrast` 提醒（新包全部页面计入后更多）视为已知、接受；不为满足它去改 `controlBorder`、`border` 等颜色 Token 或组件描边。参照的 lobe-mygo 未选中 Checkbox 描边约 1.16:1，比我们的约 2.6 更淡。
 
 AI 接手或使用 CLI 修改前先读 [SmallPen CLI 使用指南](./CLI-GUIDE.md)：区分 Token、实例内容、布局与必要变体，避免再次全排列扩张；下文的保存状态和历史验收不代表这些建模问题都已完成收敛。
 
@@ -104,8 +104,6 @@ SettingsNav 顶部36只避让并显示16“设置”，`HeaderReturn` 在主设�
 窗口动作不创建会话、不授予权限或Stop执行。当前实现入口是 `apps/hub/desktop/window_chrome_desktop.go` 与 `windows_desktop.go`，来源为[上游窗口接口](https://github.com/egoist/mygo/blob/v0.7.4/window.go#L91)。实际Mac窗口及回归记录见根[MIGRATION](../../../MIGRATION.md)；其他平台实机、完整生产样式和业务验收分别记录，不因共享设计图或依赖升级自动通过。窗口层使用自身原生宿主，没有给每个设置页复制一套标题栏画板。
 
 ## 当前正式视觉基准 · 2026-11-04
-
-**对比度决定 · 2026-11-09**：审美优先。仅靠描边呈现的控件（Checkbox/Radio 关闭态、Switch 关闭态、头像等）在 `check --render` 里低于 WCAG 1.4.11 的 3:1 属于已知并接受的提示，共 29 条；不为满足该条而改任何颜色 Token（参照项目 lobe-mygo 的未选中 Checkbox 描边约 1.16:1）。
 
 本节是当前入口。下方候选与历史记录保留各自修订；不能从旧图或旧表格重新拼出另一套现行规范。
 

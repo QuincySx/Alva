@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>设置 / 33 规则与 Skills</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-row items-start justify-start gap-3 pt-2 pb-3 px-3 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_navigation_native_shell、req_alva_navigation_settings -->
+  <sp-use component="SettingsNav" data-name="SettingsNav" props="Category: Skills" class="w-navigation h-full">
+    <sp-use data-name="Developer" data-click="设置/37 开发者测试"></sp-use>
+    <sp-use data-name="Gateway" data-click="设置/36 Gateway"></sp-use>
+    <sp-use data-name="General" data-click="设置/31 通用"></sp-use>
+    <sp-use data-name="Models" data-click="设置/23 模型与连接"></sp-use>
+    <sp-use data-name="Plugins" data-click="设置/32 插件与工具"></sp-use>
+    <sp-use data-name="Security" data-click="设置/35 权限与安全"></sp-use>
+    <sp-use data-name="Skills" data-click="设置/33 规则与 Skills"></sp-use>
+    <sp-use data-name="Storage" data-click="设置/34 数据与存储"></sp-use>
+  </sp-use>
+  <div data-name="SettingsRegion" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+    <div data-name="ReturnRow" class="flex flex-row w-full h-control-height items-center justify-start px-6">
+      <sp-use component="Button" data-name="HeaderReturn" props="Content: Leading; Kind: Ghost; State: Default" data-click="工作台/22 对话与面板" class="w-fit h-control-height">
+        <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
+        <p data-name="Label">返回工作台</p>
+      </sp-use>
+    </div>
+    <div data-name="SettingsMain" class="flex flex-col w-full h-full items-start justify-start gap-4 p-6 max-w-[960px]">
+      <div data-name="PageTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+        <div data-name="PageTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+          <p data-name="PageTitleTitle" class="w-full h-fit type-heading-strong text-text">规则与 Skills</p>
+          <p data-name="PageTitleDescription" class="w-full h-fit type-caption text-secondary hidden">查看来源、作用域和实际生效的版本。</p>
+        </div>
+        <sp-use component="Button" data-name="AddSkill" props="Content: Leading; Kind: Primary; State: Default" class="w-fit h-control-height">
+          <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+          <p data-name="Label">添加 Skill</p>
+        </sp-use>
+      </div>
+      <div data-name="RuleToolbar" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+        <sp-use component="Input" data-name="RuleSearch" props="Kind: Search; State: Default" class="w-full h-control-height">
+          <p data-name="Value">搜索规则或 Skill…</p>
+        </sp-use>
+        <div data-name="RuleFilter" class="flex flex-row w-fit h-fit items-center justify-start gap-1 p-1 rounded-ctrl bg-subtle">
+          <sp-use component="Segment" data-name="RuleFilter0" props="State: Selected" class="w-fit h-[32px]">
+            <p data-name="Label" class="w-[36px]">Skills</p>
+          </sp-use>
+          <sp-use component="Segment" data-name="RuleFilter1" props="State: Default" class="w-fit h-[32px]">
+            <p data-name="Label" class="w-[57px]">项目规则</p>
+          </sp-use>
+          <sp-use component="Segment" data-name="RuleFilter2" props="State: Default" class="w-fit h-[32px]">
+            <p data-name="Label" class="w-[57px]">兼容来源</p>
+          </sp-use>
+        </div>
+      </div>
+      <div data-name="SkillList" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent">
+        <sp-use component="SkillRow" data-name="Research" props="State: Shared" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">共享库 · 固定 v1</p>
+            <p data-name="Title">资料研究</p>
+          </div>
+          <sp-use data-name="Enabled" props="State: On"></sp-use>
+        </sp-use>
+        <sp-use component="SkillRow" data-name="Review" props="State: Shared" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">共享库 · 固定 v1</p>
+            <p data-name="Title">代码审查</p>
+          </div>
+          <sp-use data-name="Enabled" props="State: On"></sp-use>
+        </sp-use>
+        <sp-use component="SkillRow" data-name="Docs" props="State: Owned" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">研究伙伴自有 · v2</p>
+            <p data-name="Title">文档整理</p>
+          </div>
+          <sp-use data-name="Enabled" props="State: On"></sp-use>
+        </sp-use>
+        <sp-use component="SkillRow" data-name="Unavailable" props="State: Unavailable" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">来源缺失 · 当前不会挂载</p>
+            <p data-name="Title">自定义工作流</p>
+          </div>
+          <sp-use data-name="Enabled" props="State: Off"></sp-use>
+        </sp-use>
+      </div>
+      <div data-name="RuleSources" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent">
+        <div data-name="RuleSourceTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+          <div data-name="RuleSourceTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+            <p data-name="RuleSourceTitleTitle" class="w-full h-fit type-subtitle-strong text-text">规则来源</p>
+          </div>
+        </div>
+        <sp-use component="ResourceRow" data-name="NativeRules" props="Kind: File" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">项目规则 · 显式加载</p>
+            <p data-name="Title">ALVA.md</p>
+          </div>
+        </sp-use>
+        <sp-use component="SettingRow" data-name="Compatibility" props="Control: Switch" class="w-full h-fit">
+          <sp-use data-name="Control" props="State: Off"></sp-use>
+          <div data-name="Copy">
+            <p data-name="Description">按需开启；相同来源与身份去重，不按名称合并。</p>
+            <p data-name="Title">标准格式兼容</p>
+          </div>
+        </sp-use>
+      </div>
+      <sp-use component="Notice" data-name="SkillGrant" props="Tone: Info" class="w-full h-fit hidden">
+        <div data-name="Copy">
+          <p data-name="Description">新增或改写共享 Skill 时，明确保存位置与影响范围。</p>
+          <p data-name="Title">Skill 说明不授予权限</p>
+        </div>
+      </sp-use>
+    </div>
+  </div>
+</body>
+</html>

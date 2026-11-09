@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>伙伴 / 28 伙伴资料</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-col items-center justify-center p-6 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_companion_profile -->
+  <div data-name="Dialog" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-card bg-surface shadow-popup max-w-[800px]">
+    <sp-use component="DialogHeader" data-name="DialogHeader" class="w-full h-fit">
+      <sp-use data-name="Close" data-click="伙伴/27 伙伴私聊"></sp-use>
+      <div data-name="Copy">
+        <p data-name="Description" class="hidden"></p>
+        <p data-name="Title">研究伙伴</p>
+      </div>
+    </sp-use>
+    <div data-name="ProfileTabs" class="flex flex-row w-fit h-fit items-center justify-start gap-1 p-1 rounded-ctrl bg-subtle">
+      <sp-use component="Segment" data-name="ProfileTabs0" props="State: Selected" class="w-fit h-[32px]">
+        <p data-name="Label" class="w-[71px]">身份与能力</p>
+      </sp-use>
+      <sp-use component="Segment" data-name="ProfileTabs1" props="State: Default" class="w-fit h-[32px]">
+        <p data-name="Label">记忆</p>
+      </sp-use>
+      <sp-use component="Segment" data-name="ProfileTabs2" props="State: Default" class="w-fit h-[32px]">
+        <p data-name="Label">历史</p>
+      </sp-use>
+    </div>
+    <div data-name="ProfileColumns" class="flex flex-row w-full h-fit items-start justify-start gap-6">
+      <div data-name="Identity" class="flex flex-col w-full h-fit items-start justify-start gap-4">
+        <sp-use component="Field" data-name="Name" props="State: Default" class="w-full h-fit">
+          <sp-use data-name="Control" props="Kind: Text; State: Default">
+            <p data-name="Value">研究伙伴</p>
+          </sp-use>
+          <p data-name="Hint" class="hidden"></p>
+          <p data-name="Title">名字</p>
+        </sp-use>
+        <sp-use component="Field" data-name="Model" props="State: Default" class="w-full h-fit">
+          <sp-use data-name="Control" props="Kind: Select; State: Default">
+            <p data-name="Value">GPT · ALVA</p>
+          </sp-use>
+          <p data-name="Hint" class="hidden"></p>
+          <p data-name="Title">模型与 Agent</p>
+        </sp-use>
+        <p data-name="RoleLabel" class="w-full h-fit type-body-strong text-text">职责与做事方式</p>
+        <sp-use component="TextArea" data-name="Role" props="State: Default" class="w-full h-[96px]">
+          <p data-name="Value">核对来源，整理依据；不确定时说明，不把推测写成事实。</p>
+        </sp-use>
+        <sp-use component="Field" data-name="Permission" props="State: Default" class="w-full h-fit">
+          <sp-use data-name="Control" props="Kind: Select; State: Default">
+            <p data-name="Value">每次询问</p>
+          </sp-use>
+          <p data-name="Hint" class="hidden"></p>
+          <p data-name="Title">执行权限</p>
+        </sp-use>
+        <sp-use component="SettingRow" data-name="Memory" props="Control: Switch" class="w-full h-fit">
+          <sp-use data-name="Control" props="State: On"></sp-use>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Title">长期记忆</p>
+          </div>
+        </sp-use>
+      </div>
+      <div data-name="Capabilities" class="flex flex-col w-full h-fit items-start justify-start gap-4">
+        <div data-name="SkillTitle" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+          <p data-name="SkillsTitle" class="w-full h-fit type-subtitle-strong text-text">Skills</p>
+          <sp-use component="IconButton" data-name="AddSkill" props="State: Default" class="w-control-icon h-control-icon">
+            <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+          </sp-use>
+        </div>
+        <sp-use component="SkillRow" data-name="ResearchSkill" props="State: Shared" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">共享库 · 固定 v1</p>
+            <p data-name="Title">资料研究</p>
+          </div>
+          <sp-use data-name="Enabled" props="State: On"></sp-use>
+        </sp-use>
+        <sp-use component="SkillRow" data-name="DocSkill" props="State: Owned" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">仅此伙伴 · v2</p>
+            <p data-name="Title">文档整理</p>
+          </div>
+          <sp-use data-name="Enabled" props="State: On"></sp-use>
+        </sp-use>
+        <sp-use component="Field" data-name="Toolsets" props="State: Default" class="w-full h-fit">
+          <sp-use data-name="Control" props="Kind: Select; State: Default">
+            <p data-name="Value">已选工具集</p>
+          </sp-use>
+          <p data-name="Hint" class="hidden"></p>
+          <p data-name="Title">工具与 MCP</p>
+        </sp-use>
+        <sp-use component="Notice" data-name="Learning" props="Tone: Info" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Description">能力说明不会授予权限；群聊按参与范围加载。</p>
+            <p data-name="Title">新 Skill 保存前确认</p>
+          </div>
+        </sp-use>
+      </div>
+    </div>
+    <div data-name="DialogSpace" class="flex flex-col w-full h-[0px] items-start justify-start hidden">
+    </div>
+    <sp-use component="DialogFooter" data-name="DialogFooter" class="w-full h-fit">
+      <sp-use data-name="Cancel" data-click="伙伴/27 伙伴私聊"></sp-use>
+      <sp-use data-name="Save" data-click="伙伴/27 伙伴私聊">
+        <p data-name="Label">保存伙伴</p>
+      </sp-use>
+      <p data-name="Scope">此伙伴 · 下一轮生效</p>
+    </sp-use>
+  </div>
+</body>
+</html>

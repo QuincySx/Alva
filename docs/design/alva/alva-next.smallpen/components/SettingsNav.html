@@ -1,10 +1,16 @@
 <sp-component name="SettingsNav" props="Category: General | Models | Plugins | Skills | Storage | Security | Gateway | Developer">
-  <div data-name="SettingsNav" class="flex flex-col w-navigation h-[960px] items-start justify-start gap-2 p-3 bg-canvas border border-transparent border-inside">
-    <sp-use component="Button" data-name="BackToWork" props="Kind: Ghost; State: Default; Content: Leading" class="w-fit h-control-height">
+  <div data-name="SettingsNav" class="flex flex-col w-navigation h-[960px] items-start justify-start gap-2 pb-3 px-3 bg-canvas border border-transparent border-inside">
+    <div data-name="TopRow" class="flex flex-row w-full h-header items-center justify-start gap-2">
+      <div data-name="NativeSafeArea" class="flex flex-col w-[62px] h-[32px] items-start justify-start">
+      </div>
+      <p data-name="Title" class="w-fit h-fit text-text type-subtitle-strong">设置</p>
+      <div data-name="TopSpacer" class="flex flex-col w-full h-[32px] items-start justify-start">
+      </div>
+    </div>
+    <sp-use component="Button" data-name="BackToWork" props="Kind: Ghost; State: Default; Content: Leading" class="w-fit h-control-height hidden">
       <p data-name="Label">返回工作台</p>
       <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
     </sp-use>
-    <p data-name="Title" class="w-full h-fit text-text type-heading-strong">设置</p>
     <p data-name="Scope" class="w-full h-fit hidden text-secondary type-caption">应用设置</p>
     <sp-use component="NavItem" data-name="General" props="State: Selected" class="w-full h-control-row">
       <p data-name="Label" class="shown">通用</p>

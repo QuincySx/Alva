@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>选择器 / 05 Agent 与模型</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[880px] h-[560px] flex flex-row items-start justify-start gap-2 p-[20px] bg-[#EAEAEA]">
+  <div data-name="ModelOptionsAnchor" class="flex flex-col w-[272px] h-full items-start justify-start">
+    <div data-name="ModelOptionsOffset" class="flex flex-col w-full h-[80px] items-start justify-start">
+    </div>
+    <div data-name="ModelOptionsPopover" class="flex flex-col w-[272px] h-fit items-start justify-start gap-2 p-3 rounded-[9px] bg-[#FFFFFF] border border-[#BDBDBD] border-inside">
+      <div data-name="ModelOptionsHeader" class="flex flex-row w-full h-[42px] items-center justify-start gap-1">
+        <div data-name="ModelOptionsIdentity" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+          <p data-name="ModelOptionsName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[16px] font-[400] leading-[1.2] text-[#252525]">GPT</p>
+          <p data-name="ModelOptionsSource" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">OpenAI · 主连接</p>
+        </div>
+        <div data-name="PopoverFavorite" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="PopoverFavoriteText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">收藏</p>
+        </div>
+      </div>
+      <div data-name="ReasoningOptions" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ReasoningTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">思考程度</p>
+        <div data-name="ReasoningChoices" class="flex flex-row w-full h-fit items-center justify-start gap-1">
+          <div data-name="EffortDefault" class="flex flex-col w-full h-[26px] items-center justify-center rounded-small bg-[#F6F6F6]">
+            <p data-name="EffortDefaultText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">默认</p>
+          </div>
+          <div data-name="EffortLow" class="flex flex-col w-full h-[26px] items-center justify-center rounded-small bg-[#F6F6F6]">
+            <p data-name="EffortLowText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">低</p>
+          </div>
+          <div data-name="EffortMedium" class="flex flex-col w-full h-[26px] items-center justify-center rounded-small bg-[#F6F6F6]">
+            <p data-name="EffortMediumText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">中</p>
+          </div>
+          <div data-name="EffortHigh" class="flex flex-col w-full h-[26px] items-center justify-center rounded-small bg-[#E1E1E1] border border-[#BDBDBD] border-inside">
+            <p data-name="EffortHighText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">高</p>
+          </div>
+        </div>
+      </div>
+      <div data-name="CompatibleAgents" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="CompatibleAgentsTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">可用 Agent</p>
+        <div data-name="CompatibleAgentChoices" class="flex flex-row w-full h-fit items-center justify-start gap-1">
+          <div data-name="AgentALVA" class="flex flex-col w-full h-[30px] items-center justify-center rounded-[5px] bg-[#E5E5E5] border border-[#BDBDBD] border-inside">
+            <p data-name="AgentALVALabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">ALVA</p>
+          </div>
+          <div data-name="AgentCodex" class="flex flex-col w-full h-[30px] items-center justify-center rounded-[5px] bg-[#F5F5F5]">
+            <p data-name="AgentCodexLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">Codex</p>
+          </div>
+          <div data-name="AgentPi" class="flex flex-col w-full h-[30px] items-center justify-center rounded-[5px] bg-[#F5F5F5]">
+            <p data-name="AgentPiLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">Pi</p>
+          </div>
+        </div>
+      </div>
+      <div data-name="ContextOption" class="flex flex-row w-full h-[32px] items-center justify-start gap-3">
+        <p data-name="ContextLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">Context</p>
+        <div data-name="ContextValue" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+          <p data-name="ContextValueText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">128K v</p>
+        </div>
+      </div>
+      <div data-name="VisionOption" class="flex flex-row w-full h-[32px] items-center justify-start gap-3">
+        <p data-name="VisionLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">视觉</p>
+        <div data-name="VisionValue" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+          <p data-name="VisionValueText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">开启 v</p>
+        </div>
+      </div>
+      <div data-name="ModelSettings" data-click="选择器/11 模型配置" class="flex flex-row w-full h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="ModelSettingsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">模型设置 &gt;</p>
+      </div>
+      <p data-name="ModelOptionsScope" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">当前会话 · 下一轮生效</p>
+    </div>
+  </div>
+  <div data-name="AgentModelDialog" class="flex flex-col w-[560px] h-[484px] items-start justify-start rounded-[10px] bg-[#FFFFFF] border border-[#D0D0D0] border-inside">
+    <div data-name="DialogHeader" class="flex flex-row w-full h-[52px] items-center justify-start gap-3 py-2 px-3 border border-[#E4E4E4] border-inside">
+      <div data-name="ModelSearch" class="flex flex-col w-full h-[34px] items-start justify-start py-[6px] px-2">
+        <p data-name="ModelSearchPlaceholder" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#666666]">搜索模型…</p>
+      </div>
+      <div data-name="CloseDialog" data-click="框架/01 新任务" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="CloseDialogText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">关闭</p>
+      </div>
+    </div>
+    <div data-name="DialogBody" class="flex flex-row w-full h-full items-center justify-start">
+      <div data-name="ModelFilters" class="flex flex-col w-[48px] h-full items-start justify-start gap-[6px] py-[10px] px-[5px] bg-[#F5F5F5]">
+        <div data-name="FavoritesFilter" class="flex flex-col w-full h-[36px] items-center justify-center rounded-[6px]">
+          <p data-name="FavoritesFilterText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#252525]">收藏</p>
+        </div>
+        <div data-name="AllModelsFilter" class="flex flex-col w-full h-[36px] items-center justify-center rounded-[6px] bg-[#E4E4E4] border border-[#C8C8C8] border-inside">
+          <p data-name="AllModelsFilterText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#252525]">全部</p>
+        </div>
+        <div data-name="FilterDivider" class="flex flex-col w-full h-[1px] items-start justify-start bg-[#D8D8D8]">
+        </div>
+        <div data-name="Provideropenai" class="flex flex-col w-full h-[36px] items-center justify-center rounded-[6px]">
+          <p data-name="ProvideropenaiText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#252525]">O</p>
+        </div>
+        <div data-name="Provideranthropic" class="flex flex-col w-full h-[36px] items-center justify-center rounded-[6px]">
+          <p data-name="ProvideranthropicText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#252525]">A</p>
+        </div>
+        <div data-name="Providergoogle" class="flex flex-col w-full h-[36px] items-center justify-center rounded-[6px]">
+          <p data-name="ProvidergoogleText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#252525]">G</p>
+        </div>
+        <div data-name="Providerrelay" class="flex flex-col w-full h-[36px] items-center justify-center rounded-[6px]">
+          <p data-name="ProviderrelayText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#252525]">R</p>
+        </div>
+        <div data-name="FilterRailSpace" class="flex flex-col w-full h-full items-start justify-start">
+        </div>
+      </div>
+      <div data-name="ModelPane" class="flex flex-col w-full h-full items-start justify-start p-[10px]">
+        <div data-name="ModelList" class="flex flex-col w-full h-full items-start justify-start gap-1">
+          <div data-name="Model0" class="flex flex-row w-full h-[58px] items-center justify-start gap-[6px] p-2 rounded-[6px] bg-[#E6E6E6]">
+            <div data-name="Model0Icon" class="flex flex-col w-[20px] h-[20px] items-center justify-center">
+              <p data-name="Model0Mark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">O</p>
+            </div>
+            <div data-name="Model0Labels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+              <p data-name="Model0Name" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">GPT</p>
+              <p data-name="Model0Source" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">OpenAI · 主连接 · 视觉</p>
+            </div>
+            <div data-name="ModelFavorite" class="flex flex-col w-[30px] h-[26px] items-center justify-center rounded-small">
+              <p data-name="ModelFavoriteText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#252525]">收藏</p>
+            </div>
+            <div data-name="ModelQuickSettings" class="flex flex-col w-[30px] h-[26px] items-center justify-center rounded-small border border-[#BDBDBD] border-inside">
+              <p data-name="ModelQuickSettingsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#252525]">设置</p>
+            </div>
+            <p data-name="Model0EffectiveAgent" class="w-[58px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">ALVA · 高</p>
+          </div>
+          <div data-name="Model1" class="flex flex-row w-full h-[58px] items-center justify-start gap-[6px] p-2 rounded-[6px]">
+            <div data-name="Model1Icon" class="flex flex-col w-[20px] h-[20px] items-center justify-center">
+              <p data-name="Model1Mark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">O</p>
+            </div>
+            <div data-name="Model1Labels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+              <p data-name="Model1Name" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">GPT Mini</p>
+              <p data-name="Model1Source" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">OpenAI · 主连接 · 文本</p>
+            </div>
+            <p data-name="Model1EffectiveAgent" class="w-[58px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">ALVA · 中</p>
+          </div>
+          <div data-name="Model2" class="flex flex-row w-full h-[58px] items-center justify-start gap-[6px] p-2 rounded-[6px] bg-[#F3F3F3] border border-[#CBCBCB] border-inside">
+            <div data-name="Model2Icon" class="flex flex-col w-[20px] h-[20px] items-center justify-center">
+              <p data-name="Model2Mark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">A</p>
+            </div>
+            <div data-name="Model2Labels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+              <p data-name="Model2Name" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">Sonnet</p>
+              <p data-name="Model2Source" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">Anthropic · 主连接 · 视觉</p>
+            </div>
+            <p data-name="Model2EffectiveAgent" class="w-[58px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">ALVA · 中</p>
+          </div>
+          <div data-name="Model3" class="flex flex-row w-full h-[58px] items-center justify-start gap-[6px] p-2 rounded-[6px]">
+            <div data-name="Model3Icon" class="flex flex-col w-[20px] h-[20px] items-center justify-center">
+              <p data-name="Model3Mark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">A</p>
+            </div>
+            <div data-name="Model3Labels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+              <p data-name="Model3Name" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">Opus</p>
+              <p data-name="Model3Source" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">Anthropic · 主连接 · 视觉</p>
+            </div>
+            <p data-name="Model3EffectiveAgent" class="w-[58px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">ALVA · 高</p>
+          </div>
+          <div data-name="Model4" class="flex flex-row w-full h-[58px] items-center justify-start gap-[6px] p-2 rounded-[6px]">
+            <div data-name="Model4Icon" class="flex flex-col w-[20px] h-[20px] items-center justify-center">
+              <p data-name="Model4Mark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">G</p>
+            </div>
+            <div data-name="Model4Labels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+              <p data-name="Model4Name" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">Gemini Pro</p>
+              <p data-name="Model4Source" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">Google · 主连接 · 视觉</p>
+            </div>
+            <p data-name="Model4EffectiveAgent" class="w-[58px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">ALVA · 高</p>
+          </div>
+          <div data-name="Model5" class="flex flex-row w-full h-[58px] items-center justify-start gap-[6px] p-2 rounded-[6px]">
+            <div data-name="Model5Icon" class="flex flex-col w-[20px] h-[20px] items-center justify-center">
+              <p data-name="Model5Mark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#252525]">R</p>
+            </div>
+            <div data-name="Model5Labels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+              <p data-name="Model5Name" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">Sonnet</p>
+              <p data-name="Model5Source" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">中转 A · 工作连接 · 文本</p>
+            </div>
+            <p data-name="Model5EffectiveAgent" class="w-[58px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">ALVA · 中</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div data-name="DialogFooter" class="flex flex-row w-full h-[44px] items-center justify-start gap-3 px-3 border border-[#DDDDDD] border-inside">
+      <div data-name="ManageConnections" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="ManageConnectionsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+  配置模型</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

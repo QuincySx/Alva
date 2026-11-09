@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Overlay / QuestionSelected</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="旧视觉草稿（暂不评审）" class="w-[560px] h-[590px] flex flex-col items-start justify-start gap-[20px] p-6 bg-[#FFFFFF]">
+  <div data-name="OverlayHeading" class="flex flex-row w-full h-fit items-center justify-start gap-4">
+    <div data-name="OverlayHeadingText" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="OverlayHeadingTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">需要你的选择</p>
+      <p data-name="OverlayHeadingSubtitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">当前会话 · 单选 · 问题 1 / 1</p>
+    </div>
+    <sp-use component="Button" data-name="CloseOverlay" props="Kind: Ghost; State: Default; Content: Text" data-click="back" class="w-[72px] h-[36px]">
+      <p data-name="Label">关闭</p>
+    </sp-use>
+  </div>
+  <p data-name="QuestionText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">你更希望先实现哪种布局？</p>
+  <div data-name="QuestionOptions" class="flex flex-col w-full h-fit items-start justify-start gap-3">
+    <sp-use component="QuestionOption" data-name="OptionA" props="State: Selected" data-click="Overlay/QuestionSelected" class="w-full h-fit">
+      <div data-name="Copy">
+        <p data-name="Title">原生外壳与完整 HTML 工作区</p>
+      </div>
+    </sp-use>
+    <sp-use component="QuestionOption" data-name="OptionB" props="State: Default" data-click="Overlay/QuestionSelectedB" class="w-full h-fit">
+      <div data-name="Copy">
+        <p data-name="Title">先保持完整自绘界面</p>
+      </div>
+    </sp-use>
+    <sp-use component="QuestionOption" data-name="OptionOther" props="State: Default" data-click="Overlay/QuestionOther" class="w-full h-fit">
+      <div data-name="Copy">
+        <p data-name="Title">Other · 自定义答案</p>
+      </div>
+    </sp-use>
+  </div>
+  <sp-use component="Input" data-name="OtherText" props="Kind: Text; State: Disabled" class="w-full h-[36px]">
+    <p data-name="Value">选择 Other 后填写</p>
+  </sp-use>
+  <p data-name="QuestionHelp" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">提交只保存回答，任务仍暂停。关闭面板会保留待办。</p>
+  <div data-name="QuestionActions" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+    <sp-use component="Button" data-name="QuestionCancel" props="Kind: Secondary; State: Default; Content: Text" data-click="back" class="w-[112px] h-[36px]">
+      <p data-name="Label">稍后回答</p>
+    </sp-use>
+    <sp-use component="Button" data-name="QuestionSubmit" props="Kind: Primary; State: Default; Content: Text" data-click="Operations/AnsweredWaits" class="w-[112px] h-[36px]">
+      <p data-name="Label">保存回答</p>
+    </sp-use>
+  </div>
+</body>
+</html>

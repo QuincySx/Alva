@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>选择器 / 10 选择模型</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[920px] h-[770px] flex flex-col items-start justify-start p-6 bg-[#ECECEC]">
+  <div data-name="ProviderWizard" class="flex flex-col w-full h-full items-start justify-start gap-[18px] p-6 rounded-[10px] bg-[#FFFFFF] border border-[#C7C7C7] border-inside">
+    <div data-name="WizardHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <p data-name="WizardTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[21px] font-[400] leading-[1.2] text-[#252525]">添加供应商</p>
+      <div data-name="WizardCancelTop" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="WizardCancelTopText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">x</p>
+      </div>
+    </div>
+    <div data-name="WizardSteps" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <div data-name="WizardStep0" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[5px] bg-[#F7F7F7]">
+        <p data-name="WizardStep0Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#666666]">1  选择供应商</p>
+      </div>
+      <div data-name="WizardStep1" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[5px] bg-[#F7F7F7]">
+        <p data-name="WizardStep1Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#666666]">2  配置连接</p>
+      </div>
+      <div data-name="WizardStep2" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[5px] bg-[#E7E7E7]">
+        <p data-name="WizardStep2Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">3  选择模型</p>
+      </div>
+    </div>
+    <div data-name="NewConnectionModels" class="flex flex-col w-full h-full items-start justify-start gap-3">
+      <div data-name="NewConnectionSummary" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="NewConnectionLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="NewConnectionName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[16px] font-[400] leading-[1.2] text-[#252525]">我的模型服务</p>
+          <p data-name="NewConnectionProtocol" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">Responses · 连接测试通过（示例状态）</p>
+        </div>
+        <div data-name="WizardRefreshCatalog" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="WizardRefreshCatalogText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">刷新目录</p>
+        </div>
+      </div>
+      <div data-name="WizardModelToolbar" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="WizardModelSearch" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="WizardModelSearchLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">选择后启用</p>
+          <div data-name="WizardModelSearchInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="WizardModelSearchValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">搜索模型…</p>
+          </div>
+        </div>
+        <div data-name="WizardManualModel" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+          <p data-name="WizardManualModelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+  手动添加模型</p>
+        </div>
+      </div>
+      <div data-name="WizardSelectionTools" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="WizardSelectAll" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="WizardSelectAllText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">全选</p>
+        </div>
+        <div data-name="WizardSelectedOnly" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="WizardSelectedOnlyText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">仅已选 2</p>
+        </div>
+      </div>
+      <div data-name="WizardModelOne" class="flex flex-row w-full h-[65px] items-center justify-start gap-2 py-2 px-3 border border-[#E3E3E3] border-inside">
+        <p data-name="WizardModelOneCheck" class="w-[28px] h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">[x]</p>
+        <div data-name="WizardModelOneLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="WizardModelOneName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">GPT</p>
+          <p data-name="WizardModelOneDetail" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">model-id-1 · 来自服务目录 · 示例</p>
+        </div>
+        <p data-name="WizardModelOnePurpose" class="w-[56px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">对话</p>
+      </div>
+      <div data-name="WizardModelTwo" class="flex flex-row w-full h-[65px] items-center justify-start gap-2 py-2 px-3 border border-[#E3E3E3] border-inside">
+        <p data-name="WizardModelTwoCheck" class="w-[28px] h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">[x]</p>
+        <div data-name="WizardModelTwoLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="WizardModelTwoName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">GPT Mini</p>
+          <p data-name="WizardModelTwoDetail" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">model-id-2 · 来自服务目录 · 示例</p>
+        </div>
+        <p data-name="WizardModelTwoPurpose" class="w-[56px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">对话</p>
+      </div>
+      <div data-name="WizardModelThree" class="flex flex-row w-full h-[65px] items-center justify-start gap-2 py-2 px-3 border border-[#E3E3E3] border-inside">
+        <p data-name="WizardModelThreeCheck" class="w-[28px] h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">[ ]</p>
+        <div data-name="WizardModelThreeLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="WizardModelThreeName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">自定义模型</p>
+          <p data-name="WizardModelThreeDetail" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">exact-model-id · 手动添加 · 能力待确认</p>
+        </div>
+        <p data-name="WizardModelThreePurpose" class="w-[56px] h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">对话</p>
+      </div>
+      <p data-name="ManualCatalogFallback" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">服务不提供目录？按服务文档填写准确的模型 ID，一样可以继续。</p>
+      <div data-name="WizardModelsSpace" class="flex flex-col w-full h-full items-start justify-start">
+      </div>
+      <p data-name="EnableModelsHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">完成后保存连接并启用已选模型；取消保留原有配置。</p>
+    </div>
+    <div data-name="WizardFooter" class="flex flex-row w-full h-[48px] items-center justify-start gap-[10px] border border-[#DDDDDD] border-inside">
+      <div data-name="WizardBack" data-click="选择器/09 配置连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="WizardBackText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">上一步</p>
+      </div>
+      <div data-name="WizardFooterSpace" class="flex flex-col w-full h-[1px] items-start justify-start">
+      </div>
+      <div data-name="WizardCancel" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+        <p data-name="WizardCancelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">取消</p>
+      </div>
+      <div data-name="WizardFinish" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#252525]">
+        <p data-name="WizardFinishText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#FFFFFF]">完成并启用 2 个模型</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

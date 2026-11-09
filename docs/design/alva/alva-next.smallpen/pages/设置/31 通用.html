@@ -1,0 +1,137 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>设置 / 31 通用</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-row items-start justify-start gap-3 pt-2 pb-3 px-3 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_navigation_native_shell、req_alva_navigation_settings、req_alva_preference_choices、req_alva_preference_motion -->
+  <sp-use component="SettingsNav" data-name="SettingsNav" props="Category: General" class="w-navigation h-full">
+    <sp-use data-name="Developer" data-click="设置/37 开发者测试"></sp-use>
+    <sp-use data-name="Gateway" data-click="设置/36 Gateway"></sp-use>
+    <sp-use data-name="General" data-click="设置/31 通用"></sp-use>
+    <sp-use data-name="Models" data-click="设置/23 模型与连接"></sp-use>
+    <sp-use data-name="Plugins" data-click="设置/32 插件与工具"></sp-use>
+    <sp-use data-name="Security" data-click="设置/35 权限与安全"></sp-use>
+    <sp-use data-name="Skills" data-click="设置/33 规则与 Skills"></sp-use>
+    <sp-use data-name="Storage" data-click="设置/34 数据与存储"></sp-use>
+  </sp-use>
+  <div data-name="SettingsRegion" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+    <div data-name="ReturnRow" class="flex flex-row w-full h-control-height items-center justify-start px-6">
+      <sp-use component="Button" data-name="HeaderReturn" props="Content: Leading; Kind: Ghost; State: Default" data-click="工作台/22 对话与面板" class="w-fit h-control-height">
+        <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
+        <p data-name="Label">返回工作台</p>
+      </sp-use>
+    </div>
+    <div data-name="SettingsMain" class="flex flex-col w-full h-full items-start justify-start gap-4 p-6 max-w-[800px]">
+      <div data-name="PageTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+        <div data-name="PageTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+          <p data-name="PageTitleTitle" class="w-full h-fit type-heading-strong text-text">通用</p>
+          <p data-name="PageTitleDescription" class="w-full h-fit type-caption text-secondary hidden">外观、交互与窗口偏好。</p>
+        </div>
+      </div>
+      <div data-name="Appearance" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent">
+        <div data-name="AppearanceTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+          <div data-name="AppearanceTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+            <p data-name="AppearanceTitleTitle" class="w-full h-fit type-subtitle-strong text-text">外观</p>
+          </div>
+        </div>
+        <div data-name="PreferenceRows" class="flex flex-col w-full h-fit items-start justify-start">
+          <sp-use component="SettingRow" data-name="Theme" props="Control: Select" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description" class="hidden"></p>
+              <p data-name="Title">颜色主题</p>
+            </div>
+            <sp-use data-name="Select">
+              <p data-name="Label">跟随系统</p>
+            </sp-use>
+          </sp-use>
+          <sp-use component="SettingRow" data-name="Density" props="Control: Select" class="w-full h-fit hidden">
+            <div data-name="Copy">
+              <p data-name="Description" class="hidden"></p>
+              <p data-name="Title">信息密度</p>
+            </div>
+            <sp-use data-name="Select">
+              <p data-name="Label">舒适</p>
+            </sp-use>
+          </sp-use>
+          <sp-use component="SettingRow" data-name="Language" props="Control: Select" class="w-full h-fit hidden">
+            <div data-name="Copy">
+              <p data-name="Description" class="hidden"></p>
+              <p data-name="Title">语言</p>
+            </div>
+            <sp-use data-name="Select">
+              <p data-name="Label">简体中文</p>
+            </sp-use>
+          </sp-use>
+          <sp-use component="SettingRow" data-name="FontSize" props="Control: Select" class="w-full h-fit">
+            <div data-name="Copy">
+              <p data-name="Description" class="hidden"></p>
+              <p data-name="Title">正文大小</p>
+            </div>
+            <sp-use data-name="Select">
+              <p data-name="Label">14 px</p>
+            </sp-use>
+          </sp-use>
+          <sp-use component="SettingRow" data-name="Motion" props="Control: Switch" class="w-full h-fit border-transparent">
+            <sp-use data-name="Control" props="State: Off"></sp-use>
+            <div data-name="Copy">
+              <p data-name="Description" class="hidden"></p>
+              <p data-name="Title">减弱动效</p>
+            </div>
+          </sp-use>
+        </div>
+      </div>
+      <div data-name="Interaction" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent hidden">
+        <div data-name="InteractionTitle" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+          <div data-name="InteractionTitleCopy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+            <p data-name="InteractionTitleTitle" class="w-full h-fit type-subtitle-strong text-text">交互与通知</p>
+          </div>
+          <sp-use component="Button" data-name="Shortcuts" props="Content: Leading; Kind: Secondary; State: Default" class="w-fit h-control-height">
+            <sp-use data-name="Icon" props="Name: Code"></sp-use>
+            <p data-name="Label">快捷键</p>
+          </sp-use>
+        </div>
+        <div data-name="InteractionRows" class="flex flex-col w-full h-fit items-start justify-start">
+          <sp-use component="SettingRow" data-name="Notification" props="Control: Switch" class="w-full h-fit">
+            <sp-use data-name="Control" props="State: On"></sp-use>
+            <div data-name="Copy">
+              <p data-name="Description" class="shown">任务完成时发送桌面通知。</p>
+              <p data-name="Title">桌面完成通知</p>
+            </div>
+          </sp-use>
+          <sp-use component="SettingRow" data-name="Sound" props="Control: Switch" class="w-full h-fit">
+            <sp-use data-name="Control" props="State: Off"></sp-use>
+            <div data-name="Copy">
+              <p data-name="Description" class="shown">仅用于重要任务状态。</p>
+              <p data-name="Title">提示音</p>
+            </div>
+          </sp-use>
+          <sp-use component="SettingRow" data-name="WindowLayout" props="Control: Switch" class="w-full h-fit border-transparent">
+            <sp-use data-name="Control" props="State: On"></sp-use>
+            <div data-name="Copy">
+              <p data-name="Description" class="shown">恢复面板与位置，不自动执行命令。</p>
+              <p data-name="Title">记住窗口布局</p>
+            </div>
+          </sp-use>
+        </div>
+      </div>
+      <sp-use component="Notice" data-name="GeneralScope" props="Tone: Info" class="w-full h-fit hidden">
+        <div data-name="Copy">
+          <p data-name="Description" class="shown">更改主题不会影响当前任务或执行权限。</p>
+          <p data-name="Title">偏好可以随时调整</p>
+        </div>
+      </sp-use>
+      <div data-name="PreferencesActions" class="flex flex-row w-full h-fit items-center justify-end gap-2">
+        <sp-use component="Button" data-name="ReloadPreferences" props="Content: Text; Kind: Secondary; State: Default" class="w-fit h-control-height">
+          <p data-name="Label">重新加载</p>
+        </sp-use>
+        <sp-use component="Button" data-name="SavePreferences" props="Content: Text; Kind: Primary; State: Disabled" class="w-fit h-control-height">
+          <p data-name="Label">保存偏好</p>
+        </sp-use>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

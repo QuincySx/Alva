@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>选择器 / 08 选择供应商</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[920px] h-[770px] flex flex-col items-start justify-start p-6 bg-[#ECECEC]">
+  <div data-name="ProviderWizard" class="flex flex-col w-full h-full items-start justify-start gap-[18px] p-6 rounded-[10px] bg-[#FFFFFF] border border-[#C7C7C7] border-inside">
+    <div data-name="WizardHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <p data-name="WizardTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[21px] font-[400] leading-[1.2] text-[#252525]">添加供应商</p>
+      <div data-name="WizardCancelTop" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="WizardCancelTopText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">x</p>
+      </div>
+    </div>
+    <div data-name="WizardSteps" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <div data-name="WizardStep0" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[5px] bg-[#E7E7E7]">
+        <p data-name="WizardStep0Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">1  选择供应商</p>
+      </div>
+      <div data-name="WizardStep1" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[5px] bg-[#F7F7F7]">
+        <p data-name="WizardStep1Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#666666]">2  配置连接</p>
+      </div>
+      <div data-name="WizardStep2" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[5px] bg-[#F7F7F7]">
+        <p data-name="WizardStep2Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#666666]">3  选择模型</p>
+      </div>
+    </div>
+    <div data-name="ProviderChoices" class="flex flex-col w-full h-full items-start justify-start gap-2">
+      <div data-name="ProviderSearch" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ProviderSearchLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">选择模型来源</p>
+        <div data-name="ProviderSearchInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ProviderSearchValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">搜索供应商…</p>
+        </div>
+      </div>
+      <p data-name="PresetProvidersTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">API 服务</p>
+      <div data-name="ChooseOpenAI" data-click="选择器/09 配置连接" class="flex flex-row w-full h-[62px] items-center justify-start gap-3 py-[6px] px-2 border border-[#E6E6E6] border-inside">
+        <div data-name="ChooseOpenAIMark" class="flex flex-col w-[36px] h-[36px] items-center justify-center rounded-[7px] border border-[#D1D1D1] border-inside">
+          <p data-name="ChooseOpenAIMarkText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">O</p>
+        </div>
+        <div data-name="ChooseOpenAILabels" class="flex flex-col w-full h-fit items-start justify-start gap-[5px]">
+          <p data-name="ChooseOpenAIName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">OpenAI</p>
+          <p data-name="ChooseOpenAIHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">使用自己的 API Key</p>
+        </div>
+        <p data-name="ChooseOpenAIArrow" class="w-[12px] h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+      </div>
+      <div data-name="ChooseAnthropic" class="flex flex-row w-full h-[62px] items-center justify-start gap-3 py-[6px] px-2 border border-[#E6E6E6] border-inside">
+        <div data-name="ChooseAnthropicMark" class="flex flex-col w-[36px] h-[36px] items-center justify-center rounded-[7px] border border-[#D1D1D1] border-inside">
+          <p data-name="ChooseAnthropicMarkText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">A</p>
+        </div>
+        <div data-name="ChooseAnthropicLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[5px]">
+          <p data-name="ChooseAnthropicName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">Anthropic</p>
+          <p data-name="ChooseAnthropicHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">使用自己的 API Key</p>
+        </div>
+        <p data-name="ChooseAnthropicArrow" class="w-[12px] h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+      </div>
+      <div data-name="ChooseGemini" class="flex flex-row w-full h-[62px] items-center justify-start gap-3 py-[6px] px-2 border border-[#E6E6E6] border-inside">
+        <div data-name="ChooseGeminiMark" class="flex flex-col w-[36px] h-[36px] items-center justify-center rounded-[7px] border border-[#D1D1D1] border-inside">
+          <p data-name="ChooseGeminiMarkText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">G</p>
+        </div>
+        <div data-name="ChooseGeminiLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[5px]">
+          <p data-name="ChooseGeminiName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">Google Gemini</p>
+          <p data-name="ChooseGeminiHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">使用自己的 API Key</p>
+        </div>
+        <p data-name="ChooseGeminiArrow" class="w-[12px] h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+      </div>
+      <div data-name="ChooseLocal" class="flex flex-row w-full h-[62px] items-center justify-start gap-3 py-[6px] px-2 border border-[#E6E6E6] border-inside">
+        <div data-name="ChooseLocalMark" class="flex flex-col w-[36px] h-[36px] items-center justify-center rounded-[7px] border border-[#D1D1D1] border-inside">
+          <p data-name="ChooseLocalMarkText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">L</p>
+        </div>
+        <div data-name="ChooseLocalLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[5px]">
+          <p data-name="ChooseLocalName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">本地模型服务</p>
+          <p data-name="ChooseLocalHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">连接已经运行的 HTTP 服务</p>
+        </div>
+        <p data-name="ChooseLocalArrow" class="w-[12px] h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+      </div>
+      <div data-name="ChooseLocalAccount" class="flex flex-row w-full h-[62px] items-center justify-start gap-3 py-[6px] px-2 border border-[#E6E6E6] border-inside">
+        <div data-name="ChooseLocalAccountMark" class="flex flex-col w-[36px] h-[36px] items-center justify-center rounded-[7px] border border-[#D1D1D1] border-inside">
+          <p data-name="ChooseLocalAccountMarkText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">C</p>
+        </div>
+        <div data-name="ChooseLocalAccountLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[5px]">
+          <p data-name="ChooseLocalAccountName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">本机 Agent 账户</p>
+          <p data-name="ChooseLocalAccountHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">显式检查登录 · 仅用于对应 Agent</p>
+        </div>
+        <p data-name="ChooseLocalAccountArrow" class="w-[12px] h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+      </div>
+      <div data-name="ChooseCustom" data-click="选择器/09 配置连接" class="flex flex-col w-full h-fit items-start justify-start gap-[7px] p-[14px] rounded-[7px] bg-[#F4F4F4] border border-[#D1D1D1] border-inside">
+        <p data-name="ChooseCustomTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#252525]">+  自定义端点</p>
+        <p data-name="ChooseCustomHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">接入兼容 OpenAI、Anthropic 或 Gemini 协议的服务</p>
+      </div>
+    </div>
+    <div data-name="WizardFooter" class="flex flex-row w-full h-[48px] items-center justify-start gap-[10px] border border-[#DDDDDD] border-inside">
+      <p data-name="WizardScope" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">不会自动读取本机凭据或启动本地模型</p>
+      <div data-name="WizardCancel" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+        <p data-name="WizardCancelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">取消</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

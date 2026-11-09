@@ -256,8 +256,9 @@ DEFS = {d["name"]: d for d in ds.definitions()}
 
 
 def shell_deltas():
-    """Two edits of the saved package (native_shell_refresh.py) that design_system.py never received but the Kit mirrors:
-    the PanelLeft symbol (the Panel glyph mirrored) and PageHeader.Navigation (Expanded | Collapsed, toggle at the start)."""
+    """Edits of the saved package (native_shell_refresh.py) that design_system.py never received: the PanelLeft symbol (the Panel glyph
+    mirrored), PageHeader.Navigation (Expanded | Collapsed, toggle at the start, system reserve), the Sidebar top row, the SettingsNav
+    title row and the PanelHeader More action."""
     icon = DEFS["Alva Icon"]
     panel = next(r for r in icon["variants"] if r["when"] == {"Name": "Panel"})
     icon["properties"]["Name"].append("PanelLeft")
@@ -267,7 +268,41 @@ def shell_deltas():
     toggle["visible"] = False
     header["base"]["children"].insert(0, toggle)
     header["properties"] = {"Navigation": ["Expanded", "Collapsed"]}
-    header["variants"] = [{"when": {"Navigation": "Collapsed"}, "set": {"SidebarToggle.visible": True}}]
+    header["variants"] = [{"when": {"Navigation": "Collapsed"}, "set": {"SidebarToggle.visible": True, "NativeSafeArea.visible": True}}]
+    # native shell: a 50px system-controls reserve before the toggle (Collapsed only), the More action off by default
+    safe = ds.box("NativeSafeArea", width=50, height=32, visible=False)
+    header["base"]["children"].insert(0, safe)
+    for child in header["base"]["children"]:
+        if child["name"] == "More":
+            child["visible"] = False
+    # the resource panel header keeps More instead of the pop-out action
+    panel_header = DEFS["Alva PanelHeader"]["base"]["children"]
+    for i, child in enumerate(panel_header):
+        if child["name"] == "Detach":
+            child["visible"] = False
+            panel_header.insert(i + 1, ds.icon_button("More", "More"))
+            break
+    # Sidebar: the brand row becomes the top toolbar row (system reserve, spacer, PanelLeft toggle); brand mark and label stay hidden
+    side = DEFS["Alva Sidebar"]["base"]
+    side["padding"] = [0, ds.ref("space.3"), ds.ref("space.3"), ds.ref("space.3")]
+    side["gap"] = ds.ref("space.1")
+    brand = next(c for c in side["children"] if c["name"] == "Brand")
+    for c in brand["children"]:
+        c["visible"] = False
+    brand["children"] = [ds.box("NativeSafeArea", width=62, height=32), *brand["children"],
+                         ds.box("TopSpacer", width="fill", height=32), ds.icon_button("SidebarToggle", "PanelLeft")]
+    brand.update(height=ds.ref("size.header"), padding=0, gap=ds.ref("space.2"))
+    # SettingsNav: title row below the system reserve; the in-nav return action is replaced by the page's HeaderReturn
+    nav = DEFS["Alva SettingsNav"]["base"]
+    nav["padding"] = [0, ds.ref("space.3"), ds.ref("space.3"), ds.ref("space.3")]
+    nav["children"] = [c for c in nav["children"] if c["name"] != "Title"]
+    for c in nav["children"]:
+        if c["name"] == "BackToWork":
+            c["visible"] = False
+    nav["children"].insert(0, ds.row("TopRow", [ds.box("NativeSafeArea", width=62, height=32),
+                                                ds.text("Title", "设置", "subtitle", strong=True, width="hug"),
+                                                ds.box("TopSpacer", width="fill", height=32)],
+                                     width="fill", height=ds.ref("size.header"), gap=ds.ref("space.2")))
 
 
 shell_deltas()
@@ -523,7 +558,9 @@ def emit_ov(kids, indent):
             content = "" if hidden or "text" not in a else text_html(a["text"])
             lines.append(f'{pad}<p data-name="{name}"{visattr}{cls}>{content}</p>')
         elif e["kind"] == "use":
-            props = props_attr(a.get("props"))
+            # a restated copy replaces its props: keep the definition's own props when the override does not change them
+            base = NODES.get(e.get("nid")) or {}
+            props = props_attr({**(base.get("props") or {}), **(a.get("props") or {})})
             inner = emit_ov(e["kids"], indent + 1)
             if inner:
                 lines += [f'{pad}<sp-use data-name="{name}"{props}{visattr}{cls}>', *inner, f"{pad}</sp-use>"]
@@ -595,9 +632,9 @@ def diff_state(comp, state):
     out = {}
     for path, a in state.items():
         b = comp.state0[path]
-        if path and hidden_in(state, path):
-            # a hidden part shows nowhere: only its visibility may differ
-            if a.get("visible") != b.get("visible") and a.get("visible") is False and not hidden_in(state, path[:-1]):
+        if path and kind_of(comp.paths[path]) == "text" and hidden_in(state, path):
+            # a hidden text shows nowhere (copies are kept: a page or parent may show them, e.g. the Composer's chevron)
+            if a.get("visible") != b.get("visible") and a.get("visible") is False:
                 out[path] = {"visible": False}
             continue
         changed = {}

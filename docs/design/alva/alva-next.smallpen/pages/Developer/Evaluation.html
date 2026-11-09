@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Developer / Evaluation</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="旧视觉草稿（暂不评审）" class="w-[1440px] h-[960px] flex flex-col items-start justify-start bg-[#F7F8FB]">
+  <div data-name="WindowChrome" class="flex flex-row w-full h-[36px] items-center justify-start gap-4 px-4 bg-[#F0F3F8]">
+    <p data-name="WindowControls" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">● ● ●</p>
+    <p data-name="WindowCaption" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">Alva</p>
+    <p data-name="WindowMode" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">设计原型</p>
+  </div>
+  <div data-name="Application" class="flex flex-row w-full h-full items-start justify-start">
+    <div data-name="Sidebar" class="flex flex-col w-[248px] h-full items-start justify-start gap-[6px] pt-2 pb-3 px-3 bg-[#F0F3F8]">
+      <div data-name="Brand" class="flex flex-row w-full h-[48px] items-center justify-start gap-3">
+        <p data-name="Mark" class="w-[24px] h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#285EEA]">A</p>
+        <p data-name="BrandLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">ALVA</p>
+      </div>
+      <sp-use component="Button" data-name="NewConversation" props="Kind: Primary; State: Default; Content: Text" data-click="Overlay/NewSession" class="w-full h-[36px]">
+        <p data-name="Label">新建对话</p>
+      </sp-use>
+      <sp-use component="Button" data-name="NewConversationIcon" props="Kind: Primary; State: Default; Content: Text" data-click="Overlay/NewSession" class="w-full h-[36px] hidden">
+        <p data-name="Label">＋</p>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavConversation" props="State: Default" data-click="Chat/Conversation" class="w-full h-[44px]">
+        <p data-name="Label">对话</p>
+        <sp-use data-name="Icon" props="Name: Chat"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavPlugins" props="State: Default" data-click="Capabilities/Plugins" class="w-full h-[44px]">
+        <p data-name="Label">插件与能力</p>
+        <sp-use data-name="Icon" props="Name: Plugin"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavLibrary" props="State: Default" data-click="Knowledge/Library" class="w-full h-[44px]">
+        <p data-name="Label">资料与记忆</p>
+        <sp-use data-name="Icon" props="Name: List"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavTeam" props="State: Default" data-click="Operations/Team" class="w-full h-[44px]">
+        <p data-name="Label">协作</p>
+        <sp-use data-name="Icon" props="Name: Target"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavAutomations" props="State: Default" data-click="Operations/Automations" class="w-full h-[44px]">
+        <p data-name="Label">自动化</p>
+        <sp-use data-name="Icon" props="Name: Clock"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavWaits" props="State: Default" data-click="Operations/Waits" class="w-full h-[44px]">
+        <p data-name="Label">等待任务</p>
+        <sp-use data-name="Icon" props="Name: Folder"></sp-use>
+      </sp-use>
+      <div data-name="Recent" class="flex flex-col w-full h-fit items-start justify-start gap-[14px] py-[20px] px-2">
+        <p data-name="RecentTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">最近对话</p>
+        <p data-name="RecentOne" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#182230]">整理 Agent 架构</p>
+        <p data-name="RecentTwo" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#536276]">模型协议接入检查</p>
+        <p data-name="RecentThree" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#536276]">设计动态内容界面</p>
+      </div>
+      <div data-name="SidebarSpacer" class="flex flex-col w-full h-full items-start justify-start">
+      </div>
+      <sp-use component="NavItem" data-name="NavDeveloper" props="State: Selected" data-click="Developer/IntegrationTests" class="w-full h-[44px]">
+        <p data-name="Label">开发者选项</p>
+        <sp-use data-name="Icon" props="Name: Terminal"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavSettings" props="State: Default" data-click="Settings/General" class="w-full h-[44px]">
+        <p data-name="Label">设置</p>
+        <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+      </sp-use>
+      <div data-name="WorkspaceContext" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] p-3 rounded-[10px] bg-[#FFFFFF]">
+        <p data-name="ProjectLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">当前项目</p>
+        <p data-name="ProjectName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[600] leading-[1.2] text-[#182230]">alva-agent</p>
+      </div>
+    </div>
+    <div data-name="Main" class="flex flex-col w-full h-full items-start justify-start">
+      <div data-name="PageBar" class="flex flex-row w-full h-[64px] items-center justify-start gap-3 px-6 bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+        <sp-use component="Button" data-name="ToggleSidebar" props="Kind: Ghost; State: Default; Content: Text" class="w-[96px] h-[36px]">
+          <p data-name="Label">收起导航</p>
+        </sp-use>
+        <div data-name="PageIdentity" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+          <p data-name="PageTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">开发者选项</p>
+          <p data-name="PageScope" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">独立作业 · 无需聊天会话</p>
+        </div>
+      </div>
+      <div data-name="PageContent" class="flex flex-col w-full h-full items-start justify-start gap-[20px] p-[28px]">
+        <div data-name="DevHeading" class="flex flex-row w-full h-fit items-center justify-start gap-4">
+          <div data-name="DevHeadingText" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+            <p data-name="DevHeadingTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">开发者选项</p>
+            <p data-name="DevHeadingSubtitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">接入测试验证契约，模型评估衡量指定任务集的表现。</p>
+          </div>
+        </div>
+        <div data-name="DeveloperTabs" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+          <sp-use component="Tab" data-name="IntegrationTab" props="State: Default" data-click="Developer/IntegrationTests" class="w-[132px] h-[36px]">
+            <p data-name="Label">接入测试</p>
+          </sp-use>
+          <sp-use component="Tab" data-name="EvaluationTab" props="State: Selected" data-click="Developer/Evaluation" class="w-[132px] h-[36px]">
+            <p data-name="Label">模型评估</p>
+          </sp-use>
+        </div>
+        <div data-name="DevPlan" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+          <div data-name="DevPlanHeading" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <p data-name="DevPlanTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">模型评估计划</p>
+            <sp-use component="Badge" data-name="DevScope" props="Tone: Neutral" class="w-fit h-[28px]">
+              <p data-name="Label">单响应范围</p>
+            </sp-use>
+          </div>
+          <p data-name="DevPlanDescription" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">版本化任务集、重复试次与加权分数；执行错误单独报告。</p>
+          <div data-name="DevInputs" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <div data-name="DevRoute" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+              <p data-name="DevRouteLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">模型路由</p>
+              <sp-use component="Input" data-name="DevRouteInput" props="Kind: Text; State: Default" class="w-full h-[36px]">
+                <p data-name="Value">团队网关 · 主模型</p>
+              </sp-use>
+            </div>
+            <div data-name="DevDataset" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+              <p data-name="DevDatasetLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">任务集</p>
+              <sp-use component="Input" data-name="DevDatasetInput" props="Kind: Text; State: Default" class="w-full h-[36px]">
+                <p data-name="Value">基础任务 v1</p>
+              </sp-use>
+            </div>
+          </div>
+          <div data-name="DevBudget" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <div data-name="DevRepeats" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+              <p data-name="DevRepeatsLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">重复次数</p>
+              <sp-use component="Input" data-name="DevRepeatsInput" props="Kind: Text; State: Default" class="w-full h-[36px]">
+                <p data-name="Value">3</p>
+              </sp-use>
+            </div>
+            <div data-name="DevCalls" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+              <p data-name="DevCallsLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">调用上限</p>
+              <sp-use component="Input" data-name="DevCallsInput" props="Kind: Text; State: Default" class="w-full h-[36px]">
+                <p data-name="Value">24</p>
+              </sp-use>
+            </div>
+            <div data-name="DevTimeout" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+              <p data-name="DevTimeoutLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">单次超时</p>
+              <sp-use component="Input" data-name="DevTimeoutInput" props="Kind: Text; State: Default" class="w-full h-[36px]">
+                <p data-name="Value">30 秒</p>
+              </sp-use>
+            </div>
+          </div>
+          <div data-name="DevButtons" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <sp-use component="Button" data-name="PreviewPlan" props="Kind: Secondary; State: Default; Content: Text" class="w-[112px] h-[36px]">
+              <p data-name="Label">预览计划</p>
+            </sp-use>
+            <sp-use component="Button" data-name="RunEvaluation" props="Kind: Primary; State: Default; Content: Text" class="w-[112px] h-[36px]">
+              <p data-name="Label">运行评估</p>
+            </sp-use>
+          </div>
+          <p data-name="DevCost" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">运行使用已选模型账户，可能产生推理费用。预览不发送请求。</p>
+        </div>
+        <div data-name="DevResult" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+          <p data-name="DevResultTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">还没有运行结果</p>
+          <p data-name="DevResultText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">查看页面不会开始执行。报告独立于聊天历史。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

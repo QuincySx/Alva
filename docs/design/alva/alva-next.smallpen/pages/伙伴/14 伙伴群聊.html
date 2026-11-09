@@ -1,0 +1,157 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>伙伴 / 14 伙伴群聊</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[1440px] h-[960px] flex flex-row items-start justify-start bg-[#FFFFFF]">
+  <div data-name="Sidebar" class="flex flex-col w-[244px] h-full items-start justify-start gap-[6px] p-[14px] bg-[#F2F2F2]">
+    <div data-name="Brand" class="flex flex-row w-full h-fit items-center justify-start gap-3 py-[6px] px-1">
+      <p data-name="BrandName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[19px] font-[400] leading-[1.2] text-[#252525]">Alva</p>
+      <div data-name="CollapseSidebar" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="CollapseSidebarText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">收起</p>
+      </div>
+    </div>
+    <div data-name="NewTask" data-click="框架/01 新任务" class="flex flex-row w-full h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+      <p data-name="NewTaskText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+  新任务</p>
+    </div>
+    <div data-name="Search" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="SearchText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">搜索</p>
+    </div>
+    <div data-name="Automations" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="AutomationsText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">自动化</p>
+    </div>
+    <div data-name="Customize" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="CustomizeText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">自定义</p>
+    </div>
+    <div data-name="Companions" data-click="伙伴/12 伙伴与群聊" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+      <p data-name="CompanionsText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">伙伴与群聊</p>
+    </div>
+    <div data-name="ProjectGroup" class="flex flex-col w-full h-fit items-start justify-start gap-1 py-3">
+      <div data-name="ProjectsLabel" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <p data-name="ProjectsLabelText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">项目</p>
+        <div data-name="AddProject" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="AddProjectText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+</p>
+        </div>
+      </div>
+      <div data-name="CurrentProject" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+        <p data-name="CurrentProjectText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">v  alva-agent</p>
+      </div>
+      <div data-name="CurrentThread" data-click="框架/02 对话进行中" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-4 rounded-[6px]">
+        <p data-name="CurrentThreadText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">整理桌面工作台</p>
+      </div>
+      <div data-name="SecondThread" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-4 rounded-[6px]">
+        <p data-name="SecondThreadText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">复查插件加载</p>
+      </div>
+      <div data-name="AnotherProject" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+        <p data-name="AnotherProjectText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">&gt;  我的资料</p>
+      </div>
+    </div>
+    <div data-name="RecentGroup" class="flex flex-col w-full h-fit items-start justify-start gap-1 py-2">
+      <p data-name="RecentLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">最近</p>
+      <div data-name="RecentResearch" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+        <p data-name="RecentResearchText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">整理本周资料</p>
+      </div>
+      <div data-name="RecentModels" class="flex flex-col w-full h-fit items-start justify-start py-[9px] px-[10px] rounded-[6px]">
+        <p data-name="RecentModelsText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">测试模型表现</p>
+      </div>
+    </div>
+    <div data-name="SidebarSpace" class="flex flex-col w-full h-full items-start justify-start">
+    </div>
+    <div data-name="Account" class="flex flex-row w-full h-fit items-center justify-start gap-3 p-1">
+      <p data-name="AccountName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">Smallraw</p>
+      <div data-name="OpenSettings" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="OpenSettingsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">设置</p>
+      </div>
+    </div>
+  </div>
+  <div data-name="CompanionRoster" class="flex flex-col w-[220px] h-full items-start justify-start gap-3 p-4 bg-[#FAFAFA] border border-[#DDDDDD] border-inside">
+    <div data-name="CompanionRosterHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <p data-name="CompanionRosterTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[17px] font-[400] leading-[1.2] text-[#252525]">伙伴</p>
+      <div data-name="NewCompanion" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="NewCompanionText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+</p>
+      </div>
+    </div>
+    <div data-name="CompanionSearch" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[6px] border border-[#D6D6D6] border-inside">
+      <p data-name="CompanionSearchText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">搜索伙伴和群聊…</p>
+    </div>
+    <div data-name="ResearchCompanion" data-click="伙伴/12 伙伴与群聊" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] p-3 rounded-[6px]">
+      <p data-name="ResearchCompanionName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">研究伙伴</p>
+      <p data-name="ResearchCompanionHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">资料整理 · 2 项 Skills</p>
+    </div>
+    <div data-name="ReviewCompanion" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] p-3 rounded-[6px]">
+      <p data-name="ReviewCompanionName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">审查伙伴</p>
+      <p data-name="ReviewCompanionHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">代码审查 · 1 项 Skill</p>
+    </div>
+    <div data-name="ProductGroup" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] p-3 rounded-[6px] bg-[#E7E7E7]">
+      <p data-name="ProductGroupName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">产品讨论组</p>
+      <p data-name="ProductGroupHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">你 + 2 位伙伴</p>
+    </div>
+    <div data-name="NewGroup" data-click="伙伴/15 新建群聊" class="flex flex-row w-full h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+      <p data-name="NewGroupText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+  新建群聊</p>
+    </div>
+    <div data-name="RosterSpace" class="flex flex-col w-full h-full items-start justify-start">
+    </div>
+    <p data-name="RosterScopeHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">伙伴身份与模型、Agent 分开管理</p>
+  </div>
+  <div data-name="CompanionMain" class="flex flex-col w-full h-full items-start justify-start">
+    <div data-name="CompanionHeader" class="flex flex-row w-full h-[74px] items-center justify-start gap-3 py-3 px-6 border border-[#DDDDDD] border-inside">
+      <div data-name="CompanionTitleBlock" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="CompanionTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[18px] font-[400] leading-[1.2] text-[#252525]">产品讨论组</p>
+        <p data-name="CompanionSubtitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">你 · 研究伙伴 · 审查伙伴</p>
+      </div>
+      <div data-name="GroupContinue" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="GroupContinueText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">继续讨论</p>
+      </div>
+      <div data-name="CompanionSettings" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+        <p data-name="CompanionSettingsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">群设置</p>
+      </div>
+    </div>
+    <div data-name="GroupPolicySummary" class="flex flex-row w-full h-[40px] items-center justify-start gap-3 px-6 bg-[#F5F5F5]">
+      <p data-name="GroupPolicyText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">仅 @ 的伙伴回答 · 按成员顺序 · 每位 1 次 · 本轮最多 3 次回复</p>
+    </div>
+    <div data-name="CompanionConversation" class="flex flex-col w-full h-full items-start justify-start gap-[14px] py-6 px-8">
+      <div data-name="GroupUser" class="flex flex-col w-full h-fit items-start justify-start gap-[9px] py-4">
+        <p data-name="GroupUserAuthor" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">你</p>
+        <p data-name="GroupUserText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#252525]">@研究伙伴 @审查伙伴 一起看看模型添加流程，先说各自的建议。</p>
+      </div>
+      <div data-name="GroupResearch" class="flex flex-col w-full h-fit items-start justify-start gap-[9px] py-4">
+        <p data-name="GroupResearchAuthor" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">研究伙伴 · GPT / ALVA</p>
+        <p data-name="GroupResearchText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#252525]">我先核对连接和模型目录。服务没有模型列表时，也应该允许手动添加准确的模型 ID。</p>
+        <p data-name="GroupResearchDetail" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">使用 Skill：资料研究 · 本轮第 1 位</p>
+      </div>
+      <div data-name="GroupReview" class="flex flex-col w-full h-fit items-start justify-start gap-[9px] py-4">
+        <p data-name="GroupReviewAuthor" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">审查伙伴 · Sonnet / Claude</p>
+        <p data-name="GroupReviewText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#252525]">我来检查错误与保存边界。连接失败时保留草稿，凭据不会写进群消息。</p>
+        <p data-name="GroupReviewDetail" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">使用 Skill：代码审查 · 本轮第 2 位</p>
+      </div>
+      <p data-name="GroupRoundEnded" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">本轮结束 · 等你继续</p>
+      <div data-name="CompanionMessagesSpace" class="flex flex-col w-full h-full items-start justify-start">
+      </div>
+      <div data-name="CompanionComposer" class="flex flex-col w-full h-[132px] items-start justify-start gap-3 p-4 rounded-[9px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+        <p data-name="CompanionPrompt" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#666666]">@ 选择伙伴，或发一条消息…</p>
+        <div data-name="CompanionComposerSpace" class="flex flex-col w-full h-full items-start justify-start">
+        </div>
+        <div data-name="CompanionComposerControls" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+          <div data-name="CompanionAttach" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+            <p data-name="CompanionAttachText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+</p>
+          </div>
+          <div data-name="CompanionPermission" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+            <p data-name="CompanionPermissionText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">每次询问 v</p>
+          </div>
+          <div data-name="CompanionControlSpace" class="flex flex-col w-full h-[1px] items-start justify-start">
+          </div>
+          <div data-name="GroupReplyPolicy" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+            <p data-name="GroupReplyPolicyText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">仅 @ 回应 v</p>
+          </div>
+          <div data-name="CompanionSend" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#252525]">
+            <p data-name="CompanionSendText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#FFFFFF]">发送</p>
+          </div>
+        </div>
+      </div>
+      <p data-name="CompanionScopeHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">群聊拥有独立记录；不会自动带入伙伴私聊与私人记忆。</p>
+    </div>
+  </div>
+</body>
+</html>

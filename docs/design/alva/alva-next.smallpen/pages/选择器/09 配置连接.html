@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>选择器 / 09 配置连接</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[920px] h-[770px] flex flex-col items-start justify-start p-6 bg-[#ECECEC]">
+  <div data-name="ProviderWizard" class="flex flex-col w-full h-full items-start justify-start gap-[18px] p-6 rounded-[10px] bg-[#FFFFFF] border border-[#C7C7C7] border-inside">
+    <div data-name="WizardHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <p data-name="WizardTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[21px] font-[400] leading-[1.2] text-[#252525]">添加供应商</p>
+      <div data-name="WizardCancelTop" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="WizardCancelTopText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">x</p>
+      </div>
+    </div>
+    <div data-name="WizardSteps" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <div data-name="WizardStep0" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[5px] bg-[#F7F7F7]">
+        <p data-name="WizardStep0Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#666666]">1  选择供应商</p>
+      </div>
+      <div data-name="WizardStep1" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[5px] bg-[#E7E7E7]">
+        <p data-name="WizardStep1Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">2  配置连接</p>
+      </div>
+      <div data-name="WizardStep2" class="flex flex-col w-full h-fit items-start justify-start p-[10px] rounded-[5px] bg-[#F7F7F7]">
+        <p data-name="WizardStep2Text" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#666666]">3  选择模型</p>
+      </div>
+    </div>
+    <div data-name="ConnectionForm" class="flex flex-col w-full h-full items-start justify-start gap-4">
+      <div data-name="ConnectionIdentity" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="ConnectionName" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="ConnectionNameLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">连接名称</p>
+          <div data-name="ConnectionNameInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="ConnectionNameValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">我的模型服务</p>
+          </div>
+        </div>
+        <div data-name="ConnectionAuth" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="ConnectionAuthLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">认证方式</p>
+          <div data-name="ConnectionAuthInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="ConnectionAuthValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">API Key  v</p>
+          </div>
+        </div>
+      </div>
+      <div data-name="ConnectionProtocol" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ConnectionProtocolLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">API 协议</p>
+        <div data-name="ConnectionProtocolInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ConnectionProtocolValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">OpenAI Responses  v</p>
+        </div>
+        <p data-name="ConnectionProtocolHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">可选 Chat Completions / Responses / Anthropic / Gemini</p>
+      </div>
+      <div data-name="ConnectionEndpoint" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ConnectionEndpointLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">请求端点 · 完整 API 地址</p>
+        <div data-name="ConnectionEndpointInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ConnectionEndpointValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">https://api.example.com/v1/responses</p>
+        </div>
+        <p data-name="ConnectionEndpointHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">使用完整请求路径；本地地址允许 HTTP，远程服务使用 HTTPS。</p>
+      </div>
+      <div data-name="ConnectionApiKey" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ConnectionApiKeyLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">API Key</p>
+        <div data-name="ConnectionApiKeyInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ConnectionApiKeyValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">••••••••••••••••</p>
+        </div>
+        <p data-name="ConnectionApiKeyHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">密钥安全保存，不会出现在对话和日志中。</p>
+      </div>
+      <div data-name="ConnectionAdvanced" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="ConnectionAdvancedText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">&gt;  高级设置 · 自定义请求头</p>
+      </div>
+      <div data-name="ConnectionCheckStatus" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] p-[14px] rounded-[6px] bg-[#F4F4F4]">
+        <p data-name="ConnectionCheckTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">等待测试</p>
+        <p data-name="ConnectionCheckHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">测试通过不代表所有模型可用；下一步选择或手动添加模型。</p>
+      </div>
+      <div data-name="ConnectionFormSpace" class="flex flex-col w-full h-full items-start justify-start">
+      </div>
+    </div>
+    <div data-name="WizardFooter" class="flex flex-row w-full h-[48px] items-center justify-start gap-[10px] border border-[#DDDDDD] border-inside">
+      <div data-name="WizardBack" data-click="选择器/08 选择供应商" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="WizardBackText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">上一步</p>
+      </div>
+      <div data-name="WizardFooterSpace" class="flex flex-col w-full h-[1px] items-start justify-start">
+      </div>
+      <div data-name="WizardCancel" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+        <p data-name="WizardCancelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">取消</p>
+      </div>
+      <div data-name="WizardContinue" data-click="选择器/10 选择模型" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#252525]">
+        <p data-name="WizardContinueText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#FFFFFF]">测试并继续</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -207,7 +207,7 @@ def button_definitions():
         # strokes/shadows are clipped by SmallPen's component export bounds.
         return {'stroke':{'color':ref('color.accent'),'width':ref('border.focus')}}
     base=row('Button',[icon('Spinner','Loader',small=True),icon('Icon','Plus',small=True),text('Label','创建任务','body',width='hug',textAlign='center'),icon('Trailing','ChevronDown',small=True)],
-        width='hug',height=ref('control.height'),justify='center',padding=[0,ref('space.3')],
+        width='hug',height=ref('control.height'),justify='center',padding=[0,ref('space.2')],
         fill=ref('color.subtle'),radius=ref('radius.ctrl'))
     rules=[rule({},paint('text')|{'Spinner.visible':False,'Trailing.visible':False}),
         rule({'Content':'Text'},{'Icon.visible':False}),
@@ -401,7 +401,7 @@ def definitions():
     defs.extend(button_definitions())
     input_states=['Default','Focus','Error','Disabled','Loading']
     defs.append(component('Input',row('Input',[icon('Leading','Search',small=True),text('Value','搜索或输入内容','body','secondary'),icon('Trailing','ChevronDown',small=True)],
-        width=320,height=ref('control.height'),padding=[0,ref('space.3')],fill=ref('color.subtle'),stroke=ref('color.border'),radius=ref('radius.ctrl')),
+        width=320,height=ref('control.height'),padding=[0,ref('space.2')],fill=ref('color.subtle'),stroke=ref('color.border'),radius=ref('radius.ctrl')),
         {'Kind':['Text','Search','Select','Password'],'State':list(input_states)},[
             {'when':{'Kind':'Text'},'set':{'Leading.visible':False,'Trailing.visible':False}},
             {'when':{'Kind':'Search'},'set':{'Trailing.visible':False}},
@@ -420,7 +420,7 @@ def definitions():
             {'when':{'State':'Error'},'set':{'Hint.color':ref('color.danger'),'Hint.text':'请检查此项配置'}},
             {'when':{'State':'Disabled'},'set':{'Title.color':ref('color.secondary')}}]))
     defs.append(component('TextArea',box('TextArea',[text('Value','说明任务、引用资料，或输入你的回答…','body','secondary')],
-        width=360,height=96,padding=ref('space.3'),fill=ref('color.subtle'),stroke=ref('color.border'),radius=ref('radius.ctrl')),
+        width=360,height=96,padding=[ref('space.3'),ref('space.2')],fill=ref('color.subtle'),stroke=ref('color.border'),radius=ref('radius.ctrl')),
         {'State':['Default','Focus','Error','Disabled']},[
             {'when':{'State':'Focus'},'set':{'fill':ref('color.surface'),'stroke':{'color':ref('color.accent'),'width':ref('border.focus')}}},
             {'when':{'State':'Error'},'set':{'fill':ref('color.surface'),'stroke':ref('color.danger')}},
@@ -478,7 +478,7 @@ def definitions():
             {'when':{'State':'Focus'},'set':{'stroke':{'color':ref('color.accent'),'width':ref('border.focus')}}},
             {'when':{'State':'Disabled'},'set':{'Label.color':ref('color.secondary')}}]))
     defs.append(component('Tab',row('Tab',[icon('Icon','File',small=True),text('Label','文件','body',width='hug'),
-        icon('Close','Close',small=True)],width=136,height=ref('control.height'),padding=[0,ref('space.2')],fill=ref('color.subtle'),stroke=ref('color.subtle'),radius=ref('radius.ctrl')),
+        icon('Close','Close',small=True)],width=136,height=ref('control.row'),padding=[0,ref('space.2')],fill=ref('color.subtle'),stroke=ref('color.subtle'),radius=ref('radius.ctrl')),
         {'State':['Default','Selected','Focus','Busy']},[
             {'when':{'State':'Selected'},'set':{'fill':ref('color.surface'),'stroke':ref('color.surface')}},
             {'when':{'State':'Focus'},'set':{'stroke':ref('color.accent')}},
@@ -538,7 +538,7 @@ def definitions():
             {'when':{'State':'Unavailable'},'set':{'Description.text':'来源不可用 · 不会挂载','Enabled.props':{'State':'Disabled'}}}], 'Skills'))
     defs.append(component('ResourceRow',row('ResourceRow',[icon('Icon','File',color='accent'),box('Copy',[text('Title','工作台方案.md','body',strong=True),
         text('Description','当前项目 · 12 KB · 已保存','caption','secondary')],width='fill',gap=ref('space.1')),icon('Open','ChevronRight',small=True)],width=620,height='hug',padding=ref('space.3'),
-        fill=ref('color.surface'),radius=ref('radius.ctrl')),
+        fill=ref('color.surface'),stroke=ref('color.border'),radius=ref('radius.ctrl')),
         {'Kind':['File','Directory','Link','Media']},[
             {'when':{'Kind':kind},'set':{'Icon.props':{'Name':symbol}}} for kind,symbol in [('File','File'),('Directory','Folder'),('Link','Link'),('Media','Image')]], 'Resources'))
     defs.append(component('TaskRow',row('TaskRow',[icon('Icon','Activity'),box('Copy',[text('Title','检查模型连接流程','body',strong=True),
@@ -600,7 +600,7 @@ def definitions():
         box('SidebarSpace',width='fill',height='fill'),
         row('Footer',[instance('Owner','Avatar',{'Kind':'Person'},texts={'Label':'S'},width=28,height=28),
             text('OwnerName','Smallraw','body'),icon_button('OpenSettings','Settings')],padding=4),
-    ],width=ref('size.sidebar'),height=960,**block('navigation',gap=ref('space.1')),fill=ref('color.canvas')),
+    ],width=ref('size.sidebar'),height=960,**block('navigation',gap=ref('space.1')),fill=ref('color.subtle')),
         {'Area':['Work','Partners','Settings','New']},[
             {'when':{'Area':'Partners'},'set':{'CurrentThread.props':{'State':'Default'},'Partners.props':{'State':'Selected'}}},
             {'when':{'Area':'Settings'},'set':{'CurrentThread.props':{'State':'Default'},'OpenSettings.props':{'State':'Pressed'}}},
@@ -617,7 +617,7 @@ def definitions():
         stroke=ref('color.transparent')),{'Category':[c[0] for c in categories]},[
             {'when':{'Category':key},'set':{key+'.props':{'State':'Selected'}}} for key,_,_ in categories], 'Shell'))
     defs.append(component('PageHeader',row('PageHeader',[row('Copy',[text('Title','整理桌面工作台','subtitle',strong=True,width='hug'),text('Description','alva-agent · 当前会话','caption','secondary')],width='fill',gap=ref('space.2')),
-        icon_button('Panel','Panel'),icon_button('More','More')],width=900,height=ref('size.header'),padding=[0,ref('space.6')],fill=ref('color.surface')),category='Shell'))
+        icon_button('Panel','Panel'),icon_button('More','More')],width=900,height=ref('size.header'),padding=[0,ref('space.2'),0,ref('space.6')],fill=ref('color.surface')),category='Shell'))
     defs.append(component('PanelHeader',row('PanelHeader',[
         instance('FileTab','Tab',{'State':'Selected'},texts={'Label':'文件'},width='hug',height=ref('control.height')),
         instance('TaskTab','Tab',{'State':'Default'},texts={'Label':'任务'},sets={'Icon.props':{'Name':'Task'}},width='hug',height=ref('control.height')),
@@ -625,7 +625,7 @@ def definitions():
         fill=ref('color.transparent')),category='Shell'))
     defs.append(component('CompanionRow',row('CompanionRow',[instance('Avatar','Avatar',{'Kind':'Agent'},texts={'Label':'研'},width=32,height=32),
         box('Copy',[text('Title','研究伙伴','body',strong=True),text('Description','资料研究 · 2 项 Skills','caption','secondary')],width='fill',gap=ref('space.1'))],width=260,height='hug',padding=ref('space.3'),
-        fill=ref('color.surface'),stroke=ref('color.surface'),radius=ref('radius.ctrl')),{'State':['Default','Selected','Paused','Error']},[
+        fill=ref('color.transparent'),stroke=ref('color.transparent'),radius=ref('radius.ctrl')),{'State':['Default','Selected','Paused','Error']},[
             {'when':{'State':'Selected'},'set':{'fill':ref('color.accentSoft'),'stroke':ref('color.accentSoft')}},
             {'when':{'State':'Paused'},'set':{'Description.text':'已暂停 · 可以恢复'}},
             {'when':{'State':'Error'},'set':{'Description.text':'运行失败 · 查看详情','Description.color':ref('color.danger')}}], 'Companions'))
@@ -703,7 +703,7 @@ def definitions():
             'card' if name in ('Approval','Question') else None)
         if recipe:definition['base'].update(block(recipe))
         # Menus keep the shared vertical rhythm without the wider content-list gutter.
-        if name=='MenuItem':definition['base']['padding']=ref('space.2')
+        if name=='MenuItem':definition['base']['padding']=[ref('space.1'),ref('space.2')]
     return defs
 
 

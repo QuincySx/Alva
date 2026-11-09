@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>工作台 / 22 对话与面板</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-[960px] h-viewport-height flex flex-row items-start justify-start gap-2 p-2 bg-canvas">
+  <div data-name="Main" class="flex flex-col w-full h-full items-start justify-start gap-2">
+    <div data-name="ChatHeader" class="flex flex-row w-full h-[36px] items-center justify-start gap-1 py-1 px-2">
+      <div data-name="NativeInset" class="flex flex-row w-[86px] h-[1px] items-start justify-start">
+      </div>
+      <sp-use component="IconButton" data-name="LeftSidebarToggle" props="State: Default" class="w-[28px] h-[28px]">
+        <sp-use data-name="Icon" props="Name: Panel"></sp-use>
+      </sp-use>
+      <p data-name="ChatTitle" class="w-full h-fit type-subtitle-strong">登录表单方案</p>
+      <sp-use component="IconButton" data-name="RightWorkspaceToggle" props="State: Default" class="w-[28px] h-[28px]">
+        <sp-use data-name="Icon" props="Name: Panel"></sp-use>
+      </sp-use>
+    </div>
+    <div data-name="ConversationSurface" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+      <div data-name="Body" class="flex flex-row w-full h-full items-start justify-start pt-4 pb-3 px-6">
+        <div data-name="Conversation" class="flex flex-col w-full h-full items-start justify-start gap-4">
+          <div data-name="Transcript" class="flex flex-col w-full h-full items-start justify-start gap-4">
+            <div data-name="UserTurn" class="flex flex-row w-full h-fit items-start justify-end">
+              <div data-name="UserBubble" class="flex flex-col w-[516px] h-fit items-start justify-start py-[10px] px-[14px] rounded-card bg-subtle">
+                <p data-name="UserText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.6] text-text">把登录表单、错误态和验证边界整理成一份可实现的方案。</p>
+              </div>
+            </div>
+            <div data-name="AssistantTurn" class="flex flex-row w-full h-fit items-start justify-start gap-3">
+              <div data-name="AssistantAvatar" class="flex flex-row w-[32px] h-[32px] items-center justify-center rounded-ctrl bg-accent-soft">
+                <p data-name="AssistantInitial" class="w-full h-fit type-subtitle-strong-lh1 text-center text-accent">a</p>
+              </div>
+              <div data-name="AssistantContent" class="flex flex-col w-full h-fit items-start justify-start gap-[10px]">
+                <div data-name="AssistantMeta" class="flex flex-row w-full h-[28px] items-center justify-start gap-2">
+                  <p data-name="AssistantName" class="w-fit h-fit type-subtitle-strong text-text">Alva</p>
+                  <p data-name="AssistantModel" class="w-full h-fit type-caption text-secondary">GPT · ALVA</p>
+                  <sp-use component="IconButton" data-name="AssistantMore" props="State: Default" class="w-[28px] h-[28px]">
+                    <sp-use data-name="Icon" props="Name: More"></sp-use>
+                  </sp-use>
+                </div>
+                <p data-name="AssistantBody" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.6] text-text">登录改造按表单、边界和恢复三部分拆开。先让错误可解释，再处理凭据失效和会话恢复。</p>
+                <sp-use component="ToolActivity" data-name="ReadProject" props="State: Collapsed" class="w-full h-fit">
+                  <sp-use data-name="Icon" props="Name: Check"></sp-use>
+                  <p data-name="Label">已读取 6 份项目资料</p>
+                </sp-use>
+                <sp-use component="ToolActivity" data-name="ReadBoundary" props="State: Collapsed" class="w-full h-fit">
+                  <sp-use data-name="Icon" props="Name: Shield"></sp-use>
+                  <p data-name="Label">已整理登录表单与验证边界</p>
+                </sp-use>
+                <div data-name="LoginPlan" class="flex flex-row w-full h-fit items-stretch justify-start gap-4 p-4 rounded-card bg-subtle">
+                  <div data-name="PlanOutline" class="flex flex-col w-[184px] h-fit items-start justify-start gap-[6px] p-3 rounded-ctrl bg-surface">
+                    <p data-name="PlanOutlineTitle" class="w-full h-fit type-body-strong text-text">登录改造方案</p>
+                    <p data-name="PlanOutlineOne" class="w-full h-fit type-caption text-text">01  登录表单</p>
+                    <p data-name="PlanOutlineTwo" class="w-full h-fit type-caption text-secondary">02  验证边界</p>
+                    <p data-name="PlanOutlineThree" class="w-full h-fit type-caption text-accent">03  会话恢复</p>
+                  </div>
+                  <div data-name="PlanDocument" class="flex flex-col w-full h-fit items-start justify-center gap-2">
+                    <div data-name="PlanDocumentHeader" class="flex flex-row w-full h-[24px] items-center justify-start gap-[6px]">
+                      <sp-use component="Icon" data-name="PlanFileIcon" props="Name: File" class="w-[16px] h-[16px]">
+                        <p data-name="Glyph" class="text-secondary w-[16px] type-icon"></p>
+                      </sp-use>
+                      <p data-name="PlanDocumentTitle" class="w-full h-fit type-subtitle-strong text-text">登录改造方案.md</p>
+                      <sp-use component="Icon" data-name="PlanOpenIcon" props="Name: ChevronRight" class="w-[14px] h-[14px]">
+                        <p data-name="Glyph" class="text-secondary w-[14px] type-icon-small"></p>
+                      </sp-use>
+                    </div>
+                    <p data-name="PlanDocumentMeta" class="w-full h-fit type-caption text-secondary">方案 · 3 个章节</p>
+                    <p data-name="PlanDocumentSummary" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.6] text-text">登录、验证与会话恢复</p>
+                  </div>
+                </div>
+                <div data-name="AnswerActions" class="flex flex-row w-full h-[28px] items-center justify-start gap-1">
+                  <sp-use component="IconButton" data-name="CopyAnswer" props="State: Default" class="w-[28px] h-[28px]">
+                    <sp-use data-name="Icon" props="Name: Copy"></sp-use>
+                  </sp-use>
+                  <sp-use component="IconButton" data-name="ShareAnswer" props="State: Default" class="w-[28px] h-[28px]">
+                    <sp-use data-name="Icon" props="Name: External"></sp-use>
+                  </sp-use>
+                  <sp-use component="IconButton" data-name="MoreAnswer" props="State: Default" class="w-[28px] h-[28px]">
+                    <sp-use data-name="Icon" props="Name: More"></sp-use>
+                  </sp-use>
+                </div>
+              </div>
+            </div>
+            <div data-name="MessageSpace" class="flex flex-col w-full h-full items-start justify-start">
+            </div>
+          </div>
+          <sp-use component="Composer" data-name="Composer" props="State: Running" class="w-full h-fit">
+            <div data-name="Editor">
+              <div data-name="Controls">
+                <sp-use data-name="Model" data-click="交互/39 模型选择器"></sp-use>
+              </div>
+              <p data-name="Prompt">补充错误态与无障碍标签</p>
+            </div>
+          </sp-use>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

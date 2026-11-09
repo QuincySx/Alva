@@ -1,12 +1,19 @@
 <sp-component name="Sidebar" props="Area: Work | Partners | Settings | New">
-  <div data-name="Sidebar" class="flex flex-col w-sidebar h-[960px] items-start justify-start gap-2 p-3 bg-canvas">
-    <div data-name="Brand" class="flex flex-row w-full h-[44px] items-center justify-start gap-2 p-1">
-      <div data-name="BrandMark" class="flex flex-col w-[32px] h-[32px] items-center justify-center bg-accent rounded-ctrl">
+  <div data-name="Sidebar" class="flex flex-col w-sidebar h-[960px] items-start justify-start gap-1 pb-3 px-3 bg-subtle">
+    <div data-name="Brand" class="flex flex-row w-full h-header items-center justify-start gap-2">
+      <div data-name="NativeSafeArea" class="flex flex-col w-[62px] h-[32px] items-start justify-start">
+      </div>
+      <div data-name="BrandMark" class="flex flex-col w-[32px] h-[32px] items-center justify-center bg-accent rounded-ctrl hidden">
         <sp-use component="Icon" data-name="Mark" props="Name: Sparkles" class="w-icon-size h-icon-size">
           <p data-name="Glyph" class="type-subtitle-strong-lh1 text-on-accent">a</p>
         </sp-use>
       </div>
-      <p data-name="BrandLabel" class="w-full h-fit text-text type-subtitle-strong">Alva</p>
+      <p data-name="BrandLabel" class="w-full h-fit hidden text-text type-subtitle-strong">Alva</p>
+      <div data-name="TopSpacer" class="flex flex-col w-full h-[32px] items-start justify-start">
+      </div>
+      <sp-use component="IconButton" data-name="SidebarToggle" props="State: Default" class="w-control-icon h-control-icon">
+        <sp-use data-name="Icon" props="Name: PanelLeft"></sp-use>
+      </sp-use>
     </div>
     <sp-use component="Button" data-name="NewTask" props="Kind: Secondary; State: Default; Content: Leading" class="w-full h-control-height">
       <p data-name="Label">新任务</p>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>连接 / 26 自定义连接</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-col items-stretch justify-start pt-2 pb-3 px-3 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_navigation_native_shell、req_alva_navigation_wizard、req_alva_provider_form、req_alva_provider_models、req_alva_provider_save -->
+  <div data-name="SheetReturnRow" class="flex flex-row w-full h-control-height items-center justify-start gap-2 px-6">
+    <div data-name="NativeSafeArea" class="flex flex-row w-[50px] h-[32px] items-start justify-start">
+    </div>
+    <sp-use component="Button" data-name="WizardBack" props="Content: Leading; Kind: Ghost; State: Default" data-click="连接/24 选择供应商" class="w-fit h-control-height">
+      <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
+      <p data-name="Label" class="w-[99px]">返回选择供应商</p>
+    </sp-use>
+  </div>
+  <div data-name="SheetBody" class="flex flex-col w-full h-full items-center justify-center p-3">
+    <div data-name="Dialog" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-card bg-surface shadow-popup max-w-[800px]">
+      <sp-use component="DialogHeader" data-name="DialogHeader" class="w-full h-fit">
+        <sp-use data-name="Close" data-click="设置/23 模型与连接"></sp-use>
+        <div data-name="Copy">
+          <p data-name="Description" class="hidden"></p>
+          <p data-name="Title">自定义连接</p>
+        </div>
+      </sp-use>
+      <sp-use component="ProviderForm" data-name="ProviderForm" props="Source: Custom" class="w-full h-fit"></sp-use>
+      <sp-use component="ProviderModels" data-name="ProviderModels" props="State: Ready" class="w-full h-fit"></sp-use>
+      <div data-name="DialogSpace" class="flex flex-col w-full h-[0px] items-start justify-start hidden">
+      </div>
+      <sp-use component="DialogFooter" data-name="DialogFooter" class="w-full h-fit">
+        <sp-use data-name="Cancel" data-click="设置/23 模型与连接"></sp-use>
+        <sp-use data-name="Save" data-click="设置/23 模型与连接">
+          <p data-name="Label">保存连接</p>
+        </sp-use>
+        <p data-name="Scope" class="hidden"></p>
+      </sp-use>
+    </div>
+  </div>
+</body>
+</html>

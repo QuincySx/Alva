@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Capabilities / Plugins</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="旧视觉草稿（暂不评审）" class="w-[1440px] h-[960px] flex flex-col items-start justify-start bg-[#F7F8FB]">
+  <div data-name="WindowChrome" class="flex flex-row w-full h-[36px] items-center justify-start gap-4 px-4 bg-[#F0F3F8]">
+    <p data-name="WindowControls" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">● ● ●</p>
+    <p data-name="WindowCaption" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">Alva</p>
+    <p data-name="WindowMode" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">设计原型</p>
+  </div>
+  <div data-name="Application" class="flex flex-row w-full h-full items-start justify-start">
+    <div data-name="Sidebar" class="flex flex-col w-[248px] h-full items-start justify-start gap-[6px] pt-2 pb-3 px-3 bg-[#F0F3F8]">
+      <div data-name="Brand" class="flex flex-row w-full h-[48px] items-center justify-start gap-3">
+        <p data-name="Mark" class="w-[24px] h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#285EEA]">A</p>
+        <p data-name="BrandLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">ALVA</p>
+      </div>
+      <sp-use component="Button" data-name="NewConversation" props="Kind: Primary; State: Default; Content: Text" data-click="Overlay/NewSession" class="w-full h-[36px]">
+        <p data-name="Label">新建对话</p>
+      </sp-use>
+      <sp-use component="Button" data-name="NewConversationIcon" props="Kind: Primary; State: Default; Content: Text" data-click="Overlay/NewSession" class="w-full h-[36px] hidden">
+        <p data-name="Label">＋</p>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavConversation" props="State: Default" data-click="Chat/Conversation" class="w-full h-[44px]">
+        <p data-name="Label">对话</p>
+        <sp-use data-name="Icon" props="Name: Chat"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavPlugins" props="State: Selected" data-click="Capabilities/Plugins" class="w-full h-[44px]">
+        <p data-name="Label">插件与能力</p>
+        <sp-use data-name="Icon" props="Name: Plugin"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavLibrary" props="State: Default" data-click="Knowledge/Library" class="w-full h-[44px]">
+        <p data-name="Label">资料与记忆</p>
+        <sp-use data-name="Icon" props="Name: List"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavTeam" props="State: Default" data-click="Operations/Team" class="w-full h-[44px]">
+        <p data-name="Label">协作</p>
+        <sp-use data-name="Icon" props="Name: Target"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavAutomations" props="State: Default" data-click="Operations/Automations" class="w-full h-[44px]">
+        <p data-name="Label">自动化</p>
+        <sp-use data-name="Icon" props="Name: Clock"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavWaits" props="State: Default" data-click="Operations/Waits" class="w-full h-[44px]">
+        <p data-name="Label">等待任务</p>
+        <sp-use data-name="Icon" props="Name: Folder"></sp-use>
+      </sp-use>
+      <div data-name="Recent" class="flex flex-col w-full h-fit items-start justify-start gap-[14px] py-[20px] px-2">
+        <p data-name="RecentTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">最近对话</p>
+        <p data-name="RecentOne" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#182230]">整理 Agent 架构</p>
+        <p data-name="RecentTwo" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#536276]">模型协议接入检查</p>
+        <p data-name="RecentThree" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#536276]">设计动态内容界面</p>
+      </div>
+      <div data-name="SidebarSpacer" class="flex flex-col w-full h-full items-start justify-start">
+      </div>
+      <sp-use component="NavItem" data-name="NavDeveloper" props="State: Default" data-click="Developer/IntegrationTests" class="w-full h-[44px]">
+        <p data-name="Label">开发者选项</p>
+        <sp-use data-name="Icon" props="Name: Terminal"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavSettings" props="State: Default" data-click="Settings/General" class="w-full h-[44px]">
+        <p data-name="Label">设置</p>
+        <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+      </sp-use>
+      <div data-name="WorkspaceContext" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] p-3 rounded-[10px] bg-[#FFFFFF]">
+        <p data-name="ProjectLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">当前项目</p>
+        <p data-name="ProjectName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[600] leading-[1.2] text-[#182230]">alva-agent</p>
+      </div>
+    </div>
+    <div data-name="Main" class="flex flex-col w-full h-full items-start justify-start">
+      <div data-name="PageBar" class="flex flex-row w-full h-[64px] items-center justify-start gap-3 px-6 bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+        <sp-use component="Button" data-name="ToggleSidebar" props="Kind: Ghost; State: Default; Content: Text" class="w-[96px] h-[36px]">
+          <p data-name="Label">收起导航</p>
+        </sp-use>
+        <div data-name="PageIdentity" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+          <p data-name="PageTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">插件与能力</p>
+          <p data-name="PageScope" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">当前项目 · alva-agent</p>
+        </div>
+      </div>
+      <div data-name="PageContent" class="flex flex-col w-full h-full items-start justify-start gap-[20px] p-[28px]">
+        <div data-name="PluginsHeading" class="flex flex-row w-full h-fit items-center justify-start gap-4">
+          <div data-name="PluginsHeadingText" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+            <p data-name="PluginsHeadingTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">插件与能力</p>
+            <p data-name="PluginsHeadingSubtitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">按项目装配工具、服务与界面。更改在下一轮生效。</p>
+          </div>
+          <sp-use component="Button" data-name="InstallPlugin" props="Kind: Primary; State: Default; Content: Text" class="w-[112px] h-[36px]">
+            <p data-name="Label">添加插件</p>
+          </sp-use>
+        </div>
+        <div data-name="PluginTabs" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+          <sp-use component="Tab" data-name="AllPlugins" props="State: Selected" class="w-[132px] h-[36px]">
+            <p data-name="Label">全部</p>
+          </sp-use>
+          <sp-use component="Tab" data-name="EnabledPlugins" props="State: Default" class="w-[132px] h-[36px]">
+            <p data-name="Label">已启用</p>
+          </sp-use>
+          <sp-use component="Tab" data-name="UIPlugins" props="State: Default" class="w-[132px] h-[36px]">
+            <p data-name="Label">界面扩展</p>
+          </sp-use>
+        </div>
+        <div data-name="PluginOne" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+          <div data-name="PluginOneHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <p data-name="PluginOneName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">工作区文件</p>
+            <sp-use component="Badge" data-name="PluginOneRuntime" props="Tone: Neutral" class="w-fit h-[28px]">
+              <p data-name="Label">Go 内置</p>
+            </sp-use>
+            <sp-use component="Badge" data-name="PluginOneState" props="Tone: Success" class="w-fit h-[28px]">
+              <p data-name="Label">已启用</p>
+            </sp-use>
+          </div>
+          <p data-name="PluginOneDesc" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">按授权范围读取、编辑项目文件。具体操作仍由当前权限规则检查。</p>
+          <div data-name="PluginOneFooter" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <p data-name="PluginOneScope" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">当前项目 · 文件工具</p>
+            <sp-use component="Button" data-name="PluginOneConfigure" props="Kind: Secondary; State: Default; Content: Text" class="w-[80px] h-[36px]">
+              <p data-name="Label">配置</p>
+            </sp-use>
+          </div>
+        </div>
+        <div data-name="PluginTwo" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+          <div data-name="PluginTwoHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <p data-name="PluginTwoName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">数据图表</p>
+            <sp-use component="Badge" data-name="PluginTwoRuntime" props="Tone: Neutral" class="w-fit h-[28px]">
+              <p data-name="Label">WASM</p>
+            </sp-use>
+            <sp-use component="Badge" data-name="PluginTwoUI" props="Tone: Info" class="w-fit h-[28px]">
+              <p data-name="Label">界面扩展</p>
+            </sp-use>
+          </div>
+          <p data-name="PluginTwoDesc" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">将结构化结果展示为交互图表，可在回复中展开或打开到独立面板。</p>
+          <div data-name="PluginTwoFooter" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <p data-name="PluginTwoScope" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">当前项目 · 默认关闭</p>
+            <sp-use component="Button" data-name="PluginTwoPreview" props="Kind: Secondary; State: Default; Content: Text" data-click="Overlay/Artifact" class="w-[104px] h-[36px]">
+              <p data-name="Label">预览界面</p>
+            </sp-use>
+            <sp-use component="Button" data-name="PluginTwoEnable" props="Kind: Secondary; State: Default; Content: Text" class="w-[120px] h-[36px]">
+              <p data-name="Label">检查并启用</p>
+            </sp-use>
+          </div>
+        </div>
+        <div data-name="PluginThree" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+          <div data-name="PluginThreeHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <p data-name="PluginThreeName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">自定义脚本</p>
+            <sp-use component="Badge" data-name="PluginThreeRuntime" props="Tone: Neutral" class="w-fit h-[28px]">
+              <p data-name="Label">JS / Python</p>
+            </sp-use>
+            <sp-use component="Badge" data-name="PluginThreeAccess" props="Tone: Warning" class="w-fit h-[28px]">
+              <p data-name="Label">宿主访问</p>
+            </sp-use>
+          </div>
+          <p data-name="PluginThreeDesc" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">运行前检查固定版本与请求的访问范围。更新后重新审阅。</p>
+          <sp-use component="Button" data-name="PluginThreeReview" props="Kind: Ghost; State: Default; Content: Text" class="w-[108px] h-[36px]">
+            <p data-name="Label">查看详情</p>
+          </sp-use>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

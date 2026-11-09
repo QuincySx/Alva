@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Chat / Running</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="旧视觉草稿（暂不评审）" class="w-[1440px] h-[960px] flex flex-col items-start justify-start bg-[#F7F8FB]">
+  <div data-name="WindowChrome" class="flex flex-row w-full h-[36px] items-center justify-start gap-4 px-4 bg-[#F0F3F8]">
+    <p data-name="WindowControls" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">● ● ●</p>
+    <p data-name="WindowCaption" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">Alva</p>
+    <p data-name="WindowMode" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">设计原型</p>
+  </div>
+  <div data-name="Application" class="flex flex-row w-full h-full items-start justify-start">
+    <div data-name="Sidebar" class="flex flex-col w-[248px] h-full items-start justify-start gap-[6px] pt-2 pb-3 px-3 bg-[#F0F3F8]">
+      <div data-name="Brand" class="flex flex-row w-full h-[48px] items-center justify-start gap-3">
+        <p data-name="Mark" class="w-[24px] h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#285EEA]">A</p>
+        <p data-name="BrandLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">ALVA</p>
+      </div>
+      <sp-use component="Button" data-name="NewConversation" props="Kind: Primary; State: Default; Content: Text" data-click="Overlay/NewSession" class="w-full h-[36px]">
+        <p data-name="Label">新建对话</p>
+      </sp-use>
+      <sp-use component="Button" data-name="NewConversationIcon" props="Kind: Primary; State: Default; Content: Text" data-click="Overlay/NewSession" class="w-full h-[36px] hidden">
+        <p data-name="Label">＋</p>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavConversation" props="State: Selected" data-click="Chat/Conversation" class="w-full h-[44px]">
+        <p data-name="Label">对话</p>
+        <sp-use data-name="Icon" props="Name: Chat"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavPlugins" props="State: Default" data-click="Capabilities/Plugins" class="w-full h-[44px]">
+        <p data-name="Label">插件与能力</p>
+        <sp-use data-name="Icon" props="Name: Plugin"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavLibrary" props="State: Default" data-click="Knowledge/Library" class="w-full h-[44px]">
+        <p data-name="Label">资料与记忆</p>
+        <sp-use data-name="Icon" props="Name: List"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavTeam" props="State: Default" data-click="Operations/Team" class="w-full h-[44px]">
+        <p data-name="Label">协作</p>
+        <sp-use data-name="Icon" props="Name: Target"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavAutomations" props="State: Default" data-click="Operations/Automations" class="w-full h-[44px]">
+        <p data-name="Label">自动化</p>
+        <sp-use data-name="Icon" props="Name: Clock"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavWaits" props="State: Default" data-click="Operations/Waits" class="w-full h-[44px]">
+        <p data-name="Label">等待任务</p>
+        <sp-use data-name="Icon" props="Name: Folder"></sp-use>
+      </sp-use>
+      <div data-name="Recent" class="flex flex-col w-full h-fit items-start justify-start gap-[14px] py-[20px] px-2">
+        <p data-name="RecentTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">最近对话</p>
+        <p data-name="RecentOne" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#182230]">整理 Agent 架构</p>
+        <p data-name="RecentTwo" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#536276]">模型协议接入检查</p>
+        <p data-name="RecentThree" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#536276]">设计动态内容界面</p>
+      </div>
+      <div data-name="SidebarSpacer" class="flex flex-col w-full h-full items-start justify-start">
+      </div>
+      <sp-use component="NavItem" data-name="NavDeveloper" props="State: Default" data-click="Developer/IntegrationTests" class="w-full h-[44px]">
+        <p data-name="Label">开发者选项</p>
+        <sp-use data-name="Icon" props="Name: Terminal"></sp-use>
+      </sp-use>
+      <sp-use component="NavItem" data-name="NavSettings" props="State: Default" data-click="Settings/General" class="w-full h-[44px]">
+        <p data-name="Label">设置</p>
+        <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+      </sp-use>
+      <div data-name="WorkspaceContext" class="flex flex-col w-full h-fit items-start justify-start gap-[6px] p-3 rounded-[10px] bg-[#FFFFFF]">
+        <p data-name="ProjectLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">当前项目</p>
+        <p data-name="ProjectName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[600] leading-[1.2] text-[#182230]">alva-agent</p>
+      </div>
+    </div>
+    <div data-name="Main" class="flex flex-col w-full h-full items-start justify-start">
+      <div data-name="PageBar" class="flex flex-row w-full h-[64px] items-center justify-start gap-3 px-6 bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+        <sp-use component="Button" data-name="ToggleSidebar" props="Kind: Ghost; State: Default; Content: Text" class="w-[96px] h-[36px]">
+          <p data-name="Label">收起导航</p>
+        </sp-use>
+        <div data-name="PageIdentity" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+          <p data-name="PageTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">规划动态内容界面</p>
+          <p data-name="PageScope" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">项目 · alva-agent</p>
+        </div>
+        <sp-use component="Badge" data-name="ExecutionStatus" props="Tone: Info" class="w-fit h-[28px]">
+          <p data-name="Label">执行中</p>
+        </sp-use>
+        <sp-use component="Button" data-name="StopTask" props="Kind: Danger; State: Default; Content: Text" data-click="Chat/Stopped" class="w-[104px] h-[36px]">
+          <p data-name="Label">停止任务</p>
+        </sp-use>
+      </div>
+      <div data-name="PersistentAttention" class="flex flex-col w-full h-fit items-start justify-start py-3 px-6 bg-[#E8EFFF]">
+        <div data-name="AttentionRow" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+          <sp-use component="Badge" data-name="AttentionStatus" props="Tone: Info" class="w-fit h-[28px]">
+            <p data-name="Label">正在执行</p>
+          </sp-use>
+          <p data-name="AttentionSummary" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#182230]">正在处理当前任务，可查看活动或停止。</p>
+          <sp-use component="Button" data-name="OpenInspector" props="Kind: Primary; State: Default; Content: Text" data-click="Overlay/Inspector" class="w-[112px] h-[36px]">
+            <p data-name="Label">运行详情</p>
+          </sp-use>
+        </div>
+      </div>
+      <div data-name="Conversation" class="flex flex-col w-full h-full items-center justify-start gap-[20px] py-6 px-[28px]">
+        <div data-name="ReadingColumn" class="flex flex-col w-full h-fit items-start justify-start gap-6 max-w-[860px]">
+          <div data-name="ConversationDate" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <p data-name="Date" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">今天 · 项目对话</p>
+            <sp-use component="Badge" data-name="EngineBadge" props="Tone: Info" class="w-fit h-[28px]">
+              <p data-name="Label">ALVA · 团队网关</p>
+            </sp-use>
+          </div>
+          <div data-name="UserMessage" class="flex flex-col w-full h-fit items-start justify-start gap-2 p-[20px] rounded-[14px] bg-[#E8EFFF]">
+            <p data-name="UserLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">你</p>
+            <p data-name="UserText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#182230]">我们先把界面规划好。动态内容可以放在哪里？</p>
+          </div>
+          <div data-name="AssistantMessage" class="flex flex-col w-full h-fit items-start justify-start gap-4">
+            <p data-name="AssistantLabel" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">Alva</p>
+            <p data-name="AssistantText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#182230] whitespace-pre-wrap">可以。让完整对话区域负责消息布局和滚动，周边保留清晰的导航与工具入口。<br><br>图表、表单与插件页面可以在内容区域展开；它们的操作仍然交给当前会话处理。</p>
+            <sp-use component="ToolActivity" data-name="CompletedTool" props="State: Collapsed" class="w-full h-fit"></sp-use>
+          </div>
+          <div data-name="DynamicCard" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+            <div data-name="DynamicHeading" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+              <p data-name="DynamicTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">界面区域分工</p>
+              <sp-use component="Badge" data-name="DynamicLabel" props="Tone: Info" class="w-fit h-[28px]">
+                <p data-name="Label">交互内容</p>
+              </sp-use>
+              <sp-use component="Button" data-name="ExpandArtifact" props="Kind: Ghost; State: Default; Content: Text" data-click="Overlay/Artifact" class="w-[72px] h-[36px]">
+                <p data-name="Label">展开</p>
+              </sp-use>
+            </div>
+            <div data-name="Diagram" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+              <div data-name="DiagramNav" class="flex flex-col w-full h-fit items-start justify-start gap-2 p-[20px] rounded-[10px] bg-[#F4F6FA]">
+                <p data-name="DiagramNavTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[600] leading-[1.2] text-[#182230]">导航</p>
+                <p data-name="DiagramNavText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">项目与会话</p>
+              </div>
+              <div data-name="DiagramChat" class="flex flex-col w-full h-fit items-start justify-start gap-2 p-[20px] rounded-[10px] bg-[#E8EFFF]">
+                <p data-name="DiagramChatTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[600] leading-[1.2] text-[#182230]">对话</p>
+                <p data-name="DiagramChatText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">消息与动态内容</p>
+              </div>
+              <div data-name="DiagramDetails" class="flex flex-col w-full h-fit items-start justify-start gap-2 p-[20px] rounded-[10px] bg-[#F4F6FA]">
+                <p data-name="DiagramDetailsTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[600] leading-[1.2] text-[#182230]">详情</p>
+                <p data-name="DiagramDetailsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">按需打开</p>
+              </div>
+            </div>
+            <p data-name="DynamicCaption" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">来源：当前回复 · 展开不会重新执行任务</p>
+          </div>
+          <div data-name="ReplyActions" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <sp-use component="Button" data-name="CopyReply" props="Kind: Ghost; State: Default; Content: Text" class="w-[72px] h-[36px]">
+              <p data-name="Label">复制</p>
+            </sp-use>
+            <sp-use component="Button" data-name="OpenSources" props="Kind: Ghost; State: Default; Content: Text" class="w-[72px] h-[36px]">
+              <p data-name="Label">来源</p>
+            </sp-use>
+            <p data-name="ReplyTime" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">已完成 · 刚刚</p>
+          </div>
+        </div>
+      </div>
+      <div data-name="ComposerArea" class="flex flex-col w-full h-fit items-center justify-start gap-2 pt-3 pb-[20px] px-[28px]">
+        <div data-name="Composer" class="flex flex-col w-full h-fit items-start justify-start gap-[20px] p-4 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside max-w-[860px]">
+          <p data-name="DraftText" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">继续讨论，或者输入新的任务…</p>
+          <div data-name="ComposerTools" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+            <sp-use component="Button" data-name="Attach" props="Kind: Ghost; State: Default; Content: Text" class="w-[84px] h-[36px]">
+              <p data-name="Label">＋ 附件</p>
+            </sp-use>
+            <sp-use component="Button" data-name="SelectModel" props="Kind: Ghost; State: Default; Content: Text" class="w-[112px] h-[36px]">
+              <p data-name="Label">主模型 ▾</p>
+            </sp-use>
+            <p data-name="ComposerHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">运行中可追加指令</p>
+            <sp-use component="Button" data-name="Send" props="Kind: Primary; State: Default; Content: Text" class="w-[80px] h-[36px]">
+              <p data-name="Label">追加</p>
+            </sp-use>
+          </div>
+        </div>
+        <p data-name="ComposerPrivacy" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276] max-w-[860px]">文件先保存为引用，只有你选择的内容才会投递。</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Overlay / Inspector</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="旧视觉草稿（暂不评审）" class="w-[420px] h-[760px] flex flex-col items-start justify-start gap-[20px] p-6 bg-[#FFFFFF]">
+  <div data-name="OverlayHeading" class="flex flex-row w-full h-fit items-center justify-start gap-4">
+    <div data-name="OverlayHeadingText" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="OverlayHeadingTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">运行详情</p>
+      <p data-name="OverlayHeadingSubtitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">观察当前任务，不启动或重放执行</p>
+    </div>
+    <sp-use component="Button" data-name="CloseOverlay" props="Kind: Ghost; State: Default; Content: Text" data-click="back" class="w-[72px] h-[36px]">
+      <p data-name="Label">关闭</p>
+    </sp-use>
+  </div>
+  <div data-name="InspectorTabs" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+    <sp-use component="Tab" data-name="InspectorTimeline" props="State: Selected" class="w-[132px] h-[36px]">
+      <p data-name="Label">时间线</p>
+    </sp-use>
+    <sp-use component="Tab" data-name="InspectorRecords" props="State: Default" class="w-[132px] h-[36px]">
+      <p data-name="Label">记录</p>
+    </sp-use>
+  </div>
+  <div data-name="InspectorSummary" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+    <p data-name="InspectorTask" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">规划动态内容界面</p>
+    <sp-use component="Badge" data-name="InspectorState" props="Tone: Success" class="w-fit h-[28px]">
+      <p data-name="Label">已完成</p>
+    </sp-use>
+    <p data-name="InspectorOwner" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">当前会话 · ALVA · 当前分支</p>
+  </div>
+  <sp-use component="ToolActivity" data-name="InspectorTool" props="State: Collapsed" class="w-full h-fit"></sp-use>
+  <div data-name="InspectorReference" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+    <p data-name="InspectorReferenceTitle" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">结果以引用保留</p>
+    <p data-name="InspectorReferenceBody" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">展开时按需读取；离开面板不会改变任务。</p>
+  </div>
+  <sp-use component="Button" data-name="DetachInspector" props="Kind: Secondary; State: Default; Content: Text" class="w-full h-[36px]">
+    <p data-name="Label">在独立窗口查看</p>
+  </sp-use>
+</body>
+</html>

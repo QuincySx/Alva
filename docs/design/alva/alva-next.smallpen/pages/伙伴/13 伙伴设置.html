@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>伙伴 / 13 伙伴设置</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[940px] h-[880px] flex flex-col items-start justify-start p-6 bg-[#ECECEC]">
+  <div data-name="CompanionProfileDialog" class="flex flex-col w-full h-full items-start justify-start gap-[18px] p-6 rounded-[10px] bg-[#FFFFFF] border border-[#CBCBCB] border-inside">
+    <div data-name="ProfileHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <p data-name="ProfileTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[22px] font-[400] leading-[1.2] text-[#252525]">伙伴资料 · 研究伙伴</p>
+      <div data-name="ProfileClose" data-click="伙伴/12 伙伴与群聊" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="ProfileCloseText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">x</p>
+      </div>
+    </div>
+    <div data-name="ProfileSections" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="ProfileIdentityTab" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+        <p data-name="ProfileIdentityTabText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">身份与能力</p>
+      </div>
+      <div data-name="ProfileMemoryTab" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="ProfileMemoryTabText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">记忆</p>
+      </div>
+      <div data-name="ProfileHistoryTab" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="ProfileHistoryTabText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">历史</p>
+      </div>
+    </div>
+    <div data-name="ProfileIdentity" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="ProfileName" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ProfileNameLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">名字</p>
+        <div data-name="ProfileNameInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ProfileNameValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">研究伙伴</p>
+        </div>
+      </div>
+      <div data-name="ProfileModel" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ProfileModelLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">模型与 Agent</p>
+        <div data-name="ProfileModelInput" data-click="选择器/05 Agent 与模型" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ProfileModelValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">GPT · ALVA  v</p>
+        </div>
+      </div>
+    </div>
+    <div data-name="ProfileRole" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+      <p data-name="ProfileRoleLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">职责与做事方式</p>
+      <div data-name="ProfileRoleInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+        <p data-name="ProfileRoleValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">核对资料来源，整理依据；不确定时说明，不把推测写成事实。</p>
+      </div>
+    </div>
+    <div data-name="ProfileSkillsHeading" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <p data-name="ProfileSkillsTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[16px] font-[400] leading-[1.2] text-[#252525]">这个伙伴的 Skills</p>
+      <div data-name="ProfileAddSkill" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#FFFFFF] border border-[#D7D7D7] border-inside">
+        <p data-name="ProfileAddSkillText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+  添加 Skill</p>
+      </div>
+    </div>
+    <div data-name="ProfileSkills" class="flex flex-col w-full h-fit items-start justify-start gap-[18px] p-4 rounded-[6px] bg-[#F6F6F6] border border-[#DDDDDD] border-inside">
+      <div data-name="ResearchSkill" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="ResearchSkillLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="ResearchSkillName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">资料研究</p>
+          <p data-name="ResearchSkillOrigin" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">共享 Skills 库 · 固定 v1</p>
+        </div>
+        <div data-name="ResearchSkillAction" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="ResearchSkillActionText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">移除</p>
+        </div>
+      </div>
+      <div data-name="DocumentSkill" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="DocumentSkillLabels" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="DocumentSkillName" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">文档整理</p>
+          <p data-name="DocumentSkillOrigin" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">伙伴自有 · v2 · 可编辑</p>
+        </div>
+        <div data-name="DocumentSkillAction" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="DocumentSkillActionText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">编辑</p>
+        </div>
+      </div>
+    </div>
+    <p data-name="ProfileSkillHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">添加引用不复制共享源；需要改写时另存为伙伴自有 Skill。</p>
+    <div data-name="ProfileAccess" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="ProfileTools" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ProfileToolsLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">工具与 MCP</p>
+        <div data-name="ProfileToolsInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ProfileToolsValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">已选工具集  v</p>
+        </div>
+      </div>
+      <div data-name="ProfilePermissions" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ProfilePermissionsLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">执行权限</p>
+        <div data-name="ProfilePermissionsInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ProfilePermissionsValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">每次询问  v</p>
+        </div>
+      </div>
+    </div>
+    <div data-name="ProfileMemory" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="ProfileMemoryMode" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ProfileMemoryModeLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">长期记忆</p>
+        <div data-name="ProfileMemoryModeInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ProfileMemoryModeValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">启用 · 可查看和删除  v</p>
+        </div>
+      </div>
+      <div data-name="ProfileLearning" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="ProfileLearningLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">新 Skill 建议</p>
+        <div data-name="ProfileLearningInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="ProfileLearningValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">保存前确认  v</p>
+        </div>
+      </div>
+    </div>
+    <p data-name="ProfileSafetyHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">Skill 说明不授予执行权限。群聊按参与范围加载能力与记忆。</p>
+    <div data-name="ProfileSpace" class="flex flex-col w-full h-full items-start justify-start">
+    </div>
+    <div data-name="ProfileFooter" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="ProfileCancel" data-click="伙伴/12 伙伴与群聊" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="ProfileCancelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">取消</p>
+      </div>
+      <p data-name="ProfileSaveScope" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">保存后在下一轮生效</p>
+      <div data-name="ProfileSave" data-click="伙伴/12 伙伴与群聊" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#252525]">
+        <p data-name="ProfileSaveText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#FFFFFF]">保存伙伴</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

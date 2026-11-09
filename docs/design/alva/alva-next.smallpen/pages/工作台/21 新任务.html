@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>工作台 / 21 新任务</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" data-flow="工作台 / 21 新任务" class="w-viewport-width h-viewport-height flex flex-row items-start justify-start gap-2 p-2 bg-canvas">
+  <!-- 需求与标注见 docs/design/alva/requirements/*.md：req_alva_composer_add、req_alva_composer_commands、req_alva_composer_configuration、req_alva_composer_coverage、req_alva_composer_execution、req_alva_composer_focus、req_alva_composer_references、req_alva_composer_state、req_alva_composer_submit、req_alva_composer_voice、req_alva_navigation_native_shell -->
+  <div data-name="Sidebar" class="flex flex-col w-[220px] h-full items-start justify-start gap-2">
+    <div data-name="SidebarTools" class="flex flex-row w-full h-[36px] items-center justify-start gap-1 px-2">
+      <div data-name="NativeSafeArea" class="flex flex-col w-[50px] h-[28px] items-start justify-start">
+      </div>
+      <div data-name="ToolSpacer" class="flex flex-col w-full h-[1px] items-start justify-start">
+      </div>
+      <sp-use component="IconButton" data-name="SearchAction" props="State: Default" class="w-[28px] h-[28px]">
+        <sp-use data-name="Icon" props="Name: Search"></sp-use>
+      </sp-use>
+      <sp-use component="IconButton" data-name="NewSessionAction" props="State: Default" data-click="工作台/21 新任务" class="w-[28px] h-[28px]">
+        <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+      </sp-use>
+      <sp-use component="IconButton" data-name="CollapseAction" props="State: Default" class="w-[28px] h-[28px]">
+        <sp-use data-name="Icon" props="Name: PanelLeft"></sp-use>
+      </sp-use>
+    </div>
+    <div data-name="SidebarSurface" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-subtle border border-border border-inside">
+      <sp-use component="Sidebar" data-name="AlvaNavigation" props="Area: New" class="w-full h-full">
+        <div data-name="Brand" class="hidden">
+        </div>
+        <sp-use data-name="CurrentThread" data-click="工作台/22 对话与面板">
+          <p data-name="Label">整理桌面工作台</p>
+        </sp-use>
+        <div data-name="Footer">
+          <sp-use data-name="OpenSettings" data-click="设置/31 通用"></sp-use>
+        </div>
+        <sp-use data-name="NewTask" class="hidden"></sp-use>
+        <sp-use data-name="Partners" data-click="伙伴/27 伙伴私聊"></sp-use>
+        <sp-use data-name="Search" class="hidden"></sp-use>
+      </sp-use>
+    </div>
+  </div>
+  <div data-name="Main" class="flex flex-col w-full h-full items-start justify-start gap-2">
+    <div data-name="PageTitleRow" class="flex flex-row w-full h-[36px] items-center justify-start gap-1 py-1 px-2">
+      <p data-name="PageTitle" class="w-full h-fit type-subtitle-strong">新任务</p>
+      <sp-use component="IconButton" data-name="RightWorkspaceToggle" props="State: Default" class="w-[28px] h-[28px]">
+        <sp-use data-name="Icon" props="Name: Panel"></sp-use>
+      </sp-use>
+    </div>
+    <div data-name="ConversationSurface" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+      <div data-name="Body" class="flex flex-row w-full h-full items-start justify-start pt-4 pb-3 px-6">
+        <div data-name="Conversation" class="flex flex-col w-full h-full items-center justify-center gap-4 p-6">
+          <div data-name="Welcome" class="flex flex-col w-full h-full items-center justify-center p-6">
+            <div data-name="WelcomeContent" class="flex flex-col w-full h-fit items-start justify-start gap-3 max-w-[760px]">
+              <div data-name="WelcomeIdentity" class="flex flex-row w-fit h-fit items-center justify-start gap-3">
+                <sp-use component="Avatar" data-name="WelcomeBadge" props="Kind: Agent" class="w-[40px] h-[40px] bg-accent rounded-ctrl">
+                  <p data-name="Label" class="text-on-accent type-heading-strong">a</p>
+                </sp-use>
+                <p data-name="WelcomeIdentityLabel" class="w-[137px] h-fit type-body text-secondary hidden">ALVA · 你的工作伙伴</p>
+              </div>
+              <p data-name="WelcomeTitle" class="w-full h-fit type-heading-strong text-text">今天，想完成什么？</p>
+              <p data-name="WelcomeDescription" class="w-full h-fit type-subtitle-reading text-secondary hidden">把目标告诉我，一起把想法变成看得见的成果。</p>
+              <sp-use component="Composer" data-name="Composer" props="State: Idle" class="w-full h-fit">
+                <div data-name="Editor">
+                  <div data-name="Controls">
+                    <sp-use data-name="Model" data-click="交互/39 模型选择器"></sp-use>
+                  </div>
+                  <p data-name="Prompt" class="text-secondary type-subtitle-reading">描述你要完成的任务…</p>
+                  <div data-name="Space" class="h-[20px]">
+                  </div>
+                </div>
+              </sp-use>
+              <div data-name="Suggestions" class="flex flex-row w-fit h-fit items-center justify-start gap-2">
+                <sp-use component="Button" data-name="ReadProject" props="Content: Leading; Kind: Ghost; State: Default" class="w-fit h-control-height">
+                  <sp-use data-name="Icon" props="Name: Folder"></sp-use>
+                  <p data-name="Label">理解这个项目</p>
+                </sp-use>
+                <sp-use component="Button" data-name="Research" props="Content: Leading; Kind: Ghost; State: Default" class="w-fit h-control-height">
+                  <sp-use data-name="Icon" props="Name: Book"></sp-use>
+                  <p data-name="Label">整理资料</p>
+                </sp-use>
+                <sp-use component="Button" data-name="Review" props="Content: Leading; Kind: Ghost; State: Default" class="w-fit h-control-height">
+                  <sp-use data-name="Icon" props="Name: Code"></sp-use>
+                  <p data-name="Label">检查代码</p>
+                </sp-use>
+              </div>
+              <div data-name="Hints" class="flex flex-row w-full h-fit items-center justify-start gap-2 mt-1 hidden">
+                <sp-use component="Icon" data-name="Privacy" props="Name: Lock" class="w-icon-small h-icon-small">
+                  <p data-name="Glyph" class="type-icon-small"></p>
+                </sp-use>
+                <p data-name="LocalHint" class="w-full h-fit type-body text-secondary">文件、模型和权限，都可以在输入区找到。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

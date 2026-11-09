@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>连接 / 43 手动添加模型</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-col items-center justify-center p-6 bg-canvas">
+  <div data-name="Dialog" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-card bg-surface shadow-popup max-w-[720px]">
+    <sp-use component="DialogHeader" data-name="DialogHeader" class="w-full h-fit">
+      <sp-use data-name="Close" data-click="设置/23 模型与连接"></sp-use>
+      <div data-name="Copy">
+        <p data-name="Description">添加到 OpenAI · 主连接</p>
+        <p data-name="Title">手动添加模型</p>
+      </div>
+    </sp-use>
+    <sp-use component="ModelForm" data-name="ModelForm" props="Mode: Add" class="w-full h-fit"></sp-use>
+    <div data-name="DialogSpace" class="flex flex-col w-full h-[0px] items-start justify-start hidden">
+    </div>
+    <sp-use component="DialogFooter" data-name="DialogFooter" class="w-full h-fit">
+      <sp-use data-name="Cancel" data-click="设置/23 模型与连接"></sp-use>
+      <sp-use data-name="Save" data-click="设置/23 模型与连接">
+        <p data-name="Label">添加到连接</p>
+      </sp-use>
+      <p data-name="Scope">此连接 · 不改变已有模型</p>
+    </sp-use>
+  </div>
+</body>
+</html>

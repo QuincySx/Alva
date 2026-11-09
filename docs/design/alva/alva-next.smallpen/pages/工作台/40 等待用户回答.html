@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>工作台 / 40 等待用户回答</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="01 产品界面" class="w-viewport-width h-viewport-height flex flex-row items-start justify-start gap-3 pt-2 pb-3 px-3 bg-canvas">
+  <sp-use component="Sidebar" data-name="Sidebar" props="Area: Work" class="w-sidebar h-full">
+    <sp-use data-name="CurrentThread" data-click="工作台/22 对话与面板"></sp-use>
+    <div data-name="Footer">
+      <sp-use data-name="OpenSettings" data-click="设置/31 通用"></sp-use>
+    </div>
+    <sp-use data-name="NewTask" data-click="工作台/21 新任务"></sp-use>
+    <sp-use data-name="Partners" data-click="伙伴/27 伙伴私聊"></sp-use>
+  </sp-use>
+  <div data-name="Main" class="flex flex-col w-full h-full items-start justify-start rounded-card bg-surface">
+    <sp-use component="PageHeader" data-name="Header" props="Navigation: Expanded" class="w-full h-control-height">
+      <div data-name="Copy">
+        <p data-name="Description">alva-agent · 当前会话</p>
+        <p data-name="Title">整理桌面工作台</p>
+      </div>
+    </sp-use>
+    <div data-name="Body" class="flex flex-row w-full h-full items-center justify-start">
+      <div data-name="Conversation" class="flex flex-col w-full h-full items-center justify-start gap-4 p-6">
+        <div data-name="UserTurn" class="flex flex-row w-full h-fit items-start justify-end max-w-[760px]">
+          <div data-name="UserMessage" class="flex flex-col w-full h-fit items-start justify-start p-3 rounded-card bg-subtle max-w-[560px]">
+            <p data-name="UserText" class="w-full h-fit type-subtitle-reading text-text">把模型连接和伙伴群聊的流程整理成一份可实现的方案。</p>
+          </div>
+        </div>
+        <sp-use component="Question" data-name="Question" props="State: Pending" class="w-full h-fit max-w-[760px]">
+          <div data-name="Footer">
+            <sp-use data-name="Submit" data-click="工作台/22 对话与面板"></sp-use>
+          </div>
+        </sp-use>
+        <div data-name="MessageSpace" class="flex flex-col w-full h-full items-start justify-start">
+        </div>
+        <sp-use component="Composer" data-name="Composer" props="State: Waiting" class="w-full h-fit max-w-[760px]">
+          <div data-name="Editor">
+            <p data-name="Prompt">回答上方问题后继续</p>
+          </div>
+        </sp-use>
+        <div data-name="ThreadFooter" class="flex flex-row w-full h-[0px] items-center justify-end gap-2 max-w-[760px] hidden">
+          <p data-name="ThreadState" class="w-full h-fit type-caption text-secondary hidden">等待你的回答</p>
+          <sp-use component="Badge" data-name="Context" props="Tone: Neutral" class="w-fit h-fit hidden">
+            <p data-name="Label" class="w-[74px]">Context  18%</p>
+          </sp-use>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

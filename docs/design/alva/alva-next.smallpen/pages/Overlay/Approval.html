@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Overlay / Approval</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="旧视觉草稿（暂不评审）" class="w-[520px] h-[550px] flex flex-col items-start justify-start gap-[20px] p-6 bg-[#FFFFFF]">
+  <div data-name="OverlayHeading" class="flex flex-row w-full h-fit items-center justify-start gap-4">
+    <div data-name="OverlayHeadingText" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="OverlayHeadingTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">允许本次操作？</p>
+      <p data-name="OverlayHeadingSubtitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">待审批 · 文件写入</p>
+    </div>
+    <sp-use component="Button" data-name="CloseOverlay" props="Kind: Ghost; State: Default; Content: Text" data-click="back" class="w-[72px] h-[36px]">
+      <p data-name="Label">关闭</p>
+    </sp-use>
+  </div>
+  <sp-use component="Badge" data-name="ApprovalKind" props="Tone: Warning" class="w-fit h-[28px]">
+    <p data-name="Label">权限请求</p>
+  </sp-use>
+  <p data-name="ApprovalAction" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[600] leading-[1.2] text-[#182230]">修改项目文件</p>
+  <div data-name="ApprovalScope" class="flex flex-col w-full h-fit items-start justify-start gap-4 p-6 rounded-[14px] bg-[#FFFFFF] border border-[#DDE4EE] border-inside">
+    <p data-name="ApprovalTarget" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[600] leading-[1.2] text-[#182230]">src/agent.go</p>
+    <p data-name="ApprovalReason" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">当前任务需要更新插件装配逻辑。</p>
+    <p data-name="ApprovalOwner" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#536276]">来源：当前会话 / Alva / 本次工具调用</p>
+  </div>
+  <p data-name="ApprovalHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#536276]">只决定本次请求。关闭面板不代表允许。</p>
+  <div data-name="ApprovalActions" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+    <sp-use component="Button" data-name="ApprovalDeny" props="Kind: Danger; State: Default; Content: Text" data-click="Chat/Stopped" class="w-[120px] h-[36px]">
+      <p data-name="Label">拒绝本次</p>
+    </sp-use>
+    <sp-use component="Button" data-name="ApprovalAllow" props="Kind: Primary; State: Default; Content: Text" data-click="Chat/Running" class="w-[120px] h-[36px]">
+      <p data-name="Label">允许本次</p>
+    </sp-use>
+  </div>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>选择器 / 11 模型配置</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[1080px] h-[740px] flex flex-col items-start justify-start gap-3 p-[20px] bg-[#ECECEC]">
+  <p data-name="ModelFormVariantsTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#666666]">同一模型表单 · 手动添加 / 已有模型设置</p>
+  <div data-name="ModelFormVariants" class="flex flex-row w-full h-full items-center justify-start gap-[18px]">
+    <div data-name="AddModelForm" class="flex flex-col w-full h-full items-start justify-start gap-[14px] p-[22px] rounded-[9px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+      <div data-name="AddHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <p data-name="AddTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[400] leading-[1.2] text-[#252525]">手动添加模型</p>
+        <div data-name="AddClose" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="AddCloseText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">x</p>
+        </div>
+      </div>
+      <p data-name="AddOrigin" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">添加到当前连接</p>
+      <div data-name="AddModelID" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="AddModelIDLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">模型 ID · 必填</p>
+        <div data-name="AddModelIDInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="AddModelIDValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">填写服务要求的准确 ID</p>
+        </div>
+      </div>
+      <div data-name="AddDisplayName" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="AddDisplayNameLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">显示名称</p>
+        <div data-name="AddDisplayNameInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="AddDisplayNameValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">我的模型</p>
+        </div>
+      </div>
+      <div data-name="AddPurposeRow" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="AddPurpose" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="AddPurposeLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">模型用途</p>
+          <div data-name="AddPurposeInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="AddPurposeValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">对话  v</p>
+          </div>
+        </div>
+        <div data-name="AddContext" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="AddContextLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">Context 上限 · token</p>
+          <div data-name="AddContextInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="AddContextValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">未声明</p>
+          </div>
+        </div>
+      </div>
+      <div data-name="AddCapabilities" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="AddCapabilitiesLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">能力声明</p>
+        <div data-name="AddCapabilitiesInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="AddCapabilitiesValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">[ ] 视觉输入    [ ] 工具调用</p>
+        </div>
+      </div>
+      <div data-name="AddEffortRow" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="AddReasoning" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="AddReasoningLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">思考等级</p>
+          <div data-name="AddReasoningInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="AddReasoningValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">跟随模型默认  v</p>
+          </div>
+        </div>
+        <div data-name="AddVisibility" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="AddVisibilityLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">对话列表</p>
+          <div data-name="AddVisibilityInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="AddVisibilityValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">启用  v</p>
+          </div>
+        </div>
+      </div>
+      <p data-name="AddMetadataHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">能力与上限按服务说明填写；修改声明不会让模型获得新能力。</p>
+      <p data-name="AddPricingHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">价格：服务未提供；不估算、不展示虚构费用。</p>
+      <div data-name="AddSpace" class="flex flex-col w-full h-full items-start justify-start">
+      </div>
+      <div data-name="AddFooter" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="AddCancel" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="AddCancelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">取消</p>
+        </div>
+        <div data-name="AddFooterSpace" class="flex flex-col w-full h-[1px] items-start justify-start">
+        </div>
+        <div data-name="AddSave" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#252525]">
+          <p data-name="AddSaveText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#FFFFFF]">添加到连接</p>
+        </div>
+      </div>
+    </div>
+    <div data-name="EditModelForm" class="flex flex-col w-full h-full items-start justify-start gap-[14px] p-[22px] rounded-[9px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+      <div data-name="EditHeader" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <p data-name="EditTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[20px] font-[400] leading-[1.2] text-[#252525]">模型设置</p>
+        <div data-name="EditClose" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="EditCloseText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">x</p>
+        </div>
+      </div>
+      <p data-name="EditOrigin" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">OpenAI · 主连接</p>
+      <div data-name="EditModelID" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="EditModelIDLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">模型 ID · 只读</p>
+        <div data-name="EditModelIDInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="EditModelIDValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">model-id-1</p>
+        </div>
+      </div>
+      <div data-name="EditDisplayName" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="EditDisplayNameLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">显示名称</p>
+        <div data-name="EditDisplayNameInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="EditDisplayNameValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">GPT</p>
+        </div>
+      </div>
+      <div data-name="EditPurposeRow" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="EditPurpose" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="EditPurposeLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">模型用途</p>
+          <div data-name="EditPurposeInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="EditPurposeValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">对话  v</p>
+          </div>
+        </div>
+        <div data-name="EditContext" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="EditContextLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">Context 上限 · token</p>
+          <div data-name="EditContextInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="EditContextValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">128000</p>
+          </div>
+        </div>
+      </div>
+      <div data-name="EditCapabilities" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+        <p data-name="EditCapabilitiesLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">能力声明</p>
+        <div data-name="EditCapabilitiesInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+          <p data-name="EditCapabilitiesValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">[x] 视觉输入    [x] 工具调用</p>
+        </div>
+      </div>
+      <div data-name="EditEffortRow" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="EditReasoning" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="EditReasoningLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">思考等级</p>
+          <div data-name="EditReasoningInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="EditReasoningValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">跟随模型默认  v</p>
+          </div>
+        </div>
+        <div data-name="EditVisibility" class="flex flex-col w-full h-fit items-start justify-start gap-[6px]">
+          <p data-name="EditVisibilityLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">对话列表</p>
+          <div data-name="EditVisibilityInput" class="flex flex-col w-full h-fit items-start justify-start py-[10px] px-3 rounded-[5px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+            <p data-name="EditVisibilityValue" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">启用  v</p>
+          </div>
+        </div>
+      </div>
+      <p data-name="EditMetadataHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">能力与上限按服务说明填写；修改声明不会让模型获得新能力。</p>
+      <p data-name="EditPricingHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">价格：服务未提供；不估算、不展示虚构费用。</p>
+      <div data-name="EditSpace" class="flex flex-col w-full h-full items-start justify-start">
+      </div>
+      <div data-name="EditFooter" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+        <div data-name="EditCancel" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+          <p data-name="EditCancelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">取消</p>
+        </div>
+        <div data-name="EditFooterSpace" class="flex flex-col w-full h-[1px] items-start justify-start">
+        </div>
+        <div data-name="EditSave" data-click="框架/04 模型与连接" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#252525]">
+          <p data-name="EditSaveText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#FFFFFF]">保存设置</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

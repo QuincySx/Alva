@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>选择器 / 06 添加与模式</title>
+  <link rel="stylesheet" href="../../tokens.css">
+</head>
+<body data-canvas="00 工作台线稿" class="w-[800px] h-[580px] flex flex-col items-start justify-start gap-[10px] p-8 bg-[#EAEAEA]">
+  <div data-name="AddMenu" class="flex flex-col w-[400px] h-fit items-start justify-start gap-1 p-3 rounded-[9px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+    <div data-name="AddMenuHeader" class="flex flex-row w-full h-[32px] items-center justify-start gap-3">
+      <p data-name="AddMenuTitle" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">添加</p>
+      <div data-name="CloseAddMenu" data-click="框架/01 新任务" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="CloseAddMenuText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">关闭</p>
+      </div>
+    </div>
+    <div data-name="AddFiles" class="flex flex-row w-full h-[52px] items-center justify-start gap-[10px] py-[6px] px-2 rounded-[5px]">
+      <div data-name="AddFilesIcon" class="flex flex-col w-[26px] h-[26px] items-center justify-center">
+        <p data-name="AddFilesMark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">+</p>
+      </div>
+      <div data-name="AddFilesLabels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+        <p data-name="AddFilesLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">添加文件、图片或视频…</p>
+        <p data-name="AddFilesHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">添加到当前消息</p>
+      </div>
+      <p data-name="AddFilesMore" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+    </div>
+    <div data-name="CreateGoal" class="flex flex-row w-full h-[52px] items-center justify-start gap-[10px] py-[6px] px-2 rounded-[5px]">
+      <div data-name="CreateGoalIcon" class="flex flex-col w-[26px] h-[26px] items-center justify-center">
+        <p data-name="CreateGoalMark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">O</p>
+      </div>
+      <div data-name="CreateGoalLabels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+        <p data-name="CreateGoalLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">新建目标</p>
+        <p data-name="CreateGoalHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">填写目标后再创建</p>
+      </div>
+      <p data-name="CreateGoalMore" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+    </div>
+    <div data-name="EnablePlan" class="flex flex-row w-full h-[52px] items-center justify-start gap-[10px] py-[6px] px-2 rounded-[5px]">
+      <div data-name="EnablePlanIcon" class="flex flex-col w-[26px] h-[26px] items-center justify-center">
+        <p data-name="EnablePlanMark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">=</p>
+      </div>
+      <div data-name="EnablePlanLabels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+        <p data-name="EnablePlanLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">计划模式</p>
+        <p data-name="EnablePlanHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">先规划，确认后执行</p>
+      </div>
+      <p data-name="EnablePlanMore" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+    </div>
+    <div data-name="EnableCollaboration" class="flex flex-row w-full h-[52px] items-center justify-start gap-[10px] py-[6px] px-2 rounded-[5px]">
+      <div data-name="EnableCollaborationIcon" class="flex flex-col w-[26px] h-[26px] items-center justify-center">
+        <p data-name="EnableCollaborationMark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">&amp;</p>
+      </div>
+      <div data-name="EnableCollaborationLabels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+        <p data-name="EnableCollaborationLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">协作模式</p>
+        <p data-name="EnableCollaborationHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">选择成员与分工</p>
+      </div>
+      <p data-name="EnableCollaborationMore" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+    </div>
+    <div data-name="AddMenuDivider" class="flex flex-col w-full h-[1px] items-start justify-start bg-[#D8D8D8]">
+    </div>
+    <div data-name="AddDirectory" class="flex flex-row w-full h-[52px] items-center justify-start gap-[10px] py-[6px] px-2 rounded-[5px]">
+      <div data-name="AddDirectoryIcon" class="flex flex-col w-[26px] h-[26px] items-center justify-center">
+        <p data-name="AddDirectoryMark" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">+</p>
+      </div>
+      <div data-name="AddDirectoryLabels" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+        <p data-name="AddDirectoryLabel" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[14px] font-[400] leading-[1.2] text-[#252525]">添加目录…</p>
+        <p data-name="AddDirectoryHint" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[11px] font-[400] leading-[1.2] text-[#666666]">查看范围与权限</p>
+      </div>
+      <p data-name="AddDirectoryMore" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[12px] font-[400] leading-[1.2] text-[#666666]">&gt;</p>
+    </div>
+  </div>
+  <div data-name="Composer" class="flex flex-col w-full h-[150px] items-start justify-start gap-[14px] p-4 rounded-[10px] bg-[#FFFFFF] border border-[#CFCFCF] border-inside">
+    <p data-name="Prompt" class="w-full h-fit font-[Alva_UI_Sans_SC] text-[15px] font-[400] leading-[1.2] text-[#666666]">说明你要完成的事，@ 引用文件或资料</p>
+    <div data-name="ComposerSpace" class="flex flex-col w-full h-full items-start justify-start">
+    </div>
+    <div data-name="ComposerControls" class="flex flex-row w-full h-fit items-center justify-start gap-3">
+      <div data-name="Attach" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="AttachText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">+</p>
+      </div>
+      <div data-name="Permissions" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="PermissionsText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">每次询问 v</p>
+      </div>
+      <div data-name="ComposerControlSpace" class="flex flex-col w-full h-[1px] items-start justify-start">
+      </div>
+      <div data-name="SelectAgentModel" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px]">
+        <p data-name="SelectAgentModelText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#252525]">ALVA · 默认模型 v</p>
+      </div>
+      <div data-name="Send" class="flex flex-row w-fit h-fit items-center justify-center py-2 px-3 rounded-[6px] bg-[#252525]">
+        <p data-name="SendText" class="w-fit h-fit font-[Alva_UI_Sans_SC] text-[13px] font-[400] leading-[1.2] text-[#FFFFFF]">发送</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -13,7 +13,7 @@ Legacy format: every script below except design_system.py (the model build_next.
 | 路径 | 职责 |
 |---|---|
 | native_shell_refresh.py | One-time exact-revision guarded public CLI migration of native-inset Header36/SidebarTopRow, real hidden navigation, existing Settings/Sheet return actions and necessary Expanded/Collapsed/PanelLeft semantics; no direct canonical JSON writes or Go implementation |
-| next/ | New-format authoring: build_next.py generates alva-next.smallpen (tokens.css, 56 components) from design_system.py; export_design.py exports per-component PNG sheets for the Kit gallery; token_names.json is the CSS-name/Kit-name table |
+| next/ | New-format authoring (pages_from_legacy.py + legacy_flows.json: the one-time conversion of the legacy pages and requirements, remove with the legacy packages): build_next.py generates alva-next.smallpen (tokens.css, 56 components) from design_system.py; export_design.py exports per-component PNG sheets for the Kit gallery; token_names.json is the CSS-name/Kit-name table |
 | export_tokens.py | Offline, read-only export through the smallpen CLI (`token list`, `view --components`) of alva-next.smallpen to apps/ui/kit (tokens.json, design-components.json); optional output-root argument and ALVA_DESIGN_PACKAGE for tests; unknown, missing or mistyped Tokens fail; never writes the design package |
 | author.py | Composition helpers and shared/basic page authoring through named CLI intents |
 | workbench.py | Four workspace screens, shared composer and right workspace shell with file/empty/background bodies, closable tabs and panel catalog; reviewed revision required before redraw; setup is one-time |
