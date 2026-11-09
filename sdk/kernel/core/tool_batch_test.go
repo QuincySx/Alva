@@ -92,7 +92,11 @@ func TestParallelWaveRecordsEachCallsActualExecutionTimes(t *testing.T) {
 	outcomes := log.outcomes()
 	slowOutcome, fastOutcome, preparedOutcome := outcomes["slow-call"], outcomes["fast-call"], outcomes["prepared-call"]
 	for name, outcome := range map[string]abi.ToolOutcome{"slow": slowOutcome, "fast": fastOutcome} {
-		if outcome.StartedAt.IsZero() || outcome.EndedAt.IsZero() || outcome.EndedAt.Before(outcome.StartedAt) || outcome.StartedAt.Before(before) || outcome.EndedAt.After(after) {
+		// Outcome instants are wall start + monotonic elapsed, while before/after
+		// are wall readings; Windows wall clocks tick as coarsely as ~15.6 ms, so
+		// the window gets a margin far above that granularity.
+		const clockSlack = 50 * time.Millisecond
+		if outcome.StartedAt.IsZero() || outcome.EndedAt.IsZero() || outcome.EndedAt.Before(outcome.StartedAt) || outcome.StartedAt.Before(before.Add(-clockSlack)) || outcome.EndedAt.After(after.Add(clockSlack)) {
 			t.Fatalf("%s execution times invalid: %+v", name, outcome)
 		}
 	}

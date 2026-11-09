@@ -83,7 +83,9 @@ func TestQuestionToolRunsInStandaloneMemorySDK(t *testing.T) {
 func TestQuestionCancellationJoinsHandlerAndRejectsLateAnswer(t *testing.T) {
 	refs, _ := agentcontext.NewMemoryReferences("s", 1<<20)
 	joined := false
+	started := make(chan struct{})
 	tool, err := interaction.NewTool(interaction.ToolConfig{Handler: interaction.HandlerFunc(func(ctx context.Context, _ interaction.Question) (interaction.Answer, error) {
+		close(started)
 		<-ctx.Done()
 		joined = true
 		late := "late answer is not accepted"
@@ -92,10 +94,17 @@ func TestQuestionCancellationJoinsHandlerAndRejectsLateAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	// The deadline must expire only after the handler is running; a fixed short
+	// timeout can fire first on a loaded runner, so Ask rightly never calls it.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
+	go func() {
+		<-started
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
 	result, err := tool.Execute(ctx, abi.ToolExecutionContext{ActualTool: tool, SessionID: "s", RunID: "r", CallID: "c"}, wire.ToolCall{ID: "c", Name: "ask_human", Arguments: json.RawMessage(`{"question":"wait"}`)})
-	if !errors.Is(err, context.DeadlineExceeded) || !joined || len(result.Content) != 0 {
+	if !errors.Is(err, context.Canceled) || !joined || len(result.Content) != 0 {
 		t.Fatal("late answer succeeded or handler was not joined", result, joined, err)
 	}
 }
