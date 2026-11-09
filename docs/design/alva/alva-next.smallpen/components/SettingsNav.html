@@ -1,0 +1,136 @@
+<sp-component name="SettingsNav" props="Category: General | Models | Plugins | Skills | Storage | Security | Gateway | Developer">
+  <div data-name="SettingsNav" class="flex flex-col w-navigation h-[960px] items-start justify-start gap-2 p-3 bg-canvas border border-transparent border-inside">
+    <sp-use component="Button" data-name="BackToWork" props="Kind: Ghost; State: Default; Content: Leading" class="w-fit h-control-height">
+      <p data-name="Label">返回工作台</p>
+      <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
+    </sp-use>
+    <p data-name="Title" class="w-full h-fit text-text type-heading-strong">设置</p>
+    <p data-name="Scope" class="w-full h-fit hidden text-secondary type-caption">应用设置</p>
+    <sp-use component="NavItem" data-name="General" props="State: Selected" class="w-full h-control-row">
+      <p data-name="Label" class="shown">通用</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+    </sp-use>
+    <sp-use component="NavItem" data-name="Models" props="State: Default" class="w-full h-control-row">
+      <p data-name="Label" class="shown">模型与连接</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Chip"></sp-use>
+    </sp-use>
+    <sp-use component="NavItem" data-name="Plugins" props="State: Default" class="w-full h-control-row">
+      <p data-name="Label" class="shown">插件与工具</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Plugin"></sp-use>
+    </sp-use>
+    <sp-use component="NavItem" data-name="Skills" props="State: Default" class="w-full h-control-row">
+      <p data-name="Label" class="shown">规则与 Skills</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Book"></sp-use>
+    </sp-use>
+    <sp-use component="NavItem" data-name="Storage" props="State: Default" class="w-full h-control-row">
+      <p data-name="Label" class="shown">数据与存储</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Database"></sp-use>
+    </sp-use>
+    <sp-use component="NavItem" data-name="Security" props="State: Default" class="w-full h-control-row">
+      <p data-name="Label" class="shown">权限与安全</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Shield"></sp-use>
+    </sp-use>
+    <sp-use component="NavItem" data-name="Gateway" props="State: Default" class="w-full h-control-row">
+      <p data-name="Label" class="shown">Gateway</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Globe"></sp-use>
+    </sp-use>
+    <sp-use component="NavItem" data-name="Developer" props="State: Default" class="w-full h-control-row">
+      <p data-name="Label" class="shown">开发者</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Code"></sp-use>
+    </sp-use>
+    <div data-name="SettingsSpace" class="flex flex-col w-full h-full items-start justify-start">
+    </div>
+  </div>
+  <sp-variant when="Category: Models">
+    <sp-use data-name="General" props="State: Default">
+      <p data-name="Label" class="shown">通用</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+    </sp-use>
+    <sp-use data-name="Models" props="State: Selected">
+      <p data-name="Label" class="shown">模型与连接</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Chip"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Category: Plugins">
+    <sp-use data-name="General" props="State: Default">
+      <p data-name="Label" class="shown">通用</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+    </sp-use>
+    <sp-use data-name="Plugins" props="State: Selected">
+      <p data-name="Label" class="shown">插件与工具</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Plugin"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Category: Skills">
+    <sp-use data-name="General" props="State: Default">
+      <p data-name="Label" class="shown">通用</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+    </sp-use>
+    <sp-use data-name="Skills" props="State: Selected">
+      <p data-name="Label" class="shown">规则与 Skills</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Book"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Category: Storage">
+    <sp-use data-name="General" props="State: Default">
+      <p data-name="Label" class="shown">通用</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+    </sp-use>
+    <sp-use data-name="Storage" props="State: Selected">
+      <p data-name="Label" class="shown">数据与存储</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Database"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Category: Security">
+    <sp-use data-name="General" props="State: Default">
+      <p data-name="Label" class="shown">通用</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+    </sp-use>
+    <sp-use data-name="Security" props="State: Selected">
+      <p data-name="Label" class="shown">权限与安全</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Shield"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Category: Gateway">
+    <sp-use data-name="General" props="State: Default">
+      <p data-name="Label" class="shown">通用</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+    </sp-use>
+    <sp-use data-name="Gateway" props="State: Selected">
+      <p data-name="Label" class="shown">Gateway</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Globe"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Category: Developer">
+    <sp-use data-name="General" props="State: Default">
+      <p data-name="Label" class="shown">通用</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Settings"></sp-use>
+    </sp-use>
+    <sp-use data-name="Developer" props="State: Selected">
+      <p data-name="Label" class="shown">开发者</p>
+      <p data-name="Meta" class="hidden"></p>
+      <sp-use data-name="Icon" props="Name: Code"></sp-use>
+    </sp-use>
+  </sp-variant>
+</sp-component>

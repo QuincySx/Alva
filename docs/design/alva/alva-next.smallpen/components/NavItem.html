@@ -1,0 +1,28 @@
+<sp-component name="NavItem" props="State: Default | Hover | Selected | Focus | Disabled | SelectedFocus | SelectedDisabled">
+  <div data-name="NavItem" class="flex flex-row w-[208px] h-control-row items-center justify-start gap-2 px-3 bg-transparent border border-transparent border-inside rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: Chat" class="w-icon-size h-icon-size"></sp-use>
+    <p data-name="Label" class="w-full h-fit text-text type-body">项目与会话</p>
+    <p data-name="Meta" class="w-fit h-fit text-secondary text-center type-caption">3</p>
+  </div>
+  <sp-variant when="State: Hover" class="bg-hover"></sp-variant>
+  <sp-variant when="State: Selected" class="bg-surface">
+    <sp-use data-name="Icon" props="Name: Chat">
+      <p data-name="Glyph" class="text-text"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: Disabled">
+    <p data-name="Label" class="text-secondary">项目与会话</p>
+  </sp-variant>
+  <sp-variant when="State: SelectedFocus" class="bg-surface border-focus border-accent border-inside">
+    <sp-use data-name="Icon" props="Name: Chat">
+      <p data-name="Glyph" class="text-text"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedDisabled" class="bg-surface">
+    <sp-use data-name="Icon" props="Name: Chat">
+      <p data-name="Glyph" class="text-secondary"></p>
+    </sp-use>
+    <p data-name="Label" class="text-secondary">项目与会话</p>
+  </sp-variant>
+</sp-component>

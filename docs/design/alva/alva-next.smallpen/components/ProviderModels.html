@@ -1,0 +1,91 @@
+<sp-component name="ProviderModels" props="State: Idle | Loading | Ready | Empty | Unavailable | Error">
+  <div data-name="ProviderModels" class="flex flex-col w-[752px] h-fit items-start justify-start gap-2">
+    <div data-name="Header" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <p data-name="Title" class="w-full h-fit text-text type-subtitle-strong">模型（可选）</p>
+      <p data-name="Count" class="w-fit h-fit hidden text-secondary type-caption">已选 2</p>
+      <sp-use component="Button" data-name="Fetch" props="Kind: Secondary; State: Default; Content: Leading" class="w-fit h-control-height">
+        <p data-name="Label">获取模型</p>
+        <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+      </sp-use>
+    </div>
+    <p data-name="Status" class="w-full h-fit text-secondary type-caption">尚未获取模型</p>
+    <sp-use component="Notice" data-name="Error" props="Tone: Danger" class="w-full h-fit hidden">
+      <div data-name="Copy">
+        <p data-name="Description" class="shown">检查地址或凭据后重试，已填写内容会保留。</p>
+        <p data-name="Title">模型获取失败</p>
+      </div>
+    </sp-use>
+    <sp-use component="Input" data-name="Search" props="Kind: Search; State: Default" class="w-full h-control-height hidden">
+      <p data-name="Value">搜索模型…</p>
+    </sp-use>
+    <div data-name="Choices" class="flex flex-col w-full h-fit items-start justify-start gap-1 hidden">
+      <sp-use component="Checkbox" data-name="ModelA" props="State: On" class="w-full h-[32px]">
+        <p data-name="Label">GPT</p>
+      </sp-use>
+      <sp-use component="Checkbox" data-name="ModelB" props="State: On" class="w-full h-[32px]">
+        <p data-name="Label">GPT Mini</p>
+      </sp-use>
+    </div>
+    <div data-name="Manual" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <sp-use component="Input" data-name="ID" props="Kind: Text; State: Default" class="w-full h-control-height">
+        <p data-name="Value">输入模型 ID</p>
+      </sp-use>
+      <sp-use component="Button" data-name="Add" props="Kind: Secondary; State: Disabled; Content: Text" class="w-fit h-control-height">
+        <p data-name="Label">添加</p>
+      </sp-use>
+    </div>
+  </div>
+  <sp-variant when="State: Loading">
+    <div data-name="Header">
+      <sp-use data-name="Fetch" props="Kind: Secondary; State: Loading; Content: Leading">
+        <p data-name="Label">获取模型</p>
+        <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+      </sp-use>
+    </div>
+    <p data-name="Status" class="hidden"></p>
+  </sp-variant>
+  <sp-variant when="State: Ready">
+    <div data-name="Header">
+      <p data-name="Count" class="shown">已选 2</p>
+    </div>
+    <p data-name="Status" class="hidden"></p>
+    <sp-use data-name="Search" props="Kind: Search; State: Default" class="shown">
+      <p data-name="Value">搜索模型…</p>
+    </sp-use>
+    <div data-name="Choices" class="shown">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Empty">
+    <div data-name="Header">
+      <sp-use data-name="Fetch" props="Kind: Secondary; State: Default; Content: Leading">
+        <p data-name="Label">重新获取</p>
+        <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+      </sp-use>
+    </div>
+    <p data-name="Status">目录暂未返回模型，可手动添加或稍后刷新。</p>
+  </sp-variant>
+  <sp-variant when="State: Unavailable">
+    <div data-name="Header">
+      <sp-use data-name="Fetch" props="Kind: Secondary; State: Default; Content: Leading" class="hidden">
+        <p data-name="Label">获取模型</p>
+        <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+      </sp-use>
+    </div>
+    <p data-name="Status">此服务不提供模型目录，可手动添加。</p>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <div data-name="Header">
+      <sp-use data-name="Fetch" props="Kind: Secondary; State: Default; Content: Leading">
+        <p data-name="Label">重试</p>
+        <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+      </sp-use>
+    </div>
+    <p data-name="Status" class="hidden"></p>
+    <sp-use data-name="Error" props="Tone: Danger" class="shown">
+      <div data-name="Copy">
+        <p data-name="Description" class="shown">检查地址或凭据后重试，已填写内容会保留。</p>
+        <p data-name="Title">模型获取失败</p>
+      </div>
+    </sp-use>
+  </sp-variant>
+</sp-component>

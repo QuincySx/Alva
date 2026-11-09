@@ -1,0 +1,12 @@
+<sp-component name="TextArea" props="State: Default | Focus | Error | Disabled | ErrorFocus | ReadOnly">
+  <div data-name="TextArea" class="flex flex-col w-[360px] h-[96px] items-start justify-start p-3 bg-subtle border border-border border-inside rounded-ctrl">
+    <p data-name="Value" class="w-full h-fit text-secondary type-body">说明任务、引用资料，或输入你的回答…</p>
+  </div>
+  <sp-variant when="State: Focus" class="bg-surface border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: Error" class="bg-surface border border-danger border-inside"></sp-variant>
+  <sp-variant when="State: Disabled" class="bg-canvas opacity-disabled"></sp-variant>
+  <sp-variant when="State: ErrorFocus" class="bg-surface border-focus border-danger border-inside"></sp-variant>
+  <sp-variant when="State: ReadOnly">
+    <p data-name="Value" class="text-text">说明任务、引用资料，或输入你的回答…</p>
+  </sp-variant>
+</sp-component>

@@ -1,0 +1,29 @@
+<sp-component name="ResourceRow" props="Kind: File | Directory | Link | Media">
+  <div data-name="ResourceRow" class="flex flex-row w-[620px] h-fit items-center justify-start gap-2 py-2 px-3 bg-surface rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: File" class="w-icon-size h-icon-size">
+      <p data-name="Glyph" class="text-accent"></p>
+    </sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Title" class="w-full h-fit text-text type-body-strong">工作台方案.md</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">当前项目 · 12 KB · 已保存</p>
+    </div>
+    <sp-use component="Icon" data-name="Open" props="Name: ChevronRight" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </div>
+  <sp-variant when="Kind: Directory">
+    <sp-use data-name="Icon" props="Name: Folder">
+      <p data-name="Glyph" class="text-accent"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Link">
+    <sp-use data-name="Icon" props="Name: Link">
+      <p data-name="Glyph" class="text-accent"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Media">
+    <sp-use data-name="Icon" props="Name: Image">
+      <p data-name="Glyph" class="text-accent"></p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

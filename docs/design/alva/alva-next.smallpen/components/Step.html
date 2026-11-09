@@ -1,0 +1,20 @@
+<sp-component name="Step" props="State: Current | Done | Next">
+  <div data-name="Step" class="flex flex-row w-[200px] h-fit items-center justify-start gap-2 py-2 bg-surface">
+    <div data-name="Number" class="flex flex-col w-[28px] h-[28px] items-center justify-center bg-accent rounded-pill">
+      <p data-name="NumberLabel" class="w-fit h-fit text-on-accent text-center type-body-strong">1</p>
+    </div>
+    <p data-name="Label" class="w-full h-fit text-text type-body">选择供应商</p>
+  </div>
+  <sp-variant when="State: Done">
+    <div data-name="Number" class="bg-success-bg">
+      <p data-name="NumberLabel" class="text-success">1</p>
+    </div>
+    <p data-name="Label" class="text-secondary">选择供应商</p>
+  </sp-variant>
+  <sp-variant when="State: Next">
+    <div data-name="Number" class="bg-subtle">
+      <p data-name="NumberLabel" class="text-text">1</p>
+    </div>
+    <p data-name="Label" class="text-secondary">选择供应商</p>
+  </sp-variant>
+</sp-component>

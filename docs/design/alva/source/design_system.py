@@ -53,13 +53,13 @@ def token_definitions():
     add('control.icon','sizing',28)
     add('control.row','sizing',28)
     add('icon.size','sizing',16);add('icon.small','sizing',14)
-    add('size.sidebar','sizing',220,values={'Viewport/Narrow':72})
-    add('size.navigation','sizing',208,values={'Viewport/Narrow':184})
+    add('size.sidebar','sizing',220)
+    add('size.navigation','sizing',208)
     add('size.panel','sizing',432,values={'Viewport/Narrow':320})
     add('size.viewport.width','sizing',1440,values={'Viewport/Narrow':1024})
     add('size.viewport.height','sizing',960)
-    add('size.header','sizing',52)
-    add('view.sidebarLabels','boolean',True,values={'Viewport/Narrow':False})
+    add('size.header','sizing',36)
+    add('size.panelHeader','sizing',52)
     add('shadow.popup','shadow',{'offsetX':0,'offsetY':8,'blur':30,'spread':-6,'color':'#2026351A'},
         {'offsetX':0,'offsetY':8,'blur':30,'spread':-6,'color':'#00000066'})
     add('motion.normal','number',160,description='One transition duration in milliseconds; reduced motion disables decorative transitions in the implementation.')
@@ -469,8 +469,8 @@ def definitions():
         {'Kind':['Person','Agent','Provider']},[
             {'when':{'Kind':'Person'},'set':{'radius':ref('radius.pill')}},
             {'when':{'Kind':'Provider'},'set':{'fill':ref('color.subtle'),'Label.color':ref('color.secondary')}}]))
-    defs.append(component('NavItem',row('NavItem',[icon('Icon','Chat'),text('Label','项目与会话','body',visible=ref('view.sidebarLabels')),
-        text('Meta','3','caption','secondary',width='hug',textAlign='center',visible=ref('view.sidebarLabels'))],width=208,height=ref('control.row'),padding=[0,ref('space.3')],
+    defs.append(component('NavItem',row('NavItem',[icon('Icon','Chat'),text('Label','项目与会话','body'),
+        text('Meta','3','caption','secondary',width='hug',textAlign='center')],width=208,height=ref('control.row'),padding=[0,ref('space.3')],
         fill=ref('color.transparent'),stroke=ref('color.transparent'),radius=ref('radius.ctrl')),
         {'State':['Default','Hover','Selected','Focus','Disabled']},[
             {'when':{'State':'Hover'},'set':{'fill':ref('color.hover')}},
@@ -589,24 +589,23 @@ def definitions():
         row('Brand',[box('BrandMark',[instance('Mark','Icon',{'Name':'Sparkles'},sets={'Glyph.text':'a','Glyph.fontFamily':ref('font.family'),
             'Glyph.fontSize':ref('font.size.subtitle'),'Glyph.fontWeight':ref('font.weight.strong'),'Glyph.color':ref('color.onAccent')},width=ref('icon.size'),height=ref('icon.size'))],
             width=32,height=32,align='center',justify='center',fill=ref('color.accent'),radius=ref('radius.ctrl')),
-            text('BrandLabel','Alva','subtitle',strong=True,visible=ref('view.sidebarLabels'))],height=44,padding=4),
+            text('BrandLabel','Alva','subtitle',strong=True)],height=44,padding=4),
         button('NewTask','新任务','Secondary',symbol='Plus',width='fill'),
         nav('Search','搜索任务与资料','Search'),nav('Partners','伙伴与群聊','Users'),nav('Automations','自动化','Calendar'),
-        text('ProjectTitle','项目','caption','secondary',visible=ref('view.sidebarLabels'),margin=[8,0,0,0]),
+        text('ProjectTitle','项目','caption','secondary',margin=[8,0,0,0]),
         nav('Project','alva-agent','Folder',meta=''),nav('CurrentThread','整理桌面工作台','Chat',True),
         nav('SecondThread','检查插件加载','Chat'),nav('AnotherProject','我的资料','Folder'),
-        text('RecentTitle','最近','caption','secondary',visible=ref('view.sidebarLabels'),margin=[8,0,0,0]),
+        text('RecentTitle','最近','caption','secondary',margin=[8,0,0,0]),
         nav('RecentTask','整理模型连接','Clock'),nav('RecentResearch','本周资料研究','Clock'),
         box('SidebarSpace',width='fill',height='fill'),
-        row('Footer',[instance('Owner','Avatar',{'Kind':'Person'},texts={'Label':'S'},width=28,height=28,visible=ref('view.sidebarLabels')),
-            text('OwnerName','Smallraw','body',visible=ref('view.sidebarLabels')),icon_button('OpenSettings','Settings')],padding=4),
+        row('Footer',[instance('Owner','Avatar',{'Kind':'Person'},texts={'Label':'S'},width=28,height=28),
+            text('OwnerName','Smallraw','body'),icon_button('OpenSettings','Settings')],padding=4),
     ],width=ref('size.sidebar'),height=960,**block('navigation',gap=ref('space.1')),fill=ref('color.canvas')),
         {'Area':['Work','Partners','Settings','New']},[
             {'when':{'Area':'Partners'},'set':{'CurrentThread.props':{'State':'Default'},'Partners.props':{'State':'Selected'}}},
             {'when':{'Area':'Settings'},'set':{'CurrentThread.props':{'State':'Default'},'OpenSettings.props':{'State':'Pressed'}}},
             {'when':{'Area':'New'},'set':{'CurrentThread.props':{'State':'Default'}}},
         ],'Shell'))
-    defs[-1]['base']['children'][1]['set']['Label.visible']=ref('view.sidebarLabels')
     categories=[('General','通用','Settings'),('Models','模型与连接','Chip'),('Plugins','插件与工具','Plugin'),('Skills','规则与 Skills','Book'),
         ('Storage','数据与存储','Database'),('Security','权限与安全','Shield'),('Gateway','Gateway','Globe'),('Developer','开发者','Code')]
     settings_nodes=[button('BackToWork','返回工作台','Ghost',symbol='ChevronLeft',width='hug'),
@@ -617,12 +616,12 @@ def definitions():
     defs.append(component('SettingsNav',box('SettingsNav',settings_nodes,width=ref('size.navigation'),height=960,padding=ref('space.4'),gap=ref('space.2'),fill=ref('color.canvas'),
         stroke=ref('color.transparent')),{'Category':[c[0] for c in categories]},[
             {'when':{'Category':key},'set':{key+'.props':{'State':'Selected'}}} for key,_,_ in categories], 'Shell'))
-    defs.append(component('PageHeader',row('PageHeader',[box('Copy',[text('Title','整理桌面工作台','subtitle',strong=True),text('Description','alva-agent · 当前会话','caption','secondary')],width='fill',gap=ref('space.1')),
+    defs.append(component('PageHeader',row('PageHeader',[row('Copy',[text('Title','整理桌面工作台','subtitle',strong=True,width='hug'),text('Description','alva-agent · 当前会话','caption','secondary')],width='fill',gap=ref('space.2')),
         icon_button('Panel','Panel'),icon_button('More','More')],width=900,height=ref('size.header'),padding=[0,ref('space.6')],fill=ref('color.surface')),category='Shell'))
     defs.append(component('PanelHeader',row('PanelHeader',[
         instance('FileTab','Tab',{'State':'Selected'},texts={'Label':'文件'},width='hug',height=ref('control.height')),
         instance('TaskTab','Tab',{'State':'Default'},texts={'Label':'任务'},sets={'Icon.props':{'Name':'Task'}},width='hug',height=ref('control.height')),
-        icon_button('Add','Plus'),box('Spacer',width='fill',height=1),icon_button('Detach','External'),icon_button('Hide','Panel')],width=432,height=52,padding=[0,8],gap=ref('space.1'),
+        icon_button('Add','Plus'),box('Spacer',width='fill',height=1),icon_button('Detach','External'),icon_button('Hide','Panel')],width=432,height=ref('size.panelHeader'),padding=[0,8],gap=ref('space.1'),
         fill=ref('color.transparent')),category='Shell'))
     defs.append(component('CompanionRow',row('CompanionRow',[instance('Avatar','Avatar',{'Kind':'Agent'},texts={'Label':'研'},width=32,height=32),
         box('Copy',[text('Title','研究伙伴','body',strong=True),text('Description','资料研究 · 2 项 Skills','caption','secondary')],width='fill',gap=ref('space.1'))],width=260,height='hug',padding=ref('space.3'),

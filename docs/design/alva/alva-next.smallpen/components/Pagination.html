@@ -1,0 +1,23 @@
+<sp-component name="Pagination" props="State: Ready | Loading | End">
+  <div data-name="Pagination" class="flex flex-row w-[620px] h-fit items-center justify-start gap-2 py-3">
+    <p data-name="Summary" class="w-full h-fit text-secondary type-caption">已显示 1–20 项</p>
+    <sp-use component="IconButton" data-name="Previous" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: ChevronLeft"></sp-use>
+    </sp-use>
+    <sp-use component="IconButton" data-name="Next" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: ChevronRight"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Loading">
+    <p data-name="Summary">正在加载下一页…</p>
+    <sp-use data-name="Next" props="State: Loading">
+      <sp-use data-name="Icon" props="Name: ChevronRight"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: End">
+    <p data-name="Summary">已显示全部结果</p>
+    <sp-use data-name="Next" props="State: Disabled">
+      <sp-use data-name="Icon" props="Name: ChevronRight"></sp-use>
+    </sp-use>
+  </sp-variant>
+</sp-component>

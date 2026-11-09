@@ -1,0 +1,28 @@
+<sp-component name="Tab" props="State: Default | Selected | Focus | Busy | SelectedFocus | SelectedDisabled | Disabled">
+  <div data-name="Tab" class="flex flex-row w-[136px] h-control-height items-center justify-start gap-2 px-2 bg-subtle border border-subtle border-inside rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: File" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label" class="w-fit h-fit text-text type-body">文件</p>
+    <sp-use component="Icon" data-name="Close" props="Name: Close" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Selected" class="bg-surface border border-surface border-inside"></sp-variant>
+  <sp-variant when="State: Focus" class="border border-accent border-inside"></sp-variant>
+  <sp-variant when="State: Busy">
+    <sp-use data-name="Icon" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedFocus" class="bg-surface border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: SelectedDisabled" class="bg-surface border border-surface border-inside">
+    <p data-name="Label" class="text-secondary">文件</p>
+  </sp-variant>
+  <sp-variant when="State: Disabled">
+    <sp-use data-name="Icon" props="Name: File">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <p data-name="Label" class="text-secondary">文件</p>
+  </sp-variant>
+</sp-component>

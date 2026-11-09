@@ -1,0 +1,35 @@
+<sp-component name="Notice" props="Tone: Info | Success | Warning | Danger">
+  <div data-name="Notice" class="flex flex-row w-[480px] h-fit items-start justify-start gap-2 p-4 bg-subtle border border-subtle border-inside rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: Info" class="w-icon-size h-icon-size">
+      <p data-name="Glyph" class="text-secondary"></p>
+    </sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-2">
+      <p data-name="Title" class="w-full h-fit text-secondary type-body-strong">连接状态</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">说明发生了什么，以及可以采取的下一步。</p>
+    </div>
+  </div>
+  <sp-variant when="Tone: Success" class="py-2 px-[0px] bg-transparent border border-transparent border-inside">
+    <sp-use data-name="Icon" props="Name: Check">
+      <p data-name="Glyph" class="text-success"></p>
+    </sp-use>
+    <div data-name="Copy">
+      <p data-name="Title" class="text-success">连接状态</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="Tone: Warning" class="bg-warning-bg border border-warning-bg border-inside">
+    <sp-use data-name="Icon" props="Name: Warning">
+      <p data-name="Glyph" class="text-warning"></p>
+    </sp-use>
+    <div data-name="Copy">
+      <p data-name="Title" class="text-warning">连接状态</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="Tone: Danger" class="bg-danger-bg border border-danger-bg border-inside">
+    <sp-use data-name="Icon" props="Name: Warning">
+      <p data-name="Glyph" class="text-danger"></p>
+    </sp-use>
+    <div data-name="Copy">
+      <p data-name="Title" class="text-danger">连接状态</p>
+    </div>
+  </sp-variant>
+</sp-component>

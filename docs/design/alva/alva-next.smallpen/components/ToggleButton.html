@@ -1,0 +1,73 @@
+<sp-component name="ToggleButton" props="State: Default | Hover | Pressed | Focus | Disabled | Selected | SelectedHover | SelectedPressed | SelectedFocus | SelectedDisabled; Content: Text | Leading">
+  <div data-name="ToggleButton" class="flex flex-row w-fit h-control-height items-center justify-center gap-2 px-3 bg-transparent rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: Panel" class="w-icon-small h-icon-small hidden">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label" class="w-fit h-fit text-text text-center type-body">面板</p>
+  </div>
+  <sp-variant when="State: Default; Content: Leading">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Hover; Content: Text" class="bg-subtle border border-subtle border-inside"></sp-variant>
+  <sp-variant when="State: Hover; Content: Leading" class="bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Pressed; Content: Text" class="bg-hover border border-hover border-inside"></sp-variant>
+  <sp-variant when="State: SelectedHover; Content: Text" class="bg-hover border border-hover border-inside"></sp-variant>
+  <sp-variant when="State: SelectedPressed; Content: Text" class="bg-hover border border-hover border-inside"></sp-variant>
+  <sp-variant when="State: Pressed; Content: Leading" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Focus; Content: Text" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: Focus; Content: Leading" class="border-focus border-accent border-inside">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Disabled; Content: Text">
+    <p data-name="Label" class="text-secondary">面板</p>
+  </sp-variant>
+  <sp-variant when="State: Disabled; Content: Leading">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <p data-name="Label" class="text-secondary">面板</p>
+  </sp-variant>
+  <sp-variant when="State: Selected; Content: Text" class="bg-accent-soft border border-accent-soft border-inside"></sp-variant>
+  <sp-variant when="State: Selected; Content: Leading" class="bg-accent-soft border border-accent-soft border-inside">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedHover; Content: Leading" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedPressed; Content: Leading" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small text-text"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedFocus; Content: Text" class="bg-accent-soft border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: SelectedFocus; Content: Leading" class="bg-accent-soft border-focus border-accent border-inside">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedDisabled; Content: Text" class="bg-accent-soft border border-accent-soft border-inside">
+    <p data-name="Label" class="text-secondary">面板</p>
+  </sp-variant>
+  <sp-variant when="State: SelectedDisabled; Content: Leading" class="bg-accent-soft border border-accent-soft border-inside">
+    <sp-use data-name="Icon" props="Name: Panel" class="shown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <p data-name="Label" class="text-secondary">面板</p>
+  </sp-variant>
+</sp-component>

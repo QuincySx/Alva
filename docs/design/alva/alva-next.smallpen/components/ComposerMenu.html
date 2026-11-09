@@ -1,0 +1,197 @@
+<sp-component name="ComposerMenu" props="View: Add | References | Commands | Empty | Loading | Error">
+  <div data-name="ComposerMenu" class="flex flex-row w-[352px] h-fit items-start justify-start gap-2">
+    <div data-name="List" class="flex flex-col w-full h-fit items-start justify-start gap-1 p-2 bg-surface border border-border border-inside rounded-card shadow-popup">
+      <div data-name="Options" class="flex flex-col w-full h-fit items-start justify-start gap-[0px]">
+        <sp-use component="MenuItem" data-name="First" props="State: Hover" class="w-full h-fit">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">文件、图片或视频…</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Paperclip"></sp-use>
+        </sp-use>
+        <sp-use component="MenuItem" data-name="Second" props="State: Default" class="w-full h-fit">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">新建目标</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Target"></sp-use>
+        </sp-use>
+        <sp-use component="MenuItem" data-name="Third" props="State: Default" class="w-full h-fit">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">计划模式</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: List"></sp-use>
+        </sp-use>
+        <sp-use component="MenuItem" data-name="Fourth" props="State: Default" class="w-full h-fit">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">协同模式</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Users"></sp-use>
+        </sp-use>
+        <div data-name="Divider" class="flex flex-col w-full h-[1px] items-start justify-start bg-border">
+        </div>
+        <sp-use component="MenuItem" data-name="Fifth" props="State: Default" class="w-full h-fit">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">添加目录…</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Folder"></sp-use>
+        </sp-use>
+      </div>
+      <div data-name="Message" class="flex flex-row w-full h-fit items-center justify-start gap-2 p-2 hidden">
+        <sp-use component="Icon" data-name="MessageIcon" props="Name: Search" class="w-icon-size h-icon-size"></sp-use>
+        <p data-name="MessageText" class="w-full h-fit text-secondary type-body">没有匹配的结果</p>
+      </div>
+      <div data-name="FooterLine" class="flex flex-col w-full h-[1px] items-start justify-start bg-border">
+      </div>
+      <p data-name="Query" class="w-full h-fit my-1 mx-2 text-secondary type-caption">输入 @ 搜索文件、任务或伙伴</p>
+    </div>
+    <div data-name="Detail" class="flex flex-col w-full h-fit items-start justify-start gap-2 p-3 bg-surface border border-border border-inside rounded-card shadow-popup hidden">
+      <div data-name="DetailHeader" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+        <p data-name="Title" class="w-full h-fit text-text type-subtitle-strong">plan</p>
+        <sp-use component="IconButton" data-name="OpenDetail" props="State: Default" class="w-control-icon h-control-icon">
+          <sp-use data-name="Icon" props="Name: External"></sp-use>
+        </sp-use>
+      </div>
+      <p data-name="Description" class="w-full h-fit text-secondary type-body">阅读项目资料，整理计划；确认后执行。</p>
+    </div>
+  </div>
+  <sp-variant when="View: References">
+    <div data-name="List">
+      <div data-name="Options">
+        <sp-use data-name="First" props="State: Hover">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">ARCHITECTURE.md</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: File"></sp-use>
+        </sp-use>
+        <sp-use data-name="Second" props="State: Default">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">模型连接流程</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Activity"></sp-use>
+        </sp-use>
+        <sp-use data-name="Third" props="State: Default">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">研究伙伴</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Users"></sp-use>
+        </sp-use>
+        <sp-use data-name="Fourth" props="State: Default" class="hidden">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">协同模式</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Users"></sp-use>
+        </sp-use>
+        <div data-name="Divider" class="hidden">
+        </div>
+        <sp-use data-name="Fifth" props="State: Default" class="hidden">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">添加目录…</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Folder"></sp-use>
+        </sp-use>
+      </div>
+      <p data-name="Query">@ 搜索当前项目</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="View: Commands" class="w-[640px]">
+    <div data-name="List">
+      <div data-name="Options">
+        <sp-use data-name="First" props="State: Hover">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">plan</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: List"></sp-use>
+        </sp-use>
+        <sp-use data-name="Second" props="State: Default">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">review</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Code"></sp-use>
+        </sp-use>
+        <sp-use data-name="Third" props="State: Default">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">文档整理</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: File"></sp-use>
+        </sp-use>
+        <sp-use data-name="Fourth" props="State: Default">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">资料研究</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Search"></sp-use>
+        </sp-use>
+        <div data-name="Divider" class="hidden">
+        </div>
+        <sp-use data-name="Fifth" props="State: Default" class="hidden">
+          <p data-name="Shortcut" class="hidden"></p>
+          <div data-name="Copy">
+            <p data-name="Description" class="hidden"></p>
+            <p data-name="Label">添加目录…</p>
+          </div>
+          <sp-use data-name="Icon" props="Name: Folder"></sp-use>
+        </sp-use>
+      </div>
+      <p data-name="Query">/ 搜索命令与 Skills</p>
+    </div>
+    <div data-name="Detail" class="shown">
+    </div>
+  </sp-variant>
+  <sp-variant when="View: Empty">
+    <div data-name="List">
+      <div data-name="Options" class="hidden">
+      </div>
+      <div data-name="Message" class="shown">
+      </div>
+      <p data-name="Query">换个关键词试试</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="View: Loading">
+    <div data-name="List">
+      <div data-name="Options" class="hidden">
+      </div>
+      <div data-name="Message" class="shown">
+        <sp-use data-name="MessageIcon" props="Name: Loader"></sp-use>
+        <p data-name="MessageText">正在查找…</p>
+      </div>
+      <p data-name="Query">@ 搜索当前项目</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="View: Error">
+    <div data-name="List">
+      <div data-name="Options" class="hidden">
+      </div>
+      <div data-name="Message" class="shown">
+        <sp-use data-name="MessageIcon" props="Name: Warning"></sp-use>
+        <p data-name="MessageText">读取失败，重新尝试</p>
+      </div>
+      <p data-name="Query">草稿与已选引用仍保留</p>
+    </div>
+  </sp-variant>
+</sp-component>

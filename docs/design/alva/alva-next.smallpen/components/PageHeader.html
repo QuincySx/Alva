@@ -1,0 +1,22 @@
+<sp-component name="PageHeader" props="Navigation: Expanded | Collapsed">
+  <div data-name="PageHeader" class="flex flex-row w-[900px] h-header items-center justify-start gap-2 px-6 bg-surface">
+    <sp-use component="IconButton" data-name="SidebarToggle" props="State: Default" class="w-control-icon h-control-icon hidden">
+      <sp-use data-name="Icon" props="Name: PanelLeft"></sp-use>
+    </sp-use>
+    <div data-name="Copy" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <p data-name="Title" class="w-fit h-fit text-text type-subtitle-strong">整理桌面工作台</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">alva-agent · 当前会话</p>
+    </div>
+    <sp-use component="IconButton" data-name="Panel" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: Panel"></sp-use>
+    </sp-use>
+    <sp-use component="IconButton" data-name="More" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: More"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="Navigation: Collapsed">
+    <sp-use data-name="SidebarToggle" props="State: Default" class="shown">
+      <sp-use data-name="Icon" props="Name: PanelLeft"></sp-use>
+    </sp-use>
+  </sp-variant>
+</sp-component>

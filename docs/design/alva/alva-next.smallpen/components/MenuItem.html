@@ -1,0 +1,32 @@
+<sp-component name="MenuItem" props="State: Default | Hover | Selected | Disabled | Danger | Focus | SelectedFocus | SelectedDisabled">
+  <div data-name="MenuItem" class="flex flex-row w-[320px] h-fit items-center justify-start gap-2 p-2 bg-surface border border-surface border-inside rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: Folder" class="w-icon-size h-icon-size"></sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Label" class="w-full h-fit text-text type-body">添加目录</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">选择当前任务可用的资料</p>
+    </div>
+    <p data-name="Shortcut" class="w-fit h-fit text-secondary type-caption">⌘ O</p>
+  </div>
+  <sp-variant when="State: Hover" class="bg-hover"></sp-variant>
+  <sp-variant when="State: Selected" class="bg-hover"></sp-variant>
+  <sp-variant when="State: Disabled">
+    <div data-name="Copy">
+      <p data-name="Label" class="text-secondary">添加目录</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Danger">
+    <sp-use data-name="Icon" props="Name: Folder">
+      <p data-name="Glyph" class="text-danger"></p>
+    </sp-use>
+    <div data-name="Copy">
+      <p data-name="Label" class="text-danger">添加目录</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: SelectedFocus" class="bg-hover border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: SelectedDisabled" class="bg-hover">
+    <div data-name="Copy">
+      <p data-name="Label" class="text-secondary">添加目录</p>
+    </div>
+  </sp-variant>
+</sp-component>

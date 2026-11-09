@@ -1,0 +1,55 @@
+<sp-component name="Approval" props="State: Pending | Allowed | Denied | Expired">
+  <div data-name="Approval" class="flex flex-col w-[560px] h-fit items-start justify-start gap-4 p-4 bg-surface border border-border border-inside rounded-card">
+    <div data-name="Header" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <sp-use component="Icon" data-name="Icon" props="Name: Shield" class="w-icon-size h-icon-size">
+        <p data-name="Glyph" class="text-warning"></p>
+      </sp-use>
+      <p data-name="Title" class="w-full h-fit text-text type-subtitle-strong">需要你的许可</p>
+      <sp-use component="Badge" data-name="Status" props="Tone: Warning" class="w-fit h-fit">
+        <p data-name="Label">等待确认</p>
+      </sp-use>
+    </div>
+    <p data-name="Description" class="w-full h-fit text-secondary type-body">研究伙伴请求执行命令，影响范围如下。</p>
+    <div data-name="Effect" class="flex flex-col w-full h-fit items-start justify-start gap-2 p-3 bg-subtle rounded-ctrl">
+      <p data-name="Command" class="w-full h-fit text-text type-body">go test ./tests/...</p>
+      <p data-name="Scope" class="w-full h-fit text-secondary type-caption">当前项目 · 运行命令</p>
+    </div>
+    <div data-name="Actions" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <sp-use component="Button" data-name="Deny" props="Kind: Secondary; State: Default; Content: Text" class="w-fit h-control-height">
+        <p data-name="Label">拒绝</p>
+      </sp-use>
+      <div data-name="ActionSpace" class="flex flex-col w-full h-[1px] items-start justify-start">
+      </div>
+      <sp-use component="Button" data-name="Allow" props="Kind: Primary; State: Default; Content: Text" class="w-fit h-control-height">
+        <p data-name="Label">仅允许这一次</p>
+      </sp-use>
+    </div>
+  </div>
+  <sp-variant when="State: Allowed">
+    <div data-name="Header">
+      <sp-use data-name="Status" props="Tone: Success">
+        <p data-name="Label">已允许</p>
+      </sp-use>
+    </div>
+    <div data-name="Actions" class="hidden">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Denied">
+    <div data-name="Header">
+      <sp-use data-name="Status" props="Tone: Neutral">
+        <p data-name="Label">已拒绝</p>
+      </sp-use>
+    </div>
+    <div data-name="Actions" class="hidden">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Expired">
+    <div data-name="Header">
+      <sp-use data-name="Status" props="Tone: Neutral">
+        <p data-name="Label">请求已过期</p>
+      </sp-use>
+    </div>
+    <div data-name="Actions" class="hidden">
+    </div>
+  </sp-variant>
+</sp-component>

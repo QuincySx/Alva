@@ -1,0 +1,27 @@
+<sp-component name="SkillRow" props="State: Shared | Owned | Unavailable">
+  <div data-name="SkillRow" class="flex flex-row w-[620px] h-fit items-center justify-start gap-2 py-4 bg-surface border-b border-border border-inside">
+    <sp-use component="Icon" data-name="Icon" props="Name: Book" class="w-icon-size h-icon-size"></sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Title" class="w-full h-fit text-text type-body-strong">资料研究</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">共享 Skills 库 · 固定 v1</p>
+    </div>
+    <sp-use component="Badge" data-name="Source" props="Tone: Neutral" class="w-fit h-fit hidden">
+      <p data-name="Label">共享</p>
+    </sp-use>
+    <sp-use component="Switch" data-name="Enabled" props="State: On" class="w-[38px] h-[24px]"></sp-use>
+    <sp-use component="IconButton" data-name="More" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: More"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Owned">
+    <div data-name="Copy">
+      <p data-name="Description">仅此伙伴 · v2 · 可编辑</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Unavailable">
+    <div data-name="Copy">
+      <p data-name="Description">来源不可用 · 不会挂载</p>
+    </div>
+    <sp-use data-name="Enabled" props="State: Disabled"></sp-use>
+  </sp-variant>
+</sp-component>

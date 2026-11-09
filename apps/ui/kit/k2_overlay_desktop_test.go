@@ -171,9 +171,9 @@ func TestShellHeadersSidebarAndSettingsNav(t *testing.T) {
 			PanelHeader(c, PanelHeaderProps{Title: "文件", OnClose: func() {}, Key: "pn"}).Label("面板头")
 		})
 	}), 480, 320)
-	for _, name := range []string{"页头", "面板头"} {
-		if r, _ := tester.Find(name); r.H != theme.SizeHeader {
-			t.Fatalf("%s is %v high, want 52", name, r.H)
+	for name, want := range map[string]float32{"页头": theme.SizeHeader, "面板头": theme.SizePanelHeader} {
+		if r, _ := tester.Find(name); r.H != want || (name == "页头" && r.H != 36) || (name == "面板头" && r.H != 52) {
+			t.Fatalf("%s is %v high, want %v (page header 36, panel header 52)", name, r.H, want)
 		}
 	}
 	if err := tester.Click("展开侧栏"); err != nil || toggled != 1 {
@@ -184,29 +184,87 @@ func TestShellHeadersSidebarAndSettingsNav(t *testing.T) {
 	if tester.HasText("展开侧栏") {
 		t.Fatal("an expanded header must not show the toggle")
 	}
-	for _, narrow := range []bool{false, true} {
-		side := ui.NewTester(kittest.Row(func(c *ui.Context) {
-			Sidebar(c, SidebarProps{Area: area, Narrow: narrow, OnSelect: func(a SidebarArea) { area = a }, OnCollapse: func() {}, Key: "sb"})
-		}), 400, 400)
-		collapse, _ := side.Find("收起侧栏")
-		// The sidebar is centered in the 400px window and its collapse action sits space.3 from its right edge.
-		right := collapse.X + collapse.W + theme.Space3
-		if width := 2*right - 400; width != theme.SizeSidebar(narrow) {
-			t.Fatalf("sidebar width %v, want %v (narrow=%v)", width, theme.SizeSidebar(narrow), narrow)
-		}
-		if err := side.Click("伙伴"); err != nil || area != AreaPartners {
-			t.Fatal("sidebar did not report the chosen area", narrow, area, err)
-		}
-		area = AreaWork
+	// Narrow keeps the 220 sidebar with labels: the collapse action sits space.3 from the right edge of the centered sidebar.
+	side := ui.NewTester(kittest.Row(func(c *ui.Context) {
+		Sidebar(c, SidebarProps{Area: area, OnSelect: func(a SidebarArea) { area = a }, OnCollapse: func() {}, Key: "sb"})
+	}), 400, 400)
+	collapse, _ := side.Find("收起侧栏")
+	right := collapse.X + collapse.W + theme.Space3
+	if width := 2*right - 400; width != theme.SizeSidebar {
+		t.Fatalf("sidebar width %v, want %v", width, theme.SizeSidebar)
+	}
+	if err := side.Click("伙伴"); err != nil || area != AreaPartners {
+		t.Fatal("sidebar did not report the chosen area", area, err)
+	}
+	if !side.HasText("工作区") || !side.HasText("设置") {
+		t.Fatal("the sidebar must show its labels")
 	}
 	nav := ui.NewTester(kittest.Centered(func(c *ui.Context) {
 		SettingsNav(c, []SettingsCategory{{"常规", icon.Settings}, {"模型", icon.Chip}, {"插件", icon.Plugin}}, SettingsNavProps{Selected: 0, OnSelect: func(i int) { picked = i }, Key: "sn"})
 	}), 300, 240)
 	row, _ := nav.Find("常规")
-	if row.W != theme.SizeNavigation(false)-2*theme.Space3 {
+	if row.W != theme.SizeNavigation-2*theme.Space3 {
 		t.Fatal("settings nav rows are not the 208 column minus padding", row.W)
 	}
 	if err := nav.Click("插件"); err != nil || picked != 2 {
 		t.Fatal("settings nav did not report the index", picked)
+	}
+}
+
+func TestPageHeaderTruncatesLongTitleAndSourceInsteadOfPushingActionsOut(t *testing.T) {
+	for _, width := range []float32{360, 240} {
+		pageHeaderKeepsActionsInView(t, width)
+	}
+}
+
+func pageHeaderKeepsActionsInView(t *testing.T, width float32) {
+	t.Helper()
+	tester := ui.NewTester(kittest.Centered(func(c *ui.Context) {
+		ui.Column(c).Width(width).Children(func() {
+			PageHeader(c, PageHeaderProps{
+				Title:       "这是一个非常非常长的会话标题用来检查页头在窄宽度下的截断行为",
+				Description: "alva-agent · 一个同样很长的来源说明文字 · 当前会话与工作目录",
+				Collapsed:   true,
+				Actions: func() {
+					IconButton(c, icon.More, "更多操作", IconButtonProps{Key: "more"})
+				},
+				Key: "ph",
+			}).Label("页头")
+		})
+	}), int(width+2*theme.Space6), 160)
+	header, ok := tester.Find("页头")
+	if !ok || header.W != width {
+		t.Fatalf("header rect %v (found %v), want %v wide", header, ok, width)
+	}
+	more, ok := tester.Find("更多操作")
+	if !ok {
+		t.Fatal("the actions are not rendered")
+	}
+	// The action keeps its place inside the header's right padding; the long text gave way.
+	if more.X+more.W > header.X+header.W-theme.Space4+0.5 || more.X < header.X {
+		t.Fatalf("the action at %v sticks out of the header %v", more, header)
+	}
+	toggle, _ := tester.Find("展开侧栏")
+	if toggle.X < header.X || toggle.X+toggle.W > more.X {
+		t.Fatalf("the toggle %v is not between the header start and the action %v", toggle, more)
+	}
+}
+
+// The source text owns the room between the title and the actions (no spacer element), so it shrinks first.
+func TestPageHeaderSourceTakesTheRemainingWidth(t *testing.T) {
+	tester := ui.NewTester(kittest.Centered(func(c *ui.Context) {
+		ui.Column(c).Width(480).Children(func() {
+			PageHeader(c, PageHeaderProps{Title: "设置", Description: "常规", Actions: func() {
+				IconButton(c, icon.More, "更多操作", IconButtonProps{Key: "more"})
+			}, Key: "ph"})
+		})
+	}), 480+2*int(theme.Space6), 160)
+	desc, ok := tester.Find("常规")
+	more, ok2 := tester.Find("更多操作")
+	if !ok || !ok2 {
+		t.Fatal("header text or action missing")
+	}
+	if gap := more.X - (desc.X + desc.W); gap > theme.Space2+0.5 {
+		t.Fatalf("the source ends %v before the action: it should fill the remaining width", gap)
 	}
 }

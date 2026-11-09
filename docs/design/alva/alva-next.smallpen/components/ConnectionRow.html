@@ -1,0 +1,32 @@
+<sp-component name="ConnectionRow" props="State: Default | Selected | Disconnected | Error">
+  <div data-name="ConnectionRow" class="flex flex-row w-[250px] h-fit items-center justify-start gap-2 py-2 px-3 bg-surface border border-surface border-inside rounded-ctrl">
+    <sp-use component="Avatar" data-name="Avatar" props="Kind: Provider" class="w-[32px] h-[32px] hidden">
+      <p data-name="Label">O</p>
+    </sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Title" class="w-full h-fit text-text type-body-strong">OpenAI · 主连接</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">API Key</p>
+    </div>
+    <sp-use component="Icon" data-name="Status" props="Name: ChevronRight" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Selected" class="bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Status" props="Name: Check">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Disconnected">
+    <div data-name="Copy">
+      <p data-name="Description">未配置</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <div data-name="Copy">
+      <p data-name="Description">连接失败 · 可重试</p>
+    </div>
+    <sp-use data-name="Status" props="Name: Warning">
+      <p data-name="Glyph" class="type-icon-small text-danger"></p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

@@ -1,0 +1,64 @@
+<sp-component name="PermissionMenu" props="Mode: Ask | Auto | Full">
+  <div data-name="PermissionMenu" class="flex flex-col w-[240px] h-fit items-start justify-start gap-1 p-2 bg-surface border border-border border-inside rounded-card shadow-popup">
+    <sp-use component="SelectOption" data-name="Ask" props="State: Selected" class="w-full h-fit">
+      <sp-use data-name="Icon" props="Name: Shield" class="shown">
+        <p data-name="Glyph" class="text-accent"></p>
+      </sp-use>
+      <div data-name="Copy">
+        <p data-name="Label" class="text-accent">每次询问</p>
+      </div>
+    </sp-use>
+    <sp-use component="SelectOption" data-name="Auto" props="State: Default" class="w-full h-fit">
+      <sp-use data-name="Icon" props="Name: Sparkles" class="shown">
+        <p data-name="Glyph" class="text-secondary"></p>
+      </sp-use>
+      <div data-name="Copy">
+        <p data-name="Label" class="text-text">自动审批</p>
+      </div>
+    </sp-use>
+    <sp-use component="SelectOption" data-name="Full" props="State: Default" class="w-full h-fit">
+      <sp-use data-name="Icon" props="Name: Warning" class="shown">
+        <p data-name="Glyph" class="text-secondary"></p>
+      </sp-use>
+      <div data-name="Copy">
+        <p data-name="Label" class="text-text">完全访问</p>
+      </div>
+    </sp-use>
+  </div>
+  <sp-variant when="Mode: Auto">
+    <sp-use data-name="Ask" props="State: Default">
+      <sp-use data-name="Icon" props="Name: Shield" class="shown">
+        <p data-name="Glyph" class="text-secondary"></p>
+      </sp-use>
+      <div data-name="Copy">
+        <p data-name="Label" class="text-text">每次询问</p>
+      </div>
+    </sp-use>
+    <sp-use data-name="Auto" props="State: Selected">
+      <sp-use data-name="Icon" props="Name: Sparkles" class="shown">
+        <p data-name="Glyph" class="text-accent"></p>
+      </sp-use>
+      <div data-name="Copy">
+        <p data-name="Label" class="text-accent">自动审批</p>
+      </div>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Mode: Full">
+    <sp-use data-name="Ask" props="State: Default">
+      <sp-use data-name="Icon" props="Name: Shield" class="shown">
+        <p data-name="Glyph" class="text-secondary"></p>
+      </sp-use>
+      <div data-name="Copy">
+        <p data-name="Label" class="text-text">每次询问</p>
+      </div>
+    </sp-use>
+    <sp-use data-name="Full" props="State: Selected">
+      <sp-use data-name="Icon" props="Name: Warning" class="shown">
+        <p data-name="Glyph" class="text-accent"></p>
+      </sp-use>
+      <div data-name="Copy">
+        <p data-name="Label" class="text-accent">完全访问</p>
+      </div>
+    </sp-use>
+  </sp-variant>
+</sp-component>

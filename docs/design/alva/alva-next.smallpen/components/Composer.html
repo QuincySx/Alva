@@ -1,0 +1,158 @@
+<sp-component name="Composer" props="State: Idle | Focus | Ready | Attaching | Submitting | Running | Waiting | Stopping | Stopped | Complete | Failed | Recording | Transcribing | Disabled">
+  <div data-name="Composer" class="flex flex-col w-[720px] h-fit items-start justify-start gap-2">
+    <sp-use component="RunStatus" data-name="Status" props="State: Working" class="w-full h-fit hidden"></sp-use>
+    <div data-name="Editor" class="flex flex-col w-full h-fit items-start justify-start gap-2 p-2 bg-surface border border-border border-inside rounded-card">
+      <sp-use component="Attachment" data-name="Attachments" props="State: Ready" class="w-full h-fit hidden"></sp-use>
+      <p data-name="Prompt" class="w-full h-fit text-secondary type-subtitle-reading">说明你要完成的事，@ 引用文件或伙伴</p>
+      <div data-name="Space" class="flex flex-col w-full h-[20px] items-start justify-start">
+      </div>
+      <div data-name="Controls" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+        <sp-use component="IconButton" data-name="Attach" props="State: Default" class="w-control-icon h-control-icon">
+          <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+        </sp-use>
+        <sp-use component="Button" data-name="Permission" props="Kind: Ghost; State: Default; Content: Leading" class="w-fit h-control-height">
+          <p data-name="Label">每次询问</p>
+          <sp-use data-name="Icon" props="Name: Shield"></sp-use>
+          <sp-use data-name="Trailing" class="shown"></sp-use>
+        </sp-use>
+        <div data-name="ControlSpace" class="flex flex-col w-full h-[1px] items-start justify-start">
+        </div>
+        <sp-use component="Button" data-name="Model" props="Kind: Ghost; State: Default; Content: Leading" class="w-fit h-control-height">
+          <p data-name="Label">GPT · ALVA</p>
+          <sp-use data-name="Icon" props="Name: Chip"></sp-use>
+          <sp-use data-name="Trailing" class="shown"></sp-use>
+        </sp-use>
+        <sp-use component="VoiceInput" data-name="Voice" props="State: Idle" class="w-fit h-control-height"></sp-use>
+        <sp-use component="Button" data-name="Send" props="Kind: Primary; State: Disabled; Content: Icon" class="w-control-height h-control-height">
+          <p data-name="Label">发送</p>
+          <sp-use data-name="Icon" props="Name: ArrowUp"></sp-use>
+        </sp-use>
+      </div>
+    </div>
+  </div>
+  <sp-variant when="State: Focus">
+    <div data-name="Editor" class="border border-accent border-inside">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Ready">
+    <div data-name="Editor">
+      <p data-name="Prompt" class="text-text">梳理当前项目的模型连接流程。</p>
+      <div data-name="Controls">
+        <sp-use data-name="Send" props="Kind: Primary; State: Default; Content: Icon">
+          <p data-name="Label">发送</p>
+          <sp-use data-name="Icon" props="Name: ArrowUp"></sp-use>
+        </sp-use>
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Attaching">
+    <div data-name="Editor">
+      <sp-use data-name="Attachments" props="State: Uploading" class="shown"></sp-use>
+      <p data-name="Prompt">等附件准备好后发送…</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Submitting">
+    <div data-name="Editor">
+      <p data-name="Prompt" class="text-text">梳理当前项目的模型连接流程。</p>
+      <div data-name="Controls">
+        <sp-use data-name="Attach" props="State: Disabled">
+          <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+        </sp-use>
+        <sp-use data-name="Voice" props="State: Disabled"></sp-use>
+        <sp-use data-name="Send" props="Kind: Primary; State: Loading; Content: Icon">
+          <p data-name="Label">发送</p>
+          <sp-use data-name="Icon" props="Name: ArrowUp"></sp-use>
+        </sp-use>
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Running">
+    <sp-use data-name="Status" props="State: Working" class="shown"></sp-use>
+    <div data-name="Editor">
+      <p data-name="Prompt">写下下一步…</p>
+      <div data-name="Controls">
+        <sp-use data-name="Send" props="Kind: Primary; State: Default; Content: Icon">
+          <p data-name="Label">停止任务</p>
+          <sp-use data-name="Icon" props="Name: Stop"></sp-use>
+        </sp-use>
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Waiting">
+    <sp-use data-name="Status" props="State: Waiting" class="shown"></sp-use>
+    <div data-name="Editor">
+      <p data-name="Prompt">先完成上方提问或审批</p>
+      <div data-name="Controls">
+        <sp-use data-name="Send" props="Kind: Primary; State: Disabled; Content: Icon">
+          <p data-name="Label">发送</p>
+          <sp-use data-name="Icon" props="Name: Pause"></sp-use>
+        </sp-use>
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Stopping">
+    <sp-use data-name="Status" props="State: Stopping" class="shown"></sp-use>
+    <div data-name="Editor">
+      <p data-name="Prompt">补充内容会留在草稿中…</p>
+      <div data-name="Controls">
+        <sp-use data-name="Send" props="Kind: Primary; State: Loading; Content: Icon">
+          <p data-name="Label">正在停止</p>
+          <sp-use data-name="Icon" props="Name: ArrowUp"></sp-use>
+        </sp-use>
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Stopped">
+    <sp-use data-name="Status" props="State: Stopped" class="shown"></sp-use>
+    <div data-name="Editor">
+      <p data-name="Prompt">继续输入，开始下一轮…</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Complete">
+    <sp-use data-name="Status" props="State: Done" class="shown"></sp-use>
+    <div data-name="Editor">
+      <p data-name="Prompt">继续聊聊…</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Failed">
+    <sp-use data-name="Status" props="State: Error" class="shown">
+      <p data-name="Label">发送失败，草稿已保留</p>
+    </sp-use>
+    <div data-name="Editor">
+      <p data-name="Prompt" class="text-text">梳理当前项目的模型连接流程。</p>
+      <div data-name="Controls">
+        <sp-use data-name="Send" props="Kind: Primary; State: Default; Content: Icon">
+          <p data-name="Label">发送</p>
+          <sp-use data-name="Icon" props="Name: ArrowUp"></sp-use>
+        </sp-use>
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Recording">
+    <div data-name="Editor">
+      <p data-name="Prompt">正在听…</p>
+      <div data-name="Controls">
+        <sp-use data-name="Voice" props="State: Recording"></sp-use>
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Transcribing">
+    <div data-name="Editor">
+      <p data-name="Prompt">正在转写，原有草稿会保留…</p>
+      <div data-name="Controls">
+        <sp-use data-name="Voice" props="State: Transcribing"></sp-use>
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Disabled">
+    <div data-name="Editor" class="bg-canvas">
+      <p data-name="Prompt">配置连接后即可开始</p>
+      <div data-name="Controls">
+        <sp-use data-name="Attach" props="State: Disabled">
+          <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+        </sp-use>
+        <sp-use data-name="Voice" props="State: Disabled"></sp-use>
+      </div>
+    </div>
+  </sp-variant>
+</sp-component>

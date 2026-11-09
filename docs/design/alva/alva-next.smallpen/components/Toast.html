@@ -1,0 +1,22 @@
+<sp-component name="Toast" props="Tone: Success | Error | Info">
+  <div data-name="Toast" class="flex flex-row w-[420px] h-fit items-center justify-start gap-2 p-3 bg-surface border border-border border-inside rounded-ctrl shadow-popup">
+    <sp-use component="Icon" data-name="Icon" props="Name: Check" class="w-icon-size h-icon-size">
+      <p data-name="Glyph" class="text-success"></p>
+    </sp-use>
+    <p data-name="Label" class="w-full h-fit text-text type-body">设置已保存，下一轮生效</p>
+    <sp-use component="IconButton" data-name="Close" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: Close"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="Tone: Error">
+    <sp-use data-name="Icon" props="Name: Warning">
+      <p data-name="Glyph" class="text-danger"></p>
+    </sp-use>
+    <p data-name="Label">保存失败，草稿已保留</p>
+  </sp-variant>
+  <sp-variant when="Tone: Info">
+    <sp-use data-name="Icon" props="Name: Info">
+      <p data-name="Glyph" class="text-secondary"></p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

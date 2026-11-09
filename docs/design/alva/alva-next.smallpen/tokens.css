@@ -1,0 +1,110 @@
+@font-face { font-family: "Alva UI Sans SC"; font-weight: 400; src: url(assets/fonts/AlvaUISansSC-Regular.ttf); }
+@font-face { font-family: "Alva UI Sans SC"; font-weight: 600; src: url(assets/fonts/AlvaUISansSC-SemiBold.ttf); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; src: url(assets/fonts/JetBrainsMono-Regular.ttf); }
+@font-face { font-family: "Alva Interface Icons"; font-weight: 400; src: url(assets/fonts/AlvaInterfaceIcons-Regular.ttf); }
+:root {
+  --color-canvas: #F3F4F7;
+  --color-surface: #FFFFFF;
+  --color-subtle: #F5F6F8;
+  --color-hover: #E9EBF0;
+  --color-sidebar: #F3F4F7;
+  --color-text: #272A34;
+  --color-secondary: #626B7A;
+  --color-border: #E2E5EB;
+  --color-accent: #6555CD;
+  --color-on-accent: #FFFFFF;
+  --color-accent-soft: #EFEDF9;
+  --color-control-border: #929AA9;
+  --color-success: #32704F;
+  --color-success-bg: #EDF4EE;
+  --color-warning: #856029;
+  --color-warning-bg: #F8F1E5;
+  --color-danger: #AC4050;
+  --color-danger-bg: #F8ECEE;
+  --color-scrim: #E3E6ED;
+  --color-transparent: #FFFFFF00;
+  --font-family: "Alva UI Sans SC";
+  --font-icons: "Alva Interface Icons";
+  --font-mono: "JetBrains Mono";
+  --text-caption: 11px;
+  --text-body: 13px;
+  --text-subtitle: 14px;
+  --text-heading: 20px;
+  --text-display: 28px;
+  --text-icon: 16px;
+  --text-icon-small: 14px;
+  --font-weight-regular: 400;
+  --font-weight-strong: 600;
+  --string-line-normal: "1.5";
+  --string-line-reading: "1.6";
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --radius-small: 4px;
+  --radius-ctrl: 8px;
+  --radius-card: 16px;
+  --radius-pill: 99px;
+  --border-focus: 2px;
+  --size-control-height: 32px;
+  --size-control-icon: 28px;
+  --size-control-row: 28px;
+  --size-icon-size: 16px;
+  --size-icon-small: 14px;
+  --size-sidebar: 220px;
+  --size-navigation: 208px;
+  --size-panel: 432px;
+  --size-viewport-width: 1440px;
+  --size-viewport-height: 960px;
+  --size-header: 36px;
+  --size-panel-header: 52px;
+  --shadow-popup: 0px 8px 30px -6px #2026351A;
+  --string-motion-normal: "160";
+  --string-motion-spinner: "840";
+  --flag-motion-reduced: false;
+  --type-icon: 400 16px/1 "Alva Interface Icons";
+  --type-icon-small: 400 14px/1 "Alva Interface Icons";
+  --type-body: 400 13px/1.5 "Alva UI Sans SC";
+  --type-caption: 400 11px/1.5 "Alva UI Sans SC";
+  --type-body-strong: 600 13px/1.5 "Alva UI Sans SC";
+  --type-subtitle-strong: 600 14px/1.5 "Alva UI Sans SC";
+  --type-heading-strong: 600 20px/1.5 "Alva UI Sans SC";
+  --type-subtitle-strong-lh1: 600 14px/1 "Alva UI Sans SC";
+  --type-mono-body-reading: 400 13px/1.6 "JetBrains Mono";
+  --type-caption-strong: 600 11px/1.5 "Alva UI Sans SC";
+  --type-subtitle-reading: 400 14px/1.6 "Alva UI Sans SC";
+  --opacity-none: 0;
+  --opacity-disabled: 0.6;
+  --opacity-pressed: 0.96;
+  --opacity-hover: 0.98;
+}
+:root[data-appearance="light"] {}
+:root[data-appearance="dark"] {
+  --color-canvas: #14161B;
+  --color-surface: #1C1F26;
+  --color-subtle: #252932;
+  --color-hover: #2C313C;
+  --color-sidebar: #181B21;
+  --color-text: #EAECF3;
+  --color-secondary: #A6ADBA;
+  --color-border: #303640;
+  --color-accent: #AAA1FF;
+  --color-on-accent: #231F46;
+  --color-accent-soft: #2C2945;
+  --color-control-border: #7F8999;
+  --color-success: #A0CDB3;
+  --color-success-bg: #29392F;
+  --color-warning: #E4C596;
+  --color-warning-bg: #3C3428;
+  --color-danger: #E6A6B2;
+  --color-danger-bg: #422E33;
+  --color-scrim: #101216;
+  --shadow-popup: 0px 8px 30px -6px #00000066;
+}
+:root[data-viewport="desktop"] {}
+:root[data-viewport="narrow"] {
+  --size-panel: 320px;
+  --size-viewport-width: 1024px;
+}

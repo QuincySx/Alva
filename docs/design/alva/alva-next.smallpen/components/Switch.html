@@ -1,0 +1,25 @@
+<sp-component name="Switch" props="State: Off | On | Focus | Disabled | OnFocus | OnDisabled">
+  <div data-name="Switch" class="flex flex-row w-[38px] h-[24px] items-center justify-start gap-[0px] p-1 bg-subtle border border-border border-inside rounded-pill">
+    <div data-name="OnSpacer" class="flex flex-col w-full h-[1px] items-start justify-start hidden">
+    </div>
+    <div data-name="Thumb" class="flex flex-col w-[16px] h-[16px] items-start justify-start bg-secondary rounded-pill">
+    </div>
+  </div>
+  <sp-variant when="State: On" class="bg-accent border border-accent border-inside">
+    <div data-name="OnSpacer" class="shown">
+    </div>
+    <div data-name="Thumb" class="bg-on-accent">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: OnFocus" class="bg-accent border-focus border-accent border-inside">
+    <div data-name="OnSpacer" class="shown">
+    </div>
+    <div data-name="Thumb" class="bg-on-accent">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: OnDisabled">
+    <div data-name="OnSpacer" class="shown">
+    </div>
+  </sp-variant>
+</sp-component>

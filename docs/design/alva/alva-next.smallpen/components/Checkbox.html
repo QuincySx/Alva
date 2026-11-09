@@ -1,0 +1,63 @@
+<sp-component name="Checkbox" props="State: Off | On | Mixed | Focus | Disabled | OnFocus | OnDisabled | MixedFocus | MixedDisabled">
+  <div data-name="Checkbox" class="flex flex-row w-[240px] h-[32px] items-center justify-start gap-2 bg-surface">
+    <div data-name="Mark" class="flex flex-col w-[18px] h-[18px] items-center justify-center bg-surface border border-control-border border-inside rounded-small">
+      <sp-use component="Icon" data-name="Check" props="Name: Check" class="w-icon-small h-icon-small hidden">
+        <p data-name="Glyph" class="type-icon-small text-on-accent"></p>
+      </sp-use>
+    </div>
+    <p data-name="Label" class="w-full h-fit text-text type-body">选择此项</p>
+  </div>
+  <sp-variant when="State: On">
+    <div data-name="Mark" class="bg-accent border border-accent border-inside">
+      <sp-use data-name="Check" props="Name: Check" class="shown">
+        <p data-name="Glyph" class="type-icon-small text-on-accent"></p>
+      </sp-use>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Mixed">
+    <div data-name="Mark" class="bg-accent">
+      <sp-use data-name="Check" props="Name: More" class="shown">
+        <p data-name="Glyph" class="type-icon-small text-on-accent"></p>
+      </sp-use>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Focus">
+    <div data-name="Mark" class="border-focus border-accent border-inside">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Disabled">
+    <div data-name="Mark" class="bg-subtle">
+    </div>
+    <p data-name="Label" class="text-secondary">选择此项</p>
+  </sp-variant>
+  <sp-variant when="State: OnFocus">
+    <div data-name="Mark" class="bg-accent border-focus border-accent border-inside">
+      <sp-use data-name="Check" props="Name: Check" class="shown">
+        <p data-name="Glyph" class="type-icon-small text-on-accent"></p>
+      </sp-use>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: OnDisabled">
+    <div data-name="Mark" class="bg-subtle border border-border border-inside">
+      <sp-use data-name="Check" props="Name: Check" class="shown">
+        <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+      </sp-use>
+    </div>
+    <p data-name="Label" class="text-secondary">选择此项</p>
+  </sp-variant>
+  <sp-variant when="State: MixedFocus">
+    <div data-name="Mark" class="bg-accent border-focus border-accent border-inside">
+      <sp-use data-name="Check" props="Name: More" class="shown">
+        <p data-name="Glyph" class="type-icon-small text-on-accent"></p>
+      </sp-use>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: MixedDisabled">
+    <div data-name="Mark" class="bg-subtle border border-border border-inside">
+      <sp-use data-name="Check" props="Name: More" class="shown">
+        <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+      </sp-use>
+    </div>
+    <p data-name="Label" class="text-secondary">选择此项</p>
+  </sp-variant>
+</sp-component>

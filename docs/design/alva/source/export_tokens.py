@@ -1,46 +1,109 @@
-# INPUT: design_system.token_definitions() and the saved Foundation package's components/components.json (read only).
-# OUTPUT: apps/ui/kit/theme/tokens.json and apps/ui/kit/testdata/design-components.json, deterministic and sorted as authored.
-# POS: Offline bridge from the design source to the Go Alva Kit; Go builds never run it, tests compare its output with the committed JSON.
+# INPUT: The SmallPen CLI (`smallpen token list`, `smallpen view --components`) reading docs/design/alva/alva-next.smallpen, plus source/next/token_names.json (CSS variable <-> Kit token table).
+# OUTPUT: apps/ui/kit/theme/tokens.json and apps/ui/kit/testdata/design-components.json, byte-for-byte the format the Kit has always committed.
+# POS: Offline bridge from the design package to the Go Alva Kit; Go builds never run it, tests compare its output with the committed JSON. Any name, type or catalog mismatch is an error, never a silent skip.
 import json
+import os
+import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-
-import design_system  # noqa: E402  (import has no side effects; its entry is guarded)
-
 REPO = HERE.parents[3]
 KIT = REPO / "apps" / "ui" / "kit"
-COMPONENTS = HERE.parent / "alva-foundation.smallpen" / "components" / "components.json"
+PACKAGE = Path(os.environ.get("ALVA_DESIGN_PACKAGE") or HERE.parent / "alva-next.smallpen")
+NAMES = HERE / "next" / "token_names.json"
+
+
+class Mismatch(Exception):
+    pass
+
+
+def smallpen(*args):
+    exe = os.environ.get("SMALLPEN") or shutil.which("smallpen")
+    if not exe:
+        raise Mismatch("smallpen CLI not found on PATH (set SMALLPEN to its path)")
+    done = subprocess.run([exe, *args], capture_output=True, text=True)
+    if done.returncode:
+        raise Mismatch(f"smallpen {' '.join(args)} failed: {done.stdout}{done.stderr}")
+    return done.stdout
+
+
+def number(text, token):
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        raise Mismatch(f"Token --{token} carries {text!r}, which is not a number") from None
+    return int(value) if value == int(value) else value
+
+
+def kit_value(kind, value):
+    if kind == "color":
+        return value.upper()
+    if kind == "shadow":
+        return {**value, "color": value["color"].upper()}
+    return value
 
 
 def tokens():
-    """Flatten token_definitions(): name without the ui. prefix, plus dark and narrow overrides."""
+    table = json.loads(NAMES.read_text(encoding="utf-8"))
+    by_css = {row["css"]: row for row in table["tokens"]}
+    derived = set(table["derived"])
+    listing = json.loads(smallpen("token", "list", str(PACKAGE), "--limit", "100", "--stdout"))
+    if listing["page"]["hasMore"]:
+        raise Mismatch("token list has more than 100 Tokens; page it")
+    found = {}
+    seen_derived = set()
+    for item in listing["items"]:
+        path, kind = item["token"]["path"], item["token"]["type"]
+        if path in derived:
+            seen_derived.add(path)
+            continue
+        row = by_css.get(path)
+        if row is None:
+            raise Mismatch(f"Token --{path} is in the package but not in token_names.json; add it to build_next.py and regenerate")
+        want = "string" if row["type"] == "number" else row["type"]
+        if kind != want:
+            raise Mismatch(f"Token --{path} has type {kind}, the table says {want}")
+        found[path] = item
+    if seen_derived != derived:
+        raise Mismatch("derived Tokens (type-*, opacity-*) differ from token_names.json: extra "
+                       f"{sorted(seen_derived - derived)}, missing {sorted(derived - seen_derived)}; regenerate with build_next.py")
+    missing = sorted(set(by_css) - set(found))
+    if missing:
+        raise Mismatch("Tokens missing from the package: " + ", ".join(missing))
     out = []
-    for token in design_system.token_definitions():
-        entry = {"name": token["name"].removeprefix("ui."), "type": token["type"], "value": token["value"]}
-        overrides = token.get("values", {})
-        if "Appearance/Dark" in overrides:
-            entry["dark"] = overrides["Appearance/Dark"]
-        if "Viewport/Narrow" in overrides:
-            entry["narrow"] = overrides["Viewport/Narrow"]
+    for row in table["tokens"]:
+        item = found[row["css"]]
+        convert = (lambda v: number(v, row["css"])) if row["type"] == "number" else (lambda v: kit_value(row["type"], v))
+        entry = {"name": row["kit"], "type": row["type"], "value": convert(item["value"])}
+        values = item.get("values", {})
+        if "appearance/dark" in values:
+            entry["dark"] = convert(values["appearance/dark"])
+        if "viewport/narrow" in values:
+            entry["narrow"] = convert(values["viewport/narrow"])
+        extra = set(values) - {"appearance/dark", "viewport/narrow"}
+        if extra:
+            raise Mismatch(f"Token --{row['css']} varies by unknown theme options: {sorted(extra)}")
         out.append(entry)
     return {"version": 1, "tokens": out}
 
 
 def components():
-    """Formal Alva components only; the unprefixed historical sets are ignored by the kit."""
-    sets = json.loads(COMPONENTS.read_text(encoding="utf-8"))["componentSets"]
+    text = json.loads(smallpen("view", str(PACKAGE), "--components", "--as", "text", "--limit", "100", "--stdout"))["text"]
     out = []
-    for component in sets:
-        if not component["name"].startswith("Alva "):
-            continue
-        out.append({
-            "name": component["name"].removeprefix("Alva "),
-            "variants": len(component["variants"]),
-            "axes": [{"name": axis["name"], "values": list(axis["domain"])} for axis in component["axes"]],
-        })
+    for line in text.splitlines():
+        parts = line.split(" · ")
+        name, last = parts[0], parts[-1]
+        match = re.fullmatch(r"(\d+) variants?", last)
+        if not match:
+            raise Mismatch("unreadable component line: " + line)
+        axes = []
+        for part in parts[1:-1]:
+            axis, values = part.split(": ", 1)
+            axes.append({"name": axis, "values": values.split("|")})
+        out.append({"name": name, "variants": int(match.group(1)), "axes": axes})
     return {"version": 1, "components": out}
 
 
@@ -52,5 +115,9 @@ def write(path, document):
 if __name__ == "__main__":
     # Optional argument: an alternative kit root, so tests can compare without touching the repository.
     root = Path(sys.argv[1]) if len(sys.argv) > 1 else KIT
-    write(root / "theme" / "tokens.json", tokens())
-    write(root / "testdata" / "design-components.json", components())
+    try:
+        write(root / "theme" / "tokens.json", tokens())
+        write(root / "testdata" / "design-components.json", components())
+    except Mismatch as error:
+        print("export_tokens: " + str(error), file=sys.stderr)
+        sys.exit(1)

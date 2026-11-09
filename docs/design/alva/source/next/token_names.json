@@ -1,0 +1,327 @@
+{
+ "version": 1,
+ "tokens": [
+  {
+   "kit": "color.canvas",
+   "css": "color-canvas",
+   "type": "color"
+  },
+  {
+   "kit": "color.surface",
+   "css": "color-surface",
+   "type": "color"
+  },
+  {
+   "kit": "color.subtle",
+   "css": "color-subtle",
+   "type": "color"
+  },
+  {
+   "kit": "color.hover",
+   "css": "color-hover",
+   "type": "color"
+  },
+  {
+   "kit": "color.sidebar",
+   "css": "color-sidebar",
+   "type": "color"
+  },
+  {
+   "kit": "color.text",
+   "css": "color-text",
+   "type": "color"
+  },
+  {
+   "kit": "color.secondary",
+   "css": "color-secondary",
+   "type": "color"
+  },
+  {
+   "kit": "color.border",
+   "css": "color-border",
+   "type": "color"
+  },
+  {
+   "kit": "color.accent",
+   "css": "color-accent",
+   "type": "color"
+  },
+  {
+   "kit": "color.onAccent",
+   "css": "color-on-accent",
+   "type": "color"
+  },
+  {
+   "kit": "color.accentSoft",
+   "css": "color-accent-soft",
+   "type": "color"
+  },
+  {
+   "kit": "color.controlBorder",
+   "css": "color-control-border",
+   "type": "color"
+  },
+  {
+   "kit": "color.success",
+   "css": "color-success",
+   "type": "color"
+  },
+  {
+   "kit": "color.successBg",
+   "css": "color-success-bg",
+   "type": "color"
+  },
+  {
+   "kit": "color.warning",
+   "css": "color-warning",
+   "type": "color"
+  },
+  {
+   "kit": "color.warningBg",
+   "css": "color-warning-bg",
+   "type": "color"
+  },
+  {
+   "kit": "color.danger",
+   "css": "color-danger",
+   "type": "color"
+  },
+  {
+   "kit": "color.dangerBg",
+   "css": "color-danger-bg",
+   "type": "color"
+  },
+  {
+   "kit": "color.scrim",
+   "css": "color-scrim",
+   "type": "color"
+  },
+  {
+   "kit": "color.transparent",
+   "css": "color-transparent",
+   "type": "color"
+  },
+  {
+   "kit": "font.family",
+   "css": "font-family",
+   "type": "font-family"
+  },
+  {
+   "kit": "font.icons",
+   "css": "font-icons",
+   "type": "font-family"
+  },
+  {
+   "kit": "font.mono",
+   "css": "font-mono",
+   "type": "font-family"
+  },
+  {
+   "kit": "font.size.caption",
+   "css": "text-caption",
+   "type": "font-size"
+  },
+  {
+   "kit": "font.size.body",
+   "css": "text-body",
+   "type": "font-size"
+  },
+  {
+   "kit": "font.size.subtitle",
+   "css": "text-subtitle",
+   "type": "font-size"
+  },
+  {
+   "kit": "font.size.heading",
+   "css": "text-heading",
+   "type": "font-size"
+  },
+  {
+   "kit": "font.size.display",
+   "css": "text-display",
+   "type": "font-size"
+  },
+  {
+   "kit": "font.size.icon",
+   "css": "text-icon",
+   "type": "font-size"
+  },
+  {
+   "kit": "font.size.iconSmall",
+   "css": "text-icon-small",
+   "type": "font-size"
+  },
+  {
+   "kit": "font.weight.regular",
+   "css": "font-weight-regular",
+   "type": "font-weight"
+  },
+  {
+   "kit": "font.weight.strong",
+   "css": "font-weight-strong",
+   "type": "font-weight"
+  },
+  {
+   "kit": "line.normal",
+   "css": "string-line-normal",
+   "type": "number"
+  },
+  {
+   "kit": "line.reading",
+   "css": "string-line-reading",
+   "type": "number"
+  },
+  {
+   "kit": "space.1",
+   "css": "spacing-1",
+   "type": "spacing"
+  },
+  {
+   "kit": "space.2",
+   "css": "spacing-2",
+   "type": "spacing"
+  },
+  {
+   "kit": "space.3",
+   "css": "spacing-3",
+   "type": "spacing"
+  },
+  {
+   "kit": "space.4",
+   "css": "spacing-4",
+   "type": "spacing"
+  },
+  {
+   "kit": "space.6",
+   "css": "spacing-6",
+   "type": "spacing"
+  },
+  {
+   "kit": "space.8",
+   "css": "spacing-8",
+   "type": "spacing"
+  },
+  {
+   "kit": "radius.small",
+   "css": "radius-small",
+   "type": "border-radius"
+  },
+  {
+   "kit": "radius.ctrl",
+   "css": "radius-ctrl",
+   "type": "border-radius"
+  },
+  {
+   "kit": "radius.card",
+   "css": "radius-card",
+   "type": "border-radius"
+  },
+  {
+   "kit": "radius.pill",
+   "css": "radius-pill",
+   "type": "border-radius"
+  },
+  {
+   "kit": "border.focus",
+   "css": "border-focus",
+   "type": "stroke-width"
+  },
+  {
+   "kit": "control.height",
+   "css": "size-control-height",
+   "type": "sizing"
+  },
+  {
+   "kit": "control.icon",
+   "css": "size-control-icon",
+   "type": "sizing"
+  },
+  {
+   "kit": "control.row",
+   "css": "size-control-row",
+   "type": "sizing"
+  },
+  {
+   "kit": "icon.size",
+   "css": "size-icon-size",
+   "type": "sizing"
+  },
+  {
+   "kit": "icon.small",
+   "css": "size-icon-small",
+   "type": "sizing"
+  },
+  {
+   "kit": "size.sidebar",
+   "css": "size-sidebar",
+   "type": "sizing"
+  },
+  {
+   "kit": "size.navigation",
+   "css": "size-navigation",
+   "type": "sizing"
+  },
+  {
+   "kit": "size.panel",
+   "css": "size-panel",
+   "type": "sizing"
+  },
+  {
+   "kit": "size.viewport.width",
+   "css": "size-viewport-width",
+   "type": "sizing"
+  },
+  {
+   "kit": "size.viewport.height",
+   "css": "size-viewport-height",
+   "type": "sizing"
+  },
+  {
+   "kit": "size.header",
+   "css": "size-header",
+   "type": "sizing"
+  },
+  {
+   "kit": "size.panelHeader",
+   "css": "size-panel-header",
+   "type": "sizing"
+  },
+  {
+   "kit": "shadow.popup",
+   "css": "shadow-popup",
+   "type": "shadow"
+  },
+  {
+   "kit": "motion.normal",
+   "css": "string-motion-normal",
+   "type": "number"
+  },
+  {
+   "kit": "motion.spinner",
+   "css": "string-motion-spinner",
+   "type": "number"
+  },
+  {
+   "kit": "motion.reduced",
+   "css": "flag-motion-reduced",
+   "type": "boolean"
+  }
+ ],
+ "derived": [
+  "type-body",
+  "type-body-strong",
+  "type-caption",
+  "type-caption-strong",
+  "type-heading-strong",
+  "type-icon",
+  "type-icon-small",
+  "type-mono-body-reading",
+  "type-subtitle-reading",
+  "type-subtitle-strong",
+  "type-subtitle-strong-lh1",
+  "opacity-none",
+  "opacity-disabled",
+  "opacity-pressed",
+  "opacity-hover"
+ ]
+}

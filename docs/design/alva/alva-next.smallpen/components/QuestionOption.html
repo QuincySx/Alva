@@ -1,0 +1,38 @@
+<sp-component name="QuestionOption" props="State: Default | Selected | Disabled | Focus | SelectedFocus | SelectedDisabled">
+  <div data-name="QuestionOption" class="flex flex-row w-[540px] h-fit items-center justify-start gap-2 p-3 bg-surface border border-border border-inside rounded-ctrl">
+    <sp-use component="Radio" data-name="Radio" props="State: Off" class="w-[18px] h-[20px]">
+      <p data-name="Label" class="hidden"></p>
+    </sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Title" class="w-full h-fit text-text type-body-strong">按推荐方案继续</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">说明选择的影响与代价</p>
+    </div>
+  </div>
+  <sp-variant when="State: Selected" class="bg-accent-soft border border-accent border-inside">
+    <sp-use data-name="Radio" props="State: On">
+      <p data-name="Label" class="hidden"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Disabled">
+    <sp-use data-name="Radio" props="State: Disabled">
+      <p data-name="Label" class="hidden"></p>
+    </sp-use>
+    <div data-name="Copy">
+      <p data-name="Title" class="text-secondary">按推荐方案继续</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: SelectedFocus" class="bg-accent-soft border-focus border-accent border-inside">
+    <sp-use data-name="Radio" props="State: On">
+      <p data-name="Label" class="hidden"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedDisabled" class="bg-accent-soft border border-accent border-inside">
+    <sp-use data-name="Radio" props="State: OnDisabled">
+      <p data-name="Label" class="hidden"></p>
+    </sp-use>
+    <div data-name="Copy">
+      <p data-name="Title" class="text-secondary">按推荐方案继续</p>
+    </div>
+  </sp-variant>
+</sp-component>

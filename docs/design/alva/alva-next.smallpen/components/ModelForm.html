@@ -1,0 +1,120 @@
+<sp-component name="ModelForm" props="Mode: Add | Edit">
+  <div data-name="ModelForm" class="flex flex-col w-[672px] h-fit items-start justify-start gap-4 bg-surface">
+    <div data-name="Identity" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+      <sp-use component="Field" data-name="ModelID" props="State: Default" class="w-full h-fit">
+        <p data-name="Title">模型 ID</p>
+        <p data-name="Hint" class="shown">按模型服务要求填写。</p>
+        <sp-use data-name="Control" props="Kind: Text; State: Default">
+          <p data-name="Value">填写准确的模型 ID</p>
+        </sp-use>
+      </sp-use>
+      <sp-use component="Field" data-name="DisplayName" props="State: Default" class="w-full h-fit">
+        <p data-name="Title">显示名称</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Text; State: Default">
+          <p data-name="Value">我的模型</p>
+        </sp-use>
+      </sp-use>
+    </div>
+    <div data-name="Limits" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <sp-use component="Field" data-name="Purpose" props="State: Default" class="w-full h-fit">
+        <p data-name="Title">模型用途</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Select; State: Default">
+          <p data-name="Value">对话</p>
+        </sp-use>
+      </sp-use>
+      <sp-use component="Field" data-name="Context" props="State: Default" class="w-full h-fit">
+        <p data-name="Title">Context 上限 · token</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Text; State: Default">
+          <p data-name="Value">未声明</p>
+        </sp-use>
+      </sp-use>
+    </div>
+    <div data-name="Capabilities" class="flex flex-col w-full h-fit items-start justify-start gap-3 bg-transparent rounded-ctrl">
+      <p data-name="CapabilityTitle" class="w-full h-fit text-text type-subtitle-strong">能力声明</p>
+      <div data-name="CapabilityFields" class="flex flex-row w-full h-fit items-start justify-start gap-2">
+        <sp-use component="SettingRow" data-name="Vision" props="Control: Switch" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Title">视觉输入</p>
+            <p data-name="Description">按服务说明填写。</p>
+          </div>
+        </sp-use>
+        <sp-use component="SettingRow" data-name="Tools" props="Control: Switch" class="w-full h-fit">
+          <div data-name="Copy">
+            <p data-name="Title">工具调用</p>
+            <p data-name="Description">模型和 Agent 都需要支持。</p>
+          </div>
+        </sp-use>
+      </div>
+    </div>
+    <div data-name="Defaults" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <sp-use component="Field" data-name="Reasoning" props="State: Default" class="w-full h-fit">
+        <p data-name="Title">思考程度默认值</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Select; State: Default">
+          <p data-name="Value">跟随模型默认</p>
+        </sp-use>
+      </sp-use>
+      <sp-use component="Field" data-name="Visibility" props="State: Default" class="w-full h-fit">
+        <p data-name="Title">对话选择器</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Select; State: Default">
+          <p data-name="Value">启用</p>
+        </sp-use>
+      </sp-use>
+    </div>
+    <sp-use component="Notice" data-name="Metadata" props="Tone: Info" class="w-full h-fit hidden">
+      <div data-name="Copy">
+        <p data-name="Description" class="shown">价格与限制未提供时显示未知，不按模型名字推断。</p>
+        <p data-name="Title">声明不创造模型能力</p>
+      </div>
+    </sp-use>
+  </div>
+  <sp-variant when="Mode: Edit">
+    <div data-name="Identity">
+      <sp-use data-name="ModelID" props="State: ReadOnly">
+        <p data-name="Title">模型 ID</p>
+        <p data-name="Hint" class="shown">已有模型的身份保持不变。</p>
+        <sp-use data-name="Control" props="Kind: Text; State: ReadOnly">
+          <p data-name="Value">model-id-1</p>
+        </sp-use>
+      </sp-use>
+      <sp-use data-name="DisplayName" props="State: Default">
+        <p data-name="Title">显示名称</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Text; State: Default">
+          <p data-name="Value">GPT</p>
+        </sp-use>
+      </sp-use>
+    </div>
+    <div data-name="Limits">
+      <sp-use data-name="Context" props="State: Default">
+        <p data-name="Title">Context 上限 · token</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Text; State: Default">
+          <p data-name="Value">128000</p>
+        </sp-use>
+      </sp-use>
+    </div>
+    <div data-name="Capabilities">
+      <div data-name="CapabilityFields">
+        <sp-use data-name="Vision" props="Control: Switch">
+          <div data-name="Copy">
+            <p data-name="Title">视觉输入</p>
+            <p data-name="Description">按服务说明填写。</p>
+          </div>
+          <sp-use data-name="Control" props="State: On"></sp-use>
+        </sp-use>
+        <sp-use data-name="Tools" props="Control: Switch">
+          <div data-name="Copy">
+            <p data-name="Title">工具调用</p>
+            <p data-name="Description">模型和 Agent 都需要支持。</p>
+          </div>
+          <sp-use data-name="Control" props="State: On"></sp-use>
+        </sp-use>
+      </div>
+    </div>
+  </sp-variant>
+</sp-component>

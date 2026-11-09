@@ -1,0 +1,75 @@
+<sp-component name="TreeRow" props="Kind: Folder | File; State: Default | Selected | Focus | SelectedFocus | Unavailable">
+  <div data-name="TreeRow" class="flex flex-row w-[300px] h-[32px] items-center justify-start gap-2 px-2 bg-surface border border-transparent border-inside rounded-small">
+    <sp-use component="Icon" data-name="Expand" props="Name: ChevronRight" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <sp-use component="Icon" data-name="Icon" props="Name: Folder" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label" class="w-full h-fit text-text type-body">docs</p>
+    <p data-name="Meta" class="w-fit h-fit text-secondary type-caption">3</p>
+  </div>
+  <sp-variant when="Kind: Folder; State: Selected" class="bg-accent-soft">
+    <p data-name="Label" class="text-accent">docs</p>
+  </sp-variant>
+  <sp-variant when="Kind: Folder; State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="Kind: Folder; State: SelectedFocus" class="bg-accent-soft border-focus border-accent border-inside">
+    <p data-name="Label" class="text-accent">docs</p>
+  </sp-variant>
+  <sp-variant when="Kind: Folder; State: Unavailable">
+    <sp-use data-name="Icon" props="Name: Folder">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <p data-name="Label" class="text-secondary">docs</p>
+  </sp-variant>
+  <sp-variant when="Kind: File; State: Default">
+    <sp-use data-name="Expand" props="Name: ChevronRight" class="hidden">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: File">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label">ARCHITECTURE.md</p>
+    <p data-name="Meta" class="hidden"></p>
+  </sp-variant>
+  <sp-variant when="Kind: File; State: Selected" class="bg-accent-soft">
+    <sp-use data-name="Expand" props="Name: ChevronRight" class="hidden">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: File">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label" class="text-accent">ARCHITECTURE.md</p>
+    <p data-name="Meta" class="hidden"></p>
+  </sp-variant>
+  <sp-variant when="Kind: File; State: Focus" class="border-focus border-accent border-inside">
+    <sp-use data-name="Expand" props="Name: ChevronRight" class="hidden">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: File">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label">ARCHITECTURE.md</p>
+    <p data-name="Meta" class="hidden"></p>
+  </sp-variant>
+  <sp-variant when="Kind: File; State: SelectedFocus" class="bg-accent-soft border-focus border-accent border-inside">
+    <sp-use data-name="Expand" props="Name: ChevronRight" class="hidden">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: File">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label" class="text-accent">ARCHITECTURE.md</p>
+    <p data-name="Meta" class="hidden"></p>
+  </sp-variant>
+  <sp-variant when="Kind: File; State: Unavailable">
+    <sp-use data-name="Expand" props="Name: ChevronRight" class="hidden">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <sp-use data-name="Icon" props="Name: File">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+    <p data-name="Label" class="text-secondary">ARCHITECTURE.md</p>
+    <p data-name="Meta" class="hidden"></p>
+  </sp-variant>
+</sp-component>

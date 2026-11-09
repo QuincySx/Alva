@@ -1,0 +1,35 @@
+<sp-component name="Progress" props="State: Running | Done | Error">
+  <div data-name="Progress" class="flex flex-col w-[360px] h-fit items-start justify-start gap-2">
+    <div data-name="Copy" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <p data-name="Title" class="w-full h-fit text-text type-body">正在执行</p>
+      <p data-name="Percent" class="w-fit h-fit text-secondary type-caption">60%</p>
+    </div>
+    <div data-name="Track" class="flex flex-row w-full h-[4px] items-center justify-start gap-[0px]">
+      <div data-name="Fill" class="flex flex-col w-full h-[4px] items-start justify-start bg-accent rounded-[2px]">
+      </div>
+      <div data-name="Remaining" class="flex flex-col w-[120px] h-[4px] items-start justify-start bg-subtle rounded-[2px]">
+      </div>
+    </div>
+  </div>
+  <sp-variant when="State: Done">
+    <div data-name="Copy">
+      <p data-name="Title">已完成</p>
+      <p data-name="Percent">100%</p>
+    </div>
+    <div data-name="Track">
+      <div data-name="Fill" class="bg-success">
+      </div>
+      <div data-name="Remaining" class="hidden">
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <div data-name="Copy">
+      <p data-name="Title">执行失败</p>
+    </div>
+    <div data-name="Track">
+      <div data-name="Fill" class="bg-danger">
+      </div>
+    </div>
+  </sp-variant>
+</sp-component>

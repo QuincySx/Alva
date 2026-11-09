@@ -1,0 +1,22 @@
+<sp-component name="CompanionRow" props="State: Default | Selected | Paused | Error">
+  <div data-name="CompanionRow" class="flex flex-row w-[260px] h-fit items-center justify-start gap-2 py-2 px-3 bg-surface border border-surface border-inside rounded-ctrl">
+    <sp-use component="Avatar" data-name="Avatar" props="Kind: Agent" class="w-[32px] h-[32px]">
+      <p data-name="Label">研</p>
+    </sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Title" class="w-full h-fit text-text type-body-strong">研究伙伴</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">资料研究 · 2 项 Skills</p>
+    </div>
+  </div>
+  <sp-variant when="State: Selected" class="bg-accent-soft border border-accent-soft border-inside"></sp-variant>
+  <sp-variant when="State: Paused">
+    <div data-name="Copy">
+      <p data-name="Description">已暂停 · 可以恢复</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <div data-name="Copy">
+      <p data-name="Description" class="text-danger">运行失败 · 查看详情</p>
+    </div>
+  </sp-variant>
+</sp-component>

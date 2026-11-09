@@ -43,7 +43,7 @@ func TestGeneratorRejectsUnknownTypesAndVersions(t *testing.T) {
 }
 
 func TestIdentCamelCasesSegments(t *testing.T) {
-	for in, want := range map[string]string{"font.size.body": "FontSizeBody", "space.1": "Space1", "view.sidebarLabels": "ViewSidebarLabels"} {
+	for in, want := range map[string]string{"font.size.body": "FontSizeBody", "space.1": "Space1", "size.panelHeader": "SizePanelHeader"} {
 		if got := ident(in); got != want {
 			t.Errorf("%s: %s want %s", in, got, want)
 		}

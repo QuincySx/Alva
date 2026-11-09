@@ -1,0 +1,24 @@
+<sp-component name="Citation" props="State: Default | Focus | Unavailable">
+  <div data-name="Citation" class="flex flex-row w-[360px] h-fit items-center justify-start gap-2 py-2 px-3 bg-surface border border-transparent border-inside rounded-ctrl">
+    <div data-name="Index" class="flex flex-col w-[24px] h-[24px] items-center justify-center bg-subtle rounded-small">
+      <p data-name="Number" class="w-fit h-fit text-text text-center type-caption-strong">1</p>
+    </div>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Title" class="w-full h-fit text-text type-body">工作台方案.md</p>
+      <p data-name="Location" class="w-full h-fit text-secondary type-caption">当前项目 · 第 2 节</p>
+    </div>
+    <sp-use component="Icon" data-name="Open" props="Name: External" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: Unavailable">
+    <div data-name="Copy">
+      <p data-name="Title" class="text-secondary">工作台方案.md</p>
+      <p data-name="Location">第 2 节 · 来源不可用</p>
+    </div>
+    <sp-use data-name="Open" props="Name: Warning">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

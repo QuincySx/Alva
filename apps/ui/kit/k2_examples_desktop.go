@@ -220,7 +220,7 @@ func navItemPage() Page {
 		Cell: func(c *ui.Context, sel []string) {
 			selected, disabled, forced := rowStates(sel[0])
 			force.With(forced, func() {
-				NavItem(c, "工作区", NavItemProps{Icon: icon.Chat, Selected: selected, Disabled: disabled, Key: "n"}).Width(theme.SizeNavigation(false))
+				NavItem(c, "工作区", NavItemProps{Icon: icon.Chat, Selected: selected, Disabled: disabled, Key: "n"}).Width(theme.SizeNavigation)
 			})
 		}}
 }
@@ -234,7 +234,7 @@ func treeRowPage() Page {
 				kind, label = TreeFile, "main.go"
 			}
 			force.With(forced, func() {
-				TreeRow(c, label, TreeRowProps{Kind: kind, Level: 1, Selected: selected, Unavailable: sel[1] == "Unavailable", Key: "t"}).Width(theme.SizeNavigation(false))
+				TreeRow(c, label, TreeRowProps{Kind: kind, Level: 1, Selected: selected, Unavailable: sel[1] == "Unavailable", Key: "t"}).Width(theme.SizeNavigation)
 			})
 		}}
 }

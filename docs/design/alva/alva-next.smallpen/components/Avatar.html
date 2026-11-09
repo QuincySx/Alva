@@ -1,0 +1,9 @@
+<sp-component name="Avatar" props="Kind: Person | Agent | Provider">
+  <div data-name="Avatar" class="flex flex-col w-[32px] h-[32px] items-center justify-center bg-accent-soft border border-border border-inside rounded-pill">
+    <p data-name="Label" class="w-fit h-fit text-accent text-center type-body-strong">研</p>
+  </div>
+  <sp-variant when="Kind: Agent" class="rounded-ctrl"></sp-variant>
+  <sp-variant when="Kind: Provider" class="bg-subtle rounded-ctrl">
+    <p data-name="Label" class="text-secondary">研</p>
+  </sp-variant>
+</sp-component>

@@ -1,0 +1,22 @@
+<sp-component name="PanelHeader">
+  <div data-name="PanelHeader" class="flex flex-row w-[432px] h-panel-header items-center justify-start gap-1 px-2 bg-transparent">
+    <sp-use component="Tab" data-name="FileTab" props="State: Selected" class="w-fit h-control-height">
+      <p data-name="Label">文件</p>
+    </sp-use>
+    <sp-use component="Tab" data-name="TaskTab" props="State: Default" class="w-fit h-control-height">
+      <p data-name="Label">任务</p>
+      <sp-use data-name="Icon" props="Name: Task"></sp-use>
+    </sp-use>
+    <sp-use component="IconButton" data-name="Add" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+    </sp-use>
+    <div data-name="Spacer" class="flex flex-col w-full h-[1px] items-start justify-start">
+    </div>
+    <sp-use component="IconButton" data-name="Detach" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: External"></sp-use>
+    </sp-use>
+    <sp-use component="IconButton" data-name="Hide" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: Panel"></sp-use>
+    </sp-use>
+  </div>
+</sp-component>

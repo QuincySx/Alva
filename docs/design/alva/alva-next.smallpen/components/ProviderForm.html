@@ -1,0 +1,94 @@
+<sp-component name="ProviderForm" props="Source: Preset | Custom">
+  <div data-name="ProviderForm" class="flex flex-col w-[752px] h-fit items-start justify-start gap-4">
+    <sp-use component="Button" data-name="ConnectionSettings" props="Kind: Ghost; State: Default; Content: Leading" class="w-fit h-control-height">
+      <p data-name="Label">连接设置</p>
+      <sp-use data-name="Icon" props="Name: ChevronDown"></sp-use>
+    </sp-use>
+    <div data-name="ConnectionDetails" class="flex flex-col w-full h-fit items-start justify-start gap-4 hidden">
+      <div data-name="Identity" class="flex flex-row w-full h-fit items-center justify-start gap-4">
+        <sp-use component="Field" data-name="Name" props="State: Default" class="w-full h-fit">
+          <p data-name="Title">连接名称</p>
+          <p data-name="Hint" class="hidden"></p>
+          <sp-use data-name="Control" props="Kind: Text; State: Default">
+            <p data-name="Value">OpenAI · 主连接</p>
+          </sp-use>
+        </sp-use>
+        <sp-use component="Field" data-name="Auth" props="State: Default" class="w-full h-fit">
+          <p data-name="Title">认证方式</p>
+          <p data-name="Hint" class="hidden"></p>
+          <sp-use data-name="Control" props="Kind: Select; State: Default">
+            <p data-name="Value">API Key</p>
+          </sp-use>
+        </sp-use>
+      </div>
+      <sp-use component="Field" data-name="Protocol" props="State: Default" class="w-full h-fit">
+        <p data-name="Title">API 协议</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Select; State: Default">
+          <p data-name="Value">OpenAI Responses</p>
+        </sp-use>
+      </sp-use>
+      <sp-use component="Field" data-name="Endpoint" props="State: Default" class="w-full h-fit">
+        <p data-name="Title">完整请求地址</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Text; State: Default">
+          <p data-name="Value">https://api.openai.com/v1/responses</p>
+        </sp-use>
+      </sp-use>
+    </div>
+    <sp-use component="Field" data-name="ApiKey" props="State: Default" class="w-full h-fit">
+      <p data-name="Title">API Key</p>
+      <p data-name="Hint" class="hidden"></p>
+      <sp-use data-name="Control" props="Kind: Password; State: Default">
+        <p data-name="Value">••••••••••••••••</p>
+      </sp-use>
+    </sp-use>
+    <div data-name="Actions" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <sp-use component="Button" data-name="Advanced" props="Kind: Ghost; State: Default; Content: Leading" class="w-fit h-control-height hidden">
+        <p data-name="Label">高级设置</p>
+        <sp-use data-name="Icon" props="Name: ChevronDown"></sp-use>
+      </sp-use>
+      <div data-name="Space" class="flex flex-col w-full h-[1px] items-start justify-start">
+      </div>
+      <sp-use component="Button" data-name="Test" props="Kind: Ghost; State: Default; Content: Text" class="w-fit h-control-height">
+        <p data-name="Label">测试连接</p>
+      </sp-use>
+    </div>
+    <sp-use component="Notice" data-name="TestStatus" props="Tone: Info" class="w-full h-fit hidden">
+      <div data-name="Copy">
+        <p data-name="Description" class="hidden"></p>
+        <p data-name="Title">等待测试</p>
+      </div>
+    </sp-use>
+  </div>
+  <sp-variant when="Source: Custom">
+    <sp-use data-name="ConnectionSettings" props="Kind: Ghost; State: Default; Content: Leading" class="hidden">
+      <p data-name="Label">连接设置</p>
+      <sp-use data-name="Icon" props="Name: ChevronDown"></sp-use>
+    </sp-use>
+    <div data-name="ConnectionDetails" class="shown">
+      <div data-name="Identity">
+        <sp-use data-name="Name" props="State: Default">
+          <p data-name="Title">连接名称</p>
+          <p data-name="Hint" class="hidden"></p>
+          <sp-use data-name="Control" props="Kind: Text; State: Default">
+            <p data-name="Value">我的模型服务</p>
+          </sp-use>
+        </sp-use>
+      </div>
+      <sp-use data-name="Endpoint" props="State: Default">
+        <p data-name="Title">完整请求地址</p>
+        <p data-name="Hint" class="hidden"></p>
+        <sp-use data-name="Control" props="Kind: Text; State: Default">
+          <p data-name="Value">https://api.example.com/v1/responses</p>
+        </sp-use>
+      </sp-use>
+    </div>
+    <div data-name="Actions">
+      <sp-use data-name="Advanced" props="Kind: Ghost; State: Default; Content: Leading" class="shown">
+        <p data-name="Label">高级设置</p>
+        <sp-use data-name="Icon" props="Name: ChevronDown"></sp-use>
+      </sp-use>
+    </div>
+  </sp-variant>
+</sp-component>

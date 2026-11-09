@@ -1,0 +1,181 @@
+<sp-component name="Input" props="Kind: Text | Search | Select | Password; State: Default | Focus | Error | Disabled | Loading | ErrorFocus | ReadOnly">
+  <div data-name="Input" class="flex flex-row w-[320px] h-control-height items-center justify-start gap-2 px-3 bg-subtle border border-border border-inside rounded-ctrl">
+    <sp-use component="Icon" data-name="Leading" props="Name: Search" class="w-icon-small h-icon-small hidden">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Value" class="w-full h-fit text-secondary type-body">搜索或输入内容</p>
+    <sp-use component="Icon" data-name="Trailing" props="Name: ChevronDown" class="w-icon-small h-icon-small hidden">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </div>
+  <sp-variant when="Kind: Text; State: Focus" class="bg-surface border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="Kind: Text; State: Error" class="bg-surface border border-danger border-inside">
+    <sp-use data-name="Trailing" props="Name: Warning" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Select; State: Error" class="bg-surface border border-danger border-inside">
+    <sp-use data-name="Trailing" props="Name: Warning" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Text; State: Disabled" class="bg-canvas opacity-disabled"></sp-variant>
+  <sp-variant when="Kind: Text; State: Loading">
+    <sp-use data-name="Trailing" props="Name: Loader" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Select; State: Loading">
+    <sp-use data-name="Trailing" props="Name: Loader" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Text; State: ErrorFocus" class="bg-surface border-focus border-danger border-inside">
+    <sp-use data-name="Trailing" props="Name: Warning" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Select; State: ErrorFocus" class="bg-surface border-focus border-danger border-inside">
+    <sp-use data-name="Trailing" props="Name: Warning" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Text; State: ReadOnly">
+    <p data-name="Value" class="text-text">搜索或输入内容</p>
+    <sp-use data-name="Trailing" props="Name: Lock" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Select; State: ReadOnly">
+    <p data-name="Value" class="text-text">搜索或输入内容</p>
+    <sp-use data-name="Trailing" props="Name: Lock" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Search; State: Default">
+    <sp-use data-name="Leading" props="Name: Search" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Search; State: Focus" class="bg-surface border-focus border-accent border-inside">
+    <sp-use data-name="Leading" props="Name: Search" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Search; State: Error" class="bg-surface border border-danger border-inside">
+    <sp-use data-name="Leading" props="Name: Search" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <sp-use data-name="Trailing" props="Name: Warning" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Search; State: Disabled" class="bg-canvas opacity-disabled">
+    <sp-use data-name="Leading" props="Name: Search" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Search; State: Loading">
+    <sp-use data-name="Leading" props="Name: Search" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <sp-use data-name="Trailing" props="Name: Loader" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Search; State: ErrorFocus" class="bg-surface border-focus border-danger border-inside">
+    <sp-use data-name="Leading" props="Name: Search" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <sp-use data-name="Trailing" props="Name: Warning" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Search; State: ReadOnly">
+    <sp-use data-name="Leading" props="Name: Search" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Value" class="text-text">搜索或输入内容</p>
+    <sp-use data-name="Trailing" props="Name: Lock" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Select; State: Default">
+    <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Select; State: Focus" class="bg-surface border-focus border-accent border-inside">
+    <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Select; State: Disabled" class="bg-canvas opacity-disabled">
+    <sp-use data-name="Trailing" props="Name: ChevronDown" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Password; State: Default">
+    <sp-use data-name="Leading" props="Name: Key" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Value">••••••••••••••••</p>
+    <sp-use data-name="Trailing" props="Name: Eye" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Password; State: Focus" class="bg-surface border-focus border-accent border-inside">
+    <sp-use data-name="Leading" props="Name: Key" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Value">••••••••••••••••</p>
+    <sp-use data-name="Trailing" props="Name: Eye" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Password; State: Error" class="bg-surface border border-danger border-inside">
+    <sp-use data-name="Leading" props="Name: Key" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Value">••••••••••••••••</p>
+    <sp-use data-name="Trailing" props="Name: Warning" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Password; State: Disabled" class="bg-canvas opacity-disabled">
+    <sp-use data-name="Leading" props="Name: Key" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Value">••••••••••••••••</p>
+    <sp-use data-name="Trailing" props="Name: Eye" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Password; State: Loading">
+    <sp-use data-name="Leading" props="Name: Key" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Value">••••••••••••••••</p>
+    <sp-use data-name="Trailing" props="Name: Loader" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Password; State: ErrorFocus" class="bg-surface border-focus border-danger border-inside">
+    <sp-use data-name="Leading" props="Name: Key" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Value">••••••••••••••••</p>
+    <sp-use data-name="Trailing" props="Name: Warning" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Kind: Password; State: ReadOnly">
+    <sp-use data-name="Leading" props="Name: Key" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Value" class="text-text">••••••••••••••••</p>
+    <sp-use data-name="Trailing" props="Name: Lock" class="shown">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

@@ -1,0 +1,39 @@
+<sp-component name="SelectOption" props="State: Default | Hover | Selected | Focus | SelectedFocus | Disabled | SelectedDisabled">
+  <div data-name="SelectOption" class="flex flex-row w-[320px] h-fit items-center justify-start gap-2 py-2 px-3 bg-surface border border-transparent border-inside rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: Shield" class="w-icon-small h-icon-small hidden">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Label" class="w-full h-fit text-text type-body">当前项目</p>
+      <p data-name="Description" class="w-full h-fit hidden text-secondary type-caption">仅此项目</p>
+    </div>
+    <sp-use component="Icon" data-name="Check" props="Name: Check" class="w-icon-small h-icon-small hidden">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Hover" class="bg-subtle"></sp-variant>
+  <sp-variant when="State: Selected" class="bg-subtle">
+    <sp-use data-name="Check" props="Name: Check" class="shown">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: SelectedFocus" class="bg-subtle border-focus border-accent border-inside">
+    <sp-use data-name="Check" props="Name: Check" class="shown">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Disabled">
+    <div data-name="Copy">
+      <p data-name="Label" class="text-secondary">当前项目</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: SelectedDisabled" class="bg-subtle">
+    <div data-name="Copy">
+      <p data-name="Label" class="text-secondary">当前项目</p>
+    </div>
+    <sp-use data-name="Check" props="Name: Check" class="shown">
+      <p data-name="Glyph" class="type-icon-small text-secondary"></p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

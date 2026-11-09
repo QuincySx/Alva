@@ -1,0 +1,30 @@
+<sp-component name="SettingRow" props="Control: Switch | Action | Select">
+  <div data-name="SettingRow" class="flex flex-row w-[620px] h-fit items-center justify-start gap-2 py-2 bg-surface border-b border-border border-inside">
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Title" class="w-full h-fit text-text type-body">配置项</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">作用域、来源与生效时机</p>
+    </div>
+    <sp-use component="Switch" data-name="Control" props="State: Off" class="w-[38px] h-[24px]"></sp-use>
+    <sp-use component="Button" data-name="Action" props="Kind: Secondary; State: Default; Content: Text" class="w-fit h-control-height hidden">
+      <p data-name="Label">配置</p>
+    </sp-use>
+    <sp-use component="Button" data-name="Select" props="Kind: Ghost; State: Default; Content: Trailing" class="w-fit h-control-height hidden">
+      <p data-name="Label">当前值</p>
+    </sp-use>
+  </div>
+  <sp-variant when="Control: Action">
+    <sp-use data-name="Control" props="State: Off" class="hidden"></sp-use>
+    <sp-use data-name="Action" props="Kind: Secondary; State: Default; Content: Text" class="shown">
+      <p data-name="Label">配置</p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="Control: Select">
+    <div data-name="Copy">
+      <p data-name="Description" class="hidden"></p>
+    </div>
+    <sp-use data-name="Control" props="State: Off" class="hidden"></sp-use>
+    <sp-use data-name="Select" props="Kind: Ghost; State: Default; Content: Trailing" class="shown">
+      <p data-name="Label">当前值</p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

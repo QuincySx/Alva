@@ -1,0 +1,28 @@
+<sp-component name="Field" props="State: Default | Focus | Error | Disabled | Loading | ErrorFocus | ReadOnly">
+  <div data-name="Field" class="flex flex-col w-[360px] h-fit items-start justify-start gap-2">
+    <p data-name="Title" class="w-full h-fit text-text type-body">连接名称</p>
+    <sp-use component="Input" data-name="Control" props="Kind: Text; State: Default" class="w-full h-control-height"></sp-use>
+    <p data-name="Hint" class="w-full h-fit text-secondary type-caption">仅影响下一轮任务</p>
+  </div>
+  <sp-variant when="State: Focus">
+    <sp-use data-name="Control" props="Kind: Text; State: Focus"></sp-use>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <sp-use data-name="Control" props="Kind: Text; State: Error"></sp-use>
+    <p data-name="Hint" class="text-danger">请检查此项配置</p>
+  </sp-variant>
+  <sp-variant when="State: Disabled">
+    <p data-name="Title" class="text-secondary">连接名称</p>
+    <sp-use data-name="Control" props="Kind: Text; State: Disabled"></sp-use>
+  </sp-variant>
+  <sp-variant when="State: Loading">
+    <sp-use data-name="Control" props="Kind: Text; State: Loading"></sp-use>
+  </sp-variant>
+  <sp-variant when="State: ErrorFocus">
+    <sp-use data-name="Control" props="Kind: Text; State: ErrorFocus"></sp-use>
+    <p data-name="Hint" class="text-danger">请检查此项配置</p>
+  </sp-variant>
+  <sp-variant when="State: ReadOnly">
+    <sp-use data-name="Control" props="Kind: Text; State: ReadOnly"></sp-use>
+  </sp-variant>
+</sp-component>

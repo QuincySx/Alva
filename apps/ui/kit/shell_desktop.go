@@ -22,17 +22,20 @@ type PageHeaderProps struct {
 	Key     string
 }
 
-// PageHeader is the 52px page title row.
+// PageHeader is the 36px page title row (the desktop toolbar row).
 func PageHeader(c *ui.Context, p PageHeaderProps) ui.Element {
 	return ui.Row(keyed(c, p.Key)).FillWidth().Height(theme.SizeHeader).Shrink(0).Padding(0, theme.Space4).Gap(theme.Space2).AlignItems(ui.Center).Children(func() {
 		if p.Collapsed {
 			IconButton(c, icon.PanelLeft, "展开侧栏", IconButtonProps{OnClick: p.OnToggleSidebar, Key: "toggle"})
 		}
-		Text(c, p.Title, TextProps{Role: RoleSubtitle, Strong: true, SingleLine: true, Key: "title"})
+		// Title and source share one line like the design's Copy row: the title may shrink to nothing, the source takes the
+		// remaining width (and the whole row when there is no source), so the actions stay in view at any width.
+		title := Text(c, p.Title, TextProps{Role: RoleSubtitle, Strong: true, SingleLine: true, Key: "title"}).MinWidth(0)
 		if p.Description != "" {
-			Text(c, p.Description, TextProps{Role: RoleCaption, Tone: ToneSecondary, SingleLine: true, Key: "desc"})
+			Text(c, p.Description, TextProps{Role: RoleCaption, Tone: ToneSecondary, SingleLine: true, Key: "desc"}).Grow(1).MinWidth(0)
+		} else {
+			title.Grow(1)
 		}
-		ui.Spacer(c).Grow(1)
 		if p.Actions != nil {
 			p.Actions()
 		}
@@ -48,9 +51,9 @@ type PanelHeaderProps struct {
 	Key     string
 }
 
-// PanelHeader is the 52px title row of a side panel.
+// PanelHeader is the 52px title row of a side panel; it does not follow the page header.
 func PanelHeader(c *ui.Context, p PanelHeaderProps) ui.Element {
-	return ui.Row(keyed(c, p.Key)).FillWidth().Height(theme.SizeHeader).Shrink(0).Padding(0, theme.Space3).Gap(theme.Space1).AlignItems(ui.Center).Children(func() {
+	return ui.Row(keyed(c, p.Key)).FillWidth().Height(theme.SizePanelHeader).Shrink(0).Padding(0, theme.Space3).Gap(theme.Space1).AlignItems(ui.Center).Children(func() {
 		Text(c, p.Title, TextProps{Strong: true, SingleLine: true, Key: "title"}).Grow(1).MinWidth(0)
 		if p.Actions != nil {
 			p.Actions()
@@ -74,8 +77,6 @@ const (
 // SidebarProps configure Sidebar.
 type SidebarProps struct {
 	Area SidebarArea
-	// Narrow shows icons only (theme.ViewSidebarLabels(true) is false) at the narrow width.
-	Narrow bool
 	// OnSelect is called with the chosen area; OnCollapse hides the sidebar.
 	OnSelect   func(SidebarArea)
 	OnCollapse func()
@@ -87,7 +88,6 @@ type SidebarProps struct {
 // Sidebar is the left navigation: collapse toggle, new action and the three areas.
 func Sidebar(c *ui.Context, p SidebarProps) ui.Element {
 	pl := pal(c)
-	labels := theme.ViewSidebarLabels(p.Narrow)
 	pick := func(a SidebarArea) func() {
 		return func() {
 			if p.OnSelect != nil {
@@ -99,7 +99,7 @@ func Sidebar(c *ui.Context, p SidebarProps) ui.Element {
 	if label == "" {
 		label = "主导航"
 	}
-	return ui.Column(keyed(c, p.Key)).Width(theme.SizeSidebar(p.Narrow)).Shrink(0).FillHeight().Padding(theme.Space3).Gap(theme.Space1).Background(col(pl.Sidebar)).
+	return ui.Column(keyed(c, p.Key)).Width(theme.SizeSidebar).Shrink(0).FillHeight().Padding(theme.Space3).Gap(theme.Space1).Background(col(pl.Sidebar)).
 		Role(ui.RoleList).Label(label).FocusGroup(ui.Vertical).Children(func() {
 		ui.Row(c.Key("top")).FillWidth().Height(theme.ControlHeight).AlignItems(ui.Center).Justify(ui.End).Children(func() {
 			IconButton(c, icon.PanelLeft, "收起侧栏", IconButtonProps{OnClick: p.OnCollapse, Key: "collapse"})
@@ -108,21 +108,13 @@ func Sidebar(c *ui.Context, p SidebarProps) ui.Element {
 		if p.Area == AreaNew {
 			kind = Primary
 		}
-		if labels {
-			Button(c, "新建", ButtonProps{Kind: kind, Icon: icon.Plus, OnClick: pick(AreaNew), Key: "new"}).FillWidth()
-		} else {
-			Button(c, "新建", ButtonProps{Kind: kind, Icon: icon.Plus, IconOnly: true, OnClick: pick(AreaNew), Key: "new"})
-		}
+		Button(c, "新建", ButtonProps{Kind: kind, Icon: icon.Plus, OnClick: pick(AreaNew), Key: "new"}).FillWidth()
 		for _, item := range []struct {
 			area  SidebarArea
 			label string
 			glyph icon.Name
 		}{{AreaWork, "工作区", icon.Chat}, {AreaPartners, "伙伴", icon.Users}, {AreaSettings, "设置", icon.Settings}} {
-			if labels {
-				NavItem(c, item.label, NavItemProps{Icon: item.glyph, Selected: p.Area == item.area, OnClick: pick(item.area), Key: "nav-" + item.label})
-			} else {
-				IconButton(c, item.glyph, item.label, IconButtonProps{Selected: p.Area == item.area, OnClick: pick(item.area), Key: "nav-" + item.label})
-			}
+			NavItem(c, item.label, NavItemProps{Icon: item.glyph, Selected: p.Area == item.area, OnClick: pick(item.area), Key: "nav-" + item.label})
 		}
 	})
 }
@@ -149,7 +141,7 @@ func SettingsNav(c *ui.Context, categories []SettingsCategory, p SettingsNavProp
 	if label == "" {
 		label = "设置导航"
 	}
-	return ui.Column(keyed(c, p.Key)).Width(theme.SizeNavigation(false)).Shrink(0).Padding(theme.Space3).Gap(theme.Space1).
+	return ui.Column(keyed(c, p.Key)).Width(theme.SizeNavigation).Shrink(0).Padding(theme.Space3).Gap(theme.Space1).
 		Role(ui.RoleList).Label(label).FocusGroup(ui.Vertical).Children(func() {
 		for i, cat := range categories {
 			index := i

@@ -1,0 +1,48 @@
+<sp-component name="TaskRow" props="State: Running | Waiting | Done | Failed | Cancelled | Queued">
+  <div data-name="TaskRow" class="flex flex-row w-[620px] h-fit items-center justify-start gap-2 py-2 px-3 bg-surface rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: Activity" class="w-icon-size h-icon-size"></sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Title" class="w-full h-fit text-text type-body-strong">检查模型连接流程</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">研究伙伴 · ALVA · 12 秒</p>
+    </div>
+    <sp-use component="Badge" data-name="Status" props="Tone: Accent" class="w-fit h-fit">
+      <p data-name="Label">运行中</p>
+    </sp-use>
+    <sp-use component="IconButton" data-name="Action" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: ChevronRight"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Waiting">
+    <sp-use data-name="Icon" props="Name: Help"></sp-use>
+    <sp-use data-name="Status" props="Tone: Warning">
+      <p data-name="Label">等你确认</p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Done">
+    <sp-use data-name="Icon" props="Name: Check"></sp-use>
+    <sp-use data-name="Status" props="Tone: Success">
+      <p data-name="Label">已完成</p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Failed">
+    <sp-use data-name="Icon" props="Name: Warning"></sp-use>
+    <sp-use data-name="Status" props="Tone: Danger">
+      <p data-name="Label">失败</p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Cancelled">
+    <sp-use data-name="Icon" props="Name: Stop"></sp-use>
+    <sp-use data-name="Status" props="Tone: Neutral">
+      <p data-name="Label">已取消</p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Queued">
+    <sp-use data-name="Icon" props="Name: Clock"></sp-use>
+    <div data-name="Copy">
+      <p data-name="Description">研究伙伴 · ALVA</p>
+    </div>
+    <sp-use data-name="Status" props="Tone: Neutral">
+      <p data-name="Label">等待运行</p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

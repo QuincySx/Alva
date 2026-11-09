@@ -1,0 +1,68 @@
+<sp-component name="VoiceInput" props="State: Idle | Hover | Focus | Recording | RecordingHover | Transcribing | Error | Disabled">
+  <div data-name="VoiceInput" class="flex flex-row w-fit h-control-height items-center justify-center gap-[0px]">
+    <sp-use component="IconButton" data-name="Microphone" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: Microphone"></sp-use>
+    </sp-use>
+    <div data-name="Record" class="flex flex-row w-fit h-control-icon items-center justify-center gap-2 px-3 bg-subtle border border-transparent border-inside rounded-pill hidden">
+      <div data-name="Dot" class="flex flex-col w-[8px] h-[8px] items-start justify-start bg-danger rounded-pill">
+      </div>
+      <p data-name="Timer" class="w-fit h-fit text-text type-body">0:03</p>
+      <sp-use component="Icon" data-name="StopRecord" props="Name: Stop" class="w-icon-small h-icon-small">
+        <p data-name="Glyph" class="type-icon-small"></p>
+      </sp-use>
+    </div>
+    <sp-use component="Button" data-name="Transcription" props="Kind: Ghost; State: Loading; Content: Leading" class="w-fit h-control-height hidden">
+      <p data-name="Label">转写中</p>
+    </sp-use>
+    <sp-use component="IconButton" data-name="Retry" props="State: Default" class="w-control-icon h-control-icon hidden">
+      <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Hover">
+    <sp-use data-name="Microphone" props="State: Hover">
+      <sp-use data-name="Icon" props="Name: Microphone"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Focus">
+    <sp-use data-name="Microphone" props="State: Focus">
+      <sp-use data-name="Icon" props="Name: Microphone"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Recording">
+    <sp-use data-name="Microphone" props="State: Default" class="hidden">
+      <sp-use data-name="Icon" props="Name: Microphone"></sp-use>
+    </sp-use>
+    <div data-name="Record" class="shown">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: RecordingHover">
+    <sp-use data-name="Microphone" props="State: Default" class="hidden">
+      <sp-use data-name="Icon" props="Name: Microphone"></sp-use>
+    </sp-use>
+    <div data-name="Record" class="bg-hover shown">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Transcribing">
+    <sp-use data-name="Microphone" props="State: Default" class="hidden">
+      <sp-use data-name="Icon" props="Name: Microphone"></sp-use>
+    </sp-use>
+    <sp-use data-name="Transcription" props="Kind: Ghost; State: Loading; Content: Leading" class="shown">
+      <p data-name="Label">转写中</p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <sp-use data-name="Microphone" props="State: Default" class="hidden">
+      <sp-use data-name="Icon" props="Name: Microphone"></sp-use>
+    </sp-use>
+    <sp-use data-name="Retry" props="State: Default" class="shown">
+      <sp-use data-name="Icon" props="Name: Refresh">
+        <p data-name="Glyph" class="text-danger"></p>
+      </sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Disabled">
+    <sp-use data-name="Microphone" props="State: Disabled">
+      <sp-use data-name="Icon" props="Name: Microphone"></sp-use>
+    </sp-use>
+  </sp-variant>
+</sp-component>

@@ -80,11 +80,11 @@ func TestPaletteCoversDesignColors(t *testing.T) {
 }
 
 func TestNarrowViewportValuesAndScale(t *testing.T) {
-	if SizeSidebar(false) != 220 || SizeSidebar(true) != 72 || SizePanel(true) != 320 || SizeNavigation(true) != 184 || SizeViewportWidth(true) != 1024 {
-		t.Fatal("narrow sizes drifted from the design tokens")
+	if SizeSidebar != 220 || SizeNavigation != 208 || SizePanel(false) != 432 || SizePanel(true) != 320 || SizeViewportWidth(true) != 1024 {
+		t.Fatal("narrow sizes drifted from the design tokens (the sidebar and settings navigation keep 220 and 208 in Narrow: no icon rail)")
 	}
-	if ViewSidebarLabels(true) || !ViewSidebarLabels(false) {
-		t.Fatal("sidebar labels flag drifted")
+	if SizeHeader != 36 || SizePanelHeader != 52 {
+		t.Fatal("page header is the 36 toolbar row, the resource panel header stays 52")
 	}
 	if ControlHeight != 32 || ControlIcon != 28 || FontSizeBody != 13 || RadiusCtrl != 8 || BorderFocus != 2 {
 		t.Fatal("normal-density control scale drifted (button 36px and 12/14/16/24/32 type are retired)")
@@ -97,18 +97,28 @@ func TestNarrowViewportValuesAndScale(t *testing.T) {
 	}
 }
 
-func TestTokensJSONMatchesDesignSource(t *testing.T) {
+// exporter runs the design exporter into out; it skips when python3 or the smallpen CLI is missing.
+func exporter(t *testing.T, out string, env ...string) ([]byte, error) {
+	t.Helper()
 	python, err := exec.LookPath("python3")
 	if err != nil {
-		t.Skip("python3 not found; CI's Linux runner has it and compares the exporter output with the committed JSON")
+		t.Skip("python3 not found; the exporter is a Python script")
+	}
+	if _, err := exec.LookPath("smallpen"); err != nil {
+		t.Skip("smallpen CLI not found on PATH; install @smallpen/cli to compare the design package with the committed JSON (CI runners do not have it)")
 	}
 	script, err := filepath.Abs("../../../../docs/design/alva/source/export_tokens.py")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := t.TempDir()
 	cmd := exec.Command(python, "-I", script, out)
-	if combined, err := cmd.CombinedOutput(); err != nil {
+	cmd.Env = append(os.Environ(), env...)
+	return cmd.CombinedOutput()
+}
+
+func TestTokensJSONMatchesDesignSource(t *testing.T) {
+	out := t.TempDir()
+	if combined, err := exporter(t, out); err != nil {
 		t.Fatalf("exporter failed: %v\n%s", err, combined)
 	}
 	for exported, committed := range map[string]string{
@@ -124,8 +134,39 @@ func TestTokensJSONMatchesDesignSource(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(got, want) {
-			t.Errorf("%s differs from the design source: run python3 -I docs/design/alva/source/export_tokens.py, go generate ./apps/ui/kit/theme and commit both", committed)
+			t.Errorf("%s differs from alva-next.smallpen: run python3 -I docs/design/alva/source/export_tokens.py, go generate ./apps/ui/kit/theme and commit both", committed)
 		}
+	}
+}
+
+// A Token whose name the table does not know must fail the export, never be skipped.
+func TestTokenExportRejectsUnknownTokenName(t *testing.T) {
+	source, err := filepath.Abs("../../../../docs/design/alva/alva-next.smallpen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := filepath.Join(t.TempDir(), "alva-next.smallpen")
+	if err := os.CopyFS(pkg, os.DirFS(source)); err != nil {
+		t.Fatal(err)
+	}
+	css := filepath.Join(pkg, "tokens.css")
+	data, err := os.ReadFile(css)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := bytes.ReplaceAll(data, []byte("--color-scrim:"), []byte("--color-scrimm:"))
+	if bytes.Equal(renamed, data) {
+		t.Fatal("tokens.css has no --color-scrim to rename")
+	}
+	if err := os.WriteFile(css, renamed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	combined, err := exporter(t, t.TempDir(), "ALVA_DESIGN_PACKAGE="+pkg)
+	if err == nil {
+		t.Fatal("the export accepted a renamed Token")
+	}
+	if !bytes.Contains(combined, []byte("scrimm")) {
+		t.Fatalf("the failure does not name the Token:\n%s", combined)
 	}
 }
 

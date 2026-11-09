@@ -1,0 +1,43 @@
+<sp-component name="ToolActivity" props="State: Collapsed | Running | Error | Expanded | Focus | ExpandedFocus | ErrorExpanded">
+  <div data-name="ToolActivity" class="flex flex-row w-[440px] h-fit items-center justify-start gap-2 p-2 bg-transparent rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: Code" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label" class="w-full h-fit text-secondary type-body">已读取 3 份资料</p>
+    <sp-use component="Icon" data-name="Chevron" props="Name: ChevronDown" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Running">
+    <sp-use data-name="Icon" props="Name: Loader">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label">正在检查项目文件…</p>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <sp-use data-name="Icon" props="Name: Warning">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label" class="text-danger">工具执行失败 · 查看详情</p>
+  </sp-variant>
+  <sp-variant when="State: Expanded">
+    <sp-use data-name="Chevron" props="Name: ChevronUp">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: ExpandedFocus" class="border-focus border-accent border-inside">
+    <sp-use data-name="Chevron" props="Name: ChevronUp">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: ErrorExpanded">
+    <sp-use data-name="Icon" props="Name: Warning">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+    <p data-name="Label" class="text-danger">工具执行失败 · 查看详情</p>
+    <sp-use data-name="Chevron" props="Name: ChevronUp">
+      <p data-name="Glyph" class="type-icon-small"></p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

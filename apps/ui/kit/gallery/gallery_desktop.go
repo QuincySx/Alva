@@ -1,11 +1,13 @@
-// INPUT: kit.Pages() (one page per component with the design's axes) and the design tokens.
-// OUTPUT: App: a native view with a component list, an appearance switch, a Narrow-viewport switch and the variant matrix of the selected page.
+// INPUT: kit.Pages() (one page per component with the design's axes), the design tokens and, when ALVA_KIT_DESIGN_DIR is set, the design PNG sheets exported by docs/design/alva/source/next/export_design.py.
+// OUTPUT: App: a native view with a component list, an appearance switch, a Narrow-viewport switch and the variant matrix of the selected page, beside the design sheet ("设计稿" next to "实现") when a design directory is set.
 // POS: [L7 Kit] Visual review entry for Alva Kit; cmd/alva-kit-gallery runs it in a window and its tests render every page light and dark (ALVA_KIT_SHOTS saves PNGs, never committed).
 //go:build desktop
 
 package gallery
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -28,13 +30,68 @@ type App struct {
 	Animate bool
 	// Flat renders only the matrix, without list, toolbar or scrolling, for screenshots.
 	Flat bool
+	// DesignDir holds <Component>.png sheets exported from the design package (smallpen export --component X --format png).
+	// When set, every page shows the design sheet beside the implementation. They are local review files, never committed.
+	DesignDir string
+	sheets    map[string]sheet
 }
 
 // Pages is every kit and blocks page in gallery order.
 func Pages() []kit.Page { return append(kit.Pages(), blocks.Pages()...) }
 
-// New shows the first component.
-func New() *App { return &App{Pages: Pages()} }
+// designColumnWidth is the width of the design-sheet column in the comparison view.
+const designColumnWidth = 520
+
+type sheet struct {
+	img ui.ImageSource
+	err string
+}
+
+// New shows the first component. ALVA_KIT_DESIGN_DIR turns on the design comparison.
+func New() *App { return &App{Pages: Pages(), DesignDir: os.Getenv("ALVA_KIT_DESIGN_DIR")} }
+
+// designSheet loads and caches the exported PNG of a component.
+func (a *App) designSheet(name string) sheet {
+	if s, ok := a.sheets[name]; ok {
+		return s
+	}
+	var s sheet
+	if data, err := os.ReadFile(filepath.Join(a.DesignDir, name+".png")); err != nil {
+		s.err = "没有 " + name + ".png：运行 docs/design/alva/source/next/export_design.py " + a.DesignDir
+	} else if img, err := ui.DecodeImage(data); err != nil {
+		s.err = name + ".png 无法解码：" + err.Error()
+	} else {
+		s.img = img
+	}
+	if a.sheets == nil {
+		a.sheets = map[string]sheet{}
+	}
+	a.sheets[name] = s
+	return s
+}
+
+// withDesign shows the matrix, with the design sheet in a left column when a design directory is set.
+func (a *App) withDesign(c *ui.Context, page kit.Page, pl theme.Palette) {
+	if a.DesignDir == "" {
+		matrix(c, page, pl)
+		return
+	}
+	ui.Row(c.Key("compare")).FillWidth().Gap(theme.Space6).AlignItems(ui.Start).Children(func() {
+		ui.Column(c.Key("design")).Width(designColumnWidth).Shrink(0).Gap(theme.Space2).Children(func() {
+			kit.Text(c, "设计稿 · "+page.Name, kit.TextProps{Role: kit.RoleSubtitle, Strong: true, Key: "design-title"})
+			s := a.designSheet(page.Name)
+			if s.img == nil {
+				kit.Text(c, s.err, kit.TextProps{Tone: kit.ToneWarning, Key: "design-missing"})
+				return
+			}
+			ui.Image(c.Key("design-sheet"), s.img).FillWidth().Fit(ui.Contain)
+		})
+		ui.Column(c.Key("impl")).Grow(1).MinWidth(0).Gap(theme.Space2).Children(func() {
+			kit.Text(c, "实现", kit.TextProps{Role: kit.RoleSubtitle, Strong: true, Key: "impl-title"})
+			matrix(c, page, pl)
+		})
+	})
+}
 
 // Select shows the page of the named component and reports whether it exists.
 func (a *App) Select(name string) bool {
@@ -58,7 +115,7 @@ func (a *App) View(c *ui.Context) {
 	page := a.Pages[a.Index]
 	kit.ToastHost(c)
 	if a.Flat {
-		ui.Column(c).Fill().Padding(theme.Space4).Background(theme.UI(pl.Canvas)).Children(func() { matrix(c, page, pl) })
+		ui.Column(c).Fill().Padding(theme.Space4).Background(theme.UI(pl.Canvas)).Children(func() { a.withDesign(c, page, pl) })
 		return
 	}
 	ui.Row(c).Fill().Background(theme.UI(pl.Canvas)).Children(func() {
@@ -68,16 +125,16 @@ func (a *App) View(c *ui.Context) {
 			ui.Scroll(c.Key("scroll")).Grow(1).Padding(theme.Space4).Children(func() {
 				col := ui.Column(c.Key("matrix"))
 				if a.Narrow {
-					col.MaxWidth(theme.SizeViewportWidth(true) - theme.SizeNavigation(true))
+					col.MaxWidth(theme.SizeViewportWidth(true) - theme.SizeNavigation)
 				}
-				col.Children(func() { matrix(c, page, pl) })
+				col.Children(func() { a.withDesign(c, page, pl) })
 			})
 		})
 	})
 }
 
 func (a *App) list(c *ui.Context, pl theme.Palette) {
-	ui.Scroll(c.Key("list")).Width(theme.SizeNavigation(a.Narrow)).Shrink(0).Background(theme.UI(pl.Sidebar)).Padding(theme.Space3).Children(func() {
+	ui.Scroll(c.Key("list")).Width(theme.SizeNavigation).Shrink(0).Background(theme.UI(pl.Sidebar)).Padding(theme.Space3).Children(func() {
 		ui.Column(c.Key("pages")).Gap(theme.Space1).Children(func() {
 			var categories []string
 			for _, p := range a.Pages {

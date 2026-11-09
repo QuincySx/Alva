@@ -1,0 +1,35 @@
+<sp-component name="EmptyState" props="State: Empty | Loading | Error | Unavailable">
+  <div data-name="EmptyState" class="flex flex-col w-[360px] h-fit items-center justify-start gap-3 p-8 bg-surface rounded-card">
+    <sp-use component="Icon" data-name="Icon" props="Name: Folder" class="w-icon-size h-icon-size"></sp-use>
+    <p data-name="Title" class="w-full h-fit text-text text-center type-subtitle-strong">还没有内容</p>
+    <p data-name="Description" class="w-full h-fit text-secondary text-center type-caption">添加项目或打开已有内容，继续你的工作。</p>
+    <sp-use component="Button" data-name="Action" props="Kind: Secondary; State: Default; Content: Leading" class="w-fit h-control-height">
+      <p data-name="Label">开始添加</p>
+      <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Loading">
+    <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+    <p data-name="Title">正在加载…</p>
+    <sp-use data-name="Action" props="Kind: Secondary; State: Default; Content: Leading" class="hidden">
+      <p data-name="Label">开始添加</p>
+      <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <sp-use data-name="Icon" props="Name: Warning"></sp-use>
+    <p data-name="Title">加载失败</p>
+    <sp-use data-name="Action" props="Kind: Secondary; State: Default; Content: Leading">
+      <p data-name="Label">重试</p>
+      <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Unavailable">
+    <sp-use data-name="Icon" props="Name: Lock"></sp-use>
+    <p data-name="Title">当前不可用</p>
+    <sp-use data-name="Action" props="Kind: Secondary; State: Default; Content: Leading">
+      <p data-name="Label">查看说明</p>
+      <sp-use data-name="Icon" props="Name: Plus"></sp-use>
+    </sp-use>
+  </sp-variant>
+</sp-component>

@@ -1,0 +1,44 @@
+<sp-component name="RunStatus" props="State: Working | Waiting | Stopping | Stopped | Done | Error">
+  <div data-name="RunStatus" class="flex flex-row w-[720px] h-fit items-center justify-start gap-2 px-2">
+    <sp-use component="Icon" data-name="Activity" props="Name: Loader" class="w-icon-small h-icon-small">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+    <p data-name="Label" class="w-full h-fit text-secondary type-body">正在工作…</p>
+    <p data-name="Metrics" class="w-fit h-fit hidden text-secondary type-caption">&#8203;</p>
+    <sp-use component="Button" data-name="Retry" props="Kind: Ghost; State: Default; Content: Leading" class="w-fit h-control-height hidden">
+      <p data-name="Label">重试</p>
+      <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Waiting">
+    <sp-use data-name="Activity" props="Name: Help">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+    <p data-name="Label" class="text-warning type-body-strong">等待你的确认</p>
+  </sp-variant>
+  <sp-variant when="State: Stopping">
+    <p data-name="Label" class="text-accent type-body-strong">正在停止…</p>
+  </sp-variant>
+  <sp-variant when="State: Stopped">
+    <sp-use data-name="Activity" props="Name: Stop">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+    <p data-name="Label" class="type-body-strong">已停止</p>
+  </sp-variant>
+  <sp-variant when="State: Done">
+    <sp-use data-name="Activity" props="Name: Check">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+    <p data-name="Label" class="text-success type-body-strong">已完成</p>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <sp-use data-name="Activity" props="Name: Warning">
+      <p data-name="Glyph" class="type-icon-small text-accent"></p>
+    </sp-use>
+    <p data-name="Label" class="text-danger type-body-strong">执行失败</p>
+    <sp-use data-name="Retry" props="Kind: Ghost; State: Default; Content: Leading" class="shown">
+      <p data-name="Label">重试</p>
+      <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+    </sp-use>
+  </sp-variant>
+</sp-component>

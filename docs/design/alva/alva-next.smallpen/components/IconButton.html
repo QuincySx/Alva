@@ -1,0 +1,47 @@
+<sp-component name="IconButton" props="State: Default | Hover | Pressed | Focus | Disabled | Loading | LoadingFocus | Selected | SelectedHover | SelectedPressed | SelectedFocus | SelectedDisabled">
+  <div data-name="IconButton" class="flex flex-row w-control-icon h-control-icon items-center justify-center gap-2 bg-transparent border border-transparent border-inside rounded-ctrl">
+    <sp-use component="Icon" data-name="Spinner" props="Name: Loader" class="w-icon-size h-icon-size hidden"></sp-use>
+    <sp-use component="Icon" data-name="Icon" props="Name: Plus" class="w-icon-size h-icon-size"></sp-use>
+  </div>
+  <sp-variant when="State: Hover" class="bg-subtle border border-subtle border-inside"></sp-variant>
+  <sp-variant when="State: Pressed" class="bg-hover border border-hover border-inside"></sp-variant>
+  <sp-variant when="State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+  <sp-variant when="State: Disabled">
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="text-secondary"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Loading">
+    <sp-use data-name="Spinner" props="Name: Loader" class="shown"></sp-use>
+    <sp-use data-name="Icon" props="Name: Plus" class="hidden"></sp-use>
+  </sp-variant>
+  <sp-variant when="State: LoadingFocus" class="border-focus border-accent border-inside">
+    <sp-use data-name="Spinner" props="Name: Loader" class="shown"></sp-use>
+    <sp-use data-name="Icon" props="Name: Plus" class="hidden"></sp-use>
+  </sp-variant>
+  <sp-variant when="State: Selected" class="bg-accent-soft border border-accent-soft border-inside">
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="text-accent"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedHover" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="text-text"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedPressed" class="bg-hover border border-hover border-inside">
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="text-text"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedFocus" class="bg-accent-soft border-focus border-accent border-inside">
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="text-accent"></p>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: SelectedDisabled" class="bg-accent-soft border border-accent-soft border-inside">
+    <sp-use data-name="Icon" props="Name: Plus">
+      <p data-name="Glyph" class="text-secondary"></p>
+    </sp-use>
+  </sp-variant>
+</sp-component>

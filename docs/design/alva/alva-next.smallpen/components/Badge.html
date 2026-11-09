@@ -1,0 +1,17 @@
+<sp-component name="Badge" props="Tone: Neutral | Accent | Success | Warning | Danger | Info">
+  <div data-name="Badge" class="flex flex-row w-fit h-fit items-center justify-center gap-2 py-1 px-2 bg-subtle rounded-pill">
+    <p data-name="Label" class="w-fit h-fit text-secondary text-center type-caption">状态</p>
+  </div>
+  <sp-variant when="Tone: Accent" class="bg-accent-soft">
+    <p data-name="Label" class="text-accent">状态</p>
+  </sp-variant>
+  <sp-variant when="Tone: Success" class="bg-success-bg">
+    <p data-name="Label" class="text-success">状态</p>
+  </sp-variant>
+  <sp-variant when="Tone: Warning" class="bg-warning-bg">
+    <p data-name="Label" class="text-warning">状态</p>
+  </sp-variant>
+  <sp-variant when="Tone: Danger" class="bg-danger-bg">
+    <p data-name="Label" class="text-danger">状态</p>
+  </sp-variant>
+</sp-component>

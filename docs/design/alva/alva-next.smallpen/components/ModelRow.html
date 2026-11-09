@@ -1,0 +1,57 @@
+<sp-component name="ModelRow" props="Mode: Picker | Manage; State: Default | Hover | Selected | Unavailable">
+  <div data-name="ModelRow" class="flex flex-row w-[480px] h-fit items-center justify-start gap-2 py-2 px-3 bg-surface border border-surface border-inside rounded-ctrl">
+    <sp-use component="Avatar" data-name="Avatar" props="Kind: Provider" class="w-[32px] h-[32px] hidden">
+      <p data-name="Label">G</p>
+    </sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Title" class="w-full h-fit text-text type-body-strong">GPT</p>
+      <p data-name="Description" class="w-full h-fit text-secondary type-caption">OpenAI · 主连接 · 视觉输入</p>
+    </div>
+    <sp-use component="Badge" data-name="Effort" props="Tone: Neutral" class="w-fit h-fit hidden">
+      <p data-name="Label">ALVA · 默认</p>
+    </sp-use>
+    <sp-use component="IconButton" data-name="Favorite" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: Star"></sp-use>
+    </sp-use>
+    <sp-use component="IconButton" data-name="Settings" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: Sliders"></sp-use>
+    </sp-use>
+    <sp-use component="Switch" data-name="Enabled" props="State: On" class="w-[38px] h-[24px] hidden"></sp-use>
+  </div>
+  <sp-variant when="Mode: Picker; State: Hover" class="bg-hover"></sp-variant>
+  <sp-variant when="Mode: Picker; State: Selected" class="bg-subtle border border-subtle border-inside"></sp-variant>
+  <sp-variant when="Mode: Picker; State: Unavailable">
+    <div data-name="Copy">
+      <p data-name="Title" class="text-secondary">GPT</p>
+      <p data-name="Description">当前 Agent 不支持此连接</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="Mode: Manage; State: Default">
+    <sp-use data-name="Favorite" props="State: Default" class="hidden">
+      <sp-use data-name="Icon" props="Name: Star"></sp-use>
+    </sp-use>
+    <sp-use data-name="Enabled" props="State: On" class="shown"></sp-use>
+  </sp-variant>
+  <sp-variant when="Mode: Manage; State: Hover" class="bg-hover">
+    <sp-use data-name="Favorite" props="State: Default" class="hidden">
+      <sp-use data-name="Icon" props="Name: Star"></sp-use>
+    </sp-use>
+    <sp-use data-name="Enabled" props="State: On" class="shown"></sp-use>
+  </sp-variant>
+  <sp-variant when="Mode: Manage; State: Selected" class="bg-subtle border border-subtle border-inside">
+    <sp-use data-name="Favorite" props="State: Default" class="hidden">
+      <sp-use data-name="Icon" props="Name: Star"></sp-use>
+    </sp-use>
+    <sp-use data-name="Enabled" props="State: On" class="shown"></sp-use>
+  </sp-variant>
+  <sp-variant when="Mode: Manage; State: Unavailable">
+    <div data-name="Copy">
+      <p data-name="Title" class="text-secondary">GPT</p>
+      <p data-name="Description">当前 Agent 不支持此连接</p>
+    </div>
+    <sp-use data-name="Favorite" props="State: Default" class="hidden">
+      <sp-use data-name="Icon" props="Name: Star"></sp-use>
+    </sp-use>
+    <sp-use data-name="Enabled" props="State: Disabled" class="shown"></sp-use>
+  </sp-variant>
+</sp-component>

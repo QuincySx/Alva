@@ -1,0 +1,77 @@
+<sp-component name="Question" props="State: Pending | Submitted | Expired">
+  <div data-name="Question" class="flex flex-col w-[620px] h-fit items-start justify-start gap-4 p-4 bg-surface border border-border border-inside rounded-card">
+    <div data-name="Header" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <sp-use component="Icon" data-name="Icon" props="Name: Help" class="w-icon-size h-icon-size">
+        <p data-name="Glyph" class="text-accent"></p>
+      </sp-use>
+      <p data-name="Title" class="w-full h-fit text-text type-subtitle-strong">接下来按哪种方式整理？</p>
+      <sp-use component="Badge" data-name="Status" props="Tone: Accent" class="w-fit h-fit">
+        <p data-name="Label">等待回答</p>
+      </sp-use>
+    </div>
+    <p data-name="Description" class="w-full h-fit hidden text-secondary type-caption">选择一项，或在 Other 中填写你的方案。</p>
+    <sp-use component="QuestionOption" data-name="First" props="State: Selected" class="w-full h-fit">
+      <div data-name="Copy">
+        <p data-name="Title">先完成模型与连接（推荐）</p>
+        <p data-name="Description">先具备可用模型，再扩展伙伴与群聊</p>
+      </div>
+    </sp-use>
+    <sp-use component="QuestionOption" data-name="Second" props="State: Default" class="w-full h-fit">
+      <div data-name="Copy">
+        <p data-name="Title">先整理伙伴与 Skills</p>
+        <p data-name="Description">优先确认长期伙伴的身份与能力</p>
+      </div>
+    </sp-use>
+    <sp-use component="QuestionOption" data-name="Third" props="State: Default" class="w-full h-fit">
+      <div data-name="Copy">
+        <p data-name="Title">两部分一起规划</p>
+        <p data-name="Description">统一设计，分别推进实现</p>
+      </div>
+    </sp-use>
+    <sp-use component="Field" data-name="Other" props="State: Default" class="w-full h-fit">
+      <p data-name="Title">其他方案</p>
+      <p data-name="Hint" class="hidden"></p>
+      <sp-use data-name="Control" props="Kind: Text; State: Default">
+        <p data-name="Value">写下你的选择…</p>
+      </sp-use>
+    </sp-use>
+    <div data-name="Footer" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <p data-name="Scope" class="w-full h-fit text-secondary type-caption">仅回答此问题，不授予执行权限</p>
+      <sp-use component="Button" data-name="Submit" props="Kind: Primary; State: Default; Content: Text" class="w-fit h-control-height">
+        <p data-name="Label">提交回答</p>
+      </sp-use>
+    </div>
+  </div>
+  <sp-variant when="State: Submitted">
+    <div data-name="Header">
+      <sp-use data-name="Status" props="Tone: Accent">
+        <p data-name="Label">已提交</p>
+      </sp-use>
+    </div>
+    <sp-use data-name="Other" props="State: Default" class="hidden">
+      <p data-name="Title">其他方案</p>
+      <p data-name="Hint" class="hidden"></p>
+      <sp-use data-name="Control" props="Kind: Text; State: Default">
+        <p data-name="Value">写下你的选择…</p>
+      </sp-use>
+    </sp-use>
+    <div data-name="Footer" class="hidden">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Expired">
+    <div data-name="Header">
+      <sp-use data-name="Status" props="Tone: Accent">
+        <p data-name="Label">问题已过期</p>
+      </sp-use>
+    </div>
+    <sp-use data-name="Other" props="State: Default" class="hidden">
+      <p data-name="Title">其他方案</p>
+      <p data-name="Hint" class="hidden"></p>
+      <sp-use data-name="Control" props="Kind: Text; State: Default">
+        <p data-name="Value">写下你的选择…</p>
+      </sp-use>
+    </sp-use>
+    <div data-name="Footer" class="hidden">
+    </div>
+  </sp-variant>
+</sp-component>

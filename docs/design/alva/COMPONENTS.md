@@ -4,7 +4,7 @@ Avoid unnecessary secondary labels and descriptions. Let the layout do the expla
 
 以当前 23 张正式页面及已明确的工作台、对话、资料、协作、自动化、设置和诊断需求为范围。共享 Foundation 继续复用，页面与业务流程留在 Product；这是设计资源的分工。Go 侧的组件库是 Alva Kit（`apps/ui/kit`，[ADR 0014](../../adr/0014-alva-kit-component-library.md)）：token 与组件目录以本设计为单一来源，经导出脚本进入 Kit，不对外独立发布。
 
-正式目录为 **56 个 Alva 组件、481 个原生变体**。ProviderForm仅区分Preset/Custom结构，ProviderModels独立表达6种目录状态，不将供应商与状态相乘。输入区的Composer使用14个视觉样本；草稿、执行、录音、浮层在运行时独立，不照抄为互斥枚举。Icon保留68个原始符号，并用原生flipX表达唯一PanelLeft语义选择；已有Button的112个组合计入总数，数量不是完整度指标。历史组件另行保留。
+正式目录为 **56 个 Alva 组件、481 个原生变体**（2026-11-09 起在新格式包 `alva-next.smallpen` 中由 `source/next/build_next.py` 生成，命令写法见 [CLI-GUIDE](./CLI-GUIDE.md)；下文提到的 `page draw`、intent 等旧 CLI 用法仅为历史记录）。ProviderForm仅区分Preset/Custom结构，ProviderModels独立表达6种目录状态，不将供应商与状态相乘。输入区的Composer使用14个视觉样本；草稿、执行、录音、浮层在运行时独立，不照抄为互斥枚举。Icon保留68个原始符号，并用原生flipX表达唯一PanelLeft语义选择；已有Button的112个组合计入总数，数量不是完整度指标。历史组件另行保留。
 
 ## 原生顶部壳复用 · 2026-11-05
 

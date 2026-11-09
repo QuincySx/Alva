@@ -1,0 +1,37 @@
+<sp-component name="Radio" props="State: Off | On | Focus | Disabled | OnFocus | OnDisabled">
+  <div data-name="Radio" class="flex flex-row w-[240px] h-[32px] items-center justify-start gap-2">
+    <div data-name="Ring" class="flex flex-col w-[18px] h-[18px] items-center justify-center bg-surface border border-control-border border-inside rounded-pill">
+      <div data-name="Dot" class="flex flex-col w-[8px] h-[8px] items-start justify-start bg-accent rounded-pill hidden">
+      </div>
+    </div>
+    <p data-name="Label" class="w-full h-fit text-text type-body">单选项</p>
+  </div>
+  <sp-variant when="State: On">
+    <div data-name="Ring" class="border border-accent border-inside">
+      <div data-name="Dot" class="shown">
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Focus">
+    <div data-name="Ring" class="border-focus border-accent border-inside">
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Disabled">
+    <div data-name="Ring" class="bg-subtle">
+    </div>
+    <p data-name="Label" class="text-secondary">单选项</p>
+  </sp-variant>
+  <sp-variant when="State: OnFocus">
+    <div data-name="Ring" class="border-focus border-accent border-inside">
+      <div data-name="Dot" class="shown">
+      </div>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: OnDisabled">
+    <div data-name="Ring">
+      <div data-name="Dot" class="bg-secondary shown">
+      </div>
+    </div>
+    <p data-name="Label" class="text-secondary">单选项</p>
+  </sp-variant>
+</sp-component>

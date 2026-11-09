@@ -1,0 +1,18 @@
+<sp-component name="Segment" props="State: Default | Selected | Disabled | SelectedFocus | SelectedDisabled | Focus">
+  <div data-name="Segment" class="flex flex-row w-fit h-[32px] items-center justify-center gap-2 px-3 bg-subtle border border-subtle border-inside rounded-ctrl">
+    <p data-name="Label" class="w-fit h-fit text-text text-center type-body">全部</p>
+  </div>
+  <sp-variant when="State: Selected" class="bg-surface border border-border border-inside">
+    <p data-name="Label" class="text-accent">全部</p>
+  </sp-variant>
+  <sp-variant when="State: Disabled">
+    <p data-name="Label" class="text-secondary">全部</p>
+  </sp-variant>
+  <sp-variant when="State: SelectedFocus" class="bg-surface border-focus border-accent border-inside">
+    <p data-name="Label" class="text-accent">全部</p>
+  </sp-variant>
+  <sp-variant when="State: SelectedDisabled" class="bg-surface border border-border border-inside">
+    <p data-name="Label" class="text-secondary">全部</p>
+  </sp-variant>
+  <sp-variant when="State: Focus" class="border-focus border-accent border-inside"></sp-variant>
+</sp-component>

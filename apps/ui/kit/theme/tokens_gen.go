@@ -117,8 +117,11 @@ const (
 	ControlRow         = 28
 	IconSize           = 16
 	IconSmall          = 14
+	SizeSidebar        = 220
+	SizeNavigation     = 208
 	SizeViewportHeight = 960
-	SizeHeader         = 52
+	SizeHeader         = 36
+	SizePanelHeader    = 52
 	MotionNormal       = 160 * time.Millisecond
 	MotionSpinner      = 840 * time.Millisecond
 )
@@ -127,22 +130,6 @@ const (
 const (
 	MotionReduced = false
 )
-
-// SizeSidebar is design token size.sidebar; narrow selects the Viewport/Narrow mode.
-func SizeSidebar(narrow bool) float32 {
-	if narrow {
-		return 72
-	}
-	return 220
-}
-
-// SizeNavigation is design token size.navigation; narrow selects the Viewport/Narrow mode.
-func SizeNavigation(narrow bool) float32 {
-	if narrow {
-		return 184
-	}
-	return 208
-}
 
 // SizePanel is design token size.panel; narrow selects the Viewport/Narrow mode.
 func SizePanel(narrow bool) float32 {
@@ -158,12 +145,4 @@ func SizeViewportWidth(narrow bool) float32 {
 		return 1024
 	}
 	return 1440
-}
-
-// ViewSidebarLabels reports design token view.sidebarLabels; narrow selects the Viewport/Narrow mode.
-func ViewSidebarLabels(narrow bool) bool {
-	if narrow {
-		return false
-	}
-	return true
 }

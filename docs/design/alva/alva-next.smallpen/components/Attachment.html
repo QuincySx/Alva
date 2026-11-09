@@ -1,0 +1,45 @@
+<sp-component name="Attachment" props="State: Ready | Uploading | Error | Unavailable">
+  <div data-name="Attachment" class="flex flex-row w-[320px] h-fit items-center justify-start gap-2 p-2 bg-surface border border-border border-inside rounded-ctrl">
+    <sp-use component="Icon" data-name="Icon" props="Name: File" class="w-icon-size h-icon-size">
+      <p data-name="Glyph" class="text-accent"></p>
+    </sp-use>
+    <div data-name="Copy" class="flex flex-col w-full h-fit items-start justify-start gap-1">
+      <p data-name="Name" class="w-full h-fit text-text type-body">工作台方案.md</p>
+      <p data-name="Meta" class="w-full h-fit text-secondary type-caption">12 KB</p>
+    </div>
+    <sp-use component="IconButton" data-name="Retry" props="State: Default" class="w-control-icon h-control-icon hidden">
+      <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+    </sp-use>
+    <sp-use component="IconButton" data-name="Remove" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: Close"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="State: Uploading">
+    <sp-use data-name="Icon" props="Name: Loader">
+      <p data-name="Glyph" class="text-accent"></p>
+    </sp-use>
+    <div data-name="Copy">
+      <p data-name="Meta">正在上传 · 60%</p>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: Error">
+    <sp-use data-name="Icon" props="Name: Warning">
+      <p data-name="Glyph" class="text-danger"></p>
+    </sp-use>
+    <div data-name="Copy">
+      <p data-name="Meta" class="text-danger">上传失败，文件已保留</p>
+    </div>
+    <sp-use data-name="Retry" props="State: Default" class="shown">
+      <sp-use data-name="Icon" props="Name: Refresh"></sp-use>
+    </sp-use>
+  </sp-variant>
+  <sp-variant when="State: Unavailable">
+    <sp-use data-name="Icon" props="Name: Lock">
+      <p data-name="Glyph" class="text-accent"></p>
+    </sp-use>
+    <div data-name="Copy">
+      <p data-name="Name" class="text-secondary">工作台方案.md</p>
+      <p data-name="Meta">来源不可用</p>
+    </div>
+  </sp-variant>
+</sp-component>

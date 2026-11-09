@@ -9,7 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -305,5 +309,39 @@ func TestGalleryOverlayAndChoiceDemos(t *testing.T) {
 	_, tester = pageApp(t, "Toast")
 	if err := tester.Click("显示提示"); err != nil || !tester.HasText("已保存设置") {
 		t.Fatal("the toast demo did not show", err)
+	}
+}
+
+func TestGalleryShowsTheDesignSheetBesideTheImplementation(t *testing.T) {
+	dir := t.TempDir()
+	img := image.NewRGBA(image.Rect(0, 0, 60, 30))
+	for x := 0; x < 60; x++ {
+		for y := 0; y < 30; y++ {
+			img.Set(x, y, color.RGBA{R: 0x65, G: 0x55, B: 0xCD, A: 0xFF})
+		}
+	}
+	file, err := os.Create(filepath.Join(dir, "Button.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(file, img); err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+
+	a, tester := pageApp(t, "Button")
+	if tester.HasText("设计稿 · Button") {
+		t.Fatal("the design column shows without a design directory")
+	}
+	a, tester = pageApp(t, "Button")
+	a.DesignDir = dir
+	tester = ui.NewTester(a.View, 1440, 2200)
+	if !tester.HasText("设计稿 · Button") || !tester.HasText("实现") || tester.HasText("没有 Button.png") {
+		t.Fatal("Button page lacks the design sheet beside the implementation")
+	}
+	a.Select("Input")
+	tester = ui.NewTester(a.View, 1440, 2200)
+	if !tester.HasText("设计稿 · Input") || !tester.HasText("没有 Input.png") {
+		t.Fatal("a component without an exported sheet must say how to export it")
 	}
 }

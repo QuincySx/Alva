@@ -1,0 +1,28 @@
+<sp-component name="CodeBlock" props="State: Default | Copied | CopyError">
+  <div data-name="CodeBlock" class="flex flex-col w-[560px] h-fit items-start justify-start gap-2 p-4 bg-subtle rounded-ctrl">
+    <div data-name="Header" class="flex flex-row w-full h-fit items-center justify-start gap-2">
+      <p data-name="Language" class="w-full h-fit text-secondary type-caption">Go</p>
+      <sp-use component="Button" data-name="Copy" props="Kind: Ghost; State: Default; Content: Leading" class="w-fit h-control-height">
+        <p data-name="Label">复制</p>
+        <sp-use data-name="Icon" props="Name: Copy"></sp-use>
+      </sp-use>
+    </div>
+    <p data-name="Code" class="w-full h-fit text-text type-mono-body-reading whitespace-pre-wrap">result, err := agent.Run(ctx, input)<br>if err != nil {<br>    return err<br>}</p>
+  </div>
+  <sp-variant when="State: Copied">
+    <div data-name="Header">
+      <sp-use data-name="Copy" props="Kind: Ghost; State: Default; Content: Leading">
+        <p data-name="Label">已复制</p>
+        <sp-use data-name="Icon" props="Name: Check"></sp-use>
+      </sp-use>
+    </div>
+  </sp-variant>
+  <sp-variant when="State: CopyError">
+    <div data-name="Header">
+      <sp-use data-name="Copy" props="Kind: Ghost; State: Default; Content: Leading">
+        <p data-name="Label">复制失败</p>
+        <sp-use data-name="Icon" props="Name: Warning"></sp-use>
+      </sp-use>
+    </div>
+  </sp-variant>
+</sp-component>

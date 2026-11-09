@@ -1,0 +1,25 @@
+<sp-component name="MessageHeader" props="Author: Assistant | User | Partner">
+  <div data-name="MessageHeader" class="flex flex-row w-[620px] h-fit items-center justify-start gap-2">
+    <sp-use component="Avatar" data-name="Avatar" props="Kind: Agent" class="w-[28px] h-[28px]">
+      <p data-name="Label">A</p>
+    </sp-use>
+    <p data-name="Author" class="w-fit h-fit text-text type-body-strong">Alva</p>
+    <p data-name="Model" class="w-full h-fit text-secondary type-caption">GPT · ALVA</p>
+    <sp-use component="IconButton" data-name="More" props="State: Default" class="w-control-icon h-control-icon">
+      <sp-use data-name="Icon" props="Name: More"></sp-use>
+    </sp-use>
+  </div>
+  <sp-variant when="Author: User">
+    <sp-use data-name="Avatar" props="Kind: Person">
+      <p data-name="Label">S</p>
+    </sp-use>
+    <p data-name="Author">你</p>
+    <p data-name="Model">刚刚</p>
+  </sp-variant>
+  <sp-variant when="Author: Partner">
+    <sp-use data-name="Avatar" props="Kind: Agent">
+      <p data-name="Label">研</p>
+    </sp-use>
+    <p data-name="Author">研究伙伴</p>
+  </sp-variant>
+</sp-component>
