@@ -101,10 +101,10 @@ func (p Page) Skipped() int {
 
 // Pages is every kit component page in gallery order.
 func Pages() []Page {
-	return []Page{
+	return append([]Page{
 		textPage(), iconPage(), buttonPage(), iconButtonPage(), inputPage(), textAreaPage(), fieldPage(),
 		selectPage(), checkboxPage(), switchPage(), tooltipPage(), menuPage(),
-	}
+	}, k2Pages()...)
 }
 
 func axis(name string, values ...string) Axis { return Axis{Name: name, Values: values} }

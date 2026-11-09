@@ -6,6 +6,7 @@
 package gallery
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -51,6 +52,7 @@ func (a *App) View(c *ui.Context) {
 	theme.Apply(c, theme.Options{Appearance: appearance, ReduceMotion: !a.Animate})
 	pl := theme.Of(c)
 	page := a.Pages[a.Index]
+	kit.ToastHost(c)
 	if a.Flat {
 		ui.Column(c).Fill().Padding(theme.Space4).Background(theme.UI(pl.Canvas)).Children(func() { matrix(c, page, pl) })
 		return
@@ -73,18 +75,25 @@ func (a *App) View(c *ui.Context) {
 func (a *App) list(c *ui.Context, pl theme.Palette) {
 	ui.Scroll(c.Key("list")).Width(theme.SizeNavigation(a.Narrow)).Shrink(0).Background(theme.UI(pl.Sidebar)).Padding(theme.Space3).Children(func() {
 		ui.Column(c.Key("pages")).Gap(theme.Space1).Children(func() {
-			last := ""
-			for i, p := range a.Pages {
-				if p.Category != last {
-					last = p.Category
-					kit.Text(c, p.Category, kit.TextProps{Role: kit.RoleCaption, Tone: kit.ToneSecondary, Key: "cat-" + p.Category}).Margin(theme.Space2, 0, 0, theme.Space2)
+			var categories []string
+			for _, p := range a.Pages {
+				if !slices.Contains(categories, p.Category) {
+					categories = append(categories, p.Category)
 				}
-				kind := kit.Ghost
-				if i == a.Index {
-					kind = kit.Secondary
+			}
+			for _, category := range categories {
+				kit.Text(c, category, kit.TextProps{Role: kit.RoleCaption, Tone: kit.ToneSecondary, Key: "cat-" + category}).Margin(theme.Space2, 0, 0, theme.Space2)
+				for i, p := range a.Pages {
+					if p.Category != category {
+						continue
+					}
+					kind := kit.Ghost
+					if i == a.Index {
+						kind = kit.Secondary
+					}
+					index := i
+					kit.Button(c, p.Name, kit.ButtonProps{Kind: kind, OnClick: func() { a.Index = index }, Key: "page-" + p.Name}).FillWidth().Justify(ui.Start)
 				}
-				index := i
-				kit.Button(c, p.Name, kit.ButtonProps{Kind: kind, OnClick: func() { a.Index = index }, Key: "page-" + p.Name}).FillWidth().Justify(ui.Start)
 			}
 		})
 	})

@@ -11,6 +11,8 @@ token 单一来源是设计源的 `token_definitions()`：`python3 -I docs/desig
 ## 约束
 只依赖标准库、MyGo 与自身（`boundaries_test` 与 `kit_test` 守护）；组件内不出现颜色与尺寸字面量（`TestKitHasNoLiterals`）、不出现工具名或引擎名（`TestKitHasNoProductVocabulary`）。不加 `ALVA_KIT_SHOTS` 之外的文件输出；不提交截图 PNG。新增设计组件必须进画廊，或进 `gallery` 测试里只减不增的 deferred 清单。桌面代码新增颜色字面量、原生按钮、自制浮层壳会被 `kit_adoption_test` 拒绝。
 
+K2 说明：MyGo 的 `TooltipBase` 在提示显示时会吞掉 Esc，所以 Dialog、Popover、Menu 的内容里改用自绘提示（`ui.Overlay`，不注册 Esc；悬停 600ms 或键盘聚焦出现），其余处仍用 `TooltipBase`；Radio 必须放在 `RadioGroup` 里（一个 Tab 停靠点、方向键切换、有名称，孤立 Radio 被审计报错）；Tabs 与 Select 一样把禁用项画出来但不放进 MyGo 的 Base，由 kit 映射下标；真实 Toast 由根视图里的 `ToastHost` 用 kit 外观绘制，`ShowToast` 只传 Title；ListRow 没有 OnClick 时不是控件（无焦点、无悬停）；Sidebar 与 SettingsNav 是一个 FocusGroup；Dialog 不超出窗口，内容超高时滚动。
+
 ## 业务域清单
 | 路径 | 职责 |
 |---|---|
@@ -18,6 +20,7 @@ token 单一来源是设计源的 `token_definitions()`：`python3 -I docs/desig
 | text / icon / button / iconbutton _desktop.go | Text（字阶）、Icon（Lucide 16/14）、Button（4 Kind、Busy、IconOnly、门控 OnClick）、IconButton（28、Selected、必填名称） |
 | inline_desktop.go | InlineAction：输入框内的 14px 轻量动作（无底色、hover 只变色、同高命中区、框内焦点描边），Password 的显隐与以后的清除按钮共用 |
 | input / field _desktop.go | Input、Password（掩码、尾部显隐切换自带名称）、TextArea（Invalid、ReadOnly、Busy、Disabled）与 Field（标题、提示、错误、状态注入） |
+| display / choice / rows / dialog / shell _desktop.go | K2：Badge、Avatar、Notice、EmptyState、Skeleton、Progress、Step、Pagination、DetailRow、Toast（ToastView 与 ShowToast）、Divider、Card；Radio、Segmented、Tabs、ToggleButton；ListRow 及 NavItem、TreeRow、SkillRow、ResourceRow、CompanionRow、SettingRow；Popover、Dialog/Sheet、DialogHeader/Footer；PageHeader、PanelHeader、Sidebar、SettingsNav。浮层统一经 `popupShadow` 取 shadow.popup |
 | select / toggle / tooltip / menu _desktop.go | 泛型 Select、Checkbox（含 Mixed）与 Switch、Tooltip、Menu（roving focus） |
 | examples_desktop.go 与 *_examples_desktop.go | `Page`/`Axis` 与各组件按设计轴展开的示例页，画廊与覆盖闸共用 |
 | *_desktop_test.go | 交互、几何/像素、强制态与名称审计测试 |

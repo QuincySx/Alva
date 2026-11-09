@@ -22,17 +22,12 @@ import (
 )
 
 const (
-	k2 = "K2 overlays, feedback, layout and data display"
 	k3 = "K3 business compositions (kit/blocks)"
 )
 
 // deferred lists design components the kit does not build yet. The list only shrinks: an entry for a
 // component that now has a page fails as stale, and a design component in neither place fails.
 var deferred = map[string]string{
-	"Radio": k2, "Badge": k2, "Avatar": k2, "NavItem": k2, "Tab": k2, "Notice": k2, "EmptyState": k2, "SettingRow": k2,
-	"Progress": k2, "Skeleton": k2, "Step": k2, "Segment": k2 + " (Segmented moved from K1 by review)", "Pagination": k2, "Toast": k2,
-	"TreeRow": k2, "ToggleButton": k2, "DialogHeader": k2, "DialogFooter": k2, "DetailRow": k2, "PageHeader": k2, "PanelHeader": k2,
-	"Sidebar": k2, "SettingsNav": k2, "SkillRow": k2, "ResourceRow": k2, "CompanionRow": k2,
 	"ConnectionRow": k3, "ModelRow": k3, "TaskRow": k3, "ToolActivity": k3, "Composer": k3, "QuestionOption": k3, "Approval": k3,
 	"MessageHeader": k3, "Question": k3, "Attachment": k3, "CodeBlock": k3, "Citation": k3, "VoiceInput": k3, "RunStatus": k3,
 	"PermissionMenu": k3, "ComposerMenu": k3, "ProviderForm": k3, "ModelForm": k3, "ProviderModels": k3,
@@ -192,7 +187,7 @@ func TestToolbarSwitchesAppearanceAndNavigationChangesPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := New()
-	tester := ui.NewTester(a.View, 1440, 900)
+	tester := ui.NewTester(a.View, 1440, 2400)
 	if a.Dark || !tester.HasText("Alva Kit · "+a.Pages[0].Name) {
 		t.Fatal("gallery did not open on the first page in light")
 	}
@@ -287,5 +282,35 @@ func TestGalleryFreezesAnimationUnlessAsked(t *testing.T) {
 	tester.Advance(300 * time.Millisecond)
 	if before == sha256.Sum256(tester.Image().Pix) {
 		t.Fatal("the animation switch did not start the loaders")
+	}
+}
+
+func TestGalleryOverlayAndChoiceDemos(t *testing.T) {
+	_, tester := pageApp(t, "Dialog")
+	if err := tester.Click("打开对话框"); err != nil || !tester.HasText("此操作无法撤销。") {
+		t.Fatal("the dialog demo did not open", err)
+	}
+	tester.Key(0, ui.KeyEscape)
+	if tester.HasText("此操作无法撤销。") {
+		t.Fatal("Escape did not close the dialog demo")
+	}
+	if err := tester.Click("打开侧边栏"); err != nil || !tester.HasText("状态") {
+		t.Fatal("the sheet demo did not open", err)
+	}
+	_, tester = pageApp(t, "Popover")
+	if err := tester.Click("打开弹层"); err != nil || !tester.HasText("只看进行中") {
+		t.Fatal("the popover demo did not open", err)
+	}
+	_, tester = pageApp(t, "Segmented")
+	if err := tester.Click("按月"); err != nil {
+		t.Fatal(err)
+	}
+	_, tester = pageApp(t, "Tabs")
+	if err := tester.Click("活动"); err != nil {
+		t.Fatal(err)
+	}
+	_, tester = pageApp(t, "Toast")
+	if err := tester.Click("显示提示"); err != nil || !tester.HasText("已保存设置") {
+		t.Fatal("the toast demo did not show", err)
 	}
 }

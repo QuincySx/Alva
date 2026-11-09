@@ -12,4 +12,4 @@ chat 提供状态/消息行/原生控件与当前 Inspector 页分类；modules 
 |---|---|
 | chat/ | 有界聊天呈现、可独立装配的原生输入/消息列表及可选行距、只读Inspector分类；Hub阅读布局与direct原输入共用列表锚点，零值不改原行距 |
 | modules/ | 版本化 table/chart renderer 与原文 fallback |
-| kit/ | Alva Kit（ADR 0014）：设计 token、图标与 Text/Icon/Button/IconButton/Input/TextArea/Field/Select/Checkbox/Switch/Tooltip/Menu，及按设计轴展开变体的画廊；K1 基础，桌面迁移属 K4 |
+| kit/ | Alva Kit（ADR 0014）：设计 token、图标与 Text/Icon/Button/IconButton/Input/TextArea/Field/Select/Checkbox/Switch/Tooltip/Menu，及按设计轴展开变体的画廊；K1 基础加 K2 浮层、反馈、布局与数据展示；桌面迁移属 K4 |

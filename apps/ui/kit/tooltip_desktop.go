@@ -7,6 +7,8 @@ package kit
 
 import (
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/QuincySx/Alva/apps/ui/kit/internal/audit"
 	"github.com/QuincySx/Alva/apps/ui/kit/theme"
@@ -32,6 +34,10 @@ func tooltip(c *ui.Context, anchor ui.Element, text string, busy bool) ui.Elemen
 	}
 	audit.Described("Tooltip", description)
 	anchor.Description(description)
+	if overlayDepth.Load() > 0 {
+		overlayTip(c, anchor, text)
+		return ui.Element{}
+	}
 	return ui.TooltipBase(c, anchor, func(tip ui.Element) {
 		tip.Margin(tipGap, 0, tipGap, 0)
 		tipSurface(tip, pl).Children(func() { Text(c, text, TextProps{Role: RoleCaption, Key: "tip"}) })
@@ -47,4 +53,49 @@ func tipSurface(tip ui.Element, pl theme.Palette) ui.Element {
 // tipStatic draws the tip without an anchor, for the gallery and screenshots.
 func tipStatic(c *ui.Context, text string) ui.Element {
 	return tipSurface(ui.Row(c), pal(c)).Children(func() { Text(c, text, TextProps{Role: RoleCaption, Key: "tip"}) })
+}
+
+// overlayDepth counts the Dialog, Popover and Menu contents being built. MyGo's TooltipBase takes Escape for itself
+// while its tip shows, so inside an overlay the first Escape would hide the tip instead of closing the overlay.
+// Builds are synchronous on the UI thread, so a counter is a safe scope.
+var overlayDepth atomic.Int32
+
+// inOverlay builds content with tooltips switched to the self-drawn form that never touches Escape.
+func inOverlay(content func()) {
+	overlayDepth.Add(1)
+	defer overlayDepth.Add(-1)
+	content()
+}
+
+// tipDelay is how long the pointer rests before a self-drawn tip shows; keyboard focus shows it at once.
+const tipDelay = 600 * time.Millisecond
+
+type tipState struct{ since time.Time }
+
+// overlayTip draws the tip in MyGo's plain overlay layer, positioned above the anchor like TooltipBase would,
+// but registers no Escape shortcut: Escape reaches the dialog or popover that holds the anchor.
+func overlayTip(c *ui.Context, anchor ui.Element, text string) {
+	st := ui.Local(anchor, "kit-tip", func() tipState { return tipState{} })
+	show := anchor.FocusVisible()
+	if !show && anchor.Hovered() {
+		if st.since.IsZero() {
+			st.since = c.Now()
+		}
+		if wait := tipDelay - c.Now().Sub(st.since); wait <= 0 {
+			show = true
+		} else {
+			c.After(wait)
+		}
+	} else if !anchor.Hovered() {
+		st.since = time.Time{}
+	}
+	if !show {
+		return
+	}
+	pl := pal(c)
+	ui.Overlay(c, func() {
+		tip := ui.Box(c.Key("kit-tip")).Absolute().PassThrough().Role(ui.RoleTooltip)
+		tip.AttachTo(anchor, ui.AnchorTop, ui.AnchorBottom).Margin(tipGap, 0, tipGap, 0)
+		tipSurface(tip, pl).Children(func() { Text(c, text, TextProps{Role: RoleCaption, Key: "tip"}) })
+	})
 }

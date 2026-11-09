@@ -85,88 +85,90 @@ func Menu(c *ui.Context, anchor ui.Element, open *bool, items []MenuItem, p Menu
 	anchor.Bind(&m.trigger)
 	inside := false
 	ui.PopoverBase(c, anchor, open, func(panel ui.Element) {
-		popupSurface(panel, pl).Margin(theme.Space1, 0, 0).Role(ui.RoleMenu).Label(p.Label).FocusGroup(ui.Vertical)
-		if p.Width > 0 {
-			panel.Width(p.Width)
-		} else {
-			panel.MinWidth(menuMinWidth)
-		}
-		first := -1
-		reserve := false
-		for i, it := range items {
-			reserve = reserve || it.Icon != ""
-			if it.Separator || it.Disabled || (first >= 0 && !it.Selected) {
-				continue
+		inOverlay(func() {
+			popupSurface(panel, pl).Margin(theme.Space1, 0, 0).Role(ui.RoleMenu).Label(p.Label).FocusGroup(ui.Vertical)
+			if p.Width > 0 {
+				panel.Width(p.Width)
+			} else {
+				panel.MinWidth(menuMinWidth)
 			}
-			if first < 0 || it.Selected {
-				first = i
-			}
-		}
-		for i, it := range items {
-			if it.Separator {
-				ui.Box(c.Key(i)).FillWidth().Height(1).Background(col(pl.Border)).Shrink(0)
-				continue
-			}
-			audit.Named("MenuItem", it.Label)
-			row := ui.ButtonBase(c.Key(i)).Label(it.Label).Role(ui.RoleMenuItem).FillWidth().MinHeight(theme.ControlRow).
-				Padding(theme.Space1, theme.Space2).Gap(theme.Space2).Radius(theme.RadiusCtrl).AlignItems(ui.Center).FocusRing(false).
-				Disabled(it.Disabled).Bind(&m.handles[i])
-			if it.Description != "" {
-				row.Description(it.Description)
-			}
-			if i == first && !m.wasOpen {
-				row.AutoFocus()
-			}
-			inside = inside || row.Focused()
-			if fill, ok := menuRowFill(pl, it, row.Pressed(), row.Hovered()); ok {
-				row.Background(fill)
-			}
-			row.TextColor(menuRowText(pl, it))
-			focused := !it.Disabled && row.FocusVisible()
-			accent := col(pl.Accent)
-			row.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-				if focused {
-					inlineFocus(pt, r, theme.RadiusCtrl, accent)
+			first := -1
+			reserve := false
+			for i, it := range items {
+				reserve = reserve || it.Icon != ""
+				if it.Separator || it.Disabled || (first >= 0 && !it.Selected) {
+					continue
 				}
-			})
-			index := i
-			row.HandleInput(func(ev ui.InputEvent) bool {
-				if ev.Kind == ui.InputKeyDown {
-					switch ev.Key {
-					case ui.KeyEscape:
-						m.returnFocus = true // the popover closes itself on Escape
-					case ui.KeyTab:
-						m.returnFocus = true
-						*open = false
-						return true
+				if first < 0 || it.Selected {
+					first = i
+				}
+			}
+			for i, it := range items {
+				if it.Separator {
+					ui.Box(c.Key(i)).FillWidth().Height(1).Background(col(pl.Border)).Shrink(0)
+					continue
+				}
+				audit.Named("MenuItem", it.Label)
+				row := ui.ButtonBase(c.Key(i)).Label(it.Label).Role(ui.RoleMenuItem).FillWidth().MinHeight(theme.ControlRow).
+					Padding(theme.Space1, theme.Space2).Gap(theme.Space2).Radius(theme.RadiusCtrl).AlignItems(ui.Center).FocusRing(false).
+					Disabled(it.Disabled).Bind(&m.handles[i])
+				if it.Description != "" {
+					row.Description(it.Description)
+				}
+				if i == first && !m.wasOpen {
+					row.AutoFocus()
+				}
+				inside = inside || row.Focused()
+				if fill, ok := menuRowFill(pl, it, row.Pressed(), row.Hovered()); ok {
+					row.Background(fill)
+				}
+				row.TextColor(menuRowText(pl, it))
+				focused := !it.Disabled && row.FocusVisible()
+				accent := col(pl.Accent)
+				row.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+					if focused {
+						inlineFocus(pt, r, theme.RadiusCtrl, accent)
 					}
-					return false
+				})
+				index := i
+				row.HandleInput(func(ev ui.InputEvent) bool {
+					if ev.Kind == ui.InputKeyDown {
+						switch ev.Key {
+						case ui.KeyEscape:
+							m.returnFocus = true // the popover closes itself on Escape
+						case ui.KeyTab:
+							m.returnFocus = true
+							*open = false
+							return true
+						}
+						return false
+					}
+					if ev.Kind != ui.InputText || ev.Text == "" || ev.Mods&(ui.Cmd|ui.Ctrl|ui.Alt) != 0 {
+						return false
+					}
+					if ev.Time.Sub(m.last) > typeAheadReset {
+						m.typed = ""
+					}
+					m.typed, m.last = m.typed+ev.Text, ev.Time
+					target := typeAhead(items, m.typed, index)
+					if target < 0 && m.typed != ev.Text {
+						// The extended text matches nothing: start over with the letter just typed.
+						m.typed = ev.Text
+						target = typeAhead(items, m.typed, index)
+					}
+					if target >= 0 {
+						m.handles[target].Focus(c)
+					}
+					return true
+				})
+				row.Children(func() { menuRowContent(c, it, reserve) })
+				if row.Clicked() {
+					chosen = it.Key
+					m.returnFocus = true
+					*open = false
 				}
-				if ev.Kind != ui.InputText || ev.Text == "" || ev.Mods&(ui.Cmd|ui.Ctrl|ui.Alt) != 0 {
-					return false
-				}
-				if ev.Time.Sub(m.last) > typeAheadReset {
-					m.typed = ""
-				}
-				m.typed, m.last = m.typed+ev.Text, ev.Time
-				target := typeAhead(items, m.typed, index)
-				if target < 0 && m.typed != ev.Text {
-					// The extended text matches nothing: start over with the letter just typed.
-					m.typed = ev.Text
-					target = typeAhead(items, m.typed, index)
-				}
-				if target >= 0 {
-					m.handles[target].Focus(c)
-				}
-				return true
-			})
-			row.Children(func() { menuRowContent(c, it, reserve) })
-			if row.Clicked() {
-				chosen = it.Key
-				m.returnFocus = true
-				*open = false
 			}
-		}
+		})
 	})
 	switch {
 	case *open:

@@ -171,7 +171,8 @@ func f(e ui.Element) {
 
 // kitVocabularyExempt names kit files whose string literals may equal a tool or engine name, with the reason.
 var kitVocabularyExempt = map[string]string{
-	sharedKitRoot + "/icon/names_gen.go": "design glyph names (Edit, Task, Agent) are icon identifiers, not tool or engine names",
+	sharedKitRoot + "/icon/names_gen.go":        "design glyph names (Edit, Task, Agent) are icon identifiers, not tool or engine names",
+	sharedKitRoot + "/display_desktop.go#Agent": "AvatarKind.String returns the design's Kind axis value; Agent names an avatar shape, not an engine",
 }
 
 func TestKitHasNoProductVocabulary(t *testing.T) {
@@ -185,13 +186,16 @@ func TestKitHasNoProductVocabulary(t *testing.T) {
 				return true
 			}
 			if value, err := strconv.Unquote(lit.Value); err == nil && toolNameLiterals[value] {
+				if _, exempt := kitVocabularyExempt[name+"#"+value]; exempt {
+					return true
+				}
 				t.Errorf("%s: string literal %q is a tool or engine name; the kit renders kinds and props, never names (ADR 0013 section 3)", name, value)
 			}
 			return true
 		})
 	}
 	for name := range kitVocabularyExempt {
-		if _, found := kitSources(t)[name]; !found {
+		if _, found := kitSources(t)[strings.SplitN(name, "#", 2)[0]]; !found {
 			t.Errorf("stale vocabulary exemption %s", name)
 		}
 	}
@@ -211,3 +215,73 @@ func TestKitThemeDataFilesAreFrameworkFree(t *testing.T) {
 		}
 	}
 }
+
+// shadowViolations reports every Shadow or InsetShadow call outside the receiver-less popupShadow function of
+// kit_desktop.go, and a popupShadow that does not read the Popup token.
+func shadowViolations(name string, file *ast.File) []string {
+	var out []string
+	for _, decl := range file.Decls {
+		fn, isFunc := decl.(*ast.FuncDecl)
+		allowed := isFunc && fn.Name.Name == "popupShadow" && fn.Recv == nil && name == sharedKitRoot+"/kit_desktop.go"
+		usesToken, calls := false, 0
+		ast.Inspect(decl, func(n ast.Node) bool {
+			switch v := n.(type) {
+			case *ast.SelectorExpr:
+				usesToken = usesToken || v.Sel.Name == "Popup"
+			case *ast.CallExpr:
+				if sel, ok := v.Fun.(*ast.SelectorExpr); ok && (sel.Sel.Name == "Shadow" || sel.Sel.Name == "InsetShadow") {
+					calls++
+					if !allowed {
+						out = append(out, name+": "+sel.Sel.Name+" called outside popupShadow; use popupShadow/popupSurface so shadow.popup is the only source")
+					}
+				}
+			}
+			return true
+		})
+		if allowed && (calls != 1 || !usesToken) {
+			out = append(out, name+": popupShadow must make exactly one Shadow call fed by the Palette.Popup token")
+		}
+	}
+	return out
+}
+
+func TestKitShadowComesOnlyFromThePopupToken(t *testing.T) {
+	seen := false
+	for name, file := range kitSources(t) {
+		for _, violation := range shadowViolations(name, file) {
+			t.Error(violation)
+		}
+		seen = seen || name == sharedKitRoot+"/kit_desktop.go"
+	}
+	if !seen {
+		t.Fatal("kit_desktop.go not scanned")
+	}
+}
+
+func TestKitShadowScannerCatchesBypasses(t *testing.T) {
+	for name, src := range map[string]string{
+		"inset":     `package kit; func f(e E) { e.InsetShadow(0, 1, 2, 0, c) }`,
+		"method":    `package kit; func (x T) popupShadow(e E) { e.Shadow(0, 1, 2, 0, c) }`,
+		"elsewhere": `package kit; func other(e E) { e.Shadow(0, 1, 2, 0, c) }`,
+	} {
+		file, err := parser.ParseFile(token.NewFileSet(), "x.go", src, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(shadowViolations(sharedKitRoot+"/kit_desktop.go", file)) == 0 {
+			t.Errorf("%s: bypass accepted", name)
+		}
+	}
+	realShape := `package kit; func popupShadow(e E, p P) E { s := p.Popup; return e.Shadow(s.X, s.Y, s.Blur, s.Spread, c) }`
+	file, _ := parser.ParseFile(token2(), "x.go", realShape, 0)
+	if v := shadowViolations(sharedKitRoot+"/kit_desktop.go", file); len(v) != 0 {
+		t.Errorf("the real shape was rejected: %v", v)
+	}
+	hardCoded := `package kit; func popupShadow(e E, p P) E { return e.Shadow(0, 8, 30, -6, c) }`
+	file, _ = parser.ParseFile(token2(), "x.go", hardCoded, 0)
+	if len(shadowViolations(sharedKitRoot+"/kit_desktop.go", file)) == 0 {
+		t.Error("a popupShadow that ignores the token was accepted")
+	}
+}
+
+func token2() *token.FileSet { return token.NewFileSet() }
