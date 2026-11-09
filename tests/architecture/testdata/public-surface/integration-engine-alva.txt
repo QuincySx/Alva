@@ -1,12 +1,18 @@
+const InterjectionMessagePrefix = "interject:"
+
 func (*RepositoryInspector) InspectionCapabilities() engine.InspectionCapabilities
 
 func (a *Adapter) Cancel(_ context.Context, id string) error
 
 func (a *Adapter) Capabilities() engine.Capabilities
 
+func (a *Adapter) CheckFork(ctx context.Context, fork engine.ForkPoint) error
+
 func (a *Adapter) Descriptor() engine.Descriptor
 
 func (a *Adapter) Execute(parent context.Context, request engine.Request, sink func(engine.Event) error) error
+
+func (a *Adapter) Interject(_ context.Context, id string, input engine.Interjection) error
 
 func (a *Adapter) RespondPermission(ctx context.Context, id, requestID string, decision engine.PermissionDecision) error
 
@@ -19,6 +25,12 @@ func (i *RepositoryInspector) Observe(ctx context.Context, scope engine.Inspecti
 func (i *RepositoryInspector) Page(ctx context.Context, scope engine.InspectionScope, query engine.InspectionQuery) (engine.InspectionPage, error)
 
 func (i *RepositoryInspector) Read(ctx context.Context, scope engine.InspectionScope, uri string, offset int64) (engine.InspectionText, error)
+
+func (interjectionPlugin) Name() string
+
+func (p interjectionPlugin) Register(_ context.Context, r *core.Registrar) error
+
+func InterjectionPlugin(take func() []engine.Interjection, delivered func(engine.Interjection) error) core.Plugin
 
 func New(factory RunnerFactory) *Adapter
 
@@ -58,6 +70,16 @@ import (
 
 import (
 	"context"
+	"errors"
+
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/sdk/agent/core"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
 
 	"github.com/QuincySx/Alva/integration/engine"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
@@ -80,6 +102,10 @@ type FactoryOptions struct {
 	SystemPrompt, MaxTurns, Generation, DurableWaits, FileInputs, SkillInputs bool
 
 	ContextCompaction bool
+
+	Interjection, Fork bool
+
+	CheckFork func(context.Context, engine.ForkPoint) error
 }
 
 type OwnedRunner interface {

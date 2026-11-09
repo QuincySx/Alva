@@ -123,3 +123,4 @@ SmallPen正式设计是视觉依据：先核对Foundation Tokens与组件variant
 | settings_pages_desktop.go | 「插件与工具」概览与能力开关，工具、Hooks与诊断、浏览器、媒体、扩展插件中文表单；保存不启动进程，主机项启用先确认并只批准当前任务工作区 |
 | settings_mcp_desktop.go | MCP 服务器列表/编辑（本地命令或远程HTTP、请求头遮罩、认证无/OAuth）、明文传输提示、显式测试连接与工具列表、OAuth授权/取消/撤销 |
 | settings_pages_desktop_test.go | 表单保存不自批、启用先确认、编辑撤销批准、中文字段错误与草稿保留、恢复默认需确认的无界面回归 |
+| workspace_thread_desktop.go / workspace_thread_desktop_test.go | 运行中Enter排队、⌘Enter插话（引擎不支持则服务降为排队并在输入区内联提示）、输入区上方的排队条（状态徽标、修改、取消、暂停后「发送队首」）；用户消息悬停的「编辑并重新发送」「从这里分叉」与「‹2/3›」切换器（只空闲可切）、最后一条回复的「重新生成」、分叉来源条与跳回来源位置；禁用时给出原因；全部经 TurnService/ConversationService，控件用Alva Kit，无新增kit_adoption条目 |

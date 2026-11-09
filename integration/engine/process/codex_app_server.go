@@ -422,6 +422,11 @@ func (a *Adapter) executeCodexAppServer(parent context.Context, request engine.R
 	if outcome == "" {
 		outcome = engine.Failed
 	}
+	if errors.Is(runErr, engine.ErrForkUnreachable) && run.nativeTurn() == "" && !contract.Started {
+		// Nothing was reported: the caller can turn this fork into an index
+		// continuation and run the Turn again on a fresh execution.
+		return runErr
+	}
 	if runErr != nil {
 		outcome, failure := engine.Failed, engine.FailureExecution
 		if ctx.Err() != nil && pureCancellation(runErr) {
@@ -434,9 +439,9 @@ func (a *Adapter) executeCodexAppServer(parent context.Context, request engine.R
 		if err := emit(engine.Event{Kind: engine.Error, SessionID: run.session, Text: text, Failure: failure, Reference: run.reference("")}); err != nil {
 			return errors.Join(runErr, err)
 		}
-		return emit(engine.Event{Kind: engine.Completed, SessionID: run.session, Outcome: outcome, Usage: &run.usage, Reference: run.reference("")})
+		return emit(engine.Event{Kind: engine.Completed, SessionID: run.session, Outcome: outcome, Usage: &run.usage, Reference: run.reference(""), NativeTurn: run.nativeTurn()})
 	}
-	return emit(engine.Event{Kind: engine.Completed, SessionID: run.session, Outcome: outcome, Usage: &run.usage, Reference: run.reference("")})
+	return emit(engine.Event{Kind: engine.Completed, SessionID: run.session, Outcome: outcome, Usage: &run.usage, Reference: run.reference(""), NativeTurn: run.nativeTurn()})
 }
 
 func verifyCodexInputSkills(ctx context.Context, skills []engine.InputSkill) error {

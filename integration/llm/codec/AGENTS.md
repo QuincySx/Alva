@@ -63,3 +63,4 @@
 | Exchange 回归 | `exchange_test.go` | 16 native complete 路由、真 converter/Steps、opaque/别名/损耗/cache |
 | Stream 回归 | `stream_test.go` | 16 路目的 decoder 真完成、截断不成功、private state/尾 cache0 |
 | 保真反例回归 | `fidelity_test.go` | 超大整数/小数、原生 opaque reasoning raw 精度与克隆、split tool arguments、case alias/refusal、Gemini thinking/tool-prompt/zero/overflow 与反向子集 |
+| 插话顺序回归 | `interjection_order_test.go` | 工具结果之后的用户插话在Chat/Responses/Anthropic/Gemini请求里均不丢、不重排、不被拒 |

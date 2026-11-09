@@ -41,6 +41,8 @@ type ProductStorage interface {
 	hub.ComposerFileOwnershipStore
 	hub.ComposerDraftAdmissionStore
 	hub.ComposerExecutionStore
+	hub.PendingStore
+	hub.VersionStore
 	Close() error
 }
 

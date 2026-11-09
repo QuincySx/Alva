@@ -19,6 +19,12 @@ type ComposerTurnInput struct {
 	UserText string
 	Files    []engine.InputFile
 	Skills   []engine.InputSkill
+	// Line, when set, starts a new version line cut before that Turn in the
+	// admission transaction (edit and regenerate).
+	Line *LineFork
+	// QueueID names a queued input this admission dispatches: it is deleted in
+	// the same transaction, so a Turn and its queue entry never both exist.
+	QueueID string
 }
 
 type ComposerExecutionStore interface {

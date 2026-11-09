@@ -24,3 +24,5 @@ API key only via separate explicit regular/pipe Unix fd3..10 or portable --api-k
 | main_test.go | Real local SDK/provider resume, cold reads/REPL/switch, invalid configuration, permissions, cancellation and output ownership; owned Codex app-server argv/wire fixture and explicit exec compatibility without running installed user CLIs |
 
 Windows *os.File输入改用lineinput的regular-file/PeekNamedPipe逐行传输，不再依靠Close中断同步Scanner。非Windows和finite owned reader保持原scanner/Close owner。行/累计预算、Turn/审批政策不合并；console在读取前明确拒绝。
+
+REPL 增 `/fork <turn-id>`：从明确的轮分叉出新会话并打印其 id（原生分叉不可用时标明只带摘要）；排队、插话、编辑重发与重新生成需要并发输入或进程所有的执行，留在桌面与 HTTP 入口。

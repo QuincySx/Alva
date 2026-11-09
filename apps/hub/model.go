@@ -130,6 +130,25 @@ type Session struct {
 	// DeletedAt marks a soft delete: every list, search and navigation read
 	// skips the session while its product and native data stay on disk.
 	DeletedAt int64 `json:"deleted_at,omitempty"`
+	// ActiveLineID names the version line the conversation currently shows.
+	// Empty means the session never had a second version: every read then
+	// takes the original, unfiltered path.
+	ActiveLineID string `json:"active_line_id,omitempty"`
+	// ForkedFrom records the conversation this one was forked from.
+	ForkedFrom *ForkOrigin `json:"forked_from,omitempty"`
+}
+
+// ForkOrigin points a forked conversation back at the place it came from: the
+// source session, the Turn it kept through and the history sequence of that
+// Turn's last event, so the link can open the source around that spot.
+type ForkOrigin struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+	TurnID    string `json:"turn_id"`
+	// TurnSequence is the kept Turn's ordinal in the source session.
+	TurnSequence uint64 `json:"turn_sequence"`
+	// EventSequence is the source history sequence of the kept Turn's last event.
+	EventSequence uint64 `json:"event_sequence"`
 }
 
 // TitleHasControl reports whether a title holds a control or format rune: C0/C1
@@ -186,7 +205,34 @@ type Branch struct {
 	// that route's latest attempt actually used (at most 16 routes), so an
 	// endpoint move is noticed per route, never across different routes.
 	RoutesSeen map[string]RouteSeen `json:"routes_seen,omitempty"`
+	// Fork is the persisted intent to start this branch's native conversation
+	// as a cut copy of another one. It is written with the branch, before the
+	// engine makes the copy, and cleared once the engine reports the new
+	// native identity.
+	Fork *BranchFork `json:"fork,omitempty"`
+	// Index is the bounded Turn index a forked conversation hands an engine
+	// that cannot fork natively. It is delivered with the branch's first Turn.
+	Index []HandoffEntry `json:"index,omitempty"`
 }
+
+// BranchFork says which native conversation to copy and how many of its most
+// recent prompts to drop. Owner is the product session that owns the source.
+type BranchFork struct {
+	Owner   string `json:"owner"`
+	Session string `json:"session"`
+	// The absolute cut, fixed when the intent was recorded from identities
+	// the source already holds (see engine.ForkPoint).
+	BeforeSequence  uint64 `json:"before_sequence,omitempty"`
+	ThroughSequence uint64 `json:"through_sequence,omitempty"`
+	AnchorTurn      string `json:"anchor_turn,omitempty"`
+	AnchorKeep      bool   `json:"anchor_keep,omitempty"`
+}
+
+// Point is the engine request of the recorded cut.
+func (f BranchFork) Point() engine.ForkPoint {
+	return engine.ForkPoint{OwnerID: f.Owner, Session: f.Session, BeforeSequence: f.BeforeSequence, ThroughSequence: f.ThroughSequence, AnchorTurn: f.AnchorTurn, AnchorKeep: f.AnchorKeep}
+}
+
 type Turn struct {
 	// Origin is empty for an ordinary prompt and "continue" for a turn the
 	// product started to continue a stopped reply.
@@ -315,6 +361,14 @@ type Claim struct {
 	Attempt      Attempt
 	Handoff      *Handoff
 	WaitRevision uint64
+}
+
+// ForkDegrader is an optional ExecutionStore capability: turn the running
+// attempt's branch from a native fork into a Turn-index continuation, because
+// the engine could not reach the recorded cut. It writes the fork_degraded
+// notice and returns the index handoff the Turn is then run with.
+type ForkDegrader interface {
+	DegradeFork(ctx context.Context, attemptID string) (*Handoff, error)
 }
 
 // ExecutionStore is the complete persistence authority needed by Runtime.

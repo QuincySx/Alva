@@ -70,6 +70,12 @@ const (
 )
 
 const (
+	InterjectSent InterjectMode = "sent"
+
+	InterjectQueued InterjectMode = "queued"
+)
+
+const (
 	MCPProbeConnected          = "connected"
 	MCPProbeFailed             = "failed"
 	MCPProbeNeedsAuthorization = "needs_authorization"
@@ -205,6 +211,8 @@ func (c *ConversationService) Delete(ctx context.Context, id string) error
 
 func (c *ConversationService) Detail(ctx context.Context, id string) (hub.Detail, error)
 
+func (c *ConversationService) Fork(ctx context.Context, id, turnID string) (ForkResult, error)
+
 func (c *ConversationService) Handoff(ctx context.Context, id, handoffID string) (*hub.Handoff, error)
 
 func (c *ConversationService) History(ctx context.Context, id string, after uint64, limit int) ([]hub.HistoryEntry, error)
@@ -222,6 +230,14 @@ func (c *ConversationService) ReadNativeRecord(ctx context.Context, id string, r
 func (c *ConversationService) Rename(ctx context.Context, id, title string) error
 
 func (c *ConversationService) SetPinned(ctx context.Context, id string, pinned bool) error
+
+func (c *ConversationService) VersionPolicy(ctx context.Context, id, turnID string) (string, error)
+
+func (c *ConversationService) Versions(ctx context.Context, id string) (map[string]VersionSwitch, error)
+
+func (c *ConversationService) VersionsDisabled(ctx context.Context, id string) (string, error)
+
+func (c *ConversationService) VersionsOf(ctx context.Context, id, activeLineID string) (map[string]VersionSwitch, error)
 
 func (d DraftAttachment) DraftSelection() DraftReferenceSelection
 
@@ -685,6 +701,8 @@ func (s *TraceService) Search(ctx context.Context, target TraceTarget, query str
 
 func (s *TraceService) Tail(ctx context.Context, target TraceTarget) (TraceChunk, error)
 
+func (s *TranscriptService) Around(ctx context.Context, sessionID string, sequence uint64) (TranscriptChunk, error)
+
 func (s *TranscriptService) Newer(ctx context.Context, sessionID string, after uint64) (TranscriptChunk, error)
 
 func (s *TranscriptService) Older(ctx context.Context, sessionID string, before uint64) (TranscriptChunk, error)
@@ -739,13 +757,35 @@ func (t *TurnService) Active(id string) (executionID string, active bool)
 
 func (t *TurnService) AnyActive() bool
 
+func (t *TurnService) CancelQueued(ctx context.Context, id, inputID string) error
+
+func (t *TurnService) Capabilities(ctx context.Context, id string) (TurnCapabilities, error)
+
 func (t *TurnService) Continue(ctx context.Context, id string) (TurnStart, error)
+
+func (t *TurnService) Edit(ctx context.Context, id, turnID, text string) (TurnStart, error)
+
+func (t *TurnService) EditQueued(ctx context.Context, id, inputID, text string) (hub.PendingInput, error)
 
 func (t *TurnService) Engine(id string) (engine.Description, bool)
 
+func (t *TurnService) EngineCapabilities(engineID string) TurnCapabilities
+
 func (t *TurnService) Engines() []engine.Description
 
+func (t *TurnService) Interject(ctx context.Context, id, executionID, text string) (InterjectResult, error)
+
+func (t *TurnService) Queue(ctx context.Context, id, text string) (hub.PendingInput, error)
+
+func (t *TurnService) Queued(ctx context.Context, id string) ([]hub.PendingInput, error)
+
+func (t *TurnService) Regenerate(ctx context.Context, id, turnID string) (TurnStart, error)
+
+func (t *TurnService) SelectVersion(ctx context.Context, id, lineID string) error
+
 func (t *TurnService) Send(ctx context.Context, id, prompt string, references []DraftReferenceSelection) (TurnStart, error)
+
+func (t *TurnService) SendQueued(ctx context.Context, id, inputID string) (TurnStart, error)
 
 func (t *TurnService) Start(owner context.Context, id, prompt string) (TurnStart, error)
 
@@ -1401,6 +1441,15 @@ import (
 import (
 	"context"
 	"errors"
+	"sort"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+)
+
+import (
+	"context"
+	"errors"
 	"strconv"
 
 	"github.com/QuincySx/Alva/apps/hub"
@@ -1463,6 +1512,15 @@ import (
 	"sync"
 
 	"github.com/QuincySx/Alva/apps/hub"
+)
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
 )
 
 import (
@@ -1630,6 +1688,8 @@ type Block struct {
 	Context *engine.ContextCompaction
 
 	Failure engine.FailureKind
+
+	Rich bool
 }
 
 type BlockKind string
@@ -1860,6 +1920,11 @@ type FieldError struct {
 
 type FieldErrors []FieldError
 
+type ForkResult struct {
+	Session  hub.Session
+	Degraded bool
+}
+
 type GoalArtifacts interface {
 	Create(context.Context, string, string, string) (storage.Session, error)
 	PutArtifact(context.Context, string, string, storage.ArtifactInput) (storage.ArtifactInfo, error)
@@ -1985,6 +2050,15 @@ type InteractionView struct {
 	Truncated bool
 }
 
+type InterjectMode string
+
+type InterjectResult struct {
+	Mode  InterjectMode
+	Input hub.PendingInput
+
+	Notice string
+}
+
 type MCPConnector interface {
 	Probe(ctx context.Context, workspace string, server hub.MCPServer) MCPProbe
 	CredentialStatus(ctx context.Context, server hub.MCPServer) MCPCredential
@@ -2023,6 +2097,8 @@ type ServiceStore interface {
 	hub.WaitStore
 	hub.NativeOwnerResolver
 	hub.SessionModelOptionsStore
+	hub.PendingStore
+	hub.VersionStore
 }
 
 type SessionSettingsView struct {
@@ -2217,6 +2293,8 @@ type TranscriptChunk struct {
 	First, Last uint64
 
 	More bool
+
+	MoreAfter bool
 }
 
 type TranscriptService struct{ Store TranscriptStore }
@@ -2229,6 +2307,12 @@ type TranscriptStore interface {
 type TranscriptWindow struct {
 }
 
+type TurnCapabilities struct {
+	Interject bool
+
+	Fork bool
+}
+
 type TurnService struct {
 }
 
@@ -2236,6 +2320,19 @@ type TurnStart struct {
 	TurnID      string
 	ExecutionID string
 	Done        <-chan error
+}
+
+type VersionChoice struct {
+	TurnID string
+	LineID string
+	Active bool
+}
+
+type VersionSwitch struct {
+	TurnID  string
+	Index   int
+	Count   int
+	Choices []VersionChoice
 }
 
 type WaitResolution struct {

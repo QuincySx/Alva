@@ -60,7 +60,7 @@ func TestWorkflowSchemaFivePreservesVersionFourFacts(t *testing.T) {
 	}
 	defer store.Close()
 	var version int
-	if err = store.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 9 {
+	if err = store.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 11 {
 		t.Fatal(version, err)
 	}
 	loaded, err := store.Goal(t.Context(), goal.ID)

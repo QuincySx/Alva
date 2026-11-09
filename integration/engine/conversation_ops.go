@@ -41,17 +41,51 @@ type Interjector interface {
 // ForkPoint asks Execute to continue from a new native session copied from
 // Session and cut before an earlier prompt, leaving Session unchanged. An
 // engine declaring Capabilities.Fork reports the new identity through
-// SessionStarted. BeforeSequence is the native record sequence of the first
-// record of the first dropped prompt when the product knows it (0 when not);
-// DropTurns counts the most recent prompts on Session to drop (0 keeps all).
+// SessionStarted.
+//
+// The cut is absolute: the product fixes it when it records the intent, from
+// identities the source already holds, so a source that grows or is rolled
+// back afterwards cannot move it. BeforeSequence is an upper bound on the
+// native record sequence of the first dropped prompt (the first record the
+// dropped Turn produced); an engine cuts before the last prompt committed
+// below it. ThroughSequence keeps every message up to that record (a fork that
+// drops nothing yet; the last record the kept Turn referenced, so an
+// interjection delivered during it, which precedes its final reply, is kept).
+// AnchorTurn is the engine's own turn identity of the Turn the cut is made
+// at: AnchorKeep false drops it and everything after, true keeps it and drops
+// what follows. DropTurns counts the most recent turns to drop and is only
+// used when no anchor is given.
 type ForkPoint struct {
+	// OwnerID is the product session that owns Session. An engine whose
+	// native conversations are owner-scoped opens the source under it.
+	OwnerID        string `json:"owner_id,omitempty"`
 	Session        string `json:"session"`
 	BeforeSequence uint64 `json:"before_sequence,omitempty"`
-	DropTurns      int    `json:"drop_turns"`
+	// ThroughSequence replaces BeforeSequence when nothing is dropped yet:
+	// keep the messages up to and including this native record sequence.
+	ThroughSequence uint64 `json:"through_sequence,omitempty"`
+	AnchorTurn      string `json:"anchor_turn,omitempty"`
+	AnchorKeep      bool   `json:"anchor_keep,omitempty"`
+	DropTurns       int    `json:"drop_turns"`
+}
+
+// ErrForkUnreachable is returned by Execute, before it reports anything, when a
+// fork's recorded cut cannot be reached in the source (its turn or record is
+// gone or lies beyond what the engine can read). The product then turns the
+// branch into a Turn-index continuation and runs the Turn again.
+var ErrForkUnreachable = errors.New("the recorded fork cut is not reachable in the source conversation")
+
+// ForkChecker is implemented by an engine that can say, before the product
+// commits to a native fork, whether the cut is reachable (for example that it
+// lies inside the part of the source the engine can read). A fork the engine
+// refuses is recorded as unsupported and the conversation continues from the
+// Turn index instead; nothing is created.
+type ForkChecker interface {
+	CheckFork(ctx context.Context, fork ForkPoint) error
 }
 
 func (f ForkPoint) Validate() error {
-	if !nativeID(f.Session) || f.DropTurns < 0 || f.DropTurns > 100000 {
+	if !nativeID(f.Session) || f.DropTurns < 0 || f.DropTurns > 100000 || f.AnchorTurn != "" && !nativeID(f.AnchorTurn) || f.OwnerID != "" && !nativeID(f.OwnerID) {
 		return errors.New("bounded fork source and point required")
 	}
 	return nil

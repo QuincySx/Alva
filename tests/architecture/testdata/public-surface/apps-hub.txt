@@ -43,8 +43,27 @@ const (
 )
 
 const (
+	MaxLinesPerSession    = 64
+	MaxSegmentsPerLine    = 64
+	MaxBranchesPerSession = 256
+)
+
+const (
+	MaxPendingInputs    = 8
+	MaxPendingInputText = 16 << 10
+)
+
+const (
 	MinContextWindow = 1 << 10
 	MaxContextWindow = 100 << 20
+)
+
+const (
+	PendingQueued PendingState = "queued"
+
+	PendingInterjecting PendingState = "interjecting"
+
+	PendingUncertain PendingState = "uncertain"
 )
 
 const (
@@ -81,6 +100,8 @@ const MaxComposerExtractedBytes int64 = 2 << 20
 const MaxComposerFileBytes int64 = 256 << 20
 
 const MaxPinnedSessions = 32
+
+const MaxTurnText = 64 << 10
 
 const Running engine.Outcome = "running"
 
@@ -132,6 +153,8 @@ func (d ComposerDraft) Validate() error
 
 func (d MediaDecoder) Validate() error
 
+func (f BranchFork) Point() engine.ForkPoint
+
 func (f ComposerFile) Validate() error
 
 func (g CompanionGroup) Validate() error
@@ -160,6 +183,8 @@ func (r *Runtime) ActiveExecution(sessionID string) (executionID string, active 
 
 func (r *Runtime) ActivePermission(sessionID string) (PermissionBinding, bool)
 
+func (r *Runtime) CanInterject(sessionID string) (executionID string, ok bool)
+
 func (r *Runtime) Cancel(ctx context.Context, sessionID string) error
 
 func (r *Runtime) CancelAndWait(ctx context.Context, sessionID string) error
@@ -175,6 +200,8 @@ func (r *Runtime) Descriptor(id string) (engine.Descriptor, bool)
 func (r *Runtime) EngineDescriptions() []engine.Description
 
 func (r *Runtime) HasActive() bool
+
+func (r *Runtime) Interject(ctx context.Context, sessionID, executionID string, input engine.Interjection) error
 
 func (r *Runtime) PendingEngineInteractions(sessionID string) []EngineInteraction
 
@@ -197,6 +224,8 @@ func (r *Runtime) Run(owner context.Context, sessionID, prompt string) error
 func (r *Runtime) SessionActive(id string) bool
 
 func (r *Runtime) SetErrorRedactor(redact func(string) string)
+
+func (r *Runtime) SetExitObserver(observe func(ExecutionExit))
 
 func (r *Runtime) SetRouteResolver(resolver RouteResolver)
 
@@ -235,6 +264,8 @@ func (s ComposerDraftScope) Validate() error
 func (s ConversationTabSet) Validate() error
 
 func (s GoalScope) Validate() error
+
+func (s LineSegment) Open() bool
 
 func (s MCPServer) Remote() bool
 
@@ -324,6 +355,10 @@ func ResolveSettings(session Settings, app AppSettings, approvals []WorkspaceApp
 func RouteKey(target Target) string
 
 func TitleHasControl(title string) bool
+
+func ValidPendingText(text string) error
+
+func ValidTurnText(text string) error
 
 func ValidateAEP(entries []AEPBundle) error
 
@@ -664,6 +699,20 @@ type Branch struct {
 	Parked          bool   `json:"parked"`
 
 	RoutesSeen map[string]RouteSeen `json:"routes_seen,omitempty"`
+
+	Fork *BranchFork `json:"fork,omitempty"`
+
+	Index []HandoffEntry `json:"index,omitempty"`
+}
+
+type BranchFork struct {
+	Owner   string `json:"owner"`
+	Session string `json:"session"`
+
+	BeforeSequence  uint64 `json:"before_sequence,omitempty"`
+	ThroughSequence uint64 `json:"through_sequence,omitempty"`
+	AnchorTurn      string `json:"anchor_turn,omitempty"`
+	AnchorKeep      bool   `json:"anchor_keep,omitempty"`
 }
 
 type BrowserSettings struct {
@@ -920,6 +969,10 @@ type ComposerTurnInput struct {
 	UserText string
 	Files    []engine.InputFile
 	Skills   []engine.InputSkill
+
+	Line *LineFork
+
+	QueueID string
 }
 
 type ComposerWorkerDraftStore interface {
@@ -1065,6 +1118,13 @@ type EngineInteraction struct {
 	Event   engine.Event
 }
 
+type ExecutionExit struct {
+	SessionID   string
+	ExecutionID string
+	TurnID      string
+	Err         error
+}
+
 type ExecutionStore interface {
 	Detail(context.Context, string) (Detail, error)
 	BeginTurn(context.Context, string, string) (Claim, error)
@@ -1076,6 +1136,20 @@ type ExecutionStore interface {
 
 type FallbackNotifier interface {
 	RecordFallbackSkip(ctx context.Context, attemptID string, target Target, reason string) error
+}
+
+type ForkDegrader interface {
+	DegradeFork(ctx context.Context, attemptID string) (*Handoff, error)
+}
+
+type ForkOrigin struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
+	TurnID    string `json:"turn_id"`
+
+	TurnSequence uint64 `json:"turn_sequence"`
+
+	EventSequence uint64 `json:"event_sequence"`
 }
 
 type Goal struct {
@@ -1173,6 +1247,39 @@ type HookSpec struct {
 	NativeCommand
 }
 
+type Line struct {
+	ID        string        `json:"id"`
+	SessionID string        `json:"session_id"`
+	ParentID  string        `json:"parent_id,omitempty"`
+	Ordinal   int           `json:"ordinal"`
+	CreatedAt int64         `json:"created_at"`
+	TouchedAt int64         `json:"touched_at"`
+	Segments  []LineSegment `json:"segments"`
+	Groups    []LineGroup   `json:"groups,omitempty"`
+
+	ActiveBranchID string `json:"active_branch_id,omitempty"`
+}
+
+type LineFork struct {
+	TurnID     string
+	Regenerate bool
+	NativeFork bool
+}
+
+type LineGroup struct {
+	Group  string `json:"group"`
+	TurnID string `json:"turn_id"`
+	Seq    uint64 `json:"seq"`
+}
+
+type LineSegment struct {
+	FromSeq  uint64 `json:"from_seq"`
+	ToSeq    uint64 `json:"to_seq,omitempty"`
+	FromTurn uint64 `json:"from_turn"`
+	ToTurn   uint64 `json:"to_turn,omitempty"`
+	Closed   bool   `json:"closed,omitempty"`
+}
+
 type MCPServer struct {
 	ID                 string            `json:"id"`
 	Name               string            `json:"name,omitempty"`
@@ -1246,6 +1353,34 @@ type NativeCommand struct {
 
 type NativeOwnerResolver interface {
 	NativeOwner(context.Context, string, string) (string, error)
+}
+
+type PendingInput struct {
+	ID        string       `json:"id"`
+	SessionID string       `json:"session_id"`
+	Text      string       `json:"text"`
+	State     PendingState `json:"state"`
+	CreatedAt int64        `json:"created_at"`
+
+	Error string `json:"error,omitempty"`
+
+	Position int64 `json:"-"`
+}
+
+type PendingState string
+
+type PendingStore interface {
+	QueueInput(ctx context.Context, id, text string, state PendingState) (PendingInput, error)
+
+	PendingInputs(ctx context.Context, id string) ([]PendingInput, error)
+
+	EditPendingInput(ctx context.Context, id, inputID, text string) (PendingInput, error)
+
+	CancelPendingInput(ctx context.Context, id, inputID string) error
+
+	RequeuePendingInput(ctx context.Context, id, inputID, reason string) error
+
+	NotePendingError(ctx context.Context, id, inputID, reason string) error
 }
 
 type PermissionBinding struct {
@@ -1327,11 +1462,20 @@ type Session struct {
 	Pinned bool `json:"pinned,omitempty"`
 
 	DeletedAt int64 `json:"deleted_at,omitempty"`
+
+	ActiveLineID string `json:"active_line_id,omitempty"`
+
+	ForkedFrom *ForkOrigin `json:"forked_from,omitempty"`
 }
 
 type SessionCursor struct {
 	Updated int64
 	ID      string
+}
+
+type SessionFork struct {
+	TurnID     string
+	NativeFork bool
 }
 
 type SessionModelOption struct {
@@ -1562,6 +1706,26 @@ type Turn struct {
 
 type TurnRecoverer interface {
 	RecoverSession(ctx context.Context, sessionID string) error
+}
+
+type VersionStore interface {
+	Lines(ctx context.Context, id string) ([]Line, error)
+
+	SelectLine(ctx context.Context, id, lineID string) error
+
+	ForkSession(ctx context.Context, id string, input SessionFork) (Session, error)
+
+	ForkAnchor(ctx context.Context, id, turnID string, keepThrough bool) (BranchFork, bool, error)
+
+	VersionsDisabled(ctx context.Context, id string) (string, error)
+
+	TurnVersionable(ctx context.Context, id, turnID string) (VersionTurn, error)
+}
+
+type VersionTurn struct {
+	Turn     Turn
+	UserText string
+	Reason   string
 }
 
 type WaitStore interface {
@@ -1795,6 +1959,10 @@ var ErrGoalConflict = errors.New("goal request changed; use a new request identi
 
 var ErrGoalScope = errors.New("goal belongs to a different project or session")
 
+var ErrInterjectNotReady = errors.New("the running Turn has not started its native conversation yet")
+
+var ErrInterjectUnsupported = errors.New("this engine cannot take messages while it runs")
+
 var ErrInvalidGoal = errors.New("invalid goal")
 
 var ErrInvalidPreferences = errors.New("invalid application preferences")
@@ -1804,6 +1972,10 @@ var ErrModelPreferenceConflict = errors.New("model preference changed; reload be
 var ErrNotFound = errors.New("product object is unavailable in this scope")
 
 var ErrNothingToContinue = errors.New("only a stopped reply can be continued")
+
+var ErrPendingFull = errors.New("at most 8 queued inputs per conversation")
+
+var ErrPendingGone = errors.New("queued input is no longer queued")
 
 var ErrPinnedBudget = errors.New("pinned session budget exhausted")
 
@@ -1818,6 +1990,12 @@ var ErrSessionModelOptionsConflict = errors.New("session model options changed; 
 var ErrSessionNotRunning = errors.New("Hub session is not running")
 
 var ErrSessionRunning = errors.New("session is running; stop it before deleting")
+
+var ErrVersionBudget = errors.New("version line budget exhausted")
+
+var ErrVersionBusy = errors.New("versions change only while the conversation is idle")
+
+var ErrVersionUnsupported = errors.New("this Turn does not support versions")
 
 var ErrWorkerDormant = errors.New("Worker is dormant or Team has ended")
 

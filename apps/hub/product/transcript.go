@@ -86,6 +86,9 @@ type Block struct {
 	// Failure classifies an "error" or "fallback_notice" block (auth, rate
 	// limit, startup...); empty for other blocks.
 	Failure engine.FailureKind
+	// Rich marks a user block whose Turn carried files or Skills: it cannot be
+	// edited, regenerated or queued.
+	Rich bool
 }
 
 // TranscriptStore is the only history capability the Message Stream needs.
@@ -106,6 +109,8 @@ type TranscriptChunk struct {
 	// More reports that history may continue past this chunk in the direction
 	// it was read: earlier for Tail/Older, later for Newer.
 	More bool
+	// MoreAfter is set only by Around: history continues after the chunk too.
+	MoreAfter bool
 }
 
 const (
@@ -147,6 +152,28 @@ func (s *TranscriptService) Newer(ctx context.Context, sessionID string, after u
 		}
 		after = entries[len(entries)-1].Sequence
 	}
+	chunk.bounds()
+	return chunk, nil
+}
+
+// Around reads the history on both sides of a committed sequence, the chunk a
+// link into a conversation opens (a fork's "view the conversation before the
+// fork"). The window then shows More earlier and, when MoreAfter, later
+// history, exactly as after paging.
+func (s *TranscriptService) Around(ctx context.Context, sessionID string, sequence uint64) (TranscriptChunk, error) {
+	if sequence == 0 {
+		return s.Tail(ctx, sessionID)
+	}
+	chunk, err := s.backward(ctx, sessionID, sequence+1)
+	if err != nil {
+		return TranscriptChunk{}, err
+	}
+	entries, err := s.Store.History(ctx, sessionID, sequence, transcriptPage)
+	if err != nil {
+		return TranscriptChunk{}, err
+	}
+	chunk.entries = append(chunk.entries, entries...)
+	chunk.MoreAfter = len(entries) == transcriptPage
 	chunk.bounds()
 	return chunk, nil
 }
@@ -202,6 +229,8 @@ func visibleBlockID(entry hub.HistoryEntry) string {
 	switch entry.Event.Kind {
 	case engine.MessageDelta, engine.Message, engine.ToolStart, engine.ToolEnd:
 		return entry.AttemptID + "/" + entry.Event.ID
+	case engine.InputDelivered:
+		return entry.AttemptID + "/interject/" + entry.Event.ID
 	}
 	return ""
 }
@@ -426,6 +455,7 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		b := p.upsert(entry.TurnID+"/input", entry, BlockKindUser, BlockStatusCompleted)
 		if !b.final {
 			b.Text, b.final = entry.Input, true
+			b.Rich = len(entry.InputFiles) > 0 || len(entry.InputSkills) > 0
 		}
 		return changed
 	}
@@ -444,7 +474,7 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		switch event.Kind {
 		case "route_resolved":
 			return changed // audit fact only; never a message
-		case "route_endpoint_changed", "fallback_unavailable":
+		case "route_endpoint_changed", "fallback_unavailable", "fork_degraded":
 			b := p.upsert("product/"+sequence, entry, BlockKindStatus, BlockStatusCompleted)
 			b.Name, b.Text, b.final = "notice", event.Text, true
 			return changed
@@ -489,6 +519,11 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		} else {
 			b.Text, b.Status, b.final, b.Truncated, b.Ref = event.Text, BlockStatusCompleted, true, event.Truncated, cloneReference(event.Reference)
 		}
+	case engine.InputDelivered:
+		// A message the user sent while the Turn ran, shown at the point it
+		// reached the model.
+		b := p.upsert(entry.AttemptID+"/interject/"+event.ID, entry, BlockKindUser, BlockStatusCompleted)
+		b.Name, b.Text, b.final = "interjection", event.Text, true
 	case engine.MessageDelta, engine.Message:
 		b := p.upsert(id, entry, BlockKindReply, BlockStatusRunning)
 		if event.Kind == engine.Message {

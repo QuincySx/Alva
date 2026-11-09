@@ -152,7 +152,19 @@ func (s *Store) manageSession(ctx context.Context, id string, change func(contex
 // LatestTurn reads the newest Turn on the read connection.
 func (s *Store) LatestTurn(ctx context.Context, id string) (result hub.Turn, err error) {
 	defer func() { err = normalizeStoreError(err) }()
-	result, err = read[hub.Turn](ctx, s.list, `SELECT data FROM hub_turns WHERE session=? ORDER BY seq DESC LIMIT 1`, id)
+	session, err := read[hub.Session](ctx, s.list, liveSessionQuery, id)
+	if err != nil {
+		return result, err
+	}
+	predicate, args, err := versionPredicate(ctx, s.list, session, "seq", true)
+	if err != nil {
+		return result, err
+	}
+	filter := ""
+	if predicate != "" {
+		filter = " AND " + predicate
+	}
+	result, err = read[hub.Turn](ctx, s.list, `SELECT data FROM hub_turns WHERE session=?`+filter+` ORDER BY seq DESC LIMIT 1`, append([]any{id}, args...)...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return result, hub.ErrNotFound
 	}

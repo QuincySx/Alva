@@ -30,3 +30,7 @@ DurableWaits能力必须由实际factory声明；Completed(waiting)只在Session
 Request.RetainWorkspace is an optional nonserialized trusted host capability: native ToolControl adapters may extend the actual admitted workspace lease for explicitly application-owned background resources, releasing only after physical reap. It grants no tool permission; sealed attempts reject late retention. Opaque external engines do not receive it.
 
 Descriptor仅声明实际Go配方：显式option-aware Alva factory与Claude print已支持bounded SystemPrompt/MaxTurns；Codex/Pi不把system role降为user文字，fast-mode未接线就不声明。未注册Inspector时明确unsupported，不借用Alva存储。Scope由可信产品branch/typed chain派生，owner/native ID不是UI授权输入。
+
+M2 增量：Request.TakeInterjections/ReportDelivered 由 Alva 适配器绑定（同 ReportActivity），ForkPoint 增 OwnerID（原生会话按产品会话分属时用其打开来源）。
+
+M2 分叉锚点：Event.NativeTurn（Completed上引擎自己的turn id）、ForkPoint.AnchorTurn/AnchorKeep/BeforeSequence/ThroughSequence 都是记录意图时固定的绝对锚点；ErrForkUnreachable 表示切点已不可达且未报告任何事件，产品据此就地降级。Codex 按 turn id 在只读 thread/turns/list 中查找，找不到即不可达。

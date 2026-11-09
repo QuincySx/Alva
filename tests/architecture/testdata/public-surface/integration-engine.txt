@@ -330,14 +330,25 @@ type Event struct {
 	Resolution *InteractionResolution `json:"resolution,omitempty"`
 
 	Context *ContextReport `json:"context,omitempty"`
+
+	NativeTurn string `json:"native_turn,omitempty"`
 }
 
 type FailureKind string
 
+type ForkChecker interface {
+	CheckFork(ctx context.Context, fork ForkPoint) error
+}
+
 type ForkPoint struct {
+	OwnerID        string `json:"owner_id,omitempty"`
 	Session        string `json:"session"`
 	BeforeSequence uint64 `json:"before_sequence,omitempty"`
-	DropTurns      int    `json:"drop_turns"`
+
+	ThroughSequence uint64 `json:"through_sequence,omitempty"`
+	AnchorTurn      string `json:"anchor_turn,omitempty"`
+	AnchorKeep      bool   `json:"anchor_keep,omitempty"`
+	DropTurns       int    `json:"drop_turns"`
 }
 
 type GenerationOptions struct {
@@ -533,6 +544,9 @@ type Request struct {
 
 	CompactContext bool                      `json:"compact_context,omitempty"`
 	ReportContext  func(ContextReport) error `json:"-"`
+
+	TakeInterjections func() []Interjection    `json:"-"`
+	ReportDelivered   func(Interjection) error `json:"-"`
 }
 
 type Runtime interface {
@@ -639,6 +653,8 @@ type WaitCheckpoint struct {
 }
 
 type WaitingRunner interface{ WaitCheckpoint() *WaitCheckpoint }
+
+var ErrForkUnreachable = errors.New("the recorded fork cut is not reachable in the source conversation")
 
 var ErrSessionNotFound = errors.New("engine session not found")
 

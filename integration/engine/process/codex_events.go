@@ -697,3 +697,10 @@ func codexThreadCwdMatches(got, want string) bool {
 	canonical, err := filepath.EvalSymlinks(got)
 	return err == nil && canonical == want
 }
+
+// nativeTurn is the identity of the turn this execution ran, once it started.
+func (r *codexRun) nativeTurn() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.turnID
+}

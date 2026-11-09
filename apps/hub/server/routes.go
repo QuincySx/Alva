@@ -16,6 +16,9 @@ import (
 )
 
 func (s *Server) sessionRoute(w http.ResponseWriter, r *http.Request, id, route string) {
+	if s.conversationOps(w, r, id, route) {
+		return
+	}
 	if route == "automations" {
 		s.automations(w, r, id, nil)
 		return

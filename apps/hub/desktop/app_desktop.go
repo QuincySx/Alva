@@ -44,6 +44,8 @@ type NativePage struct {
 	goal                           workspaceGoalState
 	search                         workspaceSearchState
 	sessionOps                     sessionOpsState
+	thread                         workspaceThreadState
+	pendingAround                  uint64
 	companions                     workspaceCompanionState
 	resources                      workspaceResourcesState
 	voice                          workspaceVoiceState
@@ -348,6 +350,8 @@ func (p *NativePage) selectSession(id string) {
 	p.generation++
 	p.resetTranscript()
 	p.resetTrace()
+	p.workspaceThreadReset()
+	p.thread.aroundSequence, p.pendingAround = p.pendingAround, 0
 	p.pane = ""
 	p.configDraft = ""
 	p.aepDraft = ""
@@ -395,6 +399,7 @@ func (p *NativePage) loadTail() {
 	}
 	id, generation := p.selected, p.generation
 	optionsEpoch := p.sessionModelOptions.epoch
+	around := p.thread.aroundSequence
 	p.chat.Busy = true
 	p.polling = true
 	go func() {
@@ -406,7 +411,9 @@ func (p *NativePage) loadTail() {
 			optionsErr = err
 		}
 		var chunk product.TranscriptChunk
-		if err == nil {
+		if err == nil && around != 0 {
+			chunk, err = p.Service.Transcripts.Around(p.ctx, id, around)
+		} else if err == nil {
 			chunk, err = p.Service.Transcripts.Tail(p.ctx, id)
 		}
 		p.dispatch(func() {
@@ -434,7 +441,12 @@ func (p *NativePage) loadTail() {
 			p.transcript.Trim(true)
 			p.projectTranscript()
 			p.applyDetail()
-			p.chat.ScrollToEnd()
+			if around != 0 {
+				p.thread.aroundSequence = 0
+				p.workspaceScrollToSequence(around)
+			} else {
+				p.chat.ScrollToEnd()
+			}
 			if p.pendingFirstSend == id {
 				prompt := p.pendingFirstPrompt
 				selections := p.pendingFirstSelections
@@ -482,6 +494,7 @@ func (p *NativePage) applyDetail() {
 	}
 }
 func (p *NativePage) poll() {
+	p.observeWorkspaceThread()
 	p.pollEngineInteractions()
 	p.observeWorkspaceDraft()
 	p.observeMCPApprovalNotice()

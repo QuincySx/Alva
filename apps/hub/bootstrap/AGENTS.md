@@ -63,3 +63,4 @@ ProductStorage另显式组合应用级PreferencesStore与ConnectionsStore；Open
 | storage_test.go | opaque组件贯穿实际Turn、缺失/失败零fallback、部分资源与failed-close所有权 |
 | preferences_test.go | 选定opaque外观端口贯穿共享owner、无会话冷读写、读取失败零fallback；实际写入忽略取消时Close超时仍保留组件直到完成，重开无重放 |
 | composer_skills_test.go | 首发前选定Skill经过产品/SQLite/Runtime到真实本地HTTP的目录与Tool读取；全局SkillsEnabled保持false、兄弟来源不暴露 |
+| fork_native.go / fork_native_test.go | Alva原生分叉：切点是记录意图时固定的绝对原生记录序号（BeforeSequence/ThroughSequence），在来源最新至多512条/8 MiB对话尾部里截断后写入新原生会话；插话消息不算提示；CheckFork预检切点可达，不可达返回engine.ErrForkUnreachable（不报任何事件），由Runtime就地降级为交接索引，绝不给空上下文；工厂另装InterjectionPlugin |

@@ -12,6 +12,7 @@ import (
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/product"
 	view "github.com/QuincySx/Alva/apps/ui/chat"
+	"github.com/QuincySx/Alva/apps/ui/kit"
 	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
@@ -127,6 +128,7 @@ func (p *NativePage) buildWorkspaceTranscript(c *ui.Context) {
 	p.followTranscriptScroll()
 	p.chat.MessageGap = 24
 	ui.Column(c).Label("Conversation transcript").Grow(1).MinHeight(0).FillWidth().Padding(16, 0, 0, 0).Children(func() {
+		p.buildWorkspaceForkBanner(c)
 		p.chat.BuildMessages(c)
 		p.buildWorkspaceContinue(c)
 	})
@@ -143,12 +145,7 @@ func newWorkspaceTranscriptRenderer(p *NativePage, options *markdown.Options) fu
 	return func(c *ui.Context, row view.Message) bool {
 		current := p.transcriptBinding()
 		if row.Role == "You" {
-			ui.Row(c).Label("User turn " + row.ID).FillWidth().Justify(ui.End).Children(func() {
-				ui.Column(c).Label("User message " + row.ID).FillWidth().MaxWidth(560).
-					Padding(12).Radius(16).Background(workspacePalette(c).subtle).Children(func() {
-					ui.Text(c, row.Text).FontSize(c.Theme().FontSize).FontWeight(400).LineHeight(1.75)
-				})
-			})
+			p.buildWorkspaceUserTurn(c, row)
 			return true
 		}
 		if block, shown := p.transcriptBlocks[row.ID]; shown {
@@ -273,10 +270,13 @@ func (p *NativePage) buildWorkspaceTranscriptMessage(c *ui.Context, row view.Mes
 					FontSize(workspaceFontCaption).LineHeight(1.5).TextColor(c.Theme().TextMuted)
 			}
 			if row.Text != "" {
-				ui.Row(c).Label("Message content actions " + row.ID).FillWidth().Gap(8).Children(func() {
+				ui.Row(c).Label("Message content actions " + row.ID).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
 					workspaceIconAction(c, "message-copy", "Copy message "+row.ID, "copy").Tooltip("复制消息").OnClick(func() {
 						p.copyTranscriptMessage(c, binding, row.ID)
 					})
+					if assistant {
+						p.buildWorkspaceReplyActions(c, p.transcriptBlocks[row.ID])
+					}
 				})
 			}
 		})
@@ -360,4 +360,33 @@ func (p *NativePage) jumpTranscriptTool(binding workspaceTranscriptBinding, rowI
 		p.trace.childJump = tool.reference.Sequence
 	}
 	p.openTrace(target, tool.reference.Sequence, product.TraceHint{Turn: block.Turn, History: block.History})
+}
+
+// buildWorkspaceUserTurn draws a user message: the bubble with its version
+// switcher and hover actions, the editor while it is being edited, or the
+// compact note of a message interjected while the Turn ran.
+func (p *NativePage) buildWorkspaceUserTurn(c *ui.Context, row view.Message) {
+	block := p.transcriptBlocks[row.ID]
+	interjected := block.Name == "interjection"
+	if p.thread.editTurn != "" && p.thread.editTurn == block.TurnID && !interjected {
+		ui.Row(c).Label("User turn " + row.ID).FillWidth().Justify(ui.End).Children(func() {
+			p.buildWorkspaceVersionEditor(c, block)
+		})
+		return
+	}
+	turn := ui.Row(c).Label("User turn " + row.ID).FillWidth().Justify(ui.End)
+	hovered := turn.Hovered()
+	turn.Children(func() {
+		ui.Column(c).Label("User message column " + row.ID).FillWidth().MaxWidth(560).Gap(4).Children(func() {
+			if interjected {
+				kit.Text(c, "插话", kit.TextProps{Role: kit.RoleCaption, Tone: kit.ToneSecondary, Key: "interjection-label"}).AlignSelf(ui.End)
+			}
+			ui.Column(c).Label("User message " + row.ID).FillWidth().Padding(12).Radius(16).Background(workspacePalette(c).subtle).Children(func() {
+				ui.Text(c, row.Text).FontSize(c.Theme().FontSize).FontWeight(400).LineHeight(1.75)
+			})
+			if !interjected {
+				p.buildWorkspaceUserActions(c, block, hovered)
+			}
+		})
+	})
 }

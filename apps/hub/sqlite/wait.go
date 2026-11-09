@@ -30,7 +30,19 @@ func (s *Store) SetDurableWaits(ctx context.Context, id string, enabled bool) (e
 	})
 }
 func currentTurn(ctx context.Context, tx *sql.Tx, id string) (hub.Turn, error) {
-	return read[hub.Turn](ctx, tx, `SELECT data FROM hub_turns WHERE session=? ORDER BY seq DESC LIMIT 1`, id)
+	session, err := read[hub.Session](ctx, tx, liveSessionQuery, id)
+	if err != nil {
+		return hub.Turn{}, err
+	}
+	predicate, args, err := versionPredicate(ctx, tx, session, "seq", true)
+	if err != nil {
+		return hub.Turn{}, err
+	}
+	filter := ""
+	if predicate != "" {
+		filter = " AND " + predicate
+	}
+	return read[hub.Turn](ctx, tx, `SELECT data FROM hub_turns WHERE session=?`+filter+` ORDER BY seq DESC LIMIT 1`, append([]any{id}, args...)...)
 }
 func branchTurn(ctx context.Context, tx *sql.Tx, id, branch string) (hub.Turn, error) {
 	return read[hub.Turn](ctx, tx, `SELECT t.data FROM hub_turns t JOIN hub_attempts a ON a.turn=t.id WHERE t.session=? AND a.session=? AND json_extract(a.data,'$.branch_id')=? ORDER BY t.seq DESC LIMIT 1`, id, id, branch)

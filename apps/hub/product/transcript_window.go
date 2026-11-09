@@ -33,10 +33,10 @@ func NewTranscriptWindow(limitBytes int) *TranscriptWindow {
 	return &TranscriptWindow{limit: limitBytes, view: newProjection()}
 }
 
-// Reset replaces the window with a Tail chunk.
+// Reset replaces the window with a Tail or Around chunk.
 func (w *TranscriptWindow) Reset(chunk TranscriptChunk) {
 	w.view = newProjection()
-	w.moreBefore, w.moreAfter = chunk.More, false
+	w.moreBefore, w.moreAfter = chunk.More, chunk.MoreAfter
 	for _, entry := range chunk.entries {
 		w.fold(entry)
 	}

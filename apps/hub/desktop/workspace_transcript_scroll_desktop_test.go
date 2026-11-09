@@ -183,7 +183,15 @@ func TestWorkspaceTranscriptMenuDropsEarlierMessages(t *testing.T) {
 
 // ALVA_UI_BENCH=1 measures headless build/layout/paint CPU while scrolling 20k
 // rows; it does not measure GPU present or real input latency.
-func TestWorkspaceTranscriptScrollFrameBudget(t *testing.T) {
+func TestWorkspaceTranscriptScrollFrameBudget(t *testing.T) { transcriptScrollFrameBudget(t, false) }
+
+// The same gate with a version switcher on every user message: the worst case
+// of a conversation whose each Turn was edited or regenerated.
+func TestWorkspaceTranscriptScrollFrameBudgetWithVersionSwitchers(t *testing.T) {
+	transcriptScrollFrameBudget(t, true)
+}
+
+func transcriptScrollFrameBudget(t *testing.T, versions bool) {
 	if os.Getenv("ALVA_UI_BENCH") != "1" {
 		t.Skip("set ALVA_UI_BENCH=1 to run the frame-time gate")
 	}
@@ -203,6 +211,14 @@ func TestWorkspaceTranscriptScrollFrameBudget(t *testing.T) {
 		appendTranscript(t, p, entries...)
 	}
 	p.applyDetail()
+	if versions {
+		p.thread.session = p.selected
+		p.thread.switches = map[string]product.VersionSwitch{}
+		for turn := 0; turn < 10000; turn++ {
+			id := fmt.Sprintf("turn-%d", turn)
+			p.thread.switches[id] = product.VersionSwitch{TurnID: id, Index: 2, Count: 3, Choices: []product.VersionChoice{{TurnID: "a", LineID: "l1"}, {TurnID: id, LineID: "l2", Active: true}, {TurnID: "c", LineID: "l3"}}}
+		}
+	}
 	if len(p.model.Messages) != 20000 {
 		t.Fatal("bench window does not hold 20k rows", len(p.model.Messages))
 	}
@@ -226,7 +242,7 @@ func TestWorkspaceTranscriptScrollFrameBudget(t *testing.T) {
 	}
 	sort.Slice(frames, func(i, j int) bool { return frames[i] < frames[j] })
 	p95 := frames[len(frames)*95/100]
-	t.Logf("20k rows headless scroll: p50=%s p95=%s max=%s n=%d", frames[len(frames)/2], p95, frames[len(frames)-1], len(frames))
+	t.Logf("20k rows headless scroll (version switchers=%v): p50=%s p95=%s max=%s n=%d", versions, frames[len(frames)/2], p95, frames[len(frames)-1], len(frames))
 	if p95 > 8*time.Millisecond {
 		t.Fatal("scroll frame CPU p95 exceeds 8 ms", p95)
 	}

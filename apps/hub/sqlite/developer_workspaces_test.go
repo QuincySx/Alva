@@ -455,7 +455,7 @@ func TestDeveloperWorkspacesSchemaEightMigrationAndFailurePreserveVersionSeven(t
 		if err = reopened.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_conversation_tab_sets`).Scan(&tabSets); err != nil {
 			t.Fatal(err)
 		}
-		if version != 9 || sessions != 1 || repositories != 0 || tabSets != 0 {
+		if version != 11 || sessions != 1 || repositories != 0 || tabSets != 0 {
 			t.Fatal("v8 migration lost v7 facts or invented sample metadata", version, sessions, repositories, tabSets)
 		}
 		reopened.Close()

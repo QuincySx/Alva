@@ -215,7 +215,7 @@ func TestComposerSchemaSixMigratesRealVersionFiveWithoutReplacingFacts(t *testin
 	}
 	defer s.Close()
 	var version int
-	if err = s.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 9 {
+	if err = s.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 11 {
 		t.Fatal(version, err)
 	}
 	loaded, err := s.Goal(t.Context(), goal.ID)

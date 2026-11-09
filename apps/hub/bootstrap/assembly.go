@@ -262,6 +262,14 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		}
 		var log storage.Session
 		var err error
+		// The cut is decided before any native session exists: an unreachable
+		// fork must leave nothing behind on disk.
+		var forked []wire.Message
+		if request.Fork != nil {
+			if forked, err = prepareForkedConversation(ctx, repository, a.Store, request); err != nil {
+				return nil, err
+			}
+		}
 		if resume {
 			log, err = repository.OpenSession(ctx, request.OwnerID, nativeID)
 		} else {
@@ -269,6 +277,13 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 		}
 		if err != nil {
 			return nil, err
+		}
+		if request.Fork != nil {
+			// The cut copy exists before the first model request, so the
+			// forked conversation starts with exactly the kept context.
+			if err = writeForkedConversation(ctx, log, forked); err != nil {
+				return nil, err
+			}
 		}
 		_, release, err := repository.BeginRun(ctx, request.OwnerID, nativeID)
 		if err != nil {
@@ -610,6 +625,9 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			plugins = append(plugins, plugin)
 			trustedTools = append(trustedTools, plugin.Tool())
 		}
+		if request.TakeInterjections != nil && request.ReportDelivered != nil {
+			builder.Plugin(alva.InterjectionPlugin(request.TakeInterjections, request.ReportDelivered))
+		}
 		for _, plugin := range plugins {
 			builder.Plugin(plugin)
 		}
@@ -635,7 +653,9 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 			return errors.New("product permission service unavailable")
 		}
 		return a.Service.RespondNativeApproval(ctx, "alva", nativeID, requestID, decision.Allow)
-	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true, Generation: true, DurableWaits: true, FileInputs: true, SkillInputs: true, ContextCompaction: true})
+	}, alva.FactoryOptions{SystemPrompt: true, MaxTurns: true, Generation: true, DurableWaits: true, FileInputs: true, SkillInputs: true, ContextCompaction: true, Interjection: true, Fork: true, CheckFork: func(ctx context.Context, fork engine.ForkPoint) error {
+		return checkForkedConversation(ctx, repository, store, fork)
+	}})
 	inspector, err := alva.NewRepositoryInspector(repository)
 	if err != nil {
 		return nil, err

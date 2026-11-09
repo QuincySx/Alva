@@ -151,6 +151,20 @@ import (
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/QuincySx/Alva/apps/hub"
+	"github.com/QuincySx/Alva/integration/engine"
+	"github.com/QuincySx/Alva/integration/engine/alva"
+	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/sdk/kernel/abi"
+	"github.com/QuincySx/Alva/sdk/llm/wire"
+)
+
+import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -341,6 +355,8 @@ type ProductStorage interface {
 	hub.ComposerFileOwnershipStore
 	hub.ComposerDraftAdmissionStore
 	hub.ComposerExecutionStore
+	hub.PendingStore
+	hub.VersionStore
 	Close() error
 }
 

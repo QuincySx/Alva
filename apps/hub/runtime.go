@@ -44,6 +44,25 @@ type Runtime struct {
 	resolver    RouteResolver
 	stuck       map[string]bool // sessions whose Turn could not be finished
 	redact      func(string) string
+	exit        func(ExecutionExit)
+}
+
+// ExecutionExit is delivered once the physical owner of a Turn has released
+// its session: the next admission can start. Err is the owner's result.
+type ExecutionExit struct {
+	SessionID   string
+	ExecutionID string
+	TurnID      string
+	Err         error
+}
+
+// SetExitObserver installs the one observer told when an execution owner has
+// released its session. It runs on its own goroutine after the release, so it
+// may admit the next Turn; it is how a queued input is dispatched.
+func (r *Runtime) SetExitObserver(observe func(ExecutionExit)) {
+	r.mu.Lock()
+	r.exit = observe
+	r.mu.Unlock()
 }
 
 // SetErrorRedactor installs the credential redaction applied to engine error
@@ -381,6 +400,12 @@ func (r *Runtime) startOwned(owner context.Context, sessionID string, admit func
 		active.done <- err
 		close(active.done)
 		close(active.exited)
+		r.mu.Lock()
+		observe := r.exit
+		r.mu.Unlock()
+		if observe != nil {
+			go observe(ExecutionExit{SessionID: sessionID, ExecutionID: claim.Attempt.ID, TurnID: claim.Turn.ID, Err: err})
+		}
 	}()
 	return claim.Turn.ID, claim.Attempt.ID, active.done, nil
 }
@@ -755,6 +780,10 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 	} else if !supports(target.Capabilities(), claim.Attempt.Target.RequiredCapabilities) {
 		executeErr = fmt.Errorf("%w: required engine capabilities", engine.ErrUnsupported)
 		failure = engine.FailureStartup
+	} else if claim.Branch.NativeSessionID == "" && claim.Branch.Fork != nil && !target.Capabilities().Fork {
+		// The fork intent was written for an engine that could fork. Starting
+		// a fresh native conversation instead would silently drop the context.
+		executeErr = fmt.Errorf("%w: this engine cannot continue from a forked conversation", engine.ErrUnsupported)
 	} else if claim.Branch.NativeSessionID != "" && !target.Capabilities().Resume {
 		// Never silently launch a fresh native conversation under a retained
 		// branch. That would lose its context and overwrite native authority.
@@ -774,7 +803,12 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 				if !target.Capabilities().Resume {
 					resume = ""
 				}
-				request := engine.Request{OwnerID: claim.Session.ID, Prompt: handoff + claim.Turn.Prompt, ResumeSession: resume, Workspace: claim.Session.Workspace, Model: claim.Attempt.Target.ModelID, Provider: claim.Attempt.Target.ProviderID, AccountSource: claim.Attempt.Target.AccountSource, BillingRoute: claim.Attempt.Target.BillingRoute, SystemPrompt: claim.Attempt.ModelOptions.SystemPrompt, MaxTurns: claim.Attempt.ModelOptions.MaxTurns, Generation: claim.Attempt.ModelOptions.Generation.Clone()}
+				var forkPoint *engine.ForkPoint
+				if claim.Branch.NativeSessionID == "" && claim.Branch.Fork != nil {
+					point := claim.Branch.Fork.Point()
+					forkPoint = &point
+				}
+				request := engine.Request{Fork: forkPoint, OwnerID: claim.Session.ID, Prompt: handoff + claim.Turn.Prompt, ResumeSession: resume, Workspace: claim.Session.Workspace, Model: claim.Attempt.Target.ModelID, Provider: claim.Attempt.Target.ProviderID, AccountSource: claim.Attempt.Target.AccountSource, BillingRoute: claim.Attempt.Target.BillingRoute, SystemPrompt: claim.Attempt.ModelOptions.SystemPrompt, MaxTurns: claim.Attempt.ModelOptions.MaxTurns, Generation: claim.Attempt.ModelOptions.Generation.Clone()}
 				request.InputFiles = engine.CloneInputFiles(claim.Turn.InputFiles)
 				request.InputSkills = engine.CloneInputSkills(claim.Turn.InputSkills)
 				if claim.WaitRevision != 0 {
@@ -803,6 +837,24 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 					}
 				}()
 				executeErr = target.Execute(ctx, request, observe)
+				if request.Fork != nil && errors.Is(executeErr, engine.ErrForkUnreachable) {
+					// The engine could not reach the recorded cut and reported
+					// nothing. Turn the branch into an index continuation in one
+					// transaction and run the Turn again, once, in place.
+					eventMu.Lock()
+					untouched := !contract.Started && !buffered && eventErr == nil
+					eventMu.Unlock()
+					if degrader, ok := r.store.(ForkDegrader); ok && untouched {
+						if degraded, degradeErr := degrader.DegradeFork(context.WithoutCancel(ctx), claim.Attempt.ID); degradeErr == nil {
+							indexed, encodeErr := EncodeHandoff(degraded)
+							if encodeErr == nil {
+								request.Fork, request.Prompt = nil, indexed+claim.Turn.Prompt
+								claim.Branch.Fork = nil
+								executeErr = target.Execute(ctx, request, observe)
+							}
+						}
+					}
+				}
 				close(stopTicker)
 				<-tickerDone
 				seal()
@@ -939,4 +991,55 @@ func (r *Runtime) ActiveExecution(sessionID string) (executionID string, active 
 		return "", false
 	}
 	return run.executionID, true
+}
+
+// ErrInterjectUnsupported reports an engine that cannot take a message while
+// it runs; callers queue the message instead.
+var ErrInterjectUnsupported = errors.New("this engine cannot take messages while it runs")
+
+// ErrInterjectNotReady reports a run whose native conversation is not known
+// yet, so there is nothing to interject into; callers queue the message.
+var ErrInterjectNotReady = errors.New("the running Turn has not started its native conversation yet")
+
+// CanInterject reports whether the session's physical owner can take an
+// interjection right now, and the execution identity it named.
+func (r *Runtime) CanInterject(sessionID string) (executionID string, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	run := r.active[sessionID]
+	if run == nil || run.engine == nil || run.nativeID == "" || run.executionID == "" {
+		return "", false
+	}
+	if _, can := run.engine.(engine.Interjector); !can || !run.engine.Capabilities().Interjection {
+		return "", false
+	}
+	return run.executionID, true
+}
+
+// Interject hands a message to the running execution named by executionID.
+// A nil error is not a delivery receipt: the engine reports InputDelivered
+// when the message really entered the model's context.
+func (r *Runtime) Interject(ctx context.Context, sessionID, executionID string, input engine.Interjection) error {
+	if executionID == "" {
+		return errors.New("Hub execution identity required")
+	}
+	if err := input.Validate(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	run := r.active[sessionID]
+	if run == nil || run.executionID != executionID {
+		r.mu.Unlock()
+		return ErrSessionNotRunning
+	}
+	target, nativeID := run.engine, run.nativeID
+	r.mu.Unlock()
+	if target == nil || nativeID == "" {
+		return ErrInterjectNotReady
+	}
+	interjector, ok := target.(engine.Interjector)
+	if !ok || !target.Capabilities().Interjection {
+		return ErrInterjectUnsupported
+	}
+	return interjector.Interject(ctx, nativeID, input)
 }

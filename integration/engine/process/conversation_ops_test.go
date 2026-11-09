@@ -71,7 +71,7 @@ func TestCodexConversationOpsFixtureProcess(t *testing.T) {
 		case "initialized":
 		case "thread/start":
 			// A fork never starts an unrelated thread.
-			if strings.HasPrefix(mode, "fork") {
+			if strings.HasPrefix(mode, "fork") || strings.HasPrefix(mode, "anchor") {
 				os.Exit(120)
 			}
 			reply(map[string]any{"thread": map[string]any{"id": thread, "cwd": cwd}})
@@ -86,6 +86,15 @@ func TestCodexConversationOpsFixtureProcess(t *testing.T) {
 				reply(map[string]any{"data": []any{turn("turn-3"), turn("turn-2")}, "nextCursor": "cursor-older", "backwardsCursor": "cursor-newer"})
 			case mode == "fork-all" && lists == 2 && sameJSON(frame.Params, `{`+base+`,"limit":2,"cursor":"cursor-older"}`):
 				reply(map[string]any{"data": []any{turn("turn-1")}, "nextCursor": nil, "backwardsCursor": "cursor-newer"})
+			case strings.HasPrefix(mode, "anchor") && lists == 1 && sameJSON(frame.Params, `{`+base+`,"limit":100}`):
+				switch mode {
+				case "anchor-edit", "anchor-all-newest":
+					reply(map[string]any{"data": []any{turn("turn-4"), turn("turn-3"), turn("turn-2"), turn("turn-1")}, "nextCursor": nil, "backwardsCursor": "cursor-newer"})
+				case "anchor-first", "anchor-keep":
+					reply(map[string]any{"data": []any{turn("turn-3"), turn("turn-2"), turn("turn-1")}, "nextCursor": nil, "backwardsCursor": "cursor-newer"})
+				default: // anchor-missing: rolled back and extended to the same length, other identities
+					reply(map[string]any{"data": []any{turn("turn-9"), turn("turn-8"), turn("turn-1")}, "nextCursor": nil, "backwardsCursor": "cursor-newer"})
+				}
 			case mode == "fork-short" && lists == 1 && sameJSON(frame.Params, `{`+base+`,"limit":6}`):
 				reply(map[string]any{"data": []any{turn("turn-2"), turn("turn-1")}, "nextCursor": nil, "backwardsCursor": "cursor-newer"})
 			default:
@@ -96,6 +105,11 @@ func TestCodexConversationOpsFixtureProcess(t *testing.T) {
 				"fork-1":    `{"threadId":"source-thread","lastTurnId":"turn-2","cwd":%q,"sandbox":"read-only","approvalPolicy":"on-request","excludeTurns":true}`,
 				"fork-all":  `{"threadId":"source-thread","beforeTurnId":"turn-1","cwd":%q,"sandbox":"read-only","approvalPolicy":"on-request","excludeTurns":true}`,
 				"fork-keep": `{"threadId":"source-thread","cwd":%q,"sandbox":"read-only","approvalPolicy":"on-request","excludeTurns":true}`,
+				// The cut is the recorded native turn identity, found by identity.
+				"anchor-edit":       `{"threadId":"source-thread","lastTurnId":"turn-2","cwd":%q,"sandbox":"read-only","approvalPolicy":"on-request","excludeTurns":true}`,
+				"anchor-first":      `{"threadId":"source-thread","beforeTurnId":"turn-1","cwd":%q,"sandbox":"read-only","approvalPolicy":"on-request","excludeTurns":true}`,
+				"anchor-keep":       `{"threadId":"source-thread","lastTurnId":"turn-2","cwd":%q,"sandbox":"read-only","approvalPolicy":"on-request","excludeTurns":true}`,
+				"anchor-all-newest": `{"threadId":"source-thread","cwd":%q,"sandbox":"read-only","approvalPolicy":"on-request","excludeTurns":true}`,
 			}[mode]
 			if want == "" || !sameJSON(frame.Params, fmt.Sprintf(want, cwd)) {
 				os.Exit(122)
@@ -272,6 +286,64 @@ func TestCodexForkCopiesBoundSourceIntoNewThread(t *testing.T) {
 				t.Fatal("source binding changed", kept, err)
 			}
 		})
+	}
+}
+
+func TestCodexForkCutIsTheRecordedNativeTurnFoundByIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		fork engine.ForkPoint
+	}{
+		// The source holds four turns now; the cut was recorded at turn-3 and
+		// would be wrong if it were a count from the end (it is the second newest).
+		{"anchor-edit", engine.ForkPoint{Session: "source-thread", AnchorTurn: "turn-3"}},
+		{"anchor-first", engine.ForkPoint{Session: "source-thread", AnchorTurn: "turn-1"}},
+		{"anchor-keep", engine.ForkPoint{Session: "source-thread", AnchorTurn: "turn-2", AnchorKeep: true}},
+		{"anchor-all-newest", engine.ForkPoint{Session: "source-thread", AnchorTurn: "turn-4", AnchorKeep: true}},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			a, _ := codexOpsFixture(t, tc.mode)
+			workspace, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := a.config.Bindings.PutBinding(t.Context(), storage.SessionBinding{ID: "source-thread", Owner: "owner", Workspace: workspace}); err != nil {
+				t.Fatal(err)
+			}
+			var events []engine.Event
+			fork := tc.fork
+			err = a.Execute(t.Context(), engine.Request{OwnerID: "owner", Workspace: workspace, Prompt: "ops prompt", Fork: &fork}, func(event engine.Event) error {
+				events = append(events, event)
+				return nil
+			})
+			if err != nil || len(events) == 0 || events[len(events)-1].Outcome != engine.Succeeded || events[0].SessionID != "forked-thread" {
+				t.Fatal("anchored fork did not cut where recorded", err, events)
+			}
+			// The execution reports its own turn identity for the next fork's anchor.
+			if last := events[len(events)-1]; last.Kind != engine.Completed || last.NativeTurn != "ops-turn" {
+				t.Fatal("Completed must carry the native turn identity", last)
+			}
+		})
+	}
+}
+
+func TestCodexForkWhoseAnchorTurnIsGoneIsUnreachableAndReportsNothing(t *testing.T) {
+	// Rolled back and extended to the same length: a count would still match.
+	a, _ := codexOpsFixture(t, "anchor-missing")
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.config.Bindings.PutBinding(t.Context(), storage.SessionBinding{ID: "source-thread", Owner: "owner", Workspace: workspace}); err != nil {
+		t.Fatal(err)
+	}
+	var events []engine.Event
+	err = a.Execute(t.Context(), engine.Request{OwnerID: "owner", Workspace: workspace, Prompt: "ops prompt", Fork: &engine.ForkPoint{Session: "source-thread", AnchorTurn: "turn-2"}}, func(event engine.Event) error {
+		events = append(events, event)
+		return nil
+	})
+	if !errors.Is(err, engine.ErrForkUnreachable) || len(events) != 0 {
+		t.Fatal("a missing anchor must be unreachable before anything is reported", err, events)
 	}
 }
 

@@ -65,6 +65,13 @@ type Request struct {
 	// adapter to its actual sink, like ReportActivity, for harness reports.
 	CompactContext bool                      `json:"compact_context,omitempty"`
 	ReportContext  func(ContextReport) error `json:"-"`
+	// Interjections (M2). An adapter that declares Capabilities.Interjection
+	// and runs a harness rebinds these like ReportActivity: TakeInterjections
+	// drains the messages queued for this execution, and ReportDelivered emits
+	// the InputDelivered receipt once one entered the model's request. A
+	// harness factory that cannot honour them leaves them unused.
+	TakeInterjections func() []Interjection    `json:"-"`
+	ReportDelivered   func(Interjection) error `json:"-"`
 }
 type PermissionDecision struct {
 	Allow        bool
@@ -254,6 +261,10 @@ type Event struct {
 	Resolution *InteractionResolution `json:"resolution,omitempty"`
 	// Context (M4) belongs only to ContextUpdated.
 	Context *ContextReport `json:"context,omitempty"`
+	// NativeTurn is the engine's own identity of the turn this execution ran,
+	// reported on Completed by engines that have one. The product keeps it as
+	// the absolute anchor of a later fork.
+	NativeTurn string `json:"native_turn,omitempty"`
 }
 
 // StreamContract is a consumer-side invariant checker, not an execution owner.
@@ -399,6 +410,9 @@ func (s *StreamContract) Accept(event Event) error {
 		}
 		if s.Fatal && (event.Outcome == Succeeded || event.Outcome == Waiting) {
 			return errors.New("fatal engine falsely completed successfully")
+		}
+		if event.NativeTurn != "" && !nativeID(event.NativeTurn) {
+			return errors.New("native turn identity is not bounded")
 		}
 		if event.Outcome == Waiting {
 			if !s.Started || event.Wait == nil || event.Wait.Validate() != nil {

@@ -461,7 +461,7 @@ func TestConnectionCreationSchemaSevenMigrationAndFailureBeforeRecovery(t *testi
 			t.Fatal(err)
 		}
 		var version int
-		if err = s.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 9 {
+		if err = s.db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 11 {
 			t.Fatal("v6 did not atomically migrate to the current schema", version, err)
 		}
 		secret, err := s.ConnectionSecrets(t.Context(), original.ID, original.Revision)

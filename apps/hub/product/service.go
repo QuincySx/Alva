@@ -55,6 +55,8 @@ type ServiceStore interface {
 	hub.WaitStore
 	hub.NativeOwnerResolver
 	hub.SessionModelOptionsStore
+	hub.PendingStore
+	hub.VersionStore
 }
 
 type HubService struct {
@@ -191,6 +193,8 @@ func NewHubService(store ServiceStore, runtime *hub.Runtime, repository storage.
 	service := &HubService{Store: store, Runtime: runtime, Repository: repository, DefaultTarget: target, Targets: []hub.Target{target}, DataDirectory: dir, Demo: demo, Context: NewContextService(), attachments: make(map[string][]DraftAttachment)}
 	service.Conversations = &ConversationService{service: service}
 	service.Turns = &TurnService{service: service}
+	// A finished Turn releases its session to the next queued input.
+	runtime.SetExitObserver(service.dispatchAfterExit)
 	if teams, ok := store.(hub.TeamStore); ok {
 		service.Teams = NewTeamCoordinator(teams, runtime)
 	}
@@ -246,6 +250,14 @@ func (s *HubService) admitDraftWithFiles(ctx, owner context.Context, id, prompt 
 // admitTurn is admitDraftWithFiles plus the Turn origin: "" for an ordinary
 // prompt, hub.TurnOriginContinue for the product's Continue action.
 func (s *HubService) admitTurn(ctx, owner context.Context, id, prompt string, selections []ComposerPreparation, references []DraftReferenceSelection, inputFiles []engine.InputFile, userText, origin string) (TurnStart, error) {
+	return s.admitWith(ctx, owner, id, prompt, selections, references, inputFiles, userText, origin, nil, "")
+}
+
+// admitWith is admitTurn plus the two product operations that change what an
+// admission does inside its transaction: line starts a new version line cut
+// before a Turn (edit, regenerate), queueID names the queued input this
+// admission dispatches.
+func (s *HubService) admitWith(ctx, owner context.Context, id, prompt string, selections []ComposerPreparation, references []DraftReferenceSelection, inputFiles []engine.InputFile, userText, origin string, line *hub.LineFork, queueID string) (TurnStart, error) {
 	var start TurnStart
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -314,10 +326,17 @@ func (s *HubService) admitTurn(ctx, owner context.Context, id, prompt string, se
 	if ctx.Err() != nil {
 		return start, ctx.Err()
 	}
-	if len(inputFiles) == 0 && len(inputSkills) == 0 && origin == "" {
+	if line != nil {
+		// Whether the engine can continue from a cut copy of its native
+		// conversation decides how the new version starts.
+		forked := *line
+		forked.NativeFork = s.nativeForkable(ctx, id, line.TurnID, branch, false)
+		line = &forked
+	}
+	if len(inputFiles) == 0 && len(inputSkills) == 0 && origin == "" && line == nil && queueID == "" {
 		start.TurnID, start.ExecutionID, start.Done, err = s.Runtime.StartOnBranchOwned(owner, id, branch.ID, prompt)
 	} else {
-		start.TurnID, start.ExecutionID, start.Done, err = s.Runtime.StartComposerOnBranchOwned(owner, id, branch.ID, hub.ComposerTurnInput{Origin: origin, Prompt: prompt, UserText: userText, Files: inputFiles, Skills: inputSkills})
+		start.TurnID, start.ExecutionID, start.Done, err = s.Runtime.StartComposerOnBranchOwned(owner, id, branch.ID, hub.ComposerTurnInput{Origin: origin, Prompt: prompt, UserText: userText, Files: inputFiles, Skills: inputSkills, Line: line, QueueID: queueID})
 	}
 	if err != nil {
 		return TurnStart{}, err

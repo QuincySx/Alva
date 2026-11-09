@@ -30,8 +30,8 @@ func TestApplicationSettingsMigrationCASAndApprovalsPersist(t *testing.T) {
 		t.Fatal("v8 database did not migrate", err)
 	}
 	var version int
-	if err = store.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 9 {
-		t.Fatal("schema not at v9", version, err)
+	if err = store.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 11 {
+		t.Fatal("schema not at v11", version, err)
 	}
 	value, err := store.AppSettings(ctx)
 	if err != nil || value.Revision != 1 || !value.Capabilities.Empty() {

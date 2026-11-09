@@ -74,6 +74,13 @@ func (p *NativePage) workspaceComposerKey(k ui.TextKey) bool {
 		}
 		p.model.Draft = draft
 		p.markWorkspaceDraftEdited()
+		if p.workspaceRunningInput() {
+			// While the Turn runs, Enter queues the message and Cmd+Enter
+			// interjects it (the service queues it instead when the engine
+			// cannot take it).
+			p.submitRunningDraft(k.Mods == ui.Cmd)
+			return true
+		}
 		if p.workspaceComposerSendProblem() == "" {
 			p.sendWorkspaceDraft()
 			return true
@@ -182,6 +189,7 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 	ui.Column(c.Key("workspace-composer")).FillWidth().Gap(8).Children(func() {
 		p.buildWorkspaceDraftNotice(c)
 		p.buildMCPApprovalNotice(c)
+		p.buildWorkspaceQueue(c)
 		if status := p.workspaceComposerStatus(); status != "" {
 			ui.Row(c.Key("status")).AlignItems(ui.Center).Gap(8).Children(func() {
 				icon := "loader-circle"
@@ -218,7 +226,10 @@ func (p *NativePage) buildWorkspaceComposer(c *ui.Context) {
 			p.buildWorkspaceAttachments(c)
 			placeholder := "告诉我你要完成什么…"
 			if running {
-				placeholder = "补充说明，或调整下一步…"
+				placeholder = "补充说明，Enter 排队…"
+				if p.thread.caps.Interject {
+					placeholder = "补充说明，Enter 排队，⌘Enter 插话…"
+				}
 			}
 			messageEditor := ui.TextAreaBase(c.Key("workspace-message"), &p.model.Draft).Label("Message").
 				Placeholder(placeholder).FillWidth().MinWidth(0).FontSize(workspaceFontSubtitle).LineHeight(workspaceReadingLineHeight).

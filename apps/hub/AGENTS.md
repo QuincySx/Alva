@@ -67,3 +67,6 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | composer_execution.go / composer_execution_test.go | 可选原子Composer准入端口、原始正文与模型输入分开、同Runtime typed文件/Skill冻结与能力安全fallback，不扩大六方法执行存储 |
 | model.go（M2会话管理） | Session增Pinned/DeletedAt（软删除：列表、搜索、导航、通知都不再见，产品与原生数据保留）、MaxPinnedSessions=32、ErrSessionRunning/ErrPinnedBudget；SessionStore增PinnedSessions/LatestTurn/RenameSession/PinSession/DeleteSession；Turn与HistoryEntry增Origin（空或continue），ComposerTurnInput.Origin与Runtime.StartComposerOnBranchOwned（返回Stop需要的执行身份） |
 | engine_interactions.go | 只观察已提交pending与实际owner四项binding；成功回调仅隐藏原请求到真实resolved事实，失败可重试，旧回执不能重新发现替代owner |
+| versions.go | 版本线与持久队列的产品事实：Line/LineSegment（可见事件序与轮序区段，活动线恰一个开放区段）/LineGroup（分叉位置，同位置的不同轮即「‹2/3›」的各版本）/LineFork（在准入事务内切线）/VersionStore/SessionFork/VersionTurn；PendingInput（queued/interjecting/uncertain，每会话至多8条、每条16 KiB）/PendingStore；ErrVersionBusy/ErrVersionUnsupported/ErrVersionBudget/ErrPendingFull/ErrPendingGone；上限64线、每线64段 |
+| model.go（M2版本与分叉） | Session增ActiveLineID（空=无版本，读路径与原来逐字相同）与ForkedFrom（来源会话、轮、来源最后事件序）；Branch增Fork（持久化的「复制原生会话」意图，原生会话建好后清除）与Index（不支持原生分叉的引擎只带的有界轮索引）；ComposerTurnInput增Line/QueueID（分叉线、派发排队输入都在准入事务里完成） |
+| runtime.go（M2排队与插话） | Runtime.CanInterject/Interject（执行身份须匹配；引擎未声明插话或原生会话未就绪给出明确错误，由产品降为排队）、SetExitObserver（执行owner释放会话后的单一观察者，用于派发排队队首）、按Branch.Fork向引擎发Request.Fork（引擎不能分叉则整轮失败，不静默丢上下文） |

@@ -355,7 +355,7 @@ func (c *cli) command(ctx context.Context, line string) error {
 		if len(parts) != 1 {
 			return errors.New("/help takes no arguments")
 		}
-		_, err := fmt.Fprintln(c.diagnostic, "/session /sessions /engine alva|claude|codex|pi /history [after] /rename <title> /pin /unpin /delete <session-id> /quit; prompts execute only on explicit input")
+		_, err := fmt.Fprintln(c.diagnostic, "/session /sessions /engine alva|claude|codex|pi /history [after] /rename <title> /pin /unpin /delete <session-id> /fork <turn-id> /quit; prompts execute only on explicit input")
 		return err
 	case "/session":
 		if len(parts) != 1 {
@@ -396,6 +396,25 @@ func (c *cli) command(ctx context.Context, line string) error {
 			c.session = ""
 		}
 		_, err := fmt.Fprintln(c.diagnostic, "Deleted (hidden; data kept):", parts[1])
+		return err
+	case "/fork":
+		// Fork continues from the end of an explicit Turn in a new session; the
+		// REPL stays on the current one, and the new id is printed to switch to.
+		// Edit, regenerate and the queue need a second concurrent input (the
+		// REPL runs one blocking Turn at a time), so they stay in the desktop
+		// and HTTP entries.
+		if len(parts) != 2 || c.session == "" {
+			return errors.New("/fork requires exactly one explicit Turn id and an existing session")
+		}
+		result, err := c.app.Service.Conversations.Fork(ctx, c.session, parts[1])
+		if err != nil {
+			return err
+		}
+		notice := ""
+		if result.Degraded {
+			notice = " (this engine cannot fork natively: the model sees only a summary)"
+		}
+		_, err = fmt.Fprintln(c.diagnostic, "Forked session:", result.Session.ID+notice)
 		return err
 	case "/engine":
 		if len(parts) != 2 || c.session == "" {

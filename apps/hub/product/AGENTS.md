@@ -88,3 +88,6 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | settings_forms.go / settings_forms_test.go | SettingsService：应用级/会话覆盖两种作用域的脱敏表单模型（秘值只给占位）、分节HMAC指纹CAS保存、开关、按工作区批准、仅本会话/改回、恢复默认；HubService.EffectiveSettings 是唯一生效设置入口（覆盖优先，否则应用意图+精确工作区批准）；SetCapability 是无单独批准点的调用方（HTTP）用的显式形式：启用宿主项须同调用带hostApproved，应用级同时登记工作区批准，被拒返回产品自有中文原因（ErrHostApprovalRequired/ErrUsesApplicationSettings/ErrUnknownCapability/ErrNoWorkspaceToApprove）；HubService.SessionSettings 只读会话快照（计划/权限/模型选项），入口不再直接碰Store |
 | settings_validation.go | 各设置分节的中文逐字段校验（标识/路径/地址/请求头/超时/环境变量），hub.Settings.Validate 仍是落盘权威 |
 | settings_mcp.go | MCPConnector 窄端口（bootstrap实现）、内存中的测试结果与授权状态；测试连接只对已批准快照、授权一次一服务器，产品不接触协议/钥匙串/令牌 |
+| queue.go / queue_test.go | 运行中输入：Queue/Queued/EditQueued/CancelQueued/SendQueued、Interject（引擎支持则交给引擎并持久为interjecting，否则或未就绪降为排队并给提示）、Capabilities/EngineCapabilities；Runtime退出观察者只在上一轮成功时派发队首，失败/停止/等待/崩溃后暂停，需用户显式SendQueued；并发手动发送与退出派发只会启动一轮 |
+| versions.go / versions_test.go | Edit/Regenerate/SelectVersion（空闲才可，由准入事务切线）、Versions/VersionsOf（按分叉位置去重得到各版本与代表线，「‹2/3›」切换器）、VersionPolicy/VersionsDisabled（禁用原因）、Fork（新会话，原生分叉或降级为索引并标Degraded） |
+| transcript.go（M2） | InputDelivered投影为「插话」用户块；Block.Rich标记带附件/技能的用户块；TranscriptService.Around按提交序读两侧，TranscriptChunk.MoreAfter，供分叉来源链接 |

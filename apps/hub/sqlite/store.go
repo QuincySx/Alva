@@ -50,7 +50,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		s.Close()
 		return nil, err
 	}
-	if version < 0 || version > 9 {
+	if version < 0 || version > 11 {
 		s.Close()
 		return nil, errors.New("unsupported Go product database schema; existing data was not modified")
 	}
@@ -274,6 +274,30 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 			return nil, err
 		}
 	}
+	if version < 10 {
+		if err = pendingInputsSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=10`); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+	}
+	if version < 11 {
+		if err = versionLinesSchema(ctx, initialization); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+		if _, err = initialization.ExecContext(ctx, `PRAGMA user_version=11`); err != nil {
+			initialization.Rollback()
+			s.Close()
+			return nil, err
+		}
+	}
 	if err = validateAppSettingsSchema(ctx, initialization); err != nil {
 		initialization.Rollback()
 		s.Close()
@@ -395,11 +419,22 @@ func (s *Store) CreateSession(ctx context.Context, title, workspace string, targ
 }
 
 func insertBranch(ctx context.Context, tx *sql.Tx, value hub.Branch) error {
+	return insertLineBranch(ctx, tx, value, "")
+}
+
+// insertLineBranch stores a branch in a version line (” for a session
+// without versions).
+func insertLineBranch(ctx context.Context, tx *sql.Tx, value hub.Branch, line string) error {
 	data, err := body(value)
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO hub_branches VALUES(?,?,?,?)`, value.ID, value.SessionID, branchRoute(value.Target), data)
+	if line == "" {
+		// A session without versions keeps the original statement.
+		_, err = tx.ExecContext(ctx, `INSERT INTO hub_branches(id,session,route,data) VALUES(?,?,?,?)`, value.ID, value.SessionID, branchRoute(value.Target), data)
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO hub_branches(id,session,route,data,line) VALUES(?,?,?,?,?)`, value.ID, value.SessionID, branchRoute(value.Target), data, line)
 	return err
 }
 func (s *Store) ListSessions(ctx context.Context, limit int) (providerResult0 []hub.Session, providerResult1 error) {
@@ -438,7 +473,7 @@ func detailOf(ctx context.Context, tx *sql.Tx, id, sessionQuery string) (hub.Det
 		return result, err
 	}
 	result.Session = session
-	rows, err := tx.QueryContext(ctx, `SELECT data FROM hub_branches WHERE session=? ORDER BY id LIMIT 65`, id)
+	rows, err := tx.QueryContext(ctx, `SELECT data FROM hub_branches WHERE session=?`+lineFilter(session)+` ORDER BY id LIMIT 65`, lineArgs(session, id)...)
 	if err != nil {
 		return result, err
 	}
@@ -496,26 +531,26 @@ func branchRoute(target hub.Target) string { return "engine:" + target.EngineID 
 // active one, or creates it. A model/connection change inside one engine keeps
 // the branch and its native conversation; only the engine selects a branch.
 func selectBranch(ctx context.Context, tx *sql.Tx, session hub.Session, target hub.Target) (hub.Branch, bool, error) {
-	branch, err := read[hub.Branch](ctx, tx, `SELECT data FROM hub_branches WHERE session=? AND json_extract(data,'$.target.engine_id')=? ORDER BY (id=?) DESC,rowid DESC LIMIT 1`, session.ID, target.EngineID, session.ActiveBranchID)
+	branch, err := read[hub.Branch](ctx, tx, `SELECT data FROM hub_branches WHERE session=?`+lineFilter(session)+` AND json_extract(data,'$.target.engine_id')=? ORDER BY (id=?) DESC,rowid DESC LIMIT 1`, append(lineArgs(session, session.ID), target.EngineID, session.ActiveBranchID)...)
 	if err == nil {
 		return branch, false, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return branch, false, err
 	}
-	var count int
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM hub_branches WHERE session=?`, session.ID).Scan(&count); err != nil {
+	var count, total int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*),(SELECT count(*) FROM hub_branches WHERE session=?) FROM hub_branches WHERE session=?`+lineFilter(session), append([]any{session.ID}, lineArgs(session, session.ID)...)...).Scan(&count, &total); err != nil {
 		return branch, false, err
 	}
-	if count >= 64 {
-		return branch, false, errors.New("maximum 64 branches per session")
+	if count >= 64 || total >= hub.MaxBranchesPerSession {
+		return branch, false, errors.New("maximum 64 branches per version of a session")
 	}
 	id, err := hub.NewID("branch-")
 	if err != nil {
 		return branch, false, err
 	}
 	branch = hub.Branch{ID: id, SessionID: session.ID, Target: target}
-	return branch, true, insertBranch(ctx, tx, branch)
+	return branch, true, insertLineBranch(ctx, tx, branch, session.ActiveLineID)
 }
 
 // attemptBranch selects the branch one fallback attempt runs on without
@@ -657,7 +692,15 @@ func beginAttempt(ctx context.Context, tx *sql.Tx, session hub.Session, branch h
 	return attempt, writeTurn(ctx, tx, *turn)
 }
 func handoff(ctx context.Context, tx *sql.Tx, session hub.Session, branch hub.Branch) (*hub.Handoff, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT ht.data,json_extract(ha.data,'$.branch_id'),coalesce((SELECT min(seq)-1 FROM hub_events he WHERE he.session=ht.session AND he.turn=ht.id),0) FROM hub_turns ht JOIN hub_attempts ha ON ha.id=json_extract(ht.data,'$.active_attempt_id') WHERE ht.session=? AND ht.seq>? AND ht.status!=? ORDER BY ht.seq DESC LIMIT 33`, session.ID, branch.Watermark, hub.Running)
+	visible, visibleArgs, err := versionPredicate(ctx, tx, session, "ht.seq", true)
+	if err != nil {
+		return nil, err
+	}
+	filter := ""
+	if visible != "" {
+		filter = " AND " + visible
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT ht.data,json_extract(ha.data,'$.branch_id'),coalesce((SELECT min(seq)-1 FROM hub_events he WHERE he.session=ht.session AND he.turn=ht.id),0) FROM hub_turns ht JOIN hub_attempts ha ON ha.id=json_extract(ht.data,'$.active_attempt_id') WHERE ht.session=? AND ht.seq>? AND ht.status!=?`+filter+` ORDER BY ht.seq DESC LIMIT 33`, append([]any{session.ID, branch.Watermark, hub.Running}, visibleArgs...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -807,6 +850,15 @@ func beginComposerTurnAs(ctx context.Context, tx *sql.Tx, id string, input hub.C
 		if err = checkWorkerWorkspaceAdmission(ctx, tx, id); err != nil {
 			return err
 		}
+		var newLine *pendingLine
+		if input.Line != nil {
+			if route != nil {
+				return errors.New("a scheduled Turn cannot start a version line")
+			}
+			if newLine, err = forkLine(ctx, tx, &session, *input.Line); err != nil {
+				return err
+			}
+		}
 		branch, err := read[hub.Branch](ctx, tx, `SELECT data FROM hub_branches WHERE id=? AND session=?`, session.ActiveBranchID, id)
 		if err != nil {
 			return err
@@ -817,6 +869,13 @@ func beginComposerTurnAs(ctx context.Context, tx *sql.Tx, id string, input hub.C
 		h, err := handoff(ctx, tx, session, branch)
 		if err != nil {
 			return err
+		}
+		usedIndex := false
+		if h == nil {
+			if h, err = indexHandoff(session, branch); err != nil {
+				return err
+			}
+			usedIndex = h != nil
 		}
 		turnID, err := hub.NewID("turn-")
 		if err != nil {
@@ -843,6 +902,19 @@ func beginComposerTurnAs(ctx context.Context, tx *sql.Tx, id string, input hub.C
 		if err = writeSession(ctx, tx, session); err != nil {
 			return err
 		}
+		if err = finishLine(ctx, tx, newLine, turn); err != nil {
+			return err
+		}
+		if input.QueueID != "" {
+			// The queued input becomes this Turn in one transaction.
+			gone, delErr := tx.ExecContext(ctx, `DELETE FROM hub_pending_inputs WHERE id=? AND session=? AND state IN (?,?)`, input.QueueID, id, hub.PendingQueued, hub.PendingUncertain)
+			if delErr != nil {
+				return delErr
+			}
+			if n, _ := gone.RowsAffected(); n != 1 {
+				return hub.ErrPendingGone
+			}
+		}
 		claim = hub.Claim{Session: session, Branch: branch, Turn: turn, Attempt: attempt, Handoff: h}
 		input, err := body(hub.HistoryEntry{Origin: input.Origin, Input: input.UserText, InputFiles: engine.CloneInputFiles(input.Files), InputSkills: engine.CloneInputSkills(input.Skills), SessionID: id, TurnID: turn.ID, AttemptID: attempt.ID, Time: now()})
 		if err != nil {
@@ -851,7 +923,20 @@ func beginComposerTurnAs(ctx context.Context, tx *sql.Tx, id string, input hub.C
 		if _, err = tx.ExecContext(ctx, `INSERT INTO hub_events(session,turn,attempt,data) VALUES(?,?,?,?)`, id, turn.ID, attempt.ID, input); err != nil {
 			return err
 		}
-		return saveHandoff(ctx, tx, id, turn.ID, attempt.ID, h)
+		if err = saveHandoff(ctx, tx, id, turn.ID, attempt.ID, h); err != nil {
+			return err
+		}
+		if usedIndex {
+			if err = timeline(ctx, tx, id, turn.ID, attempt.ID, hub.TimelineEvent{Kind: "fork_degraded", Text: "此引擎不能原生分叉，模型只看到摘要"}); err != nil {
+				return err
+			}
+		}
+		if lineInput := claim.Turn; newLine != nil && newLine.degraded {
+			// An engine without native fork starts the new version with the
+			// Turn index only; say so where the reader can see it.
+			return timeline(ctx, tx, id, lineInput.ID, attempt.ID, hub.TimelineEvent{Kind: "fork_degraded", Text: "此引擎不能原生分叉，模型只看到摘要"})
+		}
+		return nil
 
 	}()
 	return claim, err
@@ -981,6 +1066,14 @@ func (s *Store) Record(ctx context.Context, attemptID string, event engine.Event
 			}
 			attempt.NativeSessionID = event.SessionID
 			branch.NativeSessionID = event.SessionID
+			// The native conversation exists now; the fork intent and the
+			// Turn index have done their work.
+			branch.Fork, branch.Index = nil, nil
+		}
+		if event.Kind == engine.InputDelivered {
+			if err = deliverPending(ctx, tx, attempt.SessionID, event.ID); err != nil {
+				return err
+			}
 		}
 		if event.Reference != nil && event.Reference.SessionID != attempt.NativeSessionID {
 			return errors.New("event reference belongs to another native session")
@@ -1103,6 +1196,9 @@ func (s *Store) FinishTurn(ctx context.Context, id string, status engine.Outcome
 		if err = writeTurn(ctx, tx, turn); err != nil {
 			return err
 		}
+		if err = requeueAllInterjections(ctx, tx, turn.SessionID); err != nil {
+			return err
+		}
 		if err = writeSession(ctx, tx, session); err != nil {
 			return err
 		}
@@ -1119,8 +1215,14 @@ func (s *Store) History(ctx context.Context, id string, after uint64, limit int)
 	if limit < 1 || limit > 128 {
 		return nil, errors.New("history page must be 1..128")
 	}
-	if _, err := read[hub.Session](ctx, s.db, liveSessionQuery, id); err != nil {
+	session, err := read[hub.Session](ctx, s.db, liveSessionQuery, id)
+	if err != nil {
 		return nil, err
+	}
+	if line, ok, lineErr := activeLineOf(ctx, s.db, session); lineErr != nil {
+		return nil, lineErr
+	} else if ok {
+		return s.historySegments(ctx, id, line, after, 0, limit, false)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT e.seq,e.data,COALESCE(t.seq,0) FROM hub_events e LEFT JOIN hub_turns t ON t.id=e.turn WHERE e.session=? AND e.seq>? ORDER BY e.seq LIMIT ?`, id, after, limit)
 	if err != nil {
@@ -1157,8 +1259,14 @@ func (s *Store) HistoryBefore(ctx context.Context, id string, before uint64, lim
 	if limit < 1 || limit > 128 {
 		return nil, errors.New("history page must be 1..128")
 	}
-	if _, err := read[hub.Session](ctx, s.db, liveSessionQuery, id); err != nil {
+	session, err := read[hub.Session](ctx, s.db, liveSessionQuery, id)
+	if err != nil {
 		return nil, err
+	}
+	if line, ok, lineErr := activeLineOf(ctx, s.db, session); lineErr != nil {
+		return nil, lineErr
+	} else if ok {
+		return s.historySegments(ctx, id, line, 0, before, limit, true)
 	}
 	query := `SELECT e.seq,e.data,COALESCE(t.seq,0) FROM hub_events e LEFT JOIN hub_turns t ON t.id=e.turn WHERE e.session=?`
 	args := []any{id}
@@ -1303,6 +1411,9 @@ func (s *Store) recover(ctx context.Context, only string) (providerResult0 error
 		}
 		if only != "" {
 			return nil
+		}
+		if err := recoverPending(ctx, tx); err != nil {
+			return err
 		}
 		return recoverAutomations(ctx, tx)
 	})

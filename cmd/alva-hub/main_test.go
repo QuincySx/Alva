@@ -705,3 +705,38 @@ func TestCLITitleComesFromTheSharedRule(t *testing.T) {
 		}
 	})
 }
+
+func TestREPLForkContinuesFromAnExplicitTurnInANewSession(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "fork")
+	if _, _, err := invoke(t, []string{"--data-dir", dir, "--prompt", "first prompt to fork from"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	var id, turn string
+	inspect(t, dir, func(s *productstore.Store) {
+		all, err := s.ListSessions(t.Context(), 10)
+		if err != nil || len(all) != 1 {
+			t.Fatal("one session expected", all, err)
+		}
+		id = all[0].ID
+		latest, err := s.LatestTurn(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		turn = latest.ID
+	})
+	_, diagnostic, err := invoke(t, []string{"--data-dir", dir, "--session", id, "--repl"}, "/fork "+turn+"\n/fork turn-missing\n/quit\n")
+	if err == nil || !strings.Contains(diagnostic, "Forked session: hub-") {
+		t.Fatal("/fork must print the new session id and refuse an unknown Turn", diagnostic, err)
+	}
+	inspect(t, dir, func(s *productstore.Store) {
+		all, err := s.ListSessions(t.Context(), 10)
+		if err != nil || len(all) != 2 {
+			t.Fatal("the fork is a second session", all, err)
+		}
+		for _, session := range all {
+			if session.ID != id && (session.ForkedFrom == nil || session.ForkedFrom.TurnID != turn) {
+				t.Fatal("fork origin", session.ForkedFrom)
+			}
+		}
+	})
+}

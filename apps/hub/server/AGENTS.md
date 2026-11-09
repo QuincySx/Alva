@@ -46,3 +46,4 @@ transport error 不泄露 host path/数据库/provider stderr；真实执行错�
 | child_test.go / team_test.go | 实际HTTP子审批/typed路径与团队FIFO/account批准/冷观察不重放 |
 | media_test.go | 真实原件+派生的冷metadata/二进制range/越权拒绝与无处理/无投递回归 |
 | automation.go / automation_test.go | 固定实际路由/乐观revision/默认暂停计划CRUD与显式计费同意；不提供改时钟/追赶/重放HTTP入口，以及保存Handoff冷读归属回归 |
+| conversation_ops.go / conversation_ops_test.go | 队列（queue、queue-edit、queue-cancel、queue-send）、interject（须带观察到的execution_id）、edit/regenerate/versions/version-select/fork路由：只解码并校验标识与文本边界，规则全在产品服务；拒绝给出产品自己写的原因（版本不支持/任务进行中/队列已满） |

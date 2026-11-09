@@ -23,3 +23,4 @@
 | failure.go / failure_test.go | typed provider整树分类、真实local HTTP无重试、factory终态及mixed强失败回归 |
 | options_test.go | 实际SDK单轮model/tool后iteration耗尽为失败、错误边界与ordinary factory前置unsupported/超限拒绝 |
 | message_test.go | effective AfterModel实际commit再发完整消息，不全量重读历史、不把中间preface当Worker结果；超限消息/内容块为带Truncated的UTF-8前缀 |
+| interject.go / interject_test.go | InterjectionPlugin：BeforeModel中间件（序-500）在工具结果之后提交队列里的用户消息（消息ID前缀`interject:`），写入原生日志与本次请求后才由Adapter发InputDelivered回执；Adapter每次Execute持有至多8条的信箱，结束即关闭，未取走的消息不送达（产品放回队首）；FactoryOptions.Interjection/Fork声明能力，Request.Fork须声明后才接受且与续接互斥 |

@@ -43,6 +43,14 @@ type FactoryOptions struct {
 	// ContextCompaction: the factory installs harness compaction, honours
 	// Request.CompactContext and wires Request.ReportContext.
 	ContextCompaction bool
+	// Interjection: the factory installs InterjectionPlugin from the request's
+	// TakeInterjections/ReportDelivered. Fork: the factory honours Request.Fork
+	// by starting the new native session as a cut copy of the source.
+	Interjection, Fork bool
+	// CheckFork answers engine.ForkChecker: whether this fork's cut is
+	// reachable in the source conversation. Without it the adapter cannot
+	// vouch for a fork and refuses to be checked.
+	CheckFork func(context.Context, engine.ForkPoint) error
 }
 type Adapter struct {
 	factory RunnerFactory
@@ -50,10 +58,11 @@ type Adapter struct {
 	options FactoryOptions
 	mu      sync.Mutex
 	active  map[string]context.CancelFunc
+	inboxes map[string]*inbox
 }
 
 func New(factory RunnerFactory) *Adapter {
-	return &Adapter{factory: factory, active: make(map[string]context.CancelFunc)}
+	return &Adapter{factory: factory, active: make(map[string]context.CancelFunc), inboxes: make(map[string]*inbox)}
 }
 
 // NewWithPermissions advertises callback support only with a real scoped host.
@@ -75,8 +84,24 @@ func (a *Adapter) Descriptor() engine.Descriptor {
 	return d
 }
 func (a *Adapter) Capabilities() engine.Capabilities {
-	return engine.Capabilities{DurableWaits: a.options.DurableWaits, Streaming: true, Resume: true, Cancel: true, ToolControl: true, PermissionCallback: a.respond != nil, FileInputs: a.options.FileInputs, SkillInputs: a.options.SkillInputs, ContextCompaction: a.options.ContextCompaction}
+	return engine.Capabilities{DurableWaits: a.options.DurableWaits, Streaming: true, Resume: true, Cancel: true, ToolControl: true, PermissionCallback: a.respond != nil, FileInputs: a.options.FileInputs, SkillInputs: a.options.SkillInputs, ContextCompaction: a.options.ContextCompaction, Interjection: a.options.Interjection, Fork: a.options.Fork}
 }
+
+var _ engine.Interjector = (*Adapter)(nil)
+var _ engine.ForkChecker = (*Adapter)(nil)
+
+// CheckFork reports whether a fork's cut is reachable, without creating
+// anything. The product records a native fork only when this agrees.
+func (a *Adapter) CheckFork(ctx context.Context, fork engine.ForkPoint) error {
+	if !a.options.Fork || a.options.CheckFork == nil {
+		return engine.ErrUnsupported
+	}
+	if err := fork.Validate(); err != nil {
+		return err
+	}
+	return a.options.CheckFork(ctx, fork)
+}
+
 func (a *Adapter) RespondPermission(ctx context.Context, id, requestID string, decision engine.PermissionDecision) error {
 	if a.respond == nil {
 		return engine.ErrUnsupported
@@ -136,6 +161,17 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	if request.CompactContext && !a.options.ContextCompaction {
 		return fmt.Errorf("%w: configure Alva context compaction in the harness factory", engine.ErrUnsupported)
 	}
+	if request.Fork != nil {
+		if !a.options.Fork {
+			return fmt.Errorf("%w: configure Alva native fork in the harness factory", engine.ErrUnsupported)
+		}
+		if err := request.Fork.Validate(); err != nil {
+			return err
+		}
+		if request.ResumeSession != "" || request.WaitRevision != 0 {
+			return errors.New("a forked execution starts its own native session")
+		}
+	}
 	if request.WaitRevision != 0 && (!a.options.DurableWaits || request.ResumeSession == "" || request.Prompt != "") {
 		return errors.New("durable resume requires a supported existing native session and no prompt")
 	}
@@ -158,8 +194,19 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 		return errors.New("native session already running")
 	}
 	a.active[id] = cancel
+	box := &inbox{}
+	if a.options.Interjection {
+		a.inboxes[id] = box
+	}
 	a.mu.Unlock()
-	defer func() { cancel(); a.mu.Lock(); delete(a.active, id); a.mu.Unlock() }()
+	defer func() {
+		cancel()
+		box.close()
+		a.mu.Lock()
+		delete(a.active, id)
+		delete(a.inboxes, id)
+		a.mu.Unlock()
+	}()
 	contract := engine.StreamContract{}
 	var observerErr error
 	var observerMu sync.Mutex
@@ -191,6 +238,12 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	request.ReportActivity = func(activity engine.Activity) error {
 		return emit(engine.Event{Kind: engine.ExecutionActivity, SessionID: id, Activity: &activity})
 	}
+	if a.options.Interjection {
+		request.TakeInterjections = box.take
+		request.ReportDelivered = func(input engine.Interjection) error {
+			return emit(engine.Event{Kind: engine.InputDelivered, SessionID: id, ID: input.ID, Text: input.Text})
+		}
+	}
 	// A summary request's usage belongs to this attempt's completion Usage.
 	var compactionUsage []engine.Usage
 	request.ReportContext = func(report engine.ContextReport) error {
@@ -220,6 +273,11 @@ func (a *Adapter) Execute(parent context.Context, request engine.Request, sink f
 	}
 	if err == nil && runner == nil {
 		err = errors.New("Alva harness factory returned no runner")
+	}
+	if err != nil && request.Fork != nil && errors.Is(err, engine.ErrForkUnreachable) {
+		// Nothing was reported: the product turns the fork into an index
+		// continuation and runs the Turn again.
+		return settleOwned(err)
 	}
 	if err != nil {
 		err = settleOwned(err)
@@ -488,4 +546,62 @@ func boundedError(value string) string {
 		text += " [bounded]"
 	}
 	return text
+}
+
+// maxInbox bounds the messages waiting for one execution's next model request.
+const maxInbox = 8
+
+// inbox holds interjections between Interject and the model boundary that
+// takes them. It closes with the execution: a message still inside is simply
+// undelivered, and the product returns it to its queue.
+type inbox struct {
+	mu     sync.Mutex
+	items  []engine.Interjection
+	closed bool
+}
+
+func (b *inbox) put(input engine.Interjection) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return engine.ErrSessionNotFound
+	}
+	if len(b.items) >= maxInbox {
+		return errors.New("too many interjections waiting for the model")
+	}
+	b.items = append(b.items, input)
+	return nil
+}
+
+func (b *inbox) take() []engine.Interjection {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	items := b.items
+	b.items = nil
+	return items
+}
+
+func (b *inbox) close() {
+	b.mu.Lock()
+	b.closed = true
+	b.mu.Unlock()
+}
+
+// Interject queues a message for the running execution of a native session.
+// It takes effect at the next model request and never interrupts a tool call
+// that already started.
+func (a *Adapter) Interject(_ context.Context, id string, input engine.Interjection) error {
+	if !a.options.Interjection {
+		return engine.ErrUnsupported
+	}
+	if err := input.Validate(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	box, ok := a.inboxes[id]
+	a.mu.Unlock()
+	if !ok {
+		return engine.ErrSessionNotFound
+	}
+	return box.put(input)
 }

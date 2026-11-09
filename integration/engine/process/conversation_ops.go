@@ -134,6 +134,9 @@ func (r *codexRun) closeSteering() {
 // stable lastTurnId keeps through an older turn; only when every turn is
 // dropped does it use the experimental beforeTurnId on the oldest one.
 func codexForkCut(ctx context.Context, rpc *codexRPC, fork *engine.ForkPoint, params map[string]any) error {
+	if fork.AnchorTurn != "" {
+		return codexAnchoredForkCut(ctx, rpc, fork, params)
+	}
 	if fork.DropTurns == 0 {
 		return nil
 	}
@@ -173,6 +176,69 @@ func codexForkCut(ctx context.Context, rpc *codexRPC, fork *engine.ForkPoint, pa
 		params["beforeTurnId"] = turns[fork.DropTurns-1]
 	default:
 		return errors.New("Codex source thread has fewer turns than the fork drops")
+	}
+	return nil
+}
+
+// codexAnchoredForkCut applies a cut the product recorded as the source
+// thread's own turn identity. The thread's turns are listed (read-only) and the
+// anchor looked up by identity: keep through it (AnchorKeep), or drop it and
+// what follows (lastTurnId is the turn before it, beforeTurnId when it is the
+// first). An anchor the thread no longer holds (rolled back, replaced) is
+// unreachable: ErrForkUnreachable, before anything is reported, never a guess
+// from turn counts.
+func codexAnchoredForkCut(ctx context.Context, rpc *codexRPC, fork *engine.ForkPoint, params map[string]any) error {
+	var newestFirst []string
+	seen := make(map[string]bool)
+	cursor := ""
+	for pages := 0; pages < 200; pages++ {
+		list := map[string]any{"threadId": fork.Session, "limit": 100, "sortDirection": "desc", "itemsView": "notLoaded"}
+		if cursor != "" {
+			list["cursor"] = cursor
+		}
+		var page struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+			NextCursor *string `json:"nextCursor"`
+		}
+		if err := rpc.call(ctx, "thread/turns/list", list, &page); err != nil {
+			return err
+		}
+		for _, turn := range page.Data {
+			if !nativeID.MatchString(turn.ID) || seen[turn.ID] {
+				return errors.New("Codex listed an invalid or repeated source turn identity")
+			}
+			seen[turn.ID] = true
+			newestFirst = append(newestFirst, turn.ID)
+		}
+		if len(page.Data) == 0 || page.NextCursor == nil || *page.NextCursor == "" {
+			cursor = ""
+			break
+		}
+		cursor = *page.NextCursor
+	}
+	if cursor != "" {
+		return errors.New("Codex source thread is too long to anchor a fork")
+	}
+	at := -1
+	for i, id := range newestFirst {
+		if id == fork.AnchorTurn {
+			at = i
+		}
+	}
+	if at < 0 {
+		return fmt.Errorf("%w: Codex source thread no longer holds the anchor turn", engine.ErrForkUnreachable)
+	}
+	switch {
+	case fork.AnchorKeep && at == 0:
+		return nil // the anchor is the newest turn: nothing to drop
+	case fork.AnchorKeep:
+		params["lastTurnId"] = fork.AnchorTurn
+	case at == len(newestFirst)-1:
+		params["beforeTurnId"] = fork.AnchorTurn
+	default:
+		params["lastTurnId"] = newestFirst[at+1]
 	}
 	return nil
 }

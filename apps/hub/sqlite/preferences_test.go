@@ -58,7 +58,7 @@ func TestPreferencesDefaultsAndDurableAtomicUpdate(t *testing.T) {
 	if err = store.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_preferences`).Scan(&rows); err != nil || version != 9 || rows != 1 {
+	if err = store.db.QueryRowContext(ctx, `SELECT count(*) FROM hub_preferences`).Scan(&rows); err != nil || version != 11 || rows != 1 {
 		t.Fatalf("schema=%d singleton rows=%d: %v", version, rows, err)
 	}
 }
@@ -243,6 +243,10 @@ func TestPreferencesVersionOneUpgradePreservesProductAndNativeFacts(t *testing.T
 	ctx := context.Background()
 	dir := filepath.Join(t.TempDir(), "private")
 	db := preferencesVersionOneDatabase(t, dir)
+	// The fixture ends its Turn with current code, which reads the v10 queue.
+	if _, err := db.ExecContext(ctx, `CREATE TABLE hub_pending_inputs(id TEXT PRIMARY KEY,session TEXT NOT NULL REFERENCES hub_sessions(id),pos INTEGER NOT NULL,state TEXT NOT NULL,data BLOB NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
 	old := &Store{db: db}
 	session, err := old.CreateSession(ctx, "existing session", t.TempDir(), target("fixture"))
 	if err != nil {
@@ -344,7 +348,7 @@ func TestPreferencesUnknownSchemaIsNotModified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.ExecContext(ctx, `CREATE TABLE future_facts(data TEXT); INSERT INTO future_facts VALUES('retain future'); PRAGMA user_version=10`); err != nil {
+	if _, err = db.ExecContext(ctx, `CREATE TABLE future_facts(data TEXT); INSERT INTO future_facts VALUES('retain future'); PRAGMA user_version=99`); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Close(); err != nil {
@@ -370,7 +374,7 @@ func TestPreferencesUnknownSchemaIsNotModified(t *testing.T) {
 	if err = db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE name LIKE 'hub_%'`).Scan(&added); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRowContext(ctx, `SELECT data FROM future_facts`).Scan(&original); err != nil || added != 0 || original != "retain future" || version != 10 {
+	if err = db.QueryRowContext(ctx, `SELECT data FROM future_facts`).Scan(&original); err != nil || added != 0 || original != "retain future" || version != 99 {
 		t.Fatalf("future schema changed: version=%d added=%d original=%q %v", version, added, original, err)
 	}
 }
