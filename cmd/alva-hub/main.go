@@ -21,6 +21,7 @@ import (
 
 	"github.com/QuincySx/Alva/apps/hub"
 	"github.com/QuincySx/Alva/apps/hub/bootstrap"
+	"github.com/QuincySx/Alva/integration/engine"
 	"github.com/QuincySx/Alva/integration/llm/provider"
 	"github.com/QuincySx/Alva/platform/system/secretinput"
 	"github.com/QuincySx/Alva/platform/system/terminaltext"
@@ -264,7 +265,7 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 			}
 		}
 	} else if strings.TrimSpace(*prompt) != "" {
-		created, err := app.Service.Create(ctx, *title, *workspace)
+		created, err := createCLISession(ctx, app, *title, *workspace)
 		if err != nil {
 			return err
 		}
@@ -313,7 +314,7 @@ func run(ctx context.Context, args []string, input io.ReadCloser, output, diagno
 			continue
 		}
 		if c.session == "" {
-			created, err := app.Service.Create(ctx, *title, *workspace)
+			created, err := createCLISession(ctx, app, *title, *workspace)
 			if err != nil {
 				return err
 			}
@@ -391,4 +392,21 @@ func (c *cli) command(ctx context.Context, line string) error {
 	default:
 		return errors.New("unknown Hub command; see /help")
 	}
+}
+
+// createCLISession creates a session for this process and turns durable waits
+// off for it. The product default (on) parks a Turn at its first human
+// decision and ends the run so it can survive a restart; this CLI answers
+// approvals inline in the same process and reads the final answer when the run
+// ends, so a parked Waiting run would end the one-shot with no answer. Desktop
+// and server sessions keep the product default.
+func createCLISession(ctx context.Context, app *bootstrap.Application, title, workspace string) (hub.Session, error) {
+	created, err := app.Service.Create(ctx, title, workspace)
+	if err != nil {
+		return created, err
+	}
+	if err = app.Service.EnableDurableWaits(ctx, created.ID, false); err != nil && !errors.Is(err, engine.ErrUnsupported) {
+		return created, err
+	}
+	return created, nil
 }

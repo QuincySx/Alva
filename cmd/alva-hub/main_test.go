@@ -644,3 +644,22 @@ func TestTurnDeadlineKeepsIdentityOverBareSQLiteInterrupt(t *testing.T) {
 		t.Fatal("a live context must not rewrite the error", err)
 	}
 }
+
+// The CLI answers approvals inline and reads the answer when the run ends, so
+// its own sessions must not park a Turn in a durable wait (the product default).
+func TestCLICreatedSessionDisablesDurableWaits(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "private")
+	if _, _, err := invoke(t, []string{"--data-dir", dir, "--prompt", "one-shot"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	inspect(t, dir, func(s *productstore.Store) {
+		all, err := s.ListSessions(t.Context(), 10)
+		if err != nil || len(all) != 1 {
+			t.Fatal(all, err)
+		}
+		settings, err := s.Settings(t.Context(), all[0].ID)
+		if err != nil || settings.DurableWaits {
+			t.Fatal("CLI session kept the parking default", settings.DurableWaits, err)
+		}
+	})
+}
