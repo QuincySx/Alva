@@ -1,3 +1,7 @@
 # Absorbed Magpie source is pinned by byte-exact SHA-256 in provenance.json;
 # a Windows checkout must not rewrite its line endings.
 integration/llm/codec/internal/magpie/** text eol=lf
+
+# Public-surface goldens are compared byte for byte with generated output;
+# a Windows checkout must keep them LF as well.
+tests/architecture/testdata/** text eol=lf
