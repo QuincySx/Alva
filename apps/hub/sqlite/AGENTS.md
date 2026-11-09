@@ -5,7 +5,7 @@
 ## 逻辑
 独占进程锁后打开0700/0600私有库，先完整校验schema再修复中断Turn。新Turn和首Attempt、fallback认领、事件/终态都在事务提交；固定产品归属与activeAttempt防止迟到结果覆盖新轮。schema v6延续v1→v2偏好、v3连接/credential分表、v4目标/模型偏好和v5伙伴/群/资源视图，原子增加手动输入草稿与文件原件回执metadata；会话参数覆盖在已有Settings JSON内独立CAS。私有文件不等于加密或OS密钥库。
 ## 约束
-首次版本不读取旧Rust数据；user_version=0但已有任何业务表的库拒绝准入，不向未知库补建Hub表。最多64分支、7个授权fallback路由；history每页128项。增量是派生显示数据：最终正文或其Reference提交后在同一事务删除，不改写旧行、不加迁移；截断且无Reference时增量是唯一完整正文，保留。handoff只传32条有界Turn索引，超量明确要求检索，不静默声称完整历史。Stop/可能副作用禁止自动fallback。实例锁释放与DB关闭由Store.Close显式拥有。
+首次版本不读取旧Rust数据；user_version=0但已有任何业务表的库拒绝准入，不向未知库补建Hub表。最多64分支、7个授权fallback路由；单个Turn的prompt存储上限64KiB（store.go，超出拒绝创建；HTTP入口更严，为32KiB）；history每页128项。增量是派生显示数据：最终正文或其Reference提交后在同一事务删除，不改写旧行、不加迁移；截断且无Reference时增量是唯一完整正文，保留。handoff只传32条有界Turn索引，超量明确要求检索，不静默声称完整历史。Stop/可能副作用禁止自动fallback。实例锁释放与DB关闭由Store.Close显式拥有。
 所有公开Store错误在provider边界映射共享hub.ErrNotFound；product/Tool/HTTP不得识别sql.ErrNoRows。内部SQL原因可保留供诊断，事务/schema行为保持。应用偏好按 expected revision 原子更新，与会话设置独立；v2 缺失/损坏偏好在恢复前失败，不补建、不重置。未知较新 schema 拒绝且保留原数据。
 
 Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资源可以已退出，队列/timer不因此认领下一轮。只实际已开始且有合法checkpoint receipt的Attempt能提交Waiting；crash edge恢复保留该事实，无自动继续。
@@ -32,7 +32,7 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | history_compaction_test.go | json_extract可用且走hub_events_turn索引、只删本attempt已合并增量、截断保留、TurnSequence与旧格式未合并行照常读取 |
 | preferences.go / preferences_test.go | 应用级偏好 singleton、共享政策/乐观 revision 原子保存；左栏宽度/折叠与外观稀疏CAS、显式默认恢复及重开，新库、真实 v1 升级、并发、取消及损坏不重置回归 |
 | store_test.go | 可逆路由/安全fallback、native事实归属、commit失败/忽略sink错误不能成功/大handoff/恢复回归 |
-| plan_mode.go / plan_mode_test.go | 事务内只改PlanMode且保留批准与权限档；统一beginAttempt拒绝Plan借外部引擎，覆盖Worker/自动化/fallback/等待恢复 |
+| plan_mode.go / plan_mode_test.go | 事务内只改PlanMode且保留批准与权限档；统一beginAttempt拒绝Plan借外部引擎；测试只覆盖切换路由后启动外部引擎、已授权外部fallback、批准与权限档保留及持久化、已准入/外部分支被拒，Worker、自动化与等待恢复没有对应的计划模式测试 |
 | settings.go | session-scoped默认禁用编辑、独立host确认启用与idle-only耐久snapshot |
 | app_settings.go / app_settings_test.go | v9显式迁移：hub_app_settings单行意图（revision CAS，落盘前清除主机批准位）与hub_workspace_approvals（工作区/类型/项/指纹）；会话覆盖的开始/改回、配置编辑（变更项关闭）与逐项启用 |
 | settings_test.go | 配置导入不自批、归属/active限制和关闭重开耐久回归 |

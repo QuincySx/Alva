@@ -13,6 +13,7 @@ Settings.PlanMode是产品下一Turn纯值；独立SetPlanMode只改该值并保
 
 ## 约束
 Runtime仅消费六方法ExecutionStore；设置/浏览由实际产品consumer要求，SQLite实现及事务不拆分。
+隐含上限（runtime.go）：每个Turn最多8次Attempt（含fallback）；整个Hub最多64个同时准入的运行，超出报预算耗尽；每个Attempt最多64个待处理的审批/问答，重复或超出即失败。Turn的prompt上限：HTTP入口32KiB（server）、存储64KiB（sqlite）。
 应用外观走独立PreferencesStore，选项/默认/合并校验集中preferences.go；不混入按会话的SettingsStore或执行依赖。界面拥有草稿，共享PreferencesService只发布成功提交的revision，存储端在原子事务内复用同一政策。
 产品 ID 永远不等于 native ID。UI 只观察已提交产品历史，不拥有执行取消。可恢复 Error 不释放 active；唯一 Completed 收尾。SQLite产品store在子包，与native session.sqlite隔离，不读旧Rust DB。
 引擎回调在产品层串行提交；首次校验/持久化错误锁存，adapter忽略错误或后补成功也必须失败且不fallback。Execute返回后关闭回调准入，迟到回调不能修改facts。

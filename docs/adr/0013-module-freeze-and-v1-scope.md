@@ -81,3 +81,18 @@ HTML 块第一版：Untrusted 页面、临时会话、CSP 加内容规则断网�
 两个 `.smallpen` 包是设计正本，进入 Git。`docs/design/alva/exports/archive` 与 `source/intents` 是可再生的导出、
 回执和一次性批次，约 540 MiB，留在本地并被忽略；指向它们的链接只在本地检出中可用。
 原因：它们会永久撑大仓库历史，而以后需要时随时可以补进 Git，反过来清除则很难。
+
+## 补充与取代（2026-11-09）
+
+以下是对上文的补充，原文不改。
+
+- **§1 工具块映射**：原文写外部引擎的工具块“只映射命令与改文件两类”。实际已映射六类：命令、读文件、改文件、搜索、子 Agent、待办（其余归入“其他工具”），见 `integration/engine/tool_display.go` 与 `integration/engine/process/tool_display.go`。
+- **设置层级**：设置以应用级为主（M5）；会话可以覆盖，覆盖只影响下一新轮次；MCP 等需要批准的项按工作区记录批准，配置变更使对应批准失效。
+- **图表说明的注入范围**：图表数据块的格式说明只对 Alva 和 Claude 注入。Codex 的开发者说明通道会替换用户自己的 `developer_instructions`，Pi 的 `--append-system-prompt` 会替换其 `APPEND_SYSTEM.md` 的发现，注入会破坏用户配置，所以这两个引擎暂不带说明（见 `integration/engine/process/adapter.go` 中 `ProductInstructions` 的注释）。
+- **第一波业务规则决定（2026-11-08 起）**：
+  - 审批被拒绝或被工作区边界拦下，这次结果作为工具结果交给模型，模型继续，本轮不因此失败；
+  - 普通工具失败（文件不存在、路径或参数错误等）以错误结果交给模型，只有内部故障或用户取消才中止本轮；
+  - Full 档下，工具自述为计费（Billable）的操作仍要询问，任何档位都一样；
+  - Auto 档按效果判断：被工作区边界约束住的写入放行，其余询问，不看工具名；
+  - 持久等待默认开启；
+  - fallback 只在当前一轮生效，路由身份只含引擎、连接和模型。

@@ -613,7 +613,7 @@ SmallPen 只保留一张选择器画板，生产实现一个模型选择组件�
 
 “连接就绪”“模型已启用”“当前 Agent 支持这条路由”是三项独立事实。禁用模型影响之后的选择，不取消当前轮次；刷新目录保留用户启用选择、手动条目和显式覆盖，删除/改 ID 必须说明对收藏与默认值的影响。目录为空、刷新失败、尚未请求目录分别显示，不能都画成暂无模型。视觉输入仍属对话模型能力；图像生成是另一用途，不混进聊天选择器。没有价格或能力证据时标记未知，不能按名称猜测。
 
-实际 Go provider 当前有四种原生协议：`openai_chat`、`openai_responses`、`anthropic`、`gemini`。其 `Config.Endpoint` 是**完整原生请求地址**；25预填 `https://api.openai.com/v1/responses`，26示例为 `https://api.example.com/v1/responses`，不声称当前代码会给 Base URL 自动补路径。Gemini的模型相关路径由产品使用准确ID解析，不能把未解析模板传入SDK。远程 HTTPS、本地 HTTP 和 URL 校验沿用现有运输规则。目录发现是产品适配能力，不是这些协议必然提供的统一接口。当前 bootstrap 通过显式配置装配路由，**尚无本轮管理页对应的供应商/模型 CRUD 后端**；后续在产品外层和共享存储插口上实现，不给 SDK 增加供应商目录政策。
+实际 Go provider 当前有四种原生协议：`openai_chat`、`openai_responses`、`anthropic`、`gemini`。其 `Config.Endpoint` 是**完整原生请求地址**；25预填 `https://api.openai.com/v1/responses`，26示例为 `https://api.example.com/v1/responses`，不声称当前代码会给 Base URL 自动补路径。Gemini的模型相关路径由产品使用准确ID解析，不能把未解析模板传入SDK。地址传输按用户 2026-11-07 的决定：允许任意主机使用 http（局域网与自建网关不必先套 TLS），选择 http 是配置者的显式行为；非 loopback 的 http 要给出明文传输警告（目前该警告只在 MCP 设置页实现，模型连接页尚无）。地址仍不得带凭据、查询或片段；OAuth 授权端点仍要求 https（本机回环地址除外）。目录发现是产品适配能力，不是这些协议必然提供的统一接口。当前 bootstrap 通过显式配置装配路由，**尚无本轮管理页对应的供应商/模型 CRUD 后端**；后续在产品外层和共享存储插口上实现，不给 SDK 增加供应商目录政策。
 
 API Key、本地 HTTP 服务、本机 CLI 订阅账户分成不同来源。只有用户主动点击检查与连接，才能验证本机账户；订阅账户绑定对应 Agent 的账户路由与计费，不提取为通用 API Key。跨 Agent 可用性由实际 adapter 返回。25/26画的是API Key示例；本地无认证时按数据隐藏Key，账户登录由独立认证分支实现，24入口不假装已经发现登录。密钥只通过宿主安全存储和引用使用，不进入普通配置导出、聊天或日志；自定义请求头同样处理秘密值。
 
@@ -800,9 +800,9 @@ SmallPen alpha.18 拒绝跨 Presentation 的 `overlay`，而命名式 CLI 的目
 
 ## Go / MyGo 与 HTML 的落地边界
 
-Go 不限制这些布局和交互。关键约束是渲染和资源归属。先采用**每窗口一个完整 HTML 工作区**的实验：导航、会话列表、对话、输入、设置、面板和它们的弹层一起在同一 DOM / 滚动体系；MyGo / 原生层负责窗口、菜单、系统文件选择与宿主生命周期。需要原生自绘的区域按整块能力面板隔离，避免每条消息一个 WebView，也不让原生列表持续追踪每条 HTML 卡片高度。
+Go 不限制这些布局和交互。关键约束是渲染和资源归属。采用**自绘外壳，HTML 只作为消息流里的一种块**（[ADR 0013](../../adr/0013-module-freeze-and-v1-scope.md) §2）：窗口外壳、导航、会话列表、消息列表、输入区、设置与所有已知类型的内容块都由 MyGo 自绘；只有模型在运行时生成的 HTML 才进入隔离的 WebView，且是消息流里的一块，不是容器。每窗口一个完整 HTML 工作区的方向已被否决：常驻网页进程、原生组件进不了网页文档流、文字流畅度交给了网页。判据是内容由谁写：编译进 Alva 的类型自绘，模型现场写的代码进沙箱。避免每条消息一个 WebView，也不让原生列表持续追踪每条 HTML 卡片高度。
 
-这是目标实验方向，不修改当前 ADR-0012 的生产栈或 `go.mod`。已完成的 MyGo v0.6.0 隔离验证见 [`../../MYGO-WEBVIEW-VALIDATION.md`](../../MYGO-WEBVIEW-VALIDATION.md)：支持继续验证粗粒度混合；它没有证明完整产品、跨平台输入法或复杂列表滚动已通过验收。
+生产栈仍是 ADR-0012，`go.mod` 不变。早先针对“整窗 HTML 工作区”的 MyGo v0.6.0 隔离验证（现仅作 HTML 块 spike 的参考）见 [`../../MYGO-WEBVIEW-VALIDATION.md`](../../MYGO-WEBVIEW-VALIDATION.md)：支持继续验证粗粒度混合；它没有证明完整产品、跨平台输入法或复杂列表滚动已通过验收。
 
 实现依赖方向：Token（可导出 CSS / Go 值）→ Controls → Regions / Surfaces → Domain → Pages。共享值和领域动作，不强迫 DOM 组件与 MyGo view 共用一个渲染 API。不要把 HTML、MyGo、CSS、窗口句柄放进 kernel / agent SDK。
 
