@@ -184,6 +184,10 @@ func (r *Runtime) Run(owner context.Context, sessionID, prompt string) error
 
 func (r *Runtime) SessionActive(id string) bool
 
+func (r *Runtime) SetErrorRedactor(redact func(string) string)
+
+func (r *Runtime) SetRouteResolver(resolver RouteResolver)
+
 func (r *Runtime) Start(owner context.Context, sessionID, prompt string) (string, <-chan error, error)
 
 func (r *Runtime) StartAutomation(owner, admission context.Context, tick AutomationTick, at int64) (string, <-chan error, error)
@@ -273,6 +277,10 @@ func CloneComposerDraft(d ComposerDraft) ComposerDraft
 func CloneConversationTabSet(value ConversationTabSet) ConversationTabSet
 
 func CloneWorkspaceView(v WorkspaceView) WorkspaceView
+
+func ConnectionAccount(target Target) (string, bool)
+
+func ConnectionAccountID(accountSource string) (string, bool)
 
 func ConversationTabDraftID(tabID string) string
 
@@ -403,6 +411,7 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/integration/engine"
 )
@@ -623,6 +632,8 @@ type Branch struct {
 	NativeSessionID string `json:"native_session_id"`
 	Watermark       uint64 `json:"watermark"`
 	Parked          bool   `json:"parked"`
+
+	RoutesSeen map[string]RouteSeen `json:"routes_seen,omitempty"`
 }
 
 type BrowserSettings struct {
@@ -1032,6 +1043,10 @@ type ExecutionStore interface {
 	FinishTurn(context.Context, string, engine.Outcome) error
 }
 
+type FallbackNotifier interface {
+	RecordFallbackSkip(ctx context.Context, attemptID string, target Target, reason string) error
+}
+
 type Goal struct {
 	ID                 string    `json:"id"`
 	Revision           uint64    `json:"revision"`
@@ -1246,6 +1261,25 @@ type ResourceClaim struct {
 	Write bool   `json:"write"`
 }
 
+type RouteFacts struct {
+	Target   Target
+	Revision uint64
+	Endpoint string
+}
+
+type RouteRecorder interface {
+	RecordRoute(ctx context.Context, attemptID string, facts RouteFacts) error
+}
+
+type RouteResolver interface {
+	ResolveRoute(context.Context, Target) (RouteFacts, error)
+}
+
+type RouteSeen struct {
+	Revision uint64 `json:"revision"`
+	Endpoint string `json:"endpoint"`
+}
+
 type Runtime struct {
 }
 
@@ -1444,6 +1478,9 @@ type TimelineEvent struct {
 	ToBranchID   string  `json:"to_branch_id,omitempty"`
 	HandoffID    string  `json:"handoff_id,omitempty"`
 	Target       *Target `json:"target,omitempty"`
+
+	Revision uint64 `json:"revision,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
 }
 
 type ToolSettings struct {
@@ -1472,6 +1509,10 @@ type Turn struct {
 	ActiveAttemptID string              `json:"active_attempt_id"`
 	CreatedAt       int64               `json:"created_at"`
 	EndedAt         int64               `json:"ended_at"`
+}
+
+type TurnRecoverer interface {
+	RecoverSession(ctx context.Context, sessionID string) error
 }
 
 type WaitStore interface {

@@ -404,7 +404,7 @@ func TestSelectedFileManifestCannotRaceIntoAnotherBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := s.DefaultTarget
-	target.ModelID = "different route"
+	target.EngineID = "different-route-engine"
 	wrapped := switchBeforeAdmission{ServiceStore: s.Store, target: target}
 	s.Store = wrapped
 	s.Runtime = hub.New(wrapped)

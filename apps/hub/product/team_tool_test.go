@@ -250,12 +250,18 @@ func TestTeamToolPagesManyDynamicRoutesWithStableAbsoluteIndices(t *testing.T) {
 	}
 	edit := connectionEdit(saved)
 	edit.Name = "Revision changed after route selection"
-	if _, err = s.Connections.Save(ctx, edit); err != nil {
+	if saved, err = s.Connections.Save(ctx, edit); err != nil {
 		t.Fatal(err)
 	}
 	var stable teamRoutePage
 	if err = json.Unmarshal([]byte(readResult(map[string]any{"action": "routes", "after": selected.TargetIndex})), &stable); err != nil || len(stable.Routes) != 1 || stable.Routes[0] != selected {
 		t.Fatal("connection edit reassigned an already described route index", err)
+	}
+	// A rename keeps the route valid; disabling the connection makes it stale.
+	disable := connectionEdit(saved)
+	disable.Enabled = false
+	if _, err = s.Connections.Save(ctx, disable); err != nil {
+		t.Fatal(err)
 	}
 	if _, err = invoke(map[string]any{"action": "add", "team_id": team.Team.ID, "name": "stale-route-worker", "target_index": selected.TargetIndex}); err == nil {
 		t.Fatal("stale configured route bypassed current-route admission")

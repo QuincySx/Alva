@@ -96,11 +96,10 @@ func (v ModelPreferencesSnapshot) Validate() error {
 func ModelPreferenceKey(target Target) string {
 	account := target.AccountSource
 	identity := []string{target.ProviderID, target.ModelID, account, target.BillingRoute}
-	if strings.HasPrefix(account, "connection:") {
-		if i := strings.LastIndexByte(account, '@'); i > len("connection:") {
-			account = account[:i]
-			identity = []string{"connection", account, target.ModelID}
-		}
+	// A connection model's identity is (connection, model): neither the legacy
+	// "@revision" suffix nor an endpoint move may orphan saved preferences.
+	if id, ok := ConnectionAccountID(account); ok {
+		identity = []string{"connection", "connection:" + id, target.ModelID}
 	}
 	data, _ := json.Marshal(identity)
 	h := sha256.Sum256(data)

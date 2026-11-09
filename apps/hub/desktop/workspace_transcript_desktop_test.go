@@ -333,7 +333,7 @@ func TestWorkspaceTranscriptUnsettledToolTracesOriginalOwnerAfterBranchSwitch(t 
 			p, inspector, reference := transcriptPageFixture(t, true, true)
 			originalBranch := p.detail.Session.ActiveBranchID
 			target := p.Service.DefaultTarget
-			target.ModelID = "other-model"
+			target.EngineID = "other-engine" // a branch belongs to one engine
 			branch, err := p.Service.Store.Switch(t.Context(), p.selected, target, "next branch after cancelled tool")
 			if err != nil {
 				t.Fatal(err)
@@ -524,7 +524,7 @@ func TestWorkspaceTranscriptSavedEngineIdentityNeverUsesComposerTarget(t *testin
 	for _, target := range []hub.Target{
 		{EngineID: "codex", ModelID: "engine-default", ProviderID: "engine-default", AccountSource: "fixture", BillingRoute: "fixture"},
 		{EngineID: "pi", ModelID: "saved-pi-model", ProviderID: "saved-provider", AccountSource: "fixture", BillingRoute: "fixture"},
-		{EngineID: "alva", ModelID: "saved-alva-model", ProviderID: "saved-provider", AccountSource: "fixture", BillingRoute: "fixture"},
+		{EngineID: "alva-saved", ModelID: "saved-alva-model", ProviderID: "saved-provider", AccountSource: "fixture", BillingRoute: "fixture"},
 		{EngineID: strings.Repeat("engine", 25), ModelID: strings.Repeat("saved-model", 20), ProviderID: "saved-provider", AccountSource: "fixture", BillingRoute: "fixture"},
 	} {
 		t.Run(target.EngineID, func(t *testing.T) {

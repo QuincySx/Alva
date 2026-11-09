@@ -6,7 +6,6 @@ package product
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 	"time"
 
@@ -127,7 +126,7 @@ func TestAutomationActualNativeConversationAndExplicitOwner(t *testing.T) {
 	}
 }
 
-func TestAutomationConnectionRevisionPausesBeforeClaimAndRequiresExplicitRecovery(t *testing.T) {
+func TestAutomationSurvivesCosmeticConnectionEdit(t *testing.T) {
 	s, requests := fixture(t)
 	ctx := t.Context()
 	connections, err := NewConnectionsService(ctx, s.Store.(hub.ConnectionsStore))
@@ -140,7 +139,7 @@ func TestAutomationConnectionRevisionPausesBeforeClaimAndRequiresExplicitRecover
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := s.Create(ctx, "revision-bound schedule", "")
+	p, err := s.Create(ctx, "cosmetic edit schedule", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,37 +154,9 @@ func TestAutomationConnectionRevisionPausesBeforeClaimAndRequiresExplicitRecover
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := s.Store.History(ctx, p.ID, 0, 32)
-	if err != nil {
-		t.Fatal(err)
-	}
 	edit := connectionEdit(saved)
-	edit.Name = "new revision, same model and endpoint"
+	edit.Name = "renamed, same model and endpoint"
 	saved, err = connections.Save(ctx, edit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.Automations.Tick(ctx, a.NextRunAt); err != nil {
-		t.Fatal(err)
-	}
-	a, err = s.Automations.Store.Automation(ctx, p.ID, a.ID)
-	if err != nil || a.Enabled || a.RunningTurnID != "" || a.NextRunAt != 0 || a.LastStatus != "failed" || s.Runtime.HasActive() || len(requests) != 0 {
-		t.Fatal("stale connection revision admitted or fabricated work", a, err)
-	}
-	if history, err := s.Store.History(ctx, p.ID, 0, 32); err != nil || !reflect.DeepEqual(history, before) {
-		t.Fatal("stale route consumed a durable Turn", history, err)
-	}
-	if _, err = s.SetAutomationEnabled(ctx, p.ID, a.ID, a.Revision, true, true); err == nil {
-		t.Fatal("enable silently retargeted the old approved connection revision")
-	}
-	if _, err = s.Store.Switch(ctx, p.ID, saved.Target(saved.Models[0]), "explicit current connection revision"); err != nil {
-		t.Fatal(err)
-	}
-	a, err = s.Automations.Store.UpdateAutomation(ctx, p.ID, a.ID, a.Revision, a.AutomationDraft)
-	if err != nil || a.Enabled {
-		t.Fatal("route review did not leave schedule paused", a, err)
-	}
-	a, err = s.SetAutomationEnabled(ctx, p.ID, a.ID, a.Revision, true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,6 +166,92 @@ func TestAutomationConnectionRevisionPausesBeforeClaimAndRequiresExplicitRecover
 	waitIdle(t, s, p.ID)
 	request := <-requests
 	if request.AccountSource != saved.Target(saved.Models[0]).AccountSource || request.Prompt != a.Prompt || len(requests) != 0 {
-		t.Fatal("explicit recovery lost the exact approved route or repeated work", request)
+		t.Fatal("a cosmetic connection edit changed or lost the approved automation route", request)
+	}
+}
+
+func TestAutomationPausesWhenConnectionIsDeleted(t *testing.T) {
+	s, requests := fixture(t)
+	ctx := t.Context()
+	connections, err := NewConnectionsService(ctx, s.Store.(hub.ConnectionsStore))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Connections = connections
+	t.Cleanup(func() { _ = connections.Close(context.Background()) })
+	saved, err := connections.Save(ctx, productConnectionFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.Create(ctx, "deleted connection schedule", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Store.Switch(ctx, p.ID, saved.Target(saved.Models[0]), "explicit saved connection"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.Automations.Store.CreateAutomation(ctx, p.ID, hub.AutomationDraft{Title: "review", Prompt: "exact scheduled fixture", IntervalMinutes: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err = s.SetAutomationEnabled(ctx, p.ID, a.ID, a.Revision, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit := connectionEdit(saved)
+	edit.Enabled = false
+	if saved, err = connections.Save(ctx, edit); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Automations.Tick(ctx, a.NextRunAt); err != nil {
+		t.Fatal(err)
+	}
+	a, err = s.Automations.Store.Automation(ctx, p.ID, a.ID)
+	if err != nil || a.Enabled || a.RunningTurnID != "" || a.LastStatus != "failed" || s.Runtime.HasActive() || len(requests) != 0 {
+		t.Fatal("a disabled connection admitted or fabricated automation work", a, err)
+	}
+}
+
+// A manual model change inside the same engine never retargets an automation:
+// it runs on the model and connection it was approved with.
+func TestAutomationKeepsItsOwnModelAfterManualSameEngineSwitch(t *testing.T) {
+	s, requests := fixture(t)
+	ctx := t.Context()
+	connections, err := NewConnectionsService(ctx, s.Store.(hub.ConnectionsStore))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Connections = connections
+	t.Cleanup(func() { _ = connections.Close(context.Background()) })
+	update := productConnectionFixture()
+	update.Models = append(update.Models, hub.ConnectionModel{ID: "second-ID", Enabled: true})
+	saved, err := connections.Save(ctx, update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.Create(ctx, "frozen model schedule", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Store.Switch(ctx, p.ID, saved.Target(saved.Models[0]), "approved model"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.Automations.Store.CreateAutomation(ctx, p.ID, hub.AutomationDraft{Title: "review", Prompt: "exact scheduled fixture", IntervalMinutes: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, err = s.SetAutomationEnabled(ctx, p.ID, a.ID, a.Revision, true, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Store.Switch(ctx, p.ID, saved.Target(saved.Models[1]), "user tries another model"); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Automations.Tick(ctx, a.NextRunAt); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, s, p.ID)
+	request := <-requests
+	if request.Model != "accurate-ID" || request.Prompt != a.Prompt {
+		t.Fatal("the automation followed the user's manual model switch", request.Model)
 	}
 }

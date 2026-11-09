@@ -244,8 +244,9 @@ func TestWorkspaceFileImportUsesExplicitlySelectedBranch(t *testing.T) {
 	if err != nil || hub.RouteKey(branch.Target) != hub.RouteKey(target) || len(files) != 1 || files[0].BranchID != branch.ID || files[0].Info.SessionID != branch.NativeSessionID {
 		t.Fatal("upload ran before the explicit target switch or used a different branch/native owner", err)
 	}
-	if len(page.detail.Branches) != 2 || page.workspaceAttachmentProblem() != "" {
-		t.Fatal("explicit first-send routing did not retain the parked branch and compatible reference")
+	// Both models belong to one engine: the explicit choice stays on one branch.
+	if len(page.detail.Branches) != 1 || page.workspaceAttachmentProblem() != "" {
+		t.Fatal("explicit first-send routing did not keep one branch and a compatible reference")
 	}
 }
 

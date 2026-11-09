@@ -39,6 +39,7 @@ import (
 	browserhost "github.com/QuincySx/Alva/platform/host/browser"
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/platform/system/document"
 	"github.com/QuincySx/Alva/platform/system/keychain"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"
@@ -714,6 +715,15 @@ func Open(ctx context.Context, config Config) (application *Application, result 
 	service.Connections, err = product.NewConnectionsService(ctx, store)
 	if err != nil {
 		return nil, err
+	}
+	// Saved routes execute against their newest connection facts.
+	runtime.SetRouteResolver(service.Connections)
+	var secrets []string
+	if config.Provider.APIKey != "" {
+		secrets = append(secrets, config.Provider.APIKey)
+	}
+	if redactor, redactErr := redaction.NewRedactor(secrets...); redactErr == nil {
+		runtime.SetErrorRedactor(redactor.Text)
 	}
 	developerRoutes := append([]developer.Route(nil), config.DeveloperRoutes...)
 	if !config.Demo {

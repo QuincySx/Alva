@@ -133,8 +133,8 @@ func TestWorkspaceModelRowsGroupOnlyExactConnectionAndModel(t *testing.T) {
 	}
 	newRevision := route
 	newRevision.AccountSource = "connection:stable@9"
-	if workspaceModelIdentity(route) != workspaceModelIdentity(newRevision) || hub.RouteKey(route) == hub.RouteKey(newRevision) {
-		t.Fatal("presentation identity or exact execution revision was lost")
+	if workspaceModelIdentity(route) != workspaceModelIdentity(newRevision) || hub.RouteKey(route) != hub.RouteKey(newRevision) {
+		t.Fatal("presentation or routing identity depends on the connection revision")
 	}
 }
 

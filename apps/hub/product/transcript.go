@@ -83,6 +83,9 @@ type Block struct {
 	// Context is the compaction outcome on a "context" status block (nil for
 	// other blocks). The value is shared and never mutated.
 	Context *engine.ContextCompaction
+	// Failure classifies an "error" or "fallback_notice" block (auth, rate
+	// limit, startup...); empty for other blocks.
+	Failure engine.FailureKind
 }
 
 // TranscriptStore is the only history capability the Message Stream needs.
@@ -238,6 +241,10 @@ type projection struct {
 	// context is the newest measured context usage folded so far; a later
 	// attempt that completed without one makes it stale (decided, nil).
 	context contextFact
+	// fellBack maps a Turn to the committed sequence of its automatic
+	// fallback: failed attempts of that Turn before it were rescued, so their
+	// error is a grey notice rather than a failure.
+	fellBack map[string]uint64
 }
 
 // contextFact is the latest context measurement and where it came from.
@@ -418,6 +425,16 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 	sequence := strconv.FormatUint(entry.Sequence, 10)
 	if entry.Timeline != nil {
 		event := entry.Timeline
+		switch event.Kind {
+		case "route_resolved":
+			return changed // audit fact only; never a message
+		case "route_endpoint_changed", "fallback_unavailable":
+			b := p.upsert("product/"+sequence, entry, BlockKindStatus, BlockStatusCompleted)
+			b.Name, b.Text, b.final = "notice", event.Text, true
+			return changed
+		case "automatic_fallback":
+			p.rescue(entry)
+		}
 		b := p.upsert("product/"+sequence, entry, BlockKindTimeline, BlockStatusCompleted)
 		b.Name, b.Text, b.HandoffID, b.final = event.Kind, event.Text+"\n"+event.FromBranchID+" → "+event.ToBranchID, event.HandoffID, true
 		if status, settles := waitSettlement(event.Kind); settles && entry.TurnID != "" {
@@ -514,9 +531,11 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		}
 	case engine.Error:
 		b := p.upsert(entry.AttemptID+"/error/"+sequence, entry, BlockKindStatus, BlockStatusFailed)
-		b.Name, b.Text, b.final = "error", event.Text, true
+		b.Name, b.Text, b.final, b.Failure = "error", event.Text, true, event.Failure
 		if event.Recoverable {
 			b.Name = "retry"
+		} else if at, rescued := p.fellBack[entry.TurnID]; rescued && entry.Sequence < at {
+			demoteRescued(b)
 		}
 	case engine.Completed:
 		outcome := BlockStatus(event.Outcome)
@@ -558,6 +577,32 @@ func (p *projection) apply(entry hub.HistoryEntry) string {
 		}
 	}
 	return changed
+}
+
+// rescue greys every earlier failed attempt of the Turn the fallback saved.
+func (p *projection) rescue(entry hub.HistoryEntry) {
+	if entry.TurnID == "" {
+		return
+	}
+	if p.fellBack == nil {
+		p.fellBack = map[string]uint64{}
+	}
+	p.fellBack[entry.TurnID] = entry.Sequence
+	for i := range p.blocks {
+		b := &p.blocks[i]
+		if b.TurnID == entry.TurnID && b.Name == "error" && b.first < entry.Sequence && b.AttemptID != entry.AttemptID {
+			demoteRescued(b)
+		}
+	}
+}
+
+// demoteRescued turns a rescued attempt's failure into a grey notice.
+func demoteRescued(b *blockState) {
+	if b.Name != "error" {
+		return
+	}
+	b.Name, b.Status = "fallback_notice", BlockStatusCompleted
+	b.Text = "已切换到备用路由（原因：" + b.Text + "）"
 }
 
 func cloneContextUsage(usage *engine.ContextUsage) *engine.ContextUsage {

@@ -184,6 +184,7 @@ import (
 	browserhost "github.com/QuincySx/Alva/platform/host/browser"
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
 	"github.com/QuincySx/Alva/platform/storage"
+	"github.com/QuincySx/Alva/platform/storage/redaction"
 	"github.com/QuincySx/Alva/platform/system/document"
 	"github.com/QuincySx/Alva/platform/system/keychain"
 	nativemedia "github.com/QuincySx/Alva/platform/system/media"

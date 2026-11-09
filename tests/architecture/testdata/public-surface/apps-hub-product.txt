@@ -309,6 +309,8 @@ func (s *ConnectionsService) ReloadModelPreferences(ctx context.Context) error
 
 func (s *ConnectionsService) ResolveCreation(ctx context.Context, requestID string) (hub.ConnectionCreationReceipt, error)
 
+func (s *ConnectionsService) ResolveRoute(ctx context.Context, target hub.Target) (hub.RouteFacts, error)
+
 func (s *ConnectionsService) ResolveTarget(ctx context.Context, target hub.Target) (provider.Kind, provider.Config, bool, error)
 
 func (s *ConnectionsService) Save(ctx context.Context, u hub.ConnectionUpdate) (hub.ModelConnection, error)
@@ -1585,6 +1587,8 @@ type Block struct {
 	Usage *engine.Usage
 
 	Context *engine.ContextCompaction
+
+	Failure engine.FailureKind
 }
 
 type BlockKind string

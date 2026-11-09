@@ -27,7 +27,9 @@ func TestWorkspaceAdvancedRoutingRejectsStaleFallbackAndRetainsHistory(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.SwitchTarget(t.Context(), session.ID, s.DefaultTarget, "return"); err != nil {
+	other := s.DefaultTarget
+	other.EngineID = "other-engine" // the retained branch is the connection's engine branch
+	if _, err = s.Store.Switch(t.Context(), session.ID, other, "return"); err != nil {
 		t.Fatal(err)
 	}
 	p := NewNativePage(s)

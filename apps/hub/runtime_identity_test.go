@@ -435,7 +435,9 @@ func TestRuntimePermissionBindingRejectsSameRunFallback(t *testing.T) {
 				t.Fatal(err)
 			}
 			target := identityTarget("fixture")
-			if change == "engine" {
+			// One engine keeps one native conversation per branch, so a fallback
+			// that reports a different native identity must come from another engine.
+			if change == "engine" || change == "native" {
 				target.EngineID = "fallback"
 				if err := r.Register(target.EngineID, e); err != nil {
 					t.Fatal(err)

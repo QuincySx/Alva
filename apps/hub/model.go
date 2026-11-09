@@ -36,12 +36,83 @@ func (t Target) Validate() error {
 	}
 	return nil
 }
+
+// ConnectionAccount reports the stable model-connection ID of a target saved
+// by this or an older build. Older builds appended "@<revision>"; that suffix
+// is a cosmetic edit counter, never routing identity.
+func ConnectionAccount(target Target) (string, bool) {
+	if target.EngineID != "alva" {
+		return "", false
+	}
+	return ConnectionAccountID(target.AccountSource)
+}
+
+// ConnectionAccountID is ConnectionAccount for an account source alone, for
+// presentation that groups every Agent's routes through one connection.
+func ConnectionAccountID(accountSource string) (string, bool) {
+	if !strings.HasPrefix(accountSource, "connection:") {
+		return "", false
+	}
+	id := strings.TrimPrefix(accountSource, "connection:")
+	if i := strings.LastIndexByte(id, '@'); i > 0 {
+		digits := id[i+1:]
+		if digits != "" && strings.Trim(digits, "0123456789") == "" {
+			id = id[:i]
+		}
+	}
+	return id, id != ""
+}
+
+// RouteKey is the routing identity. A model connection route is exactly
+// (engine, connection ID, model ID): renaming, re-keying, adding headers or
+// moving the endpoint keeps the same route and is resolved at execution time.
 func RouteKey(target Target) string {
+	if id, ok := ConnectionAccount(target); ok {
+		data, _ := json.Marshal([]string{"connection", target.EngineID, id, target.ModelID})
+		return string(data)
+	}
 	target.AutomaticAuthorized = false
 	target.RequiredCapabilities = append([]string(nil), target.RequiredCapabilities...)
 	sort.Strings(target.RequiredCapabilities)
 	data, _ := json.Marshal(target)
 	return string(data)
+}
+
+// RouteFacts is what a route resolves to right now.
+type RouteFacts struct {
+	Target   Target // the same route with current protocol/endpoint facts
+	Revision uint64 // connection revision actually used (0 for static routes)
+	Endpoint string
+}
+
+// RouteSeen is the last resolved connection facts of one route on a branch.
+type RouteSeen struct {
+	Revision uint64 `json:"revision"`
+	Endpoint string `json:"endpoint"`
+}
+
+// RouteResolver revalidates a saved route against its current owner. An error
+// means the route is no longer usable (deleted, disabled, protocol changed).
+type RouteResolver interface {
+	ResolveRoute(context.Context, Target) (RouteFacts, error)
+}
+
+// RouteRecorder is an optional ExecutionStore capability: audit the connection
+// facts an attempt really used and surface a moved endpoint.
+type RouteRecorder interface {
+	RecordRoute(ctx context.Context, attemptID string, facts RouteFacts) error
+}
+
+// FallbackNotifier is an optional ExecutionStore capability: make a skipped or
+// failed fallback visible in the message stream.
+type FallbackNotifier interface {
+	RecordFallbackSkip(ctx context.Context, attemptID string, target Target, reason string) error
+}
+
+// TurnRecoverer is an optional ExecutionStore capability: interrupt one
+// session's running Turn whose execution owner is gone.
+type TurnRecoverer interface {
+	RecoverSession(ctx context.Context, sessionID string) error
 }
 
 type Session struct {
@@ -69,6 +140,10 @@ type Branch struct {
 	NativeSessionID string `json:"native_session_id"`
 	Watermark       uint64 `json:"watermark"`
 	Parked          bool   `json:"parked"`
+	// RoutesSeen remembers, per RouteKey, the connection revision and endpoint
+	// that route's latest attempt actually used (at most 16 routes), so an
+	// endpoint move is noticed per route, never across different routes.
+	RoutesSeen map[string]RouteSeen `json:"routes_seen,omitempty"`
 }
 type Turn struct {
 	ID              string              `json:"id"`
@@ -137,6 +212,9 @@ type TimelineEvent struct {
 	ToBranchID   string  `json:"to_branch_id,omitempty"`
 	HandoffID    string  `json:"handoff_id,omitempty"`
 	Target       *Target `json:"target,omitempty"`
+	// Revision and Endpoint audit the connection facts a route resolved to.
+	Revision uint64 `json:"revision,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
 }
 type Handoff struct {
 	ID             string         `json:"id"`

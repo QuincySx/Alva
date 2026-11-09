@@ -60,7 +60,7 @@ func TestHTTPHandoffReadsOnlyExactOwnerSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := f.app.Service.DefaultTarget
-	target.ModelID = "second-explicit-test-route"
+	target.EngineID = "second-explicit-test-engine"
 	if _, err = f.app.Store.Switch(t.Context(), p.ID, target, "actual saved handoff test"); err != nil {
 		t.Fatal(err)
 	}

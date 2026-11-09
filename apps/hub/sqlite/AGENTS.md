@@ -26,8 +26,9 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | composer_drafts.go / composer_drafts_test.go | 逻辑home/会话手稿、引用回执与保留空版本的CAS；首发共用创建政策原子绑定/复用Session，真实v5→v6升级/故障回滚、跨窗竞争/重开及旧回执隔离，不恢复执行 |
 | workflow_migration_test.go | 冻结v4事实的v5原子升级/故障回滚、连接/目标/模型偏好保留与schema失败前禁止执行恢复 |
 | permissions.go / permissions_test.go | 空闲native下一Turn权限事务、Full显式确认、普通导入不升权与Plan清除潜在Full |
-| wait.go / wait_test.go | 独立WaitStore、branch归属审阅、同Turn新Attempt事务、waiting冻结与Worker/计划crash edge/no fallback回归 |
-| store.go | schema与v1至v8事务升级，创建ledger/约束失败先回滚再禁止恢复；v7→v8追加repository/tab set且校验后再恢复，产品分支/handoff/分页历史与中断修复，所有Attempt准入拒绝已删除伙伴/群，不重置或换库；最终Message/reasoning内容块同事务删除同turn/attempt/ID的已合并增量（截断且无Reference时保留），History/HistoryBefore经LEFT JOIN hub_turns填TurnSequence |
+| routing_test.go | 引擎键分支、同引擎换模型保留原生会话（含旧整路由键行）、fallback仅当轮、过期fallback可见跳过、端点迁移审计与通知、FinishTurn失败不卡会话、长错误保留前缀 |
+| wait.go / wait_test.go | 独立WaitStore、branch归属审阅、同Turn新Attempt事务（续接用进入waiting那次attempt自己的路由，只比较引擎）、waiting冻结与Worker/计划crash edge/no fallback回归 |
+| store.go | schema与v1至v8事务升级，分支按引擎一条（route列写engine:<id>，旧行按data里的引擎命中，无schema改动），Switch同引擎换模型复用分支（旧数据里若该模型曾有自己的同引擎旧分支，选择规则不变：优先活动分支，旧分支的上下文留在原处不合并，不另行提示——查找成本与误报风险高于收益，此为已知取舍），RecoverSession依赖单进程独占（Open持有数据库独占锁，TestRecoveryAndExclusiveDatabaseOwnership；desktop与server不会同时打开同一产品库，进程内由Runtime保证无存活owner），RoutesSeen按RouteKey分别记录各路由上次revision/端点（旧分支以分支当前路由的BillingRoute为基线），fallback用attemptBranch不改活动分支，RecordRoute/RecordFallbackSkip/RecoverSession；创建ledger/约束失败先回滚再禁止恢复；v7→v8追加repository/tab set且校验后再恢复，产品分支/handoff/分页历史与中断修复，所有Attempt准入拒绝已删除伙伴/群，不重置或换库；最终Message/reasoning内容块同事务删除同turn/attempt/ID的已合并增量（截断且无Reference时保留），History/HistoryBefore经LEFT JOIN hub_turns填TurnSequence |
 | history_compaction_test.go | json_extract可用且走hub_events_turn索引、只删本attempt已合并增量、截断保留、TurnSequence与旧格式未合并行照常读取 |
 | preferences.go / preferences_test.go | 应用级偏好 singleton、共享政策/乐观 revision 原子保存；左栏宽度/折叠与外观稀疏CAS、显式默认恢复及重开，新库、真实 v1 升级、并发、取消及损坏不重置回归 |
 | store_test.go | 可逆路由/安全fallback、native事实归属、commit失败/忽略sink错误不能成功/大handoff/恢复回归 |
@@ -51,6 +52,6 @@ Waiting保留Turn身份、Worker Task及Automation的RunningTurnID；运行资�
 | team_test.go | Worker身份/路由/队列、休眠/归档/恢复、crash未知不重放回归 |
 | activity_test.go | native build/prepare启动前Activity耐久风险与6类effect fallback回归 |
 | provider_failure_test.go | 真实Alva HTTP provider分类驱动fallback，mixed SessionError与prepare风险禁止重放 |
-| automation.go / automation_test.go | owner-scoped乐观计划CRUD、明确计费批准、普通Turn同事务认领/收尾；busy/missed跳过、Stop/崩溃暂停且绝不自动fallback/重放 |
+| automation.go / automation_test.go | 计划按自己批准的路由运行（只比较引擎，手动换同引擎模型不使其失效）；owner-scoped乐观计划CRUD、明确计费批准、普通Turn同事务认领/收尾；busy/missed跳过、Stop/崩溃暂停且绝不自动fallback/重放 |
 | worktree.go / worktree_test.go | 首Turn前one-way隔离、cwd原子绑定、revision证据/明确adoption；独立removal review/明确删除后retire，不retarget历史；未就绪/未知准入阻断与crash未知不重放 |
 | errors.go | SQL内部错误到共享Hub语义的边界映射 |

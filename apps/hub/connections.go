@@ -339,5 +339,5 @@ func (c ModelConnection) ModelEndpoint(modelID string) string {
 	return strings.ReplaceAll(c.Endpoint, "{model}", url.PathEscape(modelID))
 }
 func (c ModelConnection) Target(model ConnectionModel) Target {
-	return Target{EngineID: "alva", ModelID: model.ID, ProviderID: c.Protocol, AccountSource: fmt.Sprintf("connection:%s@%d", c.ID, c.Revision), BillingRoute: c.ModelEndpoint(model.ID)}
+	return Target{EngineID: "alva", ModelID: model.ID, ProviderID: c.Protocol, AccountSource: "connection:" + c.ID, BillingRoute: c.ModelEndpoint(model.ID)}
 }

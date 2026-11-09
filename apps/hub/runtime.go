@@ -10,6 +10,7 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/integration/engine"
 )
@@ -40,6 +41,36 @@ type Runtime struct {
 	closed      bool
 	workspaces  *workspaceRegistry
 	actions     map[*workspaceAction]struct{}
+	resolver    RouteResolver
+	stuck       map[string]bool // sessions whose Turn could not be finished
+	redact      func(string) string
+}
+
+// SetErrorRedactor installs the credential redaction applied to engine error
+// text before any prefix of it reaches the message stream. Without one the
+// text is kept as is.
+func (r *Runtime) SetErrorRedactor(redact func(string) string) {
+	r.mu.Lock()
+	r.redact = redact
+	r.mu.Unlock()
+}
+
+func (r *Runtime) redactor(text string) string {
+	r.mu.Lock()
+	redact := r.redact
+	r.mu.Unlock()
+	if redact == nil {
+		return text
+	}
+	return redact(text)
+}
+
+// SetRouteResolver installs the owner that revalidates saved routes at
+// execution time. Without one, saved routes run exactly as stored.
+func (r *Runtime) SetRouteResolver(resolver RouteResolver) {
+	r.mu.Lock()
+	r.resolver = resolver
+	r.mu.Unlock()
 }
 
 func New(store ExecutionStore) *Runtime {
@@ -307,8 +338,25 @@ func (r *Runtime) startOwned(owner context.Context, sessionID string, admit func
 	}
 	active := &activeRun{cancel: cancel, done: make(chan error, 1), exited: make(chan struct{})}
 	r.active[sessionID] = active
+	recoverFirst := r.stuck[sessionID]
 	r.mu.Unlock()
-	claim, err := admit(ctx)
+	var recoverErr error
+	if recoverFirst {
+		recoverErr = errors.New("session cannot recover: store does not support recovery")
+		if recoverer, ok := r.store.(TurnRecoverer); ok {
+			recoverErr = recoverer.RecoverSession(context.WithoutCancel(ctx), sessionID)
+		}
+		if recoverErr == nil {
+			r.mu.Lock()
+			delete(r.stuck, sessionID)
+			r.mu.Unlock()
+		}
+	}
+	var claim Claim
+	err := recoverErr
+	if err == nil {
+		claim, err = admit(ctx)
+	}
 	if err != nil {
 		cancel()
 		r.mu.Lock()
@@ -373,14 +421,14 @@ func (r *Runtime) executeClaim(ctx context.Context, active *activeRun, claim Cla
 		tried[RouteKey(claim.Attempt.Target)] = true
 		outcome, sideEffects, failure, attemptErr := r.attempt(ctx, active, &claim)
 		if outcome == engine.Succeeded || outcome == engine.Waiting || outcome == engine.Cancelled || ctx.Err() != nil || claim.WaitRevision != 0 {
-			return errors.Join(attemptErr, r.store.FinishTurn(context.WithoutCancel(ctx), claim.Turn.ID, outcome))
+			return errors.Join(attemptErr, r.finishTurn(ctx, sessionID, claim.Turn.ID, outcome))
 		}
 		if claim.Turn.AutomationID != "" || sideEffects || !retryable(failure) {
-			return errors.Join(attemptErr, r.store.FinishTurn(context.WithoutCancel(ctx), claim.Turn.ID, outcome))
+			return errors.Join(attemptErr, r.finishTurn(ctx, sessionID, claim.Turn.ID, outcome))
 		}
 		detail, detailErr := r.store.Detail(ctx, sessionID)
 		if detailErr != nil {
-			return errors.Join(attemptErr, detailErr, r.store.FinishTurn(context.WithoutCancel(ctx), claim.Turn.ID, engine.Failed))
+			return errors.Join(attemptErr, detailErr, r.finishTurn(ctx, sessionID, claim.Turn.ID, engine.Failed))
 		}
 		var next *Claim
 		for _, target := range detail.Fallback {
@@ -393,20 +441,59 @@ func (r *Runtime) executeClaim(ctx context.Context, active *activeRun, claim Cla
 			if runtime == nil || !supports(runtime.Capabilities(), target.RequiredCapabilities) || !supportsComposerInputs(runtime.Capabilities(), claim.Turn) {
 				continue
 			}
+			skip := func(reason error) {
+				if notifier, ok := r.store.(FallbackNotifier); ok {
+					_ = notifier.RecordFallbackSkip(context.WithoutCancel(ctx), claim.Attempt.ID, target, "备用路由 "+target.ModelID+" 不可用："+reason.Error())
+				}
+			}
+			r.mu.Lock()
+			resolver := r.resolver
+			r.mu.Unlock()
+			if resolver != nil {
+				if _, resolveErr := resolver.ResolveRoute(ctx, target); resolveErr != nil {
+					skip(resolveErr)
+					continue
+				}
+			}
 			candidate, candidateErr := r.store.BeginFallback(ctx, claim.Attempt.ID, target)
 			if candidateErr != nil {
+				skip(candidateErr)
 				continue
 			}
 			next = &candidate
 			break
 		}
 		if next == nil {
-			return errors.Join(attemptErr, r.store.FinishTurn(context.WithoutCancel(ctx), claim.Turn.ID, outcome))
+			return errors.Join(attemptErr, r.finishTurn(ctx, sessionID, claim.Turn.ID, outcome))
 		}
 		claim = *next
 	}
-	return errors.Join(errors.New("fallback attempt budget exhausted"), r.store.FinishTurn(context.WithoutCancel(ctx), claim.Turn.ID, engine.Failed))
+	return errors.Join(errors.New("fallback attempt budget exhausted"), r.finishTurn(ctx, sessionID, claim.Turn.ID, engine.Failed))
 }
+
+// finishTurn commits a Turn's terminal status. When that transaction fails the
+// session must not stay running forever: retry as interrupted, and if even that
+// fails remember the session so the next admission recovers it first.
+func (r *Runtime) finishTurn(ctx context.Context, sessionID, turnID string, status engine.Outcome) error {
+	ctx = context.WithoutCancel(ctx)
+	err := r.store.FinishTurn(ctx, turnID, status)
+	if err == nil {
+		return nil
+	}
+	if status != engine.Interrupted {
+		if retry := r.store.FinishTurn(ctx, turnID, engine.Interrupted); retry == nil {
+			return fmt.Errorf("finishing the Turn failed; it was marked interrupted: %w", err)
+		}
+	}
+	r.mu.Lock()
+	if r.stuck == nil {
+		r.stuck = make(map[string]bool)
+	}
+	r.stuck[sessionID] = true
+	r.mu.Unlock()
+	return fmt.Errorf("finishing the Turn failed; the session recovers on its next message: %w", err)
+}
+
 func retryable(kind engine.FailureKind) bool {
 	return kind == engine.FailureStartup || kind == engine.FailureRateLimit
 }
@@ -459,6 +546,22 @@ func supports(c engine.Capabilities, required []string) bool {
 	return true
 }
 func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) (engine.Outcome, bool, engine.FailureKind, error) {
+	// Execute against the newest facts of the saved route. A deleted/disabled
+	// connection or changed protocol refuses to start; cosmetic edits do not.
+	r.mu.Lock()
+	resolver := r.resolver
+	r.mu.Unlock()
+	var routeErr error
+	if resolver != nil {
+		if facts, err := resolver.ResolveRoute(ctx, claim.Attempt.Target); err != nil {
+			routeErr = err
+		} else {
+			claim.Attempt.Target = facts.Target
+			if recorder, ok := r.store.(RouteRecorder); ok {
+				routeErr = recorder.RecordRoute(context.WithoutCancel(ctx), claim.Attempt.ID, facts)
+			}
+		}
+	}
 	r.mu.Lock()
 	target := r.engines[claim.Attempt.Target.EngineID]
 	descriptor := r.descriptors[claim.Attempt.Target.EngineID]
@@ -633,6 +736,9 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 	} else if target == nil {
 		executeErr = errors.New("requested engine is not registered")
 		failure = engine.FailureStartup
+	} else if routeErr != nil {
+		executeErr = fmt.Errorf("model route unavailable: %w", routeErr)
+		failure = engine.FailureStartup
 	} else if inputErr := engine.ValidateInputFiles(claim.Turn.InputFiles); inputErr != nil {
 		executeErr = inputErr
 	} else if inputErr := engine.ValidateInputSkills(claim.Turn.InputSkills); inputErr != nil {
@@ -734,7 +840,8 @@ func (r *Runtime) attempt(ctx context.Context, active *activeRun, claim *Claim) 
 			outcome = engine.Failed
 		}
 		if !contract.Fatal {
-			if err := commit(engine.Event{Kind: engine.Error, Text: boundedError(executeErr), Failure: failure}); err != nil {
+			text := boundedError(executeErr, r.redactor)
+			if err := commit(engine.Event{Kind: engine.Error, Text: text, Failure: failure}); err != nil {
 				return outcome, true, failure, errors.Join(executeErr, err)
 			}
 		}
@@ -791,13 +898,25 @@ func cancellationOnly(err error) bool {
 	}
 	return false
 }
-func boundedError(err error) string {
+
+// The stream contract allows Truncated only on final message/block/tool events,
+// so a cut error carries its marker in the text itself.
+func boundedError(err error, redact func(string) string) string {
 	if err == nil {
 		return "engine failed"
 	}
+	// Redact before anything is kept: the prefix reaches the message stream.
 	text := err.Error()
+	if redact != nil {
+		text = redact(text)
+	}
 	if len(text) > 4096 {
-		return "engine error exceeds display budget"
+		// Keep a bounded prefix, cut on a rune boundary, and say it was cut.
+		text = text[:4096]
+		for !utf8.ValidString(text) {
+			text = text[:len(text)-1]
+		}
+		return text + "…[已截断]"
 	}
 	return text
 }

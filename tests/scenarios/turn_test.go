@@ -180,6 +180,54 @@ func TestProviderFailuresAreTypedAndFallBackOnlyWhenRetryable(t *testing.T) {
 	}
 }
 
+// A fallback serves only the Turn it rescued: the failed attempt is a grey
+// notice with its failure kind, and the next Turn tries the primary again.
+func TestFallbackRescuesOneTurnAndTheNextReturnsToThePrimary(t *testing.T) {
+	primary := newFakeModel(t, provider.OpenAIChatKind)
+	primary.next = func(r modelRequest) reply {
+		if r.typed("first question") {
+			return reply{Status: 429}
+		}
+		return text("primary answered")
+	}
+	backup := newFakeModel(t, provider.OpenAIChatKind)
+	backup.next = func(modelRequest) reply { return text("answered by backup") }
+	h := openHub(t, liveConfig(t, primary))
+	s := h.create("fallback", "")
+	saved, err := h.service().Connections.Save(context.Background(), hub.ConnectionUpdate{Name: "backup", Protocol: "openai_chat", Endpoint: backup.endpoint(), Auth: "none", Enabled: true, Models: []hub.ConnectionModel{{ID: "backup-model", Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := saved.Target(saved.Models[0])
+	target.AutomaticAuthorized = true
+	if err := h.service().SetFallback(context.Background(), s.ID, []hub.Target{target}); err != nil {
+		t.Fatal(err)
+	}
+	h.send(s.ID, "first question")
+	h.expect(s.ID, engine.Succeeded)
+	var notice *product.Block
+	for _, b := range blocksOf(h.blocks(s.ID), product.BlockKindStatus) {
+		b := b
+		if b.Name == "error" {
+			t.Fatalf("a rescued attempt still shows a red failure: %+v", b)
+		}
+		if b.Name == "fallback_notice" {
+			notice = &b
+		}
+	}
+	if notice == nil || notice.Status != product.BlockStatusCompleted || notice.Failure != engine.FailureRateLimit || !strings.Contains(notice.Text, "已切换到备用路由") {
+		t.Fatalf("grey fallback notice %+v\n%s", notice, h.dump(s.ID))
+	}
+	h.send(s.ID, "second question")
+	h.expect(s.ID, engine.Succeeded)
+	if primary.calls() != 2 || backup.calls() != 1 {
+		t.Fatalf("the next Turn did not return to the primary: primary %d, backup %d", primary.calls(), backup.calls())
+	}
+	if r := lastReply(t, h.blocks(s.ID)); r.Text != "primary answered" {
+		t.Fatalf("second Turn reply %+v", r)
+	}
+}
+
 // TestCrashHelperProcess is the Hub process the crash scenario kills.
 func TestCrashHelperProcess(t *testing.T) {
 	directory := os.Getenv("ALVA_SCENARIO_CRASH_DIR")

@@ -71,8 +71,11 @@ func transcriptRow(block product.Block) view.Message {
 		row.Role, row.RunID = "Product · "+block.Name, ""
 	default:
 		row.Role = "Status"
-		if block.Name == "retry" {
+		switch block.Name {
+		case "retry":
 			row.Role = "Retry warning"
+		case "notice", "fallback_notice":
+			row.Role = "Notice"
 		}
 	}
 	return row

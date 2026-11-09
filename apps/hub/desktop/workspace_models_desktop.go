@@ -54,10 +54,10 @@ func workspaceTargetDetails(target hub.Target) string {
 // identity survives a revision. Static routes retain the account and billing
 // boundary, so equal model names never collapse distinct connections.
 func workspaceModelConnection(target hub.Target) string {
-	if strings.HasPrefix(target.AccountSource, "connection:") {
-		if index := strings.LastIndexByte(target.AccountSource, '@'); index >= len("connection:") {
-			return target.AccountSource[:index]
-		}
+	// Presentation groups every Agent's routes through one connection, so the
+	// engine is deliberately not part of this identity.
+	if id, ok := hub.ConnectionAccountID(target.AccountSource); ok {
+		return "connection:" + id
 	}
 	return target.ProviderID + "\x00" + target.AccountSource + "\x00" + target.BillingRoute
 }

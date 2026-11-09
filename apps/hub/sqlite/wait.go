@@ -72,7 +72,7 @@ func (s *Store) BeginWaitResume(ctx context.Context, id, branchID, turnID string
 		if e != nil {
 			return e
 		}
-		if previous.Status != engine.Waiting || previous.Wait == nil || previous.Wait.Validate() != nil || revision < previous.Wait.Revision || previous.BranchID != b.ID || previous.NativeSessionID == "" || previous.NativeSessionID != b.NativeSessionID || hub.RouteKey(previous.Target) != hub.RouteKey(b.Target) {
+		if previous.Status != engine.Waiting || previous.Wait == nil || previous.Wait.Validate() != nil || revision < previous.Wait.Revision || previous.BranchID != b.ID || previous.NativeSessionID == "" || previous.NativeSessionID != b.NativeSessionID || previous.Target.EngineID != b.Target.EngineID {
 			return errors.New("waiting attempt no longer matches its actual native branch")
 		}
 		settings, e := settings(ctx, tx, id)
@@ -83,6 +83,9 @@ func (s *Store) BeginWaitResume(ctx context.Context, id, branchID, turnID string
 			return errors.New("durable waits are disabled for this session")
 		}
 		t.Status, t.EndedAt = hub.Running, 0
+		// Continue on the route that reached the checkpoint (a fallback route
+		// included), not on whatever the branch's primary route is now.
+		b.Target = previous.Target
 		a, e := beginAttempt(ctx, tx, d.Session, b, &t)
 		if e != nil {
 			return e

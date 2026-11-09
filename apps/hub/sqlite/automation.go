@@ -198,7 +198,9 @@ func (s *Store) SetAutomationEnabled(ctx context.Context, owner, id string, revi
 			if err != nil {
 				return err
 			}
-			if a.BranchID != branch.ID || hub.RouteKey(a.Target) != hub.RouteKey(branch.Target) {
+			// The automation keeps its own approved route; it only needs the
+			// session's branch for that engine (same native conversation).
+			if a.BranchID != branch.ID || a.Target.EngineID != branch.Target.EngineID {
 				return hub.ErrAutomationRouteChanged
 			}
 			if a.Target.ProviderID == "workspace-config" || a.Target.ProviderID == "pi-unconfigured" || a.Target.ModelID == "engine-default" || a.Target.ProviderID == "engine-default" {
@@ -282,7 +284,7 @@ func (s *Store) ClaimAutomation(ctx context.Context, tick hub.AutomationTick, at
 			return err
 		}
 		current, branch, scopeErr := ordinaryAutomationSession(ctx, tx, tick.SessionID)
-		if scopeErr != nil || branch.ID != a.BranchID || hub.RouteKey(branch.Target) != hub.RouteKey(a.Target) {
+		if scopeErr != nil || branch.ID != a.BranchID || branch.Target.EngineID != a.Target.EngineID {
 			// A corrupt/read-failed fact is not a normal route change. Fail the
 			// transaction rather than inventing a valid scope from missing data.
 			if scopeErr != nil && !errors.Is(scopeErr, errAutomationScoped) {
@@ -298,7 +300,8 @@ func (s *Store) ClaimAutomation(ctx context.Context, tick hub.AutomationTick, at
 			}
 			rejected = hub.ErrAutomationSkipped
 		} else {
-			claim, err = beginTurn(ctx, tx, a.SessionID, a.Prompt)
+			frozen := a.Target
+			claim, err = beginComposerTurnAs(ctx, tx, a.SessionID, hub.ComposerTurnInput{Prompt: a.Prompt, UserText: a.Prompt}, &frozen)
 			if err != nil {
 				return err
 			}

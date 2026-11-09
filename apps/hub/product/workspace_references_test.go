@@ -322,7 +322,7 @@ func TestWorkspaceReferenceSubmitRejectsWorkspaceAndConcurrentBranchChange(t *te
 		t.Fatal("source scope was silently rebound to another workspace")
 	}
 	target := s.DefaultTarget
-	target.ModelID = "route changed during claim"
+	target.EngineID = "route-changed-engine"
 	wrapped := switchBeforeAdmission{ServiceStore: s.Store, target: target}
 	s.Store = wrapped
 	s.Runtime = hub.New(wrapped)

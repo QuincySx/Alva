@@ -23,7 +23,7 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 ## 业务域清单
 | 文件/目录 | 职责 |
 |---|---|
-| connections.go | 独立连接/模型DTO、秘值隔离、CAS编辑与revision路由；可选RequestID创建/恢复端口和不可变脱敏回执，不扩大执行存储；DefaultCatalogURL按请求地址推出同源模型目录，认不出的形状返回空而不猜；API Key可选：编辑时没有Key（新建未填或明确清除）即无认证，原有Key在存储中缺失仍报错；ConnectionModel 的上下文窗口分目录明确声明（CatalogContextWindow，优先）与运营者手填（ContextWindow），0=未声明、1Ki–100Mi 外拒存，DeclaredContextWindow 按此取值 |
+| connections.go | 独立连接/模型DTO、秘值隔离、CAS编辑与revision路由；路由身份只含（引擎、连接ID、模型ID）：改名/换Key/加请求头/移端点不改路由，revision与端点在执行时由RouteResolver取最新并审计；可选RequestID创建/恢复端口和不可变脱敏回执，不扩大执行存储；DefaultCatalogURL按请求地址推出同源模型目录，认不出的形状返回空而不猜；API Key可选：编辑时没有Key（新建未填或明确清除）即无认证，原有Key在存储中缺失仍报错；ConnectionModel 的上下文窗口分目录明确声明（CatalogContextWindow，优先）与运营者手填（ContextWindow），0=未声明、1Ki–100Mi 外拒存，DeclaredContextWindow 按此取值 |
 | connections_catalog_test.go | 各协议请求地址推出同源目录、拒绝带凭据/查询/非HTTP(S)，推出结果必过同源校验 |
 | goals.go / goals_test.go | 不可变目标事实、项目/会话范围、RequestID幂等回执与独立存储/范围cursor分页插口；创建不执行 |
 | model_preferences.go / model_preferences_test.go | 连接/模型稳定收藏键、Agent偏好、参数校验/能力准入及独立revision；Attempt冻结不受后续编辑影响 |
@@ -37,10 +37,10 @@ NativeOwnerResolver是产品存储的显式只读路由契约；ErrNotFound统�
 | composer_files.go | 首会话前不可变本地文件catalog、显式来源scope与分块SHA DTO；独立只读ownership插口读取真实home→session grant，原件不重归属，ID/URI/hash不代替会话授权 |
 | runtime_options_test.go | 冻结参数传给真实adapter、配置能力不支持时零Execute |
 | permissions.go | 产品Ask/Auto/Full值与校验；Settings仅保存下一Turn意图，真实宿主执行政策不进入SDK |
-| model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引；HistoryEntry.TurnSequence读取时填充、不写入事件；等待继续/放弃的时间线kind常量供消息流投影 |
+| model.go | 产品事实、分开的ExecutionStore/SessionStore/SettingsStore与产品Store组合接口与版本化交接索引；HistoryEntry.TurnSequence读取时填充、不写入事件；等待继续/放弃的时间线kind常量供消息流投影；RouteKey对连接路由归一化（旧值 connection:<id>@<n> 照常命中），RouteResolver/RouteFacts与可选RouteRecorder/FallbackNotifier/TurnRecoverer端口；分支身份=（会话，引擎），同引擎换模型复用分支与原生会话 |
 | preferences.go / preferences_test.go | 应用级外观与左栏折叠/有界宽度DTO、三组选项与唯一纯值政策、稀疏revision CAS端口；消费者修改选项不改变共享校验，布局不覆盖独立外观 |
 | wait.go | 可选WaitStore、分支最近Turn观察、显式同Turn继续与输入冻结政策，不增加SDK状态 |
-| runtime.go / runtime_identity_test.go | 独立Descriptor/engine registry、串行执行与流式增量合并写入、绑定实际owner身份的取消/审批与授权fallback；权限四项binding原子分派、同run fallback拒绝旧审批及准入/替换/取消收尾身份回归 |
+| runtime.go / runtime_identity_test.go | 独立Descriptor/engine registry、串行执行与流式增量合并写入、绑定实际owner身份的取消/审批与授权fallback；fallback只服务当轮（不改活动分支）、执行前经RouteResolver复验、跳过/切换失败写fallback_unavailable、过长错误先经注入的SetErrorRedactor脱敏（bootstrap接platform/storage/redaction，hub不直接依赖）再保留4096字节前缀并带截断标记；ModelPreferenceKey对连接路由按（连接ID，模型ID）取键，与RouteKey一致、FinishTurn失败后重试interrupted或下一条消息先RecoverSession；权限四项binding原子分派、同run fallback拒绝旧审批及准入/替换/取消收尾身份回归 |
 | runtime_coalesce_test.go / export_test.go | 1000增量合并且逐字节一致、穿插工具保序、停顿期内可见、契约拒绝与持久化错误锁存后零写入；仅测试可调短合并窗口 |
 | descriptor_test.go | 第五engine声明/不可替换、纯冷读与snapshot切片隔离、关闭后拒绝注册 |
 | settings.go / aep.go | next-turn私有MCP（本地进程或远程Streamable HTTP：地址/请求头/认证无或OAuth，OAuth要求https、loopback除外）/AEP snapshot、native SubAgent及项目兼容配置文件的opt-in纯值与预算，不引入protocol/进程依赖 |

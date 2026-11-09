@@ -130,7 +130,7 @@ func TestHTTPSConnectionUsesTLSAndRefusesUntrustedCertificates(t *testing.T) {
 	}
 }
 
-func TestWrongKeyFailsAsAuthenticationAndFixingItNeedsReselectingTheModel(t *testing.T) {
+func TestWrongKeyFailsAsAuthenticationAndFixingItNeedsNoReselect(t *testing.T) {
 	model := newFakeModel(t, provider.OpenAIChatKind)
 	model.next = func(r modelRequest) reply {
 		if r.Header.Get("Authorization") != "Bearer right-key" {
@@ -156,24 +156,17 @@ func TestWrongKeyFailsAsAuthenticationAndFixingItNeedsReselectingTheModel(t *tes
 	if errs := errorEvents(h.history(s.ID)); len(errs) != 1 || errs[0].Failure != engine.FailureAuth {
 		t.Fatalf("wrong key failure %+v", errs)
 	}
-	// The user fixes the key. The edit creates a new connection revision, so
-	// the conversation's saved route is refused until a model is picked again.
+	// The user fixes the key. The edit is cosmetic for routing: the
+	// conversation keeps its route and the next message uses the new key.
 	update := connectionDraft("Keyed", "openai_chat", model.endpoint(), "right-key", "keyed-model")
 	update.ID, update.ExpectedRevision = saved.ID, saved.Revision
-	fixed, err := h.service().Connections.Save(ctx, update)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.service().Submit(ctx, s.ID, "after fixing the key", nil); !errors.Is(err, product.ErrRouteUnavailable) {
-		t.Fatalf("submit on the edited connection's old revision: %v", err)
-	}
-	if _, err := h.service().SwitchTarget(ctx, s.ID, targetOf(t, h, fixed, "keyed-model"), "re-pick after key change"); err != nil {
+	if _, err := h.service().Connections.Save(ctx, update); err != nil {
 		t.Fatal(err)
 	}
 	h.send(s.ID, "after fixing the key")
 	h.expect(s.ID, engine.Succeeded)
-	if branches := h.detail(s.ID).Branches; len(branches) != 2 {
-		t.Logf("branches after re-pick: %d", len(branches))
+	if branches := h.detail(s.ID).Branches; len(branches) != 1 {
+		t.Fatalf("fixing the key created %d branches", len(branches))
 	}
 	// A rate limit is a typed, retryable failure; sending again works.
 	h.send(s.ID, "hit the limit")
@@ -221,18 +214,129 @@ func TestDeletingAConnectionInUseFinishesTheTurnThenAsksForAnotherModel(t *testi
 	}
 	h.send(s.ID, "continue elsewhere")
 	h.expect(s.ID, engine.Succeeded)
-	handoff := false
-	for _, e := range h.history(s.ID) {
-		if e.Timeline != nil && e.Timeline.Kind == "handoff" {
-			handoff = true
-		}
-	}
-	if !handoff {
-		t.Fatalf("switching away from the deleted connection carried no handoff: %s", h.dump(s.ID))
+	// Both routes belong to the Alva engine: one branch, one native conversation.
+	if branches := h.detail(s.ID).Branches; len(branches) != 1 {
+		t.Fatalf("switching models inside one engine created %d branches", len(branches))
 	}
 	h.reopen()
 	if _, err := h.service().Submit(ctx, s.ID, "after restart", nil); err != nil {
 		t.Fatal(err)
 	}
 	h.expect(s.ID, engine.Succeeded)
+}
+
+// Renaming a connection, adding a header or re-keying it never strands the
+// conversations, fallbacks or schedules that use it.
+func TestRenamingAConnectionKeepsTheConversationSendable(t *testing.T) {
+	model := newFakeModel(t, provider.OpenAIChatKind)
+	model.next = func(modelRequest) reply { return text("ok") }
+	h := openHub(t, demoConfig(t))
+	ctx := context.Background()
+	saved, err := h.service().Connections.Save(ctx, connectionDraft("Before", "openai_chat", model.endpoint(), "key-1", "rename-model"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := h.create("rename", "")
+	if _, err := h.service().SwitchTarget(ctx, s.ID, targetOf(t, h, saved, "rename-model"), "pick"); err != nil {
+		t.Fatal(err)
+	}
+	h.send(s.ID, "one")
+	h.expect(s.ID, engine.Succeeded)
+	update := connectionDraft("After", "openai_chat", model.endpoint(), "key-2", "rename-model")
+	update.ID, update.ExpectedRevision = saved.ID, saved.Revision
+	update.Headers, update.ReplaceHeaders = map[string]string{"X-Team": "alva"}, true
+	if _, err := h.service().Connections.Save(ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	h.send(s.ID, "two")
+	h.expect(s.ID, engine.Succeeded)
+	second := model.request(2)
+	if second.Header.Get("Authorization") != "Bearer key-2" || second.Header.Get("X-Team") != "alva" {
+		t.Fatalf("the newest connection facts were not used: %v", second.Header)
+	}
+	for _, b := range blocksOf(h.blocks(s.ID), product.BlockKindStatus) {
+		if b.Name == "notice" {
+			t.Fatalf("a cosmetic edit announced something: %+v", b)
+		}
+	}
+}
+
+// An endpoint move is followed, not refused, and announced with the host only.
+func TestMovedConnectionEndpointIsFollowedAndAnnounced(t *testing.T) {
+	oldModel, newModel := newFakeModel(t, provider.OpenAIChatKind), newFakeModel(t, provider.OpenAIChatKind)
+	oldModel.next = func(modelRequest) reply { return text("from old") }
+	newModel.next = func(modelRequest) reply { return text("from new") }
+	h := openHub(t, demoConfig(t))
+	ctx := context.Background()
+	saved, err := h.service().Connections.Save(ctx, connectionDraft("Mover", "openai_chat", oldModel.endpoint(), "", "move-model"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := h.create("move", "")
+	if _, err := h.service().SwitchTarget(ctx, s.ID, targetOf(t, h, saved, "move-model"), "pick"); err != nil {
+		t.Fatal(err)
+	}
+	h.send(s.ID, "one")
+	h.expect(s.ID, engine.Succeeded)
+	update := connectionDraft("Mover", "openai_chat", newModel.endpoint(), "", "move-model")
+	update.ID, update.ExpectedRevision = saved.ID, saved.Revision
+	if _, err := h.service().Connections.Save(ctx, update); err != nil {
+		t.Fatal(err)
+	}
+	h.send(s.ID, "two")
+	h.expect(s.ID, engine.Succeeded)
+	if oldModel.calls() != 1 || newModel.calls() != 1 {
+		t.Fatalf("calls old=%d new=%d", oldModel.calls(), newModel.calls())
+	}
+	host := strings.TrimPrefix(newModel.server.URL, "http://")
+	host = host[:strings.LastIndex(host, ":")]
+	var notice product.Block
+	for _, b := range blocksOf(h.blocks(s.ID), product.BlockKindStatus) {
+		if b.Name == "notice" {
+			notice = b
+		}
+	}
+	if notice.Text != "连接地址已更新为 "+host || strings.Contains(notice.Text, "/v1") {
+		t.Fatalf("endpoint notice %+v", notice)
+	}
+	audited := false
+	for _, e := range h.history(s.ID) {
+		if e.Timeline != nil && e.Timeline.Kind == "route_resolved" && e.Timeline.Endpoint == newModel.endpoint() && e.Timeline.Revision == saved.Revision+1 {
+			audited = true
+		}
+	}
+	if !audited {
+		t.Fatal("the endpoint and revision actually used were not audited")
+	}
+}
+
+// Changing the model inside one engine keeps the conversation: the new model
+// receives the earlier turns in its request.
+func TestSwitchingModelInsideOneEngineKeepsContext(t *testing.T) {
+	model := newFakeModel(t, provider.OpenAIChatKind)
+	model.next = func(modelRequest) reply { return text("noted") }
+	h := openHub(t, demoConfig(t))
+	ctx := context.Background()
+	saved, err := h.service().Connections.Save(ctx, connectionDraft("Two models", "openai_chat", model.endpoint(), "", "model-one", "model-two"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := h.create("same engine", "")
+	if _, err := h.service().SwitchTarget(ctx, s.ID, targetOf(t, h, saved, "model-one"), "pick"); err != nil {
+		t.Fatal(err)
+	}
+	h.send(s.ID, "remember the codeword PLUM")
+	h.expect(s.ID, engine.Succeeded)
+	if _, err := h.service().SwitchTarget(ctx, s.ID, targetOf(t, h, saved, "model-two"), "switch model"); err != nil {
+		t.Fatal(err)
+	}
+	h.send(s.ID, "what was the codeword?")
+	h.expect(s.ID, engine.Succeeded)
+	second := model.request(2)
+	if !second.has(`"model-two"`) || !second.has("PLUM") {
+		t.Fatalf("the new model did not receive the earlier context: %s", second.Body)
+	}
+	if branches := h.detail(s.ID).Branches; len(branches) != 1 {
+		t.Fatalf("model switch created %d branches", len(branches))
+	}
 }

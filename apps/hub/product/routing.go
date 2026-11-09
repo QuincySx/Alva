@@ -20,7 +20,9 @@ func ValidateConfiguredTarget(target hub.Target, configured []hub.Target) error 
 	}
 	key := hub.RouteKey(target)
 	for _, candidate := range configured {
-		if hub.RouteKey(candidate) == key {
+		// A connection route survives cosmetic edits and endpoint moves, but
+		// never a protocol change.
+		if hub.RouteKey(candidate) == key && (candidate.ProviderID == target.ProviderID || !IsConnectionTarget(target)) {
 			return nil
 		}
 	}

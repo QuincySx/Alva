@@ -144,7 +144,7 @@ func TestComposerProjectSkillSelectionPinsOriginalAndBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := s.DefaultTarget
-	target.ModelID = "another-fixture-model"
+	target.EngineID = "another-fixture-engine" // a branch belongs to one engine
 	if _, err = s.Store.Switch(ctx, product.ID, target, "explicit branch switch"); err != nil {
 		t.Fatal(err)
 	}

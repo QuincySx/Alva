@@ -32,9 +32,6 @@ func TestProductRoutingRejectsStaleConnectionsButPreservesBranchHistory(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.SwitchTarget(t.Context(), session.ID, s.DefaultTarget, "return to configured route"); err != nil {
-		t.Fatal(err)
-	}
 	if _, err = s.Connections.SetEnabled(t.Context(), entry.ID, entry.Revision, false); err != nil {
 		t.Fatal(err)
 	}

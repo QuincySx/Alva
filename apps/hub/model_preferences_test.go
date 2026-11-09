@@ -168,3 +168,26 @@ func TestModelPreferenceRejectsInvalidValuesAndSnapshotShapes(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The preference key follows the route key: a legacy "@revision" target, the
+// same route saved now, and the same route after an endpoint move all share one
+// preference; another connection or model does not.
+func TestModelPreferenceKeySurvivesLegacySuffixAndEndpointMove(t *testing.T) {
+	c := ModelConnection{ID: "connection-x", Revision: 3, Protocol: "openai_chat", Endpoint: "https://a.example/v1"}
+	m := ConnectionModel{ID: "gpt"}
+	legacy := c.Target(m)
+	legacy.AccountSource += "@3"
+	current := c.Target(m)
+	c.Endpoint = "https://b.example/v1"
+	moved := c.Target(m)
+	if ModelPreferenceKey(legacy) != ModelPreferenceKey(current) || ModelPreferenceKey(current) != ModelPreferenceKey(moved) {
+		t.Fatal("legacy, current and endpoint-moved targets of one route must share a preference key")
+	}
+	other := current
+	other.AccountSource = "connection:other"
+	otherModel := current
+	otherModel.ModelID = "other"
+	if ModelPreferenceKey(other) == ModelPreferenceKey(current) || ModelPreferenceKey(otherModel) == ModelPreferenceKey(current) {
+		t.Fatal("another connection or model collapsed into the same preference")
+	}
+}

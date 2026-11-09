@@ -338,6 +338,9 @@ func (s *ConnectionsService) ResolveTarget(ctx context.Context, target hub.Targe
 			if !c.Enabled || !m.Enabled {
 				return "", provider.Config{}, false, errors.New("model connection or model is disabled")
 			}
+			if target.ProviderID != c.Protocol {
+				return "", provider.Config{}, false, errors.New("model connection protocol changed; select a current route")
+			}
 			secret, err := s.store.ConnectionSecrets(ctx, c.ID, c.Revision)
 			if err != nil {
 				return "", provider.Config{}, false, connectionError("resolve", err)
@@ -352,6 +355,36 @@ func (s *ConnectionsService) ResolveTarget(ctx context.Context, target hub.Targe
 		}
 	}
 	return "", provider.Config{}, false, errors.New("saved model connection route changed or was deleted; select a current route")
+}
+
+// ResolveRoute revalidates a saved connection route against the newest
+// connection: it must still exist, be enabled with the model enabled, and keep
+// its protocol. Cosmetic edits and endpoint moves are followed, not refused.
+func (s *ConnectionsService) ResolveRoute(ctx context.Context, target hub.Target) (hub.RouteFacts, error) {
+	if !IsConnectionTarget(target) {
+		return hub.RouteFacts{Target: target}, nil
+	}
+	if s == nil {
+		return hub.RouteFacts{}, errors.New("model connection service is unavailable")
+	}
+	for _, c := range s.Snapshot() {
+		for _, m := range c.Models {
+			if hub.RouteKey(c.Target(m)) != hub.RouteKey(target) {
+				continue
+			}
+			if !c.Enabled || !m.Enabled {
+				return hub.RouteFacts{}, errors.New("model connection or model is disabled; select a current route")
+			}
+			if target.ProviderID != c.Protocol {
+				return hub.RouteFacts{}, errors.New("model connection protocol changed; select a current route")
+			}
+			fresh := c.Target(m)
+			fresh.AutomaticAuthorized = target.AutomaticAuthorized
+			fresh.RequiredCapabilities = append([]string(nil), target.RequiredCapabilities...)
+			return hub.RouteFacts{Target: fresh, Revision: c.Revision, Endpoint: fresh.BillingRoute}, nil
+		}
+	}
+	return hub.RouteFacts{}, errors.New("saved model connection route was deleted or its model removed; select a current route")
 }
 
 // ContextWindow is the declared context window of an exact saved route: the

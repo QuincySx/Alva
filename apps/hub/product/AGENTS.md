@@ -18,7 +18,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 |---|---|
 | navigation.go / navigation_test.go | 真实保存workspace与精确子会话冷分页、managed路径显示政策、可选port回执/游标校验与100计划索引；不退回最近页、不扫描目录、不Tick执行 |
 | connections.go / connections_test.go | 独立连接owner与完整保存回执校验；可选RequestID创建/明确恢复共用Apply/provider校验，精确重试不重复创建，编辑/删除不被重放覆盖；聊天/开发者共用凭据插口与取消/join；ContextWindow 按精确路由返回声明的上下文窗口（不读秘值） |
-| routing.go / routing_test.go | 完整账户/计费/能力route的一份准入政策；显式Switch/Fallback与既存branch历史选择分别表达，过期route在新Turn前拒绝，不把历史访问当执行授权 |
+| routing.go / routing_test.go | 连接路由按（连接ID，模型ID）匹配并要求协议未变，改名/移端点仍有效；完整账户/计费/能力route的一份准入政策；显式Switch/Fallback与既存branch历史选择分别表达，过期route在新Turn前拒绝，不把历史访问当执行授权 |
 | connection_catalog.go / connection_catalog_test.go | 明确同源目录GET/测试、四协议分页/预算、来源绑定凭据及取消/join；保存不联网、不声称完成推理测试；候选只在目录明确给出整数时带 CatalogContextWindow |
 | connection_context_test.go | 目录上下文窗口只认文档化整数字段（Gemini inputTokenLimit、网关 context_length/max_model_len），其他取值不声明且不让目录失败；保存的路由窗口目录优先、手填次之、越界拒存 |
 | context.go / context_test.go | M4 手动压缩：ContextService 按产品会话存一次性「下次发送前压缩」意图（进程内存：它是一次性 UI 选择而非产品事实，持久化需改产品 schema 且可能在重启多天后意外触发；丢失只意味不压缩，芯片如实显示）；HubService 仅在当前分支引擎声明 ContextCompaction 时接受，可取消，由装配在请求被引擎接纳后 Clear；测试还覆盖压缩状态块与用量表投影 |
@@ -47,7 +47,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | history.go | 产品绑定的有界metadata/字面关键词/正文range Tool与Plugin |
 | tool_view.go | engine.ToolDisplay→ToolView折叠（overlay/merge）、ToolBody/ToolJump派生、字节估算、ToolTail/ToolLineSummary；不认工具名或引擎名 |
 | tool_view_test.go | 起止Display折叠且不改事件值、各kind的展开来源与跳转、无Display旧事件为other、截断结果、Superseded待办（含向前翻页）、页边界合并与无Display部分补全、字节计入与WorkspaceFileTab只钉工作区内普通文件（含软链接拼写的工作区路径） |
-| transcript.go / transcript_window.go | UI无关Block/BlockKind/BlockStatus（Block.History为折入的最新产品History序号，供轨迹跳转绑定轮次；Block.Tool为工具块ToolView，Block.Interaction为审批/问答视图，Block.Usage为attempt用量，Block.Context为压缩结果状态块（Name "context"，失败/摘要损坏为failed）；TranscriptWindow.Context()给出窗口内最新的实测上下文用量，较新的attempt结束却未报告时置为未知，向前翻页只补未决定的窗口）、交互请求/结算/过期与跨页合并、让出调用的等待与继续/放弃、TranscriptStore窄端口、TranscriptService分页（chunk条目不导出）与TranscriptWindow；迁入原desktop投影的用户输入/时间线/执行活动/思考与内容块/增量与最终回复/工具起止与引用/错误与重试/Completed状态传播/按attempt来源歧义，不是模型上下文 |
+| transcript.go / transcript_window.go | UI无关Block/BlockKind/BlockStatus（Block.History为折入的最新产品History序号，供轨迹跳转绑定轮次；Block.Tool为工具块ToolView，Block.Interaction为审批/问答视图，Block.Usage为attempt用量，Block.Context为压缩结果状态块（Name "context"，失败/摘要损坏为failed）；TranscriptWindow.Context()给出窗口内最新的实测上下文用量，较新的attempt结束却未报告时置为未知，向前翻页只补未决定的窗口）、交互请求/结算/过期与跨页合并、让出调用的等待与继续/放弃、TranscriptStore窄端口、TranscriptService分页（chunk条目不导出）与TranscriptWindow；迁入原desktop投影的用户输入/时间线/执行活动/思考与内容块/增量与最终回复/工具起止与引用/错误与重试（被fallback救回的失败尝试降为灰色fallback_notice并带Block.Failure）/路由通知状态块notice（连接地址更新、fallback不可用；route_resolved不入消息流）/Completed状态传播/按attempt来源歧义，不是模型上下文 |
 | chart_blocks.go / chart_blocks_test.go | 图表数据块唯一格式：ChartInstructions（给模型的唯一说明，635字节）与纯函数ParseChart放在一起、同步修改；bar/line/area/pie/scatter严格token解析，重复/未知字段、非有限数与|值|>1e300（防止范围/堆叠/饼图总和溢出）拒绝，标签禁换行/NUL/双向文字控制字符（U+061C、U+200E/200F、U+202A–202E、U+2066–2069），JSON≤32KiB、series≤8、bar/pie类别≤100、line/area点≤2000、scatter点≤500、标签≤80字节，错误为简短中文原因；null一律是缺口（堆叠时不占高度、自身断开）；ChartBlocksPlugin只追加一段独立系统提示，不占会话SystemPrompt及其8KiB；数据只含数字与短标签，不执行、不加载外部资源 |
 | transcript_test.go | 迁移的稳定ID/工具原owner/来源歧义回归，3000增量流式保留用户块且文字完整、最终消息替换、ApplyOlder边界合并、两端整块裁剪与字节上限、旧格式未合并数据、Turn传递与分页上限 |
 | transcript_long_session_test.go | 长会话CI门（合成历史的工具事件带有界参数与Display）：真实BeginTurn/Record/FinishTurn写20轮×300增量并插入旧格式行，断言增量删除、Tail≥20条消息、流式用户块不丢、连续Older 50次不超字节上限；ALVA_LONG_SESSION_GIB合成GiB历史并断言Tail<100ms、输出Record p95 |
@@ -77,7 +77,7 @@ ServiceStore组合hub.Store与必须的NativeOwnerResolver；审批直接消费�
 | team_test.go | 实际完整Alva Worker FIFO/同native续轮、observer detach与byte-only上传预算；等待续轮Stop超时保留真实清理与后续队列，Stop成功发布前禁下一claim、迟到旧ID拒绝后FIFO继续 |
 | team_tool.go | 绑定实际Lead/native的hub_team Tool/Plugin，mutation HITL、roster与独立8KiB路由分页/绝对索引、selected task 2KiB读取 |
 | team_tool_test.go | foreign native拒绝、mutation拒批零变更与显式批准真实Team回归 |
-| automation.go / automation_test.go | 显式owned本地timer与真实SDK普通Turn；构造不执行、下一完整间隔、无补跑/OS daemon，连接revision失效零Turn并经显式重审恢复，关闭先阻止准入再交既有Runtime收尾 |
+| automation.go / automation_test.go | 显式owned本地timer与真实SDK普通Turn；构造不执行、下一完整间隔、无补跑/OS daemon，连接被删除/停用/协议变更时零Turn暂停并经显式重审恢复（改名等外观编辑不影响），按计划自己批准的模型与连接运行、不随会话手动换模型而变，关闭先阻止准入再交既有Runtime收尾 |
 | shell.go | 已存分支授权的应用内后台job冷状态/真实Stop/idle reset，无PID或nativeID客户端输入 |
 | worker_draft.go / worker_draft_test.go | Worker引用及typed文件/Skill共用冻结器入原FIFO，重验真实Worker会话/branch，不借Lead/sibling/未采纳home原件；手动正文与增强prompt分别保存，失败保留稿、入队不执行 |
 | worktree.go / worktree_test.go | 已认领Lead/Team/Worker隔离、冷SHA/raw diff与双workspace租约采纳；真实Git完成后按原binding/revision收尾，不重做fresh idle gate；Waiting阻止新写动作而保留只读审阅 |

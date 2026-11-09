@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -379,7 +381,7 @@ func insertBranch(ctx context.Context, tx *sql.Tx, value hub.Branch) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO hub_branches VALUES(?,?,?,?)`, value.ID, value.SessionID, hub.RouteKey(value.Target), data)
+	_, err = tx.ExecContext(ctx, `INSERT INTO hub_branches VALUES(?,?,?,?)`, value.ID, value.SessionID, branchRoute(value.Target), data)
 	return err
 }
 func (s *Store) ListSessions(ctx context.Context, limit int) (providerResult0 []hub.Session, providerResult1 error) {
@@ -455,30 +457,57 @@ func (s *Store) Detail(ctx context.Context, id string) (providerResult0 hub.Deta
 	err := s.transaction(ctx, func(tx *sql.Tx) error { var err error; result, err = detail(ctx, tx, id); return err })
 	return result, err
 }
-func selectBranch(ctx context.Context, tx *sql.Tx, session hub.Session, target hub.Target) (hub.Branch, error) {
-	branch, err := read[hub.Branch](ctx, tx, `SELECT data FROM hub_branches WHERE session=? AND route=?`, session.ID, hub.RouteKey(target))
+
+// branchRoute is the stored branch identity: one branch per (session, engine).
+// Rows written by older builds hold a full route key here and are found by
+// the engine recorded in their data instead, so they keep working unchanged.
+func branchRoute(target hub.Target) string { return "engine:" + target.EngineID }
+
+// selectBranch finds the session's branch for target's engine, preferring the
+// active one, or creates it. A model/connection change inside one engine keeps
+// the branch and its native conversation; only the engine selects a branch.
+func selectBranch(ctx context.Context, tx *sql.Tx, session hub.Session, target hub.Target) (hub.Branch, bool, error) {
+	branch, err := read[hub.Branch](ctx, tx, `SELECT data FROM hub_branches WHERE session=? AND json_extract(data,'$.target.engine_id')=? ORDER BY (id=?) DESC,rowid DESC LIMIT 1`, session.ID, target.EngineID, session.ActiveBranchID)
 	if err == nil {
-		return branch, nil
+		return branch, false, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return branch, err
+		return branch, false, err
 	}
 	var count int
 	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM hub_branches WHERE session=?`, session.ID).Scan(&count); err != nil {
-		return branch, err
+		return branch, false, err
 	}
 	if count >= 64 {
-		return branch, errors.New("maximum 64 branches per session")
+		return branch, false, errors.New("maximum 64 branches per session")
 	}
 	id, err := hub.NewID("branch-")
 	if err != nil {
-		return branch, err
+		return branch, false, err
 	}
 	branch = hub.Branch{ID: id, SessionID: session.ID, Target: target}
-	return branch, insertBranch(ctx, tx, branch)
+	return branch, true, insertBranch(ctx, tx, branch)
+}
+
+// attemptBranch selects the branch one fallback attempt runs on without
+// changing the session's active branch or the branch's primary route. The
+// returned copy carries the fallback target for this attempt only.
+func attemptBranch(ctx context.Context, tx *sql.Tx, session hub.Session, target hub.Target) (hub.Branch, error) {
+	branch, created, err := selectBranch(ctx, tx, session, target)
+	if err != nil {
+		return branch, err
+	}
+	if created {
+		branch.Parked = true
+		if err = writeBranch(ctx, tx, branch); err != nil {
+			return branch, err
+		}
+	}
+	branch.Target = target
+	return branch, nil
 }
 func activate(ctx context.Context, tx *sql.Tx, session *hub.Session, target hub.Target) (hub.Branch, error) {
-	branch, err := selectBranch(ctx, tx, *session, target)
+	branch, _, err := selectBranch(ctx, tx, *session, target)
 	if err != nil {
 		return branch, err
 	}
@@ -493,6 +522,7 @@ func activate(ctx context.Context, tx *sql.Tx, session *hub.Session, target hub.
 		}
 	}
 	branch.Parked = false
+	branch.Target = target
 	if err = writeBranch(ctx, tx, branch); err != nil {
 		return branch, err
 	}
@@ -520,11 +550,17 @@ func (s *Store) Switch(ctx context.Context, id string, target hub.Target, reason
 			return errors.New("stop or finish the active Turn before switching")
 		}
 		previous := session.ActiveBranchID
+		before, err := read[hub.Branch](ctx, tx, `SELECT data FROM hub_branches WHERE id=? AND session=?`, previous, id)
+		if err != nil {
+			return err
+		}
 		result, err = activate(ctx, tx, &session, target)
 		if err != nil {
 			return err
 		}
-		if previous == result.ID {
+		// Same branch and same route: nothing changed. Same branch with another
+		// model of that engine still records the switch; its native session continues.
+		if previous == result.ID && hub.RouteKey(before.Target) == hub.RouteKey(target) {
 			return nil
 		}
 		return timeline(ctx, tx, id, "", "", hub.TimelineEvent{Kind: "branch_switch", Text: reason, FromBranchID: previous, ToBranchID: result.ID, Target: &target})
@@ -692,6 +728,13 @@ func beginTurn(ctx context.Context, tx *sql.Tx, id, prompt string) (hub.Claim, e
 }
 
 func beginComposerTurn(ctx context.Context, tx *sql.Tx, id string, input hub.ComposerTurnInput) (hub.Claim, error) {
+	return beginComposerTurnAs(ctx, tx, id, input, nil)
+}
+
+// beginComposerTurnAs admits a Turn on the active branch. A non-nil route runs
+// this Turn's attempt on that exact route (an automation's frozen approval)
+// instead of the branch's current manual route; the branch itself is unchanged.
+func beginComposerTurnAs(ctx context.Context, tx *sql.Tx, id string, input hub.ComposerTurnInput, route *hub.Target) (hub.Claim, error) {
 	prompt := input.Prompt
 	if err := engine.ValidateInputFiles(input.Files); err != nil {
 		return hub.Claim{}, err
@@ -721,6 +764,9 @@ func beginComposerTurn(ctx context.Context, tx *sql.Tx, id string, input hub.Com
 		branch, err := read[hub.Branch](ctx, tx, `SELECT data FROM hub_branches WHERE id=? AND session=?`, session.ActiveBranchID, id)
 		if err != nil {
 			return err
+		}
+		if route != nil {
+			branch.Target = *route
 		}
 		h, err := handoff(ctx, tx, session, branch)
 		if err != nil {
@@ -839,7 +885,7 @@ func (s *Store) BeginFallback(ctx context.Context, previous string, target hub.T
 		if !authorized {
 			return errors.New("fallback account/billing route not explicitly authorized")
 		}
-		branch, err := activate(ctx, tx, &detail.Session, target)
+		branch, err := attemptBranch(ctx, tx, detail.Session, target)
 		if err != nil {
 			return err
 		}
@@ -1119,12 +1165,27 @@ func (s *Store) BindNative(ctx context.Context, sessionID, branchID, nativeID st
 		return writeBranch(ctx, tx, branch)
 	})
 }
-func (s *Store) Recover(ctx context.Context) (providerResult0 error) {
+func (s *Store) Recover(ctx context.Context) (providerResult0 error) { return s.recover(ctx, "") }
+
+// RecoverSession relies on single-process ownership: Open takes an exclusive
+// database lock (private.LockDatabase; TestRecoveryAndExclusiveDatabaseOwnership),
+// so desktop and server never share one product database and no other process
+// can own the Turn. Within this process the caller guarantees no live owner.
+// RecoverSession interrupts one session's running Turn whose execution owner
+// is gone (for example after FinishTurn failed), so the user can continue
+// without restarting. The caller guarantees no live owner exists.
+func (s *Store) RecoverSession(ctx context.Context, id string) error {
+	if id == "" {
+		return errors.New("session identity required")
+	}
+	return s.recover(ctx, id)
+}
+func (s *Store) recover(ctx context.Context, only string) (providerResult0 error) {
 	defer func() {
 		providerResult0 = normalizeStoreError(providerResult0)
 	}()
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT data FROM hub_turns WHERE status=?`, hub.Running)
+		rows, err := tx.QueryContext(ctx, `SELECT data FROM hub_turns WHERE status=? AND (?='' OR session=?)`, hub.Running, only, only)
 		if err != nil {
 			return err
 		}
@@ -1194,7 +1255,82 @@ func (s *Store) Recover(ctx context.Context) (providerResult0 error) {
 				return err
 			}
 		}
+		if only != "" {
+			return nil
+		}
 		return recoverAutomations(ctx, tx)
+	})
+}
+
+// RecordRoute persists which connection revision and endpoint an attempt
+// actually used, once per change (audit), and a visible notice when the
+// endpoint moved since the branch's previous attempt.
+func (s *Store) RecordRoute(ctx context.Context, attemptID string, facts hub.RouteFacts) (err error) {
+	defer func() { err = normalizeStoreError(err) }()
+	if facts.Revision == 0 {
+		return nil
+	}
+	return s.transaction(ctx, func(tx *sql.Tx) error {
+		attempt, err := read[hub.Attempt](ctx, tx, `SELECT data FROM hub_attempts WHERE id=?`, attemptID)
+		if err != nil {
+			return err
+		}
+		branch, err := read[hub.Branch](ctx, tx, `SELECT data FROM hub_branches WHERE id=? AND session=?`, attempt.BranchID, attempt.SessionID)
+		if err != nil {
+			return err
+		}
+		key := hub.RouteKey(facts.Target)
+		prev, known := branch.RoutesSeen[key]
+		if !known && hub.RouteKey(branch.Target) == key && branch.Target.BillingRoute != "" {
+			// Data saved before per-route memory: the branch's own route
+			// baseline is the endpoint it was last configured with.
+			prev, known = hub.RouteSeen{Endpoint: branch.Target.BillingRoute}, true
+		}
+		if known && prev.Revision == facts.Revision && prev.Endpoint == facts.Endpoint {
+			return nil
+		}
+		target := facts.Target
+		if err = timeline(ctx, tx, attempt.SessionID, attempt.TurnID, attempt.ID, hub.TimelineEvent{Kind: "route_resolved", Text: fmt.Sprintf("connection revision %d", facts.Revision), Target: &target, Revision: facts.Revision, Endpoint: facts.Endpoint}); err != nil {
+			return err
+		}
+		if known && prev.Endpoint != "" && prev.Endpoint != facts.Endpoint {
+			host := facts.Endpoint
+			if u, perr := url.Parse(facts.Endpoint); perr == nil && u.Hostname() != "" {
+				host = u.Hostname()
+			}
+			if err = timeline(ctx, tx, attempt.SessionID, attempt.TurnID, attempt.ID, hub.TimelineEvent{Kind: "route_endpoint_changed", Text: "连接地址已更新为 " + host}); err != nil {
+				return err
+			}
+		}
+		if branch.RoutesSeen == nil {
+			branch.RoutesSeen = map[string]hub.RouteSeen{}
+		}
+		if _, exists := branch.RoutesSeen[key]; !exists && len(branch.RoutesSeen) >= 16 {
+			for old := range branch.RoutesSeen {
+				delete(branch.RoutesSeen, old)
+				break
+			}
+		}
+		branch.RoutesSeen[key] = hub.RouteSeen{Revision: facts.Revision, Endpoint: facts.Endpoint}
+		return writeBranch(ctx, tx, branch)
+	})
+}
+
+// RecordFallbackSkip tells the user why an approved fallback route was not used.
+func (s *Store) RecordFallbackSkip(ctx context.Context, attemptID string, target hub.Target, reason string) (err error) {
+	defer func() { err = normalizeStoreError(err) }()
+	if len(reason) > 1024 {
+		reason = reason[:1024]
+		for !utf8.ValidString(reason) {
+			reason = reason[:len(reason)-1]
+		}
+	}
+	return s.transaction(ctx, func(tx *sql.Tx) error {
+		attempt, err := read[hub.Attempt](ctx, tx, `SELECT data FROM hub_attempts WHERE id=?`, attemptID)
+		if err != nil {
+			return err
+		}
+		return timeline(ctx, tx, attempt.SessionID, attempt.TurnID, attempt.ID, hub.TimelineEvent{Kind: "fallback_unavailable", Text: reason, Target: &target})
 	})
 }
 
