@@ -17,6 +17,7 @@ import (
 
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
+	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -248,6 +249,7 @@ func (t *agentTool) Execute(ctx context.Context, execution abi.ToolExecutionCont
 	callbackMu.Lock()
 	callbackOpen = false
 	childErr = errors.Join(childErr, callbackErr)
+	observationBroken := callbackErr != nil
 	callbackMu.Unlock()
 	if childErr == nil && !selected.committed && selected.text.Len() > 0 {
 		childErr = errors.New("child returned a stream draft without a committed final response")
@@ -295,12 +297,36 @@ func (t *agentTool) Execute(ctx context.Context, execution abi.ToolExecutionCont
 			}
 		}
 	}
-	data, err := json.Marshal(map[string]any{"child_session_id": childScope.SessionID(), "child_scope_id": childSnapshot.ID, "parent_link": child.Link, "selected_output": reference, "selected_output_committed": selected.committed, "is_error": childErr != nil || refused, "outcome": status, "refused": refused, "non_text_blocks_not_delivered": nonText, "source_notice": "A successful selected answer comes from the effective committed final response. Uncommitted text is partial failure evidence only. Non-text output remains in child records. Child history/artifacts/MCP logs remain independent; the parent link grants no text-reading permission. Interrupted work is not replayed."})
+	meta := map[string]any{"child_session_id": childScope.SessionID(), "child_scope_id": childSnapshot.ID, "parent_link": child.Link, "selected_output": reference, "selected_output_committed": selected.committed, "is_error": childErr != nil || refused, "outcome": status, "refused": refused, "non_text_blocks_not_delivered": nonText, "source_notice": "A successful selected answer comes from the effective committed final response. Uncommitted text is partial failure evidence only. Non-text output remains in child records. Child history/artifacts/MCP logs remain independent; the parent link grants no text-reading permission. Interrupted work is not replayed."}
+	if note := failureNote(childErr, observationBroken); note != "" {
+		meta["failure"] = note
+	}
+	data, err := json.Marshal(meta)
 	if err != nil {
 		return wire.ToolResult{}, errors.Join(childErr, err)
 	}
 	if len(data) > 4096 {
 		return wire.ToolResult{}, errors.Join(childErr, errors.New("child result metadata exceeds 4 KiB"))
+	}
+	if latest.Len() > 0 {
+		// The parent model gets the child's answer now instead of having to read
+		// it back through a reference (which stays as evidence). Large answers:
+		// bounded prefix, marked, plus the reference. Kept inside the single JSON
+		// receipt so receipt consumers still parse one object.
+		body, cut := boundedInline(latest.String())
+		key := "selected_text"
+		if !selected.committed || childErr != nil || refused {
+			// Uncommitted or failed output is partial evidence, never an answer.
+			key = "partial_text"
+			meta["selected_text_is_partial"] = true
+		}
+		meta[key] = body
+		if cut {
+			meta[key+"_truncated"] = true
+		}
+		if data, err = json.Marshal(meta); err != nil {
+			return wire.ToolResult{}, errors.Join(childErr, err)
+		}
 	}
 	result := wire.ToolResult{CallID: call.ID, IsError: childErr != nil || refused, Content: []wire.ContentBlock{{Kind: wire.ContentText, Text: string(data)}}}
 	if ctx.Err() != nil {
@@ -309,5 +335,52 @@ func (t *agentTool) Execute(ctx context.Context, execution abi.ToolExecutionCont
 	if childErr != nil && abi.OnlyCancellation(childErr) {
 		return result, nil
 	}
+	if !observationBroken && recoverableChildFailure(childErr) {
+		// The child's own run failed (model error, budget, refusal). The parent
+		// model gets the error result with whatever partial output exists and can
+		// decide what to do; only host faults below abort the parent run.
+		return result, nil
+	}
 	return result, childErr
+}
+
+// recoverableChildFailure is true when the only problem is the child's own run
+// failing. Cleanup/completion/session failures are host faults and still abort.
+func recoverableChildFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	var session *abi.SessionError
+	return !errors.Is(err, ErrChildCleanup) && !errors.Is(err, ErrChildCompletion) && !errors.As(err, &session)
+}
+
+// failureNote is a fixed classified reason for the parent model; "" when none.
+// It never echoes the child's error text, which can carry URLs, keys or bodies;
+// the full cause stays in the child's own records.
+func failureNote(err error, broken bool) string {
+	if err == nil || broken || !recoverableChildFailure(err) {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "The sub-agent timed out."
+	}
+	return "The sub-agent run failed; details are in the child's session records."
+}
+
+// boundedInline returns text cut so both its raw size (InlineResultLimit) and
+// its JSON-escaped size stay within the receipt budget.
+func boundedInline(text string) (string, bool) {
+	body, cut := agentcontext.InlinePrefix(text)
+	const escapedLimit = 12 << 10
+	for {
+		encoded, _ := json.Marshal(body)
+		if len(encoded) <= escapedLimit || len(body) == 0 {
+			return body, cut
+		}
+		n := len(body) * 3 / 4
+		for n > 0 && !utf8.RuneStart(body[n]) {
+			n--
+		}
+		body, cut = body[:n], true
+	}
 }

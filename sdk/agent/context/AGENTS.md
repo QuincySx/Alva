@@ -27,6 +27,7 @@ RewriteBatch整批预验证并原子修改工作集；Externalize先存实际art
 | References | `reference.go` | Backend/分页/搜索 DTO、边界验证 |
 | Volatile references | `reference_memory.go` | 固定session、去重、UTF-8字节分页与literal search |
 | Capability tools | `reference_tools.go` | 实际context_read/search工具、严格参数与4KiB编码结果 |
+| Inline bound | `inline.go` | 小结果直给模型的 8KiB 共享上限与 UTF-8 边界前缀；超限只给前缀加引用 |
 | Store | `store.go` | 四层entries、快照、预算、metadata、fact与summary callback |
 | Handle capabilities | `services.go`, `services_test.go` | 显式导入/后端memory迟到取消/原子rewrite/冲突安全外部化 |
 | Policies | `hooks.go` | Rules/Default/Chain七hooks组合与确定性fallback |

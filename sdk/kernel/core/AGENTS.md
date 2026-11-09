@@ -27,7 +27,7 @@ OnRunEnd 按 inner→outer；WrapTool 按 outer→inner 进入、inner→outer �
 Tool/WrapTool 真正返回 error 表示执行/基础设施/授权中止：先提交当前失败证据，再补齐剩余未执行调用并结束，
 不自动再调模型。只有正常返回 `ToolResult{IsError:true}` 的业务结果允许模型继续处理；取消与执行错误同时出现时
 保留两者返回证据，不用 context.Canceled 覆盖真实失败。
-未知tool是安全IsError反馈；只有BeforeTool明确ToolBlockedError是模型可恢复veto，其他hook/wrapper错误仍中止。
+未知tool是安全IsError反馈；只有显式类型的ToolBlockedError（策略拦截，BeforeTool与WrapTool均可返回）和ToolFailedError（工具声明的普通失败）是模型可恢复结果，executeTool在wrapper链末端转成IsError并继续本轮；未标注错误、与取消/SessionError混合的树、ctx已取消时一律仍中止。
 纯veto也统一逆序AfterTool；mixed Join(veto,session/infra/cancel)不是纯veto，保留真正错误并停批。
 每个Tool wrapper的next只允许零次或一次，每层与base都拒绝重复/并发进入，违规不能被吞；返回即关闭准入并同步等待已进入next真实退出，拒绝迟到执行。
 内层next真正error不可被外层包装吞成成功，但正常result的短路/变换仍保留。ToolFunc不能在窗口外保存后调用。

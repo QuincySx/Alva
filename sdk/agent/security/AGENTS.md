@@ -5,6 +5,7 @@
 SDK 能力库；标准库 + kernel/wire，不依赖 app、host、UI 或平台原生代码。
 
 ## 逻辑
+拒绝是决定不是故障：Authorize/CheckPath 返回的纯 *DeniedError（用户拒绝、规则 deny、计划模式、工作区外或敏感路径，Is ErrPermissionDenied）经 Recoverable 变成模型可恢复的 ToolBlockedError，路径不存在/无权限/ErrTarget 变成 ToolFailedError；与取消、SessionError 混合、规则快照损坏、审批在途被作废仍原样返回并中止。拒绝只作用于该次调用，重试会重新审批。
 Guard 顺序固定：原始/清理路径敏感过滤、授权根、显式 host resolver、解析后再次敏感/根检查，最后 HITL。
 PermissionManager 按实际 session/tool 缓存允许/拒绝；Once 不缓存，Session 只在该会话生效。
 Once不会跨执行缓存，但真实session/run/call/tool+完整Effect指纹的同一invocation可合并重复授权层；资源顺序不影响指纹。

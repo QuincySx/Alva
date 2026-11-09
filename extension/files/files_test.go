@@ -94,8 +94,9 @@ func TestFileSafetyAndActualSessionBinding(t *testing.T) {
 	os.WriteFile(filepath.Join(w.Directory(), ".env"), []byte("private"), 0600)
 	for _, path := range []string{"../escape", ".env", "alias", outside} {
 		data, _ := json.Marshal(map[string]string{"path": path})
-		if _, err := executeFile(t, w, tools, "read_file", string(data)); err == nil {
-			t.Errorf("unsafe read accepted: %q", path)
+		result, err := executeFile(t, w, tools, "read_file", string(data))
+		if err != nil || !result.IsError || len(result.Content) != 1 || result.Content[0].Reference != nil || strings.Contains(result.Content[0].Text, "secret") {
+			t.Errorf("unsafe read must be a model-visible denial without content: %q %+v %v", path, result, err)
 		}
 	}
 	_, err := tools["write_file"].Execute(context.Background(), abi.ToolExecutionContext{SessionID: "foreign", Workspace: w.Directory()}, wire.ToolCall{ID: "call", Name: "write_file", Arguments: json.RawMessage(`{"path":"x","content":"bad"}`)})
@@ -151,5 +152,27 @@ func TestBackupFailurePreventsActualWriteAndRemainsExecutionError(t *testing.T) 
 	actual, readErr := os.ReadFile(path)
 	if !errors.Is(err, failure) || result.IsError || readErr != nil || string(actual) != "original" {
 		t.Fatal("backup failure was downgraded or changed the actual file", result, err, string(actual), readErr)
+	}
+}
+
+// Ordinary file problems are results the model can correct, not run failures.
+func TestOrdinaryFileFailuresAreModelVisibleResults(t *testing.T) {
+	w, _, _, tools := fileFixture(t)
+	if err := os.Mkdir(filepath.Join(w.Directory(), "dir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, call := range map[string][2]string{
+		"missing":       {"read_file", `{"path":"nope.txt"}`},
+		"directory":     {"read_file", `{"path":"dir"}`},
+		"missing dir":   {"list_directory", `{"path":"nodir"}`},
+		"edit missing":  {"edit_file", `{"path":"nope.txt","old":"a","new":"b"}`},
+		"write to dir":  {"write_file", `{"path":"dir","content":"x"}`},
+		"empty path":    {"read_file", `{"path":""}`},
+		"oversize body": {"write_file", `{"path":"big","content":"` + strings.Repeat("a", 1<<20+1) + `"}`},
+	} {
+		result, err := executeFile(t, w, tools, call[0], call[1])
+		if err != nil || !result.IsError || len(result.Content) != 1 || result.Content[0].Text == "" {
+			t.Errorf("%s: want error result, got %+v err=%v", name, result, err)
+		}
 	}
 }

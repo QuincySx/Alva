@@ -81,7 +81,7 @@ func (w *Workspace) locate(path string, access abi.Access) (fileRoot, string, er
 			return r, relative, nil
 		}
 	}
-	return fileRoot{}, "", security.ErrPermissionDenied
+	return fileRoot{}, "", &security.DeniedError{Reason: security.ReasonPathDenied}
 }
 func inspect(root *os.Root, relative string, write bool) (os.FileInfo, error) {
 	parts := strings.Split(filepath.ToSlash(relative), "/")
@@ -95,7 +95,7 @@ func inspect(root *os.Root, relative string, write bool) (os.FileInfo, error) {
 			return nil, err
 		}
 		if st.Mode()&os.ModeSymlink != 0 {
-			return nil, errors.New("file tool symlinks are not allowed")
+			return nil, targetError("file tool symlinks are not allowed")
 		}
 		last = st
 	}
@@ -140,7 +140,7 @@ func (w *Workspace) MakeDirectory(ctx context.Context, path string, guard *secur
 		if st.IsDir() {
 			return nil
 		}
-		return errors.New("directory target already exists and is not a directory")
+		return targetError("directory target already exists and is not a directory")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -156,7 +156,7 @@ func readFile(ctx context.Context, root *os.Root, relative string) ([]byte, erro
 		return nil, err
 	}
 	if before == nil || !before.Mode().IsRegular() || before.Size() > maxFileBytes {
-		return nil, errors.New("file must be regular and at most 20 MiB")
+		return nil, targetError("file must be regular and at most 20 MiB")
 	}
 	f, err := root.Open(relative)
 	if err != nil {
@@ -172,7 +172,7 @@ func readFile(ctx context.Context, root *os.Root, relative string) ([]byte, erro
 		return nil, err
 	}
 	if len(data) > maxFileBytes {
-		return nil, errors.New("file exceeds 20 MiB")
+		return nil, targetError("file exceeds 20 MiB")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

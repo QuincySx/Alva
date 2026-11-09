@@ -46,6 +46,9 @@ func (b *hookBatch) observe(layer abi.Middleware, index int, started time.Time, 
 			entry.ErrorSummary = "cancelled"
 		} else if onlyToolBlocked(err) {
 			entry.ErrorSummary = "intentional_tool_veto"
+			if onlyToolFailed(err) {
+				entry.ErrorSummary = "tool_failure"
+			}
 		}
 	}
 	b.mu.Lock()

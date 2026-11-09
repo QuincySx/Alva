@@ -13,6 +13,16 @@ import (
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 )
 
+// ErrTarget marks an operation refused because of what the target is (symlink,
+// directory, non-regular or oversized file): a model-correctable condition, not
+// a host fault.
+var ErrTarget = security.ErrTarget
+
+type targetError string
+
+func (err targetError) Error() string    { return string(err) }
+func (targetError) Is(target error) bool { return target == ErrTarget }
+
 var ErrDirectoryUnavailable = errors.New("directory is unavailable")
 
 type DirectoryEntry struct {

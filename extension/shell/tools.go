@@ -18,6 +18,7 @@ import (
 	"github.com/QuincySx/Alva/platform/system/process"
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
 	agentabi "github.com/QuincySx/Alva/sdk/agent/abi"
+	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -130,7 +131,7 @@ func (t *shellTool) Execute(ctx context.Context, e abi.ToolExecutionContext, cal
 	}
 	a, err := t.decode(call.Arguments)
 	if err != nil {
-		return zero, err
+		return zero, modelFailure(err)
 	}
 	p := t.plugin
 	life, runCtx, finishCall, err := p.beginCall(e)
@@ -151,7 +152,7 @@ func (t *shellTool) Execute(ctx context.Context, e abi.ToolExecutionContext, cal
 		return zero, err
 	}
 	if err = p.config.Guard.Authorize(ctx, e, call, t.DescribeEffect(call)); err != nil {
-		return zero, err
+		return zero, security.Recoverable(err)
 	}
 	if t.name == "execute_shell" {
 		return t.launch(ctx, e, call, a)
@@ -163,7 +164,7 @@ func (t *shellTool) Execute(ctx context.Context, e abi.ToolExecutionContext, cal
 	j := p.jobs[a.JobID]
 	p.mu.Unlock()
 	if j == nil || !p.persistent && j.runID != e.RunID {
-		return zero, errors.New("job is not owned by this actual run/session")
+		return zero, modelFailure(errors.New("job is not owned by this actual run/session"))
 	}
 	var body any
 	switch t.name {
@@ -171,7 +172,7 @@ func (t *shellTool) Execute(ctx context.Context, e abi.ToolExecutionContext, cal
 		j.mu.Lock()
 		if a.After > len(j.frames) {
 			j.mu.Unlock()
-			return zero, errors.New("shell output cursor exceeds high water")
+			return zero, modelFailure(errors.New("shell output cursor exceeds high water"))
 		}
 		end := min(len(j.frames), a.After+a.Limit)
 		frames := append([]Frame(nil), j.frames[a.After:end]...)
@@ -267,9 +268,11 @@ func (t *shellTool) launch(ctx context.Context, e abi.ToolExecutionContext, call
 	life := p.life
 	p.mu.Unlock()
 	if !budget {
-		return zero, errors.New("shell job budget exceeds 8 per run/64 retained per session owner; explicitly stop/reset the session shell owner")
+		return zero, modelFailure(errors.New("shell job budget exceeds 8 per run/64 retained per session owner; explicitly stop/reset the session shell owner"))
 	}
 	if _, err = p.config.Guard.CheckPath(ctx, p.config.Cwd, abi.AccessWrite); err != nil {
+		// The shell's own Cwd is configuration, not model input: a missing or
+		// refused Cwd is a host fault the model cannot fix, so it aborts.
 		return zero, err
 	}
 	if err = p.admit(ctx, e, call); err != nil {
@@ -367,3 +370,7 @@ func (t *shellTool) launch(ctx context.Context, e abi.ToolExecutionContext, call
 	}
 	return output(call.ID, map[string]any{"job_id": task.ID, "status": j.snapshot(), "input": inputRef, "output": "Use read_shell_output with this job_id for complete captured frame references"}, j.snapshot().Task.Status == agentabi.TaskFailed)
 }
+
+// modelFailure marks a failure the model can correct (bad arguments, a job it
+// does not own, an exhausted job budget). Host faults never use it.
+func modelFailure(err error) error { return &abi.ToolFailedError{Reason: err.Error(), Cause: err} }

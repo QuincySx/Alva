@@ -62,7 +62,9 @@ func (m securityMiddleware) WrapTool(ctx context.Context, execution abi.ToolExec
 		}
 	}
 	if err := m.guard.Authorize(ctx, execution, call, effect); err != nil {
-		return wire.ToolResult{}, err
+		// A pure denial is a decision the model can act on; faults, rule
+		// snapshot corruption, invalidation and cancellation still abort.
+		return wire.ToolResult{}, security.Recoverable(err)
 	}
 	return next(ctx, execution, call)
 }

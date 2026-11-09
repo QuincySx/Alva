@@ -109,3 +109,102 @@ func TestUnresolvedToolGetsUnknownResultWithoutApproval(t *testing.T) {
 		t.Fatalf("unresolved tool result %+v", result)
 	}
 }
+
+// A declined approval, plan mode and an out-of-workspace path are decisions the
+// model can act on; cancellation joined with a denial is still an abort. A fresh
+// call after a one-time decline asks again.
+func TestDenialsReachTheModelAsRecoverableVetoes(t *testing.T) {
+	w, _, _, tools := fileFixture(t)
+	asks := 0
+	decline := security.ApprovalFunc(func(context.Context, security.ApprovalRequest) (security.ApprovalDecision, error) {
+		asks++
+		return security.ApprovalDecision{Allowed: false, Scope: security.Once}, nil
+	})
+	manager := security.NewPermissionManager(security.Ask, decline)
+	guard, err := security.NewGuard(w.Directory(), nil, w, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	middleware := securityMiddleware{guard: guard, known: map[string]abi.Tool{"write_file": tools["write_file"]}}
+	next := func(context.Context, abi.ToolExecutionContext, wire.ToolCall) (wire.ToolResult, error) {
+		t.Fatal("denied call executed")
+		return wire.ToolResult{}, nil
+	}
+	run := func(ctx context.Context, id, args string) error {
+		call := wire.ToolCall{ID: id, Name: "write_file", Arguments: json.RawMessage(args)}
+		_, err := middleware.WrapTool(ctx, abi.ToolExecutionContext{SessionID: "native", RunID: "run", CallID: id, Workspace: w.Directory(), ActualTool: tools["write_file"]}, call, next)
+		return err
+	}
+	blocked := func(err error, reason string) {
+		t.Helper()
+		var veto *abi.ToolBlockedError
+		if !errors.As(err, &veto) || veto.Reason != reason || !errors.Is(err, security.ErrPermissionDenied) {
+			t.Fatalf("want veto %q, got %v", reason, err)
+		}
+	}
+	blocked(run(context.Background(), "c1", `{"path":"x","content":"a"}`), security.ReasonUserDeclined)
+	blocked(run(context.Background(), "c2", `{"path":"x","content":"a"}`), security.ReasonUserDeclined)
+	if asks != 2 {
+		t.Fatalf("one-time decline must not carry over: asked %d times", asks)
+	}
+	blocked(run(context.Background(), "c3", `{"path":"../outside","content":"a"}`), security.ReasonPathDenied)
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := run(canceled, "c4", `{"path":"x","content":"a"}`); err == nil || errors.As(err, new(*abi.ToolBlockedError)) {
+		t.Fatalf("cancellation must stay an abort: %v", err)
+	}
+	if err := manager.SetMode(security.Plan); err != nil {
+		t.Fatal(err)
+	}
+	blocked(run(context.Background(), "c5", `{"path":"x","content":"a"}`), security.ReasonPlanMode)
+}
+
+type billableTool struct{ ran *int }
+
+func (billableTool) Name() string                      { return "spend" }
+func (billableTool) Description() string               { return "metered action" }
+func (billableTool) ParametersSchema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (t billableTool) Execute(_ context.Context, _ abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error) {
+	*t.ran++
+	return wire.ToolResult{CallID: call.ID}, nil
+}
+func (billableTool) Scheduling(wire.ToolCall) abi.Scheduling { return abi.Scheduling{} }
+func (billableTool) DescribeEffect(wire.ToolCall) abi.Effect {
+	return abi.Effect{Kind: abi.EffectUnknown, Description: "creates metered resources", Billable: true}
+}
+func (billableTool) IsReadOnly(wire.ToolCall) bool { return false }
+
+// A billable call is put to the user even when the policy would not ask; a
+// decline stops the tool, reaches the model as a recoverable veto, and the same
+// call retried is asked again (the decline is not remembered).
+func TestBillableDeclineIsVisibleToTheModelAndAskedAgain(t *testing.T) {
+	w, _, _, _ := fileFixture(t)
+	asks, ran := 0, 0
+	handler := security.ApprovalFunc(func(_ context.Context, request security.ApprovalRequest) (security.ApprovalDecision, error) {
+		asks++
+		if !request.Effect.Billable {
+			t.Error("the approval request lost the billable flag")
+		}
+		return security.ApprovalDecision{Allowed: false, Scope: security.Once}, nil
+	})
+	guard, err := security.NewGuard(w.Directory(), nil, w, security.NewPermissionManager(security.AcceptEdits, handler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := billableTool{ran: &ran}
+	middleware := securityMiddleware{guard: guard, known: map[string]abi.Tool{"spend": tool}}
+	next := func(ctx context.Context, e abi.ToolExecutionContext, call wire.ToolCall) (wire.ToolResult, error) {
+		return tool.Execute(ctx, e, call)
+	}
+	for _, id := range []string{"c1", "c2"} {
+		call := wire.ToolCall{ID: id, Name: "spend", Arguments: json.RawMessage(`{}`)}
+		_, err := middleware.WrapTool(context.Background(), abi.ToolExecutionContext{SessionID: "native", RunID: "run", CallID: id, Workspace: w.Directory(), ActualTool: tool}, call, next)
+		var veto *abi.ToolBlockedError
+		if !errors.As(err, &veto) || veto.Reason != security.ReasonUserDeclined {
+			t.Fatalf("%s: want recoverable decline, got %v", id, err)
+		}
+	}
+	if asks != 2 || ran != 0 {
+		t.Fatalf("asked %d times, tool ran %d times; want 2 and 0", asks, ran)
+	}
+}

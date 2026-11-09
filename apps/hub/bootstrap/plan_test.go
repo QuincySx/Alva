@@ -57,6 +57,13 @@ func TestPlanModeRealGuardReadWriteAndExplicitAskRestoration(t *testing.T) {
 		case 2:
 			reply(w, "write-call", "write_file", `{"path":"result.txt","content":"only after explicit Ask approval"}`, "")
 		case 3:
+			// The denied plan-mode write reached the model as a tool result and
+			// the plan execution carries on to a final answer.
+			if !strings.Contains(string(body), "Plan mode is on: writes are disabled") {
+				t.Error("plan-mode denial did not reach the model")
+			}
+			waitReply(w, "", "", "Here is the plan.")
+		case 4:
 			if strings.Contains(string(body), "Plan mode is enabled for this entire execution") {
 				t.Error("new Ask execution retained a prior plan system policy")
 			}
@@ -106,8 +113,8 @@ func TestPlanModeRealGuardReadWriteAndExplicitAskRestoration(t *testing.T) {
 	if _, err = a.Service.Submit(t.Context(), p.ID, "Inspect and propose a plan", nil); err != nil {
 		t.Fatal(err)
 	}
-	waitStatus(t, a, p.ID, engine.Failed)
-	if calls.Load() != 2 {
+	waitStatus(t, a, p.ID, engine.Succeeded)
+	if calls.Load() != 3 {
 		t.Fatal("plan execution made unexpected calls", calls.Load())
 	}
 	if _, err = os.Stat(filepath.Join(p.Workspace, "result.txt")); !os.IsNotExist(err) {
@@ -152,7 +159,7 @@ func TestPlanModeRealGuardReadWriteAndExplicitAskRestoration(t *testing.T) {
 	if err = a.Service.SetPlanMode(t.Context(), p.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 2 {
+	if calls.Load() != 3 {
 		t.Fatal("exiting Plan executed the model")
 	}
 	if _, err = os.Stat(marker); !os.IsNotExist(err) {

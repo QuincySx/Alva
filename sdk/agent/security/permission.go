@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"reflect"
 	"sort"
 	"sync"
@@ -34,6 +35,74 @@ const (
 )
 
 var ErrPermissionDenied = errors.New("permission denied")
+
+// DeniedError is a pure, attributable denial (a decision, not a fault). Reason is
+// model-facing text. It matches ErrPermissionDenied, but only an unwrapped
+// *DeniedError may be delivered to the model as a tool result; a denial joined
+// with cancellation or invalidation stays an abort.
+type DeniedError struct{ Reason string }
+
+func (err *DeniedError) Error() string    { return err.Reason }
+func (*DeniedError) Is(target error) bool { return target == ErrPermissionDenied }
+
+const (
+	ReasonUserDeclined = "The user declined this tool call. Do not retry it unless the user asks; consider another approach or ask the user."
+	ReasonPlanMode     = "Plan mode is on: writes are disabled. Describe the change instead of making it."
+	ReasonRuleDenied   = "A permission rule denies this tool call. Consider another approach."
+	ReasonPathDenied   = "The path is outside the workspace or protected. Use a path inside the workspace."
+)
+
+// ErrTarget marks a file operation refused because of what the target is
+// (symlink, directory, non-regular or oversized file): model-correctable.
+var ErrTarget = errors.New("file target is unsupported")
+
+// Recoverable turns a pure denial into the kernel's model-recoverable veto, and
+// an ordinary path problem (missing, unreadable, unsupported target) into a
+// model-recoverable tool failure. Everything else, including any error joined
+// with cancellation or a session failure, is returned unchanged and aborts.
+func Recoverable(err error) error {
+	if err == nil {
+		return nil
+	}
+	if d, ok := err.(*DeniedError); ok {
+		return &abi.ToolBlockedError{Reason: d.Reason, Cause: err}
+	}
+	if !flatChain(err) {
+		return err // a joined tree may hide a real fault next to the path problem
+	}
+	var session *abi.SessionError
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.As(err, &session) {
+		return err
+	}
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return &abi.ToolFailedError{Reason: "Path does not exist.", Cause: err}
+	case errors.Is(err, fs.ErrPermission):
+		return &abi.ToolFailedError{Reason: "The operating system denied access to this path.", Cause: err}
+	case errors.Is(err, ErrTarget):
+		return &abi.ToolFailedError{Reason: err.Error(), Cause: err}
+	}
+	return err
+}
+
+// flatChain is true when err and everything it wraps form a single chain with
+// no Join node.
+func flatChain(err error) bool {
+	for err != nil {
+		if _, multi := err.(interface{ Unwrap() []error }); multi {
+			return false
+		}
+		next, ok := err.(interface{ Unwrap() error })
+		if !ok {
+			return true
+		}
+		err = next.Unwrap()
+	}
+	return true
+}
+
+func denied(reason string) error { return &DeniedError{Reason: reason} }
+
 var ErrApprovalRequired = errors.New("approval required but no handler is available")
 
 type ApprovalRequest struct {
@@ -205,7 +274,7 @@ func (manager *PermissionManager) Authorize(ctx context.Context, request Approva
 		return ErrPermissionDenied
 	}
 	if mode == Plan && request.Effect.Kind != abi.EffectRead {
-		return ErrPermissionDenied
+		return denied(ReasonPlanMode)
 	}
 	explicitAsk := false
 	if manager.rules != nil {
@@ -213,7 +282,7 @@ func (manager *PermissionManager) Authorize(ctx context.Context, request Approva
 		if matched {
 			switch decision {
 			case RulesDeny:
-				return ErrPermissionDenied
+				return denied(ReasonRuleDenied)
 			case RulesAllow:
 				return nil
 			case RulesAsk:
@@ -228,7 +297,7 @@ func (manager *PermissionManager) Authorize(ctx context.Context, request Approva
 		if cached {
 			return nil
 		}
-		return ErrPermissionDenied
+		return denied(ReasonUserDeclined)
 	}
 	if nilImplementation(handler) {
 		return ErrApprovalRequired
@@ -296,7 +365,7 @@ func (manager *PermissionManager) Authorize(ctx context.Context, request Approva
 		manager.cache[key] = decision.Allowed
 	}
 	if approvalErr == nil && !decision.Allowed {
-		approvalErr = ErrPermissionDenied
+		approvalErr = denied(ReasonUserDeclined)
 	}
 	if flight != nil {
 		flight.err = approvalErr

@@ -1,3 +1,5 @@
+const InlineResultLimit = 8 << 10
+
 const MaxTextMatches = 20
 
 const MaxTextPageBytes = 4 << 10
@@ -122,6 +124,8 @@ func CollectSummary(ctx context.Context, model abi.LanguageModel, request abi.Mo
 
 func DefaultSystem(budget, window int) *abi.ContextSystem
 
+func InlinePrefix(text string) (prefix string, truncated bool)
+
 func NewMemoryReferences(sessionID string, maxBytes int) (*MemoryReferences, error)
 
 func NewReferenceReadTool(backend ReferenceBackend, sessionID string) abi.Tool
@@ -137,6 +141,8 @@ func RenderForSummary(message wire.Message, blockLimit int) string
 func SafeWindow(messages []wire.Message, keep int) []wire.Message
 
 func SummaryRequest(previous, transcript string, maxOutputTokens uint32, config wire.ModelConfig) abi.ModelRequest
+
+import "unicode/utf8"
 
 import (
 	"bytes"

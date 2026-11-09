@@ -15,6 +15,7 @@ Guard/HITL、实际工具身份/会话/cwd/run 和持久 risk/intent 先于启�
 
 Sessions.List与私有job snapshot均在锁内复制Task开始/结束时间和ExitCode指针，返回状态不授予owner元数据写入权。
 
+工具参数非法、不属于本会话的 job、游标越界、job 预算超限、guard 拒绝是 ToolFailedError/ToolBlockedError（模型可纠正，本轮继续）；身份缺失、执行失败、回执超限、存储失败仍中止。
 所有权事实（job_intent/job_outcome/job_start_failed/job_abandoned）每次都与`alva.shell`/`pending_jobs`快照（排序后的未完成任务ID JSON数组）经`AppendExtensionSnapshot`原子同批写入，revision为该流最新记录sequence；任一写入错误都让下次写入先重读最新快照，revision冲突视为另一owner在写、不自动重试。中断恢复只用`LatestRecord`读最新快照，不再全量`Records`；没有快照的旧会话一次性按`Page`（每页100条元数据，只打开所有权记录正文）重建未完成集合，内存只留集合，随后写入首个快照（无待办也写空快照）。这不是兼容桥，旧会话数据照常可读。
 
 存储只消费本包按需组合的共享storage能力插口（Journal + Records + ArtifactReader）；会话/引用/DTO/错误从同一契约返回，不导入具体session.Repository或SQL实现。后端由上层程序/插件装配选择，组件不回落默认库、不downcast实现，不持有存储Close。

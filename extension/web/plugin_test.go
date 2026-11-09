@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -261,5 +262,71 @@ func TestHTMLSkippedContainersRemainSkippedAcrossNestedTags(t *testing.T) {
 		if strings.Contains(string(value), "private") || !strings.Contains(string(value), "visible") {
 			t.Fatalf("skip declaration violated: %s", value)
 		}
+	}
+}
+
+// Bad input and a remote that answers badly are model-correctable; the tool says
+// so with ToolFailedError instead of aborting the run.
+func TestWebInputAndRemoteProblemsAreModelFailures(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, strings.Repeat("x", maxBody+1))
+	}))
+	defer server.Close()
+	f := newFixture(t, true)
+	p := f.plugin(t, server.URL, false)
+	for name, args := range map[string]string{
+		"bad url":  `{"url":"ftp://example.com/x"}`,
+		"no field": `{}`,
+		"oversize": `{"url":"` + server.URL + `"}`,
+	} {
+		_, err := direct(t, f, p, "read_url", args)
+		var failed *abi.ToolFailedError
+		if !errors.As(err, &failed) {
+			t.Errorf("%s: want ToolFailedError, got %v", name, err)
+		}
+	}
+}
+
+// The model gets a category and the bare host, never the URL, query, redirect
+// Location or any key that rode along in them.
+func TestWebFailureTextCarriesNoURLSecrets(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/redirect":
+			http.Redirect(w, r, "http://203.0.113.9/landing?token=LOCATION-SECRET", http.StatusFound)
+		case "/large":
+			io.WriteString(w, strings.Repeat("x", maxBody+1))
+		}
+	}))
+	defer server.Close()
+	f := newFixture(t, true)
+	p := f.plugin(t, server.URL, false)
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL
+	dead.Close() // connection refused: the raw error is a *url.Error carrying the full URL
+	p.config.Network.AllowedPrivateOrigins = append(p.config.Network.AllowedPrivateOrigins, deadURL)
+	for _, target := range []string{server.URL + "/large?token=QUERY-SECRET", server.URL + "/redirect?token=QUERY-SECRET", deadURL + "/x?token=QUERY-SECRET"} {
+		_, err := direct(t, f, p, "read_url", `{"url":"`+target+`"}`)
+		path := target
+		var failed *abi.ToolFailedError
+		if !errors.As(err, &failed) {
+			t.Fatalf("%s: want ToolFailedError, got %v", path, err)
+		}
+		if strings.Contains(failed.Reason, "SECRET") || strings.Contains(failed.Reason, "token") || strings.Contains(failed.Reason, "/large") || !strings.Contains(failed.Reason, "127.0.0.1") || strings.Contains(failed.Reason, "/x") {
+			t.Fatalf("%s: leaked or unhelpful: %q", path, failed.Reason)
+		}
+	}
+}
+
+func TestWebProblemNeverEchoesTheRawError(t *testing.T) {
+	raw := &url.Error{Op: "Get", URL: "https://h.example/p?key=KEY-SECRET", Err: errors.New("boom Location: https://x/?t=LOC-SECRET")}
+	for name, err := range map[string]error{"raw": raw, "deadline": context.DeadlineExceeded, "redirect": errors.New("web redirect limit exceeded")} {
+		text := webProblem(err, false, "h.example").Error()
+		if strings.Contains(text, "SECRET") || strings.Contains(text, "key=") || !strings.Contains(text, "h.example") {
+			t.Fatalf("%s: %q", name, text)
+		}
+	}
+	if text := webProblem(raw, true, "h.example").Error(); strings.Contains(text, "SECRET") || !strings.Contains(text, "parsed") {
+		t.Fatal(text)
 	}
 }

@@ -37,8 +37,10 @@ func TestSelectedChildUsesActualAfterModelCommit(t *testing.T) {
 			return Child{Runner: agent, Session: log}, err
 		})
 		result, err := execute(t, p, execution, `{"task":"work"}`)
-		if (err != nil) != fail {
-			t.Fatal("wrong run outcome", err)
+		// A child whose own run failed is a model-visible error result, not a
+		// parent run failure.
+		if err != nil || result.IsError != fail {
+			t.Fatal("wrong run outcome", result.IsError, err)
 		}
 		var receipt struct {
 			Selected  *wire.Reference `json:"selected_output"`

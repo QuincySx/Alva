@@ -84,14 +84,21 @@ func TestRealHumanHandlerAnswerIsDurableReferenceNotInlineOrApproval(t *testing.
 	if out.err != nil {
 		t.Fatal(out.err)
 	}
-	if strings.Contains(out.result.Content[0].Text, "human-source-only") {
-		t.Fatal("large raw answer automatically fed to model")
+	// A large answer reaches the model only as a bounded prefix (never whole);
+	// the complete text lives in the reference.
+	if len(out.result.Content[0].Text) > 16<<10 || strings.Contains(out.result.Content[0].Text, answer) {
+		t.Fatal("large raw answer automatically fed to model in full")
 	}
 	var receipt struct {
-		Answer wire.Reference `json:"answer"`
+		Answer    wire.Reference        `json:"answer"`
+		Value     struct{ Text string } `json:"answer_value"`
+		Truncated bool                  `json:"answer_truncated"`
 	}
 	if err = json.Unmarshal([]byte(out.result.Content[0].Text), &receipt); err != nil {
 		t.Fatal(err)
+	}
+	if !receipt.Truncated || receipt.Value.Text == "" || len(receipt.Value.Text) > 8<<10 {
+		t.Fatalf("large answer must arrive as a bounded prefix: truncated=%v len=%d", receipt.Truncated, len(receipt.Value.Text))
 	}
 	_, raw, err := repo.ReadArtifactFull(ctx, "owner", "native", receipt.Answer.URI, 128<<10)
 	if err != nil || !strings.Contains(string(raw), answer) {

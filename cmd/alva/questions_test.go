@@ -136,7 +136,17 @@ func TestDirectQuestionChoicesOtherAndPermissionRemainIndependent(t *testing.T) 
 					}
 					cliCompatibilityReply(w, "first-write", "write_file", `{"path":"first.txt","content":"first"}`)
 				case 4:
+					// A declined first write is reported to the model as a tool
+					// result; the run goes on instead of aborting.
+					if !tc.allow && !bytes.Contains(data, []byte("The user declined this tool call")) {
+						t.Error("the decline did not reach the model", string(data))
+					}
 					cliCompatibilityReply(w, "second-write", "write_file", `{"path":"second.txt","content":"second"}`)
+				case 5:
+					if !bytes.Contains(data, []byte("The user declined this tool call")) {
+						t.Error("the second decline did not reach the model", string(data))
+					}
+					workflowReply(w, "", "", "finished")
 				default:
 					t.Error("question was repeated or model replayed")
 					workflowReply(w, "", "", "extra")
@@ -202,21 +212,28 @@ func TestDirectQuestionChoicesOtherAndPermissionRemainIndependent(t *testing.T) 
 				decision = "allow " + first.id
 			}
 			sendQuestionLine(t, writer, decision)
-			if tc.allow {
-				second := nextQuestionPrompt(t, diagnostic, "permission")
-				if second.id == first.id {
-					t.Fatal("approval identity reused")
+			second := nextQuestionPrompt(t, diagnostic, "permission")
+			if second.id == first.id {
+				t.Fatal("approval identity reused")
+			}
+			// A stale approval cannot grant the next call permission; for the
+			// declined cases the second call is simply declined too.
+			sendQuestionLine(t, writer, "allow "+first.id)
+			// Both calls were refused as tool results, so the Turn finishes and
+			// the REPL returns to its prompt; closing input ends it cleanly.
+			waitCalls := time.After(10 * time.Second)
+			for calls.Load() < 5 {
+				select {
+				case <-waitCalls:
+					t.Fatal("the run did not continue after the declines", calls.Load(), diagnostic.String())
+				case <-time.After(10 * time.Millisecond):
 				}
-				// A stale approval cannot grant the next call permission.
-				sendQuestionLine(t, writer, "allow "+first.id)
 			}
-			if err := <-done; err == nil || !strings.Contains(err.Error(), security.ErrPermissionDenied.Error()) {
-				t.Fatal(err, diagnostic.String())
+			writer.Close()
+			if err := <-done; err != nil && errors.Is(err, security.ErrPermissionDenied) {
+				t.Fatal("a decline must not fail the run", err, diagnostic.String())
 			}
-			wantCalls := int32(3)
-			if tc.allow {
-				wantCalls = 4
-			}
+			wantCalls := int32(5)
 			if calls.Load() != wantCalls {
 				t.Fatal(calls.Load(), output.String(), diagnostic.String())
 			}
@@ -485,7 +502,8 @@ func TestDirectQuestionKeepsExplicitPermissionMode(t *testing.T) {
 			err := run(t.Context(), []string{"--repl", "--live", "--endpoint", server.URL, "--model", "fixture", "--workspace", workspace, "--permission-mode", string(mode), "--prompt", "ask then write"}, strings.NewReader("Other\nallow all writes\n/quit\n"), &output, &diagnostic)
 			data, fileErr := os.ReadFile(filepath.Join(workspace, "policy.txt"))
 			if mode == security.Plan {
-				if err == nil || !errors.Is(fileErr, os.ErrNotExist) || calls.Load() != 2 {
+				// Plan refuses the write as a tool result; the model continues to a final answer.
+				if err != nil || !errors.Is(fileErr, os.ErrNotExist) || calls.Load() != 3 || !strings.Contains(output.String(), "explicit policy completed") {
 					t.Fatal("Other overrode Plan", err, fileErr, calls.Load())
 				}
 			} else if err != nil || fileErr != nil || string(data) != "configured policy" || calls.Load() != 3 {

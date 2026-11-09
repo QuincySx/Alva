@@ -40,8 +40,7 @@ func TestDelegatedChildResultReturnsToTheParentAndTheTraceLinksIt(t *testing.T) 
 	if model.calls() != 3 {
 		t.Fatalf("model requests %d, want root, child, root", model.calls())
 	}
-	// The parent model receives the child's outcome and a reference to its
-	// selected final answer (references first), readable in the parent session.
+	// The parent model receives the child's outcome and its selected final answer inline plus a reference, readable in the parent session.
 	raw := model.request(3).toolResults()["c-spawn"]
 	var content string
 	var result struct {
@@ -49,10 +48,19 @@ func TestDelegatedChildResultReturnsToTheParentAndTheTraceLinksIt(t *testing.T) 
 		Selected struct {
 			URI string `json:"uri"`
 		} `json:"selected_output"`
-		Committed bool `json:"selected_output_committed"`
+		Committed bool   `json:"selected_output_committed"`
+		Text      string `json:"selected_text"`
 	}
-	if json.Unmarshal([]byte(raw), &content) != nil || json.Unmarshal([]byte(content), &result) != nil || result.Outcome != "completed" || !result.Committed || result.Selected.URI == "" {
+	if json.Unmarshal([]byte(raw), &content) != nil {
 		t.Fatalf("child result returned to the parent model: %s", raw)
+	}
+	if json.Unmarshal([]byte(content), &result) != nil || result.Outcome != "completed" || !result.Committed || result.Selected.URI == "" {
+		t.Fatalf("child result returned to the parent model: %s", raw)
+	}
+	// The child's small answer is inside the receipt: the parent model does not
+	// have to read it back by reference.
+	if result.Text != "CHILD-RESULT-42" {
+		t.Fatalf("small child answer not delivered directly: %q", content)
 	}
 	parentRefs, err := h.app.Repository.BoundReferences(ctx, s.ID, h.branch(s.ID).NativeSessionID)
 	if err != nil {

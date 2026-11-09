@@ -393,3 +393,41 @@ func TestCancelledShellWriteIsCancellationNotSessionFailure(t *testing.T) {
 		t.Fatalf("cancellation mixed with a storage fault must stay a SessionError: %v", got)
 	}
 }
+
+// Bad arguments and a job the model does not own are correctable; they must not
+// abort the run.
+func TestShellArgumentProblemsAreModelFailures(t *testing.T) {
+	f := newFixture(t)
+	for name, args := range map[string]any{
+		"empty command": map[string]any{"command": ""},
+		"unknown field": map[string]any{"command": "true", "bogus": 1},
+		"timeout range": map[string]any{"command": "true", "timeout_ms": 999999999},
+	} {
+		_, err := f.call(t, "execute_shell", args)
+		var failed *abi.ToolFailedError
+		if !errors.As(err, &failed) {
+			t.Errorf("%s: want ToolFailedError, got %v", name, err)
+		}
+	}
+	_, err := f.call(t, "kill_shell", map[string]any{"job_id": "not-mine"})
+	var failed *abi.ToolFailedError
+	if !errors.As(err, &failed) {
+		t.Errorf("foreign job: want ToolFailedError, got %v", err)
+	}
+}
+
+// The shell's Cwd is configuration. If it vanishes the model cannot fix that, so
+// the run aborts instead of reporting a correctable tool failure.
+func TestMissingShellCwdIsAHostFaultNotAModelFailure(t *testing.T) {
+	f := newFixture(t)
+	if err := os.RemoveAll(f.cwd); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.call(t, "execute_shell", map[string]any{"command": "true"})
+	if err == nil {
+		t.Fatal("missing Cwd executed")
+	}
+	if errors.As(err, new(*abi.ToolFailedError)) || errors.As(err, new(*abi.ToolBlockedError)) {
+		t.Fatalf("host configuration fault was made model-visible: %v", err)
+	}
+}

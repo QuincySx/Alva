@@ -92,14 +92,14 @@ func (guard *Guard) CheckPath(ctx context.Context, path string, access abi.Acces
 		return "", errors.New("invalid requested path/access")
 	}
 	if guard.filter.IsSensitive(path) {
-		return "", ErrPermissionDenied
+		return "", denied(ReasonPathDenied)
 	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(guard.workspace, path)
 	}
 	path = filepath.Clean(path)
 	if guard.filter.IsSensitive(path) || !guard.contains(path, access) {
-		return "", ErrPermissionDenied
+		return "", denied(ReasonPathDenied)
 	}
 	if guard.resolver == nil {
 		return "", errors.New("host path resolver unavailable; lexical checks are not a sandbox")
@@ -116,7 +116,7 @@ func (guard *Guard) CheckPath(ctx context.Context, path string, access abi.Acces
 	}
 	resolved = filepath.Clean(resolved)
 	if guard.filter.IsSensitive(resolved) || !guard.contains(resolved, access) {
-		return "", ErrPermissionDenied
+		return "", denied(ReasonPathDenied)
 	}
 	return resolved, nil
 }

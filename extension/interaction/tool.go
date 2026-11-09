@@ -13,6 +13,7 @@ import (
 	"io"
 	"reflect"
 	"time"
+	"unicode/utf8"
 
 	"github.com/QuincySx/Alva/platform/system/strictjson"
 	agentcontext "github.com/QuincySx/Alva/sdk/agent/context"
@@ -56,23 +57,47 @@ type Receipt struct {
 	QuestionID string          `json:"question_id"`
 	Answered   bool            `json:"-"`
 	Inline     *ResolvedAnswer `json:"answer_value,omitempty"`
-	Question   wire.Reference  `json:"question"`
-	Answer     wire.Reference  `json:"answer"`
-	Structured bool            `json:"structured"`
-	Selected   []int           `json:"selected"`
-	Notice     string          `json:"notice"`
+	// Truncated reports that Inline holds only a bounded prefix; the complete
+	// answer is then available through the Answer reference.
+	Truncated  bool           `json:"-"`
+	Question   wire.Reference `json:"question"`
+	Answer     wire.Reference `json:"answer"`
+	Structured bool           `json:"structured"`
+	Selected   []int          `json:"selected"`
+	Notice     string         `json:"notice"`
 }
 
 func (r Receipt) Result(callID string) (wire.ToolResult, error) {
 	body := map[string]any{"question_id": r.QuestionID, "structured": r.Structured, "selected": r.Selected, "notice": r.Notice}
 	if r.Inline != nil {
 		body["answer_value"] = r.Inline
-	} else {
+		if r.Truncated {
+			body["answer_truncated"] = true
+		}
+	}
+	if r.Answer.URI != "" {
+		// Retained evidence stays available next to the directly delivered answer.
 		body["question"], body["answer"] = r.Question, r.Answer
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return wire.ToolResult{}, err
+	}
+	if len(raw) > 16<<10 && r.Answer.URI != "" && r.Inline != nil {
+		// Escaping can inflate an inline answer past the receipt cap. The
+		// reference is complete evidence, so fall back to a short prefix.
+		short := *r.Inline
+		cut := 1 << 10
+		for cut > 0 && cut < len(short.Text) && !utf8.RuneStart(short.Text[cut]) {
+			cut--
+		}
+		if cut < len(short.Text) {
+			short.Text = short.Text[:cut]
+		}
+		body["answer_value"], body["answer_truncated"] = &short, true
+		if raw, err = json.Marshal(body); err != nil {
+			return wire.ToolResult{}, err
+		}
 	}
 	if len(raw) > 16<<10 {
 		return wire.ToolResult{}, &AnswerReceivedError{QuestionID: r.QuestionID, Err: errors.New("question receipt exceeds 16 KiB; configure reference output for larger answers")}
@@ -182,6 +207,13 @@ func Ask(ctx context.Context, q Question, handler Handler, retain func(context.C
 		receipt.Notice = "Complete human clarification; not host authorization"
 		return receipt, nil
 	}
+	// The model gets a small answer now rather than having to read it back; a
+	// large one arrives as a bounded prefix plus the reference below.
+	prefix, cut := agentcontext.InlinePrefix(resolved.Text)
+	inline := resolved
+	inline.Text = prefix
+	receipt.Inline, receipt.Truncated = &inline, cut
+	receipt.Notice = "Human clarification shown in answer_value (up to 8 KiB); the complete answer is also retained at answer; not host authorization"
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	ref, err := retain(cleanup, "human-answer", q.ID, resolved)

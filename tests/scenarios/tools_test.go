@@ -168,32 +168,41 @@ func TestStopDuringALongShellCommandKillsIt(t *testing.T) {
 	}
 }
 
-// Under the documented file-tool rule (extension/files AGENTS.md: real IO
-// failures are execution errors; only argument/binary/ambiguity problems are
-// model-recoverable) a read of a missing path ends the whole Turn and the
-// model never sees the error. The same holds for a directory or a symlink.
-// Whether ordinary "not found" should instead reach the model is an open
-// product decision; this scenario pins today's behavior and its recovery.
-func TestReadingAMissingFileEndsTheTurnAndTheUserCanRetry(t *testing.T) {
+// Ordinary file problems (missing path, a directory) are tool error results: the
+// model sees them, corrects itself and the same Turn finishes.
+func TestReadingAMissingFileLetsTheModelCorrectItself(t *testing.T) {
 	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "present.txt"), []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(workspace, "folder"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	model := newFakeModel(t, provider.OpenAIChatKind,
 		call("c-missing", "read_file", `{"path":"missing.txt"}`),
-		text("ok"),
+		call("c-dir", "read_file", `{"path":"folder"}`),
+		call("c-ok", "read_file", `{"path":"present.txt"}`),
+		text("read it"),
 	)
 	h := openHub(t, liveConfig(t, model))
 	s := h.create("missing file", workspace)
 	h.send(s.ID, "read missing.txt")
-	h.expect(s.ID, engine.Failed)
-	if model.calls() != 1 {
-		t.Fatalf("model requests %d: the error reached the model after all", model.calls())
+	h.expect(s.ID, engine.Succeeded)
+	if model.calls() != 4 {
+		t.Fatalf("model requests %d, want 4: the errors did not reach the model", model.calls())
 	}
-	errs := errorEvents(h.history(s.ID))
-	if len(errs) != 1 || errs[0].Failure != engine.FailureExecution || !strings.Contains(errs[0].Text, "no such file") {
-		t.Fatalf("missing file error %+v", errs)
+	results := model.request(4).toolResults()
+	if !strings.Contains(results["c-missing"], "does not exist") || !strings.Contains(results["c-dir"], "regular") {
+		t.Fatalf("the model did not see the file errors: %v", results)
 	}
-	if b := toolBlock(t, h.blocks(s.ID), "c-missing"); b.Status != product.BlockStatusFailed {
+	if errs := errorEvents(h.history(s.ID)); len(errs) != 0 {
+		t.Fatalf("ordinary tool failures must not fail the Turn: %+v", errs)
+	}
+	blocks := h.blocks(s.ID)
+	if b := toolBlock(t, blocks, "c-missing"); b.Status != product.BlockStatusFailed {
 		t.Fatalf("missing file block %+v", b)
 	}
-	h.send(s.ID, "never mind")
-	h.expect(s.ID, engine.Succeeded)
+	if b := toolBlock(t, blocks, "c-ok"); b.Status != product.BlockStatusCompleted {
+		t.Fatalf("corrected read block %+v", b)
+	}
 }

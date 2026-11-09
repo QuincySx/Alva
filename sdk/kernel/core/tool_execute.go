@@ -143,6 +143,12 @@ func executeTool(ctx context.Context, execution abi.ToolExecutionContext, tool a
 	err = errors.Join(err, baseViolation)
 	baseMu.Unlock()
 	if err != nil {
+		if ctx.Err() == nil && onlyToolBlocked(err) {
+			// Policy vetoes and ordinary tool failures from wrappers or the
+			// tool itself are model-recoverable results, not run failures.
+			result = wire.ToolResult{CallID: frozen.ID, IsError: true, Content: []wire.ContentBlock{{Kind: wire.ContentText, Text: err.Error()}}}
+			return afterTool(ctx, execution, frozen, result, middleware, audit)
+		}
 		return result, err
 	}
 	return afterTool(ctx, execution, frozen, result, middleware, audit)
@@ -175,6 +181,9 @@ func onlyToolBlocked(err error) bool {
 	if _, ok := err.(*abi.ToolBlockedError); ok {
 		return true
 	}
+	if _, ok := err.(*abi.ToolFailedError); ok {
+		return true
+	}
 	if _, ok := err.(*abi.SessionError); ok {
 		return false
 	}
@@ -192,6 +201,33 @@ func onlyToolBlocked(err error) bool {
 	}
 	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
 		return onlyToolBlocked(wrapped.Unwrap())
+	}
+	return false
+}
+
+// onlyToolFailed distinguishes ordinary failures from policy vetoes for audit:
+// true when the recoverable tree contains no policy veto.
+func onlyToolFailed(err error) bool {
+	if err == nil {
+		return false
+	}
+	if _, ok := err.(*abi.ToolFailedError); ok {
+		return true
+	}
+	if _, ok := err.(*abi.ToolBlockedError); ok {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		children := joined.Unwrap()
+		for _, child := range children {
+			if !onlyToolFailed(child) {
+				return false
+			}
+		}
+		return len(children) > 0
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return onlyToolFailed(wrapped.Unwrap())
 	}
 	return false
 }

@@ -121,3 +121,48 @@ func TestOptionalReferenceBackendRejectsTypedNil(t *testing.T) {
 		t.Fatal("typed-nil backend silently selected inline output")
 	}
 }
+
+// With reference output configured the model still gets a small answer directly,
+// and a large one as a bounded prefix, the complete text staying in the reference.
+func TestRetainedAnswerIsAlsoDeliveredDirectly(t *testing.T) {
+	for name, answer := range map[string]string{
+		"small":   "just do it",
+		"large":   strings.Repeat("长", 5000), // 15000 bytes
+		"escaped": strings.Repeat("<", 9000), // JSON-inflated past the receipt cap
+	} {
+		refs, _ := agentcontext.NewMemoryReferences("s", 1<<20)
+		tool, err := interaction.NewTool(interaction.ToolConfig{References: refs, Handler: interaction.HandlerFunc(func(context.Context, interaction.Question) (interaction.Answer, error) {
+			a := answer
+			return interaction.Answer{Text: &a}, nil
+		})})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := tool.Execute(t.Context(), abi.ToolExecutionContext{ActualTool: tool, SessionID: "s", RunID: "run", CallID: "ask"}, wire.ToolCall{ID: "ask", Name: tool.Name(), Arguments: json.RawMessage(`{"question":"q"}`)})
+		if err != nil || result.IsError {
+			t.Fatalf("%s: %+v %v", name, result, err)
+		}
+		var receipt struct {
+			Value     *interaction.ResolvedAnswer `json:"answer_value"`
+			Truncated bool                        `json:"answer_truncated"`
+			Answer    *wire.Reference             `json:"answer"`
+		}
+		if err := json.Unmarshal([]byte(result.Content[0].Text), &receipt); err != nil || receipt.Value == nil || receipt.Answer == nil {
+			t.Fatalf("%s: need inline value and reference: %v %s", name, err, result.Content[0].Text)
+		}
+		page, err := refs.ReadText(t.Context(), receipt.Answer.URI, 0, 4096)
+		if err != nil || page.Text == "" {
+			t.Fatalf("%s: reference must hold the real answer: %v", name, err)
+		}
+		switch name {
+		case "small":
+			if receipt.Value.Text != answer || receipt.Truncated {
+				t.Fatalf("small answer not verbatim: %+v", receipt)
+			}
+		default:
+			if !receipt.Truncated || !strings.HasPrefix(answer, receipt.Value.Text) || len(receipt.Value.Text) == 0 || len(receipt.Value.Text) > 8<<10 {
+				t.Fatalf("%s: want bounded non-empty prefix, got %d bytes truncated=%v", name, len(receipt.Value.Text), receipt.Truncated)
+			}
+		}
+	}
+}

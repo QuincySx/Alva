@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/url"
@@ -18,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	strictjson "github.com/QuincySx/Alva/platform/system/strictjson"
+	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -64,20 +66,20 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 		return result, errors.New("web requires actual dispatched tool/call authority")
 	}
 	if len(call.Arguments) > 16<<10 || !utf8.Valid(call.Arguments) {
-		return result, errors.New("web input exceeds 16 KiB UTF-8")
+		return result, modelFailure(errors.New("web input exceeds 16 KiB UTF-8"))
 	}
 	if err := strictjson.Validate(call.Arguments); err != nil {
-		return result, err
+		return result, modelFailure(err)
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(call.Arguments, &fields) != nil || fields == nil {
-		return result, errors.New("web input must be an object")
+		return result, modelFailure(errors.New("web input must be an object"))
 	}
 	var schema struct{ Properties map[string]any }
 	json.Unmarshal(t.ParametersSchema(), &schema)
 	for key, value := range fields {
 		if _, ok := schema.Properties[key]; !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return result, errors.New("unknown/null web field")
+			return result, modelFailure(errors.New("unknown/null web field"))
 		}
 	}
 	var args struct {
@@ -89,20 +91,20 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 	d := json.NewDecoder(bytes.NewReader(call.Arguments))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&args); err != nil {
-		return result, err
+		return result, modelFailure(err)
 	}
 	if d.Decode(new(any)) != io.EOF {
-		return result, errors.New("one web input object required")
+		return result, modelFailure(errors.New("one web input object required"))
 	}
 	raw := args.URL
 	if t.name == "internet_search" {
 		if len(args.Query) == 0 || len(args.Query) > 4096 || len(args.Allowed) > 20 || len(args.Blocked) > 20 {
-			return result, errors.New("bounded explicit search query/domain filters required")
+			return result, modelFailure(errors.New("bounded explicit search query/domain filters required"))
 		}
 		for _, domains := range [][]string{args.Allowed, args.Blocked} {
 			for _, domain := range domains {
 				if len(domain) == 0 || len(domain) > 253 || strings.ToLower(domain) != domain || strings.ContainsAny(domain, "/:@% \\?#") {
-					return result, errors.New("domain filters require lowercase plain host names")
+					return result, modelFailure(errors.New("domain filters require lowercase plain host names"))
 				}
 			}
 		}
@@ -110,7 +112,7 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 			args.MaxResults = 5
 		}
 		if args.MaxResults < 1 || args.MaxResults > 20 {
-			return result, errors.New("search result limit 1..20 required")
+			return result, modelFailure(errors.New("search result limit 1..20 required"))
 		}
 		u, _ := url.Parse(t.plugin.config.Search.Endpoint)
 		q := u.Query()
@@ -123,7 +125,7 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 	}
 	u, err := parseURL(raw)
 	if err != nil {
-		return result, err
+		return result, modelFailure(err)
 	}
 	p := t.plugin
 	select {
@@ -150,7 +152,7 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 		return result, err
 	}
 	if err = p.config.Guard.Authorize(ctx, e, call, t.DescribeEffect(call)); err != nil {
-		return result, err
+		return result, security.Recoverable(err)
 	}
 	if err = p.check(e); err != nil {
 		return result, err
@@ -160,7 +162,7 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 	operations := p.operations
 	p.mu.Unlock()
 	if operations > 64 {
-		return result, errors.New("web operation budget exceeds 64 per run")
+		return result, modelFailure(errors.New("web operation budget exceeds 64 per run"))
 	}
 	keySum := sha256.Sum256(append([]byte(t.name+"\x00"), call.Arguments...))
 	key := hex.EncodeToString(keySum[:])
@@ -177,11 +179,11 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 		rate = rateEntry{At: now}
 	}
 	if rate.Count >= 10 {
-		return result, errors.New("web per-host request budget exceeds 10 per minute")
+		return result, modelFailure(errors.New("web per-host request budget exceeds 10 per minute"))
 	}
 	if len(p.rates) >= 128 {
 		if _, ok := p.rates[host]; !ok {
-			return result, errors.New("web host budget exceeds 128")
+			return result, modelFailure(errors.New("web host budget exceeds 128"))
 		}
 	}
 	rate.Count++
@@ -199,6 +201,13 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 	defer cancel()
 	defer stop()
 	data, runErr := fetch(deadline, raw, p.config.Network)
+	// Network and content problems are the world answering badly, which the model
+	// can route around; evidence-retention failures stay host faults.
+	var worldErr error
+	contentFailed := false
+	if runErr != nil {
+		worldErr = runErr
+	}
 	cleanup, end := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer end()
 	value := receipt{Status: data.Status, Notice: "Full untrusted response retained only as same-session references; known-credential redaction applied; no automatic model delivery or media understanding."}
@@ -211,7 +220,7 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 		if runErr == nil && t.name == "read_url" && media == "text/html" && utf8.Valid(data.Body) {
 			text, convertErr := htmlText(data.Body)
 			if convertErr != nil {
-				runErr = convertErr
+				runErr, worldErr, contentFailed = convertErr, convertErr, true
 			} else {
 				ref, retainErr := p.retain(cleanup, "web-html-text", id, "text/plain; charset=utf-8", "HTML5-tokenizer text only; script/style/noscript/template skipped, whitespace normalized; not Markdown or semantic reader mode", text)
 				runErr = retainErr
@@ -221,6 +230,9 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 		if runErr == nil && t.name == "internet_search" {
 			results, parseErr := instantAnswers(data.Body, args.MaxResults, args.Allowed, args.Blocked)
 			runErr = parseErr
+			if parseErr != nil {
+				worldErr, contentFailed = parseErr, true
+			}
 			if runErr == nil {
 				encoded, _ := json.Marshal(results)
 				ref, retainErr := p.retain(cleanup, "web-search-results", id, "application/json", "Parsed Instant Answer abstract/related topics with requested exact/suffix domain filters; not exhaustive search", encoded)
@@ -238,7 +250,11 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 	if runErr != nil {
 		outcome["error"] = "Web request or evidence retention failed; no retry and no successful prefix"
 	}
-	runErr = errors.Join(runErr, p.append(cleanup, "request_outcome", outcome))
+	appendErr := p.append(cleanup, "request_outcome", outcome)
+	if worldErr != nil && appendErr == nil && ctx.Err() == nil && errors.Is(runErr, worldErr) {
+		return result, modelFailure(webProblem(worldErr, contentFailed, host))
+	}
+	runErr = errors.Join(runErr, appendErr)
 	if runErr != nil {
 		return result, runErr
 	}
@@ -258,4 +274,34 @@ func (t *webTool) Execute(ctx context.Context, e abi.ToolExecutionContext, call 
 	p.cache[key] = cacheEntry{Receipt: value, Expires: now.Add(15 * time.Minute)}
 	encoded, _ := json.Marshal(value)
 	return wire.ToolResult{CallID: call.ID, Content: []wire.ContentBlock{{Kind: wire.ContentText, Text: string(encoded)}}, IsError: value.Status < 200 || value.Status >= 300}, nil
+}
+
+// modelFailure marks a web problem the model can correct or route around (bad
+// input, exhausted budget, unreachable or unparsable remote). Host faults such as
+// evidence-retention failures never use it.
+func modelFailure(err error) error { return &abi.ToolFailedError{Reason: err.Error(), Cause: err} }
+
+// webProblem is the only text the model gets about a failed request: a fixed
+// category plus the bare host. The raw error (a *url.Error carries the full URL,
+// query and redirect Location; endpoints may embed keys) is never echoed.
+func webProblem(err error, content bool, host string) error {
+	reason := "the connection failed"
+	text := err.Error()
+	switch {
+	case content:
+		reason = "the response could not be parsed"
+	case errors.Is(err, context.DeadlineExceeded):
+		reason = "the request timed out"
+	case strings.Contains(text, "DNS resolution failed"):
+		reason = "DNS resolution failed"
+	case strings.Contains(text, "authorized public address"):
+		reason = "the destination is not an authorized public address"
+	case strings.Contains(text, "redirect limit"):
+		reason = "too many redirects"
+	case strings.Contains(text, "exceeds 10 MiB"):
+		reason = "the response exceeds 10 MiB"
+	case strings.Contains(text, "compressed web body"):
+		reason = "the response was compressed"
+	}
+	return fmt.Errorf("Web request to %s failed: %s.", host, reason)
 }

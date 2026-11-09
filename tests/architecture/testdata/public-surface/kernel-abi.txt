@@ -96,6 +96,12 @@ func (err *SessionError) Unwrap() error
 
 func (err *ToolBlockedError) Error() string
 
+func (err *ToolBlockedError) Unwrap() error
+
+func (err *ToolFailedError) Error() string
+
+func (err *ToolFailedError) Unwrap() error
+
 func (r SessionRecord) Validate() error
 
 func (registry *ToolRegistry) Get(name string) (Tool, bool)
@@ -552,7 +558,10 @@ type Tool interface {
 	IsReadOnly(wire.ToolCall) bool
 }
 
-type ToolBlockedError struct{ Reason string }
+type ToolBlockedError struct {
+	Reason string
+	Cause  error
+}
 
 type ToolExecutionContext struct {
 	SessionID    string
@@ -565,6 +574,11 @@ type ToolExecutionContext struct {
 	Session      ConversationLog
 
 	ActualTool Tool
+}
+
+type ToolFailedError struct {
+	Reason string
+	Cause  error
 }
 
 type ToolFunc func(context.Context, ToolExecutionContext, wire.ToolCall) (wire.ToolResult, error)

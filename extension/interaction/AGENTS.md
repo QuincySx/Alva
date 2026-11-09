@@ -5,7 +5,7 @@
 普通可选工具与问答契约；只依赖标准库、SDK 和纯 strictjson。Handler 由宿主显式绑定；引用存储是可选输出政策。
 
 ## 逻辑
-NewTool(ToolConfig) 可直接注册到 SDK Builder.Tool；严格解析问题，身份仅来自执行上下文，只需 Handler，真正同步等待并校验答案；默认返回完整有界 answer_value，配置 References 才保存完整引用。ParseQuestion/Ask/Receipt 由普通 Tool 与 native 适配共同消费。普通 Tool 不自报管理超时，遵循宿主 timeout middleware 与调用 context；原生适配才自报管理超时，继续应用自身配置与 run 生命周期。
+NewTool(ToolConfig) 可直接注册到 SDK Builder.Tool；严格解析问题，身份仅来自执行上下文，只需 Handler，真正同步等待并校验答案；默认返回完整有界 answer_value，配置 References 才保存完整引用；此时答案仍同时直给模型：不超过 8KiB（agentcontext.InlineResultLimit）全文进 answer_value，超出给 UTF-8 安全前缀加 answer_truncated，完整答案在 answer 引用里（转义膨胀超回执上限时退到 1KiB 前缀）。ParseQuestion/Ask/Receipt 由普通 Tool 与 native 适配共同消费。普通 Tool 不自报管理超时，遵循宿主 timeout middleware 与调用 context；原生适配才自报管理超时，继续应用自身配置与 run 生命周期。
 
 ## 约束
 不是权限审批，不读取 ambient stdin；没有自动重放。Handler/显式引用后端 typed-nil 拒绝，取消后晚答不接受，不用遗留 goroutine 假造完成。问题8KiB/标题1KiB/metadata4KiB、2..4选项、答案64KiB；输入拒绝重复键、错误 Unicode、未知或错误大小写字段与模型伪造身份。JSON回执最多16KiB；无存储超界明确失败，已配置存储失败不退回全文。AnswerReceivedError 保留 question ID 并说明已收到有效答案，原始原因可 Unwrap；不自动再问。引用后端负责宿主存储范围与脱敏；native/ 保留原生 authority、Guard、并发限额、intent/outcome 与期限。

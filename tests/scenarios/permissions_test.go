@@ -117,43 +117,72 @@ func TestApprovalIsOnceOnlyAndDuplicateOrLateClicksFail(t *testing.T) {
 	}
 }
 
-// Denying a write leaves the file untouched. Under the current kernel contract
-// (sdk/kernel/abi ToolBlockedError: wrapper approval failures abort the run)
-// the denial ends the Turn as failed and the model is not asked again; the
-// Message Stream shows the refused call and the error. Whether a denial should
-// instead reach the model so it can answer is an open product decision.
-func TestDeniedWriteHasNoEffectAndEndsTheTurn(t *testing.T) {
+// Denying a write leaves the file untouched and the model is told: the denial
+// arrives as a tool error result and the Turn continues. The decline is one-time:
+// when the model asks for the same write again the user is asked again.
+func TestDeniedWriteReachesTheModelAndAnAskedAgainWriteIsAskedAgain(t *testing.T) {
 	workspace := t.TempDir()
+	args := `{"path":"denied.txt","content":"now allowed"}`
 	model := newFakeModel(t, provider.OpenAIChatKind,
-		call("c-deny", "write_file", `{"path":"denied.txt","content":"must not exist"}`),
+		call("c-deny", "write_file", args),
+		call("c-retry", "write_file", args),
+		text("done"),
 	)
 	h := openHub(t, liveConfig(t, model))
 	s := h.create("deny", workspace)
 	h.send(s.ID, "write a file")
-	item := h.pending(s.ID)
-	if err := h.service().RespondInteraction(context.Background(), s.ID, item, product.InteractionResponse{Allow: false}); err != nil {
+	first := h.pending(s.ID)
+	if err := h.service().RespondInteraction(context.Background(), s.ID, first, product.InteractionResponse{Allow: false}); err != nil {
 		t.Fatal(err)
 	}
-	h.expect(s.ID, engine.Failed)
+	// The decline reaches the model as an error result carrying guidance.
+	second := h.pending(s.ID)
+	if second.CallID != "c-retry" {
+		t.Fatalf("expected a fresh approval for the retried call, got %+v", second)
+	}
+	if r := model.request(2).toolResults()["c-deny"]; !strings.Contains(r, "The user declined this tool call") || !strings.Contains(r, "Do not retry") {
+		t.Fatalf("the decline did not reach the model: %s", r)
+	}
 	if _, err := os.Stat(filepath.Join(workspace, "denied.txt")); !os.IsNotExist(err) {
 		t.Fatal("denied write took effect", err)
 	}
-	if model.calls() != 1 {
-		t.Fatalf("model asked again after denial: %d", model.calls())
+	if err := h.service().RespondInteraction(context.Background(), s.ID, second, product.InteractionResponse{Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	h.expect(s.ID, engine.Succeeded)
+	if data, err := os.ReadFile(filepath.Join(workspace, "denied.txt")); err != nil || string(data) != "now allowed" {
+		t.Fatalf("approved retry %q %v", data, err)
+	}
+	if model.calls() != 3 {
+		t.Fatalf("model requests %d, want 3", model.calls())
 	}
 	blocks := h.blocks(s.ID)
-	if b := toolBlock(t, blocks, "c-deny"); b.Status != product.BlockStatusFailed || !strings.Contains(b.Text, "permission denied") {
-		t.Fatalf("refused call block %+v", b)
+	if b := toolBlock(t, blocks, "c-deny"); b.Status != product.BlockStatusFailed || !strings.Contains(b.Text, "declined") {
+		t.Fatalf("declined call block %+v", b)
 	}
-	if errs := errorEvents(h.history(s.ID)); len(errs) != 1 || errs[0].Failure != engine.FailureExecution {
-		t.Fatalf("denial error events %+v", errs)
+	if errs := errorEvents(h.history(s.ID)); len(errs) != 0 {
+		t.Fatalf("a decline must not fail the Turn: %+v", errs)
 	}
-	// The user can continue the conversation afterwards.
-	model.mu.Lock()
-	model.script = append(model.script, text("ok, tell me what to do instead"))
-	model.mu.Unlock()
-	h.send(s.ID, "fine, do not write")
+}
+
+// A path outside the workspace is refused without asking anyone; the model is
+// told why and the Turn continues.
+func TestOutsideWorkspaceWriteIsRefusedToTheModelWithoutACard(t *testing.T) {
+	workspace := t.TempDir()
+	model := newFakeModel(t, provider.OpenAIChatKind,
+		call("c-out", "write_file", `{"path":"../escape.txt","content":"x"}`),
+		text("understood"),
+	)
+	h := openHub(t, liveConfig(t, model))
+	s := h.create("outside", workspace)
+	h.send(s.ID, "write outside")
 	h.expect(s.ID, engine.Succeeded)
+	if r := model.request(2).toolResults()["c-out"]; !strings.Contains(r, "outside the workspace") {
+		t.Fatalf("the refusal did not reach the model: %s", r)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(workspace), "escape.txt")); !os.IsNotExist(err) {
+		t.Fatal("outside write took effect", err)
+	}
 }
 
 // Stop while a card waits: the Turn ends cancelled, nothing is written, the

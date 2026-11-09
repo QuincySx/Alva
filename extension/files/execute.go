@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	workspacefs "github.com/QuincySx/Alva/platform/host/workspace"
+	"github.com/QuincySx/Alva/sdk/agent/security"
 	"github.com/QuincySx/Alva/sdk/kernel/abi"
 	"github.com/QuincySx/Alva/sdk/llm/wire"
 )
@@ -38,7 +39,7 @@ func (t fileTool) Execute(ctx context.Context, execution abi.ToolExecutionContex
 	// validates its own guard/grant boundary when performing each operation.
 	absolute, err := t.guard.CheckPath(ctx, args.Path, access)
 	if err != nil {
-		return wire.ToolResult{}, err
+		return fileFailure(ctx, call, err)
 	}
 	switch t.kind {
 	case "list_directory":
@@ -47,7 +48,7 @@ func (t fileTool) Execute(ctx context.Context, execution abi.ToolExecutionContex
 			return toolProblem(call, "Directory is unavailable")
 		}
 		if err != nil {
-			return wire.ToolResult{}, err
+			return fileFailure(ctx, call, err)
 		}
 		return toolValue(call, map[string]any{"entries": listing.Entries, "truncated": listing.Truncated, "contents_opened": listing.ContentsOpened})
 	case "search_files":
@@ -56,13 +57,13 @@ func (t fileTool) Execute(ctx context.Context, execution abi.ToolExecutionContex
 		}
 		result, err := t.workspace.Search(ctx, absolute, args.Query, t.guard)
 		if err != nil {
-			return wire.ToolResult{}, err
+			return fileFailure(ctx, call, err)
 		}
 		return toolValue(call, map[string]any{"matches": result.Matches, "truncated": result.Truncated, "scanned_files": result.ScannedFiles, "scanned_bytes": result.ScannedBytes, "literal": result.Literal})
 	case "read_file":
 		data, err := t.workspace.ReadFile(ctx, absolute, t.guard)
 		if err != nil {
-			return wire.ToolResult{}, err
+			return fileFailure(ctx, call, err)
 		}
 		if !utf8.Valid(data) {
 			return toolProblem(call, "Binary file not delivered. Use explicit upload/media processing; this tool only stores UTF-8 text references.")
@@ -115,9 +116,34 @@ func (t fileTool) Execute(ctx context.Context, execution abi.ToolExecutionContex
 			return toolProblem(call, string(problem))
 		}
 		if err != nil {
-			return wire.ToolResult{}, err
+			return fileFailure(ctx, call, err)
 		}
 		return toolValue(call, map[string]any{"path": args.Path, "written_bytes": written, "backup": backup, "atomic_replace": true})
 	}
 	return wire.ToolResult{}, errors.New("unknown native file tool")
+}
+
+// fileFailure separates what the model can correct from what is a host fault.
+// A pure denial, a missing or unreadable path, or an unsupported target becomes
+// an error result and the run continues. Anything else (store failures, a
+// replacement that may have happened, cancellation) stays an execution error.
+func fileFailure(ctx context.Context, call wire.ToolCall, err error) (wire.ToolResult, error) {
+	if ctx.Err() != nil {
+		return wire.ToolResult{}, err
+	}
+	if converted := security.Recoverable(err); converted != err {
+		var denial *security.DeniedError
+		var failed *abi.ToolFailedError
+		switch {
+		case errors.As(converted, &denial):
+			return toolProblem(call, denial.Reason)
+		case errors.As(converted, &failed):
+			return toolProblem(call, failed.Reason)
+		}
+	}
+	switch {
+	case errors.Is(err, workspacefs.ErrSnapshotChanged):
+		return toolProblem(call, "The file changed since it was read; read it again and retry.")
+	}
+	return wire.ToolResult{}, err
 }

@@ -43,9 +43,9 @@ func TestAskHumanAnsweredInlineReachesTheModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.expect(s.ID, engine.Succeeded)
-	// The model gets the chosen option index (1-based) and a reference to
-	// the complete answer text.
-	if r := model.request(2).toolResults()["c-ask"]; !contains(r, `\"selected\":[2]`) || !contains(r, `\"answer\":{\"uri\"`) {
+	// The model gets the chosen option index (1-based), the answer text
+	// directly, and a reference to the complete answer.
+	if r := model.request(2).toolResults()["c-ask"]; !contains(r, `\"selected\":[2]`) || !contains(r, `\"answer_value\"`) || !contains(r, `\"answer\":{\"uri\"`) {
 		t.Fatalf("the answer did not reach the model: %s", r)
 	}
 	if err := h.service().RespondInteraction(context.Background(), s.ID, item, product.InteractionResponse{Answers: map[string]product.InteractionAnswer{q.ID: {QuestionID: q.ID, Options: []int{0}}}}); err == nil {

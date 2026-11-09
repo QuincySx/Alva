@@ -246,11 +246,30 @@ type EventSink interface {
 // violation or an actual inner execution failure. Accepted work always joins.
 type ToolFunc func(context.Context, ToolExecutionContext, wire.ToolCall) (wire.ToolResult, error)
 
-// ToolBlockedError is an intentional, model-recoverable BeforeTool veto. Other
-// middleware errors (including wrapper approval failures) abort the run.
-type ToolBlockedError struct{ Reason string }
+// ToolBlockedError is an intentional, model-recoverable policy veto (approval
+// declined, workspace boundary, schema mismatch). BeforeTool hooks and WrapTool
+// wrappers may return it; the run continues with an IsError tool result carrying
+// Reason. Cause is optional diagnostic identity reachable through errors.Is.
+// Mixed with cancellation, SessionError or any untyped error the whole tree is
+// an abort, never a veto.
+type ToolBlockedError struct {
+	Reason string
+	Cause  error
+}
 
 func (err *ToolBlockedError) Error() string { return err.Reason }
+func (err *ToolBlockedError) Unwrap() error { return err.Cause }
+
+// ToolFailedError is an ordinary tool failure the model can correct (missing
+// file, bad arguments, oversized content). Tools return it explicitly; every
+// untyped error stays an internal fault that aborts the run.
+type ToolFailedError struct {
+	Reason string
+	Cause  error
+}
+
+func (err *ToolFailedError) Error() string { return err.Reason }
+func (err *ToolFailedError) Unwrap() error { return err.Cause }
 
 // Optional hooks keep middleware focused; no required no-op implementations.
 type Middleware interface{ Name() string }

@@ -300,8 +300,13 @@ func TestDiagnosticsDenialOrActivityFailureStartsNoProcess(t *testing.T) {
 		failure := errors.New("activity store failed")
 		p := f.plugin(t, profile, func(context.Context, Activity) error { return failure })
 		err := build(t, f, p, model(`{"action":"run","profile_id":"approved"}`, nil)).Run(context.Background(), nil, discard)
-		if err == nil {
-			t.Fatal("denial/report failure ignored")
+		if deny {
+			// A declined approval is a model-visible tool result; the run goes on.
+			if err != nil {
+				t.Fatal(err)
+			}
+		} else if err == nil {
+			t.Fatal("report failure ignored")
 		}
 		if !deny && !errors.Is(err, failure) {
 			t.Fatal(err)
