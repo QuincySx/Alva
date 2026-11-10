@@ -1,6 +1,6 @@
 # workers
 
-> 来源：旧包 `alva.smallpen/requirements/workers.json`。本文件是这些需求的正本；页面位置按新包路径和元素 `data-name` 链给出。
+> 来源：旧 JSON 包的 `requirements/workers.json`（该包已于 2026-11-09 删除，见 git 提交 690c4525）。本文件是这些需求的正本；页面位置按新包路径和元素 `data-name` 链给出。
 
 ## req_alva_worker_typed_fifo — Worker typed 输入、FIFO 与明确恢复
 

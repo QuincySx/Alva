@@ -1,4 +1,4 @@
-# INPUT: The SmallPen CLI (`smallpen token list`, `smallpen view --components`) reading docs/design/alva/alva-next.smallpen, plus source/next/token_names.json (CSS variable <-> Kit token table).
+# INPUT: The SmallPen CLI (`smallpen token list`, `smallpen view --components`) reading docs/design/alva/alva.smallpen, plus source/token_names.json (CSS variable <-> Kit token table).
 # OUTPUT: apps/ui/kit/theme/tokens.json and apps/ui/kit/testdata/design-components.json, byte-for-byte the format the Kit has always committed.
 # POS: Offline bridge from the design package to the Go Alva Kit; Go builds never run it, tests compare its output with the committed JSON. Any name, type or catalog mismatch is an error, never a silent skip.
 import json
@@ -12,8 +12,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[3]
 KIT = REPO / "apps" / "ui" / "kit"
-PACKAGE = Path(os.environ.get("ALVA_DESIGN_PACKAGE") or HERE.parent / "alva-next.smallpen")
-NAMES = HERE / "next" / "token_names.json"
+PACKAGE = Path(os.environ.get("ALVA_DESIGN_PACKAGE") or HERE.parent / "alva.smallpen")
+NAMES = HERE / "token_names.json"
 
 
 class Mismatch(Exception):

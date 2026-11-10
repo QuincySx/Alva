@@ -6,7 +6,7 @@
 ## 逻辑
 左侧按类别列出 `kit.Pages()`；顶栏有暗色与窄视口开关；右侧是所选页的变体矩阵，每格标注轴值。`Flat` 只渲染矩阵，供整页截图。`TestGalleryCoversDesignCatalog` 要求设计目录里每个 Alva 组件要么有页（轴与变体数相同），要么在只减不增的 deferred 清单里写明归属期。
 ## 约束
-依赖 kit 与 MyGo；不接产品类型、存储、网络或模型。截图经 `ALVA_KIT_SHOTS=<目录>` 生成，不提交。设置 `ALVA_KIT_DESIGN_DIR=<目录>`（`source/next/export_design.py` 导出的 `<组件>.png`）时，每页左侧显示设计稿、右侧是实现；缺文件时给出导出提示，不提交 PNG。
+依赖 kit 与 MyGo；不接产品类型、存储、网络或模型。截图经 `ALVA_KIT_SHOTS=<目录>` 生成，不提交。设置 `ALVA_KIT_DESIGN_DIR=<目录>`（`source/export_design.py` 导出的 `<组件>.png`）时，每页左侧显示设计稿、右侧是实现；缺文件时给出导出提示，不提交 PNG。
 ## 业务域清单
 | 文件 | 职责 |
 |---|---|

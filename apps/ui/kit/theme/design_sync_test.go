@@ -1,4 +1,4 @@
-// INPUT: tokens.json, docs/design/alva/alva-next.smallpen/tokens.css, source/next/token_names.json and (when python3 exists) source/next/build_next.py --check.
+// INPUT: tokens.json, docs/design/alva/alva.smallpen/tokens.css, source/token_names.json and (when python3 exists) source/build_next.py --check.
 // OUTPUT: Proof, with no smallpen CLI, that every page has a canvas, every canvas exactly one prototype start, every link lands on a page of the same canvas, every requirement file has requirements and refers to existing pages, and that tokens.json equals the design package's tokens.css (light, dark, Narrow, number and shadow Tokens) and that the package equals its generator.
 // POS: [L7 Kit tests] CI guard for Token drift: editing only design_system.py, only tokens.css or only tokens.json fails here; the CLI-based exporter tests are skipped where smallpen is not installed.
 package theme
@@ -22,7 +22,7 @@ type nameRow struct{ Kit, CSS, Type string }
 
 func readNames(t *testing.T) (rows []nameRow, derived map[string]bool) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(designDir, "source/next/token_names.json"))
+	data, err := os.ReadFile(filepath.Join(designDir, "source/token_names.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func readNames(t *testing.T) (rows []nameRow, derived map[string]bool) {
 // cssBlocks returns the variables of every :root block of tokens.css, keyed by selector.
 func cssBlocks(t *testing.T) map[string]map[string]string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(designDir, "alva-next.smallpen/tokens.css"))
+	data, err := os.ReadFile(filepath.Join(designDir, "alva.smallpen/tokens.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,19 +170,19 @@ func TestDesignPackageMatchesItsGenerator(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not found; the generator is a Python script")
 	}
-	script, err := filepath.Abs(filepath.Join(designDir, "source/next/build_next.py"))
+	script, err := filepath.Abs(filepath.Join(designDir, "source/build_next.py"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command(python, "-I", script, "--check").CombinedOutput(); err != nil {
-		t.Fatalf("alva-next.smallpen is not what build_next.py generates from design_system.py:\n%s", out)
+		t.Fatalf("alva.smallpen is not what build_next.py generates from design_system.py:\n%s", out)
 	}
 }
 
 // The pages are the package's own source after the legacy conversion, so designers add and change them in the App. This test
 // only guards structure (canvases, prototype starts, links, requirement files); counts are logged, never asserted.
 func TestDesignPagesAreStructurallySound(t *testing.T) {
-	pages := filepath.Join(designDir, "alva-next.smallpen/pages")
+	pages := filepath.Join(designDir, "alva.smallpen/pages")
 	canvasOf := map[string]string{} // "Module/Page" -> canvas
 	var files []string
 	err := filepath.WalkDir(pages, func(path string, d fs.DirEntry, err error) error {
@@ -258,7 +258,7 @@ func TestDesignPagesAreStructurallySound(t *testing.T) {
 		}
 		reqs += n
 		for _, ref := range pageRe.FindAllStringSubmatch(string(data), -1) {
-			if _, err := os.Stat(filepath.Join(designDir, "alva-next.smallpen", ref[1])); err != nil {
+			if _, err := os.Stat(filepath.Join(designDir, "alva.smallpen", ref[1])); err != nil {
 				t.Errorf("%s refers to %s, which does not exist", filepath.Base(md), ref[1])
 			}
 		}

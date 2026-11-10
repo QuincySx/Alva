@@ -2,7 +2,9 @@
 
 状态：**基础规范与组件复用、功能 SPEC、按需组合预览**，2026-10-26。保留已确认线稿和正式页面；页面维护与可点击原型按具体请求交付。这里定义目标界面及其规范入口，实际产品进度见根 MIGRATION。
 
-**2026-11-09 格式迁移**：72 张页面已在 `alva-next.smallpen` 的 `pages/` 重建（01 产品界面 23、00 工作台线稿 15、旧视觉草稿（暂不评审）34，另有 22 号的 960 窄窗版本 `22 对话与面板.tablet.html`，它是窄窗版本、不是平板设备）；原型 3 个起点和 601 条连线（586 页面跳转、15 返回）都迁过来，需求和标注在 `docs/design/alva/requirements/*.md`。SmallPen 已废弃旧 JSON 包格式，本文里 `page draw`、`project show`、`component-define` 等命令和对旧包 revision 的引用都属历史记录。现行设计包是 `alva-next.smallpen`（新 HTML 格式，Token 与 56 个组件已迁入，页面见后续迁移），工作方式见 [CLI-GUIDE](./CLI-GUIDE.md)。
+**旧 JSON 包已于 2026-11-09 删除**：`alva-foundation.smallpen`、第一版 `alva.smallpen`、`preview.html`、`review.json` 及其作者脚本都可在 git 历史中找到，删除前的最后一个提交是 `690c4525`；下文所有对它们的引用（revision、`review.json.*`、旧命令）都是历史记录。
+
+**2026-11-09 格式迁移**：72 张页面已在 `alva.smallpen` 的 `pages/` 重建（01 产品界面 23、00 工作台线稿 15、旧视觉草稿（暂不评审）34，另有 22 号的 960 窄窗版本 `22 对话与面板.tablet.html`，它是窄窗版本、不是平板设备）；原型 3 个起点和 601 条连线（586 页面跳转、15 返回）都迁过来，需求和标注在 `docs/design/alva/requirements/*.md`。SmallPen 已废弃旧 JSON 包格式，本文里 `page draw`、`project show`、`component-define` 等命令和对旧包 revision 的引用都属历史记录。现行设计包是 `alva.smallpen`（新 HTML 格式，Token 与 56 个组件已迁入，页面见后续迁移），工作方式见 [CLI-GUIDE](./CLI-GUIDE.md)。
 
 **对比度取舍（用户决定，2026-11-09）**：美观优先。只靠描边区分的控件（Checkbox／Radio／Switch 关闭态、头像、禁用态等）在亮色下与背景对比度低于 WCAG 1.4.11 的 3:1，`check --render` 的约 29 条 `low_ui_contrast` 提醒（新包全部页面计入后更多）视为已知、接受；不为满足它去改 `controlBorder`、`border` 等颜色 Token 或组件描边。参照的 lobe-mygo 未选中 Checkbox 描边约 1.16:1，比我们的约 2.6 更淡。
 
@@ -193,7 +195,7 @@ Product revision `0c285b1d5e710f87559a6b84c6bb8b312ba1cbe26a73981a6ed23e8e488411
 
 | 内容 | 当前正本与职责 |
 |---|---|
-| 颜色、文字角色、间距、圆角、共享尺寸及组件变体 | `alva-foundation.smallpen/` 的实际保存定义；从最新 revision 读取绑定与解析值。`source/` 是维护输入，不能全量覆盖后来的人工编辑 |
+| 颜色、文字角色、间距、圆角、共享尺寸及组件变体 | `alva.smallpen/` 的 `tokens.css` 与 `components/`；它们由 `source/design_system.py` 经 `source/build_next.py` 生成，改设计先改 Python 源 |
 | 通用视觉/组件交互约定 | 本文现行规则及 [COMPONENTS](./COMPONENTS.md) 的使用边界；精确值引用 Foundation，不另抄一份数值表 |
 | 功能 SPEC、触发点与节点关联 | Product 的 `requirements/home-composer.json`、`providers.json`、`navigation.json`、`preferences.json`；每条以稳定 `req_` ID 为准，annotation 关联真实节点，调用位置引用共享组件和通用规则 |
 | 职责、实现和验证 | [ARCHITECTURE](../../ARCHITECTURE.md#hub-页面与业务落地) 定义 owner；[HUB-FLOWS](../../HUB-FLOWS.md) 链接操作与验收入口；根 [MIGRATION](../../../MIGRATION.md) 记录实际结果。验收表和施工历史不替代功能 SPEC |
@@ -701,7 +703,7 @@ SmallPen Web 的 `/health` 正常，工作区 API 已返回同一最终 revision
 
 ## 从哪里看
 
-- `alva-foundation.smallpen/`：唯一 Token、主题与共享组件来源；在 SmallPen 查看自动生成的 Design System，不另画一套会失配的组件陈列页。
+- `alva.smallpen/`：唯一 Token、主题与共享组件来源；在 SmallPen 查看自动生成的 Design System，不另画一套会失配的组件陈列页。
 - `alva.smallpen/`：当前工作台线稿与旧视觉草稿分画布保留；每组的业务画板及原型连线在各自同一画布内。相对依赖旁边的 Foundation，移动时两个包一起移动，并保留 `fonts/OFL.txt` 及字体归属说明。
 - `exports/`：实际 SmallPen 渲染的 PNG、约束说明与线框证据。检查结果和精确 revision 见 `review.json`。
 - `source/`：CLI 意图与作者辅助脚本。SmallPen App 中的后续编辑是设计事实；重新生成前须用 `smallpen changes PACKAGE --since REVISION --json` 阅读差异，不能用旧脚本覆盖。

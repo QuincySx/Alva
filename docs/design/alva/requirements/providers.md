@@ -1,6 +1,6 @@
 # providers
 
-> 来源：旧包 `alva.smallpen/requirements/providers.json`。本文件是这些需求的正本；页面位置按新包路径和元素 `data-name` 链给出。
+> 来源：旧 JSON 包的 `requirements/providers.json`（该包已于 2026-11-09 删除，见 git 提交 690c4525）。本文件是这些需求的正本；页面位置按新包路径和元素 `data-name` 链给出。
 
 ## req_alva_provider_source — 来源选择与预设数据
 

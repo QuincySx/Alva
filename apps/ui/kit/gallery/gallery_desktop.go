@@ -1,4 +1,4 @@
-// INPUT: kit.Pages() (one page per component with the design's axes), the design tokens and, when ALVA_KIT_DESIGN_DIR is set, the design PNG sheets exported by docs/design/alva/source/next/export_design.py.
+// INPUT: kit.Pages() (one page per component with the design's axes), the design tokens and, when ALVA_KIT_DESIGN_DIR is set, the design PNG sheets exported by docs/design/alva/source/export_design.py.
 // OUTPUT: App: a native view with a component list, an appearance switch, a Narrow-viewport switch and the variant matrix of the selected page, beside the design sheet ("设计稿" next to "实现") when a design directory is set.
 // POS: [L7 Kit] Visual review entry for Alva Kit; cmd/alva-kit-gallery runs it in a window and its tests render every page light and dark (ALVA_KIT_SHOTS saves PNGs, never committed).
 //go:build desktop
@@ -57,7 +57,7 @@ func (a *App) designSheet(name string) sheet {
 	}
 	var s sheet
 	if data, err := os.ReadFile(filepath.Join(a.DesignDir, name+".png")); err != nil {
-		s.err = "没有 " + name + ".png：运行 docs/design/alva/source/next/export_design.py " + a.DesignDir
+		s.err = "没有 " + name + ".png：运行 docs/design/alva/source/export_design.py " + a.DesignDir
 	} else if img, err := ui.DecodeImage(data); err != nil {
 		s.err = name + ".png 无法解码：" + err.Error()
 	} else {

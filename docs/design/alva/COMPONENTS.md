@@ -4,7 +4,7 @@ Avoid unnecessary secondary labels and descriptions. Let the layout do the expla
 
 以当前 23 张正式页面及已明确的工作台、对话、资料、协作、自动化、设置和诊断需求为范围。共享 Foundation 继续复用，页面与业务流程留在 Product；这是设计资源的分工。Go 侧的组件库是 Alva Kit（`apps/ui/kit`，[ADR 0014](../../adr/0014-alva-kit-component-library.md)）：token 与组件目录以本设计为单一来源，经导出脚本进入 Kit，不对外独立发布。
 
-正式目录为 **56 个 Alva 组件、481 个原生变体**（2026-11-09 起在新格式包 `alva-next.smallpen` 中由 `source/next/build_next.py` 生成，命令写法见 [CLI-GUIDE](./CLI-GUIDE.md)；下文提到的 `page draw`、intent 等旧 CLI 用法仅为历史记录）。ProviderForm仅区分Preset/Custom结构，ProviderModels独立表达6种目录状态，不将供应商与状态相乘。输入区的Composer使用14个视觉样本；草稿、执行、录音、浮层在运行时独立，不照抄为互斥枚举。Icon保留68个原始符号，并用原生flipX表达唯一PanelLeft语义选择；已有Button的112个组合计入总数，数量不是完整度指标。历史组件另行保留。
+正式目录为 **56 个 Alva 组件、481 个原生变体**（2026-11-09 起在新格式包 `alva.smallpen` 中由 `source/build_next.py` 生成，命令写法见 [CLI-GUIDE](./CLI-GUIDE.md)；下文提到的 `page draw`、intent 等旧 CLI 用法仅为历史记录）。ProviderForm仅区分Preset/Custom结构，ProviderModels独立表达6种目录状态，不将供应商与状态相乘。输入区的Composer使用14个视觉样本；草稿、执行、录音、浮层在运行时独立，不照抄为互斥枚举。Icon保留68个原始符号，并用原生flipX表达唯一PanelLeft语义选择；已有Button的112个组合计入总数，数量不是完整度指标。历史组件另行保留。
 
 ## 原生顶部壳复用 · 2026-11-05
 
@@ -140,4 +140,4 @@ ProviderModels的Idle、Loading、Ready、Empty、Unavailable、Error分别表�
 - 有选择就保留选择；有键盘焦点就明确表达焦点。错误时仍需可聚焦；只读值可选择／复制，不能一概当作禁用。Loading 使用 Loader，重试使用 Refresh；旋转与减弱动效在运行层落实。
 - 按钮名称、输入标签、错误关联、焦点顺序、读屏语义、IME、缩放和触屏目标需在实际 Go／HTML 或对应平台验收。静态变体不执行这些行为。
 - 新增内容先复用现有颜色与标尺；需要新状态时只补适用变体，不把主题、内容长度、宽度、任意图标和尺寸相乘。
-- 本轮的保存修订、组件／页面检查、视觉样本、字体来源与保留身份记录在 `review.json.currentComponentCoverageReview`。与前轮全页审查分别记录，不以重新加载 Web 成功代替浏览器交互验收。
+- 本轮的保存修订、组件／页面检查、视觉样本、字体来源与保留身份记录在 旧 `review.json` 的 `currentComponentCoverageReview`（已随旧包删除，见 git 提交 690c4525）。与前轮全页审查分别记录，不以重新加载 Web 成功代替浏览器交互验收。

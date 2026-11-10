@@ -134,18 +134,18 @@ func TestTokensJSONMatchesDesignSource(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(got, want) {
-			t.Errorf("%s differs from alva-next.smallpen: run python3 -I docs/design/alva/source/export_tokens.py, go generate ./apps/ui/kit/theme and commit both", committed)
+			t.Errorf("%s differs from alva.smallpen: run python3 -I docs/design/alva/source/export_tokens.py, go generate ./apps/ui/kit/theme and commit both", committed)
 		}
 	}
 }
 
 // A Token whose name the table does not know must fail the export, never be skipped.
 func TestTokenExportRejectsUnknownTokenName(t *testing.T) {
-	source, err := filepath.Abs("../../../../docs/design/alva/alva-next.smallpen")
+	source, err := filepath.Abs("../../../../docs/design/alva/alva.smallpen")
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg := filepath.Join(t.TempDir(), "alva-next.smallpen")
+	pkg := filepath.Join(t.TempDir(), "alva.smallpen")
 	if err := os.CopyFS(pkg, os.DirFS(source)); err != nil {
 		t.Fatal(err)
 	}

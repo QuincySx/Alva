@@ -1,6 +1,6 @@
 # INPUT: design_system.token_definitions() and design_system.definitions() (the Python component model the Alva Kit follows) plus the font files in docs/design/alva/fonts.
-# OUTPUT: docs/design/alva/alva-next.smallpen/ in the SmallPen HTML format: tokens.css, components/<Name>.html, assets/fonts, index.html, and source/next/token_names.json (CSS variable <-> Kit token table).
-# POS: Authoring entry for the new-format design package; run it, then `smallpen check docs/design/alva/alva-next.smallpen --render`. It only writes inside alva-next.smallpen and token_names.json, never touches the legacy JSON packages.
+# OUTPUT: docs/design/alva/alva.smallpen/ in the SmallPen HTML format: tokens.css, components/<Name>.html, assets/fonts, index.html, and source/token_names.json (CSS variable <-> Kit token table).
+# POS: Authoring entry for the new-format design package; run it, then `smallpen check docs/design/alva/alva.smallpen --render`. It only writes inside alva.smallpen and token_names.json; it never touches pages/ or requirements/.
 import json
 import re
 import shutil
@@ -12,13 +12,13 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
-SOURCE = HERE.parent
+SOURCE = HERE
 sys.path.insert(0, str(SOURCE))
 
 import design_system as ds  # noqa: E402
 
-ALVA = SOURCE.parent
-PKG = ALVA / "alva-next.smallpen"
+ALVA = HERE.parent
+PKG = ALVA / "alva.smallpen"
 FONTS = ALVA / "fonts"
 NAMES = HERE / "token_names.json"
 
@@ -827,7 +827,7 @@ def generate():
         total += count
     files = OrderedDict(comps)
     files["tokens.css"] = tokens_css()  # after the components: type Tokens are registered while they are emitted
-    files["../source/next/token_names.json"] = names_json()
+    files["../source/token_names.json"] = names_json()
     return files, total
 
 
@@ -850,9 +850,9 @@ def check():
     if not (PKG / "index.html").exists():
         problems.append("missing index.html")
     if problems:
-        print("alva-next.smallpen is out of date with design_system.py / build_next.py; run python3 -I docs/design/alva/source/next/build_next.py\n  " + "\n  ".join(problems), file=sys.stderr)
+        print("alva.smallpen is out of date with design_system.py / build_next.py; run python3 -I docs/design/alva/source/build_next.py\n  " + "\n  ".join(problems), file=sys.stderr)
         sys.exit(1)
-    print("alva-next.smallpen matches the generator")
+    print("alva.smallpen matches the generator")
 
 
 def main():

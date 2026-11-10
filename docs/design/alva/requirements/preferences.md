@@ -1,6 +1,6 @@
 # preferences
 
-> 来源：旧包 `alva.smallpen/requirements/preferences.json`。本文件是这些需求的正本；页面位置按新包路径和元素 `data-name` 链给出。
+> 来源：旧 JSON 包的 `requirements/preferences.json`（该包已于 2026-11-09 删除，见 git 提交 690c4525）。本文件是这些需求的正本；页面位置按新包路径和元素 `data-name` 链给出。
 
 ## req_alva_preference_choices — 设置偏好选择行与共用选项菜单
 

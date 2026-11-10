@@ -6,7 +6,7 @@ ADR 0014 的实现，位于共享 UI 层；留在本 module，不对外独立发
 
 ## 逻辑
 即时模式：`Name(c, 数据, NameProps) ui.Element`。Props 零值就是设计默认；设计的配置轴是枚举（`ButtonKind` 等）；状态轴只有 Disabled／Busy／Invalid／ReadOnly 进 Props，Hover／Pressed／Focus 来自运行时（画廊与测试经 `internal/force` 强制）。受控值用指针；动作用受门控的 `OnClick`（Busy／Disabled 时不触发，MyGo 的 `Clicked()` 无法门控）；图标按钮的可访问名称是必填位置参数；`Field` 把标题与状态注入其内的 Input／TextArea／Select。一套密度（控件 32、图标按钮 28、正文 13），无尺寸档。减弱动效：`theme.Apply` 在应用偏好为真时 `DisableAnimations`，自绘 Loader 读 `theme.ReducedMotion(c)`（系统偏好或本帧 Instant）。Menu 在 `PopoverBase` 上自写 roving focus（按 rune 做首字母匹配；Esc、Tab 或选中后焦点回触发器，外部点击关闭不动焦点；状态挂在触发器元素上；竖向 FocusGroup、Home/End、首字母、Esc、关闭后焦点回触发器），因为 MyGo 0.7.4 没有 `MenuBase`。
-token 单一来源是设计包 `alva-next.smallpen`（由 `token_definitions()` 经 `source/next/build_next.py` 生成），经 SmallPen CLI 导出：`python3 -I docs/design/alva/source/export_tokens.py`（需要 `smallpen` 在 PATH 上） → `go generate ./apps/ui/kit/theme ./apps/ui/kit/icon` → `go test ./apps/ui/kit/...`，失败项就是要对齐的组件，JSON 与生成文件同一个 commit。
+token 单一来源是设计包 `alva.smallpen`（由 `token_definitions()` 经 `source/build_next.py` 生成），经 SmallPen CLI 导出：`python3 -I docs/design/alva/source/export_tokens.py`（需要 `smallpen` 在 PATH 上） → `go generate ./apps/ui/kit/theme ./apps/ui/kit/icon` → `go test ./apps/ui/kit/...`，失败项就是要对齐的组件，JSON 与生成文件同一个 commit。
 
 ## 约束
 只依赖标准库、MyGo 与自身（`boundaries_test` 与 `kit_test` 守护）；组件内不出现颜色与尺寸字面量（`TestKitHasNoLiterals`）、不出现工具名或引擎名（`TestKitHasNoProductVocabulary`）。不加 `ALVA_KIT_SHOTS` 之外的文件输出；不提交截图 PNG。新增设计组件必须进画廊，或进 `gallery` 测试里只减不增的 deferred 清单。桌面代码新增颜色字面量、原生按钮、自制浮层壳会被 `kit_adoption_test` 拒绝。

@@ -1,6 +1,6 @@
 # SmallPen CLI 使用指南（新格式）
 
-> 对象：`@smallpen/cli 0.2.0-alpha.2` 及之后，读写 `alva-next.smallpen`。旧 JSON 格式（`alva-foundation.smallpen`、`alva.smallpen`）已被 SmallPen 废弃：新 CLI 读不了，官方不提供迁移；旧包只作参照，待用户确认新包后删除。旧版 alpha.18~21 的命令（`page draw`、`project show`、`component-define`、`schema operation` 等）已全部不存在，历史写法见 git 记录里本文件的上一版。
+> 对象：`@smallpen/cli 0.2.0-alpha.2` 及之后，读写 `alva.smallpen`。更早的 JSON 格式包（`alva-foundation.smallpen` 和第一版 `alva.smallpen`）已被 SmallPen 废弃，并于 2026-11-09 从仓库删除，可在 git 提交 690c4525 找到；旧版 alpha.18~21 的命令（`page draw`、`project show` 等）已不存在。
 
 ## 先加载 Skill，再看帮助
 
@@ -15,7 +15,7 @@ Skill 管流程，本项目的风格、组件和业务取舍仍以 `DESIGN.md`�
 ## 包长什么样
 
 ```
-alva-next.smallpen/
+alva.smallpen/
   index.html       包名、包 ID、主题默认值（<html data-appearance="light" data-viewport="desktop">）
   tokens.css       Token、主题、@font-face
   components/*.html  每个文件一个 <sp-component>：共享元素 + <sp-variant when="Kind: A; State: B">
@@ -27,12 +27,12 @@ alva-next.smallpen/
 
 ## 作者入口：不要手改组件 HTML
 
-`alva-next.smallpen` 的 Token 与 56 个组件由 `source/next/build_next.py` 从 `design_system.py` 的 Python 定义生成（并叠加 `shell_deltas()` 里两处旧包独有的修改）。改设计 = 改 Python 源，再运行：
+`alva.smallpen` 的 Token 与 56 个组件由 `source/build_next.py` 从 `design_system.py` 的 Python 定义生成（并叠加 `shell_deltas()` 里的原生外壳结构）。改设计 = 改 Python 源，再运行：
 
 ```sh
-python3 -I docs/design/alva/source/next/build_next.py     # 重写 tokens.css、components/（删掉不再生成的组件文件）、token_names.json
-python3 -I docs/design/alva/source/next/build_next.py --check   # 只比对：包与生成器不一致就失败（Go 测试在 CI 上也跑它）
-smallpen check docs/design/alva/alva-next.smallpen --render
+python3 -I docs/design/alva/source/build_next.py     # 重写 tokens.css、components/（删掉不再生成的组件文件）、token_names.json
+python3 -I docs/design/alva/source/build_next.py --check   # 只比对：包与生成器不一致就失败（Go 测试在 CI 上也跑它）
+smallpen check docs/design/alva/alva.smallpen --render
 ```
 
 页面不由生成器产生，直接编辑 `pages/` 下的 HTML，改完 `smallpen check PKG --render --page "工作台/21 新任务" --all-themes`（明暗 × 宽窄）。
@@ -45,7 +45,7 @@ smallpen check PKG --render             # 另查文字放得下、越界、重�
 smallpen check PKG --revert [--file F]  # 把被拒绝的文件退回已接受版本
 ```
 
-`check` 会写入“已接受版本”状态，只对要接受的新包运行，不要在旧包或别人正在 App 里打开的包上乱跑。`--all-themes` 耗时很长（超过 2 分钟），需要时放在能等待完成的地方。警告与渲染问题分开阅读：`check --render` 的发现不会让检查失败，但要逐条判断（本包当前的 29 条都是“只靠描边的控件对比度不足 3:1”，来自设计 Token，不是排版错误）。
+`check` 会写入“已接受版本”状态，只对要接受的新包运行，不要在别人正在 App 里打开的包上乱跑。`--all-themes` 耗时很长（超过 2 分钟），需要时放在能等待完成的地方。警告与渲染问题分开阅读：`check --render` 的发现不会让检查失败，但要逐条判断（本包当前的 29 条都是“只靠描边的控件对比度不足 3:1”，来自设计 Token，不是排版错误）。
 
 ## 看设计：spec、wireframe、PNG
 
@@ -67,8 +67,7 @@ smallpen export PKG --component Button --format png --evidence --output DIR/Butt
 - **原型**：起点是 `<body data-flow="名称">`（每个 canvas 一个），跳转是元素上的 `data-click="模块/页面"`，返回是 `data-click="back"`。连线只在同一个 canvas 内有效，`TestDesignPagesKeepTheirInventoryLinksAndRequirements` 守着：601 条连线都落在存在的同 canvas 页面上。组件实例内部的部件要链接时，写在 `<sp-use>` 里对应的覆盖元素上。
 - **窄窗**：`--theme viewport/narrow` 只换 Token 值（宽 1024）；整页布局不同的才另写文件。22 号的 960 窄窗是 `22 对话与面板.tablet.html`，body 写死 960。
 - **需求与标注**：新格式没有这两个对象。7 份需求在 `docs/design/alva/requirements/*.md`（正本），每条列出绑定的页面文件和 `data-name` 链；绑定过的页面顶部有一行 `<!-- 需求与标注见 … -->`，App 保存时可能丢掉这行，不影响正本。
-- **与旧稿对照**：`source/next/compare_legacy.py OLD_CLI 旧包副本 输出目录 [--png]` 逐页比较旧包与新包的可见文字（spec）和图层清单（wireframe），可附带亮色桌面 PNG；转换完成时 72 页图层清单完全一致，可见文字只差空格折叠和旧草稿里 8 个文字图标字符（已换成 Alva Icon）。
-- **一次性转换**：`source/next/pages_from_legacy.py` 从旧包生成了这些页面（重跑需 `--force`，会覆盖之后的所有手改），旧包删除时连同旧 `source/*.py` 一起移除。
+- **来历**：这些页面由旧 JSON 包一次性转换而来（转换脚本已随旧包删除），现在页面就是包里的正本，直接编辑。
 
 ## 给应用代码导出 Token
 
@@ -77,12 +76,12 @@ smallpen token list PKG --limit 100 --stdout          # 类型、值、每个主
 smallpen token export PKG --format json --by appearance --output DIR   # 每个选项一份完整文件
 ```
 
-Alva Kit 的管线是 `source/export_tokens.py`：调用 `token list`，用 `source/next/token_names.json` 把 CSS 名映射回 Kit 名（`color-on-accent` → `color.onAccent`），写出 `apps/ui/kit/theme/tokens.json` 和 `apps/ui/kit/testdata/design-components.json`。包里出现表外的 Token、类型不符或缺 Token 都直接失败，不静默跳过。派生 Token（`type-*` 字体组合、`opacity-*`）不进 Kit。
+Alva Kit 的管线是 `source/export_tokens.py`：调用 `token list`，用 `source/token_names.json` 把 CSS 名映射回 Kit 名（`color-on-accent` → `color.onAccent`），写出 `apps/ui/kit/theme/tokens.json` 和 `apps/ui/kit/testdata/design-components.json`。包里出现表外的 Token、类型不符或缺 Token 都直接失败，不静默跳过。派生 Token（`type-*` 字体组合、`opacity-*`）不进 Kit。
 
 ## 设计稿对照
 
 ```sh
-python3 -I docs/design/alva/source/next/export_design.py DIR [组件名 ...]   # DIR/<组件>.png，全部或指定
+python3 -I docs/design/alva/source/export_design.py DIR [组件名 ...]   # DIR/<组件>.png，全部或指定
 ALVA_KIT_DESIGN_DIR=DIR go run -tags desktop ./cmd/alva-kit-gallery        # 每页“设计稿 | 实现”两列
 ```
 

@@ -1,6 +1,6 @@
 # INPUT: Shared Alva controls, the editor references and explicit execution/permission boundaries
 # OUTPUT: Bounded Composer, voice, run-status and contextual-menu component definitions
-# POS: SmallPen authoring only; state samples describe the runtime contract, not live task execution.
+# POS: Design model only; state samples describe the runtime contract, not live task execution.
 from design_system import box, row, text, icon, button, icon_button, instance, component, ref, block, popover
 from copy import deepcopy
 
@@ -10,74 +10,6 @@ PERMISSION_HELP = {
     'Auto': '工作区内写文件与安全命令自动执行；越界写、危险命令和 MCP 工具仍会询问。',
     'Full': '允许当前任务在所授范围内执行；沙箱与组织限制仍有效。',
 }
-
-
-def align_geometry(variant, sets, token_map, package):
-    """Local Composer geometry; keep generic controls and every state selection."""
-    def binding(role):
-        return {'packageId': package, 'assetId': token_map['ui.' + role]['id']}
-
-    def selected(node):
-        component = sets[node['instance']['component']['assetId']]
-        return next(v for v in component['variants'] if v['selection'] == node['instance']['variant'])
-
-    for node in variant['nodes'].values():
-        if node['name'] == 'Editor':
-            node['layout-padding'] = {side: 8 for side in ('p1', 'p2', 'p3', 'p4')}
-            for side in ('Top', 'Right', 'Bottom', 'Left'):
-                node['tokenBindings']['padding' + side] = binding('space.2')
-            # The writing surface stays in the page plane; child state variants
-            # own disabled appearance because setup triggers can remain active.
-            node.pop('shadow', None)
-            node.get('tokenBindings', {}).pop('shadow', None)
-        if node['name'] not in ('Attach', 'Permission', 'Model', 'Voice', 'Send'):
-            continue
-        node['height'] = 32
-        node['tokenBindings']['height'] = binding('control.icon')
-        source = selected(node)
-        overrides = node['instance'].setdefault('overrides', {})
-        root = source['nodes'][source['rootId']]
-        root_bindings = deepcopy(root.get('tokenBindings', {}))
-        root_bindings['height'] = binding('control.icon')
-        overrides[root['id'] + ':height'] = 32
-        if node['name'] == 'Send':
-            node['width'] = 32
-            node['tokenBindings']['width'] = binding('control.icon')
-            root_bindings['width'] = binding('control.icon')
-            root_bindings['cornerRadius'] = binding('radius.card')
-            overrides[root['id'] + ':width'] = 32
-            overrides[root['id'] + ':cornerRadius'] = 16
-        elif node['name'] == 'Voice':
-            transcription = next(n for n in source['nodes'].values() if n['name'] == 'Transcription')
-            overrides[transcription['id'] + ':height'] = 32
-            overrides[transcription['id'] + ':tokenBindings'] = deepcopy(transcription['tokenBindings']) | {'height': binding('control.icon')}
-            button_variant = selected(transcription)
-            button_root = button_variant['nodes'][button_variant['rootId']]
-            key = transcription['id'] + '__' + button_root['id']
-            # Nested component roots are replaced by the instance in Product
-            # expansion; constrain the Transcription instance itself instead.
-            overrides.pop(key + ':height', None)
-            overrides.pop(key + ':tokenBindings', None)
-        icon_sizes = ({'Icon': 18, 'Spinner': 18} if node['name'] in ('Attach', 'Send') else
-                      {'Trailing': 14} if node['name'] in ('Permission', 'Model') else {})
-        for child in source['nodes'].values():
-            if child['name'] not in icon_sizes:
-                continue
-            size = icon_sizes[child['name']]
-            overrides[child['id'] + ':width'] = size
-            overrides[child['id'] + ':height'] = size
-            overrides[child['id'] + ':tokenBindings'] = {}
-            glyph_variant = selected(child)
-            glyph = next(n for n in glyph_variant['nodes'].values() if n['name'] == 'Glyph')
-            key = child['id'] + '__' + glyph['id']
-            child_overrides = child['instance'].get('overrides', {})
-            style = deepcopy(child_overrides.get(glyph['id'] + ':textStyle', glyph['textStyle']))
-            style['fontSize'] = size
-            glyph_bindings = deepcopy(child_overrides.get(glyph['id'] + ':tokenBindings', glyph.get('tokenBindings', {})))
-            glyph_bindings.pop('fontSize', None)
-            overrides[key + ':textStyle'] = style
-            overrides[key + ':tokenBindings'] = glyph_bindings
-        overrides[root['id'] + ':tokenBindings'] = root_bindings
 
 
 def definitions():
